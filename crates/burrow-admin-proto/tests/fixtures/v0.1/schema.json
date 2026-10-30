@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:6dad1fca0086b9f4",
+  "hash": "b2s:5292cd3458e8ef2e",
   "root": {
     "label": "Server",
     "sem": {
@@ -292,11 +292,18 @@
                     {
                       "key": "forward_auth",
                       "node": {
-                        "label": "Login service",
-                        "help": "The single sign-on service websites can share to check their visitors, for example Authelia",
+                        "label": "Login services",
+                        "help": "Single sign-on services like Authelia or authentik, each with a name that websites pick to check their visitors",
                         "sem": {
-                          "t": "optional",
-                          "inner": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "name",
+                              "entity": "login",
+                              "max_len": 64
+                            }
+                          },
+                          "value": {
                             "label": "Login service",
                             "sem": {
                               "t": "object",
@@ -345,7 +352,7 @@
                           }
                         },
                         "advanced": true,
-                        "none_label": "None"
+                        "empty_label": "None"
                       }
                     },
                     {
@@ -2660,50 +2667,9 @@
                                                     }
                                                   },
                                                   {
-                                                    "label": "Login service",
                                                     "sem": {
-                                                      "t": "object",
-                                                      "fields": [
-                                                        {
-                                                          "key": "service",
-                                                          "node": {
-                                                            "label": "Service",
-                                                            "help": "The service of the login portal that checks each visitor, for example authelia",
-                                                            "sem": {
-                                                              "t": "ref",
-                                                              "entity": "service"
-                                                            },
-                                                            "required": true
-                                                          }
-                                                        },
-                                                        {
-                                                          "key": "path",
-                                                          "node": {
-                                                            "label": "Path",
-                                                            "help": "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/nginx for authentik",
-                                                            "sem": {
-                                                              "t": "url_path"
-                                                            },
-                                                            "required": true
-                                                          }
-                                                        },
-                                                        {
-                                                          "key": "copy_headers",
-                                                          "node": {
-                                                            "label": "Headers to the app",
-                                                            "help": "Headers from the login service's answer that the app receives, for example Remote-User; a visitor's own copies are always removed",
-                                                            "sem": {
-                                                              "t": "list",
-                                                              "item": {
-                                                                "sem": {
-                                                                  "t": "text"
-                                                                }
-                                                              }
-                                                            },
-                                                            "empty_label": "None"
-                                                          }
-                                                        }
-                                                      ]
+                                                      "t": "ref",
+                                                      "entity": "login"
                                                     }
                                                   }
                                                 ]
@@ -3530,6 +3496,16 @@
         "protocol",
         "public"
       ]
+    },
+    {
+      "entity": "login",
+      "path": [
+        "web",
+        "forward_auth"
+      ],
+      "label": "Login service",
+      "plural": "Login services",
+      "facets": []
     }
   ]
 }

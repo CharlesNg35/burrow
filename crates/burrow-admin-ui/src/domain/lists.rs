@@ -277,6 +277,9 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     if let Some(sh) = burrow_admin_logic::shorthand::of(&u) {
         return super::keyed::shorthand_editor(fc, sh);
     }
+    if let Some(branch) = named_or_on(&u) {
+        return named_editor(fc, branch);
+    }
     let e = store().edit;
     let bool_branch = u
         .branches
@@ -331,4 +334,41 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
         on_change,
     };
     super::choice_box(&fc, None, choice, below)
+}
+
+fn named_or_on(u: &UnionC) -> Option<Node> {
+    let on = u
+        .branches
+        .iter()
+        .any(|b| matches!(inner(b).sem, SemType::Bool));
+    let named = u
+        .branches
+        .iter()
+        .find(|b| matches!(inner(b).sem, SemType::Ref(_)))?;
+    on.then(|| named.clone())
+}
+
+fn named_editor(fc: FieldCtx, branch: Node) -> AnyView {
+    let SemType::Ref(r) = inner(&branch).sem.clone() else {
+        return text_editor(fc, None);
+    };
+    let node = Node {
+        label: fc.node.label.clone(),
+        help: fc.node.help.clone(),
+        required: fc.node.required,
+        ..branch
+    };
+    let entity = r.entity.clone();
+    let hint = move || {
+        (entity == Entity::Login && names_of(&entity).is_empty()).then(|| {
+            view! { <p class="mt-1 text-sm text-text-muted" data-testid="no-login-services">"Add a login service under Settings → Web first"</p> }
+        })
+    };
+    view! {
+        <div>
+            {crate::addr::picker(FieldCtx { node, ..fc }, r.entity, false)}
+            {hint}
+        </div>
+    }
+    .into_any()
 }

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use burrow_admin_proto::schema::{EntityInfo, Node};
+use burrow_admin_proto::schema::{Entity, EntityInfo, Node};
 
 use crate::field::Entry;
 use crate::model::{ClientEntry, ServiceEntry, VisitorEntry};
@@ -193,5 +193,12 @@ pub fn entities() -> Vec<EntityInfo> {
         info::<ClientEntry>("Client", &["online", "from", "secret_fp"]),
         info::<VisitorEntry>("Visitor", &["open"]),
         info::<ServiceEntry>("Service", &[ServiceEntry::PROTOCOL.key(), "public"]),
+        EntityInfo {
+            entity: Entity::Login,
+            path: crate::field::logins_path(),
+            label: "Login service".to_string(),
+            plural: Entity::Login.plural().to_string(),
+            facets: Vec::new(),
+        },
     ]
 }

@@ -27,6 +27,10 @@ pub const NO_HTTP: &str = "no-http";
 pub const CLOSES_PORT: &str = "closes-port";
 pub const STOPS_WEBSITE: &str = "stops-website";
 pub const REMOVES_VISITORS: &str = "removes-visitors";
+pub const FORWARD_AUTH: &str = "forward-auth";
+pub const FORWARD_AUTH_H2: &str = "forward-auth-h2";
+pub const UNKNOWN_LOGIN: &str = "unknown-login";
+pub const FORWARD_AUTH_UNUSED: &str = "forward-auth-unused";
 
 pub const READ_BY_THE_UI: [&str; 17] = [
     PLAIN_NEEDS_HTTP,

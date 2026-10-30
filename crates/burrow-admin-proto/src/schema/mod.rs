@@ -281,6 +281,7 @@ pub enum Entity {
     Client,
     Visitor,
     Service,
+    Login,
     Unknown(String),
 }
 
@@ -290,6 +291,7 @@ impl Entity {
             Entity::Client => "client",
             Entity::Visitor => "visitor",
             Entity::Service => "service",
+            Entity::Login => "login",
             Entity::Unknown(s) => s,
         }
     }
@@ -298,6 +300,7 @@ impl Entity {
         match self {
             Entity::Client => "Clients",
             Entity::Visitor => "Visitors",
+            Entity::Login => "Login services",
             Entity::Service | Entity::Unknown(_) => "Services",
         }
     }
@@ -307,6 +310,7 @@ impl Entity {
             "client" => Entity::Client,
             "visitor" => Entity::Visitor,
             "service" => Entity::Service,
+            "login" => Entity::Login,
             other => Entity::Unknown(other.to_string()),
         }
     }
@@ -316,6 +320,7 @@ impl Entity {
             Entity::Client => "clients",
             Entity::Visitor => "visitors",
             Entity::Service => "services",
+            Entity::Login => "web",
             Entity::Unknown(s) => s,
         }
     }

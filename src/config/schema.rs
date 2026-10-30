@@ -423,8 +423,14 @@ impl<'a> Checker<'a> {
             .collect::<Vec<_>>()
             .join(" or ");
         let help = match (ctx.field(), &node.value) {
+            _ if matches!(ctx.parts()[..], ["web", "forward_auth", _]) => {
+                "each login service has its own name, like web.forward_auth: {authelia: {service, path}}".into()
+            }
             ("reach", Value::Seq(_)) => {
                 "write it as a mapping of client names, for example: reach: { home: any }".into()
+            }
+            ("forward_auth", Value::Map(_)) => {
+                "name a login service from web.forward_auth, like forward_auth: authelia".into()
             }
             _ => type_help(types, node, bounds),
         };

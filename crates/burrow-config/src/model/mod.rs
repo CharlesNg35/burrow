@@ -10,7 +10,9 @@ mod site_keys;
 mod visitor;
 mod web;
 
-pub use access_keys::{ClientAuthFiles, ForwardAuthConfig, ForwardAuthSetting};
+pub use access_keys::{
+    ClientAuthFiles, ForwardAuthConfig, ForwardAuthSetting, LoginPick, RESERVED_LOGIN_NAMES,
+};
 pub use certs::{CertFile, Directory, DirectoryName, LetsEncrypt};
 pub use client::{
     CLIENT_MAX_CONNECTIONS, CLIENT_MAX_UDP_PEERS, Cipher, ClientConfig, OnRejected, Reconnect,

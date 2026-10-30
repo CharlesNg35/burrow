@@ -8,8 +8,8 @@ use crate::config::settings::{
 };
 use crate::policy::allowlist::Cidr;
 use burrow_config::{
-    AccessLogFormat, ForwardAuthSetting, RedirectTarget, ServiceWeb, Target,
-    TargetTls as TargetTlsKey, WebConfig,
+    AccessLogFormat, LoginPick, RedirectTarget, ServiceWeb, Target, TargetTls as TargetTlsKey,
+    WebConfig,
 };
 use burrow_syntax::web::{SingleLabel, host_name};
 
@@ -57,10 +57,9 @@ pub(super) fn options(
         .map(|(u, h)| (u.trim().to_string(), h.trim().to_string()))
         .collect();
     o.basic_auth.sort();
-    o.forward_auth = match &s.forward_auth {
-        None | Some(ForwardAuthSetting::Shared(false)) => None,
-        Some(ForwardAuthSetting::Shared(true)) => top.forward_auth.as_ref().map(forward),
-        Some(ForwardAuthSetting::Own(f)) => Some(forward(f)),
+    o.forward_auth = match s.forward_auth.as_ref().map(|f| f.pick(&top.forward_auth)) {
+        Some(LoginPick::Found(_, f)) => Some(forward(f, top)),
+        _ => None,
     };
     o.rate_limit = s.rate_limit.or(top.rate_limit).filter(|r| *r > 0);
     o.client_auth = s.client_auth.as_ref().map(|c| WebClientAuth {
@@ -127,15 +126,21 @@ fn name_redirect(name: &str, t: &RedirectTarget) -> Option<NameRedirect> {
     })
 }
 
-fn forward(f: &burrow_config::ForwardAuthConfig) -> ForwardAuth {
+fn forward(f: &burrow_config::ForwardAuthConfig, top: &WebConfig) -> ForwardAuth {
+    let names = |f: &burrow_config::ForwardAuthConfig| {
+        f.copy_headers
+            .iter()
+            .map(|h| h.trim().to_string())
+            .collect::<Vec<_>>()
+    };
+    let mut strip: Vec<String> = top.forward_auth.values().flat_map(names).collect();
+    strip.sort_by_key(|h| h.to_ascii_lowercase());
+    strip.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     ForwardAuth {
         service: f.service.trim().to_string(),
         path: path(&f.path),
-        copy_headers: f
-            .copy_headers
-            .iter()
-            .map(|h| h.trim().to_string())
-            .collect(),
+        copy_headers: names(f),
+        strip_headers: strip,
     }
 }
 

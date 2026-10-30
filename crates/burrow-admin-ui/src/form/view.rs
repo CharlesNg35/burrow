@@ -1,7 +1,7 @@
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::input::time_unit;
 use burrow_admin_logic::tree::{fields, inner};
-use burrow_admin_proto::schema::{ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC};
+use burrow_admin_proto::schema::{Entity, ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
 use burrow_syntax::duration::human;
@@ -148,7 +148,7 @@ pub(super) fn mono(v: &Value) -> AnyView {
     view! { <span class="font-mono text-sm">{plain(v)}</span> }.into_any()
 }
 
-fn ref_link(section: &str, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
+fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
     if reserved.iter().any(|r| r == name) {
         let to = Route::Settings;
         let local = name.to_string();
@@ -159,10 +159,15 @@ fn ref_link(section: &str, name: &str, reserved: &[String], ctx: &Ctx) -> AnyVie
         }
         .into_any();
     }
-    let exists = ctx.doc.get(section).and_then(|m| m.get(name)).is_some();
+    let mut at = burrow_config::entity_path(entity);
+    at.push(name.to_string());
+    let exists = burrow_admin_proto::value::get(&ctx.doc, &at).is_some();
     let name = name.to_string();
     if exists {
-        let to = Route::Detail(section.to_string(), name.clone());
+        let to = match entity {
+            Entity::Login => Route::Settings,
+            e => Route::Detail(e.section().to_string(), name.clone()),
+        };
         view! { <Link to=to class=chip_class(Tone::Accent, true)>{name}</Link> }.into_any()
     } else {
         view! { <Chip text=name mono=true tone=Tone::Danger/> }.into_any()
@@ -219,7 +224,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         SemType::Rate => {
             view! { <span class="font-mono text-sm">{sem_text(sem, v)}</span> }.into_any()
         }
-        SemType::Ref(c) => ref_link(c.entity.section(), &plain(v), &c.reserved, ctx),
+        SemType::Ref(c) => ref_link(&c.entity, &plain(v), &c.reserved, ctx),
         SemType::RefList(c) => ref_list_view(c, v, ctx),
         SemType::RefMap(c) => ref_map_view(c, v, ctx),
         SemType::SecretRef(c) if c.reference && v.is_string() => {
@@ -237,21 +242,19 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
 }
 
 fn ref_list_view(c: &RefListC, v: &Value, ctx: &Ctx) -> AnyView {
-    let section = c.entity.section().to_string();
     let items = names(v);
     if items.is_empty() {
         return view! { <span class="text-text-muted">"None"</span> }.into_any();
     }
     view! {
         <span class="flex flex-wrap gap-1">
-            {items.iter().map(|n| ref_link(&section, n, &c.reserved, ctx)).collect_view()}
+            {items.iter().map(|n| ref_link(&c.entity, n, &c.reserved, ctx)).collect_view()}
         </span>
     }
     .into_any()
 }
 
 fn ref_map_view(c: &RefMapC, v: &Value, ctx: &Ctx) -> AnyView {
-    let section = c.entity.section().to_string();
     let Some(m) = v.as_object() else {
         return mono(v);
     };
@@ -260,7 +263,7 @@ fn ref_map_view(c: &RefMapC, v: &Value, ctx: &Ctx) -> AnyView {
         .map(|(k, x)| {
             view! {
                 <tr>
-                    <th scope="row">{ref_link(&section, k, &c.reserved, ctx)}</th>
+                    <th scope="row">{ref_link(&c.entity, k, &c.reserved, ctx)}</th>
                     <td>{value_view(&c.value, Some(x), None, ctx)}</td>
                 </tr>
             }

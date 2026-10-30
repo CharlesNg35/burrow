@@ -140,6 +140,15 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                 ),
                 part_of: None,
             });
+        } else if let Some((name, parent)) = r.path.split_last()
+            && parent == burrow_config::logins_path().as_slice()
+        {
+            out.push(Change {
+                kind: ChangeKind::Rename,
+                path: r.path.clone(),
+                summary: format!("Login service {name} renamed to {}", r.to),
+                part_of: None,
+            });
         }
     }
     let keys: Vec<&String> = o
@@ -286,6 +295,22 @@ mod tests {
         assert!(text.contains(&"self.allow set to 10.0.0.0/8"), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("settings")), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("SECRET-")), "{text:?}");
+    }
+
+    #[test]
+    fn a_renamed_login_service_reads_as_a_rename() {
+        let old = json!({"web": {"forward_auth": {"sso": {"service": "a", "path": "/a"}}}});
+        let new = json!({"web": {"forward_auth": {"authelia": {"service": "a", "path": "/a"}}}});
+        let r = Rename {
+            path: burrow_config::logins_path()
+                .into_iter()
+                .chain(["sso".to_string()])
+                .collect(),
+            to: "authelia".into(),
+        };
+        let c = changes(&old, &new, &[r]);
+        assert_eq!(c[0].kind, ChangeKind::Rename);
+        assert_eq!(c[0].summary, "Login service sso renamed to authelia");
     }
 
     #[test]

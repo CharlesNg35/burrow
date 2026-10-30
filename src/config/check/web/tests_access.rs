@@ -8,55 +8,6 @@ fn svc(name: &str, web: &str) -> String {
 }
 
 #[test]
-fn a_site_has_one_kind_of_login_and_a_login_service_is_never_its_own() {
-    let both = svc(
-        "wiki",
-        &format!(
-            "{{ hosts: [wiki.example.com], basic_auth: {{ alice: \"{HASH}\" }}, forward_auth: true }}"
-        ),
-    );
-    let top = "  forward_auth: { service: authelia, path: /api/authz/forward-auth }\n";
-    let login = svc("authelia", "auth.example.com");
-    let found = errs(top, &(both + &login));
-    assert_eq!(
-        found,
-        [
-            "services.wiki.web: basic_auth and forward_auth are both set; use one of them (the login service checks its own users)"
-        ]
-    );
-    assert_eq!(
-        errs(
-            "",
-            &svc("wiki", "{ hosts: [wiki.example.com], forward_auth: true }")
-        ),
-        [
-            "services.wiki.web.forward_auth: true uses web.forward_auth, which is not set; add web.forward_auth: {service, path}, or give this site its own"
-        ]
-    );
-    assert_eq!(
-        errs(
-            top,
-            &svc(
-                "authelia",
-                "{ hosts: [auth.example.com], forward_auth: true }"
-            )
-        ),
-        [
-            "services.authelia.web.forward_auth: a service cannot check its own visitors; the login site must stay open"
-        ]
-    );
-    let unknown = errs(
-        "  forward_auth: { service: nobody, path: /auth }\n",
-        &svc("wiki", "wiki.example.com"),
-    );
-    assert_eq!(unknown.len(), 1, "{unknown:#?}");
-    assert!(
-        unknown[0].starts_with("unknown service \"nobody\" referenced by web.forward_auth"),
-        "{unknown:#?}"
-    );
-}
-
-#[test]
 fn password_hashes_are_argon2id_or_bcrypt_within_the_cost_caps() {
     let one = |user: &str, hash: &str| {
         errs(
@@ -199,22 +150,6 @@ fn a_device_ca_must_be_a_ca_certificate() {
             .contains(&"services.grafana.web.client_auth.ca: is not a CA certificate".to_string()),
         "{:#?}",
         errors(&o)
-    );
-}
-
-#[test]
-fn a_login_service_that_speaks_only_http2_to_its_app_gets_a_note() {
-    let top = "  forward_auth: { service: authelia, path: /api/authz/forward-auth }\n";
-    let s = svc("wiki", "{ hosts: [wiki.example.com], forward_auth: true }")
-        + &svc(
-            "authelia",
-            "{ hosts: [auth.example.com], target_http2: true, target_tls: true }",
-        );
-    let (_d, o) = run(top, &s);
-    assert!(
-        warnings(&o).contains(&"services.wiki.web.forward_auth: the login service \"authelia\" speaks HTTP/2 only to its app (target_http2 with target_tls), but the login check asks over HTTP/1.1, so every check would fail with 502".to_string()),
-        "{:#?}",
-        warnings(&o)
     );
 }
 

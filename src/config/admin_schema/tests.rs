@@ -257,10 +257,10 @@ fn refs_agree_with_check_refs() {
     }
     let login = base("    client: home\n    bind: 7840\n    target: 3000\n").replace(
         "\nservices:\n",
-        "\nweb:\n  https: 8443\n  forward_auth: { service: nobody, path: /auth }\nservices:\n",
+        "\nweb:\n  https: 8443\n  forward_auth: { sso: { service: nobody, path: /auth } }\nservices:\n",
     );
     assert!(
-        reported_on(&login, &["web", "forward_auth", "service"]),
+        reported_on(&login, &["web", "forward_auth", "sso", "service"]),
         "{:?}",
         diag_paths(&login)
     );
@@ -291,7 +291,7 @@ fn refs_agree_with_check_refs() {
     assert_eq!(
         refs,
         [
-            "web.forward_auth.service",
+            "web.forward_auth.*.service",
             "visitors.*.reach",
             "services.*.client",
             "services.*.clients",

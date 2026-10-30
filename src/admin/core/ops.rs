@@ -213,8 +213,8 @@ fn rename_entry(
         path: path.to_vec(),
         to: to.to_string(),
     });
-    if refs && parents.len() == 1 {
-        for key in burrow_config::refs::rename_refs(target, &parents[0], last, to) {
+    if refs {
+        for key in burrow_config::refs::rename_refs(target, path, to) {
             renames.push(Rename {
                 path: key,
                 to: to.to_string(),
@@ -321,6 +321,33 @@ mod tests {
 
     fn p(s: &[&str]) -> Path {
         s.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn renaming_a_login_service_renames_it_on_its_sites() {
+        let cx = Cx(crate::wire::secret::Secret::generate());
+        let raw = json!({"web": {"forward_auth": {"sso": {"service": "auth", "path": "/a"}}}, "services": {"wiki": {"client": "home", "target": 1, "web": {"hosts": ["w.example.com"], "forward_auth": "sso"}}}});
+        let at = p(&["web", "forward_auth", "sso"]);
+        let out = apply(
+            &raw,
+            &[Op::Rename {
+                path: at.clone(),
+                to: "authelia".into(),
+                refs: true,
+            }],
+            &cx,
+        )
+        .unwrap();
+        assert_eq!(
+            out.target["services"]["wiki"]["web"]["forward_auth"],
+            "authelia"
+        );
+        assert_eq!(
+            out.target["web"]["forward_auth"]["authelia"]["service"],
+            "auth"
+        );
+        assert_eq!(out.renames.len(), 1);
+        assert_eq!(out.renames[0].path, at);
     }
 
     #[test]

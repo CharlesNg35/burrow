@@ -57,17 +57,18 @@ pub struct WebConfig {
         advanced
     )]
     pub http2: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
-        description = "The login service sites use with forward_auth: true, {service, path, copy_headers}"
+        description = "Login services by name, each {service, path, copy_headers}; a site picks one with forward_auth: <name>, for example {authelia: {service: authelia, path: /api/authz/forward-auth}}"
     )]
     #[admin(
-        label = "Login service",
-        help = "The single sign-on service websites can share to check their visitors, for example Authelia",
-        none_label = "None",
+        ty = map(login),
+        label = "Login services",
+        help = "Single sign-on services like Authelia or authentik, each with a name that websites pick to check their visitors",
+        empty_label = "None",
         advanced
     )]
-    pub forward_auth: Option<ForwardAuthConfig>,
+    pub forward_auth: BTreeMap<String, ForwardAuthConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Default for every site: requests per second per visitor address (IPv6 per /64), bursts of twice that, 429 above"

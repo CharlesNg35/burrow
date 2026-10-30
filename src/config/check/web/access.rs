@@ -16,6 +16,7 @@ pub(super) fn check_access(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
+    super::logins::check_names(cfg, spans, out);
     for (name, svc) in &cfg.services {
         let Some(web @ ServiceWeb::Site(site)) = svc.web.as_ref() else {
             continue;
@@ -31,7 +32,12 @@ pub(super) fn check_access(
             spans,
             base: vec!["services".into(), name.clone(), "web".into()],
         };
-        if !site.basic_auth.is_empty() && site.forward_auth.as_ref().is_some_and(on) {
+        if !site.basic_auth.is_empty()
+            && site
+                .forward_auth
+                .as_ref()
+                .is_some_and(ForwardAuthSetting::on)
+        {
             out.push(
                 Diagnostic::error(
                     "auth-both",
@@ -51,7 +57,7 @@ pub(super) fn check_access(
             public_port(name, bind, site, &svc_at, out);
         }
         passwords(name, site, served, &at, out);
-        forward(cfg, name, site, served, &at, out);
+        super::logins::forward(cfg, name, site, served, &at, out);
         client_auth(name, site, served, tunnel, base_dir, &at, out);
     }
 }
@@ -71,7 +77,7 @@ fn public_port(name: &str, bind: &Bind, site: &WebSite, at: &At<'_>, out: &mut V
         (!site.basic_auth.is_empty()).then_some("basic_auth"),
         site.forward_auth
             .as_ref()
-            .filter(|f| on(f))
+            .filter(|f| f.on())
             .map(|_| "forward_auth"),
         site.client_auth.as_ref().map(|_| "client_auth"),
     ]
@@ -92,10 +98,6 @@ fn public_port(name: &str, bind: &Bind, site: &WebSite, at: &At<'_>, out: &mut V
         .at(at.value(&["bind"]))
         .help("visitors still need their burrow login; allow_from limits both the website and the port"),
     );
-}
-
-fn on(f: &ForwardAuthSetting) -> bool {
-    !matches!(f, ForwardAuthSetting::Shared(false))
 }
 
 #[cfg(feature = "web")]
@@ -142,78 +144,6 @@ fn passwords(name: &str, site: &WebSite, served: Served, at: &At<'_>, out: &mut 
             )
             .at(at.key(&["basic_auth"]))
             .help("anyone on the path can read a password sent over http://"),
-        );
-    }
-}
-
-fn forward(
-    cfg: &ServerConfig,
-    name: &str,
-    site: &WebSite,
-    served: Served,
-    at: &At<'_>,
-    out: &mut Vec<Diagnostic>,
-) {
-    let field = format!("services.{name}.web.forward_auth");
-    let login = match &site.forward_auth {
-        None | Some(ForwardAuthSetting::Shared(false)) => return,
-        Some(ForwardAuthSetting::Shared(true)) => {
-            match cfg.web.as_ref().and_then(|w| w.forward_auth.as_ref()) {
-                Some(f) => f,
-                None => {
-                    out.push(
-                    Diagnostic::error(
-                        "forward-auth",
-                        format!("{field}: true uses web.forward_auth, which is not set; add web.forward_auth: {{service, path}}, or give this site its own"),
-                    )
-                    .at(at.value(&["forward_auth"]))
-                    .help("for example forward_auth: {service: authelia, path: /api/authz/forward-auth} under web"),
-                );
-                    return;
-                }
-            }
-        }
-        Some(ForwardAuthSetting::Own(f)) => f,
-    };
-    if login.service.trim() == name {
-        out.push(
-            Diagnostic::error(
-                "forward-auth",
-                format!("{field}: a service cannot check its own visitors; the login site must stay open"),
-            )
-            .at(at.value(&["forward_auth"]))
-            .help("remove forward_auth from the login service"),
-        );
-    }
-    if let Some(ServiceWeb::Site(login_site)) = cfg
-        .services
-        .get(login.service.trim())
-        .and_then(|l| l.web.as_ref())
-        && login_site.target_http2
-        && login_site.target_tls.is_some()
-    {
-        out.push(
-            Diagnostic::warning(
-                "forward-auth-h2",
-                format!(
-                    "{field}: the login service \"{}\" speaks HTTP/2 only to its app (target_http2 with target_tls), but the login check asks over HTTP/1.1, so every check would fail with 502",
-                    login.service.trim()
-                ),
-            )
-            .at(at.value(&["forward_auth"]))
-            .help("remove target_http2 from the login service, or let it accept HTTP/1.1"),
-        );
-    }
-    if served == Served::Plain {
-        out.push(
-            Diagnostic::warning(
-                "plain-password",
-                format!(
-                    "{field}: login cookies are sent unencrypted over plain HTTP; use HTTPS, or keep the site on a trusted network"
-                ),
-            )
-            .at(at.key(&["forward_auth"]))
-            .help("anyone on the path can read a login cookie sent over http://"),
         );
     }
 }

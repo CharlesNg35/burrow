@@ -1,5 +1,5 @@
 use burrow_admin_logic::check::check;
-use burrow_admin_proto::schema::{Node, SemType};
+use burrow_admin_proto::schema::{Entity, Node, SemType};
 use burrow_admin_proto::serde_json::Value;
 
 use crate::store::store;
@@ -13,6 +13,7 @@ fn example(key: &Node, label: &str) -> &'static str {
     match key.sem {
         SemType::UrlPath => "/old",
         SemType::HostName(_) => "old.example.com",
+        SemType::Name(ref c) if c.entity == Entity::Login => "authelia",
         _ if label.contains("header") => "X-Frame-Options",
         _ => "old.example.com",
     }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
@@ -36,13 +38,102 @@ pub struct ForwardAuthConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
-#[serde(untagged)]
-#[admin(semantic = union(bool, object(ForwardAuthConfig)))]
+#[serde(
+    untagged,
+    expecting = "name a login service from web.forward_auth, like forward_auth: authelia"
+)]
+#[admin(semantic = union(bool, ref_(login)))]
 pub enum ForwardAuthSetting {
-    #[admin(label = "The web proxy's login service")]
-    Shared(bool),
-    #[admin(label = "Its own login service")]
-    Own(ForwardAuthConfig),
+    #[admin(label = "The only login service")]
+    On(bool),
+    #[admin(label = "A login service")]
+    Name(String),
+}
+
+pub const RESERVED_LOGIN_NAMES: [&str; 2] = ["true", "false"];
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LoginPick<'a> {
+    Off,
+    Found(&'a str, &'a ForwardAuthConfig),
+    Unknown(&'a str),
+    NoneDefined,
+    Unclear,
+}
+
+impl ForwardAuthSetting {
+    pub fn on(&self) -> bool {
+        !matches!(self, ForwardAuthSetting::On(false))
+    }
+
+    pub fn pick<'a>(&'a self, logins: &'a BTreeMap<String, ForwardAuthConfig>) -> LoginPick<'a> {
+        match self {
+            ForwardAuthSetting::On(false) => LoginPick::Off,
+            ForwardAuthSetting::On(true) => match logins.len() {
+                0 => LoginPick::NoneDefined,
+                1 => logins
+                    .iter()
+                    .next()
+                    .map_or(LoginPick::NoneDefined, |(n, f)| LoginPick::Found(n, f)),
+                _ => LoginPick::Unclear,
+            },
+            ForwardAuthSetting::Name(n) => {
+                let n = n.trim();
+                logins
+                    .get_key_value(n)
+                    .map_or(LoginPick::Unknown(n), |(k, f)| LoginPick::Found(k, f))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_admin_proto::serde_json;
+
+    fn login(service: &str) -> ForwardAuthConfig {
+        ForwardAuthConfig {
+            service: service.into(),
+            path: "/auth".into(),
+            copy_headers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_site_picks_its_login_service_by_name_or_by_true_when_there_is_one() {
+        let mut logins = BTreeMap::new();
+        let named = ForwardAuthSetting::Name(" authelia ".into());
+        let on = ForwardAuthSetting::On(true);
+        assert_eq!(on.pick(&logins), LoginPick::NoneDefined);
+        assert_eq!(named.pick(&logins), LoginPick::Unknown("authelia"));
+        logins.insert("authelia".to_string(), login("authelia"));
+        let one = LoginPick::Found("authelia", &logins["authelia"]);
+        assert_eq!(on.pick(&logins), one);
+        assert_eq!(named.pick(&logins), one);
+        assert_eq!(ForwardAuthSetting::On(false).pick(&logins), LoginPick::Off);
+        logins.insert("authentik".to_string(), login("authentik"));
+        assert_eq!(on.pick(&logins), LoginPick::Unclear);
+        assert!(matches!(
+            named.pick(&logins),
+            LoginPick::Found("authelia", _)
+        ));
+    }
+
+    #[test]
+    fn a_site_takes_true_false_or_a_name_and_explains_the_old_inline_block() {
+        let parse = |s: &str| serde_json::from_str::<ForwardAuthSetting>(s);
+        assert_eq!(parse("true").unwrap(), ForwardAuthSetting::On(true));
+        assert_eq!(
+            parse("\"sso\"").unwrap(),
+            ForwardAuthSetting::Name("sso".into())
+        );
+        let e = parse(r#"{"service": "authelia", "path": "/auth"}"#).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "name a login service from web.forward_auth, like forward_auth: authelia"
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

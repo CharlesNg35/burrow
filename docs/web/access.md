@@ -88,10 +88,11 @@ web:
   https: 443
   letsencrypt:
     email: you@example.com
-  forward_auth: # the login service of every site with forward_auth: true
-    service: authelia
-    path: /api/authz/forward-auth
-    copy_headers: [Remote-User, Remote-Groups, Remote-Email, Remote-Name]
+  forward_auth: # login services, by name; a site picks one with forward_auth: <name>
+    authelia:
+      service: authelia
+      path: /api/authz/forward-auth
+      copy_headers: [Remote-User, Remote-Groups, Remote-Email, Remote-Name]
 services:
   authelia: # the login portal itself, never behind a login
     client: home
@@ -102,16 +103,48 @@ services:
     target: 8080
     web:
       hosts: [wiki.example.com]
-      forward_auth: true
+      forward_auth: authelia
 ```
 
 In Authelia, set `session.cookies` with your `domain` and `authelia_url: https://auth.example.com`, as its Caddy guide shows. For authentik, see [Single sign-on with authentik](recipes.md#single-sign-on-with-authentik).
 
-- `forward_auth: true` uses `web.forward_auth`; a site can name its own `{service, path, copy_headers}` instead.
-- `service` is a service of this config, reached through the tunnel like any other; the login site itself must stay open (validate refuses a site that checks its own visitors).
+- Each login service under `web.forward_auth` has a name, and a site picks one with `forward_auth: <name>`. With exactly one defined, `forward_auth: true` means that one; with two or more, validate asks you to name it.
+- Several login services can live side by side: Authelia's `/api/authz/basic` endpoint for apps that send a password, two oauth2-proxy instances, or Authelia next to authentik while you move.
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  letsencrypt:
+    email: you@example.com
+  forward_auth:
+    authelia:
+      service: authelia
+      path: /api/authz/forward-auth
+      copy_headers: [Remote-User, Remote-Groups]
+    authelia-basic: # the same Authelia, an endpoint named basic for apps that send a password
+      service: authelia
+      path: /api/authz/basic
+      copy_headers: [Remote-User, Remote-Groups]
+services:
+  authelia: { client: home, target: 9091, web: auth.example.com }
+  wiki:
+    client: home
+    target: 8080
+    web: { hosts: [wiki.example.com], forward_auth: authelia }
+  dav:
+    client: home
+    target: 5232
+    web: { hosts: [dav.example.com], forward_auth: authelia-basic }
+```
+
+Authelia answers on `/api/authz/<name>` for each endpoint under its [`server.endpoints.authz`](https://www.authelia.com/configuration/miscellaneous/server-endpoints-authz/); `basic` here is one you add there with the `HeaderAuthorization` strategy and the `Basic` scheme.
+
+- `service` is a service of this config, reached through the tunnel like any other. The site of a login service must stay open: validate refuses `forward_auth` on it, whichever login service it names.
 - `path` is where the login service answers the check: `/api/authz/forward-auth` for Authelia, `/outpost.goauthentik.io/auth/caddy` for authentik.
 - burrow asks with a `GET` and no body, sets `X-Forwarded-Method`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Uri` and `X-Forwarded-For` from the request as it was routed, and removes the visitor's own copies of those first.
-- `copy_headers` are copied from a yes to the app. A visitor's own headers of those names, also written with `_` for `-`, are always removed, so nobody can claim to be `Remote-User: admin`.
+- `copy_headers` are copied from a yes to the app. A visitor's own headers of those names, also written with `_` for `-`, are always removed, so nobody can claim to be `Remote-User: admin`. Every site with `forward_auth` removes the `copy_headers` of all your login services, not only its own, so an app that still trusts `X-authentik-username` cannot be fooled while you move from authentik to Authelia.
+- validate warns about a login service that no site uses.
 - It never fails open: a login service that does not answer within `response_header_timeout_secs` gives `504`, one that is down `502` or `503`.
 - burrow asks over HTTP/1.1. A login service set to HTTP/2 only (`target_http2`) would fail every check; validate warns.
 - Over plain HTTP (`tls: off`) the login cookies travel unencrypted; validate warns.

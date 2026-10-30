@@ -47,6 +47,17 @@ fn entity_info<'a>(schema: &'a Schema, entity: &Entity) -> Option<&'a EntityInfo
     schema.entities.iter().find(|e| &e.entity == entity)
 }
 
+pub fn entity_sections(schema: &Schema) -> Vec<String> {
+    schema
+        .entities
+        .iter()
+        .filter_map(|e| match e.path.as_slice() {
+            [section] => Some(section.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn names(doc: &Value, section: &[String]) -> Vec<String> {
     value::get(doc, section)
         .and_then(Value::as_object)
@@ -179,6 +190,11 @@ mod tests {
         assert_eq!(
             entity_names(&s, &d, &Entity::Client),
             vec!["home", "office"]
+        );
+        assert!(entity_sections(&s).contains(&"clients".to_string()));
+        assert!(
+            !entity_sections(&s).contains(&"web".to_string()),
+            "the login services live inside the web settings"
         );
     }
 }

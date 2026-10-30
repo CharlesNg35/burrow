@@ -158,10 +158,11 @@ web:
       - domains: [example.com]
         cloudflare: { token: "${CF_TOKEN}" }
         wildcards: ["*.apps.example.com"]
-  forward_auth: # every site with forward_auth: true asks authentik first
-    service: authentik
-    path: /outpost.goauthentik.io/auth/caddy
-    copy_headers: [X-authentik-username, X-authentik-groups, X-authentik-email, X-authentik-name, X-authentik-uid]
+  forward_auth: # login services, by name; a site picks one with forward_auth: authentik
+    authentik:
+      service: authentik
+      path: /outpost.goauthentik.io/auth/caddy
+      copy_headers: [X-authentik-username, X-authentik-groups, X-authentik-email, X-authentik-name, X-authentik-uid]
 services:
   authentik: # the login portal itself, never behind a login
     client: self
@@ -172,7 +173,7 @@ services:
     target: 3000
     web:
       hosts: ["*.apps.example.com"]
-      forward_auth: true
+      forward_auth: authentik
   outpost: # authentik's own paths on each protected name, open so the login can finish
     client: self
     target: 9000

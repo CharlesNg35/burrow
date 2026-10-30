@@ -75,7 +75,7 @@ pub fn reserved_clients() -> Vec<String> {
 
 pub fn names_of(entity: &Entity) -> Vec<String> {
     let doc = store().edit.doc();
-    names(&doc, &[entity.section().to_string()])
+    names(&doc, &burrow_config::entity_path(entity))
 }
 
 pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {

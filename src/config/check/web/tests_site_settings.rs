@@ -226,9 +226,9 @@ fn the_http_check_asks_the_first_plain_host_or_the_wildcards_base_name() {
 #[test]
 fn the_access_keys_reach_the_settings_with_the_web_defaults() {
     let cfg: ServerConfig = serde_json::from_value(json!({
-        "web": {"https": 443, "rate_limit": 20, "forward_auth": {"service": "authelia", "path": "/api/authz/forward-auth/", "copy_headers": ["Remote-User"]}},
+        "web": {"https": 443, "rate_limit": 20, "forward_auth": {"authelia": {"service": "authelia", "path": "/api/authz/forward-auth/", "copy_headers": ["Remote-User"]}, "authentik": {"service": "authentik", "path": "/outpost.goauthentik.io/auth/caddy", "copy_headers": ["X-authentik-username", " remote-user "]}}},
         "services": {
-            "wiki": {"client": "home", "target": 3001, "web": {"hosts": ["wiki.example.com"], "forward_auth": true, "client_auth": {"ca": "certs/ca.pem", "crl": "certs/ca.crl"}}},
+            "wiki": {"client": "home", "target": 3001, "web": {"hosts": ["wiki.example.com"], "forward_auth": "authelia", "client_auth": {"ca": "certs/ca.pem", "crl": "certs/ca.crl"}}},
             "status": {"client": "home", "target": 3003, "web": {"hosts": ["status.example.com"], "rate_limit": 5, "basic_auth": {"bob": "$2b$10$x", "alice": "$argon2id$y"}}}
         }
     }))
@@ -244,7 +244,8 @@ fn the_access_keys_reach_the_settings_with_the_web_defaults() {
         Some(crate::config::settings::ForwardAuth {
             service: "authelia".into(),
             path: "/api/authz/forward-auth".into(),
-            copy_headers: vec!["Remote-User".into()]
+            copy_headers: vec!["Remote-User".into()],
+            strip_headers: vec!["Remote-User".into(), "X-authentik-username".into()]
         })
     );
     assert_eq!(wiki.rate_limit, Some(20));

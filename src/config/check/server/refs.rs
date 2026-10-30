@@ -50,21 +50,19 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
     let clients = declared(root, "clients");
     let visitors = declared(root, "visitors");
     let services = declared(root, "services");
-    login_service(
-        root.get("web").and_then(|w| w.get("forward_auth")),
-        "web.forward_auth".into(),
-        &services,
-        out,
-    );
+    if let Some(Value::Map(logins)) = root
+        .get("web")
+        .and_then(|w| w.get("forward_auth"))
+        .map(|l| &l.value)
+    {
+        for login in logins {
+            let by = format!("web.forward_auth.{}.service", login.key);
+            login_service(Some(&login.value), by, &services, out);
+        }
+    }
     if let Some(Value::Map(services)) = root.get("services").map(|s| &s.value) {
         for svc in services {
             let by = || format!("service \"{}\"", svc.key);
-            login_service(
-                svc.value.get("web").and_then(|w| w.get("forward_auth")),
-                format!("the forward_auth of service \"{}\"", svc.key),
-                &declared(root, "services"),
-                out,
-            );
             if let Some(client) = svc.value.get("client")
                 && let Some(name) = client.as_str()
                 && name != SELF

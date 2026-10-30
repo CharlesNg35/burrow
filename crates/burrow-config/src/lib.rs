@@ -10,7 +10,7 @@ pub mod field;
 pub mod model;
 pub mod refs;
 
-pub use field::{Entry, Field, Nest, entity_of_section};
+pub use field::{Entry, Field, Nest, entity_at, entity_of_section, entity_path, logins_path};
 pub use model::*;
 
 pub const SELF: &str = "self";

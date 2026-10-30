@@ -412,6 +412,7 @@ mod hosts;
 mod internal;
 #[cfg(feature = "web")]
 mod letsencrypt;
+mod logins;
 mod low;
 #[cfg(feature = "web")]
 mod pem;
@@ -442,6 +443,9 @@ mod tests;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_access;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_logins;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_certs;

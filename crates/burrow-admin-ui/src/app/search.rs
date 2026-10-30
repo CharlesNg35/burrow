@@ -190,11 +190,7 @@ fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> Strin
 
 fn setting_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
     if let Some(schema) = s.schema.get_untracked() {
-        let skip: Vec<String> = schema
-            .entities
-            .iter()
-            .filter_map(|e| e.path.first().cloned())
-            .collect();
+        let skip = burrow_admin_logic::tree::entity_sections(&schema);
         for f in burrow_admin_logic::tree::fields(&schema.root)
             .iter()
             .filter(|f| !skip.contains(&f.key))

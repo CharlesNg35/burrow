@@ -34,7 +34,7 @@ fn open_asked_card() {
         let Some(schema) = s.schema.get() else {
             return false;
         };
-        let skip = sections(&schema);
+        let skip = burrow_admin_logic::tree::entity_sections(&schema);
         let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
         let card = settings_cards(&schema.root, &skip)
             .into_iter()
@@ -46,20 +46,12 @@ fn open_asked_card() {
     });
 }
 
-fn sections(schema: &Schema) -> Vec<String> {
-    schema
-        .entities
-        .iter()
-        .filter_map(|e| e.path.first().cloned())
-        .collect()
-}
-
 pub fn groups(
     schema: &Schema,
     changed: &dyn Fn(&[String]) -> bool,
     restart: &[String],
 ) -> Vec<(Tab, Row)> {
-    let skip = sections(schema);
+    let skip = burrow_admin_logic::tree::entity_sections(schema);
     let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
     let locked = schema.locked_paths();
     settings_cards(&schema.root, &skip)
@@ -252,7 +244,7 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
     });
     move || {
         let schema = s.schema.get()?;
-        let skip = sections(&schema);
+        let skip = burrow_admin_logic::tree::entity_sections(&schema);
         let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
         let now = tab.get();
         let shown = shown.get();

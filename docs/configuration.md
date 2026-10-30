@@ -170,7 +170,7 @@ services:
 | `services.<name>.web.target_http2` | `false` | speak HTTP/2 to the app (h2c, or h2 inside `target_tls`), for gRPC |
 | `services.<name>.web.target_tls` | off | HTTPS to the app: `true` (public CAs), `{ca: file}` (your CA) or `{insecure_skip_verify: true}` (not checked) |
 | `services.<name>.web.basic_auth` | none | `user: hash` pairs, the hashes from `burrow passwd USER`; visitors log in with a password. See [Who may visit](web/access.md#passwords) |
-| `services.<name>.web.forward_auth` | off | `true` asks `web.forward_auth` first, or the site's own `{service, path, copy_headers}`; not with `basic_auth`. See [Single sign-on](web/access.md#single-sign-on) |
+| `services.<name>.web.forward_auth` | off | the name of a login service under `web.forward_auth`, or `true` when there is only one; not with `basic_auth`. See [Single sign-on](web/access.md#single-sign-on) |
 | `services.<name>.web.rate_limit` | `web.rate_limit` | requests per second per visitor address (IPv6 per /64), bursts of twice that; 429 above |
 | `services.<name>.web.client_auth` | off | `{ca, crl}`: only devices with a certificate from this CA get in. See [Device certificates](web/access.md#device-certificates) |
 | `services.<name>.web.hsts`, `compress`, `max_body_size`, `response_header_timeout_secs`, `request_headers`, `response_headers`, `error_pages` | from `web` | the site's own value of the `web` key of the same name |
@@ -201,7 +201,7 @@ services:
 | `web.max_body_size` | unlimited | the biggest request body, like `100MB`; above it 413 |
 | `web.response_header_timeout_secs` | `60` | how long the app may take to start its answer; 504 after |
 | `web.request_headers`, `web.response_headers` | none | `Name: value` set on requests to the app or on answers; `""` removes a header |
-| `web.forward_auth` | none | the login service of every site with `forward_auth: true`: `{service, path, copy_headers}` |
+| `web.forward_auth` | none | login services by name, each `{service, path, copy_headers}`, like `{authelia: {service: authelia, path: /api/authz/forward-auth}}`; `true` and `false` are not names |
 | `web.rate_limit` | off | the default of every site's `rate_limit` |
 | `web.error_pages` | built in | a folder with any of `404.html`, `413.html`, `429.html`, `502.html`, `503.html`, `504.html`, `maintenance.html` |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |

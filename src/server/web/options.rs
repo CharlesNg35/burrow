@@ -41,7 +41,7 @@ pub(super) fn site_options(o: &settings::SiteOptions) -> SiteOptions {
             service: f.service.clone(),
             path: f.path.clone(),
             copy_headers: header_names(&f.copy_headers),
-            strip_headers: header_names(&f.copy_headers),
+            strip_headers: header_names(&f.strip_headers),
         }),
         rate_limit: o.rate_limit.and_then(std::num::NonZeroU32::new),
         client_auth: o.client_auth.as_ref().map(|c| ClientAuth {

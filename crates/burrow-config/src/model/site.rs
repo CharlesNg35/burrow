@@ -165,7 +165,7 @@ pub struct WebSite {
     pub basic_auth: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Visitors log in at a login service first: true uses web.forward_auth, or its own {service, path, copy_headers}"
+        description = "Visitors log in at a login service first: the name of one under web.forward_auth, or true when there is only one"
     )]
     #[admin(
         label = "Login service",

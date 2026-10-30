@@ -213,8 +213,8 @@ pub fn apply(root: &Value, ops: &[Op]) -> Value {
                 }
             }
             Op::Rename { path, to, refs } => {
-                if rename_key(&mut v, path, to) && *refs && path.len() == 2 {
-                    burrow_config::refs::rename_refs(&mut v, &path[0], &path[1], to);
+                if rename_key(&mut v, path, to) && *refs {
+                    burrow_config::refs::rename_refs(&mut v, path, to);
                 }
             }
             Op::SecretAdd { path, handle } => {
@@ -314,10 +314,13 @@ impl Changeset {
     }
 
     pub fn rename(&mut self, path: &[String], to: &str) -> bool {
-        if path.len() != 2 || !rename_key(&mut self.draft, path, to) {
+        let entity = path
+            .split_last()
+            .and_then(|(_, parent)| burrow_config::entity_at(parent));
+        if entity.is_none() || !rename_key(&mut self.draft, path, to) {
             return false;
         }
-        burrow_config::refs::rename_refs(&mut self.draft, &path[0], &path[1], to);
+        burrow_config::refs::rename_refs(&mut self.draft, path, to);
         self.renames.push((path.to_vec(), to.to_string()));
         true
     }
@@ -368,7 +371,7 @@ impl Changeset {
         let mut out = Vec::new();
         for (path, to) in &self.renames {
             if rename_key(&mut renamed, path, to) {
-                burrow_config::refs::rename_refs(&mut renamed, &path[0], &path[1], to);
+                burrow_config::refs::rename_refs(&mut renamed, path, to);
                 out.push(Op::Rename {
                     path: path.clone(),
                     to: to.clone(),
@@ -415,7 +418,8 @@ impl Changeset {
         self.renames
             .iter()
             .find(|(from, _)| {
-                from.first().map(String::as_str) == Some(section)
+                from.len() == 2
+                    && from.first().map(String::as_str) == Some(section)
                     && from.get(1).map(String::as_str) == Some(name)
             })
             .map(|(_, to)| to.clone())
@@ -424,7 +428,9 @@ impl Changeset {
     pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
         self.renames
             .iter()
-            .find(|(from, to)| from.first().map(String::as_str) == Some(section) && to == name)
+            .find(|(from, to)| {
+                from.len() == 2 && from.first().map(String::as_str) == Some(section) && to == name
+            })
             .and_then(|(from, _)| from.get(1).cloned())
     }
 

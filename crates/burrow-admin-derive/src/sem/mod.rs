@@ -95,9 +95,12 @@ fn reserved(args: &[Term]) -> TokenStream {
 fn entity(t: Option<&Term>, span: Span, errors: &mut Errors) -> TokenStream {
     let p = crate::p();
     match t.and_then(Term::as_word) {
-        Some(w @ ("client" | "visitor" | "service")) => quote!(#p::Entity::parse(#w)),
+        Some(w @ ("client" | "visitor" | "service" | "login")) => quote!(#p::Entity::parse(#w)),
         _ => {
-            errors.push(span, "expected an entity: client, visitor or service");
+            errors.push(
+                span,
+                "expected an entity: client, visitor, service or login",
+            );
             quote!(#p::Entity::Client)
         }
     }

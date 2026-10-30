@@ -110,6 +110,15 @@ fn as_names(v: Option<Value>) -> Vec<String> {
     }
 }
 
+fn only_one(entity: &Entity) -> Vec<String> {
+    let all = names_of(entity);
+    if all.len() == 1 {
+        all
+    } else {
+        vec!["true".to_string()]
+    }
+}
+
 pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
@@ -122,13 +131,18 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         p
     };
     let sp = single_path.clone();
+    let ent_shown = entity.clone();
     let selected = Signal::derive(move || {
         let mut names = if merged {
             as_names(e.value(&sp))
         } else {
             Vec::new()
         };
-        for n in as_names(e.value(&path)) {
+        let given = match e.value(&path) {
+            Some(Value::Bool(true)) => only_one(&ent_shown),
+            v => as_names(v),
+        };
+        for n in given {
             if !names.contains(&n) {
                 names.push(n);
             }

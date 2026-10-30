@@ -69,11 +69,12 @@ web:
     format: json # or common, like nginx and Apache
   request_id: true # an id per request, in the log and sent to the app, to match both logs
 
-  # Single sign-on: the login service of every site with forward_auth: true
+  # Single sign-on: login services by name; a site picks one with forward_auth: <name>
   forward_auth:
-    service: login # a service below
-    path: /api/authz/forward-auth # where Authelia answers "may this visitor in?"
-    copy_headers: [Remote-User, Remote-Groups] # passed to the app on a yes; visitors' own copies are removed
+    authelia:
+      service: login # a service below
+      path: /api/authz/forward-auth # where Authelia answers "may this visitor in?"
+      copy_headers: [Remote-User, Remote-Groups] # passed to the app on a yes; visitors' own copies are removed
 
   # Old names with no site any more: they only send visitors away
   redirect_names:
@@ -180,7 +181,7 @@ services:
     target: 3001
     web:
       hosts: [wiki.example.com]
-      forward_auth: true # asks web.forward_auth before each request
+      forward_auth: authelia # asks web.forward_auth.authelia before each request
 
   # Shared files with a simple password instead
   files:
@@ -198,7 +199,7 @@ services:
     target: 3000
     web:
       hosts: ["*.apps.example.com"] # a.apps.example.com, b.apps.example.com... all come here
-      forward_auth: true
+      forward_auth: authelia
 
   # ── Apps that speak HTTPS or HTTP/2 themselves ────────────
 
@@ -395,6 +396,10 @@ Where each name gets its certificate:
 | HTTP keys on a passthrough service | `services.nas.web.paths: burrow cannot see the requests of a passthrough service (tls: passthrough); remove paths, or let burrow handle TLS` |
 | a header rule HTTP cannot carry | `services.blog.web.request_headers: "Transfer-Encoding" belongs to HTTP's own framing, which burrow handles; it cannot be set` |
 | `https_redirect: true` on a plain site with no trusted proxy | `services.blog.web.https_redirect: true on a plain-HTTP site needs web.trusted_proxies: ...; add trusted_proxies, or set https_redirect: false` |
+| a site names a login service that is not defined | `services.wiki.web.forward_auth: there is no login service "authelai" under web.forward_auth; the names are authelia, authelia-basic` (with `did you mean "authelia"?`) |
+| `forward_auth: true` with two login services | `services.wiki.web.forward_auth: true is unclear with 2 login services under web.forward_auth; name one: authelia or authelia-basic` |
+| `forward_auth` on the login service's own site | `services.login.web.forward_auth: login answers the logins of web.forward_auth.authelia, so its own site must stay open` |
+| warning: a login service no site uses | `web.forward_auth.authentik: no website uses it; set forward_auth: authentik on a site, or remove it` |
 | `target_tls` with a CA it cannot read | `services.erp.web.target_tls.ca: cannot read certs/corp-ca.pem: file not found` |
 | note: a proxy in front and the automatic TLS check | `a proxy is in front (web.trusted_proxies is set); if it does the HTTPS, like Cloudflare's proxy, Let's Encrypt's TLS check cannot reach burrow: set challenge: http (with http: 80) or challenge: dns on these sites: kiosk` |
 | warning: the whole internet as a proxy | `web.proxy_protocol_from holds 0.0.0.0/0: every visitor would have to send a PROXY header` |
