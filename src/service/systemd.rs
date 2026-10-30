@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::system::{all_paths_under, private_file, write_private};
+use super::system::{any_path_under, private_file, write_private};
 use super::{Backend, Manifest, Status};
 use crate::base::failure::Failure;
 use crate::base::process::{run, run_ok};
@@ -105,6 +105,8 @@ fn parse_env(text: &str) -> BTreeMap<String, String> {
     out
 }
 
+const HOMES: [&str; 3] = ["/home", "/root", "/run/user"];
+
 impl Backend for Systemd {
     fn kind(&self) -> &'static str {
         "systemd"
@@ -117,7 +119,7 @@ impl Backend for Systemd {
         } else {
             ""
         };
-        let home_files = all_paths_under(&m.files, &["/home", "/root", "/run/user"]);
+        let home_files = any_path_under(&m.files, &HOMES);
         let mut s = String::new();
         s.push_str(&format!(
             "[Unit]\nDescription=burrow {} \"{}\"\nDocumentation=https://github.com/charlesng35/burrow\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\n",
@@ -237,14 +239,11 @@ impl Backend for Systemd {
     }
 
     fn cannot_use(&self, m: &Manifest, file: &Path) -> Option<String> {
-        let homes = ["/home", "/root", "/run/user"];
         if file.is_relative() {
             Some("a service needs an absolute path".into())
         } else if let Some(why) = self.hidden(file) {
             Some(why)
-        } else if all_paths_under(&[file.to_path_buf()], &homes)
-            && !all_paths_under(&m.files, &homes)
-        {
+        } else if HOMES.iter().any(|h| file.starts_with(h)) && !any_path_under(&m.files, &HOMES) {
             Some("it is in a home folder, which the service was installed without access to".into())
         } else if !self.can_read(&m.account, file) {
             Some(format!("its account {} cannot read it", m.account))

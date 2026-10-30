@@ -324,7 +324,7 @@ pub fn make_dir(path: &Path, mode: u32, owner: Option<&str>) -> Result<(), Failu
 }
 
 #[cfg(target_os = "linux")]
-pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
+pub fn any_path_under(files: &[PathBuf], roots: &[&str]) -> bool {
     files.iter().any(|f| roots.iter().any(|r| f.starts_with(r)))
 }
 
