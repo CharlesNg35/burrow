@@ -202,6 +202,7 @@ pub struct ServiceEntry {
     #[admin(
         help = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones",
         group = who,
+        wide,
         enabled_if(len_ge(clients, 2), "This applies only with two or more clients")
     )]
     pub mode: Mode,

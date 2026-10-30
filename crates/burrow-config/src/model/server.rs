@@ -57,7 +57,7 @@ pub struct ServerConfig {
         description = "Accept clients over WebSocket, for servers reachable only through HTTP(S)"
     )]
     #[admin(
-        label = "WebSocket listener",
+        label = "WebSocket",
         group = websocket,
         applies = reload,
         none_label = "Off"

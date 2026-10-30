@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:3b8ca49ffeca33b9",
+  "hash": "b2s:9b51d2ebcacb500e",
   "root": {
     "label": "Server",
     "sem": {
@@ -48,7 +48,7 @@
         {
           "key": "websocket",
           "node": {
-            "label": "WebSocket listener",
+            "label": "WebSocket",
             "help": "Accept clients over WebSocket, for servers reachable only through HTTP(S)",
             "sem": {
               "t": "optional",
@@ -1666,6 +1666,7 @@
                         },
                         "default": "failover",
                         "group": "who",
+                        "wide": true,
                         "relations": [
                           {
                             "r": "enabled_if",
