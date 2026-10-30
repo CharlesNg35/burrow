@@ -17,7 +17,7 @@ fn opts() -> Options {
     }
 }
 
-async fn open_more(c: &Ctx, css: &str) {
+pub(super) async fn open_more(c: &Ctx, css: &str) {
     let _: bool = c
         .ui
         .eval(&format!(
@@ -28,7 +28,7 @@ async fn open_more(c: &Ctx, css: &str) {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 }
 
-async fn settings_of(c: &Ctx, service: &str) {
+pub(super) async fn settings_of(c: &Ctx, service: &str) {
     c.ui.nav(&format!("/services/{service}")).await;
     c.ui.wait_for("[role=tablist]", SECS).await;
     c.ui.click("[role=tablist] [data-tab=settings]").await;

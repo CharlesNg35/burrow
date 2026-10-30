@@ -187,12 +187,21 @@ fn a_renamed_login_service_takes_its_sites_along_in_one_op() {
     assert_eq!(
         c.ops(),
         [Op::Rename {
-            path: at,
+            path: at.clone(),
             to: "authelia".into(),
             refs: true
         }]
     );
     assert_eq!(c.renamed_from("web", "authelia"), None);
+    let mut snapshot = json!({"web": {"forward_auth": {"sso": {"path": "/auth"}}}});
+    rename_under(&mut snapshot, &[], &at, "authelia");
+    assert!(snapshot["web"]["forward_auth"].get("authelia").is_some());
+    let mut web = json!({"forward_auth": {"sso": {"path": "/auth"}}});
+    rename_under(&mut web, &p(&["web"]), &at, "authelia");
+    assert!(web["forward_auth"].get("authelia").is_some());
+    let mut other = json!({"x": 1});
+    rename_under(&mut other, &p(&["services", "wiki"]), &at, "authelia");
+    assert_eq!(other, json!({"x": 1}));
     assert!(!c.rename(&p(&["web", "https"]), "x"), "not an entity");
 }
 

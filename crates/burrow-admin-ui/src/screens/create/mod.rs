@@ -1,4 +1,5 @@
 mod new;
+mod rename;
 mod website;
 
 use burrow_admin_proto::msg::{self, GeneratedSecret};
@@ -6,14 +7,14 @@ use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value, json};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
 use burrow_syntax::name::{MAX_NAME_LEN, check_name};
-use burrow_ui_kit::{Button, Dialog, Edge, EdgeState, Hop, HopState, PathData, TextInput, Tone};
+use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, TextInput, Tone};
 use leptos::prelude::*;
 
 use crate::api;
-use crate::route::{Route, go};
 use crate::store::store;
 
 pub(crate) use new::NewEntity;
+pub(crate) use rename::RenameEntity;
 pub(crate) use website::NewWebsite;
 
 pub fn singular(section: &str) -> &'static str {
@@ -204,60 +205,6 @@ fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-#[component]
-pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl IntoView {
-    let what = singular(&section);
-    let to = RwSignal::new(name.clone());
-    let same = {
-        let old = name.clone();
-        Signal::derive(move || to.with(|t| t.trim() == old))
-    };
-    let (sec, old) = (section.clone(), name.clone());
-    let problem = Signal::derive(move || {
-        let n = to.get();
-        if n == old {
-            None
-        } else {
-            name_problem(&n, &sec, None)
-        }
-    });
-    let note = match entity_of_section(&section) {
-        Some(Entity::Client) => {
-            "The client.yaml on that machine must use the new name, or the client cannot connect."
-        }
-        Some(Entity::Visitor) => {
-            "The visitor.yaml on that machine must use the new name, or the visitor cannot connect."
-        }
-        _ => "Visitors that forward this service by name must use the new name.",
-    };
-    let target = StoredValue::new((section.clone(), name.clone()));
-    let rename_now = Callback::new(move |_: ()| {
-        let (sec2, old2) = target.get_value();
-        let n = to.get_untracked();
-        open.set(false);
-        if n != old2 && store().edit.rename(&[sec2.clone(), old2.clone()], &n) {
-            go(Route::Detail(sec2, n));
-        }
-    });
-    view! {
-        <Dialog open=open title=format!("Rename {what} {name}") testid="rename-entity">
-            {name_input("rename-to", "New name", to, problem, false)}
-            <p class=move || if same.get() { "my-3 text-sm text-text-muted" } else { "my-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
-            <div class="flex justify-end gap-2">
-                <Button label="Cancel" on_click=move |_| open.set(false)/>
-                <Button
-                    label="Rename"
-                    variant="primary"
-                    testid="rename"
-                    disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty() || same.get())
-                    reason=Signal::derive(move || if same.get() || to.get().is_empty() { "Type a new name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
-                    on_click=move |_| rename_now.run(())
-                />
-            </div>
-        </Dialog>
-    }
 }
 
 pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathData {

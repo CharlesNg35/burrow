@@ -112,7 +112,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     let save_bar = save_bar(&parts, changed, blocker);
     let title_dot = title_dot(&section, &name);
     let crumb = Route::List(section.clone());
-    let (sec_r, name_r) = (section.clone(), name.clone());
+    let (ent_r, name_r) = (crate::screens::entity_of(&section), name.clone());
     let (sec_d, name_d, plural_s) = (section.clone(), name.clone(), plural(&section));
     view! {
         <Provider value=mode>
@@ -131,7 +131,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
             >
                 {title_dot}{name.clone()}{protocol_tag}
             </burrow_ui_kit::PageHeader>
-            <RenameEntity section=sec_r name=name_r open=renaming/>
+            <RenameEntity entity=ent_r name=name_r open=renaming/>
             <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
             {move || exists.get().then(save_bar.clone())}
         </DetailPane>

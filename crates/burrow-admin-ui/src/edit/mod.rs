@@ -369,6 +369,15 @@ impl Edit {
     pub fn rename(&self, path: &[String], to: &str) -> bool {
         let mut ok = false;
         self.draft.update(|d| ok = d.rename(path, to));
+        if ok {
+            self.editing.update(|m| {
+                for (at, snap) in m.iter_mut() {
+                    if let Some(s) = snap.as_mut() {
+                        burrow_admin_logic::changeset::rename_under(s, at, path, to);
+                    }
+                }
+            });
+        }
         self.changed();
         ok
     }

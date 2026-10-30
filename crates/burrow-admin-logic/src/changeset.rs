@@ -194,6 +194,15 @@ pub fn rename_key(root: &mut Value, path: &[String], to: &str) -> bool {
     true
 }
 
+pub fn rename_under(snapshot: &mut Value, at: &[String], path: &[String], to: &str) {
+    let Some(rel) = path.strip_prefix(at) else {
+        return;
+    };
+    if rename_key(snapshot, rel, to) && at.is_empty() {
+        burrow_config::refs::rename_refs(snapshot, path, to);
+    }
+}
+
 pub fn apply(root: &Value, ops: &[Op]) -> Value {
     let mut v = root.clone();
     for op in ops {

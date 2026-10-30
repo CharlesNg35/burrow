@@ -143,6 +143,13 @@ pub(super) fn map_editor(
         e.set(&p, Some(add_default.clone()));
         adding.set(String::new());
     };
+    let renames = key
+        .as_ref()
+        .and_then(|k| match &inner(k).sem {
+            SemType::Name(c) => Some(c.entity.clone()),
+            _ => None,
+        })
+        .filter(|e| burrow_config::entity_path(e) == fc.path);
     let rows = move || {
         keys.get()
             .into_iter()
@@ -164,10 +171,13 @@ pub(super) fn map_editor(
                     inherited: None,
                 };
                 let label = k.clone();
+                let rename = renames.clone().map(|entity| rename_button(entity, &k));
                 view! {
                     <div class="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-start gap-2 py-1" data-key=k.clone()>
                         <span class="truncate pt-2 font-mono text-sm">{label}</span>
                         <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::keyed::string_editor(sub) } else { editor(sub) }}</div>
+                        <div class="flex gap-1">
+                        {rename}
                         <button
                             type="button"
                             class=button_class("ghost", true)
@@ -176,6 +186,7 @@ pub(super) fn map_editor(
                         >
                             "Remove"
                         </button>
+                        </div>
                     </div>
                 }
             })
@@ -369,6 +380,25 @@ fn named_editor(fc: FieldCtx, branch: Node) -> AnyView {
             {crate::addr::picker(FieldCtx { node, ..fc }, r.entity, false)}
             {hint}
         </div>
+    }
+    .into_any()
+}
+
+fn rename_button(entity: Entity, name: &str) -> AnyView {
+    let open = RwSignal::new(false);
+    let can = store().can_write_now();
+    view! {
+        <button
+            type="button"
+            class=button_class("ghost", true)
+            aria-label=format!("Rename {name}")
+            data-testid="rename-key"
+            disabled=!can
+            on:click=move |_| open.set(true)
+        >
+            "Rename"
+        </button>
+        <crate::screens::create::RenameEntity entity=entity name=name.to_string() open=open/>
     }
     .into_any()
 }

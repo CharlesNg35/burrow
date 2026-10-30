@@ -16,6 +16,8 @@ mod edits;
 mod guards;
 #[path = "admin_e2e/header.rs"]
 mod header;
+#[path = "admin_e2e/logins.rs"]
+mod logins;
 #[path = "admin_e2e/more.rs"]
 mod more;
 #[path = "admin_e2e/passwords.rs"]
