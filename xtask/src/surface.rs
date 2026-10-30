@@ -5,6 +5,8 @@ use std::time::Instant;
 
 use sha2::Digest;
 
+use crate::{cargo, target_dir};
+
 const USAGE: &str = "usage: cargo xtask surface [--out FILE] [--check FILE]";
 const SHELLS: &[&str] = &["bash", "elvish", "fish", "powershell", "zsh"];
 const ROLES: &[&str] = &["server", "client", "visitor"];
@@ -12,10 +14,6 @@ const FIXTURE: &str = "crates/burrow-admin-proto/tests/fixtures/v0.1/schema.json
 const SIZE_TOLERANCE: f64 = 0.01;
 
 pub type Sections = BTreeMap<String, Vec<String>>;
-
-fn cargo() -> Command {
-    Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-}
 
 fn output(cmd: &mut Command) -> Result<String, String> {
     let shown = std::iter::once(cmd.get_program())
@@ -287,12 +285,6 @@ pub fn public_items(json: &serde_json::Value) -> Vec<String> {
     out.sort();
     out.dedup();
     out
-}
-
-fn target_dir(root: &Path) -> PathBuf {
-    std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("target"))
 }
 
 fn rustdoc(root: &Path) -> Vec<String> {

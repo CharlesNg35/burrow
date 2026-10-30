@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 
 const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
@@ -132,7 +131,7 @@ pub fn run(root: &Path) -> Result<(), String> {
 }
 
 fn check_deps(root: &Path) -> Result<Vec<String>, String> {
-    let out = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+    let out = crate::cargo()
         .args([
             "metadata",
             "--format-version",

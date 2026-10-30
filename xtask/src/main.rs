@@ -16,8 +16,18 @@ mod surface;
 mod tools;
 mod ui;
 
-use std::path::PathBuf;
-use std::process::ExitCode;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
+
+fn cargo() -> Command {
+    Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+}
+
+fn target_dir(root: &Path) -> PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target"))
+}
 
 fn root() -> PathBuf {
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
