@@ -1,5 +1,6 @@
 mod header;
 mod menus;
+mod row_menu;
 mod search;
 
 use burrow_admin_proto::msg::{FileDiagnostics, UiDiagnostics};
@@ -18,6 +19,7 @@ use crate::store::{Conn, Store, short_rev, store};
 
 use header::Header;
 pub(crate) use header::popover;
+pub(crate) use row_menu::{Item as MenuItem, row_menu, row_menus};
 use search::SearchPopover;
 
 const THEME_KEY: &str = "burrow-admin-theme";

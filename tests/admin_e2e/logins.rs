@@ -21,10 +21,11 @@ fn card(name: &str) -> String {
 }
 
 async fn menu(c: &Ctx, name: &str, item: &str) {
-    c.ui.click(&format!("{} [data-testid=login-more]", card(name)))
+    let at = card(name);
+    c.ui.click(&format!("{at} [data-testid=row-more]")).await;
+    c.ui.wait_for(&format!("{at} [data-testid=row-menu]:not(.hidden)"), SECS)
         .await;
-    c.ui.wait_for("[data-testid=login-menu]", SECS).await;
-    c.ui.click(&format!("[data-testid=login-menu] [data-testid={item}]"))
+    c.ui.click(&format!("{at} [data-testid=row-menu] [data-testid={item}]"))
         .await;
 }
 
@@ -40,7 +41,7 @@ async fn the_cards_say_what_each_one_does(c: &mut Ctx) {
         assert!(text.contains(want), "{want} in {text}");
     }
     assert_eq!(
-        c.ui.count("[data-testid=login-more]").await,
+        c.ui.count("[data-testid=row-more]").await,
         0,
         "view mode has no menu"
     );

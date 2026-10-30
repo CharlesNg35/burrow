@@ -6,16 +6,14 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::value::child;
 use burrow_config::{Entry, entity_path};
-use burrow_ui_kit::{Button, Dialog, FieldRow, Icon, MENU_ITEM, Tone, menu_class};
+use burrow_ui_kit::{Button, Dialog, FieldRow, Tone};
 use leptos::prelude::*;
 
+use crate::app::{MenuItem, row_menu, row_menus};
 use crate::route::{Link, Route};
 use crate::store::store;
 
 pub(crate) use site::site_editor;
-
-const MENU: &str = "login-menu";
-const MENU_BUTTON: &str = "login-menu-button";
 
 #[derive(Clone, PartialEq)]
 pub(crate) enum Open {
@@ -52,42 +50,29 @@ fn site_links(sites: Vec<String>) -> AnyView {
     .into_any()
 }
 
-fn card_menu(
-    name: String,
-    menu: RwSignal<Option<String>>,
-    open: RwSignal<Open>,
-    renaming: RwSignal<Option<String>>,
-    removing: RwSignal<Option<String>>,
-) -> impl IntoView {
-    let shown = {
-        let name = name.clone();
-        Memo::new(move |_| menu.with(|m| m.as_deref() == Some(name.as_str())))
-    };
-    let (n1, n2, n3, n4) = (name.clone(), name.clone(), name.clone(), name.clone());
-    view! {
-        <div class="relative ml-auto">
-            <button
-                type="button"
-                class="flex size-7 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3"
-                aria-label=format!("More for {name}")
-                aria-haspopup="true"
-                aria-expanded=move || shown.get().to_string()
-                aria-controls=move || shown.get().then_some(MENU)
-                id=move || shown.get().then_some(MENU_BUTTON)
-                data-testid="login-more"
-                on:click=move |_| menu.update(|m| *m = if m.as_deref() == Some(n1.as_str()) { None } else { Some(n1.clone()) })
-            >
-                <Icon name="more"/>
-            </button>
-            <Show when=move || shown.get()>
-                <div class=menu_class("top-8 right-0 w-40", false) id=MENU tabindex="-1" data-testid="login-menu" on:click=move |_| menu.set(None)>
-                    <button type="button" class=MENU_ITEM data-testid="login-edit" on:click={ let n = n2.clone(); move |_| open.set(Open::Edit(n.clone())) }>"Edit…"</button>
-                    <button type="button" class=MENU_ITEM data-testid="rename-key" on:click={ let n = n3.clone(); move |_| renaming.set(Some(n.clone())) }>"Rename…"</button>
-                    <button type="button" class=format!("{MENU_ITEM} text-danger") data-testid="login-remove" on:click={ let n = n4.clone(); move |_| removing.set(Some(n.clone())) }>"Remove…"</button>
-                </div>
-            </Show>
-        </div>
-    }
+fn card_menu(name: String, ctl: Controls) -> AnyView {
+    let (n1, n2, n3) = (name.clone(), name.clone(), name.clone());
+    let items = vec![
+        MenuItem {
+            label: "Edit…",
+            testid: "login-edit",
+            danger: false,
+            run: Callback::new(move |_| ctl.open.set(Open::Edit(n1.clone()))),
+        },
+        MenuItem {
+            label: "Rename…",
+            testid: "rename-key",
+            danger: false,
+            run: Callback::new(move |_| ctl.renaming.set(Some(n2.clone()))),
+        },
+        MenuItem {
+            label: "Remove…",
+            testid: "login-remove",
+            danger: true,
+            run: Callback::new(move |_| ctl.removing.set(Some(n3.clone()))),
+        },
+    ];
+    row_menu(ctl.menu, name.clone(), format!("More for {name}"), items)
 }
 
 fn card(name: String, ctl: Controls) -> impl IntoView {
@@ -111,7 +96,7 @@ fn card(name: String, ctl: Controls) -> impl IntoView {
     let menu = ctl
         .editing
         .get_untracked()
-        .then(|| card_menu(name.clone(), ctl.menu, ctl.open, ctl.renaming, ctl.removing));
+        .then(|| view! { <div class="ml-auto">{card_menu(name.clone(), ctl)}</div> });
     let (key, shown) = (name.clone(), name.clone());
     view! {
         <li class="rounded-[11px] border border-border bg-surface px-4 py-3 dark:bg-surface-2" data-key=key.clone() data-login=key>
@@ -199,19 +184,11 @@ pub(crate) fn login_services(label: String, help: String, path: Path, spath: Pat
     let editing = crate::form::editing_now();
     let ctl = Controls {
         editing: Signal::derive(move || can && editing.get()),
-        menu: RwSignal::new(None),
+        menu: row_menus(),
         open: RwSignal::new(Open::Closed),
         renaming: RwSignal::new(None),
         removing: RwSignal::new(None),
     };
-    let menu_open = RwSignal::new(false);
-    Effect::new(move |_| menu_open.set(ctl.menu.with(Option::is_some)));
-    Effect::new(move |_| {
-        if !menu_open.get() && ctl.menu.with_untracked(Option::is_some) {
-            ctl.menu.set(None);
-        }
-    });
-    crate::app::popover(menu_open, MENU_BUTTON, MENU);
     let names = Memo::new(move |_| logins(&e.doc()).keys().cloned().collect::<Vec<_>>());
     let list = move || {
         ctl.editing.track();
