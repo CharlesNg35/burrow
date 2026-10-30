@@ -24,6 +24,7 @@ use super::tree::{Node, Span, Value};
 use crate::config::diagnostics::Diagnostic;
 use crate::wire::secret::SecretError;
 use crate::wire::transport::tcp::SocketTuning;
+use burrow_config::field::Field;
 use burrow_config::{Bind, TcpOptions};
 
 pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
@@ -120,10 +121,28 @@ impl Spans {
         self.get(path).is_some()
     }
 
+    pub fn at<P, T>(&self, prefix: &[&str], f: Field<P, T>) -> Span {
+        self.value(&joined(prefix, &f))
+    }
+
+    pub fn key_at<P, T>(&self, prefix: &[&str], f: Field<P, T>) -> Span {
+        self.key(&joined(prefix, &f))
+    }
+
+    pub fn has_at<P, T>(&self, prefix: &[&str], f: Field<P, T>) -> bool {
+        self.has(&joined(prefix, &f))
+    }
+
     pub fn has_value(&self, path: &[&str]) -> bool {
         let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
         self.has(path) && !self.nulls.contains(&key)
     }
+}
+
+fn joined<'a, P, T>(prefix: &[&'a str], f: &Field<P, T>) -> Vec<&'a str> {
+    let mut path = prefix.to_vec();
+    path.extend(f.segments());
+    path
 }
 
 pub fn secretish(key: &str) -> bool {

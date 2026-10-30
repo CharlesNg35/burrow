@@ -224,17 +224,18 @@ pub fn detect_role(root: &Node) -> Option<Role> {
     let server = entries
         .iter()
         .filter(|e| {
-            matches!(
-                e.key.as_str(),
-                "listen"
-                    | "websocket"
-                    | "clients"
-                    | "visitors"
-                    | "services"
-                    | "limits"
-                    | "pool"
-                    | "heartbeat"
-            )
+            use burrow_config::ServerConfig as S;
+            [
+                S::LISTEN.key(),
+                S::WEBSOCKET.key(),
+                S::CLIENTS.key(),
+                S::VISITORS.key(),
+                S::SERVICES.key(),
+                S::LIMITS.key(),
+                S::POOL.key(),
+                S::HEARTBEAT.key(),
+            ]
+            .contains(&e.key.as_str())
         })
         .count();
     let client = entries

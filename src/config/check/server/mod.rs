@@ -13,7 +13,8 @@ use super::{Spans, name_error, parse_bind, parse_local, tuning, valid_name};
 use crate::config::diagnostics::Diagnostic;
 use crate::policy::allowlist::AllowList;
 use burrow_config::SELF;
-use burrow_config::{Bind, Protocol, ServerConfig};
+use burrow_config::field::Entry as _;
+use burrow_config::{Bind, Protocol, ServerConfig, VisitorEntry};
 use refs::check_reach;
 pub use refs::check_refs;
 use secrets::{check_secrets, check_websocket};
@@ -83,7 +84,7 @@ pub fn check_server(
                     cfg.pool.min_idle, cfg.pool.max_idle
                 ),
             )
-            .at(spans.value(&["pool", "min_idle"]))
+            .at(spans.at(&[], ServerConfig::POOL.then(burrow_config::Pool::MIN_IDLE)))
             .label("larger than max_idle")
             .help("make min_idle less than or equal to max_idle"),
         );
@@ -148,7 +149,7 @@ fn check_listen(
                         "invalid-address",
                         format!("invalid listen address \"{given}\""),
                     )
-                    .at(spans.value(&["listen"]))
+                    .at(spans.at(&[], ServerConfig::LISTEN))
                     .label("expected ip:port or a port")
                     .help(format!("use an IP and port, for example 0.0.0.0:{p} or [::]:{p}, or a port alone like {p}", p = burrow_syntax::ports::SERVER_PORT)),
                 );
@@ -158,8 +159,8 @@ fn check_listen(
     };
     if cfg.listen.is_none()
         && cfg.websocket.is_none()
-        && !spans.has(&["listen"])
-        && !spans.has(&["websocket"])
+        && !spans.has_at(&[], ServerConfig::LISTEN)
+        && !spans.has_at(&[], ServerConfig::WEBSOCKET)
     {
         out.push(
             Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
@@ -191,7 +192,7 @@ fn check_public_address(
                 "invalid-address",
                 format!("invalid public_address: {}", e.message),
             )
-            .at(spans.value(&["public_address"]))
+            .at(spans.at(&[], ServerConfig::PUBLIC_ADDRESS))
             .label("expected a host, host:port or wss:// URL")
             .help(e.hint),
         );
@@ -210,7 +211,7 @@ fn check_clients(
                 burrow_admin_proto::codes::NO_CLIENTS,
                 "no clients are defined, so nobody can connect",
             )
-            .at(spans.key(&["clients"]))
+            .at(spans.key_at(&[], ServerConfig::CLIENTS))
             .help(format!(
                 "add one, for example:\n         clients:\n           home: {{ secret: SECRET }}\n       with a SECRET from: {}",
                 crate::base::failure::cmd("gensecret")
@@ -272,7 +273,7 @@ fn check_visitors(
                         "visitor \"{name}\" may reach any target that client \"{client}\" allows, over TCP or UDP"
                     ),
                 )
-                .at(spans.key(&["visitors", name, "reach", client]))
+                .at(spans.key(&[VisitorEntry::SECTION, name, VisitorEntry::REACH.key(), client]))
                 .label("limited only by the client's allow list")
                 .help(format!(
                     "keep {} narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs",
@@ -285,7 +286,7 @@ fn check_visitors(
         if !listed
             && entry.admin.is_none()
             && entry.reach.is_empty()
-            && !spans.has(&["visitors", name, "reach"])
+            && !spans.has_at(&[VisitorEntry::SECTION, name], VisitorEntry::REACH)
         {
             out.push(
                 Diagnostic::warning(
@@ -327,7 +328,7 @@ fn check_all_services<'a>(
     if cfg.services.is_empty() && cfg.visitors.values().all(|v| v.reach.is_empty()) {
         out.push(
             Diagnostic::warning(burrow_admin_proto::codes::NO_SERVICES, "no services are defined, so nothing is exposed")
-                .at(spans.key(&["services"]))
+                .at(spans.key_at(&[], ServerConfig::SERVICES))
                 .help(format!("add a service, for example:\n         services:\n           web: {{ client: NAME, bind: 0.0.0.0:{}, target: 127.0.0.1:80 }}", burrow_syntax::ports::FIRST_SERVICE_PORT)),
         );
     }
@@ -428,7 +429,7 @@ fn check_admin(
                     "visitor \"{name}\" has admin_from but no admin access, so it has no effect"
                 ),
             )
-            .at(spans.key(&["visitors", name, "admin_from"]))
+            .at(spans.key_at(&[VisitorEntry::SECTION, name], VisitorEntry::ADMIN_FROM))
             .help("add \"admin: read\" or \"admin: write\", or remove admin_from"),
         );
     }
@@ -440,7 +441,7 @@ fn check_admin(
                     "visitor \"{name}\" has admin access and also reaches services or clients, so one leaked secret gives both"
                 ),
             )
-            .at(spans.key(&["visitors", name, "admin"]))
+            .at(spans.key_at(&[VisitorEntry::SECTION, name], VisitorEntry::ADMIN))
             .label("admin access here")
             .help("use a dedicated visitor for burrow admin, and another one for burrow visit"),
         );
@@ -454,7 +455,10 @@ fn check_metrics(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Option<SocketAddr> {
-    let at = spans.value(&["metrics", "listen"]);
+    let at = spans.at(
+        &[],
+        ServerConfig::METRICS.then(burrow_config::MetricsConfig::LISTEN),
+    );
     let addr = match parse_local(listen) {
         Ok((addr, 1)) => addr,
         Ok(_) | Err(_) => {
@@ -527,7 +531,7 @@ pub(super) fn insecure_warning(spans: &Spans) -> Diagnostic {
         "insecure-plaintext",
         "insecure_plaintext is enabled: forwarded data is not encrypted",
     )
-    .at(spans.value(&["insecure_plaintext"]))
+    .at(spans.at(&[], ServerConfig::INSECURE_PLAINTEXT))
     .label("traffic can be read and modified on the network")
     .help("remove this line unless the network between client and server is trusted")
 }
