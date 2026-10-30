@@ -54,19 +54,19 @@ burrow admin --no-open --print-url  # ./visitor.yaml, or the one installed visit
 
 An installed server can write its config only when it has an admin visitor, or was installed with `service install --admin-writable`. Its config folder, `/etc/burrow/<name>/`, then belongs to the service's account. Otherwise the folder belongs to root, and the UI is read-only and shows the command that makes it writable. Nothing moves either way. [service.md](service.md#changing-the-config) shows how to add admin access to a server installed without it.
 
-The installed copy is then the config: the file you installed from was only its first version, and `service status` says so instead of suggesting a reinstall. A reinstall, for example to change `--run-as`, still copies the source over it. If the installed copy differs, it is first kept as a version in its history, so Activity can revert to it. A reinstall from the source file also brings back admin access you revoked in the UI, because the source still has it; revoke it in the source too.
+The installed copy is then the config: the file you installed from was only its first version, and `service status` says so instead of suggesting a reinstall. A reinstall, for example to change `--run-as`, still copies the source over it. If the installed copy differs, it is first kept as a version in its history, so you can go back to it from Activity. A reinstall from the source file also brings back admin access you revoked in the UI, because the source still has it; revoke it in the source too.
 
 ## Locked fields, history and revert
 
 What the pages do, and what stays a file edit:
 
 - A service page says how the service is reached: a public port, a website and visitors, in any mix. Turning one off keeps its values until you add the change, and Review says what goes: the port that closes, the website and its settings, or the visitors that can no longer reach it.
-- Settings has four tabs: Server (the listener, this server and security), Connections (WebSocket, the pool of idle channels, heartbeat, TCP, UDP and limits), Web (the web proxy and, once it is on, the local CA) and Monitoring. The search and the All, Restart and Changed filters above them look through every tab, and each tab says how many of its settings match, are changed or are locked.
-- Some settings are shown but are changed only in server.yaml on the server: `listen` (it needs a restart), `insecure_plaintext`, the heartbeat interval, the handshake limits and every file path. The server refuses changes to them.
+- Settings has four tabs: Server (the listener, this server and security), Connections (WebSocket, ready connections to clients, heartbeat, TCP, UDP and limits), Web (the web proxy and, once it is on, the local CA) and Monitoring. The search and the All, Needs a restart and Changed filters above them look through every tab, and each tab says how many of its settings match, are changed or are locked.
+- Some settings are shown but are changed only in server.yaml on the server: `listen` (it needs a restart), `insecure_plaintext`, the heartbeat interval, the connection setup limits and every file path. The server refuses changes to them.
 - The web proxy's ports are changed in Settings, and New website turns the web proxy on when the server has none. Review names each port a change opens and the websites a removal stops. A port the tunnel shares stays a file edit, and a port another program holds is refused before anything is written.
 - WebSocket can be turned on, moved or turned off from Settings. The server first checks that a new port is free, and Review names the clients connected over WebSocket now: they are cut off and need their own config changed. A session that itself comes over WebSocket cannot move or turn off that listener; do that in server.yaml. The `websocket.tls` files stay a file edit.
-- Before each change from burrow admin, the previous file is kept beside it in `.server.yaml.history/` (the last 20, mode 0600). Activity lists the versions, and each can be reverted after a review. When that folder cannot be written, the history is kept in memory only.
-- Every change goes through a review page with the diff and its impact before it is applied, and a hand edit made meanwhile shows as a conflict instead of being overwritten.
+- Before each change from burrow admin, the previous file is kept beside it in `.server.yaml.history/` (the last 20, mode 0600). Activity lists the versions by the time they were applied, and you can go back to each after a review. When that folder cannot be written, the history is kept in memory only.
+- Every change goes through a review page, with what changes in server.yaml and what it affects, before it is applied, and a hand edit made meanwhile shows as a conflict instead of being overwritten.
 
 ## Security notes
 

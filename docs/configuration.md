@@ -180,7 +180,7 @@ services:
 | `web.https_redirect` | `true` | the default of every HTTPS site's `https_redirect` |
 | `web.http2` | `true` | browsers may use HTTP/2 on `web.https`; `false` keeps HTTP/1.1 only |
 | `web.letsencrypt.email` | none | turns on Let's Encrypt certificates; writing it accepts Let's Encrypt's terms |
-| `web.letsencrypt.directory` | `production` | `production`, `staging` (the test service) or the URL of another ACME server |
+| `web.letsencrypt.directory` | `production` | `production`, `staging` (Let's Encrypt's test servers) or the URL of another certificate authority (ACME) |
 | `web.letsencrypt.profile` | the CA's default | a certificate profile the CA offers, like `shortlived` |
 | `web.letsencrypt.ca` | none | a PEM file with the CA to trust for another ACME server |
 | `web.certificates` | none | your own files: a list of `{ hosts, cert, key }`; each name is listed in one entry only |

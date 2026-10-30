@@ -10,7 +10,7 @@ The words that burrow's docs, its messages and the admin UI use, each with one m
 | **client** | A burrow machine behind a router or firewall, usually at home or in an office. It connects out to the server and reaches your apps for it. Its config is `client.yaml`. |
 | **visitor** | One of your own devices, such as a laptop, that connects to the server with its own name and secret to use private services. Its config is `visitor.yaml`, and it runs `burrow visit`. |
 | **tunnel** | The encrypted connections between a client (or visitor) and the server. Everything a service carries travels inside it. |
-| **channel** | One encrypted connection inside the tunnel. A client keeps a few idle channels open in advance (the pool), so a new connection starts at once. |
+| **channel** | One encrypted connection inside the tunnel. A client keeps a few idle channels open in advance (the pool; burrow admin calls them ready connections), so a new connection starts at once. |
 | **secret** | 32 random bytes that a client or visitor proves it knows to log in. Made with `burrow gensecret`; never a password. |
 | **NAT** | Network address translation: what a home router does, so machines behind it can connect out but cannot be reached from the internet. burrow exists to get past it. |
 

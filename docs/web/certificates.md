@@ -109,7 +109,7 @@ web:
   http: 80
   letsencrypt:
     email: ops@example.com
-    # directory: staging          # Let's Encrypt's test service, for trying things out
+    # directory: staging          # Let's Encrypt's test servers, for trying things out
     # profile: shortlived         # 6-day certificates
     # directory: https://ca.internal/acme/directory  # another ACME server
     # ca: certs/internal-ca.pem   # the CA to trust for that server
@@ -254,7 +254,7 @@ Scripts written for lego's exec provider work unchanged when they read their cre
 1. **DNS:** the name points at this server (`dig +short blog.example.com`), for IPv6 too if you have an `AAAA` record.
 2. **Ports:** port 443 (or 80) reaches burrow from the internet, not only from your network. A router must forward it.
 3. **Firewalls:** nothing blocks Let's Encrypt's checks from abroad.
-4. **Limits:** after many failures Let's Encrypt slows down; burrow follows its schedule. `directory: staging` tries everything against the test service without counting against your limits.
+4. **Limits:** after many failures Let's Encrypt slows down; burrow follows its schedule. `directory: staging` tries everything against the test servers without counting against your limits.
 
 ## Next steps
 

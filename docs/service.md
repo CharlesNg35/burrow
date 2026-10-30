@@ -119,7 +119,7 @@ This reinstalls `burrow-server`: burrow recognizes its installed config, so no `
 
 - You can install again from the installed copy, as above, or from the original file. An installed config always leads to its own service: `-c /etc/burrow/home/client.yaml` reinstalls `burrow-home`.
 - Installing from another file under the same service name is refused; rename the file or pass `--name` to add a second service.
-- A reinstall from the original file copies it over the installed one. If the installed copy has changes made with `burrow admin`, it is first kept as a version in the admin history, so you can revert to it.
+- A reinstall from the original file copies it over the installed one. If the installed copy has changes made with `burrow admin`, it is first kept as a version in Activity in burrow admin, so you can go back to it.
 - A reinstall from the original file also brings back admin access you removed in `burrow admin`, because the original still has it. Remove it there too.
 
 </details>

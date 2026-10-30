@@ -285,7 +285,7 @@ services:
 
 ## Web admin
 
-`burrow admin` opens a clean web admin on your own machine. Watch live traffic, clients, services, visitors, websites and certificates, and change them in forms that explain every field. Before a change applies, a review shows its diff and what it affects. Earlier versions can be restored, and the server refuses a change that would lock you out.
+`burrow admin` opens a clean web admin on your own machine. Watch live traffic, clients, services, visitors, websites and certificates, and change them in forms that explain every field. Before a change applies, a review shows what changes in server.yaml and what it affects. You can go back to an earlier version, and the server refuses a change that would lock you out.
 
 The admin connects to the server as a visitor with admin access, so the server opens no new port. Give one visitor that access:
 
@@ -307,7 +307,7 @@ Then print its config on the server, and open the admin with it on your machine:
 <details>
 <summary><b>Screenshots</b></summary>
 
-The Overview: live counts, traffic, what needs attention, clients that are away, and a table of services, clients and visitors (with websites and certificates once the web proxy is on).
+The Overview: live counts, traffic, what needs attention, clients that are offline, and a table of services, clients and visitors (with websites and certificates once the web proxy is on).
 
 ![The Overview page of burrow admin](docs/images/admin-overview.png)
 

@@ -161,14 +161,14 @@ app:
   clients:
     - {name: gateway, target: 10.0.0.12:3000}
     - {name: gateway, target: 10.0.0.13:3000, weight: 2}
-    - home                # uses the service target below
+    - home                # uses the main target below
   mode: balance
   health_check: true
   bind: 443
   target: 127.0.0.1:3000
 ```
 
-Each entry is checked, counted and set aside on its own. When the VM at 10.0.0.12 stops answering, new connections go to the other VM and to `home`, and the gateway keeps serving them. The gateway's `allow` list must include each target. A client may be listed twice only with different targets, and a port range in an entry must have as many ports as the service's.
+Each entry is checked, counted and skipped on its own. When the VM at 10.0.0.12 stops answering, new connections go to the other VM and to `home`, and the gateway keeps serving them. The gateway's `allow` list must include each target. A client may be listed twice only with different targets, and a port range in an entry must have as many ports as the service's.
 
 If a client cannot reach the target, or its `allow` list refuses it, the connection moves to the next client at once, and that client is skipped for a while. `burrow status` shows it as `failing` or `refused`. Open connections stay on their client.
 
