@@ -59,7 +59,7 @@ pub(super) fn key_adder(
                 />
                 {move || problem.get().map(|p| view! { <p id=format!("{id}-add-msg") class="mt-1 text-xs text-danger">{p}</p> })}
             </div>
-            <button type="button" id=button_id class=format!("{} h-[38px]", button_class("secondary", false)) on:click=move |_| c2()>
+            <button type="button" id=button_id class=format!("{} {}", button_class("secondary", false), burrow_ui_kit::INPUT_H) on:click=move |_| c2()>
                 "Add"
             </button>
         </div>

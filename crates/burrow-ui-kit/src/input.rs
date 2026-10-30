@@ -3,9 +3,11 @@ use leptos::prelude::*;
 use crate::basic::Tone;
 use crate::icon::Icon;
 
+pub const INPUT_H: &str = "h-[38px]";
+
 pub fn field_class(invalid: bool, mono: bool) -> String {
     format!(
-        "h-[38px] w-full min-w-0 rounded-input border bg-input px-2.5 text-[13px] text-text placeholder:text-text-faint outline-none focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:opacity-55 disabled:cursor-not-allowed {}{}",
+        "{INPUT_H} w-full min-w-0 rounded-input border bg-input px-2.5 text-[13px] text-text placeholder:text-text-faint outline-none focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:opacity-55 disabled:cursor-not-allowed {}{}",
         if invalid {
             "border-danger ring-3 ring-danger-weak"
         } else {
@@ -105,7 +107,7 @@ pub fn Select(
                 id=id
                 class=move || {
                     let base = format!("{} appearance-none pr-8", field_class(invalid.get(), false));
-                    if small { base.replace("h-[38px]", "h-7").replace("text-[13px]", "text-xs") } else { base }
+                    if small { base.replace(INPUT_H, "h-7").replace("text-[13px]", "text-xs") } else { base }
                 }
                 aria-label=label
                 aria-invalid=move || invalid.get().then_some("true")
