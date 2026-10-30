@@ -85,17 +85,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
     if !begun.wrote {
         let (core_, session) = (cx.hub.core.clone(), cx.session.clone());
         let applied = blocking(move || {
-            plan::finish(
-                &core_,
-                &session,
-                begun,
-                ReloadResult::Applied {
-                    restart: Vec::new(),
-                    unbound: Vec::new(),
-                    lines: Vec::new(),
-                },
-                None,
-            )
+            plan::finish(&core_, &session, begun, ReloadResult::unchanged(), None)
         })
         .await
         .ok_or_else(|| ApiError::new(ErrorCode::Internal, "the apply task failed"))??;
@@ -120,11 +110,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
                 _ => ReloadResult::Timeout,
             }
         }
-        Some(ReloadOutcome::Unchanged) => ReloadResult::Applied {
-            restart: Vec::new(),
-            unbound: Vec::new(),
-            lines: Vec::new(),
-        },
+        Some(ReloadOutcome::Unchanged) => ReloadResult::unchanged(),
         None => ReloadResult::Timeout,
     };
     let rejected = matches!(reload, ReloadResult::Rejected(_));

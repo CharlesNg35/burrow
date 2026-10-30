@@ -126,6 +126,16 @@ pub enum ReloadResult {
     Timeout,
 }
 
+impl ReloadResult {
+    pub fn unchanged() -> ReloadResult {
+        ReloadResult::Applied {
+            restart: Vec::new(),
+            unbound: Vec::new(),
+            lines: Vec::new(),
+        }
+    }
+}
+
 pub fn restore(core: &Core, begun: &Begun) -> bool {
     begun.wrote
         && core

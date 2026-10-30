@@ -278,15 +278,5 @@ fn apply_at(
             address: address.map(str::to_string),
         },
     )?;
-    plan::finish(
-        core,
-        s,
-        begun,
-        ReloadResult::Applied {
-            restart: Vec::new(),
-            unbound: Vec::new(),
-            lines: Vec::new(),
-        },
-        None,
-    )
+    plan::finish(core, s, begun, ReloadResult::unchanged(), None)
 }
