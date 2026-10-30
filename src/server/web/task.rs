@@ -114,7 +114,7 @@ impl WebTask {
         shared: &Arc<Shared>,
         s: &ServerSettings,
     ) -> Result<Option<WebTask>, Failure> {
-        let Some(p) = proxy_settings(s)? else {
+        let Some(p) = proxy_settings(s) else {
             return Ok(None);
         };
         let Some(ports) = Ports::of(&p) else {
@@ -214,15 +214,9 @@ impl Server {
         released: &[SocketAddr],
     ) -> Option<PortWait> {
         self.waiting(None);
-        let p = match proxy_settings(next) {
-            Ok(p) => p,
-            Err(f) => {
-                error!("{}; the web proxy keeps its current settings", f.message);
-                next.web = self.shared.settings().web.clone();
-                return None;
-            }
-        };
-        let Some((p, ports)) = p.and_then(|p| Ports::of(&p).map(|ports| (p, ports))) else {
+        let Some((p, ports)) =
+            proxy_settings(next).and_then(|p| Ports::of(&p).map(|ports| (p, ports)))
+        else {
             if self.web.is_some() {
                 self.stop_web().await;
                 self.shared
@@ -323,7 +317,7 @@ impl Server {
         }
         let mut wanted = next.clone();
         wanted.web = Some(want);
-        let Ok(Some(p)) = proxy_settings(&wanted) else {
+        let Some(p) = proxy_settings(&wanted) else {
             return false;
         };
         let Some(ports) = Ports::of(&p) else {

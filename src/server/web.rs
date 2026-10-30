@@ -12,7 +12,6 @@ use super::Shared;
 use super::listen::Permit;
 use super::route::Outcome;
 use super::tcp::{Door, Entry, Refusal, Shape, admit, visit};
-use crate::base::failure::Failure;
 use crate::config::settings::{ServerSettings, Shares, WebSettings, WebTls};
 use crate::forward::ForwardError;
 use crate::wire::protocol::Status;
@@ -122,10 +121,8 @@ pub(super) fn refusal(outcome: &Outcome) -> Option<Refused> {
     }
 }
 
-pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>, Failure> {
-    let Some(web) = &s.web else {
-        return Ok(None);
-    };
+pub(super) fn proxy_settings(s: &ServerSettings) -> Option<ProxySettings> {
+    let web = s.web.as_ref()?;
     let mut p = ProxySettings {
         https: web.https,
         http: web.http,
@@ -161,7 +158,7 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
             },
         });
     }
-    Ok(Some(p))
+    Some(p)
 }
 
 fn tunnel_mode(web: &WebSettings, host: &str, shares: Shares) -> TunnelMode {
