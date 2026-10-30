@@ -358,7 +358,7 @@ pub fn Settings() -> impl IntoView {
                 "Server settings"
             </burrow_ui_kit::PageHeader>
             {tab_bar(rows, tab, look, search_box(look.query, "Search settings".into()).into_any())}
-            <div class="mb-4 flex flex-wrap items-center gap-1.5" data-testid="settings-search">
+            <div class="mb-4" data-testid="settings-search">
                 {filter_chips(filters, look.filter, plain_rows, true)}
             </div>
             <div data-testid="settings">{tab_cards(tab, look, rows)}</div>

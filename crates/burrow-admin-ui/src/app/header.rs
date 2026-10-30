@@ -1,7 +1,7 @@
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::admin_schema::AdminEnum;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::Icon;
+use burrow_ui_kit::{Icon, ScrollRow};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -10,6 +10,8 @@ use crate::store::{Conn, Store, store};
 
 use super::menus::{avatar_menu, conn_state, facts, mobile_back, review_or_read_only};
 use super::{THEME_KEY, apply_theme, saved_theme};
+
+const CURRENT: &str = "[aria-current=page]";
 
 fn initials(name: &str) -> String {
     let mut parts = name
@@ -42,7 +44,10 @@ pub(super) fn Header() -> impl IntoView {
         }
     });
     let check_state = check_state(s);
-    keep_current_tab_visible(s);
+    let current_tab = Signal::derive(move || {
+        s.route.track();
+        CURRENT.to_string()
+    });
     let read_only = Memo::new(move |_| s.conn.get() == Conn::Open && !s.can_write());
     let why_open = RwSignal::new(false);
     let retry_open = RwSignal::new(false);
@@ -100,8 +105,8 @@ pub(super) fn Header() -> impl IntoView {
                     </div>
                 </Show>
             </div>
-            <nav aria-label="Sections" class="flex gap-0.5 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:pr-8 max-sm:[scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] dark:border-hdr-raised-2">
-                {nav}
+            <nav aria-label="Sections" class="min-w-0 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 dark:border-hdr-raised-2">
+                <ScrollRow active=current_tab class="gap-0.5" testid="nav-row">{nav}</ScrollRow>
             </nav>
             <div class="flex items-center justify-end gap-3" data-testid="header-right">
                 <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
@@ -198,32 +203,6 @@ fn check_state(s: Store) -> Signal<String> {
             "ok".to_string()
         }
     })
-}
-
-fn show_current_tab() {
-    let overflows = document()
-        .query_selector("nav[aria-label=Sections]")
-        .ok()
-        .flatten()
-        .is_some_and(|n| n.scroll_width() > n.client_width());
-    if overflows
-        && let Ok(Some(el)) =
-            document().query_selector("nav[aria-label=Sections] [aria-current=page]")
-    {
-        let opts = web_sys::ScrollIntoViewOptions::new();
-        opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
-        opts.set_inline(web_sys::ScrollLogicalPosition::Center);
-        el.scroll_into_view_with_scroll_into_view_options(&opts);
-    }
-}
-
-fn keep_current_tab_visible(s: Store) {
-    Effect::new(move |_| {
-        s.route.track();
-        request_animation_frame(show_current_tab);
-    });
-    let resized = window_event_listener(leptos::ev::resize, |_| show_current_tab());
-    on_cleanup(move || resized.remove());
 }
 
 fn html_by_id(id: &str) -> Option<web_sys::HtmlElement> {

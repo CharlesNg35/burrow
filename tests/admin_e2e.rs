@@ -2,6 +2,8 @@
 mod access;
 #[path = "admin_e2e/checks.rs"]
 mod checks;
+#[path = "admin_e2e/chips.rs"]
+mod chips;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
 #[path = "admin_e2e/edit_state.rs"]

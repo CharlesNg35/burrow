@@ -13,6 +13,7 @@ mod icon;
 mod input;
 mod overlay;
 mod path;
+mod scroll;
 mod spark;
 mod toast;
 
@@ -35,5 +36,6 @@ pub use overlay::{
     Dialog, Drawer, Tooltip, active as active_element, focus_first, trap as trap_focus,
 };
 pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
+pub use scroll::ScrollRow;
 pub use spark::{ChartData, LineChart, Sparkline, segments, spark_max, spark_path};
 pub use toast::{Toast, ToastHost};

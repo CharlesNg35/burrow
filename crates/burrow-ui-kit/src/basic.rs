@@ -340,8 +340,9 @@ pub fn Tabs(
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
     #[prop(optional, into)] errors: Option<Signal<Vec<usize>>>,
 ) -> impl IntoView {
+    let selector = Signal::derive(move || format!("[data-tab=\"{}\"]", active.get()));
     view! {
-        <div class="mb-4 flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none]" role="tablist">
+        <crate::ScrollRow active=selector class="mb-4 gap-1 border-b border-border" role="tablist">
             {tabs
                 .into_iter()
                 .enumerate()
@@ -370,7 +371,7 @@ pub fn Tabs(
                     }
                 })
                 .collect_view()}
-        </div>
+        </crate::ScrollRow>
     }
 }
 
@@ -401,31 +402,9 @@ pub fn PillTabs(
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
     #[prop(optional)] marks: Option<Signal<Vec<Vec<TabMark>>>>,
 ) -> impl IntoView {
-    let bar: NodeRef<leptos::html::Div> = NodeRef::new();
-    Effect::new(move |_| {
-        let key = active.get();
-        request_animation_frame(move || {
-            let Some(el) = bar.try_get_untracked().flatten() else {
-                return;
-            };
-            let el: web_sys::HtmlElement = el.into();
-            if el.scroll_width() <= el.client_width() {
-                return;
-            }
-            if let Ok(Some(tab)) = el.query_selector(&format!("[data-tab=\"{key}\"]")) {
-                let opts = web_sys::ScrollIntoViewOptions::new();
-                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
-                opts.set_inline(web_sys::ScrollLogicalPosition::Nearest);
-                tab.scroll_into_view_with_scroll_into_view_options(&opts);
-            }
-        });
-    });
+    let selector = Signal::derive(move || format!("[data-tab=\"{}\"]", active.get()));
     view! {
-        <div
-            class="flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none] max-md:[mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)] [&::-webkit-scrollbar]:hidden"
-            role="tablist"
-            node_ref=bar
-        >
+        <crate::ScrollRow active=selector class="gap-1" role="tablist">
             {tabs
                 .into_iter()
                 .enumerate()
@@ -446,7 +425,7 @@ pub fn PillTabs(
                     }
                 })
                 .collect_view()}
-        </div>
+        </crate::ScrollRow>
     }
 }
 

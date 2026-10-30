@@ -1,6 +1,6 @@
 use burrow_admin_logic::wording::{WriteAction, needs_write_admin};
 use burrow_config::Protocol;
-use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, Tone, tag_class};
+use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, ScrollRow, Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Link};
@@ -157,7 +157,7 @@ pub fn ListPane(
                     {new_button}
                 </div>
                 <div class="mb-2.5">{search_box(q, search_label)}</div>
-                <div class="flex flex-wrap gap-1.5">{chips}</div>
+                {chips}
             </div>
             <div
                 tabindex="0"
@@ -321,13 +321,14 @@ pub(crate) fn filter_chips(
     rows: Signal<Vec<Row>>,
     no_counts: bool,
 ) -> impl IntoView {
-    filters
+    let active = Signal::derive(move || format!("[data-filter=\"{}\"]", filter.get()));
+    let chips = filters
         .into_iter()
         .map(|(key, label)| {
             view! {
                 <button
                     type="button"
-                    class="h-6 cursor-pointer rounded-full border px-2.5 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink"
+                    class="h-6 shrink-0 cursor-pointer rounded-full border px-2 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink"
                     class:border-border=move || filter.get() != key
                     class:text-text-muted=move || filter.get() != key
                     aria-pressed=move || (filter.get() == key).to_string()
@@ -342,7 +343,8 @@ pub(crate) fn filter_chips(
                 </button>
             }
         })
-        .collect_view()
+        .collect_view();
+    view! { <ScrollRow active=active class="w-0 min-w-full gap-1.5" testid="filter-chips">{chips}</ScrollRow> }
 }
 
 fn keep_selected_in_view(
