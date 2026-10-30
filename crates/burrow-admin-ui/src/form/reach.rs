@@ -3,6 +3,7 @@ use burrow_admin_proto::schema::Field;
 use burrow_admin_proto::serde_json::{Value, json};
 use burrow_admin_proto::value::child;
 use burrow_config::{Protocol, ServiceEntry};
+use burrow_ui_kit::{Tone, field_message};
 use leptos::prelude::*;
 
 use crate::store::store;
@@ -116,12 +117,14 @@ struct Switch {
     on: RwSignal<bool>,
     kept: StoredValue<Option<Value>>,
     blocked: Signal<Option<&'static str>>,
+    touched: RwSignal<bool>,
 }
 
 impl Switch {
     fn toggle(&self) -> impl IntoView + use<> {
         let e = store().edit;
-        let (way, on, kept, blocked) = (self.way, self.on, self.kept, self.blocked);
+        let (way, on, kept, blocked, touched) =
+            (self.way, self.on, self.kept, self.blocked, self.touched);
         let path = child(&self.svc, way.key());
         let id = format!("{}-reach-{}", field_id(&self.svc), way.key());
         view! {
@@ -131,6 +134,7 @@ impl Switch {
                 label=way.label()
                 disabled=Signal::derive(move || blocked.get().is_some())
                 on_change=move |v: bool| {
+                    touched.set(true);
                     if v {
                         let back = kept.get_value().or_else(|| way.fresh());
                         if back.is_some() {
@@ -219,6 +223,7 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
         .into_iter()
         .map(|w| view_line(w, svc.clone()))
         .collect_view();
+    let touched = RwSignal::new(false);
     let mut blocks = Vec::new();
     for way in Way::ALL {
         let path = child(&svc, way.key());
@@ -239,15 +244,27 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
             on,
             kept: StoredValue::new(None),
             blocked,
+            touched,
         };
         blocks.push(way_block(sw, field).into_any());
     }
+    let svc_now = svc.clone();
+    let none = Memo::new(move |_| {
+        let w = burrow_admin_logic::web::ways(&e.value(&svc_now).unwrap_or_default());
+        !(w.public || w.website || w.visitors)
+    });
+    let no_way = move || {
+        none.get().then(|| {
+            let tone = if touched.get() { Tone::Danger } else { Tone::Info };
+            view! { <div data-testid="no-way-in">{field_message(tone, crate::screens::paths::PICK_VISITORS.to_string())}</div> }
+        })
+    };
     view! {
         <div class="md:col-span-2" data-testid="reached-by">
             <div class:hidden=move || can && editing.try_get().unwrap_or(false)>
                 <ul data-testid="reached-by-view">{lines}</ul>
             </div>
-            <div class:hidden=move || !(can && editing.try_get().unwrap_or(false))>{blocks}</div>
+            <div class:hidden=move || !(can && editing.try_get().unwrap_or(false))>{blocks}{no_way}</div>
         </div>
     }
     .into_any()

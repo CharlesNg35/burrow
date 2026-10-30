@@ -46,6 +46,11 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.wait_for("[data-testid=save-bar]", SECS).await;
         c.ui.shot("new-service-form").await;
+        c.ui.wait_for(
+            "[data-testid=reached-by] [data-testid=no-way-in] [data-tone=info]",
+            SECS,
+        )
+        .await;
 
         assert_eq!(
             c.ui.count("[data-schema='services/*/client'][data-path]")

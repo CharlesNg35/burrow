@@ -20,6 +20,22 @@ pub fn tag_class(tone: Tone) -> String {
     )
 }
 
+pub fn field_message(tone: Tone, m: String) -> AnyView {
+    let (icon, class) = match tone {
+        Tone::Danger => ("alert-circle", "text-danger"),
+        Tone::Warning => ("alert", "text-warning"),
+        Tone::Info | Tone::Accent => ("info", "text-accent-ink"),
+        _ => ("info", "text-text-muted"),
+    };
+    view! {
+        <p class=format!("mt-1.5 flex items-start gap-1.5 text-xs {class}") data-tone=tone.name()>
+            <Icon name=icon small=true/>
+            <span>{m}</span>
+        </p>
+    }
+    .into_any()
+}
+
 #[component]
 pub fn FieldRow(
     #[prop(into)] id: String,
@@ -59,22 +75,11 @@ pub fn FieldRow(
     };
     let help_line = move || {
         let s = state.get();
-        let line = |icon: &'static str, class: &'static str, m: String| {
-            view! {
-                <p class=format!("mt-1.5 flex items-start gap-1.5 text-xs {class}")>
-                    <Icon name=icon small=true/>
-                    <span>{m}</span>
-                </p>
-            }
-            .into_any()
-        };
         s.error
-            .map(|m| line("alert-circle", "text-danger", m))
-            .or(s
-                .disabled_reason
-                .map(|m| line("info", "text-text-muted", m)))
-            .or(s.warning.map(|m| line("alert", "text-warning", m)))
-            .or(s.info.map(|m| line("info", "text-accent-ink", m)))
+            .map(|m| field_message(Tone::Danger, m))
+            .or(s.disabled_reason.map(|m| field_message(Tone::Neutral, m)))
+            .or(s.warning.map(|m| field_message(Tone::Warning, m)))
+            .or(s.info.map(|m| field_message(Tone::Info, m)))
     };
     let help_text = move || {
         (has_help && !hide_help.get() && state.with(|s| s.error.is_none())).then(|| {

@@ -28,7 +28,7 @@ pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text
 pub use combo::{ComboOption, Combobox, filter_options};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, EmptyState, Skeleton, Spinner};
-pub use field::{FieldRow, FieldState, tag_class};
+pub use field::{FieldRow, FieldState, field_message, tag_class};
 pub use icon::{Icon, path as icon_path};
 pub use input::{
     ChipInput, ConfirmInput, Segmented, Select, TextArea, TextInput, Toggle, field_class,
