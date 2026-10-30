@@ -153,6 +153,23 @@ web:
 
 The turns are spread out evenly, so `home-1` does not get three connections in a row and then `home-2` one. This is how nginx does weighted round robin. Weights only apply to `balance`, so `validate` refuses them with the other modes.
 
+**Several VMs behind one client.** An entry can give its own `target`, so one client in front of several machines, a gateway on a LAN with two VMs for example, can spread a service over them. Without a `target`, an entry uses the service's `target`:
+
+```yaml
+# server.yaml, under services:
+app:
+  clients:
+    - {name: gateway, target: 10.0.0.12:3000}
+    - {name: gateway, target: 10.0.0.13:3000, weight: 2}
+    - home                # uses the service target below
+  mode: balance
+  health_check: true
+  bind: 443
+  target: 127.0.0.1:3000
+```
+
+Each entry is checked, counted and set aside on its own: when the VM at 10.0.0.12 stops answering, new connections go to the other VM and to `home`, and the gateway keeps serving them. The gateway's `allow` list must include each target. A client may be listed twice only with different targets, and a port range in an entry must have as many ports as the service's.
+
 When a client cannot reach the target, or its `allow` list refuses it, the connection moves to the next client at once, and that client is skipped for a while. `burrow status` shows it as `failing` or `refused`. Open connections stay on their client.
 
 **Health checks.** With `health_check`, the server also checks through each client, every 10 seconds, that the target answers. A client whose target failed 2 checks in a row gets no new connections until it answers again. So a dead target is skipped before anyone connects to it.

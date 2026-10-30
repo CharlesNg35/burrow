@@ -349,6 +349,14 @@ services:
     health_check: true # a machine whose app does not answer gets none
     bind: 7850
     target: 7000
+
+  # Two VMs behind the office machine: each entry has its own target
+  reports:
+    clients: [{name: office, target: 10.0.0.12:3000}, {name: office, target: 10.0.0.13:3000}]
+    mode: least_connections # each new connection goes to the VM with the fewest open
+    health_check: true
+    bind: 7851
+    target: 3000
 ```
 
 Where each name gets its certificate:
