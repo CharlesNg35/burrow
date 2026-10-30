@@ -5,10 +5,10 @@ use burrow_config::{Mode, ServiceEntry};
 use burrow_ui_kit::{Combobox, Stepper};
 use leptos::prelude::*;
 
-use super::entry_summary::summary;
+use super::entry_summary::{summary, target_line};
 use super::entry_target::{Open, focus_soon, input_id, shifted, swapped, target_cell, to_main};
 use crate::app::{MenuItem, row_menu, row_menus};
-use burrow_admin_logic::wording::{MAIN_TARGET, NOT_SET};
+use burrow_admin_logic::wording::NOT_SET;
 
 type OpenMap = std::collections::BTreeMap<usize, Option<Value>>;
 use crate::domain::{FieldCtx, set_checked};
@@ -207,12 +207,12 @@ fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
     items
 }
 
-const CLIENT_W: &str = "sm:w-[240px]";
-const WEIGHT_W: &str = "sm:w-[96px]";
-const TARGET_W: &str = "sm:w-[320px]";
+const CLIENT_W: &str = "@min-[560px]:w-[30%] @min-[560px]:max-w-[240px] @min-[560px]:shrink-0";
+const WEIGHT_W: &str = "@min-[560px]:w-[96px] @min-[560px]:shrink-0";
+const TARGET_W: &str = "@min-[560px]:flex-1 @min-[560px]:max-w-[320px]";
 
 fn cell_label(text: &'static str) -> impl IntoView {
-    view! { <span class="w-14 shrink-0 text-xs font-semibold text-text-muted sm:hidden">{text}</span> }
+    view! { <span class="w-14 shrink-0 text-xs font-semibold text-text-muted @min-[560px]:hidden">{text}</span> }
 }
 
 fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
@@ -296,9 +296,9 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
     let head = summary(&place, i, options, balance, expanded, phone_menu);
     let body = move || {
         if expanded.get() == Some(i) {
-            "flex flex-wrap items-center gap-x-3 gap-y-2 max-sm:pb-2"
+            "flex flex-wrap items-center gap-x-3 gap-y-2 @max-[560px]:pb-2"
         } else {
-            "flex flex-wrap items-center gap-x-3 gap-y-2 max-sm:hidden"
+            "flex flex-wrap items-center gap-x-3 gap-y-2 @max-[560px]:hidden"
         }
     };
     let target = target_cell(&place, i, open);
@@ -306,17 +306,17 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
         <div class="py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
             {head}
             <div class=body>
-                <div class=format!("order-1 min-w-0 flex-1 sm:flex-none {CLIENT_W}")>
+                <div class=format!("order-1 min-w-0 flex-1 @min-[560px]:flex-none {CLIENT_W}")>
                     <Combobox id=format!("{id}-client") options=options selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
                 </div>
-                <div class="order-2 max-sm:hidden sm:order-4">{menu}</div>
-                <div class=format!("order-3 flex min-h-[38px] basis-full items-center gap-2 sm:order-2 sm:basis-auto {TARGET_W}")>
+                <div class="order-2 @max-[560px]:hidden @min-[560px]:order-4">{menu}</div>
+                <div class=format!("order-3 flex min-h-[38px] min-w-0 basis-full items-center gap-2 @min-[560px]:order-2 @min-[560px]:basis-0 {TARGET_W}")>
                     {cell_label("Target")}
                     {target}
                 </div>
-                <div class=format!("order-4 flex basis-full items-center gap-2 sm:order-3 sm:basis-auto {WEIGHT_W}") class:hidden=move || !balance.get() data-weight="">
+                <div class=format!("order-4 flex basis-full items-center gap-2 @min-[560px]:order-3 @min-[560px]:basis-auto {WEIGHT_W}") class:hidden=move || !balance.get() data-weight="">
                     {cell_label("Weight")}
-                    <Stepper id=format!("{id}-weight") value=weight on_input=set_weight default=1 min=1 max=burrow_config::WEIGHT_MAX invalid=weight_bad placeholder="default 1" label="Weight" touch_only=true/>
+                    <Stepper id=format!("{id}-weight") value=weight on_input=set_weight default=1 min=1 max=burrow_config::WEIGHT_MAX invalid=weight_bad placeholder="default 1" label="Weight" narrow_only=true/>
                 </div>
             </div>
             {move || problem.get().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
@@ -411,7 +411,7 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     };
     let head = move || {
         (count.get() > 0).then(|| view! {
-            <div class="flex gap-x-3 border-b border-border pb-1 text-xs font-semibold text-text-muted max-sm:hidden" data-entries-head="">
+            <div class="flex gap-x-3 border-b border-border pb-1 text-xs font-semibold text-text-muted @max-[560px]:hidden" data-entries-head="">
                 <span class=CLIENT_W>"Client"</span>
                 <span class=TARGET_W>"Target"</span>
                 <span class=WEIGHT_W class:hidden=move || !balance.get()>"Weight"</span>
@@ -420,7 +420,7 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
         })
     };
     view! {
-        <div data-entries="" on:focusout=move |_| { let _ = touched.try_set(true); }>
+        <div class="@container" data-entries="" on:focusout=move |_| { let _ = touched.try_set(true); }>
             {head}
             <div class="divide-y divide-border">{rows}</div>
             <Show when=move || stray.get()>
@@ -437,15 +437,15 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     .into_any()
 }
 
-pub fn entry_line(row: &Row, main: &str) -> String {
-    let target = row
-        .target
-        .as_ref()
-        .map(burrow_admin_logic::web::target_value_shown)
-        .unwrap_or_else(|| format!("{main} ({MAIN_TARGET})"));
-    match &row.weight {
-        Some(w) => format!("→ {target} · weight {}", plain(w)),
-        None => format!("→ {target}"),
+fn entry_parts(row: &Row, main: &str) -> (String, bool, Option<String>) {
+    let weight = row.weight.as_ref().map(plain);
+    match &row.target {
+        Some(t) => (
+            burrow_admin_logic::web::target_value_shown(t),
+            false,
+            weight,
+        ),
+        None => (main.to_string(), true, weight),
     }
 }
 
@@ -463,18 +463,22 @@ pub fn entries_view(c: &RefEntriesC, _node: &Node, v: &Value, ctx: &Ctx) -> AnyV
         .iter()
         .map(|r| {
             view! {
-                <li class="flex flex-wrap items-center gap-2" data-entry-line=r.name.clone()>
+                <li class="flex flex-wrap items-center gap-x-2 gap-y-0.5" data-entry-line=r.name.clone()>
                     {ref_link(&c.entity, &r.name, &c.reserved, ctx)}
-                    <span class="font-mono text-[13px] text-text-muted">{entry_line(r, &main)}</span>
+                    <span class="text-[13px] [overflow-wrap:anywhere] @max-[560px]:basis-full @max-[560px]:pl-4">{
+                        let (to, main_now, weight) = entry_parts(r, &main);
+                        target_line(to, main_now, weight)
+                    }</span>
                 </li>
             }
         })
         .collect_view();
-    view! { <ul class="space-y-1">{lines}</ul> }.into_any()
+    view! { <ul class="@container w-full space-y-1">{lines}</ul> }.into_any()
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::entry_summary::line;
     use super::*;
     use burrow_admin_proto::serde_json::json;
 
@@ -484,8 +488,12 @@ mod tests {
             &json!(["a", {"name": "gw", "target": "10.0.0.12:3000", "weight": 2}]),
         ));
         let main = "127.0.0.1:8080";
-        assert_eq!(entry_line(&all[0], main), "→ 127.0.0.1:8080 (main target)");
-        assert_eq!(entry_line(&all[1], main), "→ 10.0.0.12:3000 · weight 2");
+        let text = |r: &Row| {
+            let (to, main_now, weight) = entry_parts(r, main);
+            line(&to, main_now, weight.as_deref())
+        };
+        assert_eq!(text(&all[0]), "→ 127.0.0.1:8080 (main target)");
+        assert_eq!(text(&all[1]), "→ 10.0.0.12:3000 · weight 2");
         assert_eq!(typed(" 3001 "), Some(json!(3001)));
         assert_eq!(typed("10.0.0.12:80"), Some(json!("10.0.0.12:80")));
         assert_eq!(typed(""), None);

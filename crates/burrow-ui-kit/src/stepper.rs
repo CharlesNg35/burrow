@@ -19,9 +19,13 @@ pub fn Stepper(
     #[prop(optional, into)] placeholder: String,
     #[prop(optional, into)] invalid: Signal<bool>,
     #[prop(into)] label: String,
-    #[prop(optional)] touch_only: bool,
+    #[prop(optional)] narrow_only: bool,
 ) -> impl IntoView {
-    let only = if touch_only { " sm:hidden" } else { "" };
+    let only = if narrow_only {
+        " @min-[560px]:hidden"
+    } else {
+        ""
+    };
     let step = move |by: i64| {
         let next = stepped(&value.get_untracked(), default, by, min, max);
         on_input.run(next);
@@ -38,7 +42,7 @@ pub fn Stepper(
             <button type="button" class=button.clone() aria-label=format!("{label} down") data-testid="step-down" disabled=move || at_min.get() on:click=move |_| step(-1)>
                 <Icon name="minus" small=true/>
             </button>
-            <div class=if touch_only { "w-[88px] sm:w-[96px]" } else { "w-[88px]" }>
+            <div class=if narrow_only { "w-[88px] @min-[560px]:w-[96px]" } else { "w-[88px]" }>
                 <TextInput id=id value=value on_input=on_input numeric=true invalid=invalid placeholder=placeholder label=label.clone()/>
             </div>
             <button type="button" class=button aria-label=format!("{label} up") data-testid="step-up" disabled=move || at_max.get() on:click=move |_| step(1)>
