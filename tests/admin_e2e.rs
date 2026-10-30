@@ -4,6 +4,8 @@ mod access;
 mod checks;
 #[path = "admin_e2e/chips.rs"]
 mod chips;
+#[path = "admin_e2e/compat.rs"]
+mod compat;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
 #[path = "admin_e2e/edit_state.rs"]
@@ -22,6 +24,8 @@ mod header;
 mod logins;
 #[path = "admin_e2e/more.rs"]
 mod more;
+#[path = "common/older.rs"]
+mod older;
 #[path = "admin_e2e/passwords.rs"]
 mod passwords;
 #[path = "common/ports.rs"]
@@ -84,15 +88,23 @@ fn skip(why: &str) -> Option<Gate> {
     None
 }
 
-fn gate() -> Option<Gate> {
+fn ui_info() -> String {
     let info = Command::new(BIN)
         .args(["admin", "--ui-info"])
         .output()
         .expect("burrow admin --ui-info");
-    let info = String::from_utf8_lossy(&info.stdout).to_string();
+    String::from_utf8_lossy(&info.stdout).to_string()
+}
+
+fn gate() -> Option<Gate> {
+    let info = ui_info();
     if info.contains("placeholder") {
         return skip("this burrow has no admin UI built in; run cargo xtask ui first");
     }
+    chrome_gate(info.contains("test_hooks: true"))
+}
+
+fn chrome_gate(hooks: bool) -> Option<Gate> {
     let Some(chrome) = ui::chrome() else {
         panic!(
             "Chrome for Testing {} is missing at {}: run cargo xtask tools to get the pinned Chrome (BURROW_E2E_CHROME or BURROW_E2E_SYSTEM_CHROME=1 use another one)",
@@ -113,7 +125,7 @@ fn gate() -> Option<Gate> {
     Some(Gate {
         chrome,
         chrome_version,
-        hooks: info.contains("test_hooks: true"),
+        hooks,
     })
 }
 
@@ -151,7 +163,11 @@ pub struct Ctx {
 type Body = for<'a> fn(&'a mut Ctx) -> Pin<Box<dyn Future<Output = ()> + 'a>>;
 
 fn run(flow: &str, opts: Options, needs_hooks: bool, body: Body) {
-    let Some(g) = gate() else { return };
+    run_gated(flow, gate(), opts, needs_hooks, body);
+}
+
+fn run_gated(flow: &str, g: Option<Gate>, opts: Options, needs_hooks: bool, body: Body) {
+    let Some(g) = g else { return };
     if needs_hooks && !g.hooks {
         if in_ci() {
             panic!("{flow} needs a burrow built with --features admin-test-hooks");
@@ -283,18 +299,18 @@ pub async fn open_review(c: &mut Ctx, step: &str) {
     c.ui.shot(step).await;
 }
 
-pub async fn applied(c: &mut Ctx, step: &str) {
+pub async fn apply_now(c: &Ctx, toast: &str) {
     c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
         .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     c.ui.click("[data-testid=apply]").await;
-    c.ui.wait_text(
-        "[data-testid=toasts]",
-        "Applied: now the version of",
-        Duration::from_secs(20),
-    )
-    .await;
+    c.ui.wait_text("[data-testid=toasts]", toast, Duration::from_secs(20))
+        .await;
     c.ui.wait_gone("[data-testid=review]", SECS).await;
+}
+
+pub async fn applied(c: &mut Ctx, step: &str) {
+    apply_now(c, "Applied: now the version of").await;
     c.ui.wait_true(
         "![...document.querySelectorAll('[data-testid=toast]')].some(t => t.textContent.includes('Added to changes'))",
         "after Apply no Added to changes toast offers a Review with nothing to review",

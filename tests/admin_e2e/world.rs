@@ -24,6 +24,8 @@ pub struct Proc {
 
 pub struct World {
     pub dir: tempfile::TempDir,
+    pub server_bin: PathBuf,
+    pub admin_bin: PathBuf,
     pub procs: Vec<Proc>,
     pub ports: BTreeMap<&'static str, u16>,
     pub secrets: BTreeMap<&'static str, String>,
@@ -36,6 +38,8 @@ pub struct Options {
     pub extra_services: String,
     pub extra_clients: String,
     pub extra_top: String,
+    pub server_bin: Option<PathBuf>,
+    pub admin_bin: Option<PathBuf>,
 }
 
 pub fn wait_until(what: &str, timeout: Duration, mut ok: impl FnMut() -> bool) {
@@ -57,6 +61,8 @@ impl World {
             .expect("a work dir");
         let mut w = World {
             dir,
+            server_bin: opts.server_bin.clone().unwrap_or_else(|| BIN.into()),
+            admin_bin: opts.admin_bin.clone().unwrap_or_else(|| BIN.into()),
             procs: Vec::new(),
             ports: BTreeMap::new(),
             secrets: BTreeMap::new(),
@@ -99,7 +105,8 @@ impl World {
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
-        w.start("server", &["server", "-c", "server.yaml"], &env);
+        let server = w.server_bin.clone();
+        w.start_bin(&server, "server", &["server", "-c", "server.yaml"], &env);
         let started = Instant::now();
         while w.status().is_none() {
             if let Ok(Some(code)) = w.procs[0].child.try_wait() {
@@ -137,10 +144,20 @@ impl World {
     }
 
     pub fn start(&mut self, name: &str, args: &[&str], env: &[(&str, &str)]) -> &mut Proc {
+        self.start_bin(Path::new(BIN), name, args, env)
+    }
+
+    pub fn start_bin(
+        &mut self,
+        bin: &Path,
+        name: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+    ) -> &mut Proc {
         let log = self.file(&format!("{name}.log"));
         let out = fs::File::create(&log).expect("a log file");
         let err = out.try_clone().expect("a log file");
-        let mut cmd = Command::new(BIN);
+        let mut cmd = Command::new(bin);
         cmd.args(args)
             .current_dir(self.dir.path())
             .env("BURROW_INSTANCE_DIR", self.file(&format!("inst-{name}")))
@@ -168,7 +185,7 @@ impl World {
     }
 
     pub fn status(&self) -> Option<serde_json::Value> {
-        let out = Command::new(BIN)
+        let out = Command::new(&self.server_bin)
             .args(["status", "--json", "-c"])
             .arg(self.file("server.yaml"))
             .env("BURROW_INSTANCE_DIR", self.file("inst-server"))
@@ -235,7 +252,9 @@ impl World {
         let url_file = self.file(&format!("url-{visitor}"));
         let url_arg = url_file.display().to_string();
         let name = format!("admin-{visitor}");
-        self.start(
+        let admin = self.admin_bin.clone();
+        self.start_bin(
+            &admin,
             &name,
             &[
                 "admin",

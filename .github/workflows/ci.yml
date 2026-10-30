@@ -81,11 +81,22 @@ jobs:
 
   compat:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: Tunnels and burrow mcp against the released v0.1.2 binary, fetched by its pinned SHA-256
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-binstall
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: compat-tools-${{ hashFiles('xtask/src/tools.rs', 'xtask/src/compat.rs', 'Cargo.lock') }}
+      - name: The UI build tools and the pinned Chrome for Testing
+        run: cargo xtask tools
+      - run: cargo xtask ui
+      - name: Tunnels, burrow mcp and the admin UI both ways against the released v0.1.2 binary, fetched by its pinned SHA-256
         run: cargo xtask compat
 
   h2:

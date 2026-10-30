@@ -92,18 +92,33 @@ pub fn older_binary(root: &Path) -> Result<PathBuf, String> {
     Ok(bin)
 }
 
+fn cargo_test(root: &Path, bin: &Path, args: &[&str]) -> Result<bool, String> {
+    Command::new("cargo")
+        .args(["test", "--locked", "-p", "burrow"])
+        .args(args)
+        .env("BURROW_COMPAT_BIN", bin)
+        .env("BURROW_E2E_REQUIRE", "1")
+        .current_dir(root)
+        .status()
+        .map(|s| s.success())
+        .map_err(|e| format!("cargo: {e}"))
+}
+
 pub fn run(root: &Path) -> Result<(), String> {
     let bin = older_binary(root)?;
     println!("burrow {OLDER}: {}", bin.display());
-    let status = Command::new("cargo")
-        .args(["test", "--locked", "-p", "burrow", "--test", "compat"])
-        .env("BURROW_COMPAT_BIN", &bin)
-        .current_dir(root)
-        .status()
-        .map_err(|e| format!("cargo: {e}"))?;
-    if !status.success() {
+    if !cargo_test(root, &bin, &["--test", "compat"])? {
         return Err(format!(
             "the compatibility tests against burrow {OLDER} failed"
+        ));
+    }
+    println!(
+        "the admin UI both ways against burrow {OLDER}, in the pinned Chrome (needs cargo xtask tools and cargo xtask ui)"
+    );
+    let ui = ["--test", "admin_e2e", "compat::", "--", "--test-threads=1"];
+    if !cargo_test(root, &bin, &ui)? {
+        return Err(format!(
+            "the admin UI compatibility flows against burrow {OLDER} failed"
         ));
     }
     Ok(())

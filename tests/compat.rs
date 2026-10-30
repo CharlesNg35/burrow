@@ -11,17 +11,9 @@ use rmcp::transport::TokioChildProcess;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-const NEW: &str = env!("CARGO_BIN_EXE_burrow");
+use common::older::older;
 
-fn older() -> Option<PathBuf> {
-    let bin = std::env::var_os("BURROW_COMPAT_BIN").map(PathBuf::from);
-    if bin.is_none() {
-        println!(
-            "skipping: BURROW_COMPAT_BIN is not set; run cargo xtask compat to test against the last release"
-        );
-    }
-    bin
-}
+const NEW: &str = env!("CARGO_BIN_EXE_burrow");
 
 struct Running(Child);
 
