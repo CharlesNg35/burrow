@@ -86,11 +86,11 @@ pub fn NewEntity(
             <burrow_ui_kit::PageHeader sub=intro>{format!("New {what}")}</burrow_ui_kit::PageHeader>
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
-                <burrow_ui_kit::SectionHead title="Identity" sub={if what == "service" { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
-                {super::name_input("new-name", "Name", name, problem, true, if what == ServiceEntry::ENTITY { "nas or home-ssh" } else if what == ClientEntry::ENTITY { "home or office" } else { "laptop or phone" })}
-                {(what != "service").then(|| secret_field(secret))}
+                <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
+                {super::name_input("new-name", "Name", name, problem, true, super::name_example(entity_of_section(&section).as_ref()))}
+                {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
             </section>
-            {(what != "service").then(|| limits_section(what, name, max, placeholder_max, options, links))}
+            {(what != ServiceEntry::ENTITY).then(|| limits_section(what, name, max, placeholder_max, options, links))}
             <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
             <burrow_ui_kit::StickyBar>
                 {burrow_ui_kit::bar_status(Signal::derive(move || {
@@ -107,14 +107,14 @@ pub fn NewEntity(
                 <span class="ml-auto"></span>
                 <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
                 <Button
-                    label=if what == "service" { "Add and edit".to_string() } else { "Add to changes".to_string() }
-                    variant=if what == "service" { "primary" } else { "secondary" }
+                    label=if what == ServiceEntry::ENTITY { "Add and edit".to_string() } else { "Add to changes".to_string() }
+                    variant=if what == ServiceEntry::ENTITY { "primary" } else { "secondary" }
                     testid="create"
                     disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some())
                     reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
                     on_click=move |_| finish2(false)
                 />
-                {(what != "service").then(|| view! {
+                {(what != ServiceEntry::ENTITY).then(|| view! {
                     <Button
                         label="Create and apply"
                         variant="primary"

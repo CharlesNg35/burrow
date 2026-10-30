@@ -75,7 +75,7 @@ pub fn RenameEntity(entity: Entity, name: String, open: RwSignal<bool>) -> impl 
     });
     view! {
         <Dialog open=open title=format!("Rename {what} {name}") testid="rename-entity">
-            {name_input("rename-to", "New name", to, problem, false, "nas or home-ssh")}
+            {name_input("rename-to", "New name", to, problem, false, super::name_example(Some(&entity)))}
             <p class=move || if same.get() { "my-3 text-sm text-text-muted" } else { "my-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
             <div class="flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| open.set(false)/>

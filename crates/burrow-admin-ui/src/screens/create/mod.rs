@@ -25,6 +25,16 @@ pub fn singular(section: &str) -> &'static str {
     }
 }
 
+pub(crate) fn name_example(entity: Option<&burrow_admin_proto::schema::Entity>) -> &'static str {
+    use burrow_admin_proto::schema::Entity;
+    match entity {
+        Some(Entity::Client) => "home or office",
+        Some(Entity::Visitor) => "laptop or phone",
+        Some(Entity::Login) => "authelia or sso",
+        _ => "nas or home-ssh",
+    }
+}
+
 pub(crate) fn name_input(
     id: &'static str,
     label: &'static str,
