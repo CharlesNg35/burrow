@@ -1,6 +1,5 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::time::Duration;
 
 use super::checks::ax_names;
 use super::world;
@@ -92,7 +91,12 @@ fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=entity-list] [data-row=svc29]", SECS)
             .await;
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        c.ui.wait_true(
+            "(() => { const a = document.querySelector('[data-testid=entity-list]').getBoundingClientRect(); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); return Math.abs(a.top - h.height) < 1.5 && Math.abs(a.height - (window.innerHeight - h.height)) < 1.5; })()",
+            "the list pane sits under the header and fills the rest of the viewport",
+            SECS,
+        )
+        .await;
         let geo: Vec<f64> = c
             .ui
             .eval("(() => { const a = document.querySelector('[data-testid=entity-list]').getBoundingClientRect(); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); return [a.top, a.height, h.height, window.innerHeight]; })()")
@@ -142,20 +146,20 @@ fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             c.ui.eval("(() => { window.scrollTo(0, 0); return true; })()")
                 .await;
         c.ui.nav("/services/svc29").await;
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let visible: bool = c
-            .ui
-            .eval("(() => { const l = document.querySelector('[data-testid=entity-list] [data-testid=list]').getBoundingClientRect(); const r = document.querySelector('[data-row=svc29]').getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; })()")
-            .await;
-        assert!(visible, "the selected row scrolls into view");
+        c.ui.wait_true(
+            "(() => { const l = document.querySelector('[data-testid=entity-list] [data-testid=list]').getBoundingClientRect(); const r = document.querySelector('[data-row=svc29]').getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; })()",
+            "the selected row scrolls into view",
+            SECS,
+        )
+        .await;
         c.ui.viewport(390, 844).await;
         c.ui.nav("/services").await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        let stacked: f64 = c
-            .ui
-            .eval("(() => { window.scrollTo(0, 400); return document.scrollingElement.scrollTop; })()")
-            .await;
-        assert!(stacked > 0.0, "on a phone the list scrolls with the page");
+        c.ui.wait_true(
+            "(() => { window.scrollTo(0, 400); return document.scrollingElement.scrollTop > 0; })()",
+            "on a phone the list scrolls with the page",
+            SECS,
+        )
+        .await;
         let switcher = c.ui.text("[data-testid=server-switcher]").await;
         assert!(
             !switcher.contains(" up "),

@@ -300,7 +300,14 @@ pub(super) async fn row_error(c: &Ctx, schema: &str) -> String {
 }
 
 pub(super) async fn clear_of_bar(c: &Ctx, schema: &str) {
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    c.ui.wait_true(
+        &format!(
+            "(() => {{ const b = document.querySelector('[data-sticky-bar]'); const r = document.querySelector(\"[data-schema='{schema}']\"); return b.getBoundingClientRect().top >= r.getBoundingClientRect().bottom; }})()"
+        ),
+        &format!("the save bar leaves {schema} clear"),
+        SECS,
+    )
+    .await;
     let gap: f64 = c
         .ui
         .eval(&format!(
