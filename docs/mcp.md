@@ -6,20 +6,20 @@ Back to the [README](../README.md). The admin setup (the visitor with `admin`, `
 
 ## Setup
 
-Give a visitor admin rights and copy its config to your machine, as [admin.md](admin.md#setup) shows. Then let `burrow mcp` print the setup for your app, with the full path of the visitor config filled in:
+Give a visitor admin rights and copy its config to your machine, as [admin.md](admin.md#setup) shows. Then let `burrow mcp` print the setup for your app, with the full paths of this burrow and of the visitor config filled in:
 
 ```sh
 # a terminal on your machine
 burrow mcp -c ops-laptop.yaml --print-config claude   # or codex, or cursor
 ```
 
-The app then starts `burrow mcp` itself and talks to it over stdin and stdout; there is no port and no token. `burrow mcp` works the same on Linux, macOS and Windows. The setups look like this; on Windows, Codex's file is `%USERPROFILE%\.codex\config.toml` and Cursor's `%USERPROFILE%\.cursor\mcp.json`, and the paths are Windows paths, like `C:\\Users\\me\\ops-laptop.yaml` in JSON.
+The app then starts `burrow mcp` itself and talks to it over stdin and stdout; there is no port and no token. The setup names the burrow you ran by its full path, so the app finds it even when burrow is not on its `PATH`; if you move burrow, print the setup again. If that path cannot be found, the setup says plain `burrow` and a note on stderr says so. `burrow mcp` works the same on Linux, macOS and Windows. The setups look like this, for burrow in `/home/me/bin`; on Windows, Codex's file is `%USERPROFILE%\.codex\config.toml` and Cursor's `%USERPROFILE%\.cursor\mcp.json`, and the paths are Windows paths, like `C:\\Users\\me\\bin\\burrow.exe` in JSON.
 
 Claude Code:
 
 ```sh
 # Claude Code: run once in a terminal
-claude mcp add burrow -- burrow mcp -c /home/me/ops-laptop.yaml
+claude mcp add burrow -- /home/me/bin/burrow mcp -c /home/me/ops-laptop.yaml
 ```
 
 Codex:
@@ -27,7 +27,7 @@ Codex:
 ```toml
 # ~/.codex/config.toml
 [mcp_servers.burrow]
-command = "burrow"
+command = "/home/me/bin/burrow"
 args = ["mcp", "-c", "/home/me/ops-laptop.yaml"]
 ```
 
@@ -37,7 +37,7 @@ Cursor, in `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "burrow": {
-      "command": "burrow",
+      "command": "/home/me/bin/burrow",
       "args": ["mcp", "-c", "/home/me/ops-laptop.yaml"]
     }
   }
@@ -50,7 +50,7 @@ Claude Desktop takes the same entry as Cursor, in `claude_desktop_config.json`:
 {
   "mcpServers": {
     "burrow": {
-      "command": "burrow",
+      "command": "/Users/me/bin/burrow",
       "args": ["mcp", "-c", "/Users/me/ops-laptop.yaml"]
     }
   }
@@ -79,7 +79,7 @@ The file is `~/Library/Application Support/Claude/claude_desktop_config.json` on
 
 ```sh
 # Claude Code
-claude mcp add burrow -- burrow mcp -c /home/me/ops-laptop.yaml --allow-write
+claude mcp add burrow -- /home/me/bin/burrow mcp -c /home/me/ops-laptop.yaml --allow-write
 ```
 
 A change always takes two steps: `check_change` returns the diff and a plan id, and `apply_change` applies exactly that plan. Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, and at most 16 plans at a time.
@@ -101,9 +101,9 @@ burrow mcp: MCP over HTTP
   Header: Authorization: Bearer <token>
 
 Ready-made setup for your AI app:
-  Claude Code:  burrow mcp -c ops-laptop.yaml --http --print-config claude
-  Codex:        burrow mcp -c ops-laptop.yaml --http --print-config codex
-  Cursor:       burrow mcp -c ops-laptop.yaml --http --print-config cursor
+  Claude Code:  /home/me/bin/burrow mcp -c ops-laptop.yaml --http --print-config claude
+  Codex:        /home/me/bin/burrow mcp -c ops-laptop.yaml --http --print-config codex
+  Cursor:       /home/me/bin/burrow mcp -c ops-laptop.yaml --http --print-config cursor
 ```
 
 - It listens on `127.0.0.1` only, on 7838, on every system; `--port N` uses another port and `--port 0` a free one.

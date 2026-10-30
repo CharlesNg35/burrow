@@ -44,7 +44,7 @@ fn token_path(config: &Path, opts: &Options) -> Result<PathBuf, Failure> {
 
 fn print_config(app: setup::App, config: &Path, opts: &Options) -> Result<(), Failure> {
     let s = match &opts.http {
-        None => setup::stdio(app, config),
+        None => setup::stdio(app, &setup::program(), config),
         Some(h) => {
             let token = token_file::load_or_create(&token_path(config, opts)?)?;
             setup::http(app, h.port, &token)
@@ -102,7 +102,7 @@ pub async fn serve(
     let served = match &opts.http {
         None => {
             if std::io::stdin().is_terminal() {
-                crate::say_err!("{}", setup::by_hand(shown_config));
+                crate::say_err!("{}", setup::by_hand(&setup::program(), shown_config));
             }
             stdio::serve(tools, stop).await
         }

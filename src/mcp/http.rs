@@ -154,7 +154,10 @@ pub async fn serve(
         .port();
     let mcp = service(tools, port);
     let shown_token = shown.show_token.then_some(&token);
-    crate::say_err!("{}", setup::started(port, shown_token, shown.config));
+    crate::say_err!(
+        "{}",
+        setup::started(&setup::program(), port, shown_token, shown.config)
+    );
     drop(token);
     let path = Arc::new(shown.token.to_path_buf());
     let open = Arc::new(Semaphore::new(MAX_OPEN));

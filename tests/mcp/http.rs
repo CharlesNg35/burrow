@@ -267,11 +267,12 @@ async fn the_token_is_kept_per_config_privately_and_shown_unless_asked_not_to() 
     let v = visitor(&w, "viewer", &w.viewer);
     let first = start(&v, &[]).await;
     assert_eq!(first.token.len(), 64, "{}", first.stderr);
-    assert!(
-        first.stderr.contains("Claude Code:  burrow mcp -c "),
-        "{}",
-        first.stderr
+    let this = dunce::canonicalize(env!("CARGO_BIN_EXE_burrow")).unwrap();
+    let hint = format!(
+        "Claude Code:  {} mcp -c ",
+        burrow::base::failure::program_arg(&this)
     );
+    assert!(first.stderr.contains(&hint), "{}", first.stderr);
     assert!(
         !first.stderr.contains(".token"),
         "the file is not named: {}",

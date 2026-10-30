@@ -157,13 +157,13 @@ fn command_for(arg0: Option<&std::ffi::OsStr>) -> String {
     if !typed_path || !is_burrow || on_path(path) {
         return "burrow".into();
     }
-    let shown = path.display().to_string();
-    if shown.contains(' ') {
-        if cfg!(windows) {
-            format!("& \"{shown}\"")
-        } else {
-            format!("'{shown}'")
-        }
+    program_arg(path)
+}
+
+pub fn program_arg(path: &std::path::Path) -> String {
+    let shown = path_arg(path);
+    if cfg!(windows) && shown.starts_with('"') {
+        format!("& {shown}")
     } else {
         shown
     }

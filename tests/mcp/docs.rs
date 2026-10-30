@@ -57,30 +57,40 @@ fn burrow_args(words: &[String]) -> Vec<String> {
     words[at + 1..].to_vec()
 }
 
-#[tokio::test]
-async fn the_printed_stdio_setup_starts_a_working_server() {
-    let w = world().await;
-    let v = visitor(&w, "viewer", &w.viewer);
-    let (codex, _) = printed(&v, &["--print-config", "codex"]).await;
-    assert!(codex.starts_with("# ~/.codex/config.toml\n"), "{codex}");
-    let t: toml::Value = toml::from_str(&codex).unwrap();
-    let entry = &t["mcp_servers"]["burrow"];
-    assert_eq!(entry["command"].as_str(), Some("burrow"));
-    let args: Vec<String> = entry["args"]
-        .as_array()
+fn strings(v: &toml::Value) -> Vec<String> {
+    v.as_array()
         .unwrap()
         .iter()
         .map(|a| a.as_str().unwrap().to_string())
-        .collect();
-    assert!(std::path::Path::new(&args[2]).is_absolute(), "{args:?}");
-    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_burrow"));
-    cmd.args(&args)
+        .collect()
+}
+
+async fn tool_count(v: &Visitor, program: &str, args: &[String]) -> usize {
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args)
         .env("BURROW_ADMIN_SESSION_DIR", v.sessions())
         .stderr(Stdio::null())
         .kill_on_drop(true);
     let client = ().serve(TokioChildProcess::new(cmd).unwrap()).await.unwrap();
-    assert_eq!(client.list_all_tools().await.unwrap().len(), 4);
+    let count = client.list_all_tools().await.unwrap().len();
     let _ = client.cancel().await;
+    count
+}
+
+#[tokio::test]
+async fn the_printed_stdio_setup_starts_a_working_server() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let this = dunce::canonicalize(env!("CARGO_BIN_EXE_burrow")).unwrap();
+    let this = this.to_str().unwrap();
+    let (codex, _) = printed(&v, &["--print-config", "codex"]).await;
+    assert!(codex.starts_with("# ~/.codex/config.toml\n"), "{codex}");
+    let t: toml::Value = toml::from_str(&codex).unwrap();
+    let entry = &t["mcp_servers"]["burrow"];
+    assert_eq!(entry["command"].as_str(), Some(this), "{codex}");
+    let args = strings(&entry["args"]);
+    assert!(std::path::Path::new(&args[2]).is_absolute(), "{args:?}");
+    assert_eq!(tool_count(&v, this, &args).await, 4);
     let (cursor, header) = printed(&v, &["--print-config", "cursor"]).await;
     assert_eq!(
         header.lines().last(),
@@ -88,13 +98,22 @@ async fn the_printed_stdio_setup_starts_a_working_server() {
         "{header}"
     );
     let c: Value = serde_json::from_str(&cursor).unwrap();
-    assert_eq!(
-        c["mcpServers"]["burrow"]["args"].as_array().unwrap().len(),
-        3
-    );
+    let entry = &c["mcpServers"]["burrow"];
+    assert_eq!(entry["command"].as_str(), Some(this), "{cursor}");
+    let json_args: Vec<String> = serde_json::from_value(entry["args"].clone()).unwrap();
+    assert_eq!(json_args, args);
     let (claude, _) = printed(&v, &["--print-config", "claude"]).await;
-    let words = command_in(&claude);
-    assert_eq!(burrow_args(&words)[..2], ["burrow", "mcp"]);
+    if cfg!(windows) {
+        assert!(
+            claude.contains(&format!("-- {this} mcp -c "))
+                || claude.contains(&format!("-- \"{this}\" mcp -c ")),
+            "{claude}"
+        );
+    } else {
+        let words = burrow_args(&command_in(&claude));
+        assert_eq!(words[0], this, "{claude}");
+        assert_eq!(tool_count(&v, &words[0], &words[1..]).await, 4);
+    }
     let _ = w.stop.send(true);
 }
 
@@ -151,6 +170,10 @@ fn an_unknown_app_lists_the_three() {
     }
 }
 
+fn names_burrow_by_its_path(program: &str) -> bool {
+    program.starts_with('/') && program.ends_with("/bin/burrow")
+}
+
 #[test]
 fn every_setup_in_mcp_md_is_valid() {
     let json = blocks("json");
@@ -171,6 +194,8 @@ fn every_setup_in_mcp_md_is_valid() {
         let v: Value = serde_json::from_str(b).unwrap_or_else(|e| panic!("{e}: {b}"));
         let entry = &v["mcpServers"]["burrow"];
         if let Some(args) = entry["args"].as_array() {
+            let program = entry["command"].as_str().unwrap();
+            assert!(names_burrow_by_its_path(program), "{b}");
             let mut line = vec!["burrow".to_string()];
             line.extend(args.iter().map(|a| a.as_str().unwrap().to_string()));
             burrow::app::cli::Cli::try_parse_from(&line).unwrap_or_else(|e| panic!("{e}: {b}"));
@@ -183,7 +208,11 @@ fn every_setup_in_mcp_md_is_valid() {
     for b in &toml_blocks {
         assert!(b.starts_with("# "), "{b}");
         let v: toml::Value = toml::from_str(b).unwrap_or_else(|e| panic!("{e}: {b}"));
-        assert!(v["mcp_servers"]["burrow"].is_table(), "{b}");
+        let entry = &v["mcp_servers"]["burrow"];
+        assert!(entry.is_table(), "{b}");
+        if let Some(program) = entry.get("command") {
+            assert!(names_burrow_by_its_path(program.as_str().unwrap()), "{b}");
+        }
     }
     let mut commands = 0;
     for b in blocks("sh") {
@@ -197,7 +226,9 @@ fn every_setup_in_mcp_md_is_valid() {
                 if !words.contains(&"--".to_string()) {
                     continue;
                 }
-                burrow_args(&words)
+                let args = burrow_args(&words);
+                assert!(names_burrow_by_its_path(&args[0]), "{line}");
+                args
             } else {
                 words
             };
