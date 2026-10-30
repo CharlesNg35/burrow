@@ -272,38 +272,7 @@ impl Store for FileStore {
                     ),
                 })
             }
-            Err(e) => {
-                let ro = e.raw_os_error() == Some(30);
-                let installed = std::env::var_os("INVOCATION_ID").is_some()
-                    || crate::install::in_service_folder(&self.path);
-                Err(WhyNot {
-                    code: if ro {
-                        "read-only-fs".into()
-                    } else {
-                        "folder-not-writable".into()
-                    },
-                    message: if ro && installed {
-                        format!(
-                            "the service sandbox keeps {} read-only for the server",
-                            folder.display()
-                        )
-                    } else {
-                        format!(
-                            "the server cannot create files in {} ({})",
-                            folder.display(),
-                            crate::base::failure::file_reason(&e)
-                        )
-                    },
-                    hint: if installed || ro {
-                        crate::install::writable_hint(&self.path)
-                    } else {
-                        format!(
-                            "give the account the server runs as write access to {}",
-                            folder.display()
-                        )
-                    },
-                })
-            }
+            Err(e) => Err(folder_why_not(&self.path, &folder, &e)),
         }
     }
 
@@ -589,6 +558,39 @@ async fn serve(
     .await;
 }
 
+fn folder_why_not(path: &Path, folder: &Path, e: &std::io::Error) -> WhyNot {
+    let ro = e.kind() == std::io::ErrorKind::ReadOnlyFilesystem;
+    let installed =
+        std::env::var_os("INVOCATION_ID").is_some() || crate::install::in_service_folder(path);
+    WhyNot {
+        code: if ro {
+            "read-only-fs".into()
+        } else {
+            "folder-not-writable".into()
+        },
+        message: if ro && installed {
+            format!(
+                "the service sandbox keeps {} read-only for the server",
+                folder.display()
+            )
+        } else {
+            format!(
+                "the server cannot create files in {} ({})",
+                folder.display(),
+                crate::base::failure::file_reason(e)
+            )
+        },
+        hint: if installed || ro {
+            crate::install::writable_hint(path)
+        } else {
+            format!(
+                "give the account the server runs as write access to {}",
+                folder.display()
+            )
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[tokio::test]
@@ -730,6 +732,17 @@ mod tests {
         );
         assert_eq!(store.write("listen: 1\n", "listen: 3\n"), Ok(()));
         assert_eq!(store.read().unwrap(), "listen: 3\n");
+    }
+
+    #[test]
+    fn a_read_only_filesystem_is_told_apart_from_a_folder_without_rights() {
+        let (path, folder) = (Path::new("/srv/server.yaml"), Path::new("/srv"));
+        let why = |kind: std::io::ErrorKind| folder_why_not(path, folder, &kind.into()).code;
+        assert_eq!(why(std::io::ErrorKind::ReadOnlyFilesystem), "read-only-fs");
+        assert_eq!(
+            why(std::io::ErrorKind::PermissionDenied),
+            "folder-not-writable"
+        );
     }
 
     #[cfg(unix)]
