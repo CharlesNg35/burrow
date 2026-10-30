@@ -9,7 +9,7 @@ pub mod diag;
 pub mod frame;
 pub mod local;
 pub mod msg;
-mod older;
+pub mod older;
 pub mod ops;
 pub mod plan;
 pub mod schema;

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use burrow::admin_link::open::check_access;
-use burrow::admin_local::bridge::UI_CLIENT;
 use burrow::wire::secret::Secret;
+use burrow_admin_proto::local::UI_CLIENT;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 

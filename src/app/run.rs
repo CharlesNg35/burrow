@@ -218,7 +218,7 @@ pub fn mcp(path: &Path, env: Env, opts: crate::mcp::Options) -> Result<u8, Failu
 pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
     let settings = visitor(path, &env)?;
     drive(async move {
-        crate::admin_link::open::check_access(&settings, crate::admin_local::bridge::UI_CLIENT)
+        crate::admin_link::open::check_access(&settings, burrow_admin_proto::local::UI_CLIENT)
             .await?;
         use crate::admin_local::session;
         use std::io::Write;

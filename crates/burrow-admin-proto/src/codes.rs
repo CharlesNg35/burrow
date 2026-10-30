@@ -67,6 +67,7 @@ pub const READ_LEVEL: &str = "read-level";
 pub const FILE_NOT_WRITABLE: &str = "file-not-writable";
 pub const READ_ONLY_FS: &str = "read-only-fs";
 pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
+pub const OLDER_ADMIN: &str = "older-admin";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,

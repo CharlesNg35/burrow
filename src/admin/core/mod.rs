@@ -2,6 +2,7 @@ pub mod diags;
 pub mod diff;
 mod dispatch;
 pub mod guard;
+mod older;
 pub mod ops;
 pub mod passwords;
 pub mod plan;
@@ -85,6 +86,7 @@ pub struct Session {
     pub secret: Secret,
     pub via_websocket: bool,
     pub client: String,
+    ui_version: Mutex<Option<String>>,
     pending: Mutex<Vec<Pending>>,
     next_handle: AtomicU64,
 }
@@ -105,6 +107,7 @@ impl Session {
             secret,
             via_websocket,
             client,
+            ui_version: Mutex::new(None),
             pending: Mutex::new(Vec::new()),
             next_handle: AtomicU64::new(0),
         }
@@ -176,6 +179,16 @@ impl Session {
 
     pub fn writes(&self) -> bool {
         self.level == AdminLevel::Write
+    }
+
+    pub fn hello(&self, burrow: Option<String>) {
+        *self.ui_version.lock().expect("ui version lock") = burrow;
+    }
+
+    pub fn older_ui(&self) -> bool {
+        let ui = burrow_admin_proto::local::UI_CLIENT;
+        let is_ui = self.client == ui || self.client.starts_with(&format!("{ui}/"));
+        is_ui && self.ui_version.lock().expect("ui version lock").is_none()
     }
 }
 
@@ -372,8 +385,10 @@ impl Core {
                 )
             })
             .collect();
-        let (errors, warnings): (Vec<_>, Vec<_>) =
+        let notice = older::notice(self, s, checked.raw.as_ref());
+        let (errors, mut warnings): (Vec<_>, Vec<_>) =
             checked.diags.into_iter().partition(|d| d.is_error());
+        warnings.extend(notice);
         Ok(State {
             rev: rev.clone(),
             file: self.file_info(s),

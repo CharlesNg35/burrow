@@ -10,9 +10,8 @@ use crate::admin_link::token::Token;
 use crate::dialer::Dialer;
 use crate::dialer::admin::Heard;
 use burrow_admin_proto::frame::MAX_MESSAGE;
-use burrow_admin_proto::local::{Auth, BRIDGE_EVENT, Bridge, BridgeState};
+use burrow_admin_proto::local::{Auth, BRIDGE_EVENT, Bridge, BridgeState, UI_CLIENT};
 
-pub const UI_CLIENT: &str = "burrow-admin-ui";
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
 pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
 

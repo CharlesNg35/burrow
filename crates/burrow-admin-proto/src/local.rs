@@ -4,6 +4,7 @@ pub const RUN_PREFIX: &str = "/r-";
 pub const TOKEN_FRAGMENT: &str = "#token=";
 pub const API_PATH: &str = "/api";
 pub const BRIDGE_EVENT: &str = "bridge";
+pub const UI_CLIENT: &str = "burrow-admin-ui";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Auth {

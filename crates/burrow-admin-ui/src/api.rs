@@ -376,7 +376,10 @@ fn after_refusal(now: &Conn, reason: burrow_admin_proto::local::Reason, message:
 }
 
 fn start(store: Store) {
-    request(msg::req::WELCOME, json!({}), move |r| match r {
+    let hello = msg::WelcomeRequest {
+        burrow: Some(env!("CARGO_PKG_VERSION").into()),
+    };
+    request(msg::req::WELCOME, body(&hello), move |r| match r {
         Ok(v) => match serde_json::from_value::<Welcome>(v) {
             Ok(w) => {
                 let have = store

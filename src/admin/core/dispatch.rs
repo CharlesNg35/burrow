@@ -19,7 +19,11 @@ pub fn parse<T: serde::de::DeserializeOwned>(body: &Value) -> Result<T, ApiError
 
 pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
     match t {
-        msg::req::WELCOME => ok(core.welcome(s)),
+        msg::req::WELCOME => {
+            let r: msg::WelcomeRequest = parse(body).unwrap_or_default();
+            s.hello(r.burrow);
+            ok(core.welcome(s))
+        }
         msg::req::SCHEMA => {
             let r: msg::SchemaRequest = parse(body)?;
             ok(core.schema_reply(&r.have))

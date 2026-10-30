@@ -194,6 +194,12 @@ pub enum AdminLevel {
     Write,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WelcomeRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burrow: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Welcome {
     pub server: ServerInfo,

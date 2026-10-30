@@ -54,6 +54,7 @@ mod tests {
     const PLAIN: &str = "already a plain sentence about this server";
     const IMPACT: &str = "an impact or confirm line the server writes in plain words for Review";
     const TEST_ONLY: &str = "used only by a unit test fixture";
+    const OLDER_UI: &str = "a session-only notice that only a burrow admin older than v0.2.0 receives and shows as written";
     const WHY_NOT: &str = "a reason the server gives in a plain sentence with its hint, shown as written where editing or saving is not possible";
 
     fn server_lines() -> Vec<(&'static str, &'static str)> {
@@ -232,6 +233,7 @@ mod tests {
         out.extend(plain.map(|c| (c, PLAIN)));
         out.extend(server_lines());
         out.extend(["x", "unknown-client"].map(|c| (c, TEST_ONLY)));
+        out.push((burrow_admin_proto::codes::OLDER_ADMIN, OLDER_UI));
         out
     }
 
