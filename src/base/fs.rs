@@ -31,7 +31,25 @@ pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
-    let tmp = temp_for(path);
+    swap_in(path, &temp_for(path), mode, mode & 0o077 == 0, |f| {
+        f.write_all(bytes)
+    })
+}
+
+pub fn copy_atomic(from: &Path, to: &Path, tmp: &Path, mode: u32) -> std::io::Result<()> {
+    let mut source = std::fs::File::open(from)?;
+    swap_in(to, tmp, mode, false, |f| {
+        std::io::copy(&mut source, f).map(|_| ())
+    })
+}
+
+fn swap_in(
+    path: &Path,
+    tmp: &Path,
+    mode: u32,
+    private: bool,
+    fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     let written = (|| {
         let mut opts = std::fs::OpenOptions::new();
         opts.write(true).create_new(true);
@@ -39,27 +57,29 @@ pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()>
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, mode);
         #[cfg(windows)]
         std::os::windows::fs::OpenOptionsExt::share_mode(&mut opts, 0);
-        let mut f = opts.open(&tmp)?;
+        let mut f = opts.open(tmp)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             f.set_permissions(std::fs::Permissions::from_mode(mode))?;
         }
         #[cfg(windows)]
-        if mode & 0o077 == 0 {
-            restrict_on_windows(&tmp);
+        if private {
+            restrict_on_windows(tmp);
         }
+        #[cfg(not(windows))]
+        let _ = private;
         #[cfg(not(unix))]
         let _ = mode;
-        f.write_all(bytes)?;
+        fill(&mut f)?;
         f.sync_all()?;
         drop(f);
-        replace(&tmp, path)?;
+        replace(tmp, path)?;
         sync_folder(path);
         Ok(())
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(tmp);
     }
     written
 }

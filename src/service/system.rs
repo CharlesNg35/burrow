@@ -62,28 +62,6 @@ pub fn same_content(a: &Path, b: &Path) -> bool {
     len(a).is_some() && len(a) == len(b) && std::fs::read(a).ok() == std::fs::read(b).ok()
 }
 
-fn write_new_copy(from: &Path, tmp: &Path, executable: bool) -> std::io::Result<()> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    let mode = if executable { 0o755 } else { 0o600 };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(mode);
-    }
-    #[cfg(not(unix))]
-    let _ = executable;
-    let mut out = opts.open(tmp)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        out.set_permissions(std::fs::Permissions::from_mode(mode))?;
-    }
-    std::io::copy(&mut std::fs::File::open(from)?, &mut out)?;
-    out.sync_all()
-}
-
 pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure> {
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)
@@ -91,16 +69,14 @@ pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure
     }
     let tmp = to.with_extension("burrow-new");
     let _ = std::fs::remove_file(&tmp);
-    let written = write_new_copy(from, &tmp, executable);
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(Failure::new(format!(
+    let mode = if executable { 0o755 } else { 0o600 };
+    crate::base::fs::copy_atomic(from, to, &tmp, mode).map_err(|e| {
+        Failure::new(format!(
             "cannot copy {} to {}: {e}",
             from.display(),
             to.display()
-        )));
-    }
-    replace(&tmp, to)
+        ))
+    })
 }
 
 pub fn write_file(to: &Path, bytes: &[u8]) -> Result<(), Failure> {
@@ -114,11 +90,6 @@ pub fn write_file_mode(to: &Path, bytes: &[u8], mode: u32) -> Result<(), Failure
     }
     crate::base::fs::write_atomic(to, bytes, mode)
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", to.display())))
-}
-
-fn replace(tmp: &Path, to: &Path) -> Result<(), Failure> {
-    crate::base::fs::replace(tmp, to)
-        .map_err(|e| Failure::new(format!("cannot replace {}: {e}", to.display())))
 }
 
 pub fn binary_version(path: &Path) -> String {
@@ -641,6 +612,25 @@ pub(crate) mod tests {
         assert_eq!(std::fs::read_to_string(&plist).unwrap(), "job");
         assert_eq!(mode(&plist), 0o600);
         assert!(!plist.with_extension("burrow-new").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_copied_binary_stays_executable_for_all_under_a_strict_umask() {
+        under_umask_077(
+            "service::system::tests::a_copied_binary_stays_executable_for_all_under_a_strict_umask",
+            || {
+                use std::os::unix::fs::PermissionsExt;
+                let dir = tempfile::tempdir().unwrap();
+                let src = dir.path().join("burrow-src");
+                std::fs::write(&src, "#!/bin/sh\n").unwrap();
+                let bin = dir.path().join("bin").join("burrow");
+                copy_file(&src, &bin, true).unwrap();
+                let mode = std::fs::metadata(&bin).unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, 0o755);
+                assert!(!bin.with_extension("burrow-new").exists());
+            },
+        );
     }
 
     #[test]
