@@ -4,6 +4,7 @@ use super::Served;
 use crate::config::diagnostics::Diagnostic;
 use crate::config::settings::Shares;
 use crate::config::tree::Span;
+use burrow_syntax::address::is_localhost;
 use burrow_syntax::web::{SingleLabel, host_name};
 
 pub(super) struct Place<'a> {
@@ -24,10 +25,6 @@ pub(super) struct Owner {
 }
 
 pub(super) type Owners = BTreeMap<String, Vec<Owner>>;
-
-pub(super) fn is_localhost(text: &str) -> bool {
-    text.trim().eq_ignore_ascii_case("localhost")
-}
 
 fn clash(place: &Place<'_>, host: &str, owners: &Owners) -> Option<Diagnostic> {
     let name = place.name;

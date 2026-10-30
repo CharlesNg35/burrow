@@ -22,7 +22,7 @@ pub struct Url {
 
 fn loopback_host(host: &str) -> bool {
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    host.eq_ignore_ascii_case("localhost")
+    burrow_syntax::address::is_localhost(host)
         || host
             .parse::<std::net::IpAddr>()
             .is_ok_and(|ip| ip.is_loopback())

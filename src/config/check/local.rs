@@ -201,7 +201,7 @@ fn literal_addrs(target: &str) -> Vec<SocketAddr> {
     let Ok((host, port)) = parse_host_port(target) else {
         return Vec::new();
     };
-    if host.eq_ignore_ascii_case("localhost") {
+    if burrow_syntax::address::is_localhost(&host) {
         return vec![
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
             SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port),

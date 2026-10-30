@@ -111,7 +111,7 @@ pub fn client_document(
         let entries: Vec<String> = match host_ip {
             Ok(IpAddr::V4(ip)) => vec![format!("{ip}/32:{port}")],
             Ok(IpAddr::V6(ip)) => vec![format!("[{ip}/128]:{port}")],
-            Err(_) if host.eq_ignore_ascii_case("localhost") => {
+            Err(_) if burrow_syntax::address::is_localhost(&host) => {
                 vec![format!("127.0.0.1/32:{port}"), format!("[::1/128]:{port}")]
             }
             Err(_) => {

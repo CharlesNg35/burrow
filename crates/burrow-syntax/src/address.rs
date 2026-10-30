@@ -49,8 +49,12 @@ fn reach_of_ip(ip: IpAddr) -> Option<Reach> {
     }
 }
 
+pub fn is_localhost(host: &str) -> bool {
+    host.trim().eq_ignore_ascii_case("localhost")
+}
+
 fn reach_of_host(host: &str) -> Option<Reach> {
-    if host.eq_ignore_ascii_case("localhost") {
+    if is_localhost(host) {
         return Some(Reach::ThisMachine);
     }
     host.trim_start_matches('[')

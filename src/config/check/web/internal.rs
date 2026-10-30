@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use burrow_config::{ServerConfig, ServiceWeb, SiteTls, TlsMode};
+use burrow_syntax::address::is_localhost;
 use burrow_syntax::cidr::Cidr;
 use burrow_syntax::web::{SingleLabel, host_name};
 use burrow_web::tls::internal::{PERMITTED_NAMES, PERMITTED_NETS};
@@ -35,7 +36,7 @@ pub(super) fn problem(host: &str) -> Option<String> {
             format!("{host} spans a whole suffix or a public domain; a local CA wildcard is one label under a LAN name, like *.nas.lan")
         });
     }
-    let ok = host == "localhost" || under_lan_suffix(host);
+    let ok = is_localhost(host) || under_lan_suffix(host);
     (!ok).then(|| {
         let short = host.split('.').next().unwrap_or(host);
         format!("{host} is not a LAN name; tls: internal is only for names under {suffixes}, so use tls: auto for public names, or name it like {short}.lan")
@@ -64,7 +65,7 @@ pub(super) fn check_internal(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Di
             };
             let at = i.to_string();
             *i += 1;
-            let single = if super::hosts::is_localhost(raw) {
+            let single = if is_localhost(raw) {
                 SingleLabel::Allowed
             } else {
                 SingleLabel::Refused
