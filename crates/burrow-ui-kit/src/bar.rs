@@ -1,5 +1,28 @@
 use leptos::prelude::*;
 
+pub fn view_height() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.inner_height().ok())
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+}
+
+pub fn bar_top() -> Option<f64> {
+    let h = view_height();
+    let all = web_sys::window()?
+        .document()?
+        .query_selector_all("[data-sticky-bar]")
+        .ok()?;
+    (0..all.length())
+        .filter_map(|i| all.item(i))
+        .filter_map(|n| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(n).ok())
+        .map(|e| e.get_bounding_client_rect())
+        .filter(|r| r.height() > 0.0)
+        .map(|r| r.top())
+        .reduce(f64::min)
+        .filter(|t| *t > 0.0 && *t < h)
+}
+
 #[component]
 pub fn StickyBar(
     #[prop(optional, into)] danger: Signal<bool>,

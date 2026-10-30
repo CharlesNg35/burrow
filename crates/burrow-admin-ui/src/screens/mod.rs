@@ -146,12 +146,11 @@ pub fn clear_of_bar() {
         let _ = root.style().remove_property("scroll-padding-bottom");
         return;
     };
-    let h = window()
-        .inner_height()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
-    let top = bar.get_bounding_client_rect().top();
+    let h = burrow_ui_kit::view_height();
+    let Some(top) = burrow_ui_kit::bar_top() else {
+        let _ = root.style().remove_property("scroll-padding-bottom");
+        return;
+    };
     let room = (h - top + 16.0).clamp(16.0, h / 2.0);
     let _ = root
         .style()

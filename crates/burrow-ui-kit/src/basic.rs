@@ -94,7 +94,6 @@ pub const LINK: &str = "text-accent-ink underline-offset-2 hover:underline";
 pub const WIDE_ONLY: &str = "@max-[640px]:hidden";
 pub const TABLE_VIEW: &str = "@max-[760px]:hidden";
 pub const CARD_VIEW: &str = "@min-[760px]:hidden";
-pub const MONO: &str = "font-mono";
 pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-text-faint";
 
 pub fn button_class(variant: &str, small: bool) -> String {
@@ -539,16 +538,6 @@ pub fn Stat(
             <div class="text-xs text-text-muted">{move || detail.get()}</div>
         </div>
     }
-}
-
-#[component]
-pub fn Muted(#[prop(optional)] testid: &'static str, children: Children) -> impl IntoView {
-    view! { <span class="text-text-muted" data-testid=(!testid.is_empty()).then_some(testid)>{children()}</span> }
-}
-
-#[component]
-pub fn Mono(children: Children) -> impl IntoView {
-    view! { <span class="font-mono">{children()}</span> }
 }
 
 #[component]

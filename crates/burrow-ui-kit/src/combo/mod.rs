@@ -345,18 +345,7 @@ fn place_popover(id: String, open: RwSignal<bool>, up: RwSignal<bool>) {
         let Some(field) = document().get_element_by_id(&id) else {
             return;
         };
-        let h = window()
-            .inner_height()
-            .ok()
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let floor = document()
-            .query_selector("[data-sticky-bar]")
-            .ok()
-            .flatten()
-            .map(|b| b.get_bounding_client_rect().top())
-            .filter(|t| *t > 0.0 && *t < h)
-            .unwrap_or(h);
+        let floor = crate::bar::bar_top().unwrap_or_else(crate::bar::view_height);
         let r = field.get_bounding_client_rect();
         let below = floor - r.bottom();
         let above = r.top() - 72.0;

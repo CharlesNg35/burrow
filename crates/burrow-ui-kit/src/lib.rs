@@ -20,12 +20,11 @@ mod spark;
 mod stepper;
 mod toast;
 
-pub use bar::{StickyBar, bar_status};
+pub use bar::{StickyBar, bar_status, bar_top, view_height};
 pub use basic::{
     Button, CARD_VIEW, Card, Chip, Fact, Facts, IconButton, Kbd, Kpi, LABEL, LINK, LockLine,
-    MENU_ITEM, MONO, Mono, Muted, PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats,
-    StatusDot, TABLE_VIEW, TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY, button_class, card_head,
-    chip_class, menu_class,
+    MENU_ITEM, PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, TABLE_VIEW,
+    TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY, button_class, card_head, chip_class, menu_class,
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};
@@ -38,11 +37,11 @@ pub use input::{
     split_entries,
 };
 pub use overlay::{
-    Dialog, Drawer, Tooltip, active as active_element, focus_first, trap as trap_focus,
+    Dialog, Modal, Tooltip, active as active_element, focus_first, trap as trap_focus,
 };
 pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
 pub use radio::{RadioList, RadioOption};
 pub use scroll::{ScrollRow, active_item};
-pub use spark::{ChartData, LineChart, Sparkline, segments, spark_max, spark_path};
+pub use spark::{ChartData, LineChart, segments, spark_max, spark_path};
 pub use stepper::{Stepper, stepped};
-pub use toast::{Toast, ToastHost};
+pub use toast::{MAX_TOASTS, Toast, ToastHost, push_toast};

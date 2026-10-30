@@ -356,3 +356,42 @@ fn header_height(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 fn the_header_height_is_measured_from_the_start_at_every_width() {
     run("header-height", Options::default(), false, header_height);
 }
+
+fn search_modal(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        let _: bool = c
+            .ui
+            .eval("(document.querySelector('[data-testid=search-open]').focus(), document.querySelector('[data-testid=search-open]').click(), true)")
+            .await;
+        c.ui.wait_for("[data-testid=search] input", SECS).await;
+        c.ui.wait_true(
+            "document.activeElement && document.activeElement.closest('[data-testid=search]') !== null",
+            "the search opens with focus inside it",
+            SECS,
+        )
+        .await;
+        for _ in 0..30 {
+            c.ui.press("[data-testid=search]", "Tab").await;
+        }
+        let inside: bool = c
+            .ui
+            .eval("document.activeElement && document.activeElement.closest('[data-testid=search]') !== null")
+            .await;
+        assert!(inside, "Tab stays inside the search");
+        c.ui.press("[data-testid=search]", "Escape").await;
+        c.ui.wait_gone("[data-testid=search]", SECS).await;
+        c.ui.wait_true(
+            "document.activeElement && document.activeElement.dataset.testid === 'search-open'",
+            "closing the search gives focus back to what opened it",
+            SECS,
+        )
+        .await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_search_keeps_focus_inside_and_gives_it_back() {
+    run("search-modal", Options::default(), false, search_modal);
+}

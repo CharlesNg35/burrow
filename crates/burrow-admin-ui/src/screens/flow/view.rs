@@ -1,6 +1,4 @@
-use burrow_ui_kit::{
-    Icon, Segmented, Tooltip, active_element, button_class, focus_first, trap_focus,
-};
+use burrow_ui_kit::{Icon, Modal, Segmented, Tooltip, button_class};
 use leptos::html;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -118,7 +116,7 @@ pub fn FlowModal() -> impl IntoView {
     let panel: NodeRef<html::Div> = NodeRef::new();
     let wrap: NodeRef<html::Div> = NodeRef::new();
     let hover: RwSignal<Option<(String, f64, f64)>> = RwSignal::new(None);
-    restore_focus(s, chart, only_problems, panel, hover);
+    restore_focus(s, chart, only_problems, hover);
     let close = move || s.flow_open.set(false);
     let filter = Signal::derive(move || {
         if only_problems.get() {
@@ -130,25 +128,14 @@ pub fn FlowModal() -> impl IntoView {
     let svg = flow_svg(chart, only_problems, hover, wrap);
     let links = flow_links(s, chart);
     view! {
-        <Show when=move || s.flow_open.get()>
-            <div class="fixed inset-0 z-40 bg-scrim" on:click=move |_| close()></div>
-            <div
-                node_ref=panel
-                class="fixed top-14 right-24 left-24 z-50 flex max-h-[calc(100vh-80px)] flex-col rounded-[16px] border border-border-strong bg-surface shadow-overlay max-lg:right-4 max-lg:left-4 max-sm:inset-0 max-sm:max-h-none max-sm:rounded-none dark:bg-surface-2"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Flow"
-                data-testid="flow"
-                on:keydown=move |e| {
-                    if e.key() == "Escape" {
-                        e.stop_propagation();
-                        close();
-                    }
-                    if let Some(p) = panel.get_untracked() {
-                        trap_focus(&e, &p);
-                    }
-                }
-            >
+        <Modal
+            open=s.flow_open
+            on_close=Callback::new(move |_: ()| close())
+            label="Flow".to_string()
+            class="fixed top-14 right-24 left-24 z-50 flex max-h-[calc(100vh-80px)] flex-col rounded-[16px] border border-border-strong bg-surface shadow-overlay max-lg:right-4 max-lg:left-4 max-sm:inset-0 max-sm:max-h-none max-sm:rounded-none dark:bg-surface-2"
+            testid="flow"
+            panel=panel
+        >
                 <div class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3.5">
                     <span class="text-accent-ink"><Icon name="network"/></span>
                     <h2 class="text-[17px] font-bold">"Flow"</h2>
@@ -178,8 +165,7 @@ pub fn FlowModal() -> impl IntoView {
                     <ul class="sr-only" aria-label="Open from the flow chart">{links}</ul>
                 </div>
                 {legend()}
-            </div>
-        </Show>
+        </Modal>
     }
 }
 
@@ -187,25 +173,14 @@ fn restore_focus(
     s: Store,
     chart: Memo<Chart>,
     only_problems: RwSignal<bool>,
-    panel: NodeRef<html::Div>,
     hover: RwSignal<Option<(String, f64, f64)>>,
 ) {
-    let back: StoredValue<Option<web_sys::HtmlElement>, LocalStorage> =
-        StoredValue::new_local(None);
     Effect::new(move |was: Option<bool>| {
         let open = s.flow_open.get();
         if open && was != Some(true) {
-            back.set_value(active_element());
             let c = chart.get_untracked();
             only_problems.set(c.services > 12 && c.problems > 0);
-            if let Some(p) = panel.get_untracked() {
-                focus_first(&p);
-            }
         } else if !open && was == Some(true) {
-            if let Some(b) = back.get_value() {
-                let _ = b.focus();
-            }
-            back.set_value(None);
             hover.set(None);
         }
         open

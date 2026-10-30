@@ -58,6 +58,7 @@ pub struct Store {
     pub recorded_from: RwSignal<f64>,
     pub toasts: RwSignal<Vec<Toast>>,
     pub toast_hold: RwSignal<bool>,
+    pub next_toast: StoredValue<u64>,
     pub flow_open: RwSignal<bool>,
     pub search_open: RwSignal<bool>,
     pub creating: RwSignal<Option<String>>,
@@ -96,6 +97,7 @@ impl Store {
             recorded_from: RwSignal::new(0.0),
             toasts: RwSignal::new(Vec::new()),
             toast_hold: RwSignal::new(false),
+            next_toast: StoredValue::new(0),
             flow_open: RwSignal::new(false),
             search_open: RwSignal::new(false),
             creating: RwSignal::new(None),
@@ -158,16 +160,18 @@ impl Store {
 
 impl Store {
     pub fn toast(&self, tone: Tone, text: impl Into<String>, action: Option<&str>) {
-        let id = js_sys::Date::now() as u64 ^ self.toasts.with_untracked(|t| t.len() as u64);
+        let id = self.next_toast.get_value() + 1;
+        self.next_toast.set_value(id);
         self.toasts.update(|t| {
-            t.push(Toast {
-                id,
-                tone,
-                text: text.into(),
-                action: action.map(str::to_string),
-            });
-            let excess = t.len().saturating_sub(3);
-            t.drain(..excess);
+            burrow_ui_kit::push_toast(
+                t,
+                Toast {
+                    id,
+                    tone,
+                    text: text.into(),
+                    action: action.map(str::to_string),
+                },
+            );
         });
         let me = *self;
         set_timeout(move || me.drop_toast(id), std::time::Duration::from_secs(5));

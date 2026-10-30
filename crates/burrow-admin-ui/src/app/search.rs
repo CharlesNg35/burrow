@@ -2,7 +2,7 @@ use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
-use burrow_ui_kit::{Icon, Kbd};
+use burrow_ui_kit::{Icon, Kbd, Modal};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
@@ -250,9 +250,6 @@ pub(super) fn SearchPopover() -> impl IntoView {
         if s.search_open.get() {
             q.set(String::new());
             active.set(0);
-            if let Some(i) = input.get() {
-                let _ = i.focus();
-            }
         }
     });
     let hits = Memo::new(move |_| {
@@ -302,37 +299,36 @@ pub(super) fn SearchPopover() -> impl IntoView {
             })
             .collect_view()
     };
+    let keys = Callback::new(move |e: web_sys::KeyboardEvent| match e.key().as_str() {
+        "ArrowDown" => {
+            e.prevent_default();
+            let n = hits.with(Vec::len);
+            if n > 0 {
+                active.update(|a| *a = (*a + 1).min(n - 1));
+            }
+        }
+        "ArrowUp" => {
+            e.prevent_default();
+            active.update(|a| *a = a.saturating_sub(1));
+        }
+        "Enter" => {
+            e.prevent_default();
+            if let Some(h) = hits.with(|l| l.get(active.get_untracked()).cloned()) {
+                run(h);
+            }
+        }
+        _ => {}
+    });
+    let close = Callback::new(move |_: ()| s.search_open.set(false));
     view! {
-        <Show when=move || s.search_open.get()>
-            <div class="fixed inset-0 z-40 bg-scrim" on:click=move |_| s.search_open.set(false)></div>
-            <div
-                class="fixed top-[84px] left-1/2 z-50 w-[min(640px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-dialog border border-border-strong bg-surface shadow-overlay dark:bg-surface-2"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Search"
-                data-testid="search"
-                on:keydown=move |e| match e.key().as_str() {
-                    "Escape" => s.search_open.set(false),
-                    "ArrowDown" => {
-                        e.prevent_default();
-                        let n = hits.with(Vec::len);
-                        if n > 0 {
-                            active.update(|a| *a = (*a + 1).min(n - 1));
-                        }
-                    }
-                    "ArrowUp" => {
-                        e.prevent_default();
-                        active.update(|a| *a = a.saturating_sub(1));
-                    }
-                    "Enter" => {
-                        e.prevent_default();
-                        if let Some(h) = hits.with(|l| l.get(active.get_untracked()).cloned()) {
-                            run(h);
-                        }
-                    }
-                    _ => {}
-                }
-            >
+        <Modal
+            open=s.search_open
+            on_close=close
+            label="Search".to_string()
+            class="fixed top-[84px] left-1/2 z-50 w-[min(640px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-dialog border border-border-strong bg-surface shadow-overlay dark:bg-surface-2"
+            testid="search"
+            on_key=keys
+        >
                 <div class="flex items-center gap-2.5 border-b border-border px-4">
                     <Icon name="search"/>
                     <input
@@ -357,7 +353,6 @@ pub(super) fn SearchPopover() -> impl IntoView {
                     <span>"↵ run"</span>
                     <span class="ml-auto">"Searches services, clients, visitors, settings and history"</span>
                 </div>
-            </div>
-        </Show>
+        </Modal>
     }
 }
