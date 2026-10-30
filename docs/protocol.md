@@ -236,6 +236,7 @@ Additions since v0.1.2, each behind its feature string:
 | `passwords` | the `hash_password` request and the `password_set` operation |
 | `local-ca` | the `local_ca` request (the local CA's certificate) |
 | `history.ids` | `id` on each history entry and `history {entry: id}`; without it a caller asks `history {diff: rev}`, which still means the newest entry with that revision |
+| `client.allow` | `allow` on each connected client in the `status` event: the Allow list (`0x82`) of its session, `["any"]` for `allow_all`, left out until the client sent one; without the feature a caller shows the list as unknown |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 

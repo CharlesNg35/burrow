@@ -1,3 +1,4 @@
+use burrow_admin_logic::allow;
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::Mode;
@@ -261,7 +262,37 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
     }
 }
 
+fn allow_line(name: String) -> impl IntoView {
+    let s = store();
+    let text = move || {
+        let feature = s.welcome.with(|w| {
+            w.as_ref()
+                .is_some_and(|w| w.has(burrow_admin_proto::features::CLIENT_ALLOW))
+        });
+        s.status.with(|st| {
+            let c = st
+                .as_ref()
+                .and_then(|st| st.clients.iter().find(|c| c.name == name));
+            allow::shown(feature, c)
+        })
+    };
+    view! {
+        <p class="mb-4 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-card border border-border bg-surface px-4 py-3 text-[13.5px]" data-testid="client-allow">
+            <span class="font-semibold">"Allows:"</span>
+            <span class="font-mono text-[13px] break-words" data-testid="client-allow-value">{text}</span>
+            <span class="text-xs text-text-muted">{allow::SET_THERE}</span>
+        </p>
+    }
+}
+
 pub(super) fn served(name: &str) -> impl IntoView {
+    view! {
+        {allow_line(name.to_string())}
+        {served_services(name)}
+    }
+}
+
+fn served_services(name: &str) -> impl IntoView + use<> {
     let s = store();
     let name = name.to_string();
     move || {

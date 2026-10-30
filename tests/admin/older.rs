@@ -8,7 +8,14 @@ async fn a_v0_1_2_ui_still_reads_and_diffs_the_history_by_rev() {
     let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
     let welcome = a.call("welcome", json!({})).await.unwrap();
     let features = welcome["features"].as_array().unwrap();
-    for f in ["history", "history.ids", "local-ca", "upload", "passwords"] {
+    for f in [
+        "history",
+        "history.ids",
+        "local-ca",
+        "upload",
+        "passwords",
+        "client.allow",
+    ] {
         assert!(features.iter().any(|x| x == f), "{f}: {welcome}");
     }
     for target in [3001, 3002] {

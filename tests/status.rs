@@ -553,9 +553,9 @@ fn status_json_keeps_its_exact_shape() {
                 open: 2,
                 idle_channels: 4,
                 left_secs_ago: None,
-                local: false,
                 busy_total: 4,
                 at_limit: true,
+                ..ClientStatus::default()
             },
             ClientStatus {
                 name: "office".into(),

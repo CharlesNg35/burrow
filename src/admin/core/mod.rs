@@ -7,6 +7,7 @@ pub mod passwords;
 pub mod plan;
 pub mod ports;
 pub mod snippets;
+mod status;
 pub mod summary;
 pub mod text;
 pub mod uploads;

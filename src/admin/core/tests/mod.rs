@@ -7,6 +7,7 @@ mod reach;
 mod refs;
 mod reverts;
 mod snippets;
+mod status;
 mod uploads;
 mod web_ports;
 mod websocket;
@@ -111,6 +112,7 @@ pub struct FakeLive {
     pub status: Mutex<Status>,
     pub sessions: Mutex<Vec<LiveSession>>,
     pub busy: Vec<u16>,
+    pub allows: BTreeMap<String, Vec<String>>,
 }
 
 impl Live for FakeLive {
@@ -124,7 +126,7 @@ impl Live for FakeLive {
         self.sessions.lock().unwrap().clone()
     }
     fn allows(&self) -> BTreeMap<String, Vec<String>> {
-        BTreeMap::new()
+        self.allows.clone()
     }
     fn free_port(&self, near: u16, _: u16, _: bool) -> Option<u16> {
         Some(near)
@@ -212,6 +214,7 @@ pub fn core_of(text: &str, running: &str, busy: Vec<u16>, sessions: Vec<LiveSess
         status: Mutex::new(Status::default()),
         sessions: Mutex::new(sessions),
         busy,
+        allows: BTreeMap::new(),
     };
     Core::new(Box::new(store), Box::new(live), Box::new(|_: &str| None))
 }

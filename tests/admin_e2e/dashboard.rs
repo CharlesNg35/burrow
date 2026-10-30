@@ -15,6 +15,21 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
         c.ui.shot("connected-one-client-online").await;
+        c.ui.nav("/clients/office").await;
+        c.ui.wait_text("[data-testid=client-allow-value]", "not connected", SECS)
+            .await;
+        c.ui.nav("/clients/home").await;
+        let allow =
+            c.ui.wait_text("[data-testid=client-allow-value]", "127.0.0.1", SECS)
+                .await;
+        assert!(
+            c.ui.text("[data-testid=client-allow]")
+                .await
+                .contains("set on that machine"),
+            "the client's own allow list, read only: {allow}"
+        );
+        c.ui.shot("client-allow-list").await;
+        c.ui.nav("/").await;
 
         c.world.start_client("office");
         c.ui.wait_text(

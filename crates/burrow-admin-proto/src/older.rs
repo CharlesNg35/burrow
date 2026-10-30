@@ -18,6 +18,7 @@ fn what_a_v0_1_2_server_sends_still_decodes() {
     }))
     .unwrap();
     assert!(!w.has(crate::features::HISTORY_IDS));
+    assert!(!w.has(crate::features::CLIENT_ALLOW));
     let s: State = serde_json::from_value(json!({
         "rev": "b2s:1",
         "file": {"path": "/etc/burrow/server.yaml", "format": "yaml", "writable": true},
@@ -41,6 +42,7 @@ fn what_a_v0_1_2_server_sends_still_decodes() {
     }))
     .unwrap();
     assert!(st.web.is_none() && st.certificates.is_empty());
+    assert_eq!(st.clients[0].allow, None);
     let p: Plan = serde_json::from_value(json!({
         "plan": "b2s:9", "base": "b2s:1", "result_rev": "b2s:2", "valid": true,
         "diags": [], "changes": [], "diff": {"unified": "", "hunks": []}, "impacts": [], "refusals": [], "applies": [],

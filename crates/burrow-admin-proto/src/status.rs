@@ -106,6 +106,8 @@ pub struct ClientStatus {
     pub busy_total: u64,
     #[serde(default)]
     pub at_limit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
