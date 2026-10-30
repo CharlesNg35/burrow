@@ -283,8 +283,8 @@ jobs:
 
   cleanup:
     name: delete this run's artifacts
-    needs: [publish, image]
-    if: always()
+    needs: [version, ui, binaries, publish, image]
+    if: ${{ success() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
