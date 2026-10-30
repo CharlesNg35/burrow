@@ -46,13 +46,12 @@ async fn http_app(addr: SocketAddr, tag: char, code: Arc<AtomicU16>) -> Arc<Atom
 
 fn checked() -> Option<Health> {
     Some(Health {
-        interval: Duration::from_millis(200),
-        timeout: Duration::from_secs(1),
         failures: 2,
         http: Some(HttpCheck {
             path: "/healthz".into(),
             host: HOST.into(),
         }),
+        ..quick_health()
     })
 }
 

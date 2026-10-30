@@ -34,15 +34,6 @@ async fn recording_target() -> (SocketAddr, Arc<Mutex<Vec<Vec<u8>>>>) {
     (addr, seen)
 }
 
-fn quick() -> Option<Health> {
-    Some(Health {
-        interval: Duration::from_millis(200),
-        timeout: Duration::from_secs(1),
-        failures: 1,
-        http: None,
-    })
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn health_probes_send_no_bytes_to_the_target_in_plaintext_mode() {
     let (target, seen) = recording_target().await;
@@ -50,7 +41,7 @@ async fn health_probes_send_no_bytes_to_the_target_in_plaintext_mode() {
     let mut s = server_settings(vec![secret.clone()]);
     s.insecure_plaintext = true;
     let checked = Service {
-        health: quick(),
+        health: Some(quick_health()),
         ..service(target, Protocol::Tcp)
     };
     let _t = tunnel_with(
@@ -298,7 +289,7 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
     let mut settings = server_settings(vec![secret.clone()]);
     settings.metrics = Some("127.0.0.1:0".parse().unwrap());
     let checked = Service {
-        health: quick(),
+        health: Some(quick_health()),
         ..service(echo, Protocol::Tcp)
     };
     let t = tunnel_with(
@@ -356,7 +347,7 @@ async fn balance_stays_even_while_one_client_is_down() {
         clients: vec!["a".into(), "b".into(), "c".into()],
         mode: burrow_config::Mode::Balance,
         target: "app.test:80".into(),
-        health: quick(),
+        health: Some(quick_health()),
         ..service(ea, Protocol::Tcp)
     };
     settings.services.insert("web".into(), web);

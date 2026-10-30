@@ -84,13 +84,11 @@ impl App {
 
 pub fn http_health(path: &str, host: &str) -> Option<Health> {
     Some(Health {
-        interval: Duration::from_millis(200),
-        timeout: Duration::from_secs(1),
-        failures: 1,
         http: Some(HttpCheck {
             path: path.into(),
             host: host.into(),
         }),
+        ..quick_health()
     })
 }
 

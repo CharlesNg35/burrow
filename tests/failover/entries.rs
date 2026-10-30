@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use burrow::config::settings::{ClientAuth, Entry, Health, Service};
 use burrow::wire::secret::Secret;
@@ -121,18 +120,9 @@ async fn eventually(g: &Gateway, want: char) {
     assert!(reached, "connections never reached VM {want}");
 }
 
-fn quick() -> Option<Health> {
-    Some(Health {
-        interval: Duration::from_millis(200),
-        timeout: Duration::from_secs(1),
-        failures: 1,
-        http: None,
-    })
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_vms_behind_one_gateway_take_turns_and_one_that_is_down_is_skipped() {
-    let mut g = Gateway::start(Mode::Balance, quick(), [1, 1]).await;
+    let mut g = Gateway::start(Mode::Balance, Some(quick_health()), [1, 1]).await;
     let seen = g.spread(20).await;
     assert_eq!(
         (seen.get(&'A'), seen.get(&'B')),

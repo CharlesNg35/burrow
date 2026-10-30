@@ -321,6 +321,15 @@ pub async fn tcp_lands_on(addr: SocketAddr) -> Option<u16> {
     Some(u16::from_be_bytes(port))
 }
 
+pub fn quick_health() -> burrow::config::settings::Health {
+    burrow::config::settings::Health {
+        interval: Duration::from_millis(200),
+        timeout: Duration::from_secs(1),
+        failures: 1,
+        http: None,
+    }
+}
+
 pub async fn within_tries<F, Fut>(tries: u32, mut f: F) -> bool
 where
     F: FnMut() -> Fut,

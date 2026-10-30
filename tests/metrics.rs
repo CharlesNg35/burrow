@@ -3,7 +3,7 @@ mod common;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use burrow::config::settings::{Health, Service};
+use burrow::config::settings::Service;
 use burrow::policy::allowlist::Sources;
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
@@ -84,12 +84,7 @@ async fn refusals_and_health_show_up() {
         ..service(echo, Protocol::Tcp)
     };
     let checked = Service {
-        health: Some(Health {
-            interval: Duration::from_millis(200),
-            timeout: Duration::from_secs(1),
-            failures: 1,
-            http: None,
-        }),
+        health: Some(quick_health()),
         ..service(echo, Protocol::Tcp)
     };
     let t = metered(vec![("blocked", blocked), ("checked", checked)]).await;
@@ -388,12 +383,7 @@ async fn prometheus_text_has_each_family_once_and_unique_series() {
         .visitors
         .insert("lap\"top\\x".into(), visitor_auth(visitor_secret, &[]));
     let checked = Service {
-        health: Some(Health {
-            interval: Duration::from_millis(200),
-            timeout: Duration::from_secs(1),
-            failures: 1,
-            http: None,
-        }),
+        health: Some(quick_health()),
         ..service(echo, Protocol::Tcp)
     };
     let t = tunnel_with(
