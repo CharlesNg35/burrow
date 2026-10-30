@@ -248,6 +248,6 @@ pub struct SelfEntry {
     #[schemars(
         description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
     )]
-    #[admin(help = "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    #[admin(help = "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "May reach on this server", empty_label = "Nothing")]
     pub allow: Vec<String>,
 }

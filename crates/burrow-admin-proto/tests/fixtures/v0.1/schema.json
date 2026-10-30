@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:248ceb1518d1b596",
+  "hash": "b2s:e2603d014a532bfd",
   "root": {
     "label": "Server",
     "sem": {
@@ -1541,7 +1541,7 @@
                     {
                       "key": "allow",
                       "node": {
-                        "label": "Allowed targets",
+                        "label": "May reach on this server",
                         "help": "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one",
                         "sem": {
                           "t": "list",

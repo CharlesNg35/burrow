@@ -12,7 +12,7 @@ use super::more::{More, ROWS, more_settings};
 use super::{
     ADMIN, ADMIN_FROM, ALLOW_FROM, BANDWIDTH, BIND, CLIENTS, DENY_FROM, HEALTH_CHECK,
     MAX_CONNECTIONS, MODE, PROTOCOL, SERVICE_VISITORS, SERVICES, TARGET, VISITORS, WEB,
-    editing_now, join, locked_hint, object_view_marked, row,
+    editing_now, field_id, join, locked_hint, object_view_marked, row,
 };
 use burrow_admin_logic::more::split;
 
@@ -220,6 +220,11 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         .clone()
         .unwrap_or_else(|| "Not set".into());
     let help = f.node.help.clone();
+    let first = fields(&inner_node).first().cloned();
+    let unset_label = first
+        .as_ref()
+        .map_or_else(|| f.node.label.clone(), |g| g.node.label.clone());
+    let unset_path = first.map_or_else(|| path.clone(), |g| vec![f.key.clone(), g.key]);
     let p4 = path.clone();
     let body = move || {
         if !optional || is_set.get() {
@@ -232,11 +237,11 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
                 advanced,
             )
         } else {
+            let shown = none_label.clone();
             view! {
-                <div class="py-3">
-                    <p class="text-sm" data-testid="not-set">{none_label.clone()}</p>
-                    <p class="mt-1 text-xs text-text-muted">{help.clone()}</p>
-                </div>
+                <burrow_ui_kit::FieldRow id=field_id(&unset_path) label=unset_label.clone() help=help.clone() key_hint=unset_path.join(".\u{200b}") table=true>
+                    <p class="text-sm text-text-muted" data-testid="not-set">{shown}</p>
+                </burrow_ui_kit::FieldRow>
             }
             .into_any()
         }
