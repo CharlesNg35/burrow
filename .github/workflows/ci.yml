@@ -96,6 +96,8 @@ jobs:
       - name: The UI build tools and the pinned Chrome for Testing
         run: cargo xtask tools
       - run: cargo xtask ui
+      - name: Allow the user namespaces Chrome's sandbox needs
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Tunnels, burrow mcp and the admin UI both ways against the released v0.1.2 binary, fetched by its pinned SHA-256
         run: cargo xtask compat
 
