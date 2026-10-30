@@ -219,10 +219,10 @@ fn a_trusted_binary_elsewhere_is_never_used_in_place() {
 
 #[test]
 fn commands_that_interrupt_a_service_go_to_the_background() {
-    assert!(interrupts("restart"));
-    assert!(!interrupts("start"));
-    assert!(!interrupts("stop"));
-    assert_eq!(interrupts("reload"), cfg!(windows));
+    assert!(interrupts(Action::Restart));
+    assert!(!interrupts(Action::Start));
+    assert!(!interrupts(Action::Stop));
+    assert_eq!(interrupts(Action::Reload), cfg!(windows));
 }
 
 struct Recorder(std::cell::RefCell<Vec<String>>, bool);

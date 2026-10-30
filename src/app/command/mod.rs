@@ -138,7 +138,7 @@ fn export(
 }
 
 fn control(
-    action: &str,
+    action: crate::service::Action,
     a: crate::app::cli::ServiceControlArgs,
     out: &mut dyn std::io::Write,
 ) -> Result<u8, Failure> {
@@ -185,11 +185,13 @@ fn service(action: ServiceAction, logging: crate::app::run::Logging) -> Result<u
             service::uninstall(a.name.as_deref(), a.purge, &mut out).map(|_| 0)
         }
         ServiceAction::Start(n) => {
-            service::control("start", n.name.as_deref(), &mut out).map(|_| 0)
+            service::control(service::Action::Start, n.name.as_deref(), &mut out).map(|_| 0)
         }
-        ServiceAction::Stop(n) => service::control("stop", n.name.as_deref(), &mut out).map(|_| 0),
-        ServiceAction::Restart(a) => control("restart", a, &mut out),
-        ServiceAction::Reload(a) => control("reload", a, &mut out),
+        ServiceAction::Stop(n) => {
+            service::control(service::Action::Stop, n.name.as_deref(), &mut out).map(|_| 0)
+        }
+        ServiceAction::Restart(a) => control(service::Action::Restart, a, &mut out),
+        ServiceAction::Reload(a) => control(service::Action::Reload, a, &mut out),
         ServiceAction::Status(n) => service::status(n.name.as_deref(), &mut out),
         ServiceAction::Logs(a) => service::logs(a.name.as_deref(), a.lines, a.follow).map(|_| 0),
         ServiceAction::List => service::list(&mut out).map(|_| 0),

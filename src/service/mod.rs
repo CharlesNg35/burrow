@@ -29,7 +29,7 @@ use crate::base::output::say;
 use crate::install::{Manifest, Platform, all_manifests, load_manifest, manifest_path};
 
 pub use checks::misfits;
-pub use control::{control, control_now, list, logs, run_service, status};
+pub use control::{Action, control, control_now, list, logs, run_service, status};
 pub use install::{InstallOptions, install};
 pub use system::{binary_version, copy_file, is_admin};
 #[cfg(unix)]
