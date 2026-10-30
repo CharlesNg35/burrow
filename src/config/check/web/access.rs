@@ -76,16 +76,19 @@ fn devices_on_port_80(
     if site.client_auth.is_none() || site.https_redirect.or(fallback) != Some(false) {
         return;
     }
-    let from = if site.https_redirect.is_some() {
-        "https_redirect: false"
+    let (from, fix) = if site.https_redirect.is_some() {
+        ("https_redirect: false", "remove https_redirect: false")
     } else {
-        "web.https_redirect: false"
+        (
+            "web.https_redirect: false",
+            "set https_redirect: true on this site, which keeps the other sites on plain http://, remove web.https_redirect: false",
+        )
     };
     out.push(
         Diagnostic::error(
             "client-auth",
             format!(
-                "services.{name}.web.client_auth: {from} would serve this site over plain http:// too, where no device certificate can be asked; remove https_redirect: false, or remove client_auth"
+                "services.{name}.web.client_auth: {from} would serve this site over plain http:// too, where no device certificate can be asked; {fix}, or remove client_auth"
             ),
         )
         .at(at.key(&["client_auth"]))

@@ -141,16 +141,25 @@ fn device_certificates_refuse_https_redirect_false_on_the_site_or_for_all_sites(
             &format!("{{ hosts: [nas.example.com], client_auth: {{ ca: ca.pem }}{extra} }}"),
         )
     };
-    let refusal = |from: &str| {
+    let refusal = |from: &str, fix: &str| {
         format!(
-            "services.nas.web.client_auth: {from} would serve this site over plain http:// too, where no device certificate can be asked; remove https_redirect: false, or remove client_auth"
+            "services.nas.web.client_auth: {from} would serve this site over plain http:// too, where no device certificate can be asked; {fix}, or remove client_auth"
         )
     };
     let own = errs("", &site(", https_redirect: false"));
-    assert!(own.contains(&refusal("https_redirect: false")), "{own:#?}");
+    assert!(
+        own.contains(&refusal(
+            "https_redirect: false",
+            "remove https_redirect: false"
+        )),
+        "{own:#?}"
+    );
     let all = errs("  https_redirect: false\n", &site(""));
     assert!(
-        all.contains(&refusal("web.https_redirect: false")),
+        all.contains(&refusal(
+            "web.https_redirect: false",
+            "set https_redirect: true on this site, which keeps the other sites on plain http://, remove web.https_redirect: false"
+        )),
         "{all:#?}"
     );
     for (top, extra) in [
