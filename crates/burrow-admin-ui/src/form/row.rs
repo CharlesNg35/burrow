@@ -88,6 +88,8 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     let label = node.label.clone();
     let help = if lock_here {
         format!("{}.", locked_hint(&node))
+    } else if crate::domain::website::radio_field(&spath) {
+        crate::domain::website::short_help(&node.help)
     } else {
         node.help.clone()
     };

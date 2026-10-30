@@ -76,7 +76,18 @@ fn files_view(fc: FieldCtx, files: ObjectC, tls: Memo<Option<Value>>) -> impl In
 }
 
 pub(super) fn is_site_tls(fc: &FieldCtx) -> bool {
-    matches!(fc.spath.as_slice(), [s, _, w, t] if s == ServiceEntry::SECTION && w == ServiceEntry::WEB.key() && t == WebSite::TLS.key())
+    radio_field(&fc.spath)
+}
+
+pub(crate) fn radio_field(spath: &[String]) -> bool {
+    matches!(spath, [s, _, w, t] if s == ServiceEntry::SECTION && w == ServiceEntry::WEB.key() && t == WebSite::TLS.key())
+}
+
+pub(crate) fn short_help(help: &str) -> String {
+    help.split_once(':')
+        .map_or(help, |(head, _)| head)
+        .trim()
+        .to_string()
 }
 
 pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
