@@ -435,3 +435,32 @@ fn a_lock_whose_file_keeps_being_replaced_is_given_up_not_kept() {
     assert_eq!(after_lock(5, false), Locked::Moved);
     assert_eq!(after_lock(5, true), Locked::Keep);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_planted_at_a_lock_path_is_skipped_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("server.yaml");
+    std::fs::write(&cfg, "x").unwrap();
+    let id = Identity::server(&cfg);
+    let fifo = dir
+        .path()
+        .join(format!("{}.{}", id.key(), super::LOCK_EXTENSION));
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    let folder = dir.path().to_path_buf();
+    std::thread::spawn(move || {
+        let _ = tx.send(held_elsewhere(&folder, &id).is_none());
+    });
+    let skipped = rx.recv_timeout(std::time::Duration::from_secs(5));
+    if skipped.is_err() {
+        let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+    }
+    assert_eq!(skipped, Ok(true), "opening the fifo blocked");
+}

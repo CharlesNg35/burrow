@@ -135,6 +135,28 @@ pub fn replace(tmp: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
+pub fn no_follow(o: &mut std::fs::OpenOptions) -> &mut std::fs::OpenOptions {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    o
+}
+
+pub fn plain_file(f: std::fs::File) -> std::io::Result<Option<std::fs::File>> {
+    let meta = f.metadata()?;
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::MetadataExt::nlink(&meta) != 1;
+    #[cfg(not(unix))]
+    let linked = false;
+    Ok((meta.is_file() && !linked).then_some(f))
+}
+
+pub fn open_plain(path: &Path) -> std::io::Result<Option<std::fs::File>> {
+    plain_file(no_follow(std::fs::OpenOptions::new().read(true)).open(path)?)
+}
+
 #[cfg(unix)]
 pub fn names(path: &Path, file: &std::fs::File) -> bool {
     use std::os::unix::fs::MetadataExt;

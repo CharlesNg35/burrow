@@ -6,14 +6,7 @@ use super::{default_dir, dirs_with, held_by_a_trusted_instance};
 
 pub(super) const NOTE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
 
-pub(super) fn no_follow(o: &mut OpenOptions) -> &mut OpenOptions {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        o.custom_flags(libc::O_NOFOLLOW);
-    }
-    o
-}
+pub(super) use crate::base::fs::no_follow;
 
 #[cfg(unix)]
 pub(super) fn extra_links(path: &Path) -> bool {
@@ -43,15 +36,8 @@ pub(super) fn replace_linked(path: &Path) -> std::io::Result<Option<(File, bool)
 }
 
 pub(super) fn single_file(f: File) -> std::io::Result<File> {
-    let meta = f.metadata()?;
-    #[cfg(unix)]
-    let linked = std::os::unix::fs::MetadataExt::nlink(&meta) > 1;
-    #[cfg(not(unix))]
-    let linked = false;
-    if !meta.is_file() || linked {
-        return Err(std::io::Error::other("not a plain file; remove it"));
-    }
-    Ok(f)
+    crate::base::fs::plain_file(f)?
+        .ok_or_else(|| std::io::Error::other("not a plain file; remove it"))
 }
 
 pub(super) fn open_shared(path: &Path) -> std::io::Result<(File, bool)> {
@@ -131,12 +117,8 @@ fn parse_note(text: &str) -> Option<Running> {
 
 #[cfg(unix)]
 pub(super) fn trusted_note(path: &Path) -> Option<Running> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .ok()?;
+    use std::os::unix::fs::MetadataExt;
+    let mut file = no_follow(OpenOptions::new().read(true)).open(path).ok()?;
     let m = file.metadata().ok()?;
     if !m.is_file() || m.len() > 4096 || m.mode() & 0o022 != 0 {
         return None;

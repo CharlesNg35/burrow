@@ -123,7 +123,7 @@ pub fn run_as_service(name: &str) -> Result<u8, Failure> {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let ids = owner.map(account_ids).transpose()?;
     let root_only_folder = path
         .parent()
@@ -139,21 +139,15 @@ pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
             |e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())),
         );
     }
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
+    let opened = crate::base::fs::open_plain(path)
         .map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
-    let meta = file
-        .metadata()
-        .map_err(|e| Failure::new(format!("cannot read {}: {e}", path.display())))?;
-    if !meta.is_file() || meta.nlink() != 1 {
+    let Some(file) = opened else {
         return Err(Failure::new(format!(
             "{} is not a plain file with one link, so burrow will not secure it",
             path.display()
         ))
         .hint("remove it and run the command again"));
-    }
+    };
     if let (Some((uid, gid)), Some(account)) = (ids, owner) {
         std::os::unix::fs::fchown(&file, Some(uid), Some(gid)).map_err(|e| {
             Failure::new(format!("cannot give {} to {account}: {e}", path.display()))
@@ -277,16 +271,7 @@ fn private_lock(_file: &std::fs::File) -> bool {
 #[cfg(unix)]
 pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
     use std::io::Read;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .ok()?;
-    let meta = file.metadata().ok()?;
-    if !meta.is_file() || meta.nlink() != 1 {
-        return None;
-    }
+    let mut file = crate::base::fs::open_plain(path).ok()??;
     let mut out = Vec::new();
     file.read_to_end(&mut out).ok()?;
     Some(out)
@@ -303,28 +288,20 @@ pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
 
 #[cfg(unix)]
 pub fn give_plain_file(path: &Path, uid: u32, gid: u32) -> std::io::Result<bool> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let meta = file.metadata()?;
-    if !meta.is_file() || meta.nlink() != 1 {
+    let Some(file) = crate::base::fs::open_plain(path)? else {
         return Ok(false);
-    }
+    };
     std::os::unix::fs::fchown(&file, Some(uid), Some(gid))?;
     Ok(true)
 }
 
 #[cfg(unix)]
 pub fn give_back(path: &Path, from: u32, uid: u32, gid: u32) -> std::io::Result<bool> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let meta = file.metadata()?;
-    if !meta.is_file() || meta.nlink() != 1 || meta.uid() != from {
+    use std::os::unix::fs::MetadataExt;
+    let Some(file) = crate::base::fs::open_plain(path)? else {
+        return Ok(false);
+    };
+    if file.metadata()?.uid() != from {
         return Ok(false);
     }
     std::os::unix::fs::fchown(&file, Some(uid), Some(gid))?;
