@@ -60,6 +60,23 @@ pub struct ListenClash {
 }
 
 impl ServerSettings {
+    pub fn admin_access(
+        &self,
+        visitor: &str,
+        secret: &Secret,
+        from: std::net::IpAddr,
+    ) -> Result<AdminLevel, &'static str> {
+        let v = self.visitors.get(visitor).ok_or("visitor removed")?;
+        if !v.secrets.contains(secret) {
+            return Err("secret removed");
+        }
+        let level = v.admin.ok_or("admin removed")?;
+        if !v.admits_admin(from) {
+            return Err("source not allowed");
+        }
+        Ok(level)
+    }
+
     pub fn services_for(&self, client: &str) -> Vec<crate::wire::protocol::ServiceInfo> {
         services_for(&self.services, client)
     }
@@ -492,6 +509,38 @@ mod tests {
             Some(Loaded::Server(s, _)) => *s,
             _ => panic!("loads: {text}"),
         }
+    }
+
+    #[test]
+    fn admin_access_names_why_a_visitor_has_none() {
+        let base = format!(
+            "listen: 7835\nclients:\n  home: {{ secret: SECRET }}\nvisitors:\n  ops: {{ secret: {}, admin: write, admin_from: [10.0.0.0/8] }}\nservices:\n  web: {{ client: home, bind: 7840, target: 80 }}\n",
+            Secret::generate().encode()
+        );
+        let s = settings(&base);
+        let secret = s.visitors["ops"].secrets[0].clone();
+        let inside: std::net::IpAddr = "10.1.2.3".parse().unwrap();
+        assert_eq!(
+            s.admin_access("ops", &secret, inside),
+            Ok(AdminLevel::Write)
+        );
+        assert_eq!(
+            s.admin_access("gone", &secret, inside),
+            Err("visitor removed")
+        );
+        let other = Secret::generate();
+        assert_eq!(s.admin_access("ops", &other, inside), Err("secret removed"));
+        let outside = "192.0.2.1".parse().unwrap();
+        assert_eq!(
+            s.admin_access("ops", &secret, outside),
+            Err("source not allowed")
+        );
+        let none = settings(&base.replace(", admin: write, admin_from: [10.0.0.0/8]", ""));
+        let secret = none.visitors["ops"].secrets[0].clone();
+        assert_eq!(
+            none.admin_access("ops", &secret, inside),
+            Err("admin removed")
+        );
     }
 
     #[test]

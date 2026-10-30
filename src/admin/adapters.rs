@@ -433,22 +433,11 @@ struct SettingsAccess {
 impl Access for SettingsAccess {
     fn revoked(&self) -> Option<String> {
         let settings = self.shared.current_settings();
-        let Some(v) = settings.visitors.get(&self.visitor) else {
-            return Some("visitor removed".into());
-        };
-        if !v.secrets.contains(&self.secret) {
-            return Some("secret removed".into());
+        match settings.admin_access(&self.visitor, &self.secret, self.peer.ip()) {
+            Err(why) => Some(why.into()),
+            Ok(level) if level != self.level => Some("admin level changed".into()),
+            Ok(_) => None,
         }
-        if v.admin.is_none() {
-            return Some("admin removed".into());
-        }
-        if v.admin != Some(self.level) {
-            return Some("admin level changed".into());
-        }
-        if !v.admits_admin(self.peer.ip()) {
-            return Some("source not allowed".into());
-        }
-        None
     }
 }
 
@@ -479,12 +468,7 @@ async fn serve(
         via_websocket,
     } = opened;
     let settings = shared.current_settings();
-    let level = settings
-        .visitors
-        .get(&visitor)
-        .filter(|v| v.secrets.contains(&secret) && v.admits_admin(peer.ip()))
-        .and_then(|v| v.admin);
-    let Some(level) = level else {
+    let Ok(level) = settings.admin_access(&visitor, &secret, peer.ip()) else {
         if let Some(more) = REFUSED.allow() {
             warn!(
                 "visitor \"{visitor}\" from {} asked for admin access, which it does not have{more}",
