@@ -18,7 +18,7 @@ mod spark;
 mod toast;
 
 pub use basic::{
-    Button, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, MONO, Mono, Muted,
+    Button, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, MENU_ITEM, MONO, Mono, Muted,
     PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, StickyBar, TabMark, Table,
     Tabs, Tag, Tone, button_class, card_head, chip_class, menu_class,
 };

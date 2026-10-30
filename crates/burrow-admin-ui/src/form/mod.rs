@@ -109,7 +109,7 @@ pub struct EditMode(pub Signal<bool>);
 #[derive(Clone, Copy)]
 pub struct ShowKeys(pub bool);
 
-fn editing_now() -> Signal<bool> {
+pub(crate) fn editing_now() -> Signal<bool> {
     use_context::<EditMode>()
         .map(|m| m.0)
         .unwrap_or(Signal::stored(true))
@@ -183,6 +183,11 @@ impl Section<'_> {
                 continue;
             }
             let off = off_group::off_of(&f.node, entity.clone());
+            if fs == burrow_config::entity_path(&burrow_admin_proto::schema::Entity::Login) {
+                let (label, help) = (f.node.label.clone(), f.node.help.clone());
+                rows.push((off, crate::logins::login_services(label, help, fp, fs)));
+                continue;
+            }
             let service = ServiceEntry::is_entry(spath);
             match (f.key.as_str(), service) {
                 (HEALTH_CHECK, true) => {

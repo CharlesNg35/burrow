@@ -65,8 +65,7 @@ pub struct WebConfig {
         ty = map(login),
         label = "Login services",
         help = "Single sign-on services like Authelia or authentik, each with a name that websites pick to check their visitors",
-        empty_label = "None",
-        advanced
+        empty_label = "None"
     )]
     pub forward_auth: BTreeMap<String, ForwardAuthConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -23,9 +23,26 @@ pub fn settable(name: &str) -> bool {
     !NOT_SETTABLE.contains(&name.trim().to_ascii_lowercase().as_str())
 }
 
+pub fn is_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_header_name_is_an_rfc_9110_token() {
+        for ok in ["Remote-User", "X-Authentik-Uid", "x_custom", "a.b"] {
+            assert!(is_name(ok), "{ok}");
+        }
+        for bad in ["", "Remote User", "Remote-User:", "Ü"] {
+            assert!(!is_name(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn every_hop_by_hop_header_and_content_length_are_burrows_own() {

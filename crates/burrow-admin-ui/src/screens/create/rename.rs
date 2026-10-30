@@ -30,7 +30,7 @@ fn note(entity: &Entity) -> &'static str {
     }
 }
 
-fn problem_of(entity: &Entity, name: &str) -> Option<String> {
+pub(crate) fn problem_of(entity: &Entity, name: &str) -> Option<String> {
     if *entity != Entity::Login {
         return name_problem(name, entity.section(), None);
     }

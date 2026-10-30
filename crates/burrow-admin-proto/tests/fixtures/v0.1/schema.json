@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:55c43fb8d7205607",
+  "hash": "b2s:5872f2babfbe7714",
   "root": {
     "label": "Server",
     "sem": {
@@ -351,7 +351,6 @@
                             }
                           }
                         },
-                        "advanced": true,
                         "empty_label": "None"
                       }
                     },

@@ -251,6 +251,9 @@ pub fn Kpi(
     }
 }
 
+pub const MENU_ITEM: &str =
+    "block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3";
+
 pub fn menu_class(place: &str, roomy: bool) -> String {
     let inside = if roomy { "p-3 text-sm" } else { "p-1" };
     format!(

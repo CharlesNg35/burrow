@@ -86,7 +86,7 @@ fn more_menu(
                 view! {
                     <button
                         type="button"
-                        class=move || if blocked.get() { "block w-full cursor-not-allowed rounded-md px-2 py-1.5 text-left text-sm opacity-55" } else { "block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" }
+                        class=move || if blocked.get() { "block w-full cursor-not-allowed rounded-md px-2 py-1.5 text-left text-sm opacity-55" } else { burrow_ui_kit::MENU_ITEM }
                         data-testid="rename-open"
                         disabled=move || blocked.get()
                         title=move || if blocked.get() { burrow_admin_logic::grant::IN_THE_FILE } else { "" }
@@ -104,7 +104,7 @@ fn more_menu(
             })}
             {
                 let nm = nm.clone();
-                view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" on:click=move |_| { copy_text(&nm); s.toast(Tone::Success, "Copied", None); }>"Copy name"</button> }
+                view! { <button type="button" class=burrow_ui_kit::MENU_ITEM on:click=move |_| { copy_text(&nm); s.toast(Tone::Success, "Copied", None); }>"Copy name"</button> }
             }
         </div>
     }

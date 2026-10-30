@@ -282,13 +282,33 @@ pub(super) fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
                 .map(|h| view! { <p class="mt-1 text-sm text-text-muted">{h}</p> })
         }
     };
-    let control = if options.len() <= 4 {
-        view! { <Segmented name=fc.id.clone() options=options value=value on_change=set label=fc.node.label.clone() off=off/> }.into_any()
+    let control = choice(
+        fc.id.clone(),
+        fc.node.label.clone(),
+        options,
+        value,
+        Callback::new(set),
+        off,
+    );
+    view! { <div>{control}{locked}{help}</div> }.into_any()
+}
+
+const SEGMENTED_MAX: usize = 4;
+
+pub(crate) fn choice(
+    id: String,
+    label: String,
+    options: Vec<(String, String, bool)>,
+    value: Signal<String>,
+    on_change: Callback<String>,
+    off: Signal<Vec<String>>,
+) -> AnyView {
+    if options.len() <= SEGMENTED_MAX {
+        view! { <div id=id.clone()><Segmented name=id.clone() options=options value=value on_change=on_change label=label off=off/></div> }.into_any()
     } else {
         let opts: Vec<(String, String)> = options.into_iter().map(|(v, l, _)| (v, l)).collect();
-        view! { <Select id=fc.id.clone() options=opts value=value on_change=set/> }.into_any()
-    };
-    view! { <div id=if c.options.len() + usize::from(optional) <= 4 { Some(fc.id.clone()) } else { None }>{control}{locked}{help}</div> }.into_any()
+        view! { <Select id=id options=opts value=value on_change=on_change/> }.into_any()
+    }
 }
 
 #[cfg(test)]

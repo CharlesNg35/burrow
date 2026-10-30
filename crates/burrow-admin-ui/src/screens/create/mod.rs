@@ -14,7 +14,7 @@ use crate::api;
 use crate::store::store;
 
 pub(crate) use new::NewEntity;
-pub(crate) use rename::RenameEntity;
+pub(crate) use rename::{RenameEntity, problem_of};
 pub(crate) use website::NewWebsite;
 
 pub fn singular(section: &str) -> &'static str {
@@ -25,7 +25,7 @@ pub fn singular(section: &str) -> &'static str {
     }
 }
 
-pub(super) fn name_input(
+pub(crate) fn name_input(
     id: &'static str,
     label: &'static str,
     name: RwSignal<String>,

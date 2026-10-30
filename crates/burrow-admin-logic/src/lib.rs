@@ -13,6 +13,7 @@ pub mod fallback;
 pub mod grant;
 pub mod history;
 pub mod input;
+pub mod logins;
 pub mod more;
 pub mod off;
 pub mod rates;
