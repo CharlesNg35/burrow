@@ -81,8 +81,8 @@ pub(super) fn check_service<'a>(
         check_bind(name, svc.protocol, addr, ports, taken, spans, out);
     }
     let sources = Sources {
-        allow: parse_sources(name, "allow_from", &svc.allow_from, spans, out),
-        deny: parse_sources(name, "deny_from", &svc.deny_from, spans, out),
+        allow: sources(name, "allow_from", &svc.allow_from, spans, out),
+        deny: sources(name, "deny_from", &svc.deny_from, spans, out),
     };
     let listed = listed_visitors(name, svc, spans, out);
     let bandwidth = bandwidth(name, svc, spans, out);
@@ -398,32 +398,20 @@ fn check_bind<'a>(
     taken.binds.push((bind, ports, protocol, name));
 }
 
-fn parse_sources(
+fn sources(
     service: &str,
-    field: &'static str,
+    field: &str,
     list: &[String],
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Vec<Cidr> {
-    let mut nets = Vec::new();
-    for (i, text) in list.iter().enumerate() {
-        match text.parse::<Cidr>() {
-            Ok(net) => nets.push(net),
-            Err(e) => out.push(
-                Diagnostic::error(
-                    "invalid-source",
-                    format!(
-                        "invalid {field} entry for service \"{service}\": {}",
-                        e.describe()
-                    ),
-                )
-                .at(spans.value(&["services", service, field, &i.to_string()]))
-                .label("expected an IP or CIDR")
-                .help(
-                    "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
-                ),
-            ),
-        }
-    }
-    nets
+    let owner = format!("service \"{service}\"");
+    super::source_list(
+        &owner,
+        field,
+        list,
+        &["services", service, field],
+        spans,
+        out,
+    )
 }

@@ -412,26 +412,14 @@ fn check_admin(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Vec<crate::policy::allowlist::Cidr> {
-    let mut nets = Vec::new();
-    for (i, text) in entry.admin_from.iter().enumerate() {
-        match text.parse::<crate::policy::allowlist::Cidr>() {
-            Ok(net) => nets.push(net),
-            Err(e) => out.push(
-                Diagnostic::error(
-                    "invalid-source",
-                    format!(
-                        "invalid admin_from entry for visitor \"{name}\": {}",
-                        e.describe()
-                    ),
-                )
-                .at(spans.value(&["visitors", name, "admin_from", &i.to_string()]))
-                .label("expected an IP or CIDR")
-                .help(
-                    "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
-                ),
-            ),
-        }
-    }
+    let nets = super::source_list(
+        &format!("visitor \"{name}\""),
+        "admin_from",
+        &entry.admin_from,
+        &["visitors", name, "admin_from"],
+        spans,
+        out,
+    );
     if entry.admin.is_none() && !entry.admin_from.is_empty() {
         out.push(
             Diagnostic::warning(

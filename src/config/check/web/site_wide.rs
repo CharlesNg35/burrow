@@ -104,7 +104,7 @@ fn ranges(key: &str, list: &[String], open: &str, spans: &Spans, out: &mut Vec<D
     for (i, text) in list.iter().enumerate() {
         let n = i.to_string();
         let at = spans.value(&["web", key, &n]);
-        match text.trim().parse::<Cidr>() {
+        match text.parse::<Cidr>() {
             Err(e) => out.push(
                 Diagnostic::error(
                     "invalid-range",

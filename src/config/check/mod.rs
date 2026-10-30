@@ -235,6 +235,39 @@ fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
     parse_addr(bind, [0, 0, 0, 0], "bind")
 }
 
+pub fn source_list(
+    owner: &str,
+    field: &str,
+    list: &[String],
+    path: &[&str],
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<crate::policy::allowlist::Cidr> {
+    let mut nets = Vec::new();
+    for (i, text) in list.iter().enumerate() {
+        match text.parse::<crate::policy::allowlist::Cidr>() {
+            Ok(net) => nets.push(net),
+            Err(e) => {
+                let n = i.to_string();
+                let mut at = path.to_vec();
+                at.push(&n);
+                out.push(
+                    Diagnostic::error(
+                        "invalid-source",
+                        format!("invalid {field} entry for {owner}: {}", e.describe()),
+                    )
+                    .at(spans.value(&at))
+                    .label("expected an IP or CIDR")
+                    .help(
+                        "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
+                    ),
+                );
+            }
+        }
+    }
+    nets
+}
+
 pub fn parse_local(local: &Bind) -> Result<(SocketAddr, u16), String> {
     ports::parse_ranged(local, [127, 0, 0, 1], "local")
 }
