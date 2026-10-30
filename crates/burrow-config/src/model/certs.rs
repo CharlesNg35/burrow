@@ -21,8 +21,8 @@ pub struct LetsEncrypt {
         description = "production (the default), staging (Let's Encrypt's test service), or the directory URL of another ACME server, like https://ca.internal/acme/directory"
     )]
     #[admin(
-        label = "Certificate service",
-        help = "Where certificates come from: Let's Encrypt, its test service for trying things out, or another ACME server by its directory URL, for example https://ca.internal/acme/directory",
+        label = "Certificate authority",
+        help = "Where certificates come from: Let's Encrypt, its test servers for trying things out, or another certificate authority by its ACME address, for example https://ca.internal/acme/directory",
         none_label = "Let's Encrypt",
         advanced
     )]
@@ -59,7 +59,7 @@ pub struct LetsEncrypt {
     #[admin(
         label = "Certificate profile",
         help = "The kind of certificate to ask for, for example shortlived for 6-day certificates; IP addresses always use it",
-        none_label = "The service's default",
+        none_label = "The authority's default profile",
         advanced
     )]
     pub profile: Option<String>,
@@ -84,7 +84,7 @@ pub struct LetsEncrypt {
 pub enum Directory {
     #[admin(label = "Let's Encrypt")]
     Named(DirectoryName),
-    #[admin(label = "Another ACME server")]
+    #[admin(label = "Another certificate authority (ACME)")]
     Url(String),
 }
 
@@ -96,7 +96,7 @@ pub enum DirectoryName {
     Production,
     #[admin(
         label = "Staging",
-        help = "Let's Encrypt's test service: higher limits, certificates browsers do not trust"
+        help = "Let's Encrypt's test servers: higher limits, certificates browsers do not trust"
     )]
     Staging,
 }

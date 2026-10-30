@@ -154,7 +154,7 @@ pub struct WebConfig {
     )]
     #[admin(
         ty = list(cidr),
-        label = "PROXY headers from",
+        label = "Accept PROXY protocol from",
         help = "Load balancers in front of burrow that send a PROXY header with the visitor's address, for example 10.0.0.5/32; they must send it, and nobody else may",
         empty_label = "None",
         advanced,
@@ -177,7 +177,7 @@ pub struct WebConfig {
         description = "true gives each request an X-Request-Id, sent to the app, returned to the visitor and written to the access log; false when not set"
     )]
     #[admin(
-        label = "Request ids",
+        label = "Request ID header",
         help = "Give each request an X-Request-Id that the app, the visitor and the access log all see; one from a trusted proxy is kept",
         none_label = "Off",
         advanced
@@ -188,7 +188,7 @@ pub struct WebConfig {
         description = "Default for every site: true sends Strict-Transport-Security for a year on HTTPS answers; false when not set"
     )]
     #[admin(
-        label = "HSTS",
+        label = "Tell browsers to use HTTPS only (HSTS)",
         help = "For every HTTPS website: tell browsers to use only HTTPS for a year; a website can change it",
         none_label = "Off",
         advanced

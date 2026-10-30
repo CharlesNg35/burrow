@@ -39,7 +39,7 @@ pub fn About() -> impl IntoView {
                     w.server.version.clone()
                 },
             ),
-            ("Server target", w.server.target.clone()),
+            ("Built for", w.server.target.clone()),
             (
                 "Uptime",
                 format::span(
@@ -50,11 +50,11 @@ pub fn About() -> impl IntoView {
             ),
             ("burrow admin UI", UI_VERSION.to_string()),
             (
-                "Admin protocol",
+                "Admin protocol, for support",
                 format!("{} (this UI speaks up to {PROTOCOL_MAX})", w.protocol),
             ),
             (
-                "Schema",
+                "Schema, for support",
                 format!(
                     "version {} · {}",
                     schema.schema_version,
@@ -63,7 +63,10 @@ pub fn About() -> impl IntoView {
                         .trim_start_matches(burrow_admin_proto::REV_PREFIX)
                 ),
             ),
-            ("This UI's schema version", SCHEMA_VERSION.to_string()),
+            (
+                "This UI's schema version, for support",
+                SCHEMA_VERSION.to_string(),
+            ),
             (
                 "Signed in as",
                 format!("{} · admin {level} · from {}", w.you.visitor, w.you.from),

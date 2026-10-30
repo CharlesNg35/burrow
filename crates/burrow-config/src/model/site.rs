@@ -143,7 +143,7 @@ pub struct WebSite {
     )]
     #[admin(
         label = "HTTP/2 to the app",
-        help = "Speak HTTP/2 to the app, needed for gRPC: without HTTPS to the app it is plain h2c, with it h2 inside TLS",
+        help = "Speak HTTP/2 to the app; needed for gRPC apps",
         advanced,
         enabled_if(
             ne(tls, "passthrough"),
@@ -210,7 +210,7 @@ pub struct WebSite {
         description = "true sends Strict-Transport-Security for a year on this site's HTTPS answers; from web.hsts when not set"
     )]
     #[admin(
-        label = "HSTS",
+        label = "Tell browsers to use HTTPS only (HSTS)",
         help = "Tell browsers to use only HTTPS for this site for a year",
         none_label = "As the web proxy says",
         advanced,
@@ -310,7 +310,7 @@ pub struct WebSite {
 #[serde(untagged)]
 #[admin(semantic = union(enum_(TlsMode), object(SiteFiles)))]
 pub enum SiteTls {
-    #[admin(label = "Choice")]
+    #[admin(label = "How HTTPS is done")]
     Mode(TlsMode),
     #[admin(label = "My own certificate")]
     Files(SiteFiles),

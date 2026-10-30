@@ -151,8 +151,8 @@ pub struct AccessLogOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "common (the default, like nginx and Apache) or json")]
     #[admin(
-        help = "common is one line like nginx and Apache write; json suits log tools",
-        none_label = "common"
+        help = "Common is one line per request, as nginx and Apache write; JSON suits log tools",
+        none_label = "Common (like nginx)"
     )]
     pub format: Option<AccessLogFormat>,
 }

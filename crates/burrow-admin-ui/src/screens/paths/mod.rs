@@ -367,7 +367,7 @@ mod tests {
         assert_eq!(p.hops[0].state, HopState::Bad);
         assert_eq!(p.hops[1].unit, "11 ports · TCP");
         assert_eq!(p.hops[2].value, "a · b");
-        assert_eq!(p.edges[1].above, "balance");
+        assert_eq!(p.edges[1].above, "Balance");
         assert_eq!(p.edges[2].state, EdgeState::Error);
         assert_eq!(p.hops[3].badge.as_ref().unwrap().0, "6 ≠ 11 ports");
         assert!(

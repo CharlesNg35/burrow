@@ -105,7 +105,7 @@ impl Default for Pool {
 #[admin(label = "TCP options")]
 pub struct TcpOptions {
     #[admin(
-        label = "No delay",
+        label = "Send small packets at once",
         help = "Send small writes at once instead of batching them (TCP_NODELAY)"
     )]
     pub nodelay: bool,
@@ -114,8 +114,8 @@ pub struct TcpOptions {
         range(max = 32767)
     )]
     #[admin(
-        help = "Idle time before keepalive probes start; 0 turns them off",
-        label = "Keepalive"
+        help = "Idle time before burrow checks that a quiet connection is still there (TCP keepalive); 0 turns the checks off",
+        label = "Check idle connections"
     )]
     pub keepalive_secs: u32,
 }

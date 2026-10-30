@@ -273,10 +273,11 @@ fn service_edges(
     many: bool,
 ) -> Vec<Edge> {
     let mode = if many {
-        ServiceEntry::MODE
+        let wire = ServiceEntry::MODE
             .get(svc)
             .map(plain)
-            .unwrap_or_else(|| "failover".into())
+            .unwrap_or_else(|| burrow_config::Mode::default().wire().to_string());
+        burrow_config::labels::option_label::<burrow_config::Mode>(&wire).unwrap_or(wire)
     } else {
         String::new()
     };

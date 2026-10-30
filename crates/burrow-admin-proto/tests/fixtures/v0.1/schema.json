@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:0c11f9d7c8374161",
+  "hash": "b2s:d8bab077aa5c8466",
   "root": {
     "label": "Server",
     "sem": {
@@ -400,8 +400,8 @@
                                 {
                                   "key": "directory",
                                   "node": {
-                                    "label": "Certificate service",
-                                    "help": "Where certificates come from: Let's Encrypt, its test service for trying things out, or another ACME server by its directory URL, for example https://ca.internal/acme/directory",
+                                    "label": "Certificate authority",
+                                    "help": "Where certificates come from: Let's Encrypt, its test servers for trying things out, or another certificate authority by its ACME address, for example https://ca.internal/acme/directory",
                                     "sem": {
                                       "t": "optional",
                                       "inner": {
@@ -420,7 +420,7 @@
                                                   {
                                                     "value": "staging",
                                                     "label": "Staging",
-                                                    "help": "Let's Encrypt's test service: higher limits, certificates browsers do not trust"
+                                                    "help": "Let's Encrypt's test servers: higher limits, certificates browsers do not trust"
                                                   }
                                                 ]
                                               }
@@ -495,7 +495,7 @@
                                       }
                                     },
                                     "advanced": true,
-                                    "none_label": "The service's default"
+                                    "none_label": "The authority's default profile"
                                   }
                                 },
                                 {
@@ -1020,7 +1020,7 @@
                     {
                       "key": "proxy_protocol_from",
                       "node": {
-                        "label": "PROXY headers from",
+                        "label": "Accept PROXY protocol from",
                         "help": "Load balancers in front of burrow that send a PROXY header with the visitor's address, for example 10.0.0.5/32; they must send it, and nobody else may",
                         "sem": {
                           "t": "list",
@@ -1075,7 +1075,7 @@
                                         "key": "format",
                                         "node": {
                                           "label": "Format",
-                                          "help": "common is one line like nginx and Apache write; json suits log tools",
+                                          "help": "Common is one line per request, as nginx and Apache write; JSON suits log tools",
                                           "sem": {
                                             "t": "optional",
                                             "inner": {
@@ -1096,7 +1096,7 @@
                                               }
                                             }
                                           },
-                                          "none_label": "common"
+                                          "none_label": "Common (like nginx)"
                                         }
                                       }
                                     ]
@@ -1114,7 +1114,7 @@
                     {
                       "key": "request_id",
                       "node": {
-                        "label": "Request ids",
+                        "label": "Request ID header",
                         "help": "Give each request an X-Request-Id that the app, the visitor and the access log all see; one from a trusted proxy is kept",
                         "sem": {
                           "t": "optional",
@@ -1131,7 +1131,7 @@
                     {
                       "key": "hsts",
                       "node": {
-                        "label": "HSTS",
+                        "label": "Tell browsers to use HTTPS only (HSTS)",
                         "help": "For every HTTPS website: tell browsers to use only HTTPS for a year; a website can change it",
                         "sem": {
                           "t": "optional",
@@ -2605,7 +2605,7 @@
                                         "key": "target_http2",
                                         "node": {
                                           "label": "HTTP/2 to the app",
-                                          "help": "Speak HTTP/2 to the app, needed for gRPC: without HTTPS to the app it is plain h2c, with it h2 inside TLS",
+                                          "help": "Speak HTTP/2 to the app; needed for gRPC apps",
                                           "sem": {
                                             "t": "bool"
                                           },
@@ -2864,7 +2864,7 @@
                                       {
                                         "key": "hsts",
                                         "node": {
-                                          "label": "HSTS",
+                                          "label": "Tell browsers to use HTTPS only (HSTS)",
                                           "help": "Tell browsers to use only HTTPS for this site for a year",
                                           "sem": {
                                             "t": "optional",
@@ -3327,7 +3327,7 @@
                 {
                   "key": "nodelay",
                   "node": {
-                    "label": "No delay",
+                    "label": "Send small packets at once",
                     "help": "Send small writes at once instead of batching them (TCP_NODELAY)",
                     "sem": {
                       "t": "bool"
@@ -3338,8 +3338,8 @@
                 {
                   "key": "keepalive_secs",
                   "node": {
-                    "label": "Keepalive",
-                    "help": "Idle time before keepalive probes start; 0 turns them off",
+                    "label": "Check idle connections",
+                    "help": "Idle time before burrow checks that a quiet connection is still there (TCP keepalive); 0 turns the checks off",
                     "sem": {
                       "t": "duration",
                       "unit": "secs",

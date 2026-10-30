@@ -132,9 +132,9 @@ pub enum ProxyVersion {
 #[serde(untagged)]
 #[admin(semantic = union(enum_values("any"), cidr_rule, list(cidr_rule)))]
 pub enum Reach {
-    #[admin(label = "Any or one rule")]
+    #[admin(label = "Any target, or one")]
     One(String),
-    #[admin(label = "Rules")]
+    #[admin(label = "Only these targets")]
     Many(Vec<String>),
 }
 

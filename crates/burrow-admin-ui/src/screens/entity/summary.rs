@@ -32,6 +32,41 @@ fn pool_range(doc: &Value) -> String {
     format!("keeps {min} to {max}")
 }
 
+fn mode_line(svc: &Value) -> String {
+    match (
+        burrow_admin_logic::entries::rows(ServiceEntry::CLIENTS.get(svc)).len() > 1,
+        ServiceEntry::MODE
+            .get(svc)
+            .map(plain)
+            .as_deref()
+            .and_then(Mode::from_wire),
+    ) {
+        (true, Some(Mode::Balance)) => {
+            format!(
+                "{}: new connections spread over healthy clients by weight",
+                mode_label(Mode::Balance)
+            )
+        }
+        (true, Some(Mode::LeastConnections)) => {
+            format!(
+                "{}: the healthy client with the fewest open connections takes the next one",
+                mode_label(Mode::LeastConnections)
+            )
+        }
+        (true, _) => {
+            format!(
+                "{}: the first healthy client takes new connections",
+                mode_label(Mode::Failover)
+            )
+        }
+        _ => String::new(),
+    }
+}
+
+fn mode_label(m: Mode) -> String {
+    burrow_config::labels::option_label::<Mode>(m.wire()).unwrap_or_else(|| m.wire().to_string())
+}
+
 fn since_date(secs: u64) -> String {
     let at = js_sys::Date::now() - secs as f64 * 1000.0;
     let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(at));
@@ -185,25 +220,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         }
                     })
                     .collect_view();
-                let mode = match (
-                    burrow_admin_logic::entries::rows(ServiceEntry::CLIENTS.get(&svc)).len() > 1,
-                    ServiceEntry::MODE
-                        .get(&svc)
-                        .map(plain)
-                        .as_deref()
-                        .and_then(Mode::from_wire),
-                ) {
-                    (true, Some(Mode::Balance)) => {
-                        "balance · new connections spread over healthy clients by weight".to_string()
-                    }
-                    (true, Some(Mode::LeastConnections)) => {
-                        "least connections · the healthy client with the fewest open connections takes the next one".to_string()
-                    }
-                    (true, _) => {
-                        "failover · the first healthy client takes new connections".to_string()
-                    }
-                    _ => String::new(),
-                };
+                let mode = mode_line(&svc);
                 view! {
                     <div class="mb-4">
                         <Card title="Health per client" sub=mode flush=true testid="health">
