@@ -105,8 +105,18 @@ impl<U: Upstream> Proxy<U> {
             .certs
             .apply(&settings.certs, &cert_names(settings))
             .await;
-        let table = Table::build_after(settings, Some(&self.shared.table()));
-        self.shared.verifiers.refresh(table.client_auths());
+        let (shared, given) = (self.shared.clone(), settings.clone());
+        let built = tokio::task::spawn_blocking(move || {
+            let table = Table::build_after(&given, Some(&shared.table()));
+            shared.verifiers.refresh(table.client_auths());
+            table
+        })
+        .await;
+        let table = match built {
+            Ok(table) => table,
+            Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
+            Err(_) => return,
+        };
         *self.shared.table.write().expect("table lock") = Arc::new(table);
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.open_log(settings.access_log.as_ref());

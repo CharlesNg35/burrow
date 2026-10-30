@@ -340,3 +340,57 @@ async fn a_corrupt_replacement_keeps_the_last_good_crl_in_force() {
         "{notes:?}"
     );
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_reload_reads_client_auth_files_off_the_async_workers() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let ca = device_ca("Devices CA", None);
+    let fifo = dir.path().join("ca.pem");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let w = std::sync::Arc::new(
+        world(
+            vec![https_site("blog", &["blog.example.com"])],
+            &["*.example.com"],
+        )
+        .await,
+    );
+    let key = ClientAuth {
+        ca: fifo.clone(),
+        crl: None,
+    };
+    let mut s = ProxySettings::new(w.addr());
+    s.sites = w.sites.clone();
+    s.sites
+        .push(protected("grafana", &["grafana.example.com"], &key));
+    let (opened_tx, opened_rx) = std::sync::mpsc::channel();
+    let (probe_tx, probe_rx) = std::sync::mpsc::channel::<()>();
+    let pem = ca.pem.clone();
+    let writer = std::thread::spawn(move || {
+        let mut f = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+        opened_tx.send(()).unwrap();
+        let ran = probe_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .is_ok();
+        f.write_all(pem.as_bytes()).unwrap();
+        ran
+    });
+    let applying = {
+        let w = w.clone();
+        tokio::spawn(async move { w.proxy.apply(&s).await })
+    };
+    opened_rx.recv().unwrap();
+    tokio::spawn(async move { probe_tx.send(()) });
+    applying.await.unwrap();
+    assert!(
+        writer.join().unwrap(),
+        "a task ran while the file was being read"
+    );
+}

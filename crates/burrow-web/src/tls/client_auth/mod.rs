@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 
 use tokio_rustls::rustls::RootCertStore;
@@ -78,6 +78,7 @@ pub fn check_files(
     Ok(notes_at(&loaded.expiry, now))
 }
 
+#[derive(Clone)]
 struct Held {
     files: (Vec<u8>, Option<Vec<u8>>),
     verifier: Option<Verifier>,
@@ -88,7 +89,8 @@ struct Held {
 
 pub(crate) struct Verifiers {
     resolver: Arc<dyn ResolvesServerCert>,
-    held: RwLock<HashMap<ClientAuth, Held>>,
+    held: RwLock<HashMap<ClientAuth, Arc<Held>>>,
+    refreshing: Mutex<()>,
 }
 
 fn files(key: &ClientAuth) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
@@ -116,35 +118,40 @@ impl Verifiers {
         Verifiers {
             resolver,
             held: RwLock::new(HashMap::new()),
+            refreshing: Mutex::new(()),
         }
     }
 
     pub(crate) fn refresh<'a>(&self, wanted: impl IntoIterator<Item = &'a ClientAuth>) {
-        let mut held = self.held.write().expect("verifiers lock");
+        let _one = self
+            .refreshing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let old = self.held.read().expect("verifiers lock").clone();
         let mut next = HashMap::new();
         for key in wanted {
             if next.contains_key(key) {
                 continue;
             }
-            let old = held.remove(key);
-            next.insert(key.clone(), self.renew(key, old));
+            let held = self.renew(key, old.get(key));
+            next.insert(key.clone(), held);
         }
-        *held = next;
+        *self.held.write().expect("verifiers lock") = next;
     }
 
-    fn renew(&self, key: &ClientAuth, old: Option<Held>) -> Held {
+    fn renew(&self, key: &ClientAuth, old: Option<&Arc<Held>>) -> Arc<Held> {
         let read = files(key);
-        if let (Ok(f), Some(o)) = (&read, &old)
+        if let (Ok(f), Some(o)) = (&read, old)
             && *f == o.files
         {
-            return old.expect("checked above");
+            return o.clone();
         }
         let built = read.and_then(|f| {
             load(&f.0, f.1.as_deref())
                 .map(|l| (f, l))
                 .map_err(|p| described(key, &p))
         });
-        match (built, old) {
+        Arc::new(match (built, old) {
             (Ok((files, l)), _) => Held {
                 configs: Some([false, true].map(|h2| {
                     crate::terminate::site_config(
@@ -158,10 +165,12 @@ impl Verifiers {
                 expiry: l.expiry,
                 kept: None,
             },
-            (Err(why), Some(mut o)) => {
+            (Err(why), Some(o)) => {
                 warn!("web: {why}; the last good files stay in force");
-                o.kept = Some(why);
-                o
+                Held {
+                    kept: Some(why),
+                    ..Held::clone(o)
+                }
             }
             (Err(why), None) => {
                 warn!("web: {why}; visitors of these names are refused until it is fixed");
@@ -173,7 +182,7 @@ impl Verifiers {
                     kept: Some(why),
                 }
             }
-        }
+        })
     }
 
     pub(crate) fn config(&self, key: &ClientAuth, http2: bool) -> Option<Arc<ServerConfig>> {

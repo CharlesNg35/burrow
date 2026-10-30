@@ -233,3 +233,50 @@ fn a_site_whose_files_were_never_good_gets_no_config() {
         "{notes:?}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_site_keeps_answering_while_a_reload_reads_another_sites_files() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let root = ca("Devices CA", None);
+    let key = ClientAuth {
+        ca: write(dir.path(), "ca.pem", root.pem.as_bytes()),
+        crl: None,
+    };
+    let slow = ClientAuth {
+        ca: dir.path().join("slow.pem"),
+        crl: None,
+    };
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&slow.ca)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let resolver: Arc<dyn ResolvesServerCert> = Arc::new(crate::tls::Fixed::new(
+        crate::tls::files::tests::certified_for("x.example.com"),
+    ));
+    let v = Arc::new(Verifiers::new(resolver));
+    v.refresh([&key]);
+    let refreshing = {
+        let (v, key, slow) = (v.clone(), key.clone(), slow.clone());
+        std::thread::spawn(move || v.refresh([&key, &slow]))
+    };
+    let mut fifo = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&slow.ca)
+        .unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    {
+        let (v, key) = (v.clone(), key.clone());
+        std::thread::spawn(move || tx.send(v.config(&key, false).is_some()));
+    }
+    let answered = rx.recv_timeout(Duration::from_secs(2));
+    fifo.write_all(root.pem.as_bytes()).unwrap();
+    drop(fifo);
+    refreshing.join().unwrap();
+    assert_eq!(answered, Ok(true), "a handshake waited for the reload");
+    assert!(v.config(&slow, false).is_some());
+}
