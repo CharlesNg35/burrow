@@ -23,6 +23,10 @@ fn show(el: &web_sys::HtmlElement, selector: &str) {
     }
 }
 
+pub fn active_item(attr: &'static str, active: Signal<&'static str>) -> Signal<String> {
+    Signal::derive(move || format!("[{attr}=\"{}\"]", active.get()))
+}
+
 #[component]
 pub fn ScrollRow(
     #[prop(into)] active: Signal<String>,
@@ -41,7 +45,10 @@ pub fn ScrollRow(
         if let Some(selector) = selector {
             show(&el, &selector);
         }
-        fade.set(fades(&el));
+        let now = fades(&el);
+        if fade.get_untracked() != now {
+            fade.set(now);
+        }
     };
     Effect::new(move |_| {
         let selector = active.get();

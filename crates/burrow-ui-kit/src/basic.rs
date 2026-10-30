@@ -340,7 +340,7 @@ pub fn Tabs(
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
     #[prop(optional, into)] errors: Option<Signal<Vec<usize>>>,
 ) -> impl IntoView {
-    let selector = Signal::derive(move || format!("[data-tab=\"{}\"]", active.get()));
+    let selector = crate::active_item("data-tab", active.into());
     view! {
         <crate::ScrollRow active=selector class="mb-4 gap-1 border-b border-border" role="tablist">
             {tabs
@@ -402,7 +402,7 @@ pub fn PillTabs(
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
     #[prop(optional)] marks: Option<Signal<Vec<Vec<TabMark>>>>,
 ) -> impl IntoView {
-    let selector = Signal::derive(move || format!("[data-tab=\"{}\"]", active.get()));
+    let selector = crate::active_item("data-tab", active);
     view! {
         <crate::ScrollRow active=selector class="gap-1" role="tablist">
             {tabs

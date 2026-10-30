@@ -1,6 +1,6 @@
 use burrow_admin_logic::wording::{WriteAction, needs_write_admin};
 use burrow_config::Protocol;
-use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, ScrollRow, Tone, tag_class};
+use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, ScrollRow, Tone, active_item, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Link};
@@ -321,7 +321,7 @@ pub(crate) fn filter_chips(
     rows: Signal<Vec<Row>>,
     no_counts: bool,
 ) -> impl IntoView {
-    let active = Signal::derive(move || format!("[data-filter=\"{}\"]", filter.get()));
+    let active = active_item("data-filter", filter.into());
     let chips = filters
         .into_iter()
         .map(|(key, label)| {
