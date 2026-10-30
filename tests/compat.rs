@@ -114,24 +114,6 @@ impl Setup {
     }
 }
 
-async fn echo() -> u16 {
-    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = l.local_addr().unwrap().port();
-    tokio::spawn(async move {
-        while let Ok((mut s, _)) = l.accept().await {
-            tokio::spawn(async move {
-                let mut buf = [0u8; 1024];
-                while let Ok(n) = s.read(&mut buf).await {
-                    if n == 0 || s.write_all(&buf[..n]).await.is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-    });
-    port
-}
-
 async fn tunnel_works(port: u16) -> bool {
     for _ in 0..100 {
         if let Ok(Ok(mut s)) = tokio::time::timeout(
@@ -154,7 +136,7 @@ async fn tunnel_works(port: u16) -> bool {
 
 async fn tunnel_between(server: &Path, client: &Path) {
     let s = Setup::new();
-    let target = echo().await;
+    let target = common::echo_server().await.port();
     let _server = s.run(server, "server", &s.server(target));
     let _client = s.run(client, "client", &s.client(target));
     assert!(
@@ -197,7 +179,7 @@ async fn call(
 async fn burrow_mcp_reads_and_changes_an_older_server() {
     let Some(old) = older() else { return };
     let s = Setup::new();
-    let target = echo().await;
+    let target = common::echo_server().await.port();
     let config = s.server(target);
     let _server = s.run(&old, "server", &config);
     let visitor = s.visitor();
