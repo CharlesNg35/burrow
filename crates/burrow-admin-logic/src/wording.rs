@@ -131,7 +131,8 @@ pub fn rewritten(place: &str, reason: &str) -> String {
 pub const OFFLINE: &str = "offline";
 pub const CLIENTS_OFFLINE: &str = "Clients offline";
 pub const REFUSED_CONNECTIONS: &str = "Refused connections";
-pub const REFUSED_WHY: &str = "wrong or unknown key";
+pub const REFUSED_WHY: &str = "wrong key";
+pub const REFUSED_HELP: &str = "A client or visitor offered a wrong or unknown key";
 
 pub fn applies_label(how: &burrow_admin_proto::schema::Applies) -> Option<&'static str> {
     use burrow_admin_proto::schema::Applies;

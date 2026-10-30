@@ -280,7 +280,7 @@ fn kpis(
             testid="kpi-visitors"
         />
     </div>
-    <div class="md:col-span-2">
+    <div class="md:col-span-2" title=burrow_admin_logic::wording::REFUSED_HELP>
         <Kpi
             label=burrow_admin_logic::wording::REFUSED_CONNECTIONS
             icon="shield"
