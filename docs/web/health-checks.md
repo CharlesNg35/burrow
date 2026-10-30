@@ -1,10 +1,10 @@
 # Health checks for websites
 
-A website with several clients should send visitors only to an app that works. A health check asks the app, through each client, every few seconds, and a client whose app stops answering gets no new visitors until it answers again.
+A website with several clients should send visitors only to an app that works. A health check asks the app through each client every few seconds. A client whose app stops answering gets no new visitors until it answers again.
 
 In [How it works](how-it-works.md): a service whose clients are all down answers `503` in [step 2](how-it-works.md#2-a-request-is-answered).
 
-`health_check` (see [services.md](../services.md)) checks through each client that the app answers. For a website, `path` makes it ask the app for a page instead of only opening a connection. This blog runs on two clients, and the check asks each for `/healthz`:
+[`health_check`](../services.md) checks through each client that the app answers. For a website, `path` makes it ask for a page instead of only opening a connection. This blog runs on two clients, and the check asks each for `/healthz`:
 
 ```yaml
 # server.yaml

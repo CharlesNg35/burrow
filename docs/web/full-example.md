@@ -1,6 +1,8 @@
 # A full example and what validate checks
 
-This page shows every website setting burrow has, in one `server.yaml` you could run. It is the config of one person's burrow server, a machine with a public address in front of a home and a small office, with a public blog and shop, family apps behind logins, a few devices that keep their own HTTPS, sites only for the home network, and some old names that redirect. Each key has a comment on why you would use it. You never need all of them: most sites need only `client`, `target` and `web: name`, as in [A first website](../web.md#a-first-website). Use this page to find a key and see it in context; the topic pages explain each part.
+This page shows every website setting burrow has, in one `server.yaml` you could run. It is one person's burrow server: a machine with a public address in front of a home and a small office. It serves a public blog and shop, family apps behind logins, devices that keep their own HTTPS, sites only for the home network, and old names that redirect. Each key has a comment on why you would use it.
+
+You never need all of them: most sites need only `client`, `target` and `web: name`, as in [A first website](../web.md#a-first-website). Use this page to find a key in context; the topic pages explain each part.
 
 Each part of the example goes through the steps of [How it works](how-it-works.md); [step 5](how-it-works.md#5-saving-a-config) says what happens when you save it.
 
@@ -373,7 +375,7 @@ Where each name gets its certificate:
 
 ## What validate checks
 
-`burrow validate` checks every website setting before anything runs, and the same checks run at each start and save. These are the problems it finds, with the message it shows:
+`burrow validate` checks every website setting before anything runs; the same checks run at each start and save. These are the problems it finds, with the message it shows:
 
 | Problem | What validate says |
 | --- | --- |

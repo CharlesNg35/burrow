@@ -1,10 +1,10 @@
 # Headers, limits and pages
 
-These keys shape what a site sends and accepts: headers added for the app or the browser, the biggest upload, how long the app may take, your own error pages, a maintenance page, and HTTPS from burrow to an app that only speaks HTTPS. Most sites need none of them.
+These keys shape what a site sends and accepts: extra headers, the biggest upload, how long the app may take, your own error pages, a maintenance page, and HTTPS to an app that only speaks HTTPS. Most sites need none of them.
 
 In [How it works](how-it-works.md): [step 2](how-it-works.md#2-a-request-is-answered) says when each key applies and which page answers.
 
-These keys work under `web:` for every site, and in a service's `web:` for that site; the site's own value wins, and a site's `request_headers` and `response_headers` are added to those under `web:`. This config sets defaults for every site, lets Proxmox take big uploads, and puts a shop in maintenance:
+Each key works under `web:` for every site, or in a service's `web:` for that site. The site's own value wins, except `request_headers` and `response_headers`, which are added to those under `web:`. This config sets defaults for every site, lets Proxmox take big uploads, and puts a shop in maintenance:
 
 ```yaml
 # server.yaml
@@ -37,15 +37,15 @@ services:
       maintenance: true # every visitor sees the maintenance page (503 with Retry-After)
 ```
 
-- **`request_headers` and `response_headers`** set headers on requests to the app and on answers to visitors, `Name: value`; an empty value removes one. `Host` may be set for an app that wants its own name; `X-Forwarded-Host` keeps the visitor's. Headers of HTTP's own framing, like `Connection` or `Transfer-Encoding`, cannot be set.
+- **`request_headers` and `response_headers`** set headers, as `Name: value`, on requests to the app and on answers to visitors. An empty value removes a header. `Host` may be set for an app that wants its own name; `X-Forwarded-Host` keeps the visitor's. Headers of HTTP's own framing, like `Connection` or `Transfer-Encoding`, cannot be set.
 - **`max_body_size`** has no limit by default: bodies are streamed to the app, never held in memory. A larger `Content-Length` gets 413 before the app is asked, without a `100 Continue`.
-- **`error_pages`** replaces burrow's built-in pages with yours; a page that is not in the folder stays built in. The folder is read when the config is saved.
+- **`error_pages`** replaces burrow's built-in pages with yours; a page missing from the folder stays built in. The folder is read when the config is saved.
 - **`hsts`** is never sent on port 80.
-- **`compress`** gzips HTML, CSS, JavaScript, JSON, XML, SVG and wasm answers of 1 KiB or more (or of unknown length), when the browser accepts gzip and the app did not compress or mark them `no-transform` already.
+- **`compress`** gzips HTML, CSS, JavaScript, JSON, XML, SVG and wasm answers of 1 KiB or more (or of unknown length). It does so only when the browser accepts gzip, and the app has not already compressed the answer or marked it `no-transform`.
 
 ### HTTPS to the app
 
-Some apps, like Proxmox, UniFi or a NAS admin page, only answer over HTTPS. `target_tls` makes burrow speak HTTPS to them, and says how their certificate is checked:
+Some apps, like Proxmox, UniFi or a NAS admin page, answer only over HTTPS. `target_tls` makes burrow speak HTTPS to them, and says how their certificate is checked:
 
 | `target_tls` | The app's certificate is |
 | --- | --- |
@@ -57,10 +57,10 @@ An IP target needs its IP address in the app's certificate. A plain-HTTP app beh
 
 ## Limits
 
-burrow also applies these fixed limits to every website connection, so slow or broken visitors cannot tie up the server:
+These fixed limits apply to every website connection, so slow or broken visitors cannot tie up the server:
 
 - A connection has 10 seconds to send its first TLS message, and at most 16 KiB of it is read before the name is known.
-- Connections that have not shown a name yet are limited like the tunnel's own handshakes (`limits.max_handshakes`), with their own counter: a flood of web connections cannot block tunnel clients, and the other way round.
+- Connections that have not shown a name yet are limited like the tunnel's own handshakes (`limits.max_handshakes`), with their own counter. A flood of web connections cannot block tunnel clients, and the other way round.
 - A tunnel connection on the shared port has `limits.handshake_timeout_secs` in total for TLS, the WebSocket upgrade and burrow's own handshake.
 - Stopping or reloading the server lets a request in flight finish for up to 10 seconds.
 

@@ -1,6 +1,6 @@
 # Recipes
 
-Short, complete configs for common cases and well-known apps. Find the one closest to what you want, copy it, and change the names. Each recipe goes through the steps of [How it works](how-it-works.md).
+Short, complete configs for common cases and well-known apps. Copy the one closest to what you want, and change the names. Each recipe goes through the steps of [How it works](how-it-works.md).
 
 ## Examples
 
@@ -42,7 +42,7 @@ services:
     web: [example.com, www.example.com] # one certificate for both names
 ```
 
-A service's names get one certificate together: `example.com` and `www.example.com` above share one, and adding or removing a name orders a new one for the new set.
+A service's names share one certificate, as `example.com` and `www.example.com` do above. Adding or removing a name orders a new certificate for the new set.
 
 ### Your own certificates only (Let's Encrypt never contacted)
 
@@ -122,7 +122,7 @@ services:
     web: dash.lan.example.com
 ```
 
-`allow_from` sees the address the server sees. It keeps the site to your network only when the burrow server is on that network too; a server on the internet sees your router's public address instead.
+`allow_from` checks the address the server sees. It keeps the site to your network only when the burrow server is on that network too; a server on the internet sees your router's public address instead.
 
 ### An app on the server itself
 
@@ -182,7 +182,7 @@ services:
       paths: [/outpost.goauthentik.io]
 ```
 
-In authentik, create a Proxy provider in "Forward auth (domain level)" mode for `apps.example.com`, and assign it to the embedded outpost. burrow asks authentik's Caddy endpoint, which reads the original address from the `X-Forwarded-*` headers burrow sets; visitors' own copies of the `X-authentik-*` headers never reach the app.
+In authentik, create a Proxy provider in "Forward auth (domain level)" mode for `apps.example.com`, and assign it to the embedded outpost. burrow asks authentik's Caddy endpoint, which reads the original address from the `X-Forwarded-*` headers burrow sets. Visitors' own copies of the `X-authentik-*` headers never reach the app.
 
 ### Home Assistant
 
@@ -202,7 +202,7 @@ services:
     web: ha.example.com
 ```
 
-Home Assistant's pages and apps keep a WebSocket open (`/api/websocket`), which burrow passes through like any other request. Home Assistant blocks requests that come through a reverse proxy it does not trust, so in Home Assistant open Settings > System > Network, and under HTTP server turn on Trust X-Forwarded-For and add the address of the machine that runs the burrow client to Trusted proxies (`127.0.0.1` when the client runs on the Home Assistant machine), as its [HTTP integration docs](https://www.home-assistant.io/integrations/http/) say.
+Home Assistant's pages and apps keep a WebSocket open (`/api/websocket`), which burrow passes through like any other request. Home Assistant blocks requests from a reverse proxy it does not trust, as its [HTTP integration docs](https://www.home-assistant.io/integrations/http/) say. So in Home Assistant, open Settings > System > Network, and under HTTP server turn on Trust X-Forwarded-For. Then add the address of the machine that runs the burrow client to Trusted proxies (`127.0.0.1` when the client runs on the Home Assistant machine).
 
 ### Nextcloud behind Cloudflare
 
@@ -226,7 +226,13 @@ services:
       max_body_size: 16GB # big uploads
 ```
 
-In Nextcloud's `config.php`, trust the address the burrow client connects from (`'trusted_proxies' => ['127.0.0.1']` when it runs on the same machine), add `cloud.example.com` to `trusted_domains`, and set `'overwriteprotocol' => 'https'`. Nextcloud then reads the visitor's address from `X-Forwarded-For`, which burrow fills from Cloudflare's.
+In Nextcloud's `config.php`:
+
+- trust the address the burrow client connects from (`'trusted_proxies' => ['127.0.0.1']` when it runs on the same machine);
+- add `cloud.example.com` to `trusted_domains`;
+- set `'overwriteprotocol' => 'https'`.
+
+Nextcloud then reads the visitor's address from `X-Forwarded-For`, which burrow fills from Cloudflare's.
 
 ### Grafana under a path
 
@@ -256,7 +262,7 @@ Tell Grafana its public address so its links keep the prefix: `root_url = https:
 
 ### A site for an IP address, with no domain
 
-No domain at all: Let's Encrypt gives short-lived certificates for the server's public IP address too:
+With no domain at all, Let's Encrypt gives a short-lived certificate for the server's public IP address:
 
 ```yaml
 # server.yaml

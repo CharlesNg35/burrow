@@ -1,12 +1,12 @@
 # The tunnel on the web ports
 
-Some networks let only web traffic out, on ports 443 and 80. burrow clients and visitors can then connect to the server on those same ports, sharing them with your websites: the tunnel gets a name of its own, or a path on a website's name, and a certificate like any site. This page shows the common setups; [websocket.md](../websocket.md#automatic-https-for-the-tunnel) explains every case.
+Some networks let only web traffic out, on ports 443 and 80. burrow clients and visitors can then connect on those ports, sharing them with your websites. The tunnel gets a name of its own, or a path on a website's name, and a certificate like any site. This page shows the common setups; [websocket.md](../websocket.md#automatic-https-for-the-tunnel) explains every case.
 
 In [How it works](how-it-works.md): the tunnel takes its name in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port), its path in [step 2](how-it-works.md#2-a-request-is-answered), and port 80 in [step 6](how-it-works.md#6-port-80).
 
 ## The tunnel on the same port
 
-burrow clients can connect over `wss://` on the same port as the websites, to a name of their own. The server shares port 443, and the client uses the tunnel's URL:
+Clients connect over `wss://` on the websites' port, to a name of their own. The server shares port 443, and the client uses the tunnel's URL:
 
 ```yaml
 # server.yaml
@@ -27,7 +27,7 @@ server: wss://tunnel.example.com/burrow
 
 - The tunnel's name gets its certificate like a site: `websocket.tls` files, else a file in `web.certificates`, else Let's Encrypt. A `web:` block with no websites is enough for that.
 - Write both ports the same way: `443` and `443`, or `0.0.0.0:443` and `0.0.0.0:443`.
-- The tunnel can also use a website's name, taking only its `path` there, or share the plain port `web.http` over `ws://` (still encrypted by burrow). See [websocket.md](../websocket.md#automatic-https-for-the-tunnel).
+- The tunnel can also take only a `path` on a website's name, or share the plain port `web.http` over `ws://` (still encrypted by burrow). See [websocket.md](../websocket.md#automatic-https-for-the-tunnel).
 
 ### The tunnel on port 8443, no port 80, through DNS
 

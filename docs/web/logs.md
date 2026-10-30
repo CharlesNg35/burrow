@@ -19,7 +19,7 @@ web:
 ```
 
 - One line per request: time, client address, name, method, path, protocol, status, bytes, time taken, service and request id. `access_log: logs/access.log` is the short form.
-- `request_id` gives each request an `X-Request-Id`: sent to the app, returned to the visitor and written to the log. One sent by a trusted proxy is kept; a visitor's own is replaced.
+- `request_id` gives each request an `X-Request-Id`, sent to the app, returned to the visitor and written to the log. An id from a trusted proxy is kept; a visitor's own is replaced.
 
 An installed service may write the access log only in its own log folder; see [service.md](../service.md).
 
