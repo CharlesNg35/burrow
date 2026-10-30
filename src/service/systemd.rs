@@ -49,8 +49,12 @@ impl Systemd {
     }
 }
 
+fn quote_exec(p: &Path) -> String {
+    quote(p).replace('$', "$$")
+}
+
 fn quote(p: &Path) -> String {
-    let s = p.display().to_string();
+    let s = p.display().to_string().replace('%', "%%");
     if s.contains([' ', '"', '\\']) {
         format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
@@ -125,13 +129,13 @@ impl Backend for Systemd {
         }
         s.push_str(&format!(
             "ExecStart={} {} -c {} --log-file {}{}\n",
-            quote(&m.binary),
+            quote_exec(&m.binary),
             m.command(),
-            quote(&m.config),
-            quote(&m.log_file),
+            quote_exec(&m.config),
+            quote_exec(&m.log_file),
             m.web_state
                 .as_ref()
-                .map_or_else(String::new, |d| format!(" --state-dir {}", quote(d)))
+                .map_or_else(String::new, |d| format!(" --state-dir {}", quote_exec(d)))
         ));
         s.push_str("ExecReload=/bin/kill -HUP $MAINPID\n");
         if let Some(env) = &m.env_file {
@@ -536,6 +540,33 @@ mod tests {
             "ReadWritePaths=/run/burrow-instances\nReadWritePaths=/etc/burrow/home\n",
         );
         assert_eq!(unit, expected);
+    }
+
+    #[test]
+    fn percent_and_dollar_in_paths_reach_the_program_unchanged() {
+        let m = Manifest {
+            config: "/etc/burrow/a%b$c d.yaml".into(),
+            env_file: Some("/etc/burrow/100%.env".into()),
+            admin_writable: true,
+            ..server_manifest()
+        };
+        let unit = Systemd.render(&m);
+        assert!(
+            unit.contains("server -c \"/etc/burrow/a%%b$$c d.yaml\" --log-file"),
+            "{unit}"
+        );
+        assert!(
+            unit.contains("EnvironmentFile=/etc/burrow/100%%.env\n"),
+            "{unit}"
+        );
+        let m = Manifest {
+            config: "/srv/$x/server.yaml".into(),
+            admin_writable: true,
+            ..server_manifest()
+        };
+        let unit = Systemd.render(&m);
+        assert!(unit.contains("-c /srv/$$x/server.yaml "), "{unit}");
+        assert!(unit.contains("ReadWritePaths=/srv/$x\n"), "{unit}");
     }
 
     const GOLDEN_UNIT: &str = "[Unit]\nDescription=burrow server \"home\"\nDocumentation=https://github.com/charlesng35/burrow\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=burrow-home\nExecStart=/usr/local/bin/burrow server -c /etc/burrow/home/server.yaml --log-file /var/log/burrow/home/home.log\nExecReload=/bin/kill -HUP $MAINPID\nEnvironmentFile=/etc/burrow/home.env\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\nReadWritePaths=/run/burrow-instances\nLogsDirectory=burrow/home\nLogsDirectoryMode=0750\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nDevicePolicy=closed\nPrivateUsers=yes\nProtectClock=yes\nProtectHostname=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectKernelLogs=yes\nProtectControlGroups=yes\nProtectProc=invisible\nProcSubset=pid\nRestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nRemoveIPC=yes\nSystemCallArchitectures=native\nSystemCallFilter=@system-service\nSystemCallFilter=~@privileged @resources\nSystemCallErrorNumber=EPERM\nCapabilityBoundingSet=\nAmbientCapabilities=\n\n[Install]\nWantedBy=multi-user.target\n";
