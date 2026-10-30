@@ -316,12 +316,12 @@ async fn ax_clean(c: &Ctx, screen: &str) {
 async fn baseline(c: &mut Ctx, name: &str) {
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; for (const e of document.querySelectorAll('[data-testid=server-line]')) e.style.fontVariantNumeric = 'tabular-nums'; return true; })()")
         .await;
     let png = c.ui.png().await;
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('[style]')) e.style.visibility = ''; return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } return true; })()")
         .await;
     match compare(name, &png, &c.chrome_version) {
         Baseline::Same | Baseline::Written => {}
