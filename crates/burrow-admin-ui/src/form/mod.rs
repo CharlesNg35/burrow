@@ -377,7 +377,7 @@ fn section_view(
         };
         return view! {
             <section class="mb-4 scroll-mt-20 rounded-card border border-border bg-surface" data-group=key>
-                {burrow_ui_kit::card_head(label, None, format!("{n} field{}", if n == 1 { "" } else { "s" }).into_any())}
+                {burrow_ui_kit::card_head(label, None, burrow_admin_logic::wording::count_of(n, "field").into_any())}
                 <div class="divide-y divide-rowline px-4">{rows}</div>
             </section>
         }

@@ -104,7 +104,10 @@ fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
     }
     let n = s.edit.pending();
     if n > 0 {
-        let label = format!("Review {n} change{}", if n == 1 { "" } else { "s" });
+        let label = format!(
+            "Review {}",
+            burrow_admin_logic::wording::count_of(n, "change")
+        );
         if hit(needle, &label) {
             out.push(Hit {
                 section: "Actions",
@@ -164,17 +167,18 @@ fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> Strin
             };
             match c {
                 Some(c) if c.connected => format!(
-                    "{} · {secrets} secret{}",
+                    "{} · {}",
                     c.from
                         .unwrap_or_default()
                         .rsplit_once(':')
                         .map(|(h, _)| h.to_string())
                         .unwrap_or_default(),
-                    if secrets == 1 { "" } else { "s" }
+                    burrow_admin_logic::wording::count_of(secrets, ClientEntry::SECRET.key())
                 ),
                 _ => format!(
-                    "offline · {secrets} secret{}",
-                    if secrets == 1 { "" } else { "s" }
+                    "{} · {}",
+                    burrow_admin_logic::wording::OFFLINE,
+                    burrow_admin_logic::wording::count_of(secrets, ClientEntry::SECRET.key())
                 ),
             }
         }

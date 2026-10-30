@@ -95,7 +95,7 @@ pub fn NewEntity(
             <burrow_ui_kit::StickyBar>
                 {burrow_ui_kit::bar_status(Signal::derive(move || {
                     if name.with(String::is_empty) {
-                        "Type a name first".to_string()
+                        burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string()
                     } else if let Some(p) = problem.get() {
                         p
                     } else if what == ServiceEntry::ENTITY {
@@ -111,7 +111,7 @@ pub fn NewEntity(
                     variant=if what == ServiceEntry::ENTITY { "primary" } else { "secondary" }
                     testid="create"
                     disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some())
-                    reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
+                    reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
                     on_click=move |_| finish2(false)
                 />
                 {(what != ServiceEntry::ENTITY).then(|| view! {
@@ -120,7 +120,7 @@ pub fn NewEntity(
                         variant="primary"
                         testid="create-apply"
                         disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some() || secret.get().is_none())
-                        reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
+                        reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
                         on_click=move |_| finish2(true)
                     />
                 })}

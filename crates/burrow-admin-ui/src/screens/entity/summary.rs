@@ -205,7 +205,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
                                 <td class=burrow_ui_kit::WIDE_ONLY>{match cs.and_then(|y| y.from) {
                                     Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
-                                    None => view! { <span class="text-[13px] text-text-faint" aria-label="offline">{format::NONE_MARK}</span> }.into_any(),
+                                    None => view! { <span class="text-[13px] text-text-faint" aria-label=burrow_admin_logic::wording::OFFLINE>{format::NONE_MARK}</span> }.into_any(),
                                 }}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),

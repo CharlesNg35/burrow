@@ -24,7 +24,14 @@ fn facet(entity: &Entity, name: &str) -> String {
                     .and_then(|st| st.clients.iter().find(|c| c.name == name))
                     .is_some_and(|c| c.connected)
             });
-            format!("{name} · {}", if on { "online" } else { "offline" })
+            format!(
+                "{name} · {}",
+                if on {
+                    burrow_admin_logic::wording::ONLINE
+                } else {
+                    burrow_admin_logic::wording::OFFLINE
+                }
+            )
         }
         _ => name.to_string(),
     }

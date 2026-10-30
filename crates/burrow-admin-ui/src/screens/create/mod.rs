@@ -238,8 +238,8 @@ pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathDat
                     state: HopState::Current,
                     badge: None,
                 },
-                pending("monitor", "Client", "not set"),
-                pending("fork", "Target", "not set"),
+                pending("monitor", "Client", burrow_admin_logic::wording::NOT_SET),
+                pending("fork", "Target", burrow_admin_logic::wording::NOT_SET),
             ],
             edges: vec![added(""), added(""), added("")],
             summary:
@@ -319,8 +319,14 @@ mod tests {
             [
                 ("Who connects".to_string(), "public or visitors".to_string()),
                 ("Server".to_string(), "new service".to_string()),
-                ("Client".to_string(), "not set".to_string()),
-                ("Target".to_string(), "not set".to_string()),
+                (
+                    "Client".to_string(),
+                    burrow_admin_logic::wording::NOT_SET.to_string()
+                ),
+                (
+                    "Target".to_string(),
+                    burrow_admin_logic::wording::NOT_SET.to_string()
+                ),
             ]
         );
         assert_eq!(d.edges.len(), 3);

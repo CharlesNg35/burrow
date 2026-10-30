@@ -260,7 +260,7 @@ fn Body() -> impl IntoView {
             .into_any(),
             Conn::Ended if !loaded.get() => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="ended">
-                    <EmptyState icon="wifi-off" title="This tab's admin session ended" message="Run burrow admin again; it opens a new tab."/>
+                    <EmptyState icon="wifi-off" title="This tab's admin session ended" message=burrow_admin_logic::wording::SESSION_ENDED_HINT/>
                 </div>
             }
             .into_any(),
@@ -330,7 +330,7 @@ fn Banners() -> impl IntoView {
     let closed = move || {
         match s.conn.get() {
         Conn::Ended if s.state.with(Option::is_some) => Some(view! {
-            <Banner tone=Tone::Warning title="This tab's admin session ended." message="Run burrow admin again; it opens a new tab." testid="banner-ended"/>
+            <Banner tone=Tone::Warning title="This tab's admin session ended." message=burrow_admin_logic::wording::SESSION_ENDED_HINT testid="banner-ended"/>
         }.into_any()),
         Conn::Closed { message } => Some(view! {
             <Banner tone=Tone::Danger title="Disconnected; showing the last known state" message=message testid="banner-closed">

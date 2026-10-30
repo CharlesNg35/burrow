@@ -280,8 +280,8 @@ pub(super) fn problem_list(
 ) -> impl IntoView {
     let n = problems.len();
     let title = format!(
-        "{n} problem{} in {what} {name}",
-        if n == 1 { "" } else { "s" }
+        "{} in {what} {name}",
+        burrow_admin_logic::wording::count_of(n, "problem")
     );
     view! {
         <div class="mb-4" data-testid="form-problems">

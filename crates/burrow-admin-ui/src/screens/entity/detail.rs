@@ -364,7 +364,7 @@ fn title_dot(section: &str, name: &str) -> impl IntoView + use<> {
     move || {
         (sec == CLIENTS).then(|| {
             let on = s.status.with(|st| st.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == nm)).is_some_and(|c| c.connected));
-            view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { "online" } else { "offline" }></span> }
+            view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { burrow_admin_logic::wording::ONLINE } else { burrow_admin_logic::wording::OFFLINE }></span> }
         })
     }
 }

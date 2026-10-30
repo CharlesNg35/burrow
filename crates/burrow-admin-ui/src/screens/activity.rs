@@ -156,16 +156,14 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                 .and_then(|h| {
                     h.diff
                         .map(|d| diff_lines(&d))
-                        .ok_or_else(|| "The details of this change are no longer kept.".to_string())
+                        .ok_or_else(|| burrow_admin_logic::wording::VERSION_GONE.to_string())
                 });
             let _ = diff.try_set(Some(lines));
         });
     } else if entry.details_kept {
         diff.set(Some(Err(burrow_admin_logic::history::OLDER_REPEAT.into())));
     } else {
-        diff.set(Some(Err(
-            "The details of this change are no longer kept.".into()
-        )));
+        diff.set(Some(Err(burrow_admin_logic::wording::VERSION_GONE.into())));
     }
     let to = revert_target(&entry);
     let matches = {
@@ -256,7 +254,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     }
     let count = Signal::derive(move || {
         let n = rows.with(Vec::len);
-        format!("{n} version{}", if n == 1 { "" } else { "s" })
+        burrow_admin_logic::wording::count_of(n, "version")
     });
     let on_action = Callback::new(move |(id, action): (String, String)| {
         let entry = s.history.with_untracked(|h| {

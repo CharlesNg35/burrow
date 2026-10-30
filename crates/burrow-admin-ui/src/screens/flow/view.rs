@@ -263,7 +263,7 @@ fn legend() -> impl IntoView {
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-success"></span>"healthy"</span>
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-warning"></span>"degraded"</span>
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-danger"></span>"down"</span>
-        <span class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-text-faint"></span>"offline"</span>
+        <span class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-text-faint"></span>{burrow_admin_logic::wording::OFFLINE}</span>
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-accent"></span>"server ↔ client channels"</span>
         <span>"line weight = open connections; client → target lines are fixed"</span>
         <span class="ml-auto">"Click a node to open that service or client · Esc closes"</span>

@@ -43,7 +43,7 @@ fn site_links(sites: Vec<String>) -> AnyView {
         .collect_view();
     view! {
         <span class="text-xs text-text-muted" data-testid="login-used">
-            {format!("Used by {n} site{}: ", if n == 1 { "" } else { "s" })}
+            {burrow_admin_logic::wording::used_by_sites(n)}
             {links}
         </span>
     }

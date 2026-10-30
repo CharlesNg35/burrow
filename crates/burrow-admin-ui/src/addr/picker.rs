@@ -29,7 +29,7 @@ pub(super) fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOpti
                 let on = c.as_ref().is_some_and(|c| c.connected);
                 let facet = match &c {
                     Some(c) if c.connected => {
-                        let mut f = vec!["online".to_string()];
+                        let mut f = vec![burrow_admin_logic::wording::ONLINE.to_string()];
                         if let Some(x) = c.connected_secs {
                             f.push(format::span(x));
                         }

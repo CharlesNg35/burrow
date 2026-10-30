@@ -107,7 +107,11 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
         ],
         summary: format!(
             "Client {name} is {} and serves {} services",
-            if on { "online" } else { "offline" },
+            if on {
+                burrow_admin_logic::wording::ONLINE
+            } else {
+                burrow_admin_logic::wording::OFFLINE
+            },
             served.len()
         ),
     }

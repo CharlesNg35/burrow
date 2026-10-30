@@ -11,10 +11,6 @@ pub struct SaveBar {
     pub on_save: Callback<()>,
 }
 
-fn plural(n: usize, one: &str) -> String {
-    format!("{n} {one}{}", if n == 1 { "" } else { "s" })
-}
-
 pub fn save_bar(b: SaveBar) -> AnyView {
     let SaveBar {
         problems,
@@ -29,12 +25,15 @@ pub fn save_bar(b: SaveBar) -> AnyView {
         let fields = (!problems.is_empty()).then(|| {
             view! { <span class="truncate font-normal text-text-muted">{format!(" · {}", problems.join(", "))}</span> }
         });
-        view! { <span class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-danger"><Icon name="alert-circle"/>{plural(count, "problem")}{fields}</span> }.into_any()
+        view! { <span class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-danger"><Icon name="alert-circle"/>{burrow_admin_logic::wording::count_of(count, "problem")}{fields}</span> }.into_any()
     } else {
         let text = move || match (blocker.get(), changed.get()) {
             (Some(b), _) => b.to_string(),
             (None, 0) => "No changes yet".to_string(),
-            (None, n) => format!("{} changed", plural(n, "field")),
+            (None, n) => format!(
+                "{} changed",
+                burrow_admin_logic::wording::count_of(n, "field")
+            ),
         };
         view! { <span class="text-sm text-text-muted" data-testid="fields-changed">{text}</span> }
             .into_any()

@@ -69,8 +69,7 @@ pub fn local_ca_card() -> impl IntoView {
                     <crate::route::Link to=crate::route::Route::Detail(ServiceEntry::section().into(), s.clone()) class="font-semibold text-accent-ink no-underline hover:underline">{s}</crate::route::Link>
                 })
                 .collect_view();
-            view! { {format!("Used by {n} site{}: ", if n == 1 { "" } else { "s" })}{links} }
-                .into_any()
+            view! { {burrow_admin_logic::wording::used_by_sites(n)}{links} }.into_any()
         };
         let pending = ca.is_none().then(|| view! {
             <p class="text-[13px] text-text-muted" data-testid="local-ca-pending">"No local CA exists yet. burrow makes one when the first site with HTTPS: Local CA is applied."</p>

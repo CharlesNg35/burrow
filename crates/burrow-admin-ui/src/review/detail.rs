@@ -68,8 +68,8 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             "This change is refused.".to_string()
         } else if !can {
             format!(
-                "{errors} error{} to fix first",
-                if errors == 1 { "" } else { "s" }
+                "{} to fix first",
+                burrow_admin_logic::wording::count_of(errors, "error")
             )
         } else if !missing.get().is_empty() {
             format!("Type {} to confirm", missing.get().join(", "))
@@ -124,7 +124,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             })}
             {(old_problems > 0).then(|| view! {
                 <p class="-mt-3 mb-6 text-[12.5px] text-text-muted" data-testid="old-problems">
-                    {format!("{old_problems} problem{} the config already had {} not shown here; ", if old_problems == 1 { "" } else { "s" }, if old_problems == 1 { "is" } else { "are" })}
+                    {format!("{} the config already had {} not shown here; ", burrow_admin_logic::wording::count_of(old_problems, "problem"), if old_problems == 1 { "is" } else { "are" })}
                     <Link to=Route::Overview class="text-accent-ink">"see the overview"</Link>
                     "."
                 </p>
@@ -241,7 +241,7 @@ fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl Into
     view! {
     <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
         <div class="min-w-0 flex-1">
-            <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {n} change{}", if n == 1 { "" } else { "s" }) }}</h1>
+            <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {}", burrow_admin_logic::wording::count_of(n, "change")) }}</h1>
             <p class="mt-1 text-base text-text-muted" class:hidden=empty>
                 {if refused {
                     format!(
@@ -256,9 +256,9 @@ fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl Into
         {if refused || empty {
             ().into_any()
         } else if errors > 0 {
-            view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{errors} error{} · {warnings} warning{}", if errors == 1 { "" } else { "s" }, if warnings == 1 { "" } else { "s" })}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{} · {}", burrow_admin_logic::wording::count_of(errors, "error"), burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
         } else {
-            view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {warnings} warning{}", if warnings == 1 { "" } else { "s" })}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {}", burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
         }}
     </header>
     }
@@ -394,7 +394,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         } else {
             view! {
                 <Button
-                    label=if revert { "Apply the revert".to_string() } else { format!("Apply {n} change{}", if n == 1 { "" } else { "s" }) }
+                    label=if revert { "Apply the revert".to_string() } else { format!("Apply {}", burrow_admin_logic::wording::count_of(n, "change")) }
                     variant=if destructive { "danger" } else { "primary" }
                     testid="apply"
                     busy=e.applying
