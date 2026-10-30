@@ -154,6 +154,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
     );
     let unix = unix_input(id.clone(), a, commit.clone());
     let mode = unix_ok.then(|| mode_switch(fc.id.clone(), unix_mode, parts, commit.clone()));
+    let none = fc.node.none_label.clone();
     view! {
         <div data-addr="">
             {mode}
@@ -163,6 +164,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
                 <code class="font-mono">{stored}</code>
                 {(ranges && max.is_some()).then(|| max.map(|m| format!(" · up to {m} ports")))}
             </p>
+            {none.map(|n| view! { <p class="mt-1.5 text-xs text-text-muted" class:hidden=move || !stored.with(String::is_empty) data-testid="stored-none">{n}</p> })}
         </div>
     }
     .into_any()
