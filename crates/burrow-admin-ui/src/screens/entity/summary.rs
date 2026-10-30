@@ -156,17 +156,20 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let h = hs.map(|h| h.up);
                         let why = hs.and_then(|h| h.reason.clone());
                         let set = aside.iter().find(|a| a.client == c && a.target == t).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
-                        let to = match &t {
-                            Some(t) => format!("→ {t}"),
-                            None => format!("→ {default_target} (service target)"),
+                        let (to, main) = match &t {
+                            Some(t) => (format!("→ {t}"), false),
+                            None => (format!("→ {default_target}"), true),
                         };
                         let label = c.clone();
                         let open = format::count(en.open);
                         view! {
                             <tr data-row=c.clone()>
-                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 font-mono text-xs font-normal text-text-muted" data-testid="entry-target">{to}</span></th>
+                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">"(service target)"</span> })}</span></th>
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
-                                <td class="font-mono text-[13px] text-text-muted max-sm:hidden">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
+                                <td class="max-sm:hidden">{match cs.and_then(|y| y.from) {
+                                    Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
+                                    None => view! { <span class="text-[13px] text-text-faint">"offline"</span> }.into_any(),
+                                }}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
                                     Some(false) => view! {
