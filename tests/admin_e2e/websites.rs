@@ -110,7 +110,7 @@ async fn read_only_pages(c: &mut Ctx) {
     .await;
     let ways = c.ui.text("[data-testid=reached-by-view]").await;
     assert!(
-        ways.contains("nas.example.com") && ways.contains("off"),
+        ways.contains("nas.example.com") && ways.contains("Off"),
         "one line per way in: {ways}"
     );
     both_widths(c, "service-nas-settings").await;

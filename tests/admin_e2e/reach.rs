@@ -69,8 +69,11 @@ async fn off_then_on_keeps_the_values(c: &mut Ctx, port: u16) {
     c.ui.wait_for("[data-way=visitors] [data-chip=laptop]", SECS)
         .await;
     switch(c, "web").await;
-    c.ui.wait_text("[data-testid=website-off]", "not a website", SECS)
-        .await;
+    c.ui.wait_for("[data-testid=website-off]", SECS).await;
+    assert!(
+        !c.ui.text("[data-way=web]").await.contains("not a website"),
+        "an off website says nothing more than its switch"
+    );
     both_widths(c, "website-off").await;
     switch(c, "web").await;
     c.ui.wait_text("[data-testid=website-summary]", "nas.example.com", SECS)

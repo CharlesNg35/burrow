@@ -14,8 +14,8 @@ use super::{BIND, PROTOCOL, SERVICE_VISITORS, WEB, editing_now, field_id, plain}
 pub const PUBLIC_WHO: &str = "anyone who can reach the server, on its own port";
 pub const WEBSITE_WHO: &str = "browsers, by name";
 pub const VISITORS_WHO: &str = "your devices with a burrow visitor key";
+pub const OFF: &str = "Off";
 pub const WEBSITE_NEEDS_TCP: &str = "websites need TCP";
-pub const NOT_A_WEBSITE: &str = "off: not a website";
 
 #[derive(Clone, Copy, PartialEq)]
 enum Way {
@@ -62,7 +62,7 @@ impl Way {
 
 fn shown(way: Way, v: Option<&Value>) -> String {
     let Some(v) = v.filter(|v| burrow_admin_logic::web::way_on(Some(v))) else {
-        return "off".into();
+        return OFF.into();
     };
     match way {
         Way::Website => {
@@ -99,14 +99,14 @@ fn website_summary(v: Option<&Value>, https_on: bool) -> String {
 fn view_line(way: Way, svc: Path) -> impl IntoView {
     let e = store().edit;
     let p = child(&svc, way.key());
-    let text = move || shown(way, e.value(&p).as_ref());
+    let text = Signal::derive(move || shown(way, e.value(&p).as_ref()));
     view! {
         <li class="border-b border-rowline py-3 first:pt-0 last:border-b-0" data-way=way.key()>
             <div class="mb-1.5 flex flex-wrap items-baseline gap-x-2">
                 <span class="text-sm font-semibold">{way.label()}</span>
                 <span class="text-xs text-text-muted">{way.who()}</span>
             </div>
-            <div class="font-mono text-[13px] break-words" data-testid="way-value">{text}</div>
+            <div class=move || if text.get() == OFF { "text-[13.5px] text-text-muted" } else { "font-mono text-[13px] break-words" } data-testid="way-value">{text}</div>
         </li>
     }
 }
@@ -175,7 +175,7 @@ fn website_row(sw: &Switch) -> impl IntoView + use<> {
     move || {
         match (blocked.get(), on.get()) {
         (Some(why), _) => view! { <p class="mt-2 text-[13px] text-text-muted sm:ml-[46px]" data-testid="website-blocked">{why}</p> }.into_any(),
-        (None, false) => view! { <p class="mt-2 text-[13px] text-text-muted sm:ml-[46px]" data-testid="website-off">{NOT_A_WEBSITE}</p> }.into_any(),
+        (None, false) => view! { <span hidden data-testid="website-off"></span> }.into_any(),
         (None, true) => view! {
             <p class="mt-2 flex flex-wrap items-center gap-3 text-[13px] sm:ml-[46px]" data-testid="website-summary">
                 <span class="font-mono">{website_summary(e.value(&p).as_ref(), https_on.get())}</span>
