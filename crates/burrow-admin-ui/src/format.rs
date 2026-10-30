@@ -67,7 +67,7 @@ pub fn limit_tag(
         .any(|c| c.name == client && c.at_limit)
         .then_some((
             "At its limit",
-            "In the last minute this client refused new connections because it reached its own connection limit, set on that machine (max_connections in its client.yaml).",
+            "In the last minute this client refused new connections because it reached its own limit, Maximum connections in client.yaml on that machine.",
         ))
 }
 

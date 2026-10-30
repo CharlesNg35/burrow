@@ -88,6 +88,24 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 }
 
 pub const NOT_SET: &str = "not set";
+pub const WRITTEN_AS: &str = "Saved as";
+pub const CONNECT_PLACEHOLDER: &str = "SERVER_ADDRESS";
+
+pub fn rewrite_reason(reason: &str) -> &'static str {
+    match reason {
+        "a list of mappings" | "a mapping was expected" | "the mapping becomes empty" => {
+            "the new value cannot keep the old short form"
+        }
+        _ => "its layout is one burrow cannot change line by line",
+    }
+}
+
+pub fn rewritten(place: &str, reason: &str) -> String {
+    format!(
+        "burrow rewrites {place} in server.yaml in its own layout, because {}. Comments in that part are lost.",
+        rewrite_reason(reason)
+    )
+}
 pub const OFFLINE: &str = "offline";
 pub const CLIENTS_OFFLINE: &str = "Clients offline";
 pub const REFUSED_CONNECTIONS: &str = "Refused connections";
@@ -323,6 +341,10 @@ mod tests {
         assert_eq!(capital(""), "");
         assert_eq!(version_name(Some("15:47:12")), "version of 15:47:12");
         assert_eq!(version_name(None), "version (time unknown)");
+        assert_eq!(
+            rewritten("Services", "a list of mappings"),
+            "burrow rewrites Services in server.yaml in its own layout, because the new value cannot keep the old short form. Comments in that part are lost."
+        );
         use burrow_admin_proto::schema::Applies;
         assert_eq!(applies_label(&Applies::Live), Some("applies at once"));
         assert_eq!(

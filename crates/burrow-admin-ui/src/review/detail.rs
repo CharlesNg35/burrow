@@ -104,11 +104,15 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             {refused.then(|| view! { <Refused refusals=plan.refusals.clone()/> })}
             {paths.into_iter().map(|(name, p)| view! { <div data-review-path=name><PathDiagram data=p/></div> }).collect_view()}
             {plan.reformat.clone().map(|r| {
-                let place = if r.scope.is_empty() { "The whole file".to_string() } else { r.scope.join(".") };
+                let place = if r.scope.is_empty() {
+                    "the whole file".to_string()
+                } else {
+                    burrow_config::label_of(&r.scope).unwrap_or_else(|| r.scope.join(" › "))
+                };
                 view! {
                     <div class="mb-6" data-testid="reformat">
                         <Callout tone=Tone::Warning title="Part of server.yaml is written fresh">
-                            <p>{format!("{place} is rewritten: {}. Comments and layout there are not kept.", r.reason)}</p>
+                            <p>{burrow_admin_logic::wording::rewritten(&place, &r.reason)}</p>
                         </Callout>
                     </div>
                 }

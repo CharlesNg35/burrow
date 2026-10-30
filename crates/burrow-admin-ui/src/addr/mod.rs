@@ -162,7 +162,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
             {mode}
             {move || if unix_mode.get() { unix().into_any() } else { network().into_any() }}
             <p class="mt-1.5 text-xs text-text-muted" class:hidden=move || stored.with(String::is_empty) data-testid="stored-as" data-stored=stored>
-                "Saved as "
+                {format!("{} ", burrow_admin_logic::wording::WRITTEN_AS)}
                 <code class="font-mono">{stored}</code>
                 {(ranges && max.is_some()).then(|| max.map(|m| format!(" · up to {m} ports")))}
             </p>

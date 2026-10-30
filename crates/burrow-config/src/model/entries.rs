@@ -24,7 +24,7 @@ pub struct ClientEntry {
     #[admin(
         ty = integer(unit = "connections"),
         label = "Maximum connections on this server",
-        help = "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
+        help = "Connections this server forwards to the client at once. The client has its own limit too, Maximum connections in client.yaml on that machine",
         none_label = "Server default",
         default_from("/limits/max_connections_per_client"),
         advanced

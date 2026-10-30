@@ -140,9 +140,13 @@ pub(super) fn rate_editor(fc: FieldCtx) -> AnyView {
         e.value(&p2)
             .and_then(|v| v.as_str().map(str::to_string))
             .and_then(|t| {
-                burrow_syntax::rate::parse_rate(&t)
-                    .ok()
-                    .map(|b| format!("≈ {} · stored as {t}", burrow_syntax::rate::equivalent(b)))
+                burrow_syntax::rate::parse_rate(&t).ok().map(|b| {
+                    format!(
+                        "≈ {} · {} {t}",
+                        burrow_syntax::rate::equivalent(b),
+                        burrow_admin_logic::wording::WRITTEN_AS.to_lowercase()
+                    )
+                })
             })
             .unwrap_or_default()
     };

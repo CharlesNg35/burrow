@@ -250,7 +250,7 @@ pub fn SnippetView(
         view! {
             <div class="mb-3">
                 <Callout tone=Tone::Warning title="The server address is not known">
-                    <p>{if asks { "Type how machines reach this server, or set public_address in Settings. Until then the commands say SERVER_ADDRESS." } else { "Set public_address in Settings, or replace SERVER_ADDRESS by hand." }}</p>
+                    <p>{if asks { format!("Type how machines reach this server, or set Public address in Settings, Server. Until then the commands show {} for you to replace.", burrow_admin_logic::wording::CONNECT_PLACEHOLDER) } else { format!("Set Public address in Settings, Server, or replace {} in the commands by hand.", burrow_admin_logic::wording::CONNECT_PLACEHOLDER) }}</p>
                     {children.map(|c| c())}
                 </Callout>
             </div>
