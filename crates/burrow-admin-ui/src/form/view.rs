@@ -208,15 +208,9 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
             view! { <span class="font-medium" data-value=yes.to_string()>{sem_text(sem, v)}</span> }
                 .into_any()
         }
-        SemType::Enum(c) => {
+        SemType::Enum(_) => {
             let raw = plain(v);
-            let danger = c.options.iter().any(|o| o.value == raw && o.danger);
-            let class = if danger {
-                "font-medium text-danger"
-            } else {
-                "font-medium"
-            };
-            view! { <span class=class title=raw.clone() data-value=raw>{sem_text(sem, v)}</span> }
+            view! { <span class="font-medium" title=raw.clone() data-value=raw>{sem_text(sem, v)}</span> }
                 .into_any()
         }
         SemType::Cidr | SemType::CidrRule => view! { <Chip text=plain(v) mono=true/> }.into_any(),
