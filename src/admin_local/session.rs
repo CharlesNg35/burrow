@@ -29,11 +29,9 @@ struct Stored {
 }
 
 fn valid(s: &Stored) -> bool {
-    let hex_of = |t: &str, n: usize| t.len() == n && t.bytes().all(|b| b.is_ascii_hexdigit());
-    hex_of(&s.token, 64)
-        && s.prefix
-            .strip_prefix(burrow_admin_proto::local::RUN_PREFIX)
-            .is_some_and(|h| hex_of(h, 32))
+    s.prefix
+        .strip_prefix(burrow_admin_proto::local::RUN_PREFIX)
+        .is_some_and(|h| h.len() == 32 && h.bytes().all(|b| b.is_ascii_hexdigit()))
         && s.port != 0
 }
 
@@ -53,10 +51,11 @@ pub struct Keep {
     pub config: PathBuf,
 }
 
-fn live(text: &str, now: u64) -> Option<Stored> {
+fn live(text: &str, now: u64) -> Option<(Token, Stored)> {
     serde_json::from_str::<Stored>(text)
         .ok()
         .filter(|s| valid(s) && now.saturating_sub(s.used) < KEEP_SECS && s.used <= now + 60)
+        .and_then(|s| Some((Token::parse(&s.token)?, s)))
 }
 
 pub fn sweep(dir: &Path, now: u64) {
@@ -101,8 +100,8 @@ pub fn load(dir: &Path, config: &Path, now: u64) -> Session {
         return fresh();
     };
     match live(&text, now) {
-        Some(s) => Session {
-            token: Token::from_stored(s.token),
+        Some((token, s)) => Session {
+            token,
             prefix: s.prefix,
             port: Some(s.port),
             reused: true,

@@ -17,10 +17,6 @@ pub fn default_path(config: &Path) -> Result<PathBuf, Failure> {
     Ok(store::file_for(&dir, config, FILE_PREFIX, FILE_EXTENSION))
 }
 
-fn well_formed(t: &str) -> bool {
-    t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
 #[cfg(unix)]
 fn private(path: &Path) -> Result<(), Failure> {
     use std::os::unix::fs::PermissionsExt;
@@ -61,23 +57,22 @@ pub fn replace(path: &Path) -> Result<Token, Failure> {
 pub fn matches(path: &Path, given: &str) -> bool {
     std::fs::read_to_string(path).is_ok_and(|t| {
         let t = t.trim();
-        well_formed(t) && private(path).is_ok() && Token::from_stored(t.to_string()).matches(given)
+        Token::parse(t).is_some_and(|t| private(path).is_ok() && t.matches(given))
     })
 }
 
 pub fn load_or_create(path: &Path) -> Result<Token, Failure> {
     match std::fs::read_to_string(path) {
         Ok(text) => {
-            let t = text.trim();
-            if !well_formed(t) {
+            let Some(t) = Token::parse(text.trim()) else {
                 return Err(Failure::new(format!(
                     "{} is not a burrow mcp token file",
                     path.display()
                 ))
                 .hint("pass another --token-file, or delete the file to make a new token"));
-            }
+            };
             private(path)?;
-            Ok(Token::from_stored(t.to_string()))
+            Ok(t)
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => make(path),
         Err(e) => Err(Failure::new(format!(

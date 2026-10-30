@@ -207,7 +207,7 @@ mod tests {
     const PROGRAM: &str = "/opt/my burrow/burrow";
 
     fn token() -> Token {
-        Token::from_stored("ab".repeat(32))
+        Token::parse(&"ab".repeat(32)).unwrap()
     }
 
     #[test]
