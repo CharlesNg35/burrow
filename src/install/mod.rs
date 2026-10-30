@@ -12,7 +12,9 @@ use trust::binary_trusted;
 
 pub use platform::Platform;
 pub use role::Role;
-pub use state::{choose_state_dir, missing_state_folder, service_state_dir, state_dir_for};
+pub use state::{
+    choose_state_dir, missing_state_folder, prunes_uploads_in, service_state_dir, state_dir_for,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {

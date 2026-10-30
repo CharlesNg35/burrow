@@ -29,12 +29,26 @@ pub fn state_dir_for(config: &Path) -> PathBuf {
     }
     let config = crate::base::fs::canonical_or_same(config);
     if let Some(m) = installed_for(&config, &all_manifests()) {
-        return m
-            .web_state
-            .clone()
-            .unwrap_or_else(|| service_state_dir(m.short()));
+        return folder_of(m);
     }
     own_state_dir(&config, dirs::state_dir().or_else(dirs::data_local_dir))
+}
+
+fn folder_of(m: &Manifest) -> PathBuf {
+    m.web_state
+        .clone()
+        .unwrap_or_else(|| service_state_dir(m.short()))
+}
+
+pub fn prunes_uploads_in(state: &Path) -> bool {
+    CHOSEN.get().is_some() || !a_services_folder(state, &all_manifests())
+}
+
+fn a_services_folder(state: &Path, manifests: &[Manifest]) -> bool {
+    let state = crate::base::fs::canonical_or_same(state);
+    manifests.iter().any(|m| {
+        m.role == super::Role::Server && crate::base::fs::canonical_or_same(&folder_of(m)) == state
+    })
 }
 
 pub fn missing_state_folder(config: &Path) -> Option<String> {
@@ -58,10 +72,7 @@ fn missing_in(config: &Path, manifests: &[Manifest]) -> Option<String> {
 
 fn installed_for<'a>(config: &Path, manifests: &'a [Manifest]) -> Option<&'a Manifest> {
     manifests.iter().find(|m| {
-        m.role == super::Role::Server
-            && [&m.config, &m.source_config]
-                .iter()
-                .any(|c| crate::base::fs::canonical_or_same(c) == config)
+        m.role == super::Role::Server && crate::base::fs::canonical_or_same(&m.config) == config
     })
 }
 
@@ -147,6 +158,48 @@ mod tests {
     }
 
     #[test]
+    fn a_hand_run_of_the_source_config_keeps_its_own_folder() {
+        let list = [manifest(
+            "burrow-home",
+            "server",
+            "/etc/burrow/home/server.yaml",
+            "/root/server.yaml",
+        )];
+        assert!(installed_for(Path::new("/root/server.yaml"), &list).is_none());
+    }
+
+    #[test]
+    fn uploads_are_pruned_only_in_a_folder_that_is_no_services_own() {
+        let mut home = manifest(
+            "burrow-home",
+            "server",
+            "/etc/burrow/home/server.yaml",
+            "/root/server.yaml",
+        );
+        home.web_state = Some("/var/lib/burrow/home".into());
+        let lap = manifest(
+            "burrow-lap",
+            "visitor",
+            "/etc/burrow/lap/visitor.yaml",
+            "/x",
+        );
+        let list = [home, lap];
+        assert!(a_services_folder(Path::new("/var/lib/burrow/home"), &list));
+        assert!(!a_services_folder(
+            Path::new("/home/u/.local/state/burrow/servers/server-1a2b3c4d"),
+            &list
+        ));
+        assert!(!a_services_folder(&service_state_dir("lap"), &list));
+        let bare = [manifest(
+            "burrow-old",
+            "server",
+            "/etc/burrow/old/server.yaml",
+            "/x",
+        )];
+        assert!(a_services_folder(&service_state_dir("old"), &bare));
+    }
+
+    #[test]
     fn an_installed_server_config_uses_its_services_folder() {
         let list = vec![
             manifest(
@@ -162,7 +215,7 @@ mod tests {
                 "/root/server.yaml",
             ),
         ];
-        let found = installed_for(Path::new("/root/server.yaml"), &list).unwrap();
+        let found = installed_for(Path::new("/etc/burrow/home/server.yaml"), &list).unwrap();
         assert_eq!(found.short(), "home");
         assert!(installed_for(Path::new("/elsewhere.yaml"), &list).is_none());
         assert!(service_state_dir("home").ends_with("burrow/home") || cfg!(windows));

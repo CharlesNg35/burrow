@@ -15,7 +15,11 @@ pub fn prune_unused(web: Option<&crate::config::settings::WebSettings>) -> usize
     let Some(web) = web else {
         return 0;
     };
-    let Some(state) = web.state_dir.as_deref() else {
+    let Some(state) = web
+        .state_dir
+        .as_deref()
+        .filter(|s| crate::install::prunes_uploads_in(s))
+    else {
         return 0;
     };
     let removed = remove_unreferenced(state, &web.uploads);
