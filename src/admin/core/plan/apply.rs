@@ -28,13 +28,7 @@ pub fn apply_begin(
         ));
     }
     if let Err(w) = core.store.writable() {
-        return Err(
-            ApiError::new(ErrorCode::NotWritable, w.message.clone()).with(body(&msg::WhyNot {
-                code: w.code.clone(),
-                message: w.message.clone(),
-                hint: w.hint.clone(),
-            })),
-        );
+        return Err(ApiError::new(ErrorCode::NotWritable, w.message.clone()).with(body(&w)));
     }
     let computed = compute(core, s, &req.base, &req.ops)?;
     let plan = &computed.plan;

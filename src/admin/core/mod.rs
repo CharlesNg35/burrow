@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use burrow_admin_proto::msg::{
     AdminLevel, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
     HistoryRequest, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest,
-    Suggestions, Welcome, WhyNot as WireWhyNot, You,
+    Suggestions, Welcome, WhyNot, You,
 };
 use burrow_admin_proto::schema::{Entity, Schema};
 use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry};
@@ -299,12 +299,8 @@ impl Core {
             },
             writable: writable.is_ok() && s.writes(),
             why_not: match (&writable, s.writes()) {
-                (Err(w), _) => Some(WireWhyNot {
-                    code: w.code.clone(),
-                    message: w.message.clone(),
-                    hint: w.hint.clone(),
-                }),
-                (Ok(()), false) => Some(WireWhyNot {
+                (Err(w), _) => Some(w.clone()),
+                (Ok(()), false) => Some(WhyNot {
                     code: burrow_admin_proto::codes::READ_LEVEL.into(),
                     message: format!("visitor \"{}\" has read access only", s.visitor),
                     hint: format!(

@@ -12,12 +12,7 @@ pub enum WriteError {
     Io(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WhyNot {
-    pub code: String,
-    pub message: String,
-    pub hint: String,
-}
+pub use burrow_admin_proto::msg::WhyNot;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
