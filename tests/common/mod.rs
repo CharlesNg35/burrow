@@ -283,6 +283,44 @@ pub async fn echo_on(addr: SocketAddr) -> SocketAddr {
     addr
 }
 
+pub async fn tagged_tcp_targets(count: u16) -> u16 {
+    let base = free_range(count);
+    for i in 0..count {
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", base + i))
+            .await
+            .unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut s, _)) = l.accept().await else {
+                    return;
+                };
+                let port = s.local_addr().unwrap().port();
+                tokio::spawn(async move {
+                    s.write_all(&port.to_be_bytes()).await.unwrap();
+                    let (mut r, mut w) = s.split();
+                    let _ = tokio::io::copy(&mut r, &mut w).await;
+                    let _ = w.shutdown().await;
+                });
+            }
+        });
+    }
+    base
+}
+
+pub async fn tcp_lands_on(addr: SocketAddr) -> Option<u16> {
+    let mut s = tokio::net::TcpStream::connect(addr).await.ok()?;
+    let mut port = [0u8; 2];
+    tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut port))
+        .await
+        .ok()?
+        .ok()?;
+    s.write_all(b"hello").await.ok()?;
+    let mut back = [0u8; 5];
+    s.read_exact(&mut back).await.ok()?;
+    assert_eq!(&back, b"hello");
+    Some(u16::from_be_bytes(port))
+}
+
 pub async fn within_tries<F, Fut>(tries: u32, mut f: F) -> bool
 where
     F: FnMut() -> Fut,
