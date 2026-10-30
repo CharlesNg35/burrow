@@ -14,10 +14,10 @@ use crate::kit::*;
 const CHILD: &str = "BURROW_H2_LOAD_APP";
 const CHILD_H2C: &str = "BURROW_H2_LOAD_H2C";
 const READY: &str = "burrow-h2-load-port=";
-const STREAMS: usize = 100;
+const STREAMS: usize = burrow_web::http::h2::MAX_STREAMS as usize;
 const GETS: usize = 48;
-const UPLOADS: usize = 95;
-const SLOW: usize = STREAMS - UPLOADS;
+const SLOW: usize = 5;
+const UPLOADS: usize = STREAMS - GETS - SLOW;
 const MIB: usize = 1024 * 1024;
 const SLOW_BODY: usize = 512 * 1024;
 const SLOW_RATE: f64 = 64.0 * 1024.0;
@@ -129,12 +129,12 @@ async fn one_stream(mut c: Client, slot: usize, until: Instant, tally: Arc<Tally
     let upload = Bytes::from(vec![b'u'; MIB]);
     while Instant::now() < until {
         match slot {
-            0..GETS => {
+            s if s < GETS => {
                 let (status, body) = get(&mut c, &site_uri(&format!("/big/{MIB}"))).await;
                 assert_eq!((status, body.len()), (200, MIB));
                 tally.gets.fetch_add(1, Ordering::Relaxed);
             }
-            GETS..UPLOADS => {
+            s if s < GETS + UPLOADS => {
                 let mut post = request(&site_uri("/up"), &[]);
                 *post.method_mut() = http::Method::POST;
                 let (status, body) = send(&mut c, post, Some(upload.clone())).await;

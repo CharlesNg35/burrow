@@ -18,6 +18,7 @@ mod stall;
 pub mod upstream;
 
 pub(crate) use serve::{Conn, Proto, serve};
+pub use stall::STALL;
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use burrow_web::http::STALL;
 use tokio::time::{Instant, sleep, timeout};
 
 use crate::kit::*;
@@ -29,7 +30,8 @@ async fn take(body: &mut h2::RecvStream, at_least: usize) -> usize {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_visitor_that_stops_reading_loses_the_stream_after_10_s_and_the_app_body_is_dropped() {
+async fn a_visitor_that_stops_reading_loses_the_stream_after_the_stall_time_and_the_app_body_is_dropped()
+ {
     if std::env::var_os("BURROW_H2_SLOW").is_none() {
         return;
     }
@@ -40,16 +42,17 @@ async fn a_visitor_that_stops_reading_loses_the_stream_after_10_s_and_the_app_bo
     let mut big = open(&c, &format!("/big/{BIG}")).await;
     let mut got = take(&mut big, TAKEN).await;
     let stopped = Instant::now();
-    sleep(Duration::from_secs(9)).await;
+    let before = STALL - Duration::from_secs(1);
+    sleep(before).await;
     assert_eq!(
         Counts::get(&a.counts.cut),
         0,
-        "the app still streams 9 s after the visitor stopped reading"
+        "the app still streams {before:?} after the visitor stopped reading"
     );
     while Counts::get(&a.counts.cut) == 0 {
         assert!(
-            stopped.elapsed() < Duration::from_secs(15),
-            "the app's body is dropped soon after 10 s"
+            stopped.elapsed() < STALL + Duration::from_secs(5),
+            "the app's body is dropped soon after {STALL:?}"
         );
         sleep(Duration::from_millis(100)).await;
     }
