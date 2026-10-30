@@ -47,17 +47,11 @@ impl<'a> Meter<'a> {
     }
 
     fn inbound<S>(self, inner: S) -> Counted<'a, Throttled<'a, S>> {
-        Counted::new(
-            Throttled::new(inner, self.limit.map(|l| &l.inbound)),
-            self.traffic.map(|t| &t.inbound),
-        )
+        Counted::new(self.throttle_in(inner), self.traffic.map(|t| &t.inbound))
     }
 
     fn outbound<S>(self, inner: S) -> Counted<'a, Throttled<'a, S>> {
-        Counted::new(
-            Throttled::new(inner, self.limit.map(|l| &l.outbound)),
-            self.traffic.map(|t| &t.outbound),
-        )
+        Counted::new(self.throttle_out(inner), self.traffic.map(|t| &t.outbound))
     }
 }
 
