@@ -193,7 +193,8 @@ fn fallback_edit(c: &mut Ctx) -> Flow<'_> {
         c.ui.nav("/services/capped").await;
         edit_mode(c).await;
         let row = "[data-schema='services/*/bandwidth']";
-        c.ui.wait_text(row, "Checked by the server", SECS).await;
+        c.ui.wait_text(row, "The server checks this value when you apply", SECS)
+            .await;
         c.ui.fill("#f-services-capped-bandwidth", "abc").await;
         wait_checked(c).await;
         c.ui.wait_text(&format!("{row} [aria-live]"), "abc", SECS)

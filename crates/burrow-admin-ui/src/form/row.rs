@@ -70,7 +70,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         }
     }
     if e.peek(&path).as_ref().and_then(as_env).is_some() {
-        badges.push(("from environment".into(), Tone::Info));
+        badges.push((burrow_admin_logic::wording::FROM_ENV.into(), Tone::Info));
     }
     let touched = RwSignal::new(false);
     let id = field_id(&path);

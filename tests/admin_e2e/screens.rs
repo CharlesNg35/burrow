@@ -13,7 +13,10 @@ fn fallback(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.nav("/services/capped?tab=settings").await;
         let bw = "[data-schema='services/*/bandwidth']";
         let text = c.ui.wait_text(bw, "40mbit", SECS).await;
-        assert!(text.contains("Checked by the server"), "{text}");
+        assert!(
+            text.contains("The server checks this value when you apply"),
+            "{text}"
+        );
         assert_eq!(c.ui.count(&format!("{bw} [data-render=fallback]")).await, 1);
         c.ui.shot("bandwidth-shown-by-its-fallback").await;
         let region = "[data-schema='services/*/region'] [data-testid=raw-node]";

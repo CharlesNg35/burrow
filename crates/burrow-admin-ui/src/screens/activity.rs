@@ -66,7 +66,11 @@ fn title_of(e: &AuditEntry, version: &dyn Fn(&str) -> String) -> String {
         .find(|c| c.part_of.is_none())
         .or(e.changes.first())
         .map(|c| c.summary.clone())
-        .unwrap_or_else(|| format!("No change ({})", e.result))
+        .unwrap_or_else(|| {
+            burrow_admin_logic::wording::capital(burrow_admin_logic::wording::result_words(
+                &e.result,
+            ))
+        })
 }
 
 fn repeats(entries: &[AuditEntry], i: usize) -> Option<&AuditEntry> {
@@ -121,7 +125,10 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
                     }
                 },
                 tags: if Some(i) == now {
-                    vec![("current".to_string(), Tone::Success)]
+                    vec![(
+                        burrow_admin_logic::wording::RUNNING_NOW.to_string(),
+                        Tone::Success,
+                    )]
                 } else {
                     Vec::new()
                 },

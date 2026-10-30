@@ -37,7 +37,9 @@ fn send(e: Edit, path: Vec<String>, password: String, note: RwSignal<Option<Stri
                 note.set(None);
                 e.set_password(&path, &h.handle);
             }
-            Ok(Err(_)) => note.set(Some("the server's answer was unreadable".into())),
+            Ok(Err(e)) => note.set(Some(
+                crate::store::store().protocol_problem("password hash", e),
+            )),
             Err(err) => note.set(Some(err.message)),
         },
     );

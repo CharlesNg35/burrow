@@ -88,6 +88,21 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 }
 
 pub const NOT_SET: &str = "not set";
+pub const SERVER_CHECKS: &str = "The server checks this value when you apply";
+pub const FROM_ENV: &str = "from an environment variable";
+pub const RUNNING_NOW: &str = "running now";
+pub const PROTOCOL_ERROR: &str = "burrow admin and the server don't understand each other here. Update burrow admin or the server; Copy diagnostics has the details.";
+
+pub fn result_words(result: &str) -> &'static str {
+    match result {
+        "applied" => "applied",
+        "applied, some ports could not listen" => "applied, but some ports could not listen",
+        "rejected" => "refused by the server; nothing changed",
+        "rejected, restored" => "refused by the server; the old file was put back",
+        "kept" => "kept in history",
+        _ => "no change: the file already matched",
+    }
+}
 pub const UDP_SENDERS: &str = "UDP senders";
 pub const CHANGED_LINES: &str = "What changed in server.yaml";
 
@@ -348,6 +363,11 @@ mod tests {
         assert_eq!(capital(""), "");
         assert_eq!(version_name(Some("15:47:12")), "version of 15:47:12");
         assert_eq!(version_name(None), "version (time unknown)");
+        assert_eq!(result_words("kept"), "kept in history");
+        assert_eq!(
+            result_words("unchanged"),
+            "no change: the file already matched"
+        );
         assert_eq!(
             diff_head(11, 3, true),
             "11 added, 3 removed · secrets hidden"

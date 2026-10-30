@@ -75,6 +75,7 @@ pub fn diagnostics(s: Store) -> String {
             writable: s.file.writable,
             running_ok: s.running.ok,
         }),
+        last_error: s.raw_error.get_untracked(),
     })
     .unwrap_or_default()
 }

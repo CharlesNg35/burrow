@@ -170,6 +170,8 @@ pub struct UiDiagnostics {
     pub schema_hash: Option<String>,
     pub schema_version: Option<u32>,
     pub file: Option<FileDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

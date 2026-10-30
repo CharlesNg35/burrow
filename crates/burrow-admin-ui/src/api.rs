@@ -387,7 +387,7 @@ fn start(store: Store) {
                 store.welcome.set(Some(Arc::new(w)));
                 load_schema(store, have);
             }
-            Err(e) => store.error.set(Some(format!("unreadable welcome: {e}"))),
+            Err(e) => store.error.set(Some(store.protocol_problem("welcome", e))),
         },
         Err(e) => store.error.set(Some(e.message)),
     });
@@ -413,7 +413,7 @@ fn load_schema(store: Store, have: String) {
                 );
                 load_history(store);
             }
-            Ok(Err(e)) => store.error.set(Some(format!("unreadable schema: {e}"))),
+            Ok(Err(e)) => store.error.set(Some(store.protocol_problem("schema", e))),
             Err(e) => store.error.set(Some(e.message)),
         },
     );
@@ -432,7 +432,7 @@ pub fn load_state(store: Store) {
                     store.conn.set(Conn::Open);
                 }
             }
-            Ok(Err(e)) => store.error.set(Some(format!("unreadable state: {e}"))),
+            Ok(Err(e)) => store.error.set(Some(store.protocol_problem("state", e))),
             Err(e) => store.error.set(Some(e.message)),
         }
     });

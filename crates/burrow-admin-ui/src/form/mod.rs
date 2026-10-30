@@ -93,7 +93,9 @@ pub fn plain(v: &Value) -> String {
 fn locked(n: &Node) -> Option<String> {
     match &n.editable {
         Editable::Yes => None,
-        Editable::No { reason } if reason.is_empty() => Some("Not editable here".into()),
+        Editable::No { reason } if reason.is_empty() => {
+            Some(burrow_admin_logic::wording::CHANGE_IN_FILE.into())
+        }
         Editable::No { reason } => Some(reason.clone()),
     }
 }

@@ -54,7 +54,8 @@ impl Edit {
                     }
                     Err(e) => {
                         me.auto_apply.set(false);
-                        me.check_error.set(Some(format!("unreadable plan: {e}")));
+                        me.check_error
+                            .set(Some(crate::store::store().protocol_problem("plan", e)));
                     }
                 },
                 Err(e) => match conflict_of(&e) {
@@ -147,7 +148,7 @@ impl Edit {
             move |r| match r.and_then(|v| {
                 serde_json::from_value::<Plan>(v).map_err(|e| ErrorBody {
                     code: ErrorCode::Unknown,
-                    message: format!("unreadable plan: {e}"),
+                    message: crate::store::store().protocol_problem("plan", e),
                     body: Value::Null,
                 })
             }) {

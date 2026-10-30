@@ -121,7 +121,7 @@ pub fn rows(status: &Status, now: u64) -> Vec<Row> {
             },
             state: match &c.state {
                 CertStateStatus::Ok => ("Valid".into(), Level::Good),
-                CertStateStatus::Pending => ("Getting it".into(), Level::Info),
+                CertStateStatus::Pending => ("Requesting a certificate".into(), Level::Info),
                 CertStateStatus::Renewing => ("Renewing".into(), Level::Info),
                 CertStateStatus::Failing { .. } => ("Failing".into(), Level::Bad),
             },

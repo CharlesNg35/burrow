@@ -71,6 +71,7 @@ pub struct Store {
     pub changed_from: RwSignal<(String, f64)>,
     pub added_at: RwSignal<std::collections::BTreeMap<String, f64>>,
     pub rev_at: RwSignal<std::collections::BTreeMap<String, f64>>,
+    pub raw_error: RwSignal<Option<String>>,
     pub route: RwSignal<Route>,
     pub query_seen: RwSignal<u64>,
     pub prev: RwSignal<Route>,
@@ -108,6 +109,7 @@ impl Store {
             changed_from: RwSignal::new((String::new(), 0.0)),
             added_at: RwSignal::new(std::collections::BTreeMap::new()),
             rev_at: RwSignal::new(std::collections::BTreeMap::new()),
+            raw_error: RwSignal::new(None),
             prev: RwSignal::new(Route::Overview),
             server_addr: RwSignal::new(String::new()),
             route: RwSignal::new(route),
@@ -266,6 +268,11 @@ impl Store {
             })
             .or_else(|| self.rev_at.with(|m| m.get(rev).copied()));
         burrow_admin_logic::wording::version_name(at.map(crate::format::stamp).as_deref())
+    }
+
+    pub fn protocol_problem(&self, what: &str, e: impl std::fmt::Display) -> String {
+        self.raw_error.set(Some(format!("{what}: {e}")));
+        burrow_admin_logic::wording::PROTOCOL_ERROR.to_string()
     }
 
     pub fn note_rev(&self, rev: &str) {

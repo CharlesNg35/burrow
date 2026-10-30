@@ -84,7 +84,7 @@ fn raw_view(v: Option<&Value>) -> AnyView {
 }
 
 pub(crate) fn server_checked() -> AnyView {
-    view! { <Tag text="Checked by the server" tone=Tone::Info/> }.into_any()
+    view! { <Tag text=burrow_admin_logic::wording::SERVER_CHECKS tone=Tone::Info/> }.into_any()
 }
 
 pub(super) fn value_view(

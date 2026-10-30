@@ -171,9 +171,10 @@ pub fn upload_editor(fc: FieldCtx, kind: String) -> AnyView {
                         note.set((!u.warnings.is_empty()).then(|| (true, u.warnings.join("; "))));
                         remember(&u);
                     }
-                    Ok(Err(_)) => {
-                        note.set(Some((false, "the server's answer was unreadable".into())))
-                    }
+                    Ok(Err(_)) => note.set(Some((
+                        false,
+                        burrow_admin_logic::wording::PROTOCOL_ERROR.into(),
+                    ))),
                     Err(err) => note.set(Some((false, err.message))),
                 }
             });
