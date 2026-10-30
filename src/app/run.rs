@@ -396,6 +396,7 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     let _instance = instance::acquire(&Identity::server(path), path)?;
     init_logging(&logging)?;
     crate::server::uploads::prune_unused(settings.web.as_ref());
+    state_folder_note(path, &settings);
     drive(async move {
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
@@ -411,12 +412,36 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             path.to_path_buf(),
             *settings,
             env,
-            crate::app::reload::accept(),
+            noting_state_folder(path.to_path_buf()),
             reload_tx,
             nudges,
         ));
         server.run(reload_rx, stop).await;
         Ok(0)
+    })
+}
+
+fn needs_state_folder(web: &crate::config::settings::WebSettings) -> bool {
+    use crate::config::settings::WebTls;
+    web.letsencrypt.is_some()
+        || !web.uploads.is_empty()
+        || web.sites.values().any(|s| s.tls == WebTls::Internal)
+}
+
+fn state_folder_note(path: &Path, s: &crate::config::settings::ServerSettings) {
+    if s.web.as_ref().is_some_and(needs_state_folder)
+        && let Some(why) = crate::install::missing_state_folder(path)
+    {
+        tracing::warn!("{why}");
+    }
+}
+
+fn noting_state_folder(
+    path: PathBuf,
+) -> crate::app::reload::Check<crate::config::settings::ServerSettings> {
+    Box::new(move |s| {
+        state_folder_note(&path, &s);
+        Ok(s)
     })
 }
 
@@ -514,6 +539,21 @@ fn same_tunnel_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_lets_encrypt_the_local_ca_and_uploads_need_the_state_folder() {
+        use crate::config::settings::{WebSettings, WebSite, WebTls};
+        let mut web = WebSettings::new("127.0.0.1:443".parse().unwrap());
+        let mut site = WebSite::passthrough(vec!["nas.example.com".into()]);
+        web.sites.insert("nas".into(), site.clone());
+        assert!(!needs_state_folder(&web));
+        site.tls = WebTls::Internal;
+        web.sites.insert("nas".into(), site);
+        assert!(needs_state_folder(&web));
+        web.sites.clear();
+        web.uploads = vec!["pair-1".into()];
+        assert!(needs_state_folder(&web));
+    }
 
     #[test]
     fn a_stop_does_not_wait_for_a_stuck_blocking_lookup() {

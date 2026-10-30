@@ -60,7 +60,7 @@ fn missing_in(config: &Path, manifests: &[Manifest]) -> Option<String> {
     let m = installed_for(&config, manifests)?;
     m.web_state.is_none().then(|| {
         format!(
-            "{} was installed without its state folder, which uploads and the local CA need; install it again: {}",
+            "{} was installed without its state folder, which Let's Encrypt, the local CA and uploads need; install it again: {}",
             m.name,
             crate::base::failure::admin(&format!(
                 "service install -c {}",
@@ -108,7 +108,7 @@ mod tests {
             std::slice::from_ref(&m),
         )
         .unwrap();
-        assert!(why.starts_with("burrow-home was installed without its state folder, which uploads and the local CA need; install it again: "), "{why}");
+        assert!(why.starts_with("burrow-home was installed without its state folder, which Let's Encrypt, the local CA and uploads need; install it again: "), "{why}");
         assert!(why.contains("service install -c /srv/home.yaml"), "{why}");
         m.web_state = Some("/var/lib/burrow/home".into());
         assert_eq!(
