@@ -1,5 +1,7 @@
 # Research notes
 
+What burrow learned from other reverse tunnels before it was built: what each does well and badly, and what burrow took from it. The resulting choices are recorded in [decisions.md](decisions.md).
+
 Sources read (shallow clones in /tmp/refs, ideas only, no code copied): rathole, frp, bore, chisel, rtun (snsinfu/reverse-tunnel).
 
 ## rathole (Rust)

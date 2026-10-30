@@ -1,18 +1,18 @@
 # Running burrow as a service
 
-`burrow service install` makes a server, client or visitor start when the machine boots and restart after a failure. It uses the system's own service manager: systemd on Linux, launchd on macOS, and the Service Control Manager on Windows. It needs administrator rights.
+A burrow you start by hand stops when you log out or the machine reboots. `burrow service install` makes a server, client or visitor start when the machine boots and restart after a failure, under its own locked-down account. It uses the system's own service manager: systemd on Linux, launchd on macOS, and the Service Control Manager on Windows. It needs administrator rights. This page also covers updating burrow and running it in Docker.
 
 - [Install](#install)
 - [Everyday commands](#everyday-commands)
 - [Where the files go](#where-the-files-go)
 - [Changing the config](#changing-the-config)
-- [Updating](#updating)
+- [Update burrow](#update-burrow)
 - [Linux, macOS and Windows details](#linux-macos-and-windows-details)
 - [Docker](#docker)
 
 ## Install
 
-In the folder that holds the config:
+Run the install in the folder that holds the config:
 
 ```sh
 sudo ./burrow service install                    # finds server.yaml, client.yaml or visitor.yaml here
@@ -50,6 +50,8 @@ The install copies burrow and the config to system folders (see [below](#where-t
 
 ## Everyday commands
 
+Once installed, these commands look after the service:
+
 ```sh
 burrow service list                    # every burrow service on this machine
 burrow service status                  # state, version, account, files, the last log lines
@@ -71,7 +73,7 @@ sudo burrow service install -c /etc/burrow/client.yaml
 
 ## Where the files go
 
-Each service gets its own config folder, named after the service without `burrow-` (`<name>` below). `<role>` is `server`, `client` or `visitor`, and `<ext>` is the config's extension. For example, `server.yaml` installs as `/etc/burrow/server/server.yaml`.
+The install copies everything the service needs to system folders, so it never depends on the folder you downloaded burrow to. Each service gets its own config folder, named after the service without `burrow-` (`<name>` below). `<role>` is `server`, `client` or `visitor`, and `<ext>` is the config's extension. For example, `server.yaml` installs as `/etc/burrow/server/server.yaml`.
 
 | what | Linux and macOS | Windows |
 | --- | --- | --- |
@@ -127,7 +129,9 @@ The same tunnel cannot run twice: a second copy of a server config, or a second 
 
 </details>
 
-## Updating
+## Update burrow
+
+One command installs the latest release and restarts the services that use it:
 
 ```sh
 sudo burrow update            # install the latest release and restart the services that use it
@@ -175,7 +179,9 @@ Run the commands from a terminal opened with "Run as administrator". The service
 
 ## Docker
 
-The image `ghcr.io/charlesng35/burrow` is small (distroless and static), runs as a non-root user, and reads its config from `/etc/burrow`. Without a command, it runs `server -c /etc/burrow/server.yaml`.
+If you run your apps in containers, burrow runs there too. The image `ghcr.io/charlesng35/burrow` is small (distroless and static), runs as a non-root user, and reads its config from `/etc/burrow`. Without a command, it runs `server -c /etc/burrow/server.yaml`.
+
+The first command checks a config in the folder `./burrow`, the second runs the server with it:
 
 ```sh
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/burrow:/etc/burrow:ro" \
@@ -220,3 +226,9 @@ services:
 The client uses `network_mode: host` so that `127.0.0.1` in its targets means the host machine, not the container.
 
 </details>
+
+## Next steps
+
+- [Monitoring](monitoring.md): `burrow status`, metrics and logs.
+- [burrow admin](admin.md): manage an installed server from your browser.
+- [Security](security.md): what the service account and sandbox protect.

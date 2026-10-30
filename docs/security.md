@@ -1,6 +1,6 @@
 # Security
 
-This page explains how burrow protects your tunnel, and what you need to do.
+burrow carries traffic from the internet into your home or office network, so it is built to let in only what you allow. This page explains how it protects the tunnel, the websites and the admin, and the few things you need to do yourself. Start with the first section; the rest explains how each protection works.
 
 ## What you need to do
 
@@ -36,6 +36,8 @@ The exact protocol, and the point where each side is proven, is described in [pr
 
 ## Who can reach what
 
+Several checks decide what a connection may reach, and the client has the last word:
+
 - **The client decides what it connects to.** A client only connects to targets in its own `allow` list, checked after host names are resolved. So even someone who takes over the server, or a visitor with `reach`, cannot use the client to reach other machines.
 - **A private service has no port on the server at all.** Only the visitors it lists can reach it.
 - **A visitor reaches only** the services that list it, and clients only through `reach`.
@@ -59,6 +61,8 @@ Wrong names and wrong secrets get exactly the same answer, after the same amount
 
 ## Websites
 
+A website is open to every browser, so burrow checks each request before it reaches the app:
+
 - **HTTPS ends at the server** for websites burrow serves with `tls: auto` or its own files: the server decrypts the request, and it travels to the client inside the tunnel's own encryption. With `tls: passthrough` the server never sees the content; the app keeps its own certificate.
 - **Plain HTTP sites are unencrypted** between the visitor and the server. `burrow validate` and the admin UI mark each one; keep them on networks you trust.
 - **The app learns the visitor's address** from `X-Forwarded-For` and `X-Real-IP`, which burrow sets and replaces, so a visitor cannot forge them.
@@ -80,3 +84,8 @@ The web admin listens on `127.0.0.1` only, needs a random token that only you ca
 ## burrow mcp
 
 `burrow mcp` gives an AI app the same admin channel, with the same server rules. It is read-only unless started with `--allow-write` by a visitor with `admin: write`, it applies only a plan the AI checked first, and secrets never reach the AI. Over HTTP it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages. See [mcp.md](mcp.md#safety).
+
+## Next steps
+
+- [The wire protocol](protocol.md): the handshake and encryption in detail.
+- [Why burrow is built this way](decisions.md).

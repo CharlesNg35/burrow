@@ -1,6 +1,6 @@
 # Working on the burrow admin UI
 
-Using burrow admin: [admin.md](admin.md).
+How to build, run and test the admin UI while you change it. Using burrow admin: [admin.md](admin.md). The code rules are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 The UI is Rust compiled to WebAssembly (`crates/burrow-admin-ui`, Leptos), styled with Tailwind CSS v4 utility classes. No Node.js is needed.
 

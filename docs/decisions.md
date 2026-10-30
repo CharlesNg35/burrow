@@ -1,5 +1,7 @@
 # Decisions
 
+Why burrow is built the way it is: each record names a choice, the options weighed and the reason, with sources where they matter. Read it before changing a design, and add a record for each new one. Something recorded here as intended is not a bug.
+
 Short records. Newest last.
 
 ## D1. Transport: raw TCP with a data-channel pool, no HTTP/2 or QUIC as primary

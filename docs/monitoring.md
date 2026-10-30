@@ -1,6 +1,6 @@
 # Monitoring
 
-There are three ways to see what burrow is doing:
+Monitoring tells you whether your clients are connected, which services carry traffic, and whether every certificate is fine, before a user notices a problem. This page also covers running burrow at large scale and its logs. There are three ways to see what burrow is doing:
 
 - **`burrow status`** on the server machine: clients, services, visitors and traffic, with no setup.
 - **Prometheus metrics**, off unless you turn them on.
@@ -10,7 +10,9 @@ For clients and visitors, use the service commands and logs: `burrow service sta
 
 ## burrow status
 
-`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network.
+The quickest look: `burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network.
+
+Run it on the server machine:
 
 ```sh
 sudo burrow status                # every server on this machine
@@ -21,7 +23,7 @@ burrow status -f --interval 5     # refresh every 5 seconds
 burrow status --json              # the raw data, for scripts
 ```
 
-A server installed as a service needs `sudo` (an administrator terminal on Windows). A server that does not answer is named as such, not taken for stopped.
+A server installed as a service needs `sudo` (an administrator terminal on Windows). A server that does not answer is named as such, not taken for stopped. The output looks like this:
 
 ```
 $ sudo burrow status
@@ -84,7 +86,7 @@ A failing certificate gets a line with the reason, and a link when Let's Encrypt
 
 ## Prometheus metrics
 
-Metrics are off unless you turn them on in server.yaml:
+[Prometheus](https://prometheus.io/) collects numbers from your servers over time, for graphs and alerts. burrow's metrics are off unless you turn them on in server.yaml:
 
 ```yaml
 # server.yaml
@@ -92,7 +94,7 @@ metrics:
   listen: 127.0.0.1:9100   # a port alone means 127.0.0.1
 ```
 
-The server then serves metrics at `http://127.0.0.1:9100/metrics`, in the format Prometheus reads:
+The server then serves metrics at `http://127.0.0.1:9100/metrics`, in the format Prometheus reads. Point Prometheus at it:
 
 ```yaml
 # prometheus.yml
@@ -131,7 +133,7 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone wh
 
 ## Running at scale
 
-burrow handles many connections at once. Measured on Linux with idle connections:
+burrow handles many connections at once; past tens of thousands, the operating system's limits matter more than burrow's. Measured on Linux with idle connections:
 
 | | memory per idle connection | 100,000 idle connections |
 | --- | --- | --- |
@@ -178,7 +180,7 @@ To keep a `sysctl -w` change after a reboot, put the same line, without `sudo sy
 
 ## Logs
 
-burrow logs to the terminal by default. These options work with every command:
+The log says what burrow does and why something failed. burrow logs to the terminal by default. These options work with every command:
 
 | option | meaning |
 | --- | --- |
@@ -188,3 +190,8 @@ burrow logs to the terminal by default. These options work with every command:
 | `--log-file FILE` | write to this file, rotated at 10 MB with 5 old files kept |
 
 An installed service writes its log to a file; `burrow service logs -f` follows it. See [service.md](service.md).
+
+## Next steps
+
+- [When a certificate fails](web/certificates.md#when-a-certificate-fails): what to check.
+- [burrow admin](admin.md): the same status, live, in your browser.

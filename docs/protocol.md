@@ -1,5 +1,7 @@
 # burrow wire protocol, version 1
 
+This page describes the bytes burrow's server, clients and visitors exchange: how a connection is opened and authenticated, and how records, control messages, data, visit and admin channels work. It is for contributors and for reviewing burrow's security; using burrow needs none of it. The plain-words summary is in [security.md](security.md).
+
 All integers are big-endian. "Record" means one Noise transport message with a 2-byte length prefix.
 
 ## 1. Channels
