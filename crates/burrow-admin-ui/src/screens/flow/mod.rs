@@ -192,7 +192,8 @@ mod tests {
             "public first, then private, each by name"
         );
         let internet = c.nodes.iter().find(|n| n.key == "internet").unwrap();
-        assert_eq!(internet.sub, "1 public · 1 loopback\n0 refused");
+        assert_eq!(internet.sub, "1 public · 0 refused");
+        assert_eq!(internet.right, "1 local");
         let db = c.nodes.iter().find(|n| n.key == "target:db").unwrap();
         assert_eq!(db.health, Health::Down);
         assert_eq!(db.sub, "no client online");

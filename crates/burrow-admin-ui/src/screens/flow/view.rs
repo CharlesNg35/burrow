@@ -3,6 +3,7 @@ use burrow_ui_kit::{
 };
 use leptos::html;
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::route;
 use crate::store::{Store, store};
@@ -33,7 +34,8 @@ fn node_view(
     };
     let to = n.to.clone();
     let tip = n.tip.clone();
-    let lines: Vec<String> = n.sub.lines().map(str::to_string).collect();
+    let room_lines = (((n.h - 24.0) / 14.0).floor() as usize).max(1);
+    let lines: Vec<String> = n.sub.lines().take(room_lines).map(str::to_string).collect();
     let cursor = if to.is_some() {
         "group cursor-pointer"
     } else {
@@ -70,7 +72,11 @@ fn node_view(
                 }
                 if let Some(el) = wrap.get_untracked() {
                     let r = el.get_bounding_client_rect();
-                    hover.set(Some((tip.clone(), e.client_x() as f64 - r.left() + el.scroll_left() as f64 + 12.0, e.client_y() as f64 - r.top() + el.scroll_top() as f64 + 14.0)));
+                    let top = e
+                        .current_target()
+                        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                        .map_or(e.client_y() as f64, |n| n.get_bounding_client_rect().top());
+                    hover.set(Some((tip.clone(), e.client_x() as f64 - r.left() + el.scroll_left() as f64 + 12.0, top - r.top() + el.scroll_top() as f64 - 30.0)));
                 }
             }
             on:mouseleave=move |_| hover.set(None)

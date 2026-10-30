@@ -223,9 +223,13 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             y,
             h,
             title: "Internet".into(),
-            right: String::new(),
+            right: if lo > 0 {
+                format!("{lo} local")
+            } else {
+                String::new()
+            },
             sub: format!(
-                "{} public · {lo} loopback\n{} refused",
+                "{} public · {} refused",
                 public.len() - lo,
                 status
                     .map(|s| s.services.iter().map(|x| x.refused).sum::<u64>())

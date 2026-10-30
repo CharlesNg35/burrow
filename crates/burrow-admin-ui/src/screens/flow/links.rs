@@ -42,7 +42,7 @@ pub(super) fn service_nodes(
                 .map(short_bind)
                 .or_else(|| (!s.web.is_empty()).then(|| s.web.join(", ")))
                 .unwrap_or_else(|| s.reached.clone()),
-            s.protocol,
+            s.protocol.to_uppercase(),
             s.open
         ),
         badge: None,
