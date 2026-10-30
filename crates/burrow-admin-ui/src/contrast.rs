@@ -103,6 +103,25 @@ const TEXT: &[(&str, &str)] = &[
     ("hdr-on", "hdr"),
     ("hdr-on", "tab-on"),
     ("tip-text", "tip"),
+    ("text-faint", "surface-3"),
+    ("text-muted", "accent-weak"),
+    ("text-faint", "accent-weak"),
+    ("hdr-muted", "hdr-raised"),
+    ("hdr-muted", "hdr-raised-2"),
+    ("success", "success-weak"),
+    ("warning", "warning-weak"),
+];
+
+const ON_PAGE: &[(&str, &str)] = &[
+    ("success@bg", "success-weak@bg"),
+    ("warning@bg", "warning-weak@bg"),
+    ("danger@bg", "danger-weak@bg"),
+    ("accent-ink@bg", "accent-weak@bg"),
+    ("udp@bg", "udp-weak@bg"),
+    ("udp@surface", "udp-weak@surface"),
+    ("success@surface-2", "success-weak@surface-2"),
+    ("danger@surface-2", "danger-weak@surface-2"),
+    ("accent-ink@surface-2", "accent-weak@surface-2"),
 ];
 
 const UI: &[(&str, &str)] = &[
@@ -110,6 +129,8 @@ const UI: &[(&str, &str)] = &[
     ("border-strong", "input"),
     ("accent", "surface"),
     ("accent", "bg"),
+    ("border-strong", "bg"),
+    ("border-strong", "surface-2"),
 ];
 
 fn rgba(v: &str) -> Option<([f64; 3], f64)> {
@@ -127,11 +148,12 @@ fn rgba(v: &str) -> Option<([f64; 3], f64)> {
 }
 
 fn color(t: &BTreeMap<String, String>, name: &str, mode: &str) -> [f64; 3] {
+    let (name, base) = name.split_once('@').unwrap_or((name, "surface"));
     let (token, hover) = match name.split_once(':') {
         Some((n, _)) => (n, true),
         None => (name, false),
     };
-    let under = rgba(&t["surface"]).expect("surface is a color").0;
+    let under = rgba(&t[base]).expect("the base is a color").0;
     let (c, a) = t
         .get(token)
         .and_then(|v| rgba(v))
@@ -165,6 +187,12 @@ fn failures(pairs: &[(&str, &str)], need: f64) -> Vec<String> {
 #[test]
 fn every_text_pair_meets_aa_in_both_themes() {
     let bad = failures(TEXT, 4.5);
+    assert!(bad.is_empty(), "below 4.5:1: {bad:#?}");
+}
+
+#[test]
+fn tags_and_tints_on_the_grey_page_meet_aa_in_both_themes() {
+    let bad = failures(ON_PAGE, 4.5);
     assert!(bad.is_empty(), "below 4.5:1: {bad:#?}");
 }
 
