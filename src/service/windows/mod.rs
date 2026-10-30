@@ -89,12 +89,6 @@ fn wait_for(
     }
 }
 
-fn read_env(path: Option<&PathBuf>) -> BTreeMap<String, String> {
-    path.and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
-}
-
 impl Backend for WindowsService {
     fn kind(&self) -> &'static str {
         "Windows"
@@ -264,7 +258,7 @@ impl Backend for WindowsService {
     }
 
     fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {
-        read_env(m.env_file.as_ref())
+        super::read_json_env(m)
     }
 
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {

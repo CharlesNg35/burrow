@@ -925,3 +925,19 @@ fn the_config_exit_code_reads_the_same_on_every_backend() {
     assert!(detail.contains("service start burrow-server"), "{detail}");
     assert!(logs_hint("burrow-server").contains("service logs burrow-server"));
 }
+
+#[test]
+fn a_json_env_file_is_read_and_a_missing_or_damaged_one_is_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = dir.path().join("home.env");
+    std::fs::write(&env, r#"{"SECRET":"y"}"#).unwrap();
+    let mut m = Manifest {
+        env_file: Some(env.clone()),
+        ..record(Platform::MacOs)
+    };
+    assert_eq!(read_json_env(&m)["SECRET"], "y");
+    std::fs::write(&env, "SECRET=y").unwrap();
+    assert!(read_json_env(&m).is_empty());
+    m.env_file = None;
+    assert!(read_json_env(&m).is_empty());
+}

@@ -10,7 +10,7 @@ use windows_service::service::{
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 use windows_service::service_dispatcher;
 
-use super::{read_env, scm_error};
+use super::scm_error;
 use crate::app::run::{Hosted, Logging};
 use crate::base::failure::Failure;
 use crate::config::env::Env;
@@ -86,7 +86,7 @@ fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Fai
     };
     let hosted = Hosted {
         stop: Some(stop),
-        env: Env::with(read_env(m.env_file.as_ref())),
+        env: Env::with(crate::service::read_json_env(&m)),
     };
     match m.role.as_str() {
         "server" => crate::app::run::server_until(&m.config, logging, Some(hosted)),

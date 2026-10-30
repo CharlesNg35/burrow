@@ -138,6 +138,15 @@ pub trait Backend {
     }
 }
 
+#[cfg(any(target_os = "macos", windows, test))]
+pub(super) fn read_json_env(m: &Manifest) -> BTreeMap<String, String> {
+    m.env_file
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
 pub(super) fn config_exit_detail(name: &str) -> String {
     format!(
         "the config has errors or cannot be read (exit {}); fix it, then: {}",

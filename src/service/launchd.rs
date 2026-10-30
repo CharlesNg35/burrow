@@ -54,14 +54,6 @@ fn xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn read_env(m: &Manifest) -> BTreeMap<String, String> {
-    m.env_file
-        .as_ref()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
-}
-
 fn plist(m: &Manifest) -> String {
     let mut args = vec![
         m.binary.display().to_string(),
@@ -215,7 +207,7 @@ impl Backend for Launchd {
     }
 
     fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {
-        read_env(m)
+        super::read_json_env(m)
     }
 
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
