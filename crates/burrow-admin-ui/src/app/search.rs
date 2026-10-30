@@ -189,15 +189,23 @@ fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> Strin
 fn setting_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
     if let Some(schema) = s.schema.get_untracked() {
         let skip = burrow_admin_logic::tree::entity_sections(&schema);
+        let skipped: Vec<&str> = skip.iter().map(String::as_str).collect();
+        let cards = crate::form::settings_cards(&schema.root, &skipped);
         for f in burrow_admin_logic::tree::fields(&schema.root)
             .iter()
             .filter(|f| !skip.contains(&f.key))
         {
-            if !needle.is_empty() && (hit(needle, &f.node.label) || hit(needle, &f.key)) {
+            let label = cards
+                .iter()
+                .find(|c| c.object && c.fields.iter().any(|g| g.key == f.key))
+                .map_or_else(|| f.node.label.clone(), |c| c.title.clone());
+            if !needle.is_empty()
+                && (hit(needle, &label) || hit(needle, &f.node.label) || hit(needle, &f.key))
+            {
                 out.push(Hit {
                     section: "Settings",
                     icon: "settings",
-                    label: f.node.label.clone(),
+                    label,
                     facet: f.key.clone(),
                     go: Route::Settings,
                     query: Some((
