@@ -371,3 +371,69 @@ fn the_server_says_which_service_targets_a_client_does_not_allow() {
     let warned = log.lines().find(|l| l.contains("does not allow")).unwrap();
     assert!(!warned.contains("\"ssh\""), "{warned}");
 }
+
+type StartCase<'a> = (&'a str, &'a str, &'a str, &'a [(&'a str, &'a str)], i32);
+
+fn start_code(top: &str, services: &str, files: &[(&str, &str)]) -> (Option<i32>, String) {
+    let s = setup_with(top, services);
+    for (name, body) in files {
+        let path = s.dir.path().join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+    let state = s.dir.path().join("state");
+    let out = burrow(&s)
+        .args(["server", "-c", "server.yaml", "--state-dir"])
+        .arg(&state)
+        .output()
+        .unwrap();
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn a_start_that_fails_only_on_unreadable_web_files_exits_1_for_a_retry_and_bad_contents_exit_3() {
+    let https = format!("web:\n  https: 127.0.0.1:{}\n", free_port());
+    let pair = "{ cert: live/fullchain.pem, key: live/privkey.pem }";
+    let site = |web: &str| format!("  nas:\n    client: home\n    target: 8000\n    web: {web}\n");
+    let own = site(&format!("{{ hosts: [nas.example.com], tls: {pair} }}"));
+    let shared = format!(
+        "{https}  certificates:\n    - {{ hosts: [\"*.example.com\"], {} }}\n",
+        &pair[2..pair.len() - 2]
+    );
+    let cas = site(
+        "{ hosts: [nas.lan], tls: internal, client_auth: { ca: certs/devices.pem }, target_tls: { ca: certs/app-ca.pem } }",
+    );
+    let acme = "web:\n  https: 443\n  http: 80\n  letsencrypt: { email: ops@example.com, ca: certs/acme-ca.pem }\n";
+    let junk = [
+        ("live/fullchain.pem", "not a certificate"),
+        ("live/privkey.pem", "not a key"),
+    ];
+    let cases: [StartCase; 6] = [
+        ("site files", &https, &own, &[], 1),
+        (
+            "web.certificates",
+            &shared,
+            &site("nas.example.com"),
+            &[],
+            1,
+        ),
+        ("device and app CAs", &https, &cas, &[], 1),
+        ("letsencrypt.ca", acme, &site("nas.example.com"), &[], 1),
+        ("site files that are not PEM", &https, &own, &junk, 3),
+        (
+            "one unreadable, one not a CA",
+            &https,
+            &cas,
+            &[("certs/app-ca.pem", "x")],
+            3,
+        ),
+    ];
+    for (what, top, services, files, want) in cases {
+        let (code, err) = start_code(top, services, files);
+        assert_eq!(code, Some(want), "{what}: {err}");
+        assert!(err.contains("not starting"), "{what}: {err}");
+    }
+}

@@ -60,13 +60,17 @@ pub(super) fn check_letsencrypt(
         return;
     };
     let problem = match std::fs::read(base.join(ca)) {
-        Err(e) => Some(format!("cannot read {ca}: {}", file_reason(&e))),
-        Ok(pem) => trusted_roots(Some(&pem)).err().map(|e| format!("{ca} {e}")),
+        Err(e) => Some(Diagnostic::error(
+            burrow_admin_proto::codes::TLS_UNREADABLE,
+            format!("web.letsencrypt.ca: cannot read {ca}: {}", file_reason(&e)),
+        )),
+        Ok(pem) => trusted_roots(Some(&pem))
+            .err()
+            .map(|e| Diagnostic::error("letsencrypt-ca", format!("web.letsencrypt.ca: {ca} {e}"))),
     };
-    if let Some(problem) = problem {
+    if let Some(d) = problem {
         out.push(
-            Diagnostic::error("letsencrypt-ca", format!("web.letsencrypt.ca: {problem}"))
-                .at(spans.value(&["web", "letsencrypt", "ca"]))
+            d.at(spans.value(&["web", "letsencrypt", "ca"]))
                 .help("give the PEM file of the CA that signs the ACME server's certificate; paths are relative to the config file"),
         );
     }

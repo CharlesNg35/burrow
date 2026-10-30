@@ -5,6 +5,7 @@ use crate::base::failure::file_reason;
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use crate::wire::transport::tls::{parse_certs, parse_key};
+use burrow_admin_proto::codes::TLS_UNREADABLE;
 use burrow_config::{ServerConfig, ServiceWeb, SiteTls};
 use burrow_syntax::web::{SingleLabel, host_name};
 use burrow_web::tls::files::{certified, covers, dns_names};
@@ -27,10 +28,14 @@ fn load(pair: &Pair<'_>, base: &Path, out: &mut Vec<Diagnostic>) -> Option<Certi
         |field: &str, file: &str, out: &mut Vec<Diagnostic>| match std::fs::read(base.join(file)) {
             Ok(bytes) => Some(bytes),
             Err(e) => {
-                out.push(fail(
-                    format!("cannot read {field} \"{file}\": {}", file_reason(&e)),
-                    "paths are relative to the config file; check the path and its permissions",
-                ));
+                let m = format!("cannot read {field} \"{file}\": {}", file_reason(&e));
+                out.push(
+                Diagnostic::error(TLS_UNREADABLE, format!("{}: {m}", pair.place))
+                    .at(pair.at)
+                    .help(
+                        "paths are relative to the config file; check the path and its permissions",
+                    ),
+            );
                 None
             }
         };

@@ -109,7 +109,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
             .diagnostics
             .iter()
             .filter(|d| d.is_error())
-            .all(|d| d.code == crate::config::diagnostics::TLS_UNREADABLE);
+            .all(|d| d.code == burrow_admin_proto::codes::TLS_UNREADABLE);
         return Err(if only_files {
             failure
         } else {

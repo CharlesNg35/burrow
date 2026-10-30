@@ -128,6 +128,7 @@ mod tests {
             "single-label-host",
             "target-ca",
             "target-unchecked",
+            "tls-unreadable",
             "open-range",
             "dns-domains",
             "dns-rfc2136",

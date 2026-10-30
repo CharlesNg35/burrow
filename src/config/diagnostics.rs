@@ -5,8 +5,6 @@ use serde::Serialize;
 use crate::base::style::Style;
 use crate::config::tree::Span;
 
-pub const TLS_UNREADABLE: &str = "tls-unreadable";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {

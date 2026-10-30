@@ -41,20 +41,20 @@ fn certificate_files_that_load_and_cover_their_names_pass() {
 }
 
 #[test]
-fn a_missing_or_unreadable_file_is_refused_at_validate() {
+fn a_missing_or_unreadable_file_is_refused_at_validate_as_unreadable() {
     let dir = tempfile::tempdir().unwrap();
     assert_eq!(
         file_errors(dir.path(), SHARED),
         [
-            "certificate-file: web.certificates[0]: cannot read cert \"w.pem\": file not found",
-            "certificate-file: web.certificates[0]: cannot read key \"w.key\": file not found",
+            "tls-unreadable: web.certificates[0]: cannot read cert \"w.pem\": file not found",
+            "tls-unreadable: web.certificates[0]: cannot read key \"w.key\": file not found",
         ]
     );
     pair(dir.path(), "p", &["portal.example.com"]);
     std::fs::remove_file(dir.path().join("p.key")).unwrap();
     assert_eq!(
         file_errors(dir.path(), OWN),
-        ["certificate-file: services.portal.web.tls: cannot read key \"p.key\": file not found"]
+        ["tls-unreadable: services.portal.web.tls: cannot read key \"p.key\": file not found"]
     );
 }
 

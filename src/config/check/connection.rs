@@ -104,7 +104,7 @@ pub fn check_connection(
             let path = base_dir.join(file);
             let read = std::fs::read(&path).map_err(|e| crate::base::failure::file_reason(&e));
             let code = if read.is_err() {
-                crate::config::diagnostics::TLS_UNREADABLE
+                burrow_admin_proto::codes::TLS_UNREADABLE
             } else {
                 "tls-file"
             };

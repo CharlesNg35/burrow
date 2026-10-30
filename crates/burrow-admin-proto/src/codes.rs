@@ -68,6 +68,7 @@ pub const FILE_NOT_WRITABLE: &str = "file-not-writable";
 pub const READ_ONLY_FS: &str = "read-only-fs";
 pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
 pub const OLDER_ADMIN: &str = "older-admin";
+pub const TLS_UNREADABLE: &str = "tls-unreadable";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,
@@ -90,4 +91,11 @@ pub const READ_BY_THE_UI: [&str; 18] = [
     UNUSED_VISITOR,
 ];
 
-pub const READ_BY_THE_CLI: [&str; 5] = [WRONG_ROLE, NO_FORWARDS, SYNTAX, NO_SERVICES, NO_CLIENTS];
+pub const READ_BY_THE_CLI: [&str; 6] = [
+    WRONG_ROLE,
+    NO_FORWARDS,
+    SYNTAX,
+    NO_SERVICES,
+    NO_CLIENTS,
+    TLS_UNREADABLE,
+];

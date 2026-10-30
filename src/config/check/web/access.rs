@@ -245,7 +245,7 @@ fn client_auth(
         if let Err(e) = std::fs::read(base_dir.join(file)) {
             out.push(
                 Diagnostic::error(
-                    "client-auth",
+                    burrow_admin_proto::codes::TLS_UNREADABLE,
                     format!("{field}.{key}: cannot read {file}: {}", file_reason(&e)),
                 )
                 .at(at.value(&["client_auth", key]))
