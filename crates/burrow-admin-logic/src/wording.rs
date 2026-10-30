@@ -88,6 +88,10 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 }
 
 pub const NOT_SET: &str = "not set";
+pub const OFFLINE: &str = "offline";
+pub const CLIENTS_OFFLINE: &str = "Clients offline";
+pub const REFUSED_CONNECTIONS: &str = "Refused connections";
+pub const REFUSED_WHY: &str = "wrong or unknown key";
 
 pub fn applies_label(how: &burrow_admin_proto::schema::Applies) -> Option<&'static str> {
     use burrow_admin_proto::schema::Applies;

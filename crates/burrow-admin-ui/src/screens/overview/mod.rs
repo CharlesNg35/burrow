@@ -271,7 +271,7 @@ fn client_item(
         } else {
             Tone::Danger
         },
-        title: format!("Client {c} is offline"),
+        title: format!("Client {c} is {}", burrow_admin_logic::wording::OFFLINE),
         detail: format!("{} · {when}", parts.join("; ")),
         to: Some(Route::Detail(ClientEntry::section().into(), c)),
         field: None,

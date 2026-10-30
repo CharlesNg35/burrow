@@ -207,7 +207,7 @@ pub(super) fn Attention() -> impl IntoView {
         })
     };
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
-    let away_title: &'static str = "Clients away";
+    let away_title: &'static str = burrow_admin_logic::wording::CLIENTS_OFFLINE;
     let away_grow = Signal::derive(move || {
         if away_items.with(Vec::len) >= 2 {
             "shrink-[2] grow basis-auto min-[1200px]:min-h-[156px]".to_string()

@@ -137,7 +137,10 @@ fn filters_for(section: &str) -> Filters {
                 vec![
                     ("all", "All".into()),
                     ("online", "Online".into()),
-                    ("offline", "Offline".into()),
+                    (
+                        "offline",
+                        burrow_admin_logic::wording::capital(burrow_admin_logic::wording::OFFLINE),
+                    ),
                 ],
                 vec!["Online", "Offline"],
             ),

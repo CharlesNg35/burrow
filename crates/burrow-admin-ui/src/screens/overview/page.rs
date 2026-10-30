@@ -231,7 +231,7 @@ fn kpis(
             icon="monitor"
             value=Signal::derive(move || clients_now.get().0.to_string())
             unit=Signal::derive(move || format!("/ {}", clients_now.get().1))
-            detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} away", n - u) } })
+            detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} {}", n - u, burrow_admin_logic::wording::OFFLINE) } })
             testid="kpi-clients"
         />
     </Link>
@@ -282,14 +282,14 @@ fn kpis(
     </div>
     <div class="md:col-span-2">
         <Kpi
-            label="Refused handshakes"
+            label=burrow_admin_logic::wording::REFUSED_CONNECTIONS
             icon="shield"
             value=Signal::derive(move || refused_log.with(|l| match (l.front(), l.back()) {
                 (Some(a), Some(b)) => b.1.saturating_sub(a.1).to_string(),
                 _ => "0".into(),
             }))
             unit="/min"
-            detail=Signal::derive(move || s.status.with(|st| format!("{} since start", format::count(st.as_ref().map(|st| st.handshakes_refused).unwrap_or(0)))))
+            detail=Signal::derive(move || s.status.with(|st| format!("{} · {} since start", burrow_admin_logic::wording::REFUSED_WHY, format::count(st.as_ref().map(|st| st.handshakes_refused).unwrap_or(0)))))
             testid="kpi-refused"
         />
     </div>

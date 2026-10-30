@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:88085f355810f636",
+  "hash": "b2s:699754be9090c522",
   "root": {
     "label": "Server",
     "sem": {
@@ -3210,8 +3210,8 @@
                 {
                   "key": "handshake_timeout_secs",
                   "node": {
-                    "label": "Handshake timeout",
-                    "help": "Time a new connection has to authenticate",
+                    "label": "Connection setup timeout",
+                    "help": "How long a new client or visitor connection may take to show its key before it is closed",
                     "sem": {
                       "t": "duration",
                       "unit": "secs",
@@ -3226,8 +3226,8 @@
                 {
                   "key": "max_handshakes",
                   "node": {
-                    "label": "Max handshakes",
-                    "help": "Concurrent connections that have not finished authenticating",
+                    "label": "Maximum connections setting up",
+                    "help": "New client and visitor connections that may show their key at the same time; more wait",
                     "sem": {
                       "t": "integer",
                       "min": 1,

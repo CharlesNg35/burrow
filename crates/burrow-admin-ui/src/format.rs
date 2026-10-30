@@ -73,7 +73,7 @@ pub fn limit_tag(
 
 pub fn away_badge(left_secs_ago: Option<u64>) -> &'static str {
     if left_secs_ago.is_some() {
-        "away"
+        burrow_admin_logic::wording::OFFLINE
     } else {
         "not seen"
     }

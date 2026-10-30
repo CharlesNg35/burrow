@@ -124,7 +124,7 @@ pub(super) fn client_row(
         group: if on {
             "Online".into()
         } else {
-            "Offline".into()
+            burrow_admin_logic::wording::capital(burrow_admin_logic::wording::OFFLINE)
         },
         pending,
         filters: vec![if on { "online" } else { "offline" }],

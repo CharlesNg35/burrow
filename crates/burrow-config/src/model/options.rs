@@ -29,15 +29,21 @@ impl Default for Heartbeat {
 pub struct Limits {
     #[schemars(range(min = 1, max = 120))]
     #[admin(
-        label = "Handshake timeout",
-        help = "Time a new connection has to authenticate",
+        label = "Connection setup timeout",
+        help = "How long a new client or visitor connection may take to show its key before it is closed",
         applies = live,
         locked
     )]
     pub handshake_timeout_secs: u32,
     #[schemars(description = "Concurrent connections that have not finished authenticating")]
     #[schemars(range(min = 1, max = 1000000))]
-    #[admin(ty = integer(unit = "connections"), applies = reload, locked)]
+    #[admin(
+        ty = integer(unit = "connections"),
+        label = "Maximum connections setting up",
+        help = "New client and visitor connections that may show their key at the same time; more wait",
+        applies = reload,
+        locked
+    )]
     pub max_handshakes: u32,
     #[schemars(range(min = 1))]
     #[admin(

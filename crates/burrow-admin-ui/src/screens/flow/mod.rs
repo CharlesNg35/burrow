@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(db.sub, "no client online");
         let b = c.nodes.iter().find(|n| n.key == "client:b").unwrap();
         assert!(b.dashed && b.problem);
-        assert_eq!(b.badge.as_deref(), Some("away"));
+        assert_eq!(b.badge.as_deref(), Some("offline"));
         let web = c.nodes.iter().find(|n| n.key == "port:web").unwrap();
         assert!(web.right.is_empty(), "the bind sits on line 2");
         assert!(web.sub.starts_with(":443 · "), "{}", web.sub);

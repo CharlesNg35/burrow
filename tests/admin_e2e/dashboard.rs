@@ -10,7 +10,7 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         let echo = echo_server(c.world.ports["echo"]).await;
         open(c, "ops").await;
-        c.ui.wait_text("[data-testid=kpi-clients]", "1 away", SECS)
+        c.ui.wait_text("[data-testid=kpi-clients]", "1 offline", SECS)
             .await;
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
