@@ -146,6 +146,7 @@ async fn relay(
     });
     let stall = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
     let up = async {
+        let mut sealed = Vec::new();
         loop {
             let rec = match vreader.recv(&mut vrd).await {
                 Ok(Some(rec)) => rec,
@@ -185,13 +186,14 @@ async fn relay(
                 continue;
             }
             meter.count_in(payload.len());
-            match tokio::time::timeout(stall, cwriter.send(&mut cwr, rec)).await {
+            match tokio::time::timeout(stall, cwriter.send_with(&mut cwr, rec, &mut sealed)).await {
                 Ok(Ok(())) => {}
                 _ => return,
             }
         }
     };
     let down = async {
+        let mut sealed = Vec::new();
         loop {
             let rec = match creader.recv(&mut crd).await {
                 Ok(Some(rec)) => rec,
@@ -215,7 +217,7 @@ async fn relay(
                 continue;
             }
             meter.count_out(payload.len());
-            match tokio::time::timeout(stall, vwriter.send(&mut vwr, rec)).await {
+            match tokio::time::timeout(stall, vwriter.send_with(&mut vwr, rec, &mut sealed)).await {
                 Ok(Ok(())) => {}
                 _ => return,
             }

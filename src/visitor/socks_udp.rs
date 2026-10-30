@@ -429,10 +429,11 @@ async fn run_destination(
     let stall = crate::forward::VISIT_REPLY;
     let up = async {
         let mut rec = Vec::new();
+        let mut sealed = Vec::new();
         while let Some(queued) = rx.recv().await {
             encode_datagram(PEER, &queued.data, &mut rec);
             drop(queued);
-            match tokio::time::timeout(stall, writer.send(&mut wr, &rec)).await {
+            match tokio::time::timeout(stall, writer.send_with(&mut wr, &rec, &mut sealed)).await {
                 Ok(Ok(())) => {}
                 _ => return,
             }

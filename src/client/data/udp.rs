@@ -216,9 +216,10 @@ pub(super) async fn udp<W: Dials>(
     let (tx, mut rx) = mpsc::channel::<(u32, Vec<u8>)>(1024);
     let writer_task = tokio::spawn(async move {
         let mut rec = Vec::with_capacity(65536);
+        let mut sealed = Vec::new();
         while let Some((id, data)) = rx.recv().await {
             encode_datagram(id, &data, &mut rec);
-            if writer.send(&mut wr, &rec).await.is_err() {
+            if writer.send_with(&mut wr, &rec, &mut sealed).await.is_err() {
                 return;
             }
         }
