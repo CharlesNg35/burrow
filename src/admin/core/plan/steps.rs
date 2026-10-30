@@ -213,10 +213,10 @@ pub(super) fn assemble(
         .iter()
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
-    let root = core.schema().root.clone();
+    let root = &core.schema().root;
     let mut hashes = Vec::new();
     for v in [raw, new_raw] {
-        crate::admin::core::values::hashes(v, Some(&root), &mut hashes);
+        crate::admin::core::values::hashes(v, Some(root), &mut hashes);
     }
     let mask =
         |l: &str| text::mask_secrets(&crate::admin::core::values::veil(l, &hashes), &fresh_pairs);
