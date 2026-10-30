@@ -153,8 +153,7 @@ impl Link {
                     return result.map_err(LinkError::Refused);
                 }
                 (Incoming::Event { ev, body }, _) if ev == msg::ev::REVOKED => {
-                    let why = body["reason"].as_str().unwrap_or("access was revoked");
-                    return Err(LinkError::Lost(why.to_string()));
+                    return Err(LinkError::Lost(revoked_reason(body)));
                 }
                 (Incoming::Event { ev, .. }, _) if ev == msg::ev::BYE => {
                     return Err(LinkError::Lost(format!(
@@ -238,5 +237,24 @@ impl Link {
         if let Some(old) = self.conn.lock().await.take() {
             old.conn.tx.close().await;
         }
+    }
+}
+
+fn revoked_reason(body: Value) -> String {
+    serde_json::from_value::<msg::Revoked>(body)
+        .map_or_else(|_| "access was revoked".to_string(), |r| r.reason)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_revoked_event_gives_its_reason_or_a_plain_one() {
+        let sent = serde_json::to_value(burrow_admin_proto::msg::Revoked {
+            reason: "admin removed".into(),
+        })
+        .unwrap();
+        assert_eq!(super::revoked_reason(sent), "admin removed");
+        let odd = serde_json::json!({"why": 1});
+        assert_eq!(super::revoked_reason(odd), "access was revoked");
     }
 }
