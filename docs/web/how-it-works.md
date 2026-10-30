@@ -1,6 +1,6 @@
 # How it works
 
-This page follows a visitor through burrow, step by step, in the order the code runs. Read it when you want to know why a request got a certain answer, which check runs first, or which certificate a name gets. Each topic page links back to the step it changes. Nothing here needs to be set: it is what the keys on the other pages do, and when.
+This page follows a visitor through burrow, step by step, in the order the code runs. Read it to learn why a request got a certain answer, which check runs first, or which certificate a name gets. Nothing here needs to be set: it shows what the keys on the other pages do, and when. Each topic page links back to the step it changes.
 
 1. [A connection arrives on the HTTPS port](#1-a-connection-arrives-on-the-https-port)
 2. [A request is answered](#2-a-request-is-answered)
@@ -25,16 +25,16 @@ visitor ──TCP──> web.https
   └─ website ───────────────> certificate (step 3), TLS, HTTP/1.1 or HTTP/2 (step 2)
 ```
 
-1. **The visitor's address.** When the connection comes from an address in `web.proxy_protocol_from`, burrow first reads the PROXY header the balancer sends, and the address in it is the visitor from then on. A connection from there without a valid header within 10 seconds is closed. See [Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer).
+1. **The visitor's address.** When the connection comes from an address in `web.proxy_protocol_from`, burrow first reads the PROXY header the balancer sends. The address in it is the visitor from then on. A connection from there without a valid header within 10 seconds is closed. See [Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer).
 2. **The handshake budget.** Connections that have not shown a name yet are counted like the tunnel's own handshakes (`limits.max_handshakes`), on their own counter. When more than half of it is in use, one address (an IPv6 /64) cannot take more than its share. A connection over the limit is dropped before burrow reads anything.
-3. **The name.** burrow reads the TLS hello, the first message of the connection: it has 10 seconds, and at most 16 KiB of it is read. Something that is not TLS is closed.
+3. **The name.** burrow reads the TLS hello, the first message of the connection, for at most 10 seconds and 16 KiB. Something that is not TLS is closed.
 4. **Let's Encrypt's TLS check.** A hello that offers only `acme-tls/1`, for a name burrow is getting a certificate for, is answered with the check's own certificate and closed ([step 4](#4-lets-encrypt-checks-and-renewal)). This comes before anything about the site, so `allow_from` never blocks it.
-5. **The site.** The name is looked up as it is written, then as the wildcard one label up: `x.apps.example.com` finds `*.apps.example.com` when no site has the exact name. A hello without a name (a visitor who typed an IP address) finds the site for the address it reached. An unknown name, or a plain-HTTP site's name (`tls: off`), is closed: without a certificate for it, burrow cannot show a page.
+5. **The site.** The name is looked up as it is written, then as the wildcard one label up: `x.apps.example.com` finds `*.apps.example.com` when no site has the exact name. A hello without a name (a visitor who typed an IP address) finds the site for the address it reached. An unknown name, or a plain-HTTP site's name (`tls: off`), is closed: burrow has no certificate for it, so it cannot show a page.
 6. **What the site is.**
    - A **passthrough** site (`tls: passthrough`) gets the bytes as they came, the TLS hello included, through the tunnel ([Passthrough](../web.md#passthrough)).
    - The **tunnel's name**, or a name where only the tunnel's path is served, does TLS and then the tunnel's own handshake ([The tunnel on the same port](tunnel.md#the-tunnel-on-the-same-port)).
    - A **website** gets its certificate ([step 3](#3-which-certificate-a-name-gets)). With `client_auth` the device must show a certificate from its CA in the same handshake. The visitor and burrow then agree on HTTP/2 or HTTP/1.1 (`web.http2`, [HTTP/2](http2-grpc.md#http2)).
-7. **Time.** All of this, from the first byte until burrow's TLS is done, has `limits.handshake_timeout_secs`. A connection that runs out of time is closed. A passthrough connection is on its own once the name is read: its TLS is the app's.
+7. **Time.** All of this, from the first byte until burrow's TLS is done, must fit in `limits.handshake_timeout_secs`, or the connection is closed. A passthrough connection is on its own once the name is read: its TLS is the app's.
 
 A connection stops counting against the handshake budget once burrow's TLS is done, or once a passthrough site's name is read.
 
@@ -73,9 +73,9 @@ Each check below can stop the request. Before the app has started its answer, bu
 
 7. **The answer.** `response_headers`, `hsts`, `X-Request-Id` and `compress` are applied to every answer of the site, the pages from burrow included. The access log writes its line when the answer has been sent ([Access log and request ids](logs.md)).
 
-**Page or close.** Once the app has sent its headers, the status code has gone to the visitor. If the app or the tunnel fails after that, burrow cannot send a page any more: on HTTP/1.1 it closes the connection, and on HTTP/2 it ends only that stream (`RST_STREAM`), so the visitor's other requests on the connection go on. An HTTP/2 stream that makes no progress for 10 seconds is closed the same way ([gRPC streams](http2-grpc.md#grpc-streams)).
+**Page or close.** Once the app has sent its headers, the status code has gone to the visitor. If the app or the tunnel fails after that, burrow cannot send a page any more. On HTTP/1.1 it closes the connection. On HTTP/2 it ends only that stream (`RST_STREAM`), so the visitor's other requests on the connection go on. An HTTP/2 stream that makes no progress for 10 seconds is closed the same way ([gRPC streams](http2-grpc.md#grpc-streams)).
 
-**The connection.** On HTTP/1.1 the connection is kept for the next request; a visitor has `web.request_header_timeout_secs` to send it. Any connection that moves no data for `web.idle_timeout_secs` is closed, and WebSockets stay open as long as they carry data ([Limits](headers-limits-pages.md#limits)).
+**The connection.** On HTTP/1.1 the connection is kept for the next request, which the visitor has `web.request_header_timeout_secs` to send. Any connection that moves no data for `web.idle_timeout_secs` is closed; WebSockets stay open as long as they carry data ([Limits](headers-limits-pages.md#limits)).
 
 ## 3. Which certificate a name gets
 
@@ -98,7 +98,7 @@ name ──> the site's own cert/key? ──yes──> that file
 5. **Let's Encrypt**, a certificate for the name, or for the site's names together ([step 4](#4-lets-encrypt-checks-and-renewal)).
 6. Nothing of these: the name has no certificate. Validate refuses that config.
 
-The tunnel's own name follows the same order, with `websocket.cert` and `websocket.key` as its own file. Names in `redirect_from` and `web.redirect_names` need a certificate like any other name, so they get one the same way. See [Certificates](certificates.md).
+The tunnel's own name follows the same order, with `websocket.cert` and `websocket.key` as its own file. Names in `redirect_from` and `web.redirect_names` get their certificate the same way. See [Certificates](certificates.md).
 
 ## 4. Let's Encrypt: checks and renewal
 
@@ -108,7 +108,7 @@ order ──> check (TLS on 443 / HTTP on 80 / DNS TXT) ──> certificate ─�
    └──── renewal: at 2/3 of the life, or when Let's Encrypt says (ARI) ───┘
 ```
 
-1. **Which check.** A site's `challenge` picks it. Without one, burrow tries the TLS check when `web.https` is 443, then the HTTP check when `web.http` is 80. Wildcards always use DNS, as do names with `challenge: dns` ([DNS checks](certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach)). burrow remembers the check that worked for a name and tries it first next time.
+1. **Which check.** A site's `challenge` picks it. Without one, burrow tries the TLS check when `web.https` is 443, then the HTTP check when `web.http` is 80. Wildcards and names with `challenge: dns` always use DNS ([DNS checks](certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach)). burrow remembers the check that worked for a name and tries it first next time.
 2. **The answer.** The TLS check is answered when the connection arrives ([step 1](#1-a-connection-arrives-on-the-https-port)). The HTTP check is answered on port 80 before anything else ([step 6](#6-port-80)). For DNS, burrow sets the TXT record through the provider, waits until the record is seen, and removes it afterwards.
 3. **Until the certificate is there**, an HTTPS handshake for the name fails, and `http://` gets a `503` page that says the certificate is on its way.
 4. **Renewal** comes at two thirds of the certificate's life, and at half for short-lived ones (under 10 days). When Let's Encrypt suggests a time (ARI, RFC 9773), burrow follows it. The certificate in use stays until the new one is there.
@@ -126,8 +126,8 @@ save / SIGHUP ──> validate ──fail──> the running config stays
 
 1. **Validate first.** The config is checked as `burrow validate` does. A config that does not pass is not applied, and the running one stays ([Reloading](../configuration.md#reloading)).
 2. **Same ports.** When `web.https` and `web.http` stay the same, names, routes, certificates, limits and the access log change at once. Open connections stay open, and their next request uses the new settings: a name that is gone gets `404`.
-3. **Other ports.** burrow binds the new ports and stops the old ones; when the new ports reuse an address of the old, the old stop first. A port that cannot be bound keeps the old ports, and the log says why.
-4. **Files.** A certificate file that changes on disk is used from the next reload; a broken one keeps the last good certificate ([Your own files](certificates.md#your-own-files)). Config files are also checked every 30 seconds.
+3. **Other ports.** burrow binds the new ports and stops the old ones. When the new ports reuse an address of the old, the old stop first. If a new port cannot be bound, the old ports stay, and the log says why.
+4. **Files.** A certificate file that changes on disk is used from the next reload; if it is broken, the last good certificate stays ([Your own files](certificates.md#your-own-files)). Config files are also checked every 30 seconds.
 5. **Stopping.** On stop or a port change, a request in flight has 10 seconds to finish.
 
 ## 6. Port 80
@@ -151,8 +151,8 @@ request on web.http ──> Let's Encrypt HTTP check?   answered
 5. **The name decides:**
    - a plain-HTTP site is served;
    - an HTTPS site with `https_redirect: false` is served as plain HTTP too;
-   - when the request comes from a proxy in `web.trusted_proxies` with `X-Forwarded-Proto: https`, the proxy did HTTPS, and the site is served instead of redirected ([Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer)). A plain site with `https_redirect: true` behind such a proxy is redirected to `https://` otherwise;
-   - an HTTPS site redirects to `https://` with `308`, the path and query kept, and the port named when `web.https` is not 443; while its certificate is on its way it gets `503` instead, so a visitor is never sent to a name with no certificate yet;
+   - when the request comes from a proxy in `web.trusted_proxies` with `X-Forwarded-Proto: https`, the proxy did HTTPS, and the site is served instead of redirected ([Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer)). Otherwise, a plain site with `https_redirect: true` behind such a proxy is redirected to `https://`;
+   - an HTTPS site redirects to `https://` with `308`, keeping the path and query, and naming the port when `web.https` is not 443. While its certificate is on its way it gets `503` instead, so a visitor is never sent to a name with no certificate yet;
    - a passthrough site, the tunnel's own name and an unknown name get `404`.
 6. **Then the request goes on as in [step 2](#2-a-request-is-answered)**, from the route on.
 
