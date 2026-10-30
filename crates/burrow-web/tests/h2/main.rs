@@ -4,6 +4,7 @@ mod common;
 mod conformance;
 mod kit;
 mod limits;
+mod load;
 mod stall;
 mod to_app;
 

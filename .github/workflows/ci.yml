@@ -98,10 +98,10 @@ jobs:
         env:
           BURROW_H2SPEC: ${{ github.workspace }}/h2spec
         run: cargo test --locked -p burrow-web --test h2 conformance -- --nocapture
-      - name: The stalled-stream watchdog over a real HTTP/2 connection
+      - name: The stalled-stream watchdog and server memory per connection under load, over real HTTP/2 connections
         env:
           BURROW_H2_SLOW: "1"
-        run: cargo test --locked -p burrow-web --test h2 -- stall:: --nocapture
+        run: cargo test --locked -p burrow-web --test h2 -- stall:: load:: --nocapture
       - name: Pull Go 1.25 for the gRPC interop server
         run: docker pull golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59
       - name: gRPC through burrow to the grpc-go 1.84.0 interop server, over h2c and over TLS

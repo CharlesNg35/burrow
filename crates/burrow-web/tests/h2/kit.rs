@@ -124,6 +124,14 @@ async fn answer(
 }
 
 pub async fn app() -> App {
+    app_with(false).await
+}
+
+pub async fn app_h2c() -> App {
+    app_with(true).await
+}
+
+async fn app_with(h2c: bool) -> App {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let counts = Arc::new(Counts::default());
@@ -140,10 +148,17 @@ pub async fn app() -> App {
                     let c = c.clone();
                     hyper::service::service_fn(move |req| answer(c.clone(), req))
                 };
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .max_headers(300)
-                    .serve_connection(hyper_util::rt::TokioIo::new(s), service)
-                    .await;
+                let io = hyper_util::rt::TokioIo::new(s);
+                let _ = if h2c {
+                    hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                        .serve_connection(io, service)
+                        .await
+                } else {
+                    hyper::server::conn::http1::Builder::new()
+                        .max_headers(300)
+                        .serve_connection(io, service)
+                        .await
+                };
             });
         }
     });
