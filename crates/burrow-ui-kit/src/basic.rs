@@ -366,7 +366,7 @@ pub fn Tabs(
                             on:click=move |_| active.set(key)
                         >
                             {label}
-                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.with(|v| v.get(i).cloned().unwrap_or_default())}</span> })}
                             {errors.map(|e| move || {
                                 let n = e.get().get(i).copied().unwrap_or(0);
                                 (n > 0).then(|| view! {
@@ -428,8 +428,8 @@ pub fn PillTabs(
                             on:click=move |_| on_change.run(key)
                         >
                             {label}
-                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint tabular-nums">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
-                            {marks.map(|m| move || m.get().get(i).cloned().unwrap_or_default().into_iter().map(tab_mark).collect_view())}
+                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint tabular-nums">{move || c.with(|v| v.get(i).cloned().unwrap_or_default())}</span> })}
+                            {marks.map(|m| move || m.with(|v| v.get(i).cloned().unwrap_or_default()).into_iter().map(tab_mark).collect_view())}
                         </button>
                     }
                 })

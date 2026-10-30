@@ -252,7 +252,6 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Signal<PathData>
     let e = s.edit;
     let (sec, nm) = (section.to_string(), name.to_string());
     Signal::derive(move || {
-        let doc = e.doc();
         let status = s.status.get();
         match sec.as_str() {
             CLIENTS => {
@@ -260,32 +259,31 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Signal<PathData>
                     .as_ref()
                     .and_then(|st| st.listening.first().map(|l| format::listen_addr(l)))
                     .unwrap_or_default();
-                paths::client(&nm, &doc, status.as_deref(), &listen)
+                e.draft
+                    .with(|d| paths::client(&nm, d.draft(), status.as_deref(), &listen))
             }
             VISITORS => {
                 let me = s.welcome.with(|w| {
                     w.as_ref()
                         .map(|w| (w.you.visitor.clone(), w.you.from.clone()))
                 });
-                paths::visitor(
-                    &nm,
-                    &doc,
-                    status.as_deref(),
-                    me.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
-                )
+                e.draft.with(|d| {
+                    paths::visitor(
+                        &nm,
+                        d.draft(),
+                        status.as_deref(),
+                        me.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
+                    )
+                })
             }
             _ => {
-                let svc = get(&doc, &[sec.clone(), nm.clone()])
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                paths::service(
-                    &nm,
-                    &svc,
-                    status.as_deref(),
-                    &problems_for(&vec![sec.clone(), nm.clone()]),
-                    editing.get(),
-                    &crate::domain::reserved_clients(),
-                )
+                let problems = problems_for(&vec![sec.clone(), nm.clone()]);
+                let editing = editing.get();
+                let reserved = crate::domain::reserved_clients();
+                e.draft.with(|d| {
+                    let svc = get(d.draft(), &[sec.clone(), nm.clone()]).unwrap_or(&Value::Null);
+                    paths::service(&nm, svc, status.as_deref(), &problems, editing, &reserved)
+                })
             }
         }
     })

@@ -129,7 +129,7 @@ impl Store {
             let r = rates(&prev, &next, secs);
             let missed = ((now_ms - prev_at) / 1000.0).round() as i64 - 1;
             self.recorder.update(|h| {
-                for _ in 0..missed.clamp(0, 900) {
+                for _ in 0..missed.clamp(0, burrow_admin_logic::rates::RECORD_SECONDS as i64) {
                     h.gap();
                 }
                 h.record(&r);

@@ -103,13 +103,23 @@ pub struct Row {
     pub terms: String,
 }
 
+pub const NEW_ROW: &str = "__new";
+pub const ONLINE_FILTER: &str = "online";
+pub const OFFLINE_FILTER: &str = "offline";
+
 impl Row {
-    fn matches(&self, q: &str) -> bool {
-        q.is_empty()
-            || self.title.to_lowercase().contains(q)
-            || self.line2.to_lowercase().contains(q)
-            || self.meta.to_lowercase().contains(q)
-            || self.terms.to_lowercase().contains(q)
+    fn haystack(&self) -> String {
+        [&self.title, &self.line2, &self.meta, &self.terms]
+            .map(|t| t.to_lowercase())
+            .join("\n")
+    }
+
+    pub(crate) fn matches(&self, q: &str) -> bool {
+        q.is_empty() || self.haystack().contains(q)
+    }
+
+    pub fn is_placeholder(&self) -> bool {
+        self.key == NEW_ROW
     }
 }
 

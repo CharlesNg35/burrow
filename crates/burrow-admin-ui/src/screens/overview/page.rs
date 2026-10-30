@@ -102,13 +102,22 @@ fn Traffic() -> impl IntoView {
 }
 
 pub(super) fn mobile_cards(section: &'static str, kept: &[String]) -> impl IntoView {
-    let all = crate::screens::entity::rows_for(section);
-    let rows = kept
+    let cards = kept
         .iter()
-        .filter_map(|k| all.iter().find(|r| &r.key == k).cloned());
+        .filter_map(|k| {
+            let row = untrack(|| crate::screens::entity::row_for(section, k))?;
+            let key = k.clone();
+            let live = Signal::derive(move || {
+                crate::screens::entity::row_for(section, &key)
+                    .map(|r| (r.meta, r.line2))
+                    .unwrap_or_default()
+            });
+            Some(view! { <crate::screens::ListCard row=row selected=false live=live/> })
+        })
+        .collect_view();
     view! {
         <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid=format!("mobile-{section}")>
-            {rows.map(|r| view! { <crate::screens::ListCard row=r selected=false/> }).collect_view()}
+            {cards}
         </div>
     }
 }

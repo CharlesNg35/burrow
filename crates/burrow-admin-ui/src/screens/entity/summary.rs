@@ -357,7 +357,6 @@ fn served_services(name: &str) -> impl IntoView + use<> {
     let name = name.to_string();
     move || {
         let doc = s.edit.doc();
-        let st = s.status.get();
         let rows = ServiceEntry::entries(&doc)
             .map(|m| {
                 m.iter()
@@ -382,12 +381,18 @@ fn served_services(name: &str) -> impl IntoView + use<> {
                 )
             })
             .collect();
-        let cards = rows_for(ServiceEntry::section())
+        let cards = untrack(|| rows_for(ServiceEntry::section()))
             .into_iter()
             .filter(|r| names.contains(&r.key))
             .map(|r| {
                 let t = targets.get(&r.key).cloned().unwrap_or_default();
-                view! { <div data-target=t><crate::screens::ListCard row=r selected=false/></div> }
+                let key = r.key.clone();
+                let live = Signal::derive(move || {
+                    super::list::row_for(ServiceEntry::section(), &key)
+                        .map(|r| (r.meta, r.line2))
+                        .unwrap_or_default()
+                });
+                view! { <div data-target=t><crate::screens::ListCard row=r selected=false live=live/></div> }
             })
             .collect_view();
         view! {
@@ -397,7 +402,7 @@ fn served_services(name: &str) -> impl IntoView + use<> {
                     <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid="served-cards">{cards}</div>
                     <div class=burrow_ui_kit::TABLE_VIEW>
                     <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
-                        {rows.iter().map(|(n, v)| super::service_tr(n, v, st.as_deref(), None)).collect_view()}
+                        {rows.iter().map(|(n, v)| super::service_tr(n, v, false)).collect_view()}
                     </Table>
                     </div>
                     </div>

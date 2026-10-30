@@ -122,3 +122,63 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
 fn overview_tabs_show_8_rows_problems_first_and_a_link_to_all() {
     run("overview-tables", many(), false, tables);
 }
+
+const ROW_OF_FOCUS: &str = "(document.activeElement && document.activeElement.closest('[data-row]') || {}).dataset?.row || ''";
+
+async fn ticks(c: &Ctx, css: &str) {
+    let before = c.ui.text(css).await;
+    c.ui.wait_not_text(css, &before, std::time::Duration::from_secs(10))
+        .await;
+}
+
+fn live(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/clients/home").await;
+        c.ui.wait_for(
+            "[data-testid=list] [data-row=home][data-selected=true]",
+            SECS,
+        )
+        .await;
+        let bottom: f64 = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[data-testid=list]'); l.scrollTop = l.scrollHeight; return l.scrollTop; })()")
+            .await;
+        assert!(bottom > 0.0, "the client list scrolls");
+        ticks(c, "[data-testid=list] [data-row=home]").await;
+        let kept: f64 =
+            c.ui.eval("document.querySelector('[data-testid=list]').scrollTop")
+                .await;
+        assert!(
+            (kept - bottom).abs() < 1.0,
+            "a status tick leaves the list where the user scrolled it: {kept} vs {bottom}"
+        );
+        let _: bool = c
+            .ui
+            .eval("(document.querySelector('[data-testid=list] [data-row=z10] [data-testid=list-row]').focus(), true)")
+            .await;
+        ticks(c, "[data-testid=list] [data-row=home]").await;
+        let row: String = c.ui.eval(ROW_OF_FOCUS).await;
+        assert_eq!(row, "z10", "focus stays on the sidebar row through a tick");
+        c.ui.nav("/").await;
+        overview_tab(c, "services").await;
+        c.ui.wait_for("[data-testid=overview-services] tbody tr", SECS)
+            .await;
+        let first: String = c
+            .ui
+            .eval("(() => { const a = document.querySelector('[data-testid=overview-services] tbody th a'); a.focus(); return a.closest('[data-row]').dataset.row; })()")
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        let row: String = c.ui.eval(ROW_OF_FOCUS).await;
+        assert_eq!(
+            row, first,
+            "focus stays on the Overview row through status ticks"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn status_ticks_keep_the_list_scroll_and_the_focused_row() {
+    run("live-lists", many(), false, live);
+}

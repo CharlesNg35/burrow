@@ -29,17 +29,9 @@ pub(crate) fn protocol_view(svc: &Value) -> impl IntoView + use<> {
     view! { <span class=tag_class(tone)>{text}</span> }
 }
 
-pub(crate) fn service_tr(
-    name: &str,
-    svc: &Value,
-    status: Option<&Status>,
-    rate: Option<String>,
-) -> impl IntoView + use<> {
-    let x = status.and_then(|st| st.services.iter().find(|y| y.name == name));
+pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView + use<> {
+    let s = crate::store::store();
     let cs = clients_of(svc);
-    let up = status.map(|_| cs.iter().filter(|c| online(status, c)).count());
-    let health = super::health_tag(up, cs.len(), x.map(|x| x.health.as_slice()).unwrap_or(&[]));
-    let open = x.map(|x| format::count(x.open)).unwrap_or_default();
     let target = ServiceEntry::TARGET
         .get(svc)
         .map(burrow_admin_logic::web::target_value_shown)
@@ -54,6 +46,36 @@ pub(crate) fn service_tr(
             let none = !(w.website || w.visitors);
             let text = burrow_admin_logic::web::without_exposure(w);
             view! { <span class=if none { "text-[13px] text-warning" } else { "text-[13px] text-text-muted" }>{text}</span> }.into_any()
+        }
+    };
+    let open = {
+        let name = name.clone();
+        move || {
+            s.status.with(|st| {
+                st.as_ref()
+                    .and_then(|st| st.services.iter().find(|y| y.name == name))
+                    .map(|x| format::count(x.open))
+                    .unwrap_or_default()
+            })
+        }
+    };
+    let rate = rate.then(|| {
+        let name = name.clone();
+        move || {
+            let (v, u) =
+                burrow_admin_logic::rates::human_bits(s.rates.with(|r| r.service(&name).bytes_in));
+            format!("{v} {u}")
+        }
+    });
+    let health = {
+        let name = name.clone();
+        move || {
+            s.status.with(|st| {
+                let status = st.as_deref();
+                let x = status.and_then(|st| st.services.iter().find(|y| y.name == name));
+                let up = status.map(|_| cs.iter().filter(|c| online(status, c)).count());
+                super::health_tag(up, cs.len(), x.map(|x| x.health.as_slice()).unwrap_or(&[]))
+            })
         }
     };
     view! {
@@ -127,7 +149,11 @@ pub(super) fn client_row(
             burrow_admin_logic::wording::capital(burrow_admin_logic::wording::OFFLINE)
         },
         pending,
-        filters: vec![if on { "online" } else { "offline" }],
+        filters: vec![if on {
+            crate::screens::ONLINE_FILTER
+        } else {
+            crate::screens::OFFLINE_FILTER
+        }],
         ..Row::default()
     }
 }

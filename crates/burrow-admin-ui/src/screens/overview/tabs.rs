@@ -10,7 +10,7 @@ use crate::route::{self, Link, Query, Route};
 use crate::store::store;
 
 use super::certs::certificates_panel;
-use super::tables::{clients_table, services_table, visitors_table};
+use super::tables::{clients_table, layouts, services_table, visitors_table};
 use super::web::websites_panel;
 
 const WEBSITES: &str = "websites";
@@ -62,7 +62,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
             t
         }
     });
-    let all_counts = Signal::derive(move || {
+    let all_counts = Memo::new(move |_| {
         let mut c = counts.get();
         if web.get() {
             let now = (s.now.get() / 1000.0) as u64;
@@ -94,7 +94,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
             <PillTabs
                 tabs=tabs
                 active=shown
-                counts=all_counts
+                counts=all_counts.into()
                 on_change=Callback::new(move |t: &'static str| {
                     tab.set(t);
                     route::set_query(route::TAB_QUERY, t);
@@ -131,6 +131,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
             {(!cut).then(|| view! { <Link to=to query=query class="font-semibold text-accent-ink no-underline hover:underline" testid="overview-open">{label}</Link> })}
         }
     };
+    let layouts = layouts(s, values);
     let panel = move || match (shown.get(), entity_of_section(shown.get())) {
         (WEBSITES, _) => websites_panel(
             s.status
@@ -143,9 +144,9 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
                 .with(|st| certificates_panel(st.as_deref(), now))
                 .into_any()
         }
-        (_, Some(Entity::Client)) => clients_table(s, values).into_any(),
-        (_, Some(Entity::Visitor)) => visitors_table(s, values).into_any(),
-        _ => services_table(s, values).into_any(),
+        (_, Some(Entity::Client)) => clients_table(s, values, layouts.clients).into_any(),
+        (_, Some(Entity::Visitor)) => visitors_table(s, values, layouts.visitors).into_any(),
+        _ => services_table(values, layouts.services).into_any(),
     };
     view! {
         <section class="col-span-2 rounded-card border border-border bg-surface md:col-span-6 xl:col-span-12" data-testid="overview-tabs">

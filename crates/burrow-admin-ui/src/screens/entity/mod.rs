@@ -14,7 +14,7 @@ use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Tone, tag_class};
 
 use detail::Detail;
-pub(crate) use list::{Entities, rows_for};
+pub(crate) use list::{Entities, row_for};
 pub(crate) use problems::go_to_field;
 use problems::{apply_notes, problem_list, problems_for, problems_of};
 pub(crate) use rows::{protocol_view, service_tr};

@@ -12,95 +12,119 @@ use crate::store::store;
 use super::rows::{client_row, service_row, visitor_row};
 use super::{Detail, plural};
 
-pub fn rows_for(section: &str) -> Vec<Row> {
+struct Live {
+    status: Option<std::sync::Arc<burrow_admin_proto::status::Status>>,
+    me: Option<String>,
+}
+
+fn live() -> Live {
     let s = store();
-    let (draft, base) = s.edit.draft.with(|d| (d.draft().clone(), d.base().clone()));
-    let status = s.status.get();
-    let me = s
-        .welcome
-        .with(|w| w.as_ref().map(|w| w.you.visitor.clone()));
-    let items = draft
-        .get(section)
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let base_items = base
-        .get(section)
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    Live {
+        status: s.status.get(),
+        me: s
+            .welcome
+            .with(|w| w.as_ref().map(|w| w.you.visitor.clone())),
+    }
+}
+
+fn one_row(
+    section: &str,
+    name: &str,
+    v: &Value,
+    (draft, base_items): (
+        &Value,
+        Option<&burrow_admin_proto::serde_json::Map<String, Value>>,
+    ),
+    live: &Live,
+) -> Row {
+    let s = store();
     let https_on = ServerConfig::WEB
-        .get(&draft)
+        .get(draft)
         .and_then(|w| WebConfig::HTTPS.get(w))
         .is_some_and(|h| !h.is_null());
-    let mut out = Vec::new();
-    for (name, v) in &items {
-        let pending = (!base_items.contains_key(name)
-            && s.edit
-                .draft
-                .with(|d| d.renamed_from(section, name).is_none()))
-        .then_some("new");
-        let entity_path = vec![section.to_string(), name.clone()];
-        let mark = if s.edit.unsaved(&entity_path) {
-            Some((
-                burrow_admin_logic::wording::NOT_ADDED.to_string(),
-                Tone::Warning,
-            ))
-        } else if pending.is_none() && base_items.get(name) != Some(v) {
-            Some((
-                burrow_admin_logic::wording::IN_CHANGES.to_string(),
-                Tone::Accent,
-            ))
-        } else {
-            None
-        };
-        let to = Route::Detail(section.to_string(), name.clone());
-        let row = match entity_of_section(section) {
-            Some(Entity::Client) => client_row(name, &draft, status.as_deref(), pending, to),
-            Some(Entity::Visitor) => visitor_row(
-                name,
-                v,
-                &draft,
-                status.as_deref(),
-                me.as_deref(),
-                pending,
-                to,
-            ),
-            _ => service_row(name, (v, https_on), status.as_deref(), pending, to),
-        };
-        let mut row = row;
-        if let Some(m) = mark {
-            row.tags.insert(0, m);
+    let in_base = base_items.and_then(|b| b.get(name));
+    let pending = (in_base.is_none()
+        && s.edit
+            .draft
+            .with(|d| d.renamed_from(section, name).is_none()))
+    .then_some("new");
+    let entity_path = vec![section.to_string(), name.to_string()];
+    let mark = if s.edit.unsaved(&entity_path) {
+        Some((
+            burrow_admin_logic::wording::NOT_ADDED.to_string(),
+            Tone::Warning,
+        ))
+    } else if pending.is_none() && in_base != Some(v) {
+        Some((
+            burrow_admin_logic::wording::IN_CHANGES.to_string(),
+            Tone::Accent,
+        ))
+    } else {
+        None
+    };
+    let to = Route::Detail(section.to_string(), name.to_string());
+    let owned = name.to_string();
+    let status = live.status.as_deref();
+    let mut row = match entity_of_section(section) {
+        Some(Entity::Client) => client_row(&owned, draft, status, pending, to),
+        Some(Entity::Visitor) => {
+            visitor_row(&owned, v, draft, status, live.me.as_deref(), pending, to)
         }
-        out.push(row);
+        _ => service_row(&owned, (v, https_on), status, pending, to),
+    };
+    if let Some(m) = mark {
+        row.tags.insert(0, m);
     }
-    let renamed: Vec<String> = s.edit.draft.with(|d| {
-        items
-            .keys()
-            .filter_map(|n| d.renamed_from(section, n))
-            .collect()
-    });
-    for name in base_items
-        .keys()
-        .filter(|k| !items.contains_key(*k) && !renamed.contains(k))
-    {
-        out.push(Row {
-            key: name.clone(),
-            to: Route::Detail(section.to_string(), name.clone()),
-            icon: "trash",
-            dot: None,
-            title: name.clone(),
-            meta: String::new(),
-            line2: "removed in your changes".into(),
-            tags: vec![("removed".into(), Tone::Danger)],
-            group: String::new(),
-            pending: None,
-            filters: Vec::new(),
-            actions: Vec::new(),
-            ..Row::default()
+    row
+}
+
+pub fn row_for(section: &str, name: &str) -> Option<Row> {
+    let live = live();
+    store().edit.draft.with(|d| {
+        let draft = d.draft();
+        let v = draft.get(section)?.get(name)?;
+        let base_items = d.base().get(section).and_then(Value::as_object);
+        Some(one_row(section, name, v, (draft, base_items), &live))
+    })
+}
+
+pub fn rows_for(section: &str) -> Vec<Row> {
+    let live = live();
+    store().edit.draft.with(|d| {
+        let draft = d.draft();
+        let base_items = d.base().get(section).and_then(Value::as_object);
+        let items = draft.get(section).and_then(Value::as_object);
+        let mut out: Vec<Row> = items
+            .into_iter()
+            .flatten()
+            .map(|(name, v)| one_row(section, name, v, (draft, base_items), &live))
+            .collect();
+        let gone = base_items.into_iter().flatten().filter(|(k, _)| {
+            !items.is_some_and(|i| i.contains_key(*k))
+                && !items.is_some_and(|i| {
+                    i.keys()
+                        .any(|n| d.renamed_from(section, n).as_deref() == Some(k.as_str()))
+                })
         });
-    }
-    out
+        for (name, _) in gone {
+            out.push(Row {
+                key: name.clone(),
+                to: Route::Detail(section.to_string(), name.clone()),
+                icon: "trash",
+                dot: None,
+                title: name.clone(),
+                meta: String::new(),
+                line2: "removed in your changes".into(),
+                tags: vec![("removed".into(), Tone::Danger)],
+                group: String::new(),
+                pending: None,
+                filters: Vec::new(),
+                actions: Vec::new(),
+                ..Row::default()
+            });
+        }
+        out
+    })
 }
 
 fn new_menu(section: &str, site: RwSignal<bool>, adding: RwSignal<bool>) -> Option<Vec<NewChoice>> {
@@ -136,9 +160,12 @@ fn filters_for(section: &str) -> Filters {
             Some(Entity::Client) => (
                 vec![
                     ("all", "All".into()),
-                    ("online", "Online".into()),
                     (
-                        "offline",
+                        crate::screens::ONLINE_FILTER,
+                        burrow_admin_logic::wording::capital(burrow_admin_logic::wording::ONLINE),
+                    ),
+                    (
+                        crate::screens::OFFLINE_FILTER,
                         burrow_admin_logic::wording::capital(burrow_admin_logic::wording::OFFLINE),
                     ),
                 ],
@@ -211,7 +238,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                 r.insert(
                     0,
                     Row {
-                        key: "__new".into(),
+                        key: crate::screens::NEW_ROW.into(),
                         to: route::current(),
                         icon: crate::screens::entity_icon(&section_new),
                         dot: Some(Tone::Accent),
@@ -234,7 +261,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
     let sel = selected.clone();
     let selected_sig = Signal::derive(move || {
         if adding.get() {
-            Some("__new".to_string())
+            Some(crate::screens::NEW_ROW.to_string())
         } else {
             sel.clone()
         }

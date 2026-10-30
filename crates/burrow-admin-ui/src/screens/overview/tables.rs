@@ -1,6 +1,6 @@
-use burrow_admin_logic::rates::human_bits;
 use burrow_admin_logic::top::{some_names, top, view_all};
 use burrow_admin_proto::serde_json::Value;
+use burrow_admin_proto::status::ClientStatus;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{EmptyState, StatusDot, Table, Tone, tag_class};
 use leptos::prelude::*;
@@ -42,83 +42,130 @@ fn footer(section: &'static str, kept: &[String], total: usize) -> impl IntoView
     }
 }
 
-pub(super) fn services_table(s: Store, values: Memo<Value>) -> AnyView {
-    let rate = move |name: &str| {
-        let (v, u) = human_bits(s.rates.with(|r| r.service(name).bytes_in));
-        format!("{v} {u}")
-    };
+pub(super) type Layout = Memo<(Vec<String>, usize)>;
+
+pub(super) struct Layouts {
+    pub services: Layout,
+    pub clients: Layout,
+    pub visitors: Layout,
+}
+
+pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
+    let services = Memo::new(move |_| {
+        let v = values.get();
+        let st = s.status.get();
+        let m = ServiceEntry::entries(&v).cloned().unwrap_or_default();
+        let bad: Vec<String> = service_problems(&v, st.as_deref())
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        let open = |n: &str| {
+            st.as_ref()
+                .and_then(|st| st.services.iter().find(|x| x.name == n))
+                .map_or(0, |x| x.open)
+        };
+        let (kept, total) = top(m.keys().collect(), |n| (bad.contains(*n), open(n)));
+        (kept.into_iter().cloned().collect::<Vec<_>>(), total)
+    });
+    let clients = Memo::new(move |_| {
+        let v = values.get();
+        let st = s.status.get();
+        let of = |name: &str| {
+            st.as_ref()
+                .and_then(|st| st.clients.iter().find(|c| c.name == name))
+        };
+        let serving = |name: &str| {
+            ServiceEntry::entries(&v)
+                .is_some_and(|m| m.values().any(|x| clients_of(x).iter().any(|c| c == name)))
+        };
+        top(names(&v, ClientEntry::section()), |name| {
+            let c = of(name);
+            let away = !c.is_some_and(|c| c.connected) && serving(name);
+            (
+                away || c.is_some_and(|c| c.at_limit),
+                c.map_or(0, |c| c.open),
+            )
+        })
+    });
+    let visitors = Memo::new(move |_| {
+        let v = values.get();
+        let st = s.status.get();
+        top(names(&v, VisitorEntry::section()), |name| {
+            let x = st
+                .as_ref()
+                .and_then(|st| st.visitors.iter().find(|c| &c.name == name));
+            (false, x.map_or(0, |x| x.open * 2 + u64::from(s.in_use(x))))
+        })
+    });
+    Layouts {
+        services,
+        clients,
+        visitors,
+    }
+}
+
+pub(super) fn services_table(values: Memo<Value>, layout: Layout) -> AnyView {
     let v = values.get();
-    let st = s.status.get();
     let m = ServiceEntry::entries(&v).cloned().unwrap_or_default();
     if m.is_empty() {
         return view! { <EmptyState title="No services yet" message="Services publish a port of a client on this server." testid="services-empty"/> }.into_any();
     }
-    let bad: Vec<String> = service_problems(&v, st.as_deref())
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    let open = |n: &str| {
-        st.as_ref()
-            .and_then(|st| st.services.iter().find(|x| x.name == n))
-            .map_or(0, |x| x.open)
-    };
-    let (kept, total) = top(m.iter().collect(), |(n, _)| (bad.contains(*n), open(n)));
-    let names: Vec<String> = kept.iter().map(|(n, _)| (*n).clone()).collect();
+    let (kept, total) = layout.get();
     let rows = kept
         .iter()
-        .map(|(name, svc)| {
-            crate::screens::entity::service_tr(name, svc, st.as_deref(), Some(rate(name)))
+        .filter_map(|name| {
+            m.get(name)
+                .map(|svc| crate::screens::entity::service_tr(name, svc, true))
         })
         .collect_view();
-    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Service", "_", "Public", "Target", ">Open", ">In", "_Health"] testid="overview-services">{rows}</Table></div> {footer(ServiceEntry::section(), &names, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Service", "_", "Public", "Target", ">Open", ">In", "_Health"] testid="overview-services">{rows}</Table></div> {footer(ServiceEntry::section(), &kept, total)} }.into_any()
 }
 
-pub(super) fn clients_table(s: Store, values: Memo<Value>) -> AnyView {
+fn client_cells(s: Store, name: String) -> impl Fn() -> Option<ClientStatus> + Copy + 'static {
+    let name = StoredValue::new(name);
+    move || {
+        s.status.with(|st| {
+            st.as_ref()
+                .and_then(|st| {
+                    st.clients
+                        .iter()
+                        .find(|c| name.with_value(|n| &c.name == n))
+                })
+                .cloned()
+        })
+    }
+}
+
+pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {
     let v = values.get();
-    let n = names(&v, ClientEntry::section());
-    if n.is_empty() {
+    if names(&v, ClientEntry::section()).is_empty() {
         return view! { <EmptyState title="No clients yet" message="A client is a machine that connects out to this server." testid="clients-empty"/> }.into_any();
     }
-    let st = s.status.get();
-    let of = |name: &str| {
-        st.as_ref()
-            .and_then(|st| st.clients.iter().find(|c| c.name == name))
-    };
-    let serving = |name: &str| {
-        ServiceEntry::entries(&v)
-            .is_some_and(|m| m.values().any(|x| clients_of(x).iter().any(|c| c == name)))
-    };
-    let (kept, total) = top(n, |name| {
-        let c = of(name);
-        let away = !c.is_some_and(|c| c.connected) && serving(name);
-        (
-            away || c.is_some_and(|c| c.at_limit),
-            c.map_or(0, |c| c.open),
-        )
-    });
+    let (kept, total) = layout.get();
     let rows = kept
         .iter()
         .map(|name| {
-            let c = of(name);
-            let on = c.as_ref().is_some_and(|c| c.connected);
-            let since = c
-                .as_ref()
-                .and_then(|c| match (c.connected_secs, c.left_secs_ago) {
+            let c = client_cells(s, name.clone());
+            let on = Signal::derive(move || c().is_some_and(|c| c.connected));
+            let owner = name.clone();
+            let since = move || {
+                c().and_then(|c| match (c.connected_secs, c.left_secs_ago) {
                     (Some(x), _) => Some(format!("for {}", format::span(x))),
                     (None, Some(a)) => Some(format!("left {}", format::ago(a))),
                     _ => None,
                 })
-                .unwrap_or_else(|| format::left_of(name, None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
+                .unwrap_or_else(|| format::left_of(&owner, None, s.status.with(|st| st.as_ref().map(|s| s.uptime_secs).unwrap_or(0))))
+            };
             let serves: Vec<String> = ServiceEntry::entries(&v)
                 .map(|m| m.iter().filter(|(_, x)| clients_of(x).contains(name)).map(|(k, _)| k.clone()).collect())
                 .unwrap_or_default();
             let label = name.clone();
             view! {
-                <tr data-row=name.clone() data-online=on.to_string()>
+                <tr data-row=name.clone() data-online=move || on.get().to_string()>
                     <th scope="row"><Link to=Route::Detail(ClientEntry::section().into(), name.clone()) class="text-text no-underline hover:underline"><StatusDot on=on text=label/></Link></th>
-                    <td class="font-mono text-[13px]">{c.as_ref().and_then(|c| c.from.clone()).unwrap_or_default()}</td>
-                    <td class="text-right tabular-nums">{c.as_ref().map(|c| c.open).unwrap_or(0)}</td>
-                    <td class="text-right tabular-nums">{c.as_ref().map(|c| c.idle_channels).unwrap_or(0)}</td>
+                    <td class="font-mono text-[13px]">{move || c().and_then(|c| c.from).unwrap_or_default()}</td>
+                    <td class="text-right tabular-nums">{move || c().map(|c| c.open).unwrap_or(0)}</td>
+                    <td class="text-right tabular-nums">{move || c().map(|c| c.idle_channels).unwrap_or(0)}</td>
                     <td>{since}</td>
                     {names_cell(serves)}
                 </tr>
@@ -128,28 +175,23 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>) -> AnyView {
     view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
 }
 
-pub(super) fn visitors_table(s: Store, values: Memo<Value>) -> AnyView {
+pub(super) fn visitors_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {
     let v = values.get();
-    let n = names(&v, VisitorEntry::section());
-    if n.is_empty() {
+    if names(&v, VisitorEntry::section()).is_empty() {
         return view! { <EmptyState title="No visitors yet" message="A visitor reaches services with burrow visit." testid="visitors-empty"/> }.into_any();
     }
-    let st = s.status.get();
-    let of = |name: &str| {
-        st.as_ref()
-            .and_then(|st| st.visitors.iter().find(|c| c.name == name))
-    };
-    let (kept, total) = top(n, |name| {
-        (
-            false,
-            of(name).map_or(0, |x| x.open * 2 + u64::from(s.in_use(x))),
-        )
-    });
+    let (kept, total) = layout.get();
     let rows = kept
         .iter()
         .map(|name| {
-            let x = of(name);
-            let open = x.as_ref().map(|x| x.open).unwrap_or(0);
+            let key = StoredValue::new(name.clone());
+            let x = move || {
+                s.status.with(|st| {
+                    st.as_ref()
+                        .and_then(|st| st.visitors.iter().find(|c| key.with_value(|n| &c.name == n)))
+                        .cloned()
+                })
+            };
             let admin = VisitorEntry::ADMIN.at(&v, name).map(plain);
             let may: Vec<String> = ServiceEntry::entries(&v)
                 .map(|m| m.iter().filter(|(_, s)| ServiceEntry::VISITORS.get(s).and_then(Value::as_array).is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))).map(|(k, _)| k.clone()).collect())
@@ -159,13 +201,13 @@ pub(super) fn visitors_table(s: Store, values: Memo<Value>) -> AnyView {
                 <tr data-row=name.clone()>
                     <th scope="row">
                         <Link to=Route::Detail(VisitorEntry::section().into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link>
-                        {x.as_ref().is_some_and(|x| s.in_use(x)).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"in use now"</span> })}
+                        {move || x().is_some_and(|x| s.in_use(&x)).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"in use now"</span> })}
                     </th>
                     <td>{admin.map(|a| view! { <span class=tag_class(if a == "write" { Tone::Danger } else { Tone::Accent })>{format!("admin · {a}")}</span> })}</td>
                     {names_cell(may)}
-                    <td class="text-right tabular-nums">{open}</td>
-                    <td class="text-right tabular-nums">{x.as_ref().map(|x| format::count(x.total)).unwrap_or_default()}</td>
-                    <td class="text-text-muted" data-last-used="">{x.as_ref().map(|x| if s.in_use(x) { "now".to_string() } else { x.last_seen_secs.map(format::ago).unwrap_or_else(|| "not seen".into()) }).unwrap_or_default()}</td>
+                    <td class="text-right tabular-nums">{move || x().map(|x| x.open).unwrap_or(0)}</td>
+                    <td class="text-right tabular-nums">{move || x().map(|x| format::count(x.total)).unwrap_or_default()}</td>
+                    <td class="text-text-muted" data-last-used="">{move || x().map(|x| if s.in_use(&x) { "now".to_string() } else { x.last_seen_secs.map(format::ago).unwrap_or_else(|| "not seen".into()) }).unwrap_or_default()}</td>
                 </tr>
             }
         })

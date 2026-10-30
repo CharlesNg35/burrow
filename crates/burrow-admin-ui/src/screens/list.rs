@@ -24,7 +24,11 @@ pub fn TocRow(row: Row, selected: bool) -> impl IntoView {
 }
 
 #[component]
-pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
+pub fn ListCard(
+    row: Row,
+    selected: bool,
+    #[prop(optional, into)] live: Option<Signal<(String, String)>>,
+) -> impl IntoView {
     let class = if selected {
         "border-accent-line ring-3 ring-accent-weak"
     } else {
@@ -54,7 +58,10 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                     </Link>
                     {row.title_tag.clone().map(|(t, tone)| view! { <span class=tag_class(tone)>{t}</span> })}
                 </span>
-                {(!row.line2.is_empty()).then(|| view! { <span class="line-clamp-2 block text-sm text-text-muted [overflow-wrap:anywhere]">{row.line2.clone()}</span> })}
+                {(!row.line2.is_empty()).then(|| {
+                    let line2 = row.line2.clone();
+                    view! { <span class="line-clamp-2 block text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
+                })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
                 {(!row.tags.is_empty() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
                     <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -77,7 +84,7 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                     </span>
                 })}
             </span>
-            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{row.meta.clone()}</span>
+            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{move || live.map_or_else(|| row.meta.clone(), |l| l.get().0)}</span>
         </div>
     }
 }
@@ -111,13 +118,22 @@ pub fn ListPane(
         .map(|(k, _)| *k)
         .find(|k| asked.as_deref() == Some(*k));
     let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
+    let hay = Memo::new(move |_| rows.with(|r| r.iter().map(Row::haystack).collect::<Vec<_>>()));
     let visible = Memo::new(move |_| {
         let needle = q.get().to_lowercase();
         let f = filter.get();
-        rows.get()
-            .into_iter()
-            .filter(|r| r.matches(&needle) && (f == "all" || r.filters.contains(&f)))
-            .collect::<Vec<_>>()
+        hay.with(|h| {
+            rows.with(|r| {
+                r.iter()
+                    .zip(h)
+                    .filter(|(r, h)| {
+                        (needle.is_empty() || h.contains(&needle))
+                            && (f == "all" || r.filters.contains(&f))
+                    })
+                    .map(|(r, _)| r.clone())
+                    .collect::<Vec<_>>()
+            })
+        })
     });
     let move_sel = move |delta: i32| {
         let list = visible.get_untracked();
@@ -138,7 +154,7 @@ pub fn ListPane(
         }
         None => new_button(on_new, new_label, new_disabled).map(IntoAny::into_any),
     };
-    let nothing = Signal::derive(move || rows.with(|r| r.iter().all(|x| x.key.starts_with("__"))));
+    let nothing = Signal::derive(move || rows.with(|r| r.iter().all(Row::is_placeholder)));
     let chips = filter_chips(filters, filter, rows, no_counts, nothing);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     keep_selected_in_view(list_ref, selected, visible);
@@ -348,8 +364,11 @@ pub(crate) fn filter_chips(
                 >
                     {label}
                     {move || {
-                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && x.filters.contains(&key)).count());
-                        (!no_counts && key != "all").then(|| view! { <span class=if n == 0 { "ml-1 text-text-faint" } else { "ml-1" } data-count=n.to_string()>{n}</span> })
+                        if no_counts || key == "all" {
+                            return None;
+                        }
+                        let n = rows.with(|r| r.iter().filter(|x| !x.is_placeholder() && x.filters.contains(&key)).count());
+                        Some(view! { <span class=if n == 0 { "ml-1 text-text-faint" } else { "ml-1" } data-count=n.to_string()>{n}</span> })
                     }}
                 </button>
             }
@@ -363,9 +382,11 @@ fn keep_selected_in_view(
     selected: Signal<Option<String>>,
     visible: Memo<Vec<Row>>,
 ) {
+    let keys =
+        Memo::new(move |_| visible.with(|v| v.iter().map(|r| r.key.clone()).collect::<Vec<_>>()));
     Effect::new(move |_| {
         selected.track();
-        visible.track();
+        keys.track();
         request_animation_frame(move || {
             use wasm_bindgen::JsCast;
             let Some(list) = list_ref.try_get_untracked().flatten() else {
@@ -391,6 +412,18 @@ fn keep_selected_in_view(
     });
 }
 
+fn still(r: &Row) -> Row {
+    Row {
+        meta: String::new(),
+        line2: if r.line2.is_empty() {
+            String::new()
+        } else {
+            " ".into()
+        },
+        ..r.clone()
+    }
+}
+
 fn list_body(
     visible: Memo<Vec<Row>>,
     rows: Signal<Vec<Row>>,
@@ -401,8 +434,19 @@ fn list_body(
     look: Look,
 ) -> impl Fn() -> AnyView {
     let Look { no_counts, compact } = look;
+    let shape = Memo::new(move |_| visible.with(|v| v.iter().map(still).collect::<Vec<_>>()));
+    let live_of = move |key: String| {
+        Signal::derive(move || {
+            visible.with(|v| {
+                v.iter()
+                    .find(|r| r.key == key)
+                    .map(|r| (r.meta.clone(), r.line2.clone()))
+                    .unwrap_or_default()
+            })
+        })
+    };
     move || {
-        let list = visible.get();
+        let list = shape.get();
         if list.is_empty() {
             return match &empty {
                 Some((t, _)) if t.is_empty() => ().into_any(),
@@ -421,9 +465,10 @@ fn list_body(
             .iter()
             .filter(|g| list.iter().any(|r| &r.group == *g))
             .count();
+        let live = untrack(|| visible.get());
         gs.into_iter()
             .filter_map(|g| {
-                let in_group: Vec<Row> = list.iter().filter(|r| r.group == g).cloned().collect();
+                let in_group: Vec<Row> = live.iter().filter(|r| r.group == g).cloned().collect();
                 (!in_group.is_empty()).then(|| {
                     let n = in_group.len();
                     view! {
@@ -438,7 +483,8 @@ fn list_body(
                             if compact {
                                 view! { <TocRow row=r selected=on/> }.into_any()
                             } else {
-                                view! { <ListCard row=r selected=on/> }.into_any()
+                                let live = live_of(r.key.clone());
+                                view! { <ListCard row=r selected=on live=live/> }.into_any()
                             }
                         }).collect_view()}
                     }
