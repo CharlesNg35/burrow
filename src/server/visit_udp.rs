@@ -1,26 +1,23 @@
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
+use super::udp::ServiceMeter;
 use super::via::Via;
 use super::visit::Grant;
 use crate::forward::{ForwardError, Opened};
-use crate::metrics::ServiceStats;
-use crate::policy::ratelimit::Limit;
 use crate::policy::throttle::Throttle;
+use crate::udp::front::Meter;
 use crate::udp::link::{Link, Opening, open_udp};
 use crate::udp::peers::{PeerGauge, PeerTable};
 use crate::wire::protocol::{Connect, Status, VisitRequest, VisitTarget, decode_datagram};
 use crate::wire::secret::Secret;
 use crate::wire::transport::Channel;
 use burrow_config::Protocol;
-
-const SWEEP: Duration = Duration::from_secs(5);
 
 pub(super) struct Visit<'a> {
     pub visitor: &'a str,
@@ -36,39 +33,6 @@ struct Peers {
     table: PeerTable<u32>,
     gauge: PeerGauge<Arc<Shared>>,
     last: Instant,
-}
-
-struct Meter {
-    limit: Option<Arc<Limit>>,
-    stats: Option<Arc<ServiceStats>>,
-}
-
-impl Meter {
-    fn take_in(&self, n: usize) -> bool {
-        self.limit.as_ref().is_none_or(|l| l.inbound.try_take(n))
-    }
-
-    fn take_out(&self, n: usize) -> bool {
-        self.limit.as_ref().is_none_or(|l| l.outbound.try_take(n))
-    }
-
-    fn count_in(&self, n: usize) {
-        if let Some(s) = &self.stats {
-            s.traffic.inbound.fetch_add(n as u64, Ordering::Relaxed);
-        }
-    }
-
-    fn count_out(&self, n: usize) {
-        if let Some(s) = &self.stats {
-            s.traffic.outbound.fetch_add(n as u64, Ordering::Relaxed);
-        }
-    }
-
-    fn new_peer(&self) {
-        if let Some(s) = &self.stats {
-            s.total.fetch_add(1, Ordering::Relaxed);
-        }
-    }
 }
 
 pub(super) async fn serve(
@@ -136,12 +100,12 @@ pub(super) async fn serve(
         {
             break Outcome::Gone(None);
         }
-        let meter = Meter {
-            limit: grant.service.as_ref().map(|name| shared.limit(name)),
-            stats: grant
-                .service
-                .as_ref()
-                .map(|name| shared.metrics.service(name)),
+        let meter = match &grant.service {
+            Some(name) => ServiceMeter::of(shared, name),
+            None => ServiceMeter {
+                limit: None,
+                stats: None,
+            },
         };
         relay(shared, channel, opened, &session, &visit, meter, &allowed).await;
         break Outcome::Done {
@@ -159,7 +123,7 @@ async fn relay(
     link: Link,
     session: &Via,
     visit: &Visit<'_>,
-    meter: Meter,
+    meter: ServiceMeter,
     allowed: &impl Fn() -> bool,
 ) {
     let Link {
@@ -258,7 +222,7 @@ async fn relay(
         }
     };
     tokio::pin!(up, down);
-    let mut sweep = tokio::time::interval(SWEEP);
+    let mut sweep = tokio::time::interval(crate::udp::front::SWEEP);
     let mut reloads = shared.reloads();
     let mut stop = shared.shutdown_signal();
     loop {

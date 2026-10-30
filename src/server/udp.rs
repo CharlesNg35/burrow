@@ -158,10 +158,7 @@ async fn relay(
         socket,
         peers: Arc::new(Mutex::new(PeerTable::default())),
         gauge: PeerGauge::new(shared.clone()),
-        meter: Arc::new(ServiceMeter {
-            limit: shared.limit(name),
-            stats: shared.metrics.service(name),
-        }),
+        meter: Arc::new(ServiceMeter::of(shared, name)),
         stall: crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval),
     };
     let mut hooks = PublicPort {
@@ -181,36 +178,45 @@ async fn relay(
     }
 }
 
-struct ServiceMeter {
-    limit: Arc<Limit>,
-    stats: Arc<ServiceStats>,
+pub(super) struct ServiceMeter {
+    pub(super) limit: Option<Arc<Limit>>,
+    pub(super) stats: Option<Arc<ServiceStats>>,
+}
+
+impl ServiceMeter {
+    pub(super) fn of(shared: &Shared, service: &str) -> ServiceMeter {
+        ServiceMeter {
+            limit: Some(shared.limit(service)),
+            stats: Some(shared.metrics.service(service)),
+        }
+    }
 }
 
 impl Meter for ServiceMeter {
     fn take_in(&self, n: usize) -> bool {
-        self.limit.inbound.try_take(n)
+        self.limit.as_ref().is_none_or(|l| l.inbound.try_take(n))
     }
 
     fn count_in(&self, n: usize) {
-        self.stats
-            .traffic
-            .inbound
-            .fetch_add(n as u64, Ordering::Relaxed);
+        if let Some(s) = &self.stats {
+            s.traffic.inbound.fetch_add(n as u64, Ordering::Relaxed);
+        }
     }
 
     fn new_peer(&self) {
-        self.stats.total.fetch_add(1, Ordering::Relaxed);
+        if let Some(s) = &self.stats {
+            s.total.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     fn take_out(&self, n: usize) -> bool {
-        self.limit.outbound.try_take(n)
+        self.limit.as_ref().is_none_or(|l| l.outbound.try_take(n))
     }
 
     fn count_out(&self, n: usize) {
-        self.stats
-            .traffic
-            .outbound
-            .fetch_add(n as u64, Ordering::Relaxed);
+        if let Some(s) = &self.stats {
+            s.traffic.outbound.fetch_add(n as u64, Ordering::Relaxed);
+        }
     }
 }
 

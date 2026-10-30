@@ -69,7 +69,6 @@ impl Drop for Queued {
     }
 }
 const PEER: u32 = 1;
-const SWEEP: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,7 +193,7 @@ pub(super) async fn associate(a: Association) {
     let mut destinations: HashMap<String, Destination> = HashMap::new();
     let budget = Arc::new(Budget::new(QUEUED_BYTES));
     let mut control = [0u8; 512];
-    let mut sweep = tokio::time::interval(SWEEP);
+    let mut sweep = tokio::time::interval(crate::udp::front::SWEEP);
     let mut last = tokio::time::Instant::now();
     loop {
         tokio::select! {
