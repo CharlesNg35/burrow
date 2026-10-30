@@ -155,11 +155,11 @@ impl Metrics {
         self.left
             .lock()
             .expect("metrics lock")
-            .retain(|n, _| clients.contains_key(n));
+            .retain(|n, _| n == burrow_config::SELF || clients.contains_key(n));
         self.busy
             .lock()
             .expect("metrics lock")
-            .retain(|n, _| clients.contains_key(n));
+            .retain(|n, _| n == burrow_config::SELF || clients.contains_key(n));
     }
 
     pub fn uptime_secs(&self) -> u64 {
@@ -195,6 +195,7 @@ mod tests {
         m.client_left("home");
         m.client_left("before");
         m.client_busy("before");
+        m.client_busy(burrow_config::SELF);
         let named = |names: &[&str]| -> std::collections::BTreeMap<String, ()> {
             names.iter().map(|n| (n.to_string(), ())).collect()
         };
@@ -208,6 +209,7 @@ mod tests {
         assert!(m.left_secs_ago("home").is_some());
         assert_eq!(m.left_secs_ago("before"), None);
         assert_eq!(m.busy("before"), (0, false));
+        assert_eq!(m.busy(burrow_config::SELF).0, 1);
         drop(held);
         m.retain(&named(&[]), &named(&["ops"]), &named(&["home"]));
         assert!(m.services.lock().unwrap().is_empty());
