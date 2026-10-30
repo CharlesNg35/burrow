@@ -124,7 +124,12 @@ async fn website_more(c: &Ctx) -> bool {
 async fn toast_clear_of_the_bar(c: &mut Ctx) {
     for (w, h) in [(1440, 900), (420, 900)] {
         c.ui.viewport(w, h).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        c.ui.wait_true(
+            "(() => { const t = document.querySelector('[data-testid=toast]'); const b = document.querySelector('[data-sticky-bar]'); return !!t && !!b && b.getBoundingClientRect().top - t.getBoundingClientRect().bottom >= 0; })()",
+            "the toast settles clear of the save bar",
+            SECS,
+        )
+        .await;
         let gap: f64 = c
             .ui
             .eval("(() => { const t = document.querySelector('[data-testid=toast]'); const b = document.querySelector('[data-sticky-bar]'); if (!t || !b) return -9999; return b.getBoundingClientRect().top - t.getBoundingClientRect().bottom; })()")
@@ -449,7 +454,12 @@ fn profile_link(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("profile-needs-attention").await;
         c.ui.click(&format!("{item} a")).await;
         c.ui.wait_for("[data-testid=settings]", SECS).await;
-        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        c.ui.wait_true(
+            "(document.activeElement && document.activeElement.closest('[data-schema]') || {}).dataset?.schema === 'web/letsencrypt/profile'",
+            "the link lands on the profile",
+            SECS,
+        )
+        .await;
         let focused: String = c
             .ui
             .eval("(() => { const a = document.activeElement; const r = a && a.closest('[data-schema]'); return r ? r.getAttribute('data-schema') : ''; })()")

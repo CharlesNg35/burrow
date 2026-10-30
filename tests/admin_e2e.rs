@@ -260,6 +260,25 @@ pub async fn review_now(c: &Ctx) {
     c.ui.click("[data-testid=review-open]").await;
 }
 
+pub async fn open_more(c: &Ctx, schema: &str) {
+    let field = format!("[data-schema='{schema}']");
+    c.ui.wait_for(&field, SECS).await;
+    let _: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const r = document.querySelector(\"{field}\").closest('[data-testid=more-region][hidden]'); if (r) document.querySelector('[aria-controls=\"' + r.id + '\"]').click(); return true; }})()"
+        ))
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "!document.querySelector(\"{field}\").closest('[data-testid=more-region][hidden]')"
+        ),
+        "the More settings around the field are open",
+        SECS,
+    )
+    .await;
+}
+
 pub async fn edit_mode(c: &Ctx) {
     if c.ui.count("[data-testid=save-bar]").await == 0 {
         c.ui.click("[data-testid=edit]").await;

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use super::edits::open_more;
 use super::edits::{Flow, clear_of_bar, click_js, focus, row_clean, row_error, stored_as};
+use super::open_more;
 use super::world::{Options, free_range};
 use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
 

@@ -407,7 +407,19 @@ impl Ui {
                 js_str(path)
             ))
             .await;
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        self.settle().await;
+    }
+
+    async fn settle(&self) {
+        let _: bool = self
+            .eval("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))")
+            .await;
+        self.wait_true(
+            "document.getAnimations().every(a => !(a instanceof CSSTransition) || a.playState !== 'running')",
+            "colour and layout transitions to finish",
+            Duration::from_secs(5),
+        )
+        .await;
     }
 
     pub async fn viewport(&self, w: i64, h: i64) {
@@ -416,7 +428,13 @@ impl Ui {
             .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
             .await
             .expect("viewport");
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        self.wait_true(
+            &format!("innerWidth === {w}"),
+            "the new viewport width",
+            Duration::from_secs(5),
+        )
+        .await;
+        self.settle().await;
     }
 
     pub async fn dark(&self, on: bool) {
@@ -432,7 +450,13 @@ impl Ui {
             )])
             .await
             .expect("media");
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        self.wait_true(
+            &format!("matchMedia('(prefers-color-scheme: dark)').matches === {on}"),
+            "the new colour scheme",
+            Duration::from_secs(5),
+        )
+        .await;
+        self.settle().await;
     }
 
     pub async fn png(&self) -> Vec<u8> {

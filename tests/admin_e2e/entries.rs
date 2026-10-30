@@ -268,8 +268,9 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
             "× went back to the main target: {text}"
         );
         c.ui.nav("/services/pool").await;
-        c.ui.wait_for("[data-testid=health] [data-row]", SECS).await;
-        let rows = c.ui.text("[data-testid=health]").await;
+        let rows =
+            c.ui.wait_text("[data-testid=health]", "10.0.0.13:8080", SECS)
+                .await;
         assert!(
             rows.contains("→\u{a0}10.0.0.13:8080")
                 && rows.contains("→\u{a0}127.0.0.1:8080(main target)"),

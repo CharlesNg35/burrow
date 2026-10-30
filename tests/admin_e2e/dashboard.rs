@@ -235,7 +235,12 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         open(c, "ops").await;
         c.ui.wait_for("[data-testid=attention] li:nth-child(14)", SECS)
             .await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        c.ui.wait_true(
+            "Math.abs(document.querySelector('[data-testid=traffic]').getBoundingClientRect().height - document.querySelector('[data-testid=attention-card]').getBoundingClientRect().height) < 1",
+            "the attention card settles at the traffic card's height",
+            SECS,
+        )
+        .await;
         let heights: Vec<f64> = c
             .ui
             .eval("[document.querySelector('[data-testid=traffic]').getBoundingClientRect().height, document.querySelector('[data-testid=attention-card]').getBoundingClientRect().height]")
@@ -288,7 +293,12 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             "live updates keep the scroll position: {kept}"
         );
         c.ui.viewport(1100, 900).await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        c.ui.wait_true(
+            "[...document.querySelectorAll('[data-testid=attention] li')].every(e => e.offsetParent !== null)",
+            "below 1200 px every attention row shows",
+            SECS,
+        )
+        .await;
         let rows: usize = c
             .ui
             .eval("[...document.querySelectorAll('[data-testid=attention] li')].filter(e => e.offsetParent !== null).length")

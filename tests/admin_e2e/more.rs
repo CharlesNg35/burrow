@@ -13,14 +13,16 @@ async fn expanded(c: &Ctx, css: &str) -> bool {
 }
 
 async fn wait_expanded(c: &Ctx, css: &str, want: bool) {
-    let started = std::time::Instant::now();
-    while expanded(c, css).await != want {
-        assert!(
-            started.elapsed() < SECS,
-            "{css} did not become expanded={want}"
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    c.ui.wait_for(css, SECS).await;
+    c.ui.wait_true(
+        &format!(
+            "document.querySelector({}).getAttribute('aria-expanded') === '{want}'",
+            serde_json::to_string(css).expect("json")
+        ),
+        &format!("{css} expanded={want}"),
+        SECS,
+    )
+    .await;
 }
 
 async fn region_hidden(c: &Ctx, css: &str) -> bool {
@@ -169,7 +171,12 @@ async fn error_opens(c: &mut Ctx) {
     wait_expanded(c, ACCESS, false).await;
     c.ui.click("[data-testid=form-problems] button").await;
     wait_expanded(c, ACCESS, true).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    c.ui.wait_true(
+        "(document.activeElement && document.activeElement.closest('[data-schema]') || {}).dataset?.schema === 'services/*/max_connections'",
+        "the link lands on the field",
+        SECS,
+    )
+    .await;
     let focused: String = c
         .ui
         .eval("document.activeElement ? (document.activeElement.closest('[data-schema]') || {}).getAttribute?.('data-schema') || '' : ''")

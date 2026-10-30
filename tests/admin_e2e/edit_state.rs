@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use super::edits::open_more;
 use super::edits::{Flow, clear_of_bar, click_js};
+use super::open_more;
 use super::world::Options;
 use super::{Ctx, SECS, edit_mode, open, run, wait_checked};
 
@@ -312,7 +312,12 @@ async fn toast_sits_above_the_bar(c: &mut Ctx) {
     c.ui.wait_for("[data-testid=toast]", SECS).await;
     c.ui.click("[data-testid=review-open]").await;
     c.ui.wait_for("[data-testid=apply]", SECS).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    c.ui.wait_true(
+        "(() => { const t = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]'); return !!b && b.getBoundingClientRect().top - t.bottom >= 0; })()",
+        "the toast settles above the review's action bar",
+        SECS,
+    )
+    .await;
     let gap: f64 = c
         .ui
         .eval("(() => { const t = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return b.top - t.bottom; })()")
@@ -398,7 +403,12 @@ async fn narrow_window(c: &mut Ctx) {
         .eval("(() => { const e = document.getElementById('new-links'); e.focus(); e.click(); return true; })()")
         .await;
     c.ui.wait_for("[role=listbox]", SECS).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    c.ui.wait_true(
+        "(() => { const l = document.querySelector('[role=listbox]').parentElement.getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return l.top >= 0 && l.bottom <= b.top + 0.5; })()",
+        "the open list settles between the top and the save bar",
+        SECS,
+    )
+    .await;
     let seen: Vec<f64> = c
         .ui
         .eval("(() => { const l = document.querySelector('[role=listbox]').parentElement.getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return [l.top, l.bottom, b.top, scrollY]; })()")

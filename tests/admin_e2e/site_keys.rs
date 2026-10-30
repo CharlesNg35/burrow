@@ -1,12 +1,12 @@
 use super::edits::Flow;
 use super::world::Options;
 use super::{
-    Ctx, SECS, applied, both_widths, edit_mode, open, open_review, overview_tab, run, wait_checked,
+    Ctx, SECS, applied, both_widths, edit_mode, open, open_more, open_review, overview_tab, run,
+    wait_checked,
 };
 
 const TOP: &str = "web:\n  https: 127.0.0.1:HTTPS_PORT\n  http: 127.0.0.1:HTTP_PORT\n  trusted_proxies: [127.0.0.1/32]\n  letsencrypt:\n    email: ops@example.com\n    directory: https://127.0.0.1:1/directory\n    dns:\n      - domains: [example.org]\n        cloudflare: { token: \"${CF_TOKEN}\" }\n";
 const SITES: &str = "  site:\n    client: home\n    target: 8080\n    web: { hosts: [example.com], tls: off }\n  api:\n    client: home\n    target: 9000\n    web: { hosts: [example.com], tls: off, paths: [/api], app_path: / }\n";
-const WEBSITE_MORE: &str = "[data-more$='.website'] [data-testid=more-settings]";
 
 fn opts() -> Options {
     Options {
@@ -15,17 +15,6 @@ fn opts() -> Options {
         server_env: vec![("CF_TOKEN".into(), "cf-token-for-the-e2e".into())],
         ..Options::default()
     }
-}
-
-pub(super) async fn open_more(c: &Ctx, css: &str) {
-    let _: bool = c
-        .ui
-        .eval(&format!(
-            "(() => {{ document.querySelectorAll({}).forEach(b => {{ if (b.getAttribute('aria-expanded') !== 'true') b.click(); }}); return true; }})()",
-            serde_json::to_string(css).expect("json")
-        ))
-        .await;
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 }
 
 pub(super) async fn settings_of(c: &Ctx, service: &str) {
@@ -48,7 +37,7 @@ async fn routes_on_the_overview(c: &mut Ctx) {
 async fn a_header_and_a_path(c: &mut Ctx) {
     settings_of(c, "api").await;
     edit_mode(c).await;
-    open_more(c, WEBSITE_MORE).await;
+    open_more(c, "services/*/web/response_headers").await;
     c.ui.wait_for("#f-services-api-web-response-headers-add", SECS)
         .await;
     both_widths(c, "site-more-settings").await;
@@ -87,7 +76,7 @@ async fn a_header_and_a_path(c: &mut Ctx) {
 async fn dns_secrets_are_references(c: &mut Ctx) {
     c.ui.nav("/settings?tab=proxy").await;
     c.ui.wait_for("[data-schema=web]", SECS).await;
-    open_more(c, "[data-schema=web] [data-testid=more-settings]").await;
+    open_more(c, "web/letsencrypt/dns").await;
     c.ui.wait_text("[data-schema=web]", "set, from ${CF_TOKEN}", SECS)
         .await;
     let page = c.ui.text("[data-schema=web]").await;

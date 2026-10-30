@@ -25,7 +25,6 @@ fn opts() -> Options {
 async fn every_width(c: &mut Ctx, step: &str) {
     for (w, name) in [(360, "360"), (390, "390"), (768, "tablet")] {
         c.ui.viewport(w, 900).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let wide: bool = c
             .ui
             .eval("document.documentElement.scrollWidth > document.documentElement.clientWidth")
