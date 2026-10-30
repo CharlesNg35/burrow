@@ -38,7 +38,11 @@ pub struct Stalled;
 
 impl std::fmt::Display for Stalled {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("no progress for 10 s, the stream is closed")
+        write!(
+            f,
+            "no progress for {} s, the stream is closed",
+            STALL.as_secs()
+        )
     }
 }
 

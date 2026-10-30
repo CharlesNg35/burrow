@@ -1,4 +1,5 @@
 mod file;
+pub(crate) use file::WARN_EVERY;
 
 pub use file::LogFile;
 

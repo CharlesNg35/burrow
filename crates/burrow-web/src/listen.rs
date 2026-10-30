@@ -12,7 +12,7 @@ use tracing::{debug, warn};
 use crate::auth::Access;
 use crate::http::{Conn, Proto, serve};
 use crate::io::{Io, Prefixed};
-use crate::log::LogFile;
+use crate::log::{LogFile, WARN_EVERY};
 use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
 use crate::proxy_header::read_proxy_header;
@@ -238,11 +238,12 @@ async fn sweep<U: Upstream>(shared: Arc<Shared<U>>) {
 }
 
 static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
+const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 
 fn warn_accept(e: &std::io::Error) {
     let now = burrow_syntax::duration::now_secs();
     let last = LAST_WARNED.load(Ordering::Relaxed);
-    if now >= last + 60
+    if now >= last + WARN_EVERY.as_secs()
         && LAST_WARNED
             .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
@@ -296,7 +297,7 @@ async fn accepted(listener: &TcpListener) -> (TcpStream, SocketAddr) {
             }
             Err(e) => {
                 warn_accept(&e);
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(ACCEPT_BACKOFF).await;
             }
         }
     }

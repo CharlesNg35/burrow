@@ -48,7 +48,7 @@ fn same_file(path: &Path, _file: &File) -> bool {
     path.exists()
 }
 
-const WARN_EVERY: Duration = Duration::from_secs(60);
+pub(crate) const WARN_EVERY: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
 struct Gate {

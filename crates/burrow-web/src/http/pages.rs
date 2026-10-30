@@ -26,6 +26,7 @@ pub enum Page {
 }
 
 pub const RETRY_AFTER_SECS: u32 = 10;
+const RETRY_LATER_SECS: u32 = 60;
 
 impl Page {
     pub fn status(self) -> StatusCode {
@@ -92,7 +93,7 @@ impl Page {
     fn retry_after(self) -> Option<u32> {
         match self {
             Page::Busy | Page::TooMany => Some(RETRY_AFTER_SECS),
-            Page::Pending | Page::Maintenance => Some(60),
+            Page::Pending | Page::Maintenance => Some(RETRY_LATER_SECS),
             _ => None,
         }
     }
@@ -162,7 +163,11 @@ impl ErrorPages {
                 .read_to_end(&mut html)
                 .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
             if u64::try_from(html.len()).unwrap_or(u64::MAX) > MAX_PAGE {
-                return Err(format!("{} is larger than 1 MiB", path.display()));
+                return Err(format!(
+                    "{} is larger than {} MiB",
+                    path.display(),
+                    MAX_PAGE / (1024 * 1024)
+                ));
             }
             let html = Bytes::from(html);
             for page in which {
