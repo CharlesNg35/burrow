@@ -384,7 +384,7 @@ Where each name gets its certificate:
 | a website with `tls: off` but no `web.http` | `services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80` |
 | an HTTPS choice (`tls: auto`, `passthrough` or `{cert, key}`, or a `challenge`) with no `web.https` | `services.blog.web.tls: auto needs web.https; without web.https every site is plain HTTP. Add https: 443, or remove tls` |
 | `https_redirect: false` with no `web.http` | `services.blog.web.https_redirect: false serves plain HTTP too, but web.http is not set; add http: 80` |
-| `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); only the redirect is possible` |
+| `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); on web.http its names get 404` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
 | `web.letsencrypt` with a wrong field | `web.letsencrypt.email "ops" is not an email address`; `web.letsencrypt.directory "stagging" is not production, staging or an https:// URL` (with `did you mean "staging"?`); `web.letsencrypt.ca: cannot read certs/ca.pem: file not found`, or `... certs/ca.pem holds no certificate` |
 | Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates` |

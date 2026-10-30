@@ -91,7 +91,7 @@ fn a_redirect_choice_that_cannot_work_is_refused() {
     assert_eq!(
         found(&pass, "redirect-passthrough"),
         [
-            "services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); only the redirect is possible"
+            "services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); on web.http its names get 404"
         ]
     );
     let plain = site_with(

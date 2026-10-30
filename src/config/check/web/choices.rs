@@ -113,7 +113,7 @@ fn redirect(
         Some(SiteTls::Mode(TlsMode::Passthrough)) if own == Some(false) => out.push(error(
             REDIRECT_PASSTHROUGH,
             format!(
-                "services.{name}.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); only the redirect is possible"
+                "services.{name}.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); on web.http its names get 404"
             ),
             at,
             "remove https_redirect",
