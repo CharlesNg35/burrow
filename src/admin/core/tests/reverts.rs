@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::admin::core::plan::{self, ReloadResult};
 use crate::admin::core::*;
 
-use super::{apply_now, core_for, core_running, p, session, world};
+use super::{apply_now, core_counted, core_for, core_running, p, session, world};
 
 #[test]
 fn an_applied_revert_is_recorded_with_the_rev_it_went_back_to() {
@@ -489,4 +489,33 @@ fn the_same_file_twice_gives_two_entries_each_with_its_own_diff() {
         assert!(plan.valid, "a revert works from either entry");
         assert_eq!(plan.result_rev, e.base);
     }
+}
+
+#[test]
+fn history_asks_the_store_once_per_rev() {
+    let w = world();
+    let (core, asked) = core_counted(&w.text, &w.text, Vec::new(), Vec::new());
+    let revs = ["b2s:a", "b2s:b", "b2s:c"];
+    core.store.keep(revs[0], "listen: 1\n");
+    core.store.keep(revs[1], "listen: 2\n");
+    for i in 0..30u64 {
+        core.record(burrow_admin_proto::msg::AuditEntry {
+            at: i,
+            rev: revs[i as usize % 3].into(),
+            result: "applied".into(),
+            ..Default::default()
+        });
+    }
+    let entries = core
+        .history(&HistoryRequest {
+            limit: Some(30),
+            ..Default::default()
+        })
+        .unwrap()
+        .entries;
+    assert_eq!(entries.len(), 30);
+    for e in &entries {
+        assert_eq!(e.revertible, e.rev != revs[2], "{}", e.rev);
+    }
+    assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 3);
 }

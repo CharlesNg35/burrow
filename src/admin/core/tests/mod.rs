@@ -15,6 +15,7 @@ mod wording;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use burrow_admin_proto::msg::{AdminLevel, Apply};
@@ -33,6 +34,7 @@ pub struct MemStore {
     pub kept: Mutex<Vec<(Version, String)>>,
     pub read_only: bool,
     pub state: tempfile::TempDir,
+    pub asked: Arc<AtomicUsize>,
 }
 
 impl Store for MemStore {
@@ -92,6 +94,7 @@ impl Store for MemStore {
             .collect()
     }
     fn version(&self, rev: &str) -> Option<String> {
+        self.asked.fetch_add(1, Ordering::Relaxed);
         self.kept
             .lock()
             .unwrap()
@@ -197,6 +200,16 @@ pub fn core_busy(text: &str, running: &str, busy: Vec<u16>) -> Core {
 }
 
 pub fn core_of(text: &str, running: &str, busy: Vec<u16>, sessions: Vec<LiveSession>) -> Core {
+    core_counted(text, running, busy, sessions).0
+}
+
+pub fn core_counted(
+    text: &str,
+    running: &str,
+    busy: Vec<u16>,
+    sessions: Vec<LiveSession>,
+) -> (Core, Arc<AtomicUsize>) {
+    let asked = Arc::new(AtomicUsize::new(0));
     let shared = Arc::new(Mutex::new(text.to_string()));
     let live_text = if text == running {
         shared.clone()
@@ -208,6 +221,7 @@ pub fn core_of(text: &str, running: &str, busy: Vec<u16>, sessions: Vec<LiveSess
         kept: Mutex::new(Vec::new()),
         read_only: false,
         state: tempfile::tempdir().unwrap(),
+        asked: asked.clone(),
     };
     let live = FakeLive {
         text: live_text,
@@ -216,7 +230,8 @@ pub fn core_of(text: &str, running: &str, busy: Vec<u16>, sessions: Vec<LiveSess
         busy,
         allows: BTreeMap::new(),
     };
-    Core::new(Box::new(store), Box::new(live), Box::new(|_: &str| None))
+    let core = Core::new(Box::new(store), Box::new(live), Box::new(|_: &str| None));
+    (core, asked)
 }
 
 pub fn session(w: &World, level: AdminLevel) -> Session {

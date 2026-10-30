@@ -15,7 +15,7 @@ pub mod values;
 
 pub use dispatch::{dispatch, ok, parse};
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -462,18 +462,20 @@ impl Core {
 
     pub fn history(&self, req: &HistoryRequest) -> Result<HistoryReply, ApiError> {
         let limit = req.limit.unwrap_or(50).clamp(1, AUDIT_RING as u32) as usize;
-        let entries: Vec<AuditEntry> = self
+        let mut entries: Vec<AuditEntry> = self
             .audit
             .lock()
             .expect("audit lock")
             .iter()
             .take(limit)
             .cloned()
-            .map(|mut e| {
-                e.revertible = self.store.version(&e.rev).is_some();
-                e
-            })
             .collect();
+        let mut kept: HashMap<String, bool> = HashMap::new();
+        for e in &mut entries {
+            e.revertible = *kept
+                .entry(e.rev.clone())
+                .or_insert_with(|| self.store.version(&e.rev).is_some());
+        }
         let missing = match (req.entry, &req.diff) {
             (Some(id), _) => Some(format!("no history entry {id}")),
             (None, Some(rev)) => Some(format!("no history entry for {rev}")),
