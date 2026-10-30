@@ -105,6 +105,20 @@ pub enum ReloadOutcome {
     Rejected(String),
 }
 
+fn load_accepted<S: Watched>(
+    file: &Path,
+    env: &Env,
+) -> Result<crate::config::Outcome, crate::config::load::LoadError> {
+    let loaded = load_file(file, Some(S::ROLE), env);
+    if let Ok(o) = &loaded
+        && !o.report.has_errors()
+        && let Some(l) = &o.loaded
+    {
+        S::accepted(l);
+    }
+    loaded
+}
+
 async fn next_nudge(nudges: &mut Option<mpsc::Receiver<Nudge>>) -> Option<Nudge> {
     match nudges.as_mut() {
         Some(rx) => rx.recv().await,
@@ -171,10 +185,7 @@ pub async fn follow_nudged<S: Watched>(
             }
             seen = now;
             let (file, vars) = (path.clone(), env.clone());
-            let Some(loaded) = worker
-                .run(move || load_file(&file, Some(S::ROLE), &vars))
-                .await
-            else {
+            let Some(loaded) = worker.run(move || load_accepted::<S>(&file, &vars)).await else {
                 return;
             };
             let outcome = match loaded {
@@ -208,9 +219,6 @@ pub async fn follow_nudged<S: Watched>(
                 ));
                 seen = Vec::new();
                 break 'step Some(ReloadOutcome::Rejected(text));
-            }
-            if let Some(l) = &outcome.loaded {
-                S::accepted(l);
             }
             let Some(next) = outcome.loaded.and_then(S::from_loaded) else {
                 break 'step None;
