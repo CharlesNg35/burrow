@@ -30,7 +30,7 @@ pub fn status(mut s: crate::metrics::Status) -> crate::metrics::Status {
             expires: None,
             next_renewal: None,
             last_error: None,
-            code: Some("profile-not-offered".into()),
+            code: Some(burrow_admin_proto::codes::PROFILE_NOT_OFFERED.into()),
             explanation: None,
             failures: 1,
         });

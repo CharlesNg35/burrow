@@ -33,6 +33,7 @@ pub const FORWARD_AUTH_H2: &str = "forward-auth-h2";
 pub const UNKNOWN_LOGIN: &str = "unknown-login";
 pub const FORWARD_AUTH_UNUSED: &str = "forward-auth-unused";
 pub const UNUSED_VISITOR: &str = "unused-visitor";
+pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,

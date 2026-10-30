@@ -121,7 +121,7 @@ mod tests {
             expires: Some(10),
             next_renewal: Some(20),
             last_error: Some("rate limited".into()),
-            code: Some("profile-not-offered"),
+            code: Some(burrow_web::tls::acme::PROFILE_NOT_OFFERED),
             explanation: Some("https://example.com/why".into()),
             failures: 2,
         });
@@ -143,7 +143,11 @@ mod tests {
             (Some(10), Some(20), 2)
         );
         assert_eq!(got.explanation.as_deref(), Some("https://example.com/why"));
-        assert_eq!(got.code.as_deref(), Some("profile-not-offered"));
+        assert_eq!(
+            got.code.as_deref(),
+            Some(burrow_admin_proto::codes::PROFILE_NOT_OFFERED),
+            "burrow-web's code is the one the admin reads"
+        );
         let own = line(tls::CertStatus {
             origin: CertOrigin::TunnelFile {
                 path: "/etc/burrow/ws.pem".into(),

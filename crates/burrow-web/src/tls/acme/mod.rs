@@ -11,6 +11,7 @@ pub mod order;
 pub mod schedule;
 pub mod storage;
 
+pub use job::PROFILE_NOT_OFFERED;
 pub use manager::{Acme, GroupView, Handle, Plan};
 
 use crate::tls::CertCheck;

@@ -1,9 +1,9 @@
+use burrow_admin_proto::codes::PROFILE_NOT_OFFERED;
 pub use burrow_admin_proto::date::date;
 use burrow_admin_proto::status::{
     CertCheck, CertSourceStatus, CertStateStatus, CertStatus, Status,
 };
 use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
-
 use burrow_syntax::duration::DAY_SECS as DAY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,8 +36,6 @@ pub struct Notice {
     pub service: Option<String>,
     pub field: Option<Vec<String>>,
 }
-
-pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
 
 fn days(secs: u64) -> String {
     match secs / DAY {
