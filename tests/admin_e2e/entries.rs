@@ -78,12 +78,16 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
             "a row has no target box until Change"
         );
         let main = "[data-entry='0'] [data-main-target]";
-        let said = c.ui.wait_text(main, "main target · 8080", SECS).await;
+        let said =
+            c.ui.wait_text(main, "main target · 127.0.0.1:8080", SECS)
+                .await;
         assert!(said.contains("Change"), "{said}");
         c.ui.fill("#f-services-pool-target", "8081").await;
-        c.ui.wait_text(main, "main target · 8081", SECS).await;
+        c.ui.wait_text(main, "main target · 127.0.0.1:8081", SECS)
+            .await;
         c.ui.fill("#f-services-pool-target", "8080").await;
-        c.ui.wait_text(main, "main target · 8080", SECS).await;
+        c.ui.wait_text(main, "main target · 127.0.0.1:8080", SECS)
+            .await;
         c.ui.fill("#f-services-pool-target", "").await;
         c.ui.wait_text(main, "main target · not set", SECS).await;
         let err = row_error(c, "services/*/target").await;
@@ -116,7 +120,8 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.wait_for(main, SECS).await;
         c.ui.fill("#f-services-pool-target", "8080").await;
-        c.ui.wait_text(main, "main target · 8080", SECS).await;
+        c.ui.wait_text(main, "main target · 127.0.0.1:8080", SECS)
+            .await;
         click_js(c, "[data-entry='0'] [data-testid=entry-change]").await;
         c.ui.wait_true(
             "document.activeElement && document.activeElement.id === 'f-services-pool-clients-0-target'",

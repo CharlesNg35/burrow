@@ -7,7 +7,6 @@ use leptos::prelude::*;
 
 use super::entries::{Place, sibling, text_of, typed};
 use crate::edit::diags_at;
-use crate::form::plain;
 use crate::store::store;
 
 pub(super) type Open = RwSignal<BTreeMap<usize, Option<Value>>>;
@@ -77,7 +76,11 @@ pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView 
     let e = store().edit;
     let id = input_id(place, i);
     let main_path = sibling(&place.fc.path, ServiceEntry::TARGET.rel());
-    let main = Signal::derive(move || e.value(&main_path).map(|v| plain(&v)));
+    let main = Signal::derive(move || {
+        e.value(&main_path)
+            .map(|v| burrow_admin_logic::web::target_value_shown(&v))
+            .filter(|t| !t.is_empty())
+    });
     let stored = {
         let place = place.clone();
         Memo::new(move |_| place.read().get(i).and_then(|r| r.target.clone()))
@@ -153,7 +156,7 @@ pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView 
         } else if let Some(own) = stored.get() {
             view! {
                 <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 text-sm" data-own-text="">
-                    <span class="font-mono text-[13px] text-text">{plain(&own)}</span>
+                    <span class="font-mono text-[13px] text-text">{burrow_admin_logic::web::target_value_shown(&own)}</span>
                     <span class="text-xs text-text-muted">"own"</span>
                     {change_link(start.clone())}
                 </div>

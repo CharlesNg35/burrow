@@ -195,11 +195,10 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         | SemType::PasswordHash(_)
         | SemType::UrlPath
         | SemType::Name(_) => mono(v),
-        SemType::Ip(_)
-        | SemType::Port
-        | SemType::IpPort(_)
-        | SemType::PortRange(_)
-        | SemType::Target(_) => mono(v),
+        SemType::Ip(_) | SemType::Port | SemType::IpPort(_) | SemType::PortRange(_) => mono(v),
+        SemType::Target(_) => {
+            view! { <span class="font-mono text-sm">{burrow_admin_logic::web::target_value_shown(v)}</span> }.into_any()
+        }
         SemType::Integer(_) | SemType::Size(_) => {
             view! { <span class="tabular-nums">{sem_text(sem, v)}</span> }.into_any()
         }

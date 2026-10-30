@@ -154,6 +154,23 @@ pub fn without_exposure(w: Ways) -> &'static str {
     }
 }
 
+pub fn target_shown(text: &str) -> String {
+    let t = text.trim();
+    let port_only = !t.is_empty() && t.chars().all(|c| c.is_ascii_digit() || c == '-');
+    match burrow_syntax::target::parse_target(t) {
+        Ok(v) if port_only => v.full(),
+        _ => text.to_string(),
+    }
+}
+
+pub fn target_value_shown(v: &Value) -> String {
+    match v {
+        Value::String(s) => target_shown(s),
+        Value::Number(n) => target_shown(&n.to_string()),
+        _ => String::new(),
+    }
+}
+
 pub fn reached(svc: &Value) -> String {
     exposure(svc).unwrap_or_else(|| without_exposure(ways(svc)).to_string())
 }
@@ -412,6 +429,18 @@ mod tests {
         assert_eq!(exposure(&both).as_deref(), Some("7840"));
         assert_eq!(exposure(&json!({"target": 22})), None);
         assert!(!is_public(&json!({"bind": null, "web": []})));
+    }
+
+    #[test]
+    fn a_target_shown_read_only_names_the_loopback_for_a_port_alone() {
+        assert_eq!(target_value_shown(&json!(8080)), "127.0.0.1:8080");
+        assert_eq!(target_shown("8000-8010"), "127.0.0.1:8000-8010");
+        assert_eq!(target_shown("10.0.0.5:22"), "10.0.0.5:22");
+        assert_eq!(target_shown("[2001:db8::1]:8443"), "[2001:db8::1]:8443");
+        assert_eq!(target_shown("db.lan:5432"), "db.lan:5432");
+        assert_eq!(target_shown("unix:/run/app.sock"), "unix:/run/app.sock");
+        assert_eq!(target_shown("99999"), "99999");
+        assert_eq!(target_value_shown(&Value::Null), "");
     }
 
     #[test]

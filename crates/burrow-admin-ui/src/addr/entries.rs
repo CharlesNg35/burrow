@@ -381,7 +381,7 @@ pub fn entry_line(row: &Row) -> String {
     let target = row
         .target
         .as_ref()
-        .map(plain)
+        .map(burrow_admin_logic::web::target_value_shown)
         .unwrap_or_else(|| "(service target)".into());
     match &row.weight {
         Some(w) => format!("→ {target} · weight {}", plain(w)),

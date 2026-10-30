@@ -40,7 +40,10 @@ pub(crate) fn service_tr(
     let up = status.map(|_| cs.iter().filter(|c| online(status, c)).count());
     let health = super::health_tag(up, cs.len(), x.map(|x| x.health.as_slice()).unwrap_or(&[]));
     let open = x.map(|x| format::count(x.open)).unwrap_or_default();
-    let target = ServiceEntry::TARGET.get(svc).map(plain).unwrap_or_default();
+    let target = ServiceEntry::TARGET
+        .get(svc)
+        .map(burrow_admin_logic::web::target_value_shown)
+        .unwrap_or_default();
     let name = name.to_string();
     let to = Route::Detail(ServiceEntry::section().into(), name.clone());
     let label = name.clone();
@@ -282,7 +285,10 @@ pub(super) fn service_row(
             ServiceEntry::TARGET
                 .get(v)
                 .filter(|t| !t.is_null())
-                .map_or_else(|| burrow_admin_logic::wording::NOT_SET.to_string(), plain)
+                .map_or_else(
+                    || burrow_admin_logic::wording::NOT_SET.to_string(),
+                    burrow_admin_logic::web::target_value_shown
+                )
         ),
         tags,
         group: if problem {

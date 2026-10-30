@@ -143,7 +143,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                 let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
                 let default_target = ServiceEntry::TARGET
                     .get(&svc)
-                    .map(plain)
+                    .map(burrow_admin_logic::web::target_value_shown)
                     .unwrap_or_default();
                 let rows = listed
                     .into_iter()
@@ -157,7 +157,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let why = hs.and_then(|h| h.reason.clone());
                         let set = aside.iter().find(|a| a.client == c && a.target == t).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
                         let (to, main) = match &t {
-                            Some(t) => (format!("→ {t}"), false),
+                            Some(t) => (format!("→ {}", burrow_admin_logic::web::target_shown(t)), false),
                             None => (format!("→ {default_target}"), true),
                         };
                         let label = c.clone();
@@ -356,7 +356,10 @@ fn served_services(name: &str) -> impl IntoView + use<> {
             .map(|(n, v)| {
                 (
                     n.clone(),
-                    ServiceEntry::TARGET.get(v).map(plain).unwrap_or_default(),
+                    ServiceEntry::TARGET
+                        .get(v)
+                        .map(burrow_admin_logic::web::target_value_shown)
+                        .unwrap_or_default(),
                 )
             })
             .collect();

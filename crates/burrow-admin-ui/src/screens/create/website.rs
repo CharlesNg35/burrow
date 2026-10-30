@@ -115,7 +115,7 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
         icon,
         head: head.into(),
         value: if value.is_empty() {
-            "not set".into()
+            burrow_admin_logic::wording::NOT_SET.into()
         } else {
             value
         },
@@ -144,7 +144,12 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
             ),
             hop("box", "Server", server.to_string(), false),
             hop("monitor", "Client", client.to_string(), false),
-            hop("server", "App", target.to_string(), false),
+            hop(
+                "server",
+                "App",
+                burrow_admin_logic::web::target_shown(target),
+                false,
+            ),
         ],
         edges: vec![edge(), edge(), edge(), edge()],
         ..PathData::default()

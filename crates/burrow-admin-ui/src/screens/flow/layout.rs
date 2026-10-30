@@ -178,7 +178,10 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
                             .filter(|b| !b.is_null())
                             .map(plain),
                         web: burrow_admin_logic::web::hosts(v),
-                        target: ServiceEntry::TARGET.get(v).map(plain).unwrap_or_default(),
+                        target: ServiceEntry::TARGET
+                            .get(v)
+                            .map(burrow_admin_logic::web::target_value_shown)
+                            .unwrap_or_default(),
                         protocol: ServiceEntry::PROTOCOL
                             .get(v)
                             .map(plain)

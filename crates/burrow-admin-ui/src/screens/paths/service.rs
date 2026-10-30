@@ -237,7 +237,9 @@ fn target_hop(
     Hop {
         icon: "fork",
         head: "Target".into(),
-        value: plain(ServiceEntry::TARGET.get(svc).unwrap_or(&Value::Null)),
+        value: burrow_admin_logic::web::target_value_shown(
+            ServiceEntry::TARGET.get(svc).unwrap_or(&Value::Null),
+        ),
         mono: true,
         dot: Some(if problems.ports.is_some() {
             Tone::Danger
