@@ -74,6 +74,14 @@ impl Internal {
             .cloned()
     }
 
+    pub fn leaf_key(&self, group: &str) -> Option<Arc<CertifiedKey>> {
+        self.leaves
+            .read()
+            .expect("internal lock")
+            .get(group)
+            .map(|l| Arc::clone(&l.key))
+    }
+
     pub fn error(&self) -> Option<String> {
         self.error.read().expect("internal lock").clone()
     }

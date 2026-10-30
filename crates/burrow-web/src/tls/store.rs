@@ -48,6 +48,19 @@ impl std::fmt::Debug for Store {
     }
 }
 
+enum Serve {
+    File {
+        key: Option<Arc<CertifiedKey>>,
+        failed: bool,
+    },
+    Acme {
+        name: String,
+        group: String,
+        failed: bool,
+    },
+    Internal(String),
+}
+
 type Pair = (PathBuf, PathBuf);
 type Loaded = HashMap<Pair, Result<Arc<CertifiedKey>, String>>;
 
@@ -104,7 +117,7 @@ impl Store {
         self.acme.set_dns_reach(reach);
     }
 
-    fn slot_for(&self, name: &str) -> Option<(String, Slot)> {
+    fn slot_for(&self, name: &str) -> Option<Serve> {
         let inner = self.inner.read().expect("certificate lock");
         let name = sni_name(name);
         let key = if inner.slots.contains_key(&name) {
@@ -112,7 +125,21 @@ impl Store {
         } else {
             wildcard_of(&name).filter(|w| inner.slots.contains_key(w))?
         };
-        inner.slots.get(&key).cloned().map(|s| (key, s))
+        let slot = inner.slots.get(&key)?;
+        Some(if slot.internal {
+            Serve::Internal(slot.group.clone())
+        } else if slot.acme {
+            Serve::Acme {
+                name: key,
+                group: slot.group.clone(),
+                failed: slot.error.is_some(),
+            }
+        } else {
+            Serve::File {
+                key: slot.key.clone(),
+                failed: slot.error.is_some(),
+            }
+        })
     }
 
     async fn run_acme(&self, settings: &CertSettings) {
@@ -329,43 +356,42 @@ impl ResolvesServerCert for Store {
 
 impl Certificates for Store {
     fn state(&self, name: &str) -> CertState {
-        let Some((configured, slot)) = self.slot_for(name) else {
-            return CertState::Failing;
-        };
-        if slot.internal {
-            return match (self.local.leaf(&slot.group), self.local.error()) {
-                (Some(_), _) => CertState::Ready,
-                (None, Some(_)) => CertState::Failing,
-                (None, None) => CertState::Pending,
-            };
-        }
-        if slot.acme {
-            if self.acme.certificate(&configured).is_some() {
-                return CertState::Ready;
+        match self.slot_for(name) {
+            None => CertState::Failing,
+            Some(Serve::Internal(group)) => {
+                match (self.local.leaf_key(&group), self.local.error()) {
+                    (Some(_), _) => CertState::Ready,
+                    (None, Some(_)) => CertState::Failing,
+                    (None, None) => CertState::Pending,
+                }
             }
-            if slot.error.is_some() {
-                return CertState::Failing;
+            Some(Serve::Acme {
+                name,
+                group,
+                failed,
+            }) => {
+                if self.acme.certificate(&name).is_some() {
+                    return CertState::Ready;
+                }
+                if failed {
+                    return CertState::Failing;
+                }
+                match self.acme.view_of(&group).map(|v| v.phase) {
+                    Some(CertPhase::Failing { .. }) => CertState::Failing,
+                    _ => CertState::Pending,
+                }
             }
-            return match self.acme.view_of(&slot.group).map(|v| v.phase) {
-                Some(CertPhase::Failing { .. }) => CertState::Failing,
-                _ => CertState::Pending,
-            };
-        }
-        match slot {
-            Slot { key: Some(_), .. } => CertState::Ready,
-            Slot { error: None, .. } => CertState::Pending,
-            _ => CertState::Failing,
+            Some(Serve::File { key: Some(_), .. }) => CertState::Ready,
+            Some(Serve::File { failed: false, .. }) => CertState::Pending,
+            Some(Serve::File { .. }) => CertState::Failing,
         }
     }
 
     fn certificate(&self, name: &str) -> Option<Arc<CertifiedKey>> {
-        let (configured, slot) = self.slot_for(name)?;
-        if slot.internal {
-            self.local.leaf(&slot.group).map(|l| l.key)
-        } else if slot.acme {
-            self.acme.certificate(&configured)
-        } else {
-            slot.key
+        match self.slot_for(name)? {
+            Serve::Internal(group) => self.local.leaf_key(&group),
+            Serve::Acme { name, .. } => self.acme.certificate(&name),
+            Serve::File { key, .. } => key,
         }
     }
 
