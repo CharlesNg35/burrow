@@ -52,17 +52,19 @@ fn days(secs: u64) -> String {
 
 fn source(c: &CertStatus) -> String {
     match &c.source {
-        CertSourceStatus::OwnFile { path } => format!("Own file {path}"),
-        CertSourceStatus::SharedFile { path } => format!("Shared file {path}"),
-        CertSourceStatus::TunnelFile { path } => format!("The tunnel's file {path}"),
+        CertSourceStatus::OwnFile { path } => format!("File {path}"),
+        CertSourceStatus::SharedFile { path } => format!("File {path} (covers several names)"),
+        CertSourceStatus::TunnelFile { path } => format!("File of the WebSocket listener {path}"),
         CertSourceStatus::LetsEncrypt { directory }
             if directory == burrow_syntax::web::LETSENCRYPT_STAGING =>
         {
-            "Let's Encrypt (test service)".into()
+            "Let's Encrypt (test servers)".into()
         }
         CertSourceStatus::LetsEncrypt { .. } => "Let's Encrypt".into(),
         CertSourceStatus::LocalCa => "burrow's local CA".into(),
-        CertSourceStatus::Passthrough => "The app's own".into(),
+        CertSourceStatus::Passthrough => {
+            crate::wording::capital(&burrow_config::labels::app_https())
+        }
         CertSourceStatus::Plain => "None: plain HTTP".into(),
     }
 }

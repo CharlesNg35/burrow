@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:699754be9090c522",
+  "hash": "b2s:d4d4684016a2ef12",
   "root": {
     "label": "Server",
     "sem": {
@@ -2111,7 +2111,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2325,7 +2325,7 @@
                                                   }
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
                                             }
                                           ]
                                         }
@@ -2398,7 +2398,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2469,7 +2469,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2492,7 +2492,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2596,7 +2596,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2620,7 +2620,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2659,7 +2659,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2700,7 +2700,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2732,7 +2732,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2856,7 +2856,7 @@
                                                   }
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
                                             }
                                           ]
                                         }
@@ -2895,7 +2895,7 @@
                                                   }
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
                                             }
                                           ]
                                         }
@@ -2924,7 +2924,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2953,7 +2953,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -2984,7 +2984,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -3019,7 +3019,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -3054,7 +3054,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }
@@ -3086,7 +3086,7 @@
                                                   "passthrough"
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
                                             }
                                           ]
                                         }

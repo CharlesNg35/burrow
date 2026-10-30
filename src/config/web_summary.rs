@@ -208,7 +208,7 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
     let (kind, certificate, check) = match &site.tls {
         WebTls::Passthrough => (
             "passthrough",
-            "passthrough, the app's own certificate".to_string(),
+            burrow_config::labels::app_https(),
             String::new(),
         ),
         WebTls::Off => {
@@ -223,11 +223,7 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
                 String::new(),
             )
         }
-        WebTls::Files { cert, .. } => (
-            "HTTPS",
-            format!("own file {}", cert.display()),
-            String::new(),
-        ),
+        WebTls::Files { cert, .. } => ("HTTPS", format!("file {}", cert.display()), String::new()),
         WebTls::Auto => {
             let (source, check) = automatic(web, name, site.challenge);
             ("HTTPS", source, check)

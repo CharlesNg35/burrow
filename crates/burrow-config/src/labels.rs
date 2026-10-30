@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use burrow_admin_proto::schema::{Node, SemType};
 
-use crate::admin_schema::AdminSchema;
+use crate::admin_schema::{AdminEnum, AdminSchema};
 use crate::model::ServerConfig;
 
 fn root() -> &'static Node {
@@ -36,6 +36,22 @@ pub fn label_of(path: &[String]) -> Option<String> {
     label_in(root(), path)
 }
 
+pub fn option_label<T: AdminEnum>(wire: &str) -> Option<String> {
+    T::options()
+        .into_iter()
+        .find(|o| o.value == wire)
+        .map(|o| o.label)
+}
+
+pub fn app_https() -> String {
+    let label = option_label::<crate::model::TlsMode>(crate::model::TlsMode::Passthrough.wire())
+        .unwrap_or_default();
+    let mut c = label.chars();
+    c.next()
+        .map(|f| f.to_lowercase().chain(c).collect())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +69,6 @@ mod tests {
         assert_eq!(label_of(&p(&["listen"])).as_deref(), Some("Listen address"));
         assert_eq!(label_of(&p(&["visitors", "lap", "reach", "home"])), None);
         assert_eq!(label_of(&p(&["services", "web", "nope"])), None);
+        assert_eq!(app_https(), "the app does its own HTTPS");
     }
 }

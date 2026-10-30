@@ -27,7 +27,7 @@ async fn passthrough_shows_what_it_leaves_out(c: &mut Ctx) {
     c.ui.nav("/services/nas?tab=settings").await;
     let group = "[data-testid=off-group]";
     let line =
-        c.ui.wait_text(group, "this site uses passthrough", SECS)
+        c.ui.wait_text(group, "the app does its own HTTPS here", SECS)
             .await;
     assert!(
         line.contains("settings need burrow to do the HTTPS"),
@@ -39,7 +39,7 @@ async fn passthrough_shows_what_it_leaves_out(c: &mut Ctx) {
         .await;
     both_widths(c, "passthrough-group-open").await;
     edit_mode(c).await;
-    c.ui.wait_text(group, "this site uses passthrough", SECS)
+    c.ui.wait_text(group, "the app does its own HTTPS here", SECS)
         .await;
     c.ui.shot("passthrough-group-edit").await;
     c.ui.click("[data-testid=discard-edit]").await;
@@ -328,7 +328,7 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
         overview_tab(c, "certs").await;
         let row = "[data-testid=certs-card] [data-cert='portal.example.com']";
         let text =
-            c.ui.wait_text(row, "Own file", std::time::Duration::from_secs(20))
+            c.ui.wait_text(row, "File ", std::time::Duration::from_secs(20))
                 .await;
         assert!(
             text.contains("Valid") && text.contains("portal.pem"),

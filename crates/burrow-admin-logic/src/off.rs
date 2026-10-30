@@ -43,9 +43,9 @@ mod tests {
         assert_eq!(
             group_line(
                 3,
-                "This needs burrow to do the HTTPS; this site uses passthrough"
+                "This needs burrow to do the HTTPS; the app does its own HTTPS here"
             ),
-            "3 settings need burrow to do the HTTPS; this site uses passthrough"
+            "3 settings need burrow to do the HTTPS; the app does its own HTTPS here"
         );
         assert_eq!(
             group_line(2, "This applies only with two or more clients"),
@@ -76,7 +76,7 @@ mod tests {
         let g = groups(&items);
         let passthrough = g
             .iter()
-            .find(|(r, _)| r.ends_with("this site uses passthrough"))
+            .find(|(r, _)| r.ends_with(&format!("{} here", burrow_config::labels::app_https())))
             .expect("a passthrough group");
         assert!(passthrough.1.len() >= 10, "{g:?}");
     }

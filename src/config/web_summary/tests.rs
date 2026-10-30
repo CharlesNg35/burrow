@@ -41,9 +41,9 @@ fn the_summary_lists_the_port_the_tunnel_and_each_name() {
         [
             "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6; shared with the tunnel)",
             "tunnel: wss://tunnel.example.com/burrow (websocket.tls cert.pem)",
-            "*.nas.example.com: passthrough, the app's own certificate -> service nas",
-            "git.example.com: passthrough, the app's own certificate -> service git",
-            "nas.example.com: passthrough, the app's own certificate -> service nas",
+            "*.nas.example.com: the app does its own HTTPS -> service nas",
+            "git.example.com: the app does its own HTTPS -> service git",
+            "nas.example.com: the app does its own HTTPS -> service nas",
         ]
         .map(String::from)
         .map(|l| l.replace(
@@ -116,8 +116,8 @@ fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
                 .to_string(),
             format!("erp.corp.example.com: web.certificates[0] ({}) -> service erp", at("corp.pem")),
             "example.com: Let's Encrypt, TLS check -> service blog".to_string(),
-            "nas.example.com: passthrough, the app's own certificate -> service nas".to_string(),
-            format!("portal.example.com: own file {} -> service portal", at("portal.pem")),
+            "nas.example.com: the app does its own HTTPS -> service nas".to_string(),
+            format!("portal.example.com: file {} -> service portal", at("portal.pem")),
             "updates.example.com: Let's Encrypt, TLS check; http:// served too (https_redirect: false) -> service updates"
                 .to_string(),
             "http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered"
@@ -363,17 +363,18 @@ fn a_site_with_its_own_port_says_where_else_it_is_reached() {
     );
     let lines = summary(&s).unwrap().lines();
     assert!(
-        lines.contains(&"nas.example.com: passthrough, the app's own certificate -> service nas (also public on 0.0.0.0:9000)".to_string()),
-        "{lines:#?}"
-    );
-    assert!(
-        lines.contains(&"git.example.com: passthrough, the app's own certificate -> service git (also on 127.0.0.1:9001)".to_string()),
+        lines.contains(&"nas.example.com: the app does its own HTTPS -> service nas (also public on 0.0.0.0:9000)".to_string()),
         "{lines:#?}"
     );
     assert!(
         lines.contains(
-            &"box.example.com: passthrough, the app's own certificate -> service box".to_string()
+            &"git.example.com: the app does its own HTTPS -> service git (also on 127.0.0.1:9001)"
+                .to_string()
         ),
+        "{lines:#?}"
+    );
+    assert!(
+        lines.contains(&"box.example.com: the app does its own HTTPS -> service box".to_string()),
         "{lines:#?}"
     );
 }
