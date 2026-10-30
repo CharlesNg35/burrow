@@ -91,6 +91,10 @@ impl ServerSettings {
     pub fn listen_clash(&self, next: &ServerSettings) -> Option<ListenClash> {
         let kept = self.listen.filter(|_| next.listen != self.listen)?;
         let conflicts = |a| crate::config::check::binds_conflict(kept, a);
+        let labelled = |path: &[&str]| {
+            let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+            burrow_config::label_of(&path).unwrap_or_else(|| path.join("."))
+        };
         let clash = |path: &[&str], what: String| ListenClash {
             path: path.iter().map(|s| s.to_string()).collect(),
             what,
@@ -106,24 +110,24 @@ impl ServerSettings {
                 next.websocket
                     .as_ref()
                     .filter(|w| conflicts(w.listen))
-                    .map(|_| clash(&["websocket", "listen"], "websocket.listen".into()))
+                    .map(|_| clash(&["websocket", "listen"], labelled(&["websocket"])))
             })
             .or_else(|| {
                 next.metrics
                     .filter(|m| conflicts(*m))
-                    .map(|_| clash(&["metrics", "listen"], "metrics.listen".into()))
+                    .map(|_| clash(&["metrics", "listen"], labelled(&["metrics"])))
             })
             .or_else(|| {
                 next.web
                     .as_ref()
                     .filter(|w| w.https.is_some_and(conflicts))
-                    .map(|_| clash(&["web", "https"], "web.https".into()))
+                    .map(|_| clash(&["web", "https"], labelled(&["web", "https"])))
             })
             .or_else(|| {
                 next.web
                     .as_ref()
                     .filter(|w| w.http.is_some_and(conflicts))
-                    .map(|_| clash(&["web", "http"], "web.http".into()))
+                    .map(|_| clash(&["web", "http"], labelled(&["web", "http"])))
             })
     }
 }
@@ -578,12 +582,12 @@ mod tests {
         assert_eq!(c.kept.port(), 7835);
         let ws =
             settings(&base.replace("listen: 7835", "listen: 7836\nwebsocket: { listen: 7835 }"));
-        assert_eq!(old.listen_clash(&ws).unwrap().what, "websocket.listen");
+        assert_eq!(old.listen_clash(&ws).unwrap().what, "WebSocket");
         let metrics = settings(&base.replace(
             "listen: 7835",
             "listen: 7836\nmetrics: { listen: 0.0.0.0:7835 }",
         ));
-        assert_eq!(old.listen_clash(&metrics).unwrap().what, "metrics.listen");
+        assert_eq!(old.listen_clash(&metrics).unwrap().what, "Metrics endpoint");
         if cfg!(feature = "web") {
             let web = settings(
                 &base.replace("listen: 7835", "listen: 7836\nweb: { https: 0.0.0.0:7835 }"),
@@ -591,7 +595,7 @@ mod tests {
             let c = old.listen_clash(&web).unwrap();
             assert_eq!(
                 (c.what.as_str(), c.path.clone()),
-                ("web.https", vec!["web".to_string(), "https".to_string()])
+                ("HTTPS port", vec!["web".to_string(), "https".to_string()])
             );
         }
         let udp = settings(&base.replace("listen: 7835", "listen: 7836").replace(

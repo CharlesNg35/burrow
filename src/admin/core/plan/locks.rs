@@ -211,7 +211,7 @@ pub(super) fn keep_locked(
             code: burrow_admin_proto::codes::LOCKED_KEPT.into(),
             message: format!(
                 "{} kept at {} (locked)",
-                path.join("."),
+                burrow_config::label_of(&path).unwrap_or_else(|| path.join(".")),
                 shown(now.as_ref())
             ),
             confirm: None,

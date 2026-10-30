@@ -246,7 +246,7 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
         .iter()
         .find(|i| i.code == burrow_admin_proto::codes::LOCKED_KEPT)
         .expect("a note");
-    assert_eq!(kept.message, "listen kept at 7999 (locked)");
+    assert_eq!(kept.message, "Listen address kept at 7999 (locked)");
     let computed = plan::compute(
         &core,
         &s,

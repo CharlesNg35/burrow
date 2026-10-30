@@ -1,10 +1,7 @@
-use burrow_admin_proto::codes::{DUPLICATE_BIND, PUBLIC_PORT_SKIPS_LOGIN, UNREACHABLE_SERVICE};
-
-const CLIENT_AND_CLIENTS: &str = "client-and-clients";
-const MISSING_CLIENT: &str = "missing-client";
-const DUPLICATE_CLIENT: &str = "duplicate-client";
-const DUPLICATE_VISITOR: &str = "duplicate-visitor";
-const AUTH_BOTH: &str = "auth-both";
+use burrow_admin_proto::codes::{
+    AUTH_BOTH, CLIENT_AND_CLIENTS, DUPLICATE_BIND, DUPLICATE_CLIENT, DUPLICATE_VISITOR,
+    MISSING_CLIENT, PUBLIC_PORT_SKIPS_LOGIN, UNREACHABLE_SERVICE,
+};
 
 pub(crate) fn worded(code: &str, subject: &str) -> Option<String> {
     let text = match code {
@@ -30,8 +27,8 @@ pub(crate) fn worded(code: &str, subject: &str) -> Option<String> {
 #[cfg(test)]
 pub(crate) const SCHEMA: [&str; 3] = [
     burrow_admin_proto::codes::MISSING_FIELD,
-    "out-of-range",
-    "wrong-type",
+    burrow_admin_proto::codes::OUT_OF_RANGE,
+    burrow_admin_proto::codes::WRONG_TYPE,
 ];
 
 #[cfg(test)]
@@ -57,6 +54,47 @@ mod tests {
     const PLAIN: &str = "already a plain sentence about this server";
     const IMPACT: &str = "an impact or confirm line the server writes in plain words for Review";
     const TEST_ONLY: &str = "used only by a unit test fixture";
+    const WHY_NOT: &str = "a reason the server gives in a plain sentence with its hint, shown as written where editing or saving is not possible";
+
+    fn server_lines() -> Vec<(&'static str, &'static str)> {
+        let impact = [
+            "opens-port",
+            "stops-websites",
+            "websocket-moved",
+            "websocket-off",
+            "websocket-host",
+            "adds-client",
+            "closes-port",
+            "stops-website",
+            "removes-visitors",
+            "port-in-use",
+            "web-port-shared",
+            "adds-service",
+            "changes-listen",
+            "changes-self-allow",
+            "changes-service",
+            "disconnects-client",
+            "plaintext-toggled",
+            "rebinds-service",
+            "removes-client",
+            "removes-service",
+            "removes-visitor",
+            "renames",
+            "restart-needed",
+            "visitor-loses-access",
+            "locked-kept",
+        ];
+        let why_not = [
+            "file-not-writable",
+            "folder-not-writable",
+            "read-only-fs",
+            "read-level",
+        ];
+        let mut out = Vec::new();
+        out.extend(impact.map(|c| (c, IMPACT)));
+        out.extend(why_not.map(|c| (c, WHY_NOT)));
+        out
+    }
 
     fn allowed() -> Vec<(&'static str, &'static str)> {
         let key_led = [
@@ -92,7 +130,6 @@ mod tests {
             "open-range",
             "dns-domains",
             "dns-rfc2136",
-            "dns-wait",
             "grpc-reach",
             "duplicate-path",
             "redirect-name",
@@ -185,26 +222,15 @@ mod tests {
             "web-port",
             "wildcard-hint",
             "dns-wildcard",
-        ];
-        let impact = [
-            "opens-port",
-            "stops-websites",
-            "websocket-moved",
-            "websocket-off",
-            "websocket-host",
-            "adds-client",
-            "closes-port",
-            "stops-website",
-            "removes-visitors",
-            "port-in-use",
-            "web-port-shared",
+            "listen-clash",
+            "profile-not-offered",
         ];
         let mut out = Vec::new();
         out.extend(key_led.map(|c| (c, KEY_LED)));
         out.extend(client_file.map(|c| (c, CLIENT_FILE)));
         out.extend(file_load.map(|c| (c, FILE_LOAD)));
         out.extend(plain.map(|c| (c, PLAIN)));
-        out.extend(impact.map(|c| (c, IMPACT)));
+        out.extend(server_lines());
         out.extend(["x", "unknown-client"].map(|c| (c, TEST_ONLY)));
         out
     }
