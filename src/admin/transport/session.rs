@@ -38,6 +38,19 @@ fn encode(v: &Value) -> Vec<u8> {
     serde_json::to_vec(v).unwrap_or_default()
 }
 
+fn reply(id: u32, result: Result<Value, ApiError>) -> Vec<u8> {
+    let bytes = encode(&match result {
+        Ok(body) => msg::reply_ok(id, body),
+        Err(e) => msg::reply_err(id, &e.wire()),
+    });
+    if bytes.len() <= frame::MAX_MESSAGE {
+        return bytes;
+    }
+    debug!("admin reply {id} is {} bytes, over the limit", bytes.len());
+    let too_large = ApiError::new(ErrorCode::TooLarge, frame::FrameError::TooLarge.to_string());
+    encode(&msg::reply_err(id, &too_large.wire()))
+}
+
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
     tokio::task::spawn_blocking(f).await.ok()
 }
@@ -131,7 +144,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
     core::ok(applied)
 }
 
-async fn handle(cx: Arc<Ctx>, req: Request) -> Value {
+async fn handle(cx: Arc<Ctx>, req: Request) -> Vec<u8> {
     let id = req.id;
     let result = match req.t.as_str() {
         msg::req::APPLY => apply(&cx, req.body).await,
@@ -157,10 +170,7 @@ async fn handle(cx: Arc<Ctx>, req: Request) -> Value {
                 .unwrap_or_else(|| Err(ApiError::new(ErrorCode::Internal, "the request failed")))
         }
     };
-    match result {
-        Ok(body) => msg::reply_ok(id, body),
-        Err(e) => msg::reply_err(id, &e.wire()),
-    }
+    reply(id, result)
 }
 
 async fn writer_task(
@@ -176,7 +186,10 @@ async fn writer_task(
             Err(_) => vec![frame::ping().to_vec()],
             Ok(Some(Out::Message(m))) => match frame::chunks(&m) {
                 Ok(r) => r,
-                Err(_) => continue,
+                Err(e) => {
+                    debug!("admin message of {} bytes dropped: {e}", m.len());
+                    continue;
+                }
             },
             Ok(None) => break,
         };
@@ -224,7 +237,7 @@ pub async fn run(
         access: access.clone(),
     });
     let mut assembler = Assembler::new();
-    let mut jobs: JoinSet<Value> = JoinSet::new();
+    let mut jobs: JoinSet<Vec<u8>> = JoinSet::new();
     let mut status_every: Option<tokio::time::Interval> = None;
     let mut config_events = false;
     let mut last_rev = blocking({
@@ -237,11 +250,11 @@ pub async fn run(
     file_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_request = tokio::time::Instant::now();
     let mut heard = tokio::time::Instant::now();
-    let send = |v: Value, until: tokio::time::Instant| {
+    let send = |bytes: Vec<u8>, until: tokio::time::Instant| {
         let tx = tx.clone();
         async move {
             matches!(
-                tokio::time::timeout_at(until, tx.send(Out::Message(encode(&v)))).await,
+                tokio::time::timeout_at(until, tx.send(Out::Message(bytes))).await,
                 Ok(Ok(()))
             )
         }
@@ -274,14 +287,14 @@ pub async fn run(
                     let sub: Subscribe = core::parse(&req.body).unwrap_or_default();
                     status_every = status_interval(&sub);
                     config_events = sub.config;
-                    if !send(msg::reply_ok(req.id, serde_json::json!({})), heard + silence).await {
+                    if !send(reply(req.id, Ok(serde_json::json!({}))), heard + silence).await {
                         break "closed";
                     }
                     continue;
                 }
                 if jobs.len() >= MAX_INFLIGHT {
                     let e = ApiError::new(ErrorCode::Busy, "too many requests in flight");
-                    if !send(msg::reply_err(req.id, &e.wire()), heard + silence).await {
+                    if !send(reply(req.id, Err(e)), heard + silence).await {
                         break "closed";
                     }
                     continue;
@@ -311,25 +324,25 @@ pub async fn run(
                 }
                 if let Some(reason) = access.revoked() {
                     let ev = msg::event(msg::ev::REVOKED, serde_json::to_value(Revoked { reason }).unwrap_or_default());
-                    let _ = send(ev, heard + silence).await;
+                    let _ = send(encode(&ev), heard + silence).await;
                     break "revoked";
                 }
                 if config_events
                     && let Some(ev) = config_event(&hub, &mut last_rev).await
-                    && !send(ev, heard + silence).await
+                    && !send(encode(&ev), heard + silence).await
                 {
                     break "closed";
                 }
             }
             _ = file_check.tick(), if config_events => {
                 if let Some(ev) = config_event(&hub, &mut last_rev).await
-                    && !send(ev, heard + silence).await
+                    && !send(encode(&ev), heard + silence).await
                 {
                     break "closed";
                 }
             }
             _ = shutdown.changed() => {
-                let _ = send(msg::event(msg::ev::BYE, serde_json::json!({})), heard + silence).await;
+                let _ = send(encode(&msg::event(msg::ev::BYE, serde_json::json!({}))), heard + silence).await;
                 break "server stopping";
             }
             _ = tokio::time::sleep_until(heard + silence) => {
@@ -355,15 +368,15 @@ fn status_interval(sub: &Subscribe) -> Option<tokio::time::Interval> {
     })
 }
 
-fn spawn_job(jobs: &mut JoinSet<Value>, cx: &Arc<Ctx>, req: Request) {
+fn spawn_job(jobs: &mut JoinSet<Vec<u8>>, cx: &Arc<Ctx>, req: Request) {
     if req.t == msg::req::APPLY {
         let id = req.id;
         let detached = tokio::spawn(handle(cx.clone(), req));
         jobs.spawn(async move {
             detached.await.unwrap_or_else(|_| {
-                msg::reply_err(
+                reply(
                     id,
-                    &ApiError::new(ErrorCode::Internal, "the apply task failed").wire(),
+                    Err(ApiError::new(ErrorCode::Internal, "the apply task failed")),
                 )
             })
         });
@@ -424,6 +437,31 @@ mod tests {
         fn revoked(&self) -> Option<String> {
             Some("admin level changed".into())
         }
+    }
+
+    #[test]
+    fn a_reply_over_the_message_limit_is_a_too_large_error() {
+        let big = serde_json::json!({ "x": "a".repeat(frame::MAX_MESSAGE) });
+        let bytes = reply(7, Ok(big));
+        assert!(bytes.len() <= frame::MAX_MESSAGE);
+        let text = std::str::from_utf8(&bytes).unwrap();
+        match msg::Incoming::parse(text) {
+            Some(msg::Incoming::Reply {
+                re: 7,
+                result: Err(e),
+            }) => {
+                assert_eq!(e.code, ErrorCode::TooLarge);
+            }
+            _ => panic!("{text}"),
+        }
+        let small = reply(8, Ok(serde_json::json!({ "x": 1 })));
+        assert!(matches!(
+            msg::Incoming::parse(std::str::from_utf8(&small).unwrap()),
+            Some(msg::Incoming::Reply {
+                re: 8,
+                result: Ok(_)
+            })
+        ));
     }
 
     #[tokio::test]
