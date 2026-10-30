@@ -322,7 +322,7 @@ fn admin_rights_are_checked() {
     assert!(
         !found
             .iter()
-            .any(|(c, _)| c == "unused-visitor" || c == "admin-shared"),
+            .any(|(c, _)| c == burrow_admin_proto::codes::UNUSED_VISITOR || c == "admin-shared"),
         "{found:?}"
     );
     let bad = lone.replace("10.0.0.0/8", "10.0.0.1/8");

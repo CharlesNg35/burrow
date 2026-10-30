@@ -32,8 +32,9 @@ pub const FORWARD_AUTH: &str = "forward-auth";
 pub const FORWARD_AUTH_H2: &str = "forward-auth-h2";
 pub const UNKNOWN_LOGIN: &str = "unknown-login";
 pub const FORWARD_AUTH_UNUSED: &str = "forward-auth-unused";
+pub const UNUSED_VISITOR: &str = "unused-visitor";
 
-pub const READ_BY_THE_UI: [&str; 17] = [
+pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,
     REDIRECT_PASSTHROUGH,
     REDIRECT_PLAIN,
@@ -51,4 +52,5 @@ pub const READ_BY_THE_UI: [&str; 17] = [
     DUPLICATE_BIND,
     UNREACHABLE_SERVICE,
     NO_HTTP,
+    UNUSED_VISITOR,
 ];

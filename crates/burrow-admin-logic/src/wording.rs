@@ -1,7 +1,8 @@
 use burrow_admin_proto::codes::{
     BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, NO_CERTIFICATE, NO_CHECK,
     NO_HTTP, PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP,
-    REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, WEB_OFF, WEB_TCP_ONLY, WILDCARD_NEEDS_DNS,
+    REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, UNUSED_VISITOR, WEB_OFF, WEB_TCP_ONLY,
+    WILDCARD_NEEDS_DNS,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
@@ -43,12 +44,24 @@ fn key_path(head: &str) -> bool {
 }
 
 pub fn help_shown(code: &str, help: Option<&str>) -> Option<String> {
+    if code == UNUSED_VISITOR {
+        return Some(
+            "Add it to a service's Visitors, or give it direct access to a client.".into(),
+        );
+    }
     if code == NO_HTTP {
         return Some(format!(
             "Set the HTTP port (80) in {WEB_PROXY} so http:// addresses are sent to https://"
         ));
     }
-    help.map(str::to_string)
+    help.filter(|h| !speaks_yaml(h)).map(str::to_string)
+}
+
+fn speaks_yaml(help: &str) -> bool {
+    help.contains(['{', '['])
+        || help
+            .split_whitespace()
+            .any(|w| w.ends_with(':') && key_path(w.trim_end_matches(':')))
 }
 
 pub fn field_for(code: &str) -> Option<Vec<String>> {
@@ -58,6 +71,12 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 
 pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     let subject = subjects.first().map_or("", String::as_str);
+    if code == UNUSED_VISITOR {
+        return format!("Visitor {subject} can't reach anything");
+    }
+    if code == NO_HTTP {
+        return "No HTTP port: http:// addresses get no answer".into();
+    }
     if code == REDIRECT_NEEDS_HTTP {
         return format!(
             "answering plain HTTP too needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in {WEB_PROXY}, or send http:// to https://"
@@ -331,5 +350,39 @@ mod tests {
             Some(vec!["web".to_string(), "http".to_string()])
         );
         assert_eq!(help_shown("other", Some("x")).as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn needs_attention_speaks_plain_english_without_codes_or_yaml() {
+        let who = ["plain".to_string()];
+        assert_eq!(
+            shown(
+                UNUSED_VISITOR,
+                "visitor \"plain\" cannot reach anything",
+                &who
+            ),
+            "Visitor plain can't reach anything"
+        );
+        assert_eq!(
+            help_shown(
+                UNUSED_VISITOR,
+                Some("add it to a service, for example visitors: [plain]")
+            )
+            .as_deref(),
+            Some("Add it to a service's Visitors, or give it direct access to a client.")
+        );
+        assert_eq!(
+            shown(NO_HTTP, "web.http is not set: x", &[]),
+            "No HTTP port: http:// addresses get no answer"
+        );
+        assert_eq!(help_shown("other", Some("set web.http: 80 there")), None);
+        assert_eq!(
+            help_shown("other", Some("give it reach: { CLIENT: any }")),
+            None
+        );
+        assert_eq!(
+            help_shown("other", Some("pick a client")).as_deref(),
+            Some("pick a client")
+        );
     }
 }

@@ -123,8 +123,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             tone: Tone::Warning,
             title: burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
             detail: burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
-                .map(|h| format!("{} · {h}", d.code))
-                .unwrap_or_else(|| d.code.clone()),
+                .unwrap_or_default(),
             to: d.path.as_deref().and_then(link_of),
             field: burrow_admin_logic::wording::field_for(&d.code),
         });

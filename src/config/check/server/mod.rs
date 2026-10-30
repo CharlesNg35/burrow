@@ -289,10 +289,11 @@ fn check_visitors(
         {
             out.push(
                 Diagnostic::warning(
-                    "unused-visitor",
+                    burrow_admin_proto::codes::UNUSED_VISITOR,
                     format!("visitor \"{name}\" cannot reach anything"),
                 )
                 .at(spans.key(&["visitors", name]))
+                .about(name.clone())
                 .help(format!(
                     "add it to a service, for example visitors: [{name}], or give it reach: {{ CLIENT: any }}"
                 )),
