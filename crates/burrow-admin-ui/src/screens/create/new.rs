@@ -69,10 +69,10 @@ pub fn NewEntity(
         Some(Entity::Client) => {
             "A machine that dials out to this server and reaches targets for your services."
         }
-        Some(Entity::Visitor) => {
-            "A person or machine that reaches private services with burrow visit."
+        Some(Entity::Visitor) => "A person or machine that reaches services with burrow visit.",
+        _ => {
+            "A port on this server, a website, or a service for your visitors, reached through one of your clients."
         }
-        _ => "A port on this server, or a private target, reached through one of your clients.",
     };
     let sec5 = section.clone();
     let options = Signal::derive(move || services_for(&sec5));

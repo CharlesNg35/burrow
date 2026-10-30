@@ -46,8 +46,12 @@ pub(crate) fn service_tr(
     let label = name.clone();
     let exposure = match burrow_admin_logic::web::exposure(svc) {
         Some(b) => view! { <span class="font-mono text-[13px]">{b}</span> }.into_any(),
-        None => view! { <span class="font-mono text-[13px] text-text-faint">"private"</span> }
-            .into_any(),
+        None => {
+            let w = burrow_admin_logic::web::ways(svc);
+            let none = !(w.website || w.visitors);
+            let text = burrow_admin_logic::web::without_exposure(w);
+            view! { <span class=if none { "text-[13px] text-warning" } else { "text-[13px] text-text-muted" }>{text}</span> }.into_any()
+        }
     };
     view! {
         <tr data-row=name>
@@ -234,18 +238,20 @@ pub(super) fn service_row(
     let problem =
         status.is_some() && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
     let mut tags = vec![protocol_tag(v)];
-    let site = burrow_admin_logic::web::site_kind(v, https_on);
-    match site {
-        Some(SiteKind::Https) => tags.push(("HTTPS".into(), Tone::Success)),
-        Some(SiteKind::Plain) => tags.push(("HTTP · unencrypted".into(), Tone::Warning)),
-        Some(SiteKind::Passthrough) => tags.push(("passthrough".into(), Tone::Neutral)),
-        None => {}
-    }
     if ways.public {
         tags.push(("public".into(), Tone::Neutral));
     }
+    if ways.website {
+        tags.push(("website".into(), Tone::Neutral));
+    }
+    if burrow_admin_logic::web::site_kind(v, https_on) == Some(SiteKind::Plain) {
+        tags.push(("unencrypted".into(), Tone::Warning));
+    }
     if ways.visitors {
         tags.push((ServiceEntry::VISITORS.key().into(), Tone::Neutral));
+    }
+    if !(ways.public || ways.website || ways.visitors) {
+        tags.push((burrow_admin_logic::web::NO_WAY_IN.into(), Tone::Warning));
     }
     if up == 0 && status.is_some() {
         tags.push(("✕ Down".into(), Tone::Danger));
@@ -272,7 +278,7 @@ pub(super) fn service_row(
             .unwrap_or_default(),
         line2: format!(
             "{} → {}",
-            burrow_admin_logic::web::exposure(v).unwrap_or_else(|| "private".into()),
+            burrow_admin_logic::web::reached(v),
             plain(ServiceEntry::TARGET.get(v).unwrap_or(&Value::Null))
         ),
         tags,
@@ -285,7 +291,7 @@ pub(super) fn service_row(
         filters: [
             ways.public.then_some(crate::route::PUBLIC_FILTER),
             Some(if udp { Protocol::Udp } else { Protocol::Tcp }.wire()),
-            site.is_some().then_some(crate::route::WEBSITES_FILTER),
+            ways.website.then_some(crate::route::WEBSITES_FILTER),
             ways.visitors.then_some(ServiceEntry::VISITORS.key()),
         ]
         .into_iter()

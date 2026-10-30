@@ -261,7 +261,7 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
         let chips = if admin_only {
             view! { <p class="px-4 py-3 text-sm text-text-muted">"None: this visitor runs burrow admin, not burrow visit."</p> }.into_any()
         } else if may.is_empty() {
-            view! { <p class="px-4 py-3 text-sm text-text-muted">"No private service names this visitor. Pick it in a service's Visitors field."</p> }.into_any()
+            view! { <p class="px-4 py-3 text-sm text-text-muted">"No service lists this visitor yet. Pick it in a service's Visitors field."</p> }.into_any()
         } else {
             view! {
                 <div class="flex flex-wrap gap-2 px-4 py-3">

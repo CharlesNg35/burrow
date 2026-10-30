@@ -37,7 +37,7 @@ pub struct ClientEntry {
 #[serde(deny_unknown_fields)]
 #[admin(entity = visitor, label = "Visitor", groups(
     admin = "Admin access | May this visitor run burrow admin against this server?",
-    access = "Access | Private services and direct reach.",
+    access = "Access | Services it may use and direct access to clients.",
     traffic = "Traffic | Limits for this visitor."
 ))]
 pub struct VisitorEntry {

@@ -179,8 +179,7 @@ fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
                     burrow_ui_kit::ComboOption {
                         value: n.clone(),
                         label: n.clone(),
-                        facet: burrow_admin_logic::web::exposure(v)
-                            .unwrap_or_else(|| "private".into()),
+                        facet: burrow_admin_logic::web::reached(v),
                         dot: up.map(|u| {
                             if u {
                                 burrow_ui_kit::Tone::Success

@@ -132,7 +132,7 @@ pub(super) fn visitors_table(s: Store, values: Memo<Value>) -> AnyView {
     let v = values.get();
     let n = names(&v, VisitorEntry::section());
     if n.is_empty() {
-        return view! { <EmptyState title="No visitors yet" message="A visitor reaches private services with burrow visit." testid="visitors-empty"/> }.into_any();
+        return view! { <EmptyState title="No visitors yet" message="A visitor reaches services with burrow visit." testid="visitors-empty"/> }.into_any();
     }
     let st = s.status.get();
     let of = |name: &str| {

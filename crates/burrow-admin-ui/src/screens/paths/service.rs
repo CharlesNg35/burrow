@@ -207,7 +207,7 @@ fn server_hop(svc: &Value, public: bool, running: bool) -> Hop {
         value: if public {
             plain(ServiceEntry::BIND.get(svc).unwrap_or(&Value::Null))
         } else {
-            "private".into()
+            burrow_admin_logic::web::reached(svc)
         },
         mono: public,
         dot: Some(if running {

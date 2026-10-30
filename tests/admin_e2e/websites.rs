@@ -92,8 +92,8 @@ async fn read_only_pages(c: &mut Ctx) {
         .await;
     let nas = c.ui.text("[data-row=nas]").await;
     assert!(
-        nas.contains("passthrough"),
-        "a website says how it is served: {nas}"
+        nas.contains("website") && !nas.contains("private"),
+        "a website row is tagged website, as Reached by rules: {nas}"
     );
     both_widths(c, "services-list").await;
     c.ui.nav("/services/nas").await;

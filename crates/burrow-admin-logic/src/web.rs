@@ -142,6 +142,22 @@ pub fn ways(svc: &Value) -> Ways {
     }
 }
 
+pub const VISITORS_ONLY: &str = "visitors only";
+pub const WEBSITE_ONLY: &str = "website only";
+pub const NO_WAY_IN: &str = "no way in";
+
+pub fn without_exposure(w: Ways) -> &'static str {
+    match w {
+        Ways { website: true, .. } => WEBSITE_ONLY,
+        Ways { visitors: true, .. } => VISITORS_ONLY,
+        _ => NO_WAY_IN,
+    }
+}
+
+pub fn reached(svc: &Value) -> String {
+    exposure(svc).unwrap_or_else(|| without_exposure(ways(svc)).to_string())
+}
+
 pub fn is_public(svc: &Value) -> bool {
     exposure(svc).is_some()
 }
@@ -396,5 +412,18 @@ mod tests {
         assert_eq!(exposure(&both).as_deref(), Some("7840"));
         assert_eq!(exposure(&json!({"target": 22})), None);
         assert!(!is_public(&json!({"bind": null, "web": []})));
+    }
+
+    #[test]
+    fn a_service_without_a_public_address_says_how_it_is_reached() {
+        use burrow_admin_proto::serde_json::json;
+        assert_eq!(reached(&json!({"bind": 9000})), "9000");
+        assert_eq!(
+            reached(&json!({"web": {"hosts": ["a.example.com"]}})),
+            "a.example.com"
+        );
+        assert_eq!(reached(&json!({"visitors": ["laptop"]})), VISITORS_ONLY);
+        assert_eq!(reached(&json!({"web": {"hosts": []}})), WEBSITE_ONLY);
+        assert_eq!(reached(&json!({"target": 1})), NO_WAY_IN);
     }
 }

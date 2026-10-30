@@ -77,6 +77,7 @@ pub(super) struct Svc {
     pub(super) rate: f64,
     pub(super) health: Health,
     pub(super) badge: Option<String>,
+    pub(super) reached: String,
 }
 
 pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&str>) -> Chart {
@@ -187,6 +188,7 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
                         rate: rates.service(name).bytes_in,
                         health,
                         badge,
+                        reached: burrow_admin_logic::web::reached(v),
                     }
                 })
                 .collect()

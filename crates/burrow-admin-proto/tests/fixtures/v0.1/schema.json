@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5872f2babfbe7714",
+  "hash": "b2s:c25e8badf807ac85",
   "root": {
     "label": "Server",
     "sem": {
@@ -1511,7 +1511,7 @@
                   {
                     "key": "access",
                     "label": "Access",
-                    "sub": "Private services and direct reach."
+                    "sub": "Services it may use and direct access to clients."
                   },
                   {
                     "key": "traffic",

@@ -43,8 +43,8 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
                                 None => format!(":{t}"),
                             }
                         })
-                        .or_else(|| burrow_admin_logic::web::exposure(v));
-                    (n.clone(), at.unwrap_or_else(|| "private".into()))
+                        .unwrap_or_else(|| burrow_admin_logic::web::reached(v));
+                    (n.clone(), at)
                 })
                 .collect()
         })
@@ -387,7 +387,7 @@ mod tests {
             false,
             &[],
         );
-        assert_eq!(p.hops[1].value, "private");
+        assert_eq!(p.hops[1].value, burrow_admin_logic::web::VISITORS_ONLY);
         assert_eq!(p.hops[1].unit, "TCP");
     }
 
@@ -403,7 +403,7 @@ mod tests {
         let p = service("dns", &dns, None, &none, false, &[]);
         assert_eq!(p.hops[0].head, "Visitors");
         assert_eq!(p.hops[0].value, "lap · ops");
-        assert_eq!(p.hops[1].value, "private");
+        assert_eq!(p.hops[1].value, burrow_admin_logic::web::VISITORS_ONLY);
         assert_eq!(p.hops[1].unit, "UDP");
     }
 
