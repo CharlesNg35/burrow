@@ -96,7 +96,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                 let connected = c.as_ref().and_then(|c| c.connected_secs);
                 view! {
                     <Stats testid="live">
-                        <Stat label="Open" value=c.as_ref().map(|c| format::count(c.open)).unwrap_or_else(|| "0".into()) detail=format!("max {}", format::count(max))/>
+                        <Stat label="Open" value=c.as_ref().map(|c| format::count(c.open)).unwrap_or_else(|| "0".into()) detail=if c.as_ref().is_some_and(|c| c.at_limit) { "at the client's own limit".to_string() } else { format!("max {}", format::count(max)) }/>
                         <Stat label="Idle channels" value=c.as_ref().map(|c| c.idle_channels.to_string()).unwrap_or_else(|| "0".into()) detail=pool_range(&doc)/>
                         <Stat
                             label="Connected"

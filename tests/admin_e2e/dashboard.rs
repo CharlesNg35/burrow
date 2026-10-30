@@ -174,12 +174,8 @@ fn at_limit(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         for (w, h) in [(1440, 900), (420, 900), (320, 800)] {
             c.ui.viewport(w, h).await;
             c.ui.nav("/clients/home").await;
-            c.ui.wait_text(
-                "[data-testid=limit-tag]",
-                "at limit · max_connections in client.yaml",
-                SECS,
-            )
-            .await;
+            c.ui.wait_text("[data-testid=limit-tag]", "At its limit", SECS)
+                .await;
             tokio::time::sleep(Duration::from_millis(300)).await;
             let clear: Vec<f64> = c
                 .ui
