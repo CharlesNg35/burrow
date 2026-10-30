@@ -46,8 +46,10 @@ impl Server {
         self.shared.prune_standing(&next);
         self.shared.reloaded.send_modify(|n| *n += 1);
 
-        let web_wait = self.apply_endpoints(&current, &mut next).await;
         let mut released = self.stop_moving_services(&next).await;
+        let web_wait = self
+            .apply_endpoints(&current, &mut next, &tcp_ports(&released))
+            .await;
         let unbound = self.bind_services(&current, &next, &mut released).await;
         log_former_private_services(&current, &next);
         self.update_sessions(&current, &next);
@@ -85,14 +87,17 @@ impl Server {
         &mut self,
         current: &ServerSettings,
         next: &mut ServerSettings,
+        freed: &[SocketAddr],
     ) -> Option<PortWait> {
         let before = self.tunnel_at(current);
         let mut web_wait = None;
-        let mut released = Vec::new();
+        let mut released = freed.to_vec();
         let ws_first = next.web.as_ref().is_some_and(|w| {
             self.websocket_addr().is_some_and(|a| {
                 w.https
-                    .is_some_and(|h| crate::config::check::binds_conflict(a, h))
+                    .into_iter()
+                    .chain(w.http)
+                    .any(|h| crate::config::check::binds_conflict(a, h))
             })
         });
         if ws_first {
@@ -510,6 +515,16 @@ impl Server {
         }
         self.metrics.as_ref().and(current)
     }
+}
+
+fn tcp_ports(released: &[(Protocol, SocketAddr, u16)]) -> Vec<SocketAddr> {
+    released
+        .iter()
+        .filter(|(p, _, _)| *p == Protocol::Tcp)
+        .flat_map(|(_, a, n)| {
+            (0..*n).filter_map(move |i| a.port().checked_add(i).map(|p| SocketAddr::new(a.ip(), p)))
+        })
+        .collect()
 }
 
 pub(super) fn own_listener(s: &ServerSettings) -> Option<WebSocketSettings> {

@@ -312,3 +312,99 @@ async fn removing_an_http_only_web_frees_its_port_for_a_service_in_the_same_save
     .await;
     assert!(ok.is_ok(), "the service took the port the web proxy left");
 }
+
+fn at(p: u16) -> std::net::SocketAddr {
+    format!("127.0.0.1:{p}").parse().unwrap()
+}
+
+async fn served_at_once(t: &Tunnel, next: burrow::config::settings::ServerSettings, http: u16) {
+    let report = t.server.reload_applied(next).await;
+    assert!(report.unbound.is_empty(), "{report:?}");
+    assert!(
+        t.server.shared.status().web_waiting.is_none(),
+        "no retry left"
+    );
+    let r = plain_get(at(http), "dash.lan.example.com", "/now").await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_service_port_that_becomes_the_new_web_http_port_is_served_by_the_same_save() {
+    let (echo, app) = (echo_server().await, http_app().await);
+    let secret = Secret::generate();
+    let port = free_port();
+    let mut next = plain_server(
+        &secret,
+        &[("dash", site(&["home"], app), &["dash.lan.example.com"])],
+    );
+    next.web.as_mut().unwrap().http = Some(at(port));
+    let mut s = next.clone();
+    s.web = None;
+    let mut db = service(echo, burrow_config::Protocol::Tcp);
+    db.bind = Some(at(port));
+    s.services.insert("dash".into(), db);
+    let t = tunnel_with(s, Vec::new(), |c| c, secret.clone()).await;
+    assert_eq!(
+        try_roundtrip(at(port), b"db").await.as_deref(),
+        Some(&b"db"[..])
+    );
+    served_at_once(&t, next, port).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_running_web_proxy_takes_an_http_port_a_service_gives_up_in_the_same_save() {
+    let (echo, app) = (echo_server().await, http_app().await);
+    let secret = Secret::generate();
+    let port = free_port();
+    let mut s = web_server(
+        &secret,
+        &[("dash", site(&["home"], app), &["dash.lan.example.com"])],
+    );
+    s.web.as_mut().unwrap().https = Some(at(free_port()));
+    let mut db = service(echo, burrow_config::Protocol::Tcp);
+    db.bind = Some(at(port));
+    s.services.insert("db".into(), db.clone());
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret.clone()).await;
+    let mut next = s.clone();
+    db.bind = None;
+    next.services.insert("db".into(), db);
+    let web = next.web.as_mut().unwrap();
+    web.http = Some(at(port));
+    let dash = web.sites.get_mut("dash").unwrap();
+    dash.tls = burrow::config::settings::WebTls::Off;
+    dash.https_redirect = false;
+    served_at_once(&t, next, port).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_tunnels_own_listener_can_become_the_shared_web_http_port_in_one_save() {
+    let app = http_app().await;
+    let secret = Secret::generate();
+    let port = free_port();
+    let mut s = plain_server(
+        &secret,
+        &[("dash", site(&["home"], app), &["dash.lan.example.com"])],
+    );
+    s.listen = None;
+    s.websocket = Some(burrow::config::settings::WebSocketSettings {
+        listen: at(port),
+        path: "/burrow".into(),
+        tls: None,
+        keepalive: Duration::from_secs(25),
+        host: None,
+        shares: burrow::config::settings::Shares::Nothing,
+    });
+    let srv = start_server(s.clone()).await;
+    assert_eq!(srv.ws_addr, Some(at(port)));
+    let mut next = s.clone();
+    next.web.as_mut().unwrap().http = Some(at(port));
+    let ws = next.websocket.as_mut().unwrap();
+    ws.host = Some("localhost".into());
+    ws.shares = burrow::config::settings::Shares::Http;
+    next.web.as_mut().unwrap().tunnel = Some("localhost".into());
+    let report = srv.reload_applied(next).await;
+    assert!(report.unbound.is_empty(), "{report:?}");
+    assert!(srv.shared.status().web_waiting.is_none(), "no retry left");
+    let r = plain_get(at(port), "localhost", "/burrow").await;
+    assert!(r.starts_with("HTTP/1.1 426"), "{r}");
+}
