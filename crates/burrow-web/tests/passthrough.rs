@@ -196,8 +196,14 @@ async fn silent_connections_over_the_cap_are_dropped_and_a_stop_ends_their_wait(
     assert!(closed_without_tls(addr, "nas.example.com").await);
     assert!(proxy.refused() >= 1);
     drop(silent.pop());
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    let mut ok = tls(addr, "nas.example.com").await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut ok = loop {
+        match tls(addr, "nas.example.com").await {
+            Ok(s) => break s,
+            Err(e) => assert!(tokio::time::Instant::now() < deadline, "a freed slot: {e}"),
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
     assert_eq!(ask(&mut ok, b"z").await.unwrap(), b"nas:z");
     proxy.stop().await;
     let mut buf = [0u8; 1];

@@ -473,7 +473,7 @@ async fn a_browser_without_a_tls_name_reaches_the_ip_site_it_dialled_over_https(
 
 #[tokio::test]
 async fn stopping_lets_a_request_in_flight_finish_and_closes_idle_keep_alive_connections() {
-    let (proxy, _app, _up) = blog().await;
+    let (proxy, app, _up) = blog().await;
     let addr = proxy.https_addr().unwrap();
     let mut idle = tls(addr, "blog.example.com").await.unwrap();
     idle.write_all(b"GET / HTTP/1.1\r\nHost: blog.example.com\r\n\r\n")
@@ -486,7 +486,10 @@ async fn stopping_lets_a_request_in_flight_finish_and_closes_idle_keep_alive_con
     busy.write_all(b"GET /slow/1000 HTTP/1.1\r\nHost: blog.example.com\r\n\r\n")
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    wait_until("the app sees the slow request", || {
+        app.requests.load(std::sync::atomic::Ordering::SeqCst) == 2
+    })
+    .await;
     let stopping = tokio::spawn(proxy.stop());
     let started = std::time::Instant::now();
     assert_eq!(

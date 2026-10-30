@@ -310,6 +310,15 @@ pub async fn closed_without_tls(addr: SocketAddr, name: &str) -> bool {
 pub struct HttpBackend {
     pub addr: SocketAddr,
     pub connections: Arc<std::sync::atomic::AtomicUsize>,
+    pub requests: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+pub async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !done() {
+        assert!(tokio::time::Instant::now() < deadline, "{what} within 5 s");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 async fn answer(
@@ -361,23 +370,30 @@ pub async fn http_backend() -> HttpBackend {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let count = connections.clone();
+    let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (count, asked) = (connections.clone(), requests.clone());
     tokio::spawn(async move {
         loop {
             let Ok((s, _)) = l.accept().await else { return };
             count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let asked = asked.clone();
             tokio::spawn(async move {
+                let service = hyper::service::service_fn(move |req| {
+                    asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    answer(req)
+                });
                 let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(
-                        hyper_util::rt::TokioIo::new(s),
-                        hyper::service::service_fn(answer),
-                    )
+                    .serve_connection(hyper_util::rt::TokioIo::new(s), service)
                     .with_upgrades()
                     .await;
             });
         }
     });
-    HttpBackend { addr, connections }
+    HttpBackend {
+        addr,
+        connections,
+        requests,
+    }
 }
 
 pub fn https_site(service: &str, hosts: &[&str]) -> Site {

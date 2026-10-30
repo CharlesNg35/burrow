@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -235,7 +236,10 @@ async fn shutdown_sends_goaway_and_lets_the_open_request_finish() {
     let p = proxy(&a, |_| {}).await;
     let mut c = client(p.https_addr().unwrap()).await;
     let held = tokio::spawn(async move { get(&mut c, &site_uri("/hold/500")).await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_until("the app sees the held request", || {
+        a.counts.requests.load(Ordering::SeqCst) == 1
+    })
+    .await;
     p.stop().await;
     let (status, _) = held.await.unwrap();
     assert_eq!(status, 200);
