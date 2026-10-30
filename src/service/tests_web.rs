@@ -259,12 +259,12 @@ fn purge_finds_the_access_log_in_the_services_own_log_folder_only() {
     let dir = tempfile::tempdir().unwrap();
     let logs = dir.path().join("logs");
     let secret = crate::wire::secret::Secret::generate().encode();
-    let write = |access: &std::path::Path| {
+    let load = |secret: &str, access: &std::path::Path, env: &[(&str, &str)]| {
         let config = dir.path().join("server.yaml");
         std::fs::write(
             &config,
             format!(
-                "listen: 7835\nclients:\n  home: {{ secret: {secret} }}\nweb:\n  https: 443\n  access_log: {}\nservices:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n",
+                "listen: 7835\nclients:\n  home: {{ secret: \"{secret}\" }}\nweb:\n  https: 443\n  access_log: {}\nservices:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n",
                 access.display()
             ),
         )
@@ -273,11 +273,30 @@ fn purge_finds_the_access_log_in_the_services_own_log_folder_only() {
         let mut m = manifest(None);
         m.config = config;
         m.log_file = logs.join("home.log");
-        super::uninstall::access_logs(&m)
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        super::uninstall::access_logs(&m, &env)
     };
     let own = logs.join("access.log");
-    let found = write(&own);
+    let found = load(&secret, &own, &[]);
     assert_eq!(found.first(), Some(&own), "{found:?}");
     assert!(found.contains(&logs.join("access.log.1")), "{found:?}");
-    assert!(write(&dir.path().join("elsewhere").join("access.log")).is_empty());
+    assert!(
+        load(
+            &secret,
+            &dir.path().join("elsewhere").join("access.log"),
+            &[]
+        )
+        .is_empty()
+    );
+    let var = "${BURROW_R2_PURGE_ONLY_IN_THE_ENV_FILE}";
+    assert!(load(var, &own, &[]).is_empty(), "no env file, no config");
+    let env_file = [("BURROW_R2_PURGE_ONLY_IN_THE_ENV_FILE", secret.as_str())];
+    assert_eq!(
+        load(var, &own, &env_file).first(),
+        Some(&own),
+        "the service's env file holds the secret, as when the service runs"
+    );
 }

@@ -81,6 +81,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     resolve(name)?;
     let operation = system::operation(out)?;
     let m = resolve(name)?;
+    let env = backend.read_env(&m);
     let _ = backend.stop(&m);
     backend.uninstall(&m)?;
     let _ = std::fs::remove_file(manifest_path(&m.name));
@@ -88,7 +89,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     let others = all_manifests();
     let strays = stray::strays();
     let mut logs = crate::base::logfile::all_files(&m.log_file);
-    logs.extend(access_logs(&m));
+    logs.extend(access_logs(&m, &env));
     let mut kept = Vec::new();
     let mut kept_folder = None;
     let state = m.web_state.clone().filter(|d| real_dir(d));
@@ -183,9 +184,13 @@ fn real_dir(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
 }
 
-pub(super) fn access_logs(m: &Manifest) -> Vec<PathBuf> {
-    let env = crate::config::env::ProcessEnv;
-    let Ok(outcome) = crate::config::load_file(&m.config, Some(crate::config::Role::Server), &env)
+pub(super) fn access_logs(
+    m: &Manifest,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Vec<PathBuf> {
+    let lookup = |k: &str| env.get(k).cloned();
+    let Ok(outcome) =
+        crate::config::load_file(&m.config, Some(crate::config::Role::Server), &lookup)
     else {
         return Vec::new();
     };
