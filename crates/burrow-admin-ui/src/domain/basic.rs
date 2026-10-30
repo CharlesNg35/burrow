@@ -104,21 +104,50 @@ pub(super) fn yaml_editor(fc: FieldCtx) -> AnyView {
 
 const INHERIT: &str = "inherit";
 
-fn tri_options(none_label: &str) -> Vec<(String, String, bool)> {
-    let mut out = vec![(INHERIT.to_string(), none_label.to_string(), false)];
-    for (v, l) in [("true", "Yes"), ("false", "No")] {
-        if l != none_label {
-            out.push((v.to_string(), l.to_string(), false));
-        }
-    }
-    out
+fn meaning(none_label: &str, default: Option<&Value>) -> Option<bool> {
+    default.and_then(Value::as_bool).or(match none_label {
+        "Yes" | "On" => Some(true),
+        "No" | "Off" => Some(false),
+        _ => None,
+    })
 }
 
-fn tri_value(none_label: &str, v: Option<&Value>) -> String {
-    match v.and_then(Value::as_bool) {
-        Some(true) if none_label != "Yes" => "true".into(),
-        Some(false) if none_label != "No" => "false".into(),
-        _ => INHERIT.into(),
+fn words(none_label: &str) -> [&'static str; 2] {
+    if matches!(none_label, "On" | "Off") {
+        ["On", "Off"]
+    } else {
+        ["Yes", "No"]
+    }
+}
+
+fn tri_options(none_label: &str, default: Option<&Value>) -> Vec<(String, String, bool)> {
+    let [yes, no] = words(none_label);
+    match meaning(none_label, default) {
+        Some(on) => vec![
+            (
+                INHERIT.to_string(),
+                format!("{} (default)", if on { yes } else { no }),
+                false,
+            ),
+            (
+                (!on).to_string(),
+                (if on { no } else { yes }).to_string(),
+                false,
+            ),
+        ],
+        None => vec![
+            (INHERIT.to_string(), none_label.to_string(), false),
+            ("true".to_string(), yes.to_string(), false),
+            ("false".to_string(), no.to_string(), false),
+        ],
+    }
+}
+
+fn tri_value(none_label: &str, default: Option<&Value>, v: Option<&Value>) -> String {
+    match (v.and_then(Value::as_bool), meaning(none_label, default)) {
+        (Some(b), Some(on)) if b == on => INHERIT.into(),
+        (Some(b), _) => b.to_string(),
+        (None, _) => INHERIT.into(),
     }
 }
 
@@ -126,13 +155,15 @@ fn tri_editor(fc: FieldCtx, none_label: String) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
     let label = none_label.clone();
-    let value = Signal::derive(move || tri_value(&label, e.value(&path).as_ref()));
+    let default = fc.node.default.clone();
+    let d2 = default.clone();
+    let value = Signal::derive(move || tri_value(&label, d2.as_ref(), e.value(&path).as_ref()));
     let p2 = fc.path.clone();
     view! {
         <div id=fc.id.clone()>
             <Segmented
                 name=format!("{}-choice", fc.id)
-                options=tri_options(&none_label)
+                options=tri_options(&none_label, default.as_ref())
                 value=value
                 label=fc.node.label.clone()
                 on_change=move |m: String| e.set(&p2, m.parse::<bool>().ok().map(Value::Bool))
@@ -318,23 +349,31 @@ mod tests {
 
     #[test]
     fn an_optional_yes_or_no_offers_its_unset_meaning_first_without_repeating_it() {
-        let labels = |n: &str| {
-            tri_options(n)
+        let labels = |n: &str, d: Option<Value>| {
+            tri_options(n, d.as_ref())
                 .into_iter()
                 .map(|(v, l, _)| format!("{v}={l}"))
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            labels("As the web proxy says"),
+            labels("As the web proxy says", None),
             ["inherit=As the web proxy says", "true=Yes", "false=No"]
         );
-        assert_eq!(labels("Yes"), ["inherit=Yes", "false=No"]);
-        assert_eq!(tri_value("Yes", Some(&json!(true))), "inherit");
-        assert_eq!(tri_value("Yes", Some(&json!(false))), "false");
+        assert_eq!(labels("Yes", None), ["inherit=Yes (default)", "false=No"]);
+        assert_eq!(labels("On", None), ["inherit=On (default)", "false=Off"]);
+        assert_eq!(labels("Off", None), ["inherit=Off (default)", "true=On"]);
         assert_eq!(
-            tri_value("As the web proxy says", Some(&json!(true))),
+            labels("Not set", Some(json!(true))),
+            ["inherit=Yes (default)", "false=No"]
+        );
+        assert_eq!(tri_value("Yes", None, Some(&json!(true))), "inherit");
+        assert_eq!(tri_value("On", None, Some(&json!(true))), "inherit");
+        assert_eq!(tri_value("Off", None, Some(&json!(true))), "true");
+        assert_eq!(tri_value("Yes", None, Some(&json!(false))), "false");
+        assert_eq!(
+            tri_value("As the web proxy says", None, Some(&json!(true))),
             "true"
         );
-        assert_eq!(tri_value("As the web proxy says", None), "inherit");
+        assert_eq!(tri_value("As the web proxy says", None, None), "inherit");
     }
 }
