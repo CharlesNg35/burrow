@@ -329,8 +329,12 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn balance_stays_even_while_one_client_is_down() {
-    let ea = tcp_tag_echo(b'A').await;
-    let eb = tcp_tag_echo(b'B').await;
+    let ea = super::tagged_echo_on("127.0.0.1:0".parse().unwrap(), b'A')
+        .await
+        .0;
+    let eb = super::tagged_echo_on("127.0.0.1:0".parse().unwrap(), b'B')
+        .await
+        .0;
     let (_held, dead) = refusing();
     let names = [
         ("a", Secret::generate(), ea),
@@ -380,24 +384,6 @@ async fn balance_stays_even_while_one_client_is_down() {
     drop(running);
 }
 
-async fn tcp_tag_echo(tag: u8) -> SocketAddr {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut s, _)) = l.accept().await else {
-                return;
-            };
-            tokio::spawn(async move {
-                let _ = s.write_all(&[tag]).await;
-                let mut sink = Vec::new();
-                let _ = s.read_to_end(&mut sink).await;
-            });
-        }
-    });
-    addr
-}
-
 async fn first_byte(addr: SocketAddr) -> Option<u8> {
     let mut s = TcpStream::connect(addr).await.ok()?;
     let mut b = [0u8; 1];
@@ -412,7 +398,9 @@ async fn first_byte(addr: SocketAddr) -> Option<u8> {
 async fn a_reconnecting_client_with_a_dead_target_does_not_take_traffic_back() {
     logs();
     let (_held, dead) = refusing();
-    let eb = tcp_tag_echo(b'B').await;
+    let eb = super::tagged_echo_on("127.0.0.1:0".parse().unwrap(), b'B')
+        .await
+        .0;
     let (sa, sb) = (Secret::generate(), Secret::generate());
     let mut settings = server_settings(vec![]);
     settings.clients.clear();
