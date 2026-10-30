@@ -1,16 +1,17 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use super::standing::Seen;
 use super::via::Via;
 use super::{CountGuard, Shared};
-use crate::config::settings::Service;
+use crate::config::settings::{EntryKey, Service};
 use burrow_config::Mode;
 
 #[derive(Clone)]
 pub(crate) struct Hop {
     pub(crate) via: Via,
     pub(crate) target: String,
-    pub(crate) base: String,
+    pub(crate) key: EntryKey,
     pub(crate) weight: u32,
 }
 
@@ -25,20 +26,15 @@ impl Deref for Hop {
 impl Hop {
     pub(crate) fn direct(via: Via, target: &str) -> Hop {
         Hop {
+            key: EntryKey {
+                client: Arc::from(via.name()),
+                base: Arc::from(target),
+            },
             via,
             target: target.to_string(),
-            base: target.to_string(),
             weight: 1,
         }
     }
-
-    pub(super) fn key(&self) -> String {
-        entry_key(self.via.name(), &self.base)
-    }
-}
-
-pub(super) fn entry_key(client: &str, base: &str) -> String {
-    format!("{client}\u{0}{base}")
 }
 
 pub(crate) struct Picked {
@@ -98,7 +94,7 @@ impl Shared {
 
     pub(crate) fn has_clear(&self, service: &str, svc: &Service, index: u16) -> bool {
         self.hops(service, svc, index).iter().any(|h| {
-            (svc.health.is_none() || self.is_up(service, h.name(), &h.base))
+            (svc.health.is_none() || self.is_up(service, &h.key))
                 && self.seen(service, h, &h.target) == Seen::Clear
         })
     }
@@ -112,7 +108,7 @@ impl Shared {
                 Some(Hop {
                     via: via.clone(),
                     target: svc.entry_target_at(e, index),
-                    base: svc.target_of(e).to_string(),
+                    key: e.key.clone(),
                     weight: e.weight,
                 })
             })
@@ -128,7 +124,7 @@ impl Shared {
     ) -> (Vec<Hop>, Option<Held>) {
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
         for h in self.hops(service, svc, index) {
-            let healthy = svc.health.is_none() || self.is_up(service, h.name(), &h.base);
+            let healthy = svc.health.is_none() || self.is_up(service, &h.key);
             match self.seen(service, &h, &h.target) {
                 Seen::Refused => refused.push(h),
                 Seen::Aside => aside.push(h),
@@ -146,13 +142,8 @@ impl Shared {
             match svc.mode {
                 Mode::Failover => {}
                 Mode::Balance => {
-                    let keys: Vec<String> = head.iter().map(Hop::key).collect();
-                    let group: Vec<(&str, u32)> = keys
-                        .iter()
-                        .zip(head.iter())
-                        .map(|(k, h)| (k.as_str(), h.weight))
-                        .collect();
-                    let first = wheels.turn(service, svc, &group);
+                    let group = head.iter().map(|h| (&h.key, h.weight));
+                    let first = wheels.turn(service, svc.entries_id(), group);
                     head.rotate_left(first);
                 }
                 Mode::LeastConnections => {
@@ -177,19 +168,15 @@ impl Shared {
     }
 
     pub(super) fn entry_opens(&self, service: &str, hop: &Hop) -> CountGuard {
-        self.entry_counts
-            .enter(&format!("{service}\u{0}{}", hop.key()))
-            .0
+        self.entry_counts.enter(service, &hop.key)
     }
 
     fn entry_count(&self, service: &str, hop: &Hop) -> u64 {
-        self.entry_counts
-            .current(&format!("{service}\u{0}{}", hop.key()))
+        self.entry_counts.current(service, &hop.key)
     }
 
-    pub(super) fn entry_open(&self, service: &str, client: &str, base: &str) -> u64 {
-        self.entry_counts
-            .current(&format!("{service}\u{0}{}", entry_key(client, base)))
+    pub(super) fn entry_open(&self, service: &str, key: &EntryKey) -> u64 {
+        self.entry_counts.current(service, key)
     }
 
     #[cfg(feature = "web")]

@@ -178,11 +178,10 @@ pub(super) fn check_clients(
         let weight = weight
             .filter(|w| (1..=burrow_config::WEIGHT_MAX).contains(w))
             .map_or(1, |w| w as u32);
-        listed.entries.push(Entry {
-            client: client.to_string(),
-            target,
-            weight,
-        });
+        let service_target = service.map_or("", |s| s.0.as_str());
+        listed
+            .entries
+            .push(Entry::new(client, target, weight, service_target));
     }
     listed
 }

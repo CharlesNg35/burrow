@@ -1,40 +1,74 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
-use crate::config::settings::Service;
+use super::CountGuard;
+use crate::config::settings::{EntryKey, Service};
+
+#[derive(Default)]
+pub(super) struct EntryCounts(Mutex<HashMap<String, HashMap<EntryKey, Arc<AtomicUsize>>>>);
+
+impl EntryCounts {
+    pub(super) fn enter(&self, service: &str, key: &EntryKey) -> CountGuard {
+        let mut all = self.0.lock().expect("entry counts lock");
+        let of = match all.get_mut(service) {
+            Some(of) => of,
+            None => all.entry(service.to_string()).or_default(),
+        };
+        let count = match of.get(key) {
+            Some(c) => c.clone(),
+            None => of.entry(key.clone()).or_default().clone(),
+        };
+        count.fetch_add(1, Ordering::AcqRel);
+        CountGuard(count)
+    }
+
+    pub(super) fn current(&self, service: &str, key: &EntryKey) -> u64 {
+        self.0
+            .lock()
+            .expect("entry counts lock")
+            .get(service)
+            .and_then(|of| of.get(key))
+            .map_or(0, |c| c.load(Ordering::Acquire) as u64)
+    }
+
+    pub(super) fn prune(&self, services: &BTreeMap<String, Service>) {
+        let mut all = self.0.lock().expect("entry counts lock");
+        all.retain(|name, of| {
+            let entries = services.get(name).map(|s| s.entries());
+            of.retain(|key, c| {
+                c.load(Ordering::Acquire) > 0
+                    || entries
+                        .as_ref()
+                        .is_some_and(|e| e.iter().any(|e| &e.key == key))
+            });
+            !of.is_empty()
+        });
+    }
+}
 
 #[derive(Default)]
 pub(super) struct Wheels(HashMap<String, Wheel>);
 
-#[derive(Default)]
 struct Wheel {
-    config: Vec<(String, u32)>,
-    current: HashMap<String, i64>,
-}
-
-impl Wheel {
-    fn config_of(svc: &Service) -> Vec<(String, u32)> {
-        svc.entries()
-            .iter()
-            .map(|e| {
-                (
-                    super::pick::entry_key(&e.client, svc.target_of(e)),
-                    e.weight,
-                )
-            })
-            .collect()
-    }
+    id: u64,
+    current: HashMap<EntryKey, i64>,
 }
 
 impl Wheels {
-    pub(super) fn turn(&mut self, service: &str, svc: &Service, group: &[(&str, u32)]) -> usize {
-        let config = Wheel::config_of(svc);
+    pub(super) fn turn<'a>(
+        &mut self,
+        service: &str,
+        id: u64,
+        group: impl Iterator<Item = (&'a EntryKey, u32)>,
+    ) -> usize {
         let wheel = match self.0.get_mut(service) {
-            Some(w) if w.config == config => w,
+            Some(w) if w.id == id => w,
             _ => self
                 .0
                 .entry(service.to_string())
                 .insert_entry(Wheel {
-                    config,
+                    id,
                     current: HashMap::new(),
                 })
                 .into_mut(),
@@ -47,25 +81,32 @@ impl Wheels {
     }
 }
 
-fn smooth(current: &mut HashMap<String, i64>, group: &[(&str, u32)]) -> usize {
-    let total: i64 = group.iter().map(|(_, w)| i64::from(*w)).sum();
-    let mut best: Option<(usize, i64)> = None;
-    for (i, (name, weight)) in group.iter().enumerate() {
-        if !current.contains_key(*name) {
-            current.insert(name.to_string(), 0);
-        }
-        let Some(now) = current.get_mut(*name) else {
-            continue;
+fn smooth<'a>(
+    current: &mut HashMap<EntryKey, i64>,
+    group: impl Iterator<Item = (&'a EntryKey, u32)>,
+) -> usize {
+    let mut total = 0i64;
+    let mut best: Option<(usize, i64, &EntryKey)> = None;
+    for (i, (key, weight)) in group.enumerate() {
+        total += i64::from(weight);
+        let now = match current.get_mut(key) {
+            Some(c) => {
+                *c += i64::from(weight);
+                *c
+            }
+            None => {
+                current.insert(key.clone(), i64::from(weight));
+                i64::from(weight)
+            }
         };
-        *now += i64::from(*weight);
-        if best.is_none_or(|(_, b)| *now > b) {
-            best = Some((i, *now));
+        if best.is_none_or(|(_, b, _)| now > b) {
+            best = Some((i, now, key));
         }
     }
-    let Some((i, _)) = best else {
+    let Some((i, _, key)) = best else {
         return 0;
     };
-    if let Some(c) = current.get_mut(group[i].0) {
+    if let Some(c) = current.get_mut(key) {
         *c -= total;
     }
     i
@@ -74,10 +115,19 @@ fn smooth(current: &mut HashMap<String, i64>, group: &[(&str, u32)]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::settings::Entry;
 
-    fn run(group: &[(&str, u32)], turns: usize, current: &mut HashMap<String, i64>) -> String {
+    fn keys(group: &[(&str, u32)]) -> Vec<(EntryKey, u32)> {
+        group
+            .iter()
+            .map(|(n, w)| (Entry::new(n, None, *w, "t:1").key, *w))
+            .collect()
+    }
+
+    fn run(group: &[(&str, u32)], turns: usize, current: &mut HashMap<EntryKey, i64>) -> String {
+        let k = keys(group);
         (0..turns)
-            .map(|_| group[smooth(current, group)].0)
+            .map(|_| group[smooth(current, k.iter().map(|(k, w)| (k, *w)))].0)
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -111,23 +161,29 @@ mod tests {
     fn a_changed_weight_starts_a_new_wheel_and_removed_services_go() {
         let svc = |w: u32| Service {
             clients: vec!["a".into(), "b".into()],
-            entries: [("a", w), ("b", 1)]
-                .into_iter()
-                .map(|(c, weight)| crate::config::settings::Entry {
-                    client: c.into(),
-                    target: None,
-                    weight,
-                })
-                .collect(),
+            entries: vec![
+                Entry::new("a", None, w, "t:1"),
+                Entry::new("b", None, 1, "t:1"),
+            ],
             ..Service::default()
         };
         let mut wheels = Wheels::default();
-        let group = [("a", 1), ("b", 1)];
-        assert_eq!(wheels.turn("web", &svc(1), &group), 0);
-        assert_eq!(wheels.turn("web", &svc(1), &group), 1);
-        let heavy = [("a", 2), ("b", 1)];
-        assert_eq!(wheels.turn("web", &svc(2), &heavy), 0);
-        assert_eq!(wheels.0["web"].config[0].1, 2);
+        let pairs = |s: &Service| -> Vec<(EntryKey, u32)> {
+            s.entries
+                .iter()
+                .map(|e| (e.key.clone(), e.weight))
+                .collect()
+        };
+        let (even, heavy) = (svc(1), svc(2));
+        let (e, h) = (pairs(&even), pairs(&heavy));
+        let turn = |w: &mut Wheels, s: &Service, p: &[(EntryKey, u32)]| {
+            w.turn("web", s.entries_id(), p.iter().map(|(k, x)| (k, *x)))
+        };
+        assert_eq!(turn(&mut wheels, &even, &e), 0);
+        assert_eq!(turn(&mut wheels, &even, &e), 1);
+        assert_eq!(turn(&mut wheels, &heavy, &h), 0);
+        assert_eq!(wheels.0["web"].id, heavy.entries_id());
+        assert_ne!(even.entries_id(), heavy.entries_id());
         wheels.retain(&BTreeMap::new());
         assert!(wheels.0.is_empty());
     }

@@ -71,7 +71,7 @@ pub struct Shared {
     service_counts: Counts,
     visitor_counts: Counts,
     client_counts: Counts,
-    entry_counts: Counts,
+    entry_counts: balance::EntryCounts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
     web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
@@ -114,13 +114,6 @@ impl Counts {
             .clone();
         let before = count.fetch_add(1, Ordering::AcqRel);
         (CountGuard(count), before)
-    }
-
-    fn prune(&self, keep: impl Fn(&str) -> bool) {
-        self.0
-            .lock()
-            .expect("counts lock")
-            .retain(|name, c| keep(name) || c.load(Ordering::Acquire) > 0);
     }
 
     fn current(&self, name: &str) -> u64 {
@@ -179,16 +172,7 @@ impl Shared {
             .lock()
             .expect("wheels lock")
             .retain(&settings.services);
-        self.entry_counts.prune(|key| {
-            settings.services.iter().any(|(name, svc)| {
-                svc.entries().iter().any(|e| {
-                    key == format!(
-                        "{name}\u{0}{}",
-                        pick::entry_key(&e.client, svc.target_of(e))
-                    )
-                })
-            })
-        });
+        self.entry_counts.prune(&settings.services);
         let mut limits = self.limits.lock().expect("limits lock");
         limits.retain(|name, _| settings.services.contains_key(name));
         for (name, limit) in limits.iter() {

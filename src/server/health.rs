@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use super::Shared;
 use super::web::{Checks, Http, exchange};
-use crate::config::settings::HttpCheck;
+use crate::config::settings::{EntryKey, HttpCheck};
 use crate::wire::protocol::{Connect, Status};
 use burrow_config::Protocol;
 
@@ -36,11 +36,7 @@ impl Default for Probe {
     }
 }
 
-pub(crate) type Probes = HashMap<(String, String, String), Probe>;
-
-fn key(service: &str, client: &str, target: &str) -> (String, String, String) {
-    (service.to_string(), client.to_string(), target.to_string())
-}
+pub(crate) type Probes = HashMap<String, HashMap<EntryKey, Probe>>;
 
 fn who(client: &str, target: &str, svc: Option<&crate::config::settings::Service>) -> String {
     match svc.filter(|s| s.target != target) {
@@ -50,39 +46,29 @@ fn who(client: &str, target: &str, svc: Option<&crate::config::settings::Service
 }
 
 impl Shared {
-    pub(crate) fn is_up(&self, service: &str, client: &str, target: &str) -> bool {
+    pub(crate) fn is_up(&self, service: &str, key: &EntryKey) -> bool {
         self.probes
             .lock()
             .expect("probes lock")
-            .get(&key(service, client, target))
+            .get(service)
+            .and_then(|of| of.get(key))
             .is_none_or(|p| p.up)
     }
 
-    pub(crate) fn health_reason(
-        &self,
-        service: &str,
-        client: &str,
-        target: &str,
-    ) -> Option<String> {
+    pub(crate) fn health_reason(&self, service: &str, key: &EntryKey) -> Option<String> {
         self.probes
             .lock()
             .expect("probes lock")
-            .get(&key(service, client, target))
+            .get(service)
+            .and_then(|of| of.get(key))
             .and_then(|p| p.reason.clone())
     }
 
-    fn record(
-        &self,
-        service: &str,
-        client: &str,
-        target: &str,
-        failures: u32,
-        result: Result<(), String>,
-    ) {
+    fn record(&self, service: &str, key: &EntryKey, failures: u32, result: Result<(), String>) {
         let svc = self.settings().services.get(service).cloned();
-        let who = who(client, target, svc.as_ref());
+        let who = who(&key.client, &key.base, svc.as_ref());
         let mut probes = self.probes.lock().expect("probes lock");
-        let Some(p) = probes.get_mut(&key(service, client, target)) else {
+        let Some(p) = probes.get_mut(service).and_then(|of| of.get_mut(key)) else {
             return;
         };
         p.running = false;
@@ -126,13 +112,16 @@ pub(super) async fn run(shared: Arc<Shared>) {
         let mut due = Vec::new();
         {
             let mut probes = shared.probes.lock().expect("probes lock");
-            probes.retain(|(service, client, target), p| {
-                settings.services.get(service).is_some_and(|s| {
-                    s.entries()
-                        .iter()
-                        .any(|e| &e.client == client && s.target_of(e) == target)
+            probes.retain(|service, of| {
+                let Some(s) = settings.services.get(service) else {
+                    return false;
+                };
+                let entries = s.entries();
+                of.retain(|key, p| {
+                    entries.iter().any(|e| &e.key == key)
                         && s.health.as_ref().is_some_and(|h| h.http == p.http)
-                })
+                });
+                !of.is_empty()
             });
             for (name, svc) in &settings.services {
                 let Some(health) = &svc.health else { continue };
@@ -141,10 +130,10 @@ pub(super) async fn run(shared: Arc<Shared>) {
                     .iter()
                     .filter(|e| connected.contains(&e.client))
                 {
-                    let client = entry.client.clone();
-                    let base = svc.target_of(entry).to_string();
                     let p = probes
-                        .entry((name.clone(), client.clone(), base.clone()))
+                        .entry(name.clone())
+                        .or_default()
+                        .entry(entry.key.clone())
                         .or_insert_with(|| Probe {
                             http: health.http.clone(),
                             ..Probe::default()
@@ -153,18 +142,19 @@ pub(super) async fn run(shared: Arc<Shared>) {
                         p.running = true;
                         p.last = Some(Instant::now());
                         let check = Check {
-                            base,
+                            key: entry.key.clone(),
                             target: svc.entry_target_at(entry, 0),
                             http: checks.of(name),
                             timeout: health.timeout,
                             failures: health.failures,
                         };
-                        due.push((name.clone(), client, check));
+                        due.push((name.clone(), check));
                     }
                 }
             }
         }
-        for (service, client, check) in due {
+        for (service, check) in due {
+            let client = check.key.client.to_string();
             let shared = shared.clone();
             tokio::spawn(async move {
                 let result =
@@ -173,14 +163,14 @@ pub(super) async fn run(shared: Arc<Shared>) {
                         .unwrap_or_else(|_| {
                             Err(format!("no answer within {}s", check.timeout.as_secs()))
                         });
-                shared.record(&service, &client, &check.base, check.failures, result);
+                shared.record(&service, &check.key, check.failures, result);
             });
         }
     }
 }
 
 struct Check {
-    base: String,
+    key: EntryKey,
     target: String,
     http: Option<Http>,
     timeout: Duration,

@@ -1,5 +1,8 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::policy::allowlist::{AllowList, Cidr, Sources};
@@ -162,10 +165,32 @@ pub struct HttpCheck {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EntryKey {
+    pub client: Arc<str>,
+    pub base: Arc<str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Entry {
     pub client: String,
     pub target: Option<String>,
     pub weight: u32,
+    pub key: EntryKey,
+}
+
+impl Entry {
+    pub fn new(client: &str, target: Option<String>, weight: u32, service_target: &str) -> Entry {
+        let base = target.as_deref().unwrap_or(service_target);
+        Entry {
+            key: EntryKey {
+                client: Arc::from(client),
+                base: Arc::from(base),
+            },
+            client: client.to_string(),
+            target,
+            weight,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -206,18 +231,25 @@ impl Default for Service {
 }
 
 impl Service {
-    pub fn entries(&self) -> Vec<Entry> {
+    pub fn entries(&self) -> Cow<'_, [Entry]> {
         if !self.entries.is_empty() {
-            return self.entries.clone();
+            return Cow::Borrowed(&self.entries);
         }
-        self.clients
-            .iter()
-            .map(|c| Entry {
-                client: c.clone(),
-                target: None,
-                weight: 1,
-            })
-            .collect()
+        Cow::Owned(
+            self.clients
+                .iter()
+                .map(|c| Entry::new(c, None, 1, &self.target))
+                .collect(),
+        )
+    }
+
+    pub fn entries_id(&self) -> u64 {
+        let mut h = std::hash::DefaultHasher::new();
+        for e in self.entries().iter() {
+            e.key.hash(&mut h);
+            e.weight.hash(&mut h);
+        }
+        h.finish()
     }
 
     pub fn several(&self) -> bool {
@@ -225,7 +257,7 @@ impl Service {
     }
 
     pub fn target_of<'a>(&'a self, entry: &'a Entry) -> &'a str {
-        entry.target.as_deref().unwrap_or(&self.target)
+        &entry.key.base
     }
 
     pub fn entry_target_at(&self, entry: &Entry, index: u16) -> String {

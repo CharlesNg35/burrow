@@ -50,10 +50,8 @@ impl Gateway {
                 max_connections: None,
             },
         )]);
-        let entry = |target: Option<&str>, weight| Entry {
-            client: "gw".into(),
-            target: target.map(str::to_string),
-            weight,
+        let entry = |target: Option<&str>, weight| {
+            Entry::new("gw", target.map(str::to_string), weight, VM1)
         };
         let web = Service {
             clients: vec!["gw".into()],

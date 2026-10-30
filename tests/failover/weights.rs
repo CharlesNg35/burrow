@@ -21,13 +21,10 @@ pub(super) async fn held(addr: SocketAddr) -> (TcpStream, char) {
 }
 
 pub(super) fn weigh(svc: &mut Service, a: u32) {
+    let target = svc.target.clone();
     svc.entries = [("a", a), ("b", 1)]
         .into_iter()
-        .map(|(client, weight)| Entry {
-            client: client.into(),
-            target: None,
-            weight,
-        })
+        .map(|(client, weight)| Entry::new(client, None, weight, &target))
         .collect();
 }
 

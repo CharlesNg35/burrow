@@ -14,13 +14,12 @@ impl Shared {
         let (mut health, mut aside, mut rows) = (Vec::new(), Vec::new(), Vec::new());
         let sessions = self.connected(&svc.clients);
         let entries = svc.entries();
-        for e in &entries {
-            let base = svc.target_of(e);
+        for e in entries.iter() {
             if entries.len() > 1 {
                 rows.push(EntryStatus {
                     client: e.client.clone(),
                     target: e.target.clone(),
-                    open: self.entry_open(name, &e.client, base),
+                    open: self.entry_open(name, &e.key),
                 });
             }
             let Some(via) = sessions.iter().find(|v| v.name() == e.client) else {
@@ -30,8 +29,8 @@ impl Shared {
                 health.push(HealthStatus {
                     client: e.client.clone(),
                     target: e.target.clone(),
-                    up: self.is_up(name, &e.client, base),
-                    reason: self.health_reason(name, &e.client, base),
+                    up: self.is_up(name, &e.key),
+                    reason: self.health_reason(name, &e.key),
                 });
             }
             if entries.len() < 2 {
