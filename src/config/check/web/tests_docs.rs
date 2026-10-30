@@ -344,13 +344,13 @@ fn the_full_example_of_the_web_docs_is_pinned_at_what_p3_and_p6_build() {
     assert_eq!(
         others,
         [
-            "dns-rfc2136: web.letsencrypt.dns[1].rfc2136.secret is 6 bytes; RFC 8945 asks for at least 32 for hmac-sha256",
             "proxy-tls-check: a proxy is in front (web.trusted_proxies is set); if it does the HTTPS, like Cloudflare's proxy, Let's Encrypt's TLS check cannot reach burrow: set challenge: http (with http: 80) or challenge: dns on these sites: kiosk",
             "access-log: web.access_log: the folder of logs/access.log does not exist yet",
+            "dns-rfc2136: web.letsencrypt.dns[1].rfc2136.secret is 6 bytes; RFC 8945 asks for at least 32 for hmac-sha256",
             "target-unchecked: services.pve: the app's certificate is not checked (insecure_skip_verify); use ca: for apps with a real certificate",
+            "plain-http: services.docs: served as plain HTTP; anyone on the path can read and change its traffic",
+            "redirect-by-proxy: services.docs: http:// visitors are sent to https:// by the X-Forwarded-Proto of the trusted proxies; if they do not send it, every request redirects",
             "plain-http: services.dashboard: served as plain HTTP; anyone on the path can read and change its traffic",
-            "plain-http: services.wiki: served as plain HTTP; anyone on the path can read and change its traffic",
-            "redirect-by-proxy: services.wiki: http:// visitors are sent to https:// by the X-Forwarded-Proto of the trusted proxies; if they do not send it, every request redirects",
         ],
         "the machine's low-port warnings and the notes for the test files aside, the notes the example's comments promise (the test's short TSIG secret aside)"
     );
@@ -362,21 +362,24 @@ fn the_full_example_of_the_web_docs_is_pinned_at_what_p3_and_p6_build() {
         .map(|l| {
             l.replace(&format!("{root}{}", std::path::MAIN_SEPARATOR), "")
                 .replace(&format!("{root}/"), "")
+                .replace('\\', "/")
         })
         .collect();
     assert_eq!(
         lines,
         [
             "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6; shared with the tunnel), http [::]:80 (IPv4 and IPv6)",
-            "X-Forwarded-For believed from 173.245.48.0/20",
-            "certificates: Let's Encrypt (production) as you@example.com; DNS checks through Cloudflare for example.com, example.net, nameservers found via the system resolvers; DNS checks through RFC 2136 for corp.example.org, nameservers found via the system resolvers",
+            "PROXY headers required from 10.0.0.5/32; X-Forwarded-For believed from 173.245.48.0/20",
+            "certificates: Let's Encrypt (production) as you@example.com; kept in state; DNS checks through Cloudflare for example.com, example.net, nameservers found via 1.1.1.1:53, 9.9.9.9:53; DNS checks through RFC 2136 for corp.example.org, nameservers found via the system resolvers; DNS checks through acme-dns for example.io, nameservers found via the system resolvers",
             "tunnel: wss://tunnel.example.com/burrow (Let's Encrypt shared wildcard *.example.com)",
-            "wildcard *.example.com (+ example.com): Let's Encrypt, DNS check; used by api, blog, login, pve, shop, store, updates",
+            "wildcard *.example.com (+ example.com): Let's Encrypt, DNS check; used by api, blog, files, grpc, ha, login, pve, shop, store, updates, wiki",
             "wildcard *.apps.example.com (+ apps.example.com): Let's Encrypt, DNS check; used by apps",
             "*.apps.example.com: Let's Encrypt shared wildcard *.apps.example.com -> service apps",
             "203.0.113.10: Let's Encrypt short-lived (6 days), TLS check -> service kiosk",
             "auth.example.com: Let's Encrypt shared wildcard *.example.com -> service login",
             "dash.lan.example.com: plain HTTP on [::]:80 only, unencrypted (tls: off) -> service dashboard",
+            "docs.example.net: plain HTTP on [::]:80 only, unencrypted (tls: off)",
+            "  /           -> service docs (http:// at the proxy redirects to https:// by X-Forwarded-Proto)",
             "erp.corp.example.org: Let's Encrypt, DNS check through RFC 2136 (corp.example.org) (challenge: dns)",
             "  /           -> service erp (HTTPS to the app, checked with certs/corp-ca.pem)",
             "example.com: Let's Encrypt shared wildcard *.example.com",
@@ -386,20 +389,25 @@ fn the_full_example_of_the_web_docs_is_pinned_at_what_p3_and_p6_build() {
             "  /           -> service blog",
             "example.io: Let's Encrypt, TLS check",
             "  /           -> redirect https://example.com (permanent)",
+            "files.example.com: Let's Encrypt shared wildcard *.example.com -> service files",
+            "grpc.example.com: Let's Encrypt shared wildcard *.example.com",
+            "  /           -> service grpc (HTTP/2 to the app)",
+            "ha.example.com: Let's Encrypt shared wildcard *.example.com -> service ha",
             "nas.example.com: passthrough, the app's own certificate -> service nas",
             "news.example.net: Let's Encrypt, HTTP check -> service news",
             "old-blog.example.com: Let's Encrypt shared wildcard *.example.com",
             "  /           -> redirect https://example.com (temporary)",
             "partner.example.net: own file certs/partner.pem -> service partner",
             "portal.intranet.example.org: web.certificates[0] (certs/intranet-wildcard.pem) -> service portal",
+            "printer.home.arpa: local CA, 12-hour certificates (tls: internal) -> service printer",
             "pve.example.com: Let's Encrypt shared wildcard *.example.com",
             "  /           -> service pve (HTTPS to the app, not checked)",
             "shop.example.com: Let's Encrypt shared wildcard *.example.com -> service shop",
+            "status.example.net: own file state/files/pair-1a2b3c4d5e6f7a8b.pem -> service status",
             "store.example.com: Let's Encrypt shared wildcard *.example.com",
             "  /           -> service store (maintenance page)",
             "updates.example.com: Let's Encrypt shared wildcard *.example.com; http:// served too (https_redirect: false) -> service updates",
-            "wiki.example.net: plain HTTP on [::]:80 only, unencrypted (tls: off)",
-            "  /           -> service wiki (http:// at the proxy redirects to https:// by X-Forwarded-Proto)",
+            "wiki.example.com: Let's Encrypt shared wildcard *.example.com -> service wiki",
             "www.example.com: Let's Encrypt shared wildcard *.example.com",
             "  /           -> redirect https://example.com (permanent)",
             "http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered",
@@ -447,4 +455,49 @@ fn the_timeout_defaults_agree_in_runtime_config_ui_and_docs() {
     assert!(docs.contains(&format!(
         "| `limits.handshake_timeout_secs` | `{handshake}` |"
     )));
+}
+
+fn keys_under(
+    node: &burrow_admin_proto::schema::Node,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    use burrow_admin_proto::schema::SemType;
+    match &node.sem {
+        SemType::Object(o) => {
+            for f in &o.fields {
+                out.insert(f.key.clone());
+                keys_under(&f.node, out);
+            }
+        }
+        SemType::Map(m) => keys_under(&m.value, out),
+        SemType::RefMap(m) => keys_under(&m.value, out),
+        SemType::List(l) => keys_under(&l.item, out),
+        SemType::Optional(o) => keys_under(&o.inner, out),
+        SemType::Union(u) => u.branches.iter().for_each(|b| keys_under(b, out)),
+        _ => {}
+    }
+}
+
+#[test]
+fn the_full_example_shows_every_web_key_of_the_schema() {
+    let schema = crate::config::admin_schema::server_schema();
+    let mut keys = std::collections::BTreeSet::new();
+    for path in [&["web"][..], &["services", "x", "web"]] {
+        let path: Vec<String> = path.iter().map(|p| p.to_string()).collect();
+        keys_under(schema.root.at(&path).expect("a web node"), &mut keys);
+    }
+    assert!(keys.len() > 60, "{keys:?}");
+    let md = WEB_PAGES
+        .iter()
+        .find(|(name, _)| *name == "web/full-example.md")
+        .unwrap()
+        .1;
+    let missing: Vec<&String> = keys
+        .iter()
+        .filter(|k| !md.contains(&format!("{k}:")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "docs/web/full-example.md lacks {missing:?}"
+    );
 }
