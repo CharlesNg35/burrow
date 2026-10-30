@@ -106,10 +106,6 @@ fn challenge_token(path: &str) -> Option<&str> {
     good.then_some(token)
 }
 
-fn only_tunnel(kind: &Kind) -> bool {
-    matches!(kind, Kind::Http { routes, .. } if routes.iter().all(|r| r.action == Action::Tunnel))
-}
-
 fn challenge<U: Upstream>(shared: &Shared<U>, req: &Request<Incoming>) -> Option<Response<Body>> {
     let answer = challenge_token(req.uri().path()).and_then(|t| shared.certs.http_challenge(t))?;
     let mut r = Response::new(full(Bytes::from(answer)));
@@ -141,9 +137,9 @@ fn on_plain<U: Upstream>(
             k @ Kind::Http {
                 redirect: false, ..
             },
-        ) if !only_tunnel(k) => None,
-        Some(k @ Kind::Http { redirect: true, .. }) if !only_tunnel(k) && proxied_https() => None,
-        Some(k @ Kind::Http { redirect: true, .. }) if !only_tunnel(k) => {
+        ) if !k.only_tunnel() => None,
+        Some(k @ Kind::Http { redirect: true, .. }) if !k.only_tunnel() && proxied_https() => None,
+        Some(k @ Kind::Http { redirect: true, .. }) if !k.only_tunnel() => {
             Some(match shared.certs.state(host) {
                 CertState::Ready => to_https(host, shared.https_port, req),
                 CertState::Pending | CertState::Failing => Page::Pending.response(),

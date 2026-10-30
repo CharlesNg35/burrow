@@ -19,6 +19,12 @@ pub enum Kind {
     Plain { routes: Vec<Route>, redirect: bool },
 }
 
+impl Kind {
+    pub fn only_tunnel(&self) -> bool {
+        matches!(self, Kind::Http { routes, .. } if routes.iter().all(|r| r.action == Action::Tunnel))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route {
     pub prefix: String,

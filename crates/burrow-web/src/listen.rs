@@ -16,7 +16,7 @@ use crate::log::LogFile;
 use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
 use crate::proxy_header::read_proxy_header;
-use crate::route::{Action, Kind, Table};
+use crate::route::{Kind, Table};
 use crate::terminate::SiteTls;
 use crate::terminate::{Picked, acceptor_for};
 use crate::tls::client_auth::Verifiers;
@@ -345,13 +345,31 @@ async fn after_proxy_header(
     }
 }
 
+enum Dispatch {
+    Passthrough(String),
+    Tunnel(String),
+    ByPath,
+    Terminate,
+}
+
+impl Dispatch {
+    fn of(kind: &Kind) -> Dispatch {
+        match kind {
+            Kind::Passthrough(service) => Dispatch::Passthrough(service.clone()),
+            Kind::Tunnel { path } => Dispatch::Tunnel(path.clone()),
+            k if k.only_tunnel() => Dispatch::ByPath,
+            Kind::Http { .. } | Kind::Plain { .. } => Dispatch::Terminate,
+        }
+    }
+}
+
 struct Seen {
     io: Prefixed<TcpStream>,
     peer: SocketAddr,
     local: SocketAddr,
     host: String,
     sni: bool,
-    kind: Kind,
+    kind: Dispatch,
     table: Arc<Table>,
     deadline: Instant,
 }
@@ -402,7 +420,7 @@ async fn greet<U: Upstream>(
         debug!(%peer, name = ?hello.name, "web: unknown name, closing");
         return None;
     };
-    let kind = kind.clone();
+    let kind = Dispatch::of(kind);
     Some(Seen {
         io: Prefixed::new(bytes, stream),
         peer,
@@ -427,7 +445,7 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
         deadline,
     } = seen;
     match kind {
-        Kind::Passthrough(service) => {
+        Dispatch::Passthrough(service) => {
             drop(permit);
             let from = Visitor {
                 addr: peer,
@@ -436,7 +454,7 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
             };
             passthrough(shared.up.as_ref(), &service, &from, io).await;
         }
-        Kind::Tunnel { path } => {
+        Dispatch::Tunnel(path) => {
             let Some(conn) =
                 start_tunnel(shared, io, (peer, local), (&host, sni), deadline, permit).await
             else {
@@ -444,7 +462,7 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
             };
             shared.up.tunnel(conn.into_conn(path, false)).await;
         }
-        Kind::Http { routes, .. } if routes.iter().all(|r| r.action == Action::Tunnel) => {
+        Dispatch::ByPath => {
             let Some(conn) =
                 start_tunnel(shared, io, (peer, local), (&host, sni), deadline, permit).await
             else {
@@ -452,7 +470,7 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
             };
             crate::tunnel::serve_by_path(shared.up.clone(), &table, &host, conn).await;
         }
-        Kind::Http { .. } | Kind::Plain { .. } => {
+        Dispatch::Terminate => {
             let picked = Picked {
                 name: &host,
                 sni,
