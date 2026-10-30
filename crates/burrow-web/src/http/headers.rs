@@ -4,6 +4,13 @@ use crate::HeaderRule;
 
 pub const HSTS: &str = "max-age=31536000";
 
+pub(crate) fn has_token(h: &HeaderMap, name: header::HeaderName, token: &str) -> bool {
+    h.get_all(name).iter().any(|v| {
+        v.to_str()
+            .is_ok_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case(token)))
+    })
+}
+
 pub fn apply(rules: &[HeaderRule], h: &mut HeaderMap) {
     for rule in rules {
         match &rule.value {

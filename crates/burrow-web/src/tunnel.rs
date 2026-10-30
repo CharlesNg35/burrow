@@ -3,13 +3,14 @@ use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use bytes::Bytes;
-use http::{HeaderMap, HeaderValue, Method, Request, Response, StatusCode, Version, header};
+use http::{HeaderValue, Method, Request, Response, StatusCode, Version, header};
 use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::upgrade::OnUpgrade;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tracing::debug;
 
+use crate::http::headers::has_token;
 use crate::io::{BoxIo, Prefixed};
 use crate::listen::Started;
 use crate::route::{Action, Kind, Table};
@@ -33,13 +34,6 @@ pub enum Answer {
     NotFound,
     UpgradeRequired,
     BadRequest,
-}
-
-fn has_token(headers: &HeaderMap, name: header::HeaderName, token: &str) -> bool {
-    headers.get_all(name).iter().any(|v| {
-        v.to_str()
-            .is_ok_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case(token)))
-    })
 }
 
 fn good_key(key: &str) -> bool {

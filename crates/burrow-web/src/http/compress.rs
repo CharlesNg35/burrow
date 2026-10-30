@@ -10,6 +10,7 @@ use http_body_util::{BodyDataStream, BodyExt};
 use hyper::body::Frame;
 use tokio_util::io::{StreamReader, poll_read_buf};
 
+use super::headers::has_token;
 use super::{Body, BoxError};
 
 pub const MIN_SIZE: u64 = 1024;
@@ -63,11 +64,7 @@ pub fn compressible_type(content_type: &str) -> bool {
 }
 
 fn no_transform(h: &HeaderMap) -> bool {
-    h.get_all(header::CACHE_CONTROL)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .any(|d| d.trim().eq_ignore_ascii_case("no-transform"))
+    has_token(h, header::CACHE_CONTROL, "no-transform")
 }
 
 fn small(h: &HeaderMap) -> bool {
@@ -91,16 +88,7 @@ pub fn eligible(method: &Method, status: StatusCode, h: &HeaderMap) -> bool {
 }
 
 fn add_vary(h: &mut HeaderMap) {
-    let listed = h
-        .get_all(header::VARY)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .any(|t| {
-            let t = t.trim();
-            t == "*" || t.eq_ignore_ascii_case("accept-encoding")
-        });
-    if !listed {
+    if !has_token(h, header::VARY, "*") && !has_token(h, header::VARY, "accept-encoding") {
         h.append(header::VARY, HeaderValue::from_static("accept-encoding"));
     }
 }

@@ -30,11 +30,7 @@ pub fn app_reset(e: &(dyn std::error::Error + 'static)) -> Option<h2::Reason> {
 }
 
 fn wants_trailers(h: &HeaderMap) -> bool {
-    h.get_all(header::TE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .any(|t| t.trim().eq_ignore_ascii_case("trailers"))
+    crate::http::headers::has_token(h, header::TE, "trailers")
 }
 
 pub fn rewrite_for_h2<B>(req: &mut Request<B>, host: &str, client: &Client, https: bool) {
