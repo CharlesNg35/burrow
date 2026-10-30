@@ -44,6 +44,7 @@ pub fn path(name: &str) -> &'static str {
             "M6 3v12M6 15a3 3 0 100 6 3 3 0 000-6zM18 9a3 3 0 100-6 3 3 0 000 6zM18 9v3a3 3 0 01-3 3H9"
         }
         "plus" => "M12 5v14M5 12h14",
+        "minus" => "M5 12h14",
         "chevron-down" => "M6 9l6 6 6-6",
         "chevron-right" => "M9 6l6 6-6 6",
         "chevron-left" => "M15 6l-6 6 6 6",

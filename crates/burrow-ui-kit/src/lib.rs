@@ -17,6 +17,7 @@ mod path;
 mod radio;
 mod scroll;
 mod spark;
+mod stepper;
 mod toast;
 
 pub use bar::{StickyBar, bar_status};
@@ -42,4 +43,5 @@ pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
 pub use radio::{RadioList, RadioOption};
 pub use scroll::{ScrollRow, active_item};
 pub use spark::{ChartData, LineChart, Sparkline, segments, spark_max, spark_path};
+pub use stepper::{Stepper, stepped};
 pub use toast::{Toast, ToastHost};
