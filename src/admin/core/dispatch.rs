@@ -57,7 +57,7 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
         }
         msg::req::CONNECT_INFO => {
             let r: msg::ConnectInfo = parse(body)?;
-            ok(snippets::connect_info(core, s, &r)?)
+            ok(snippets::connect_info(core, &r)?)
         }
         msg::req::PING => ok(serde_json::json!({})),
         msg::req::UPLOAD => {

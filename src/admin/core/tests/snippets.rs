@@ -109,10 +109,8 @@ fn a_client_config_lists_its_allowed_targets_in_address_order() {
         "  web: { client: home, bind: 7840, target: 3000 }\n  a: { client: home, bind: 7841, target: 10.0.0.9:22 }\n  b: { client: home, bind: 7842, target: 10.0.0.10:80 }\n  c: { client: home, bind: 7843, target: 10.0.0.9:8 }\n",
     );
     let core = core_for(&text);
-    let s = session(&w, AdminLevel::Write);
     let sn = snippets::connect_info(
         &core,
-        &s,
         &ConnectInfo {
             kind: "client".into(),
             name: "home".into(),
@@ -195,7 +193,6 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
 
     let later = snippets::connect_info(
         &core,
-        &s,
         &ConnectInfo {
             kind: "client".into(),
             name: "office".into(),
@@ -211,7 +208,6 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
     assert!(later.config.contains("${OFFICE_SECRET}"));
     let unknown = snippets::connect_info(
         &core,
-        &s,
         &ConnectInfo {
             kind: "visitor".into(),
             name: "nobody".into(),
@@ -222,7 +218,6 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
     let none = core_for(&w.text);
     let placeholder = snippets::connect_info(
         &none,
-        &s,
         &ConnectInfo {
             kind: "client".into(),
             name: "home".into(),
@@ -242,10 +237,8 @@ fn the_connect_snippet_of_a_visitor_writes_protocol_udp_for_a_udp_service() {
         w.text
     );
     let core = core_for(&text);
-    let s = session(&w, AdminLevel::Write);
     let sn = snippets::connect_info(
         &core,
-        &s,
         &ConnectInfo {
             kind: "visitor".into(),
             name: "ops".into(),
