@@ -444,6 +444,20 @@ impl Target {
         burrow_syntax::ports::split_target(&text).map(|(_, n)| n)
     }
 
+    pub fn host(&self) -> Option<String> {
+        let hp = self.host_port();
+        if burrow_syntax::unix::path_of(&hp).is_some() {
+            return None;
+        }
+        if let Some((inner, _)) = hp.strip_prefix('[').and_then(|r| r.split_once(']')) {
+            return Some(inner.to_string());
+        }
+        Some(match hp.rsplit_once(':') {
+            Some((host, _)) if !host.contains(':') => host.to_string(),
+            _ => hp,
+        })
+    }
+
     pub fn host_port(&self) -> String {
         match self {
             Target::Port(p) => format!("127.0.0.1:{p}"),

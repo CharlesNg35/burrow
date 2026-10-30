@@ -149,19 +149,7 @@ fn path(p: &str) -> String {
 }
 
 fn target_name(target: &Target) -> String {
-    let hp = target.host_port();
-    let hp = hp
-        .strip_prefix("unix:")
-        .map_or(hp.as_str(), |_| "localhost");
-    if let Some(inner) = hp.strip_prefix('[').and_then(|r| r.split_once(']')) {
-        return inner.0.to_string();
-    }
-    match hp.rsplit_once(':') {
-        Some((host, port)) if !host.contains(':') && port.parse::<u16>().is_ok() => {
-            host.to_string()
-        }
-        _ => hp.to_string(),
-    }
+    target.host().unwrap_or_else(|| "localhost".to_string())
 }
 
 fn size(text: &str) -> Option<u64> {

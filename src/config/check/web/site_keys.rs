@@ -348,9 +348,7 @@ fn target_tls(
                 );
             }
             let hp = target.host_port();
-            let host = hp.rsplit_once(':').map_or(hp.as_str(), |(h, _)| h);
-            let host = host.trim_start_matches('[').trim_end_matches(']');
-            if is_ip(host) {
+            if target.host().is_some_and(|h| is_ip(&h)) {
                 out.push(
                     Diagnostic::warning(
                         "target-ip",

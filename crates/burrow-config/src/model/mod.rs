@@ -49,6 +49,21 @@ mod tests {
     use super::*;
     use crate::admin_schema::AdminEnum;
     use burrow_admin_proto::msg::AdminLevel;
+
+    #[test]
+    fn a_target_host_drops_the_port_and_brackets_and_a_unix_socket_has_none() {
+        let host = |t: Target| t.host();
+        assert_eq!(host(Target::Port(8080)).as_deref(), Some("127.0.0.1"));
+        assert_eq!(
+            host(Target::Addr("8080".into())).as_deref(),
+            Some("127.0.0.1")
+        );
+        let addr = |s: &str| host(Target::Addr(s.into()));
+        assert_eq!(addr("10.0.0.5:80").as_deref(), Some("10.0.0.5"));
+        assert_eq!(addr("[::1]:443").as_deref(), Some("::1"));
+        assert_eq!(addr("host:8000-8010").as_deref(), Some("host"));
+        assert_eq!(addr("unix:/run/a.sock"), None);
+    }
     use burrow_admin_proto::serde_json::{self, json};
 
     #[test]
