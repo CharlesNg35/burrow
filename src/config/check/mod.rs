@@ -184,7 +184,6 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
                 providers
                     .iter()
                     .filter(|p| matches!(p.value.value, Value::Map(_)))
-                    .filter(|p| ["cloudflare", "rfc2136", "acme_dns"].contains(&p.key.as_str()))
                     .for_each(|p| fields(&p.value, &mut out));
             }
         }

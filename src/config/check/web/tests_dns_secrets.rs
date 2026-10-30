@@ -102,3 +102,20 @@ fn a_dns_secret_written_in_the_file_is_masked_in_the_report() {
         "{masked:?}"
     );
 }
+
+#[test]
+fn a_misspelled_dns_provider_still_has_its_secret_masked() {
+    let dir = tempfile::tempdir().unwrap();
+    let (text, o) = load(dir.path(), "cloudflar: { token: hunter2hunter2, x: 1 }");
+    let masked: Vec<&str> = o
+        .report
+        .masked
+        .iter()
+        .map(|s| &text[s.start.offset..s.end.offset])
+        .collect();
+    assert!(masked.contains(&"hunter2hunter2"), "{masked:?}");
+    let shown = o
+        .report
+        .render_text(crate::base::style::Style { color: false });
+    assert!(!shown.contains("hunter2hunter2"), "{shown}");
+}
