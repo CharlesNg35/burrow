@@ -34,6 +34,8 @@ mod settings;
 mod sheet;
 #[path = "admin_e2e/site_keys.rs"]
 mod site_keys;
+#[path = "admin_e2e/tables.rs"]
+mod tables;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
 #[path = "admin_e2e/websites.rs"]

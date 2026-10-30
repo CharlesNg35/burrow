@@ -17,6 +17,7 @@ pub mod rates;
 pub mod relations;
 pub mod settings_tabs;
 pub mod shorthand;
+pub mod top;
 pub mod tree;
 pub mod version;
 pub mod web;

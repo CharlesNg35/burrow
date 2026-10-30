@@ -1,12 +1,14 @@
 use burrow_admin_logic::certs::{Level, notices, rows};
+use burrow_admin_logic::top::top;
 use burrow_admin_proto::status::Status;
-use burrow_config::{Entry, ServiceEntry};
+use burrow_config::{Entry, ServerConfig, ServiceEntry};
 use burrow_ui_kit::{Tone, tag_class};
 use leptos::prelude::*;
 
-use crate::route::Route;
+use crate::route::{self, Route};
 
 use super::Item;
+use super::tables::view_all_link;
 
 fn tone(l: Level) -> Tone {
     match l {
@@ -36,7 +38,16 @@ pub(super) fn items(status: &Status, now: u64) -> Vec<Item> {
 }
 
 fn table(status: &Status, now: u64) -> impl IntoView + use<> {
-    let body = rows(status, now)
+    let (kept, total) = top(rows(status, now), |r| {
+        (
+            r.problem.is_some()
+                || matches!(r.state.1, Level::Warn | Level::Bad)
+                || matches!(r.expires.1, Level::Warn | Level::Bad),
+            0,
+        )
+    });
+    let shown = kept.len();
+    let body = kept
         .into_iter()
         .map(|r| {
             let (state, st) = r.state;
@@ -80,6 +91,7 @@ fn table(status: &Status, now: u64) -> impl IntoView + use<> {
                 <tbody>{body}</tbody>
             </table>
         </div>
+        {view_all_link(Route::Settings, Some((route::CARD_QUERY, ServerConfig::WEB.key())), shown, total)}
     }
 }
 

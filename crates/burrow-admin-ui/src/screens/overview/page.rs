@@ -101,11 +101,14 @@ fn Traffic() -> impl IntoView {
     }
 }
 
-pub(super) fn mobile_cards(section: &'static str) -> impl IntoView {
-    let rows = crate::screens::entity::rows_for(section);
+pub(super) fn mobile_cards(section: &'static str, kept: &[String]) -> impl IntoView {
+    let all = crate::screens::entity::rows_for(section);
+    let rows = kept
+        .iter()
+        .filter_map(|k| all.iter().find(|r| &r.key == k).cloned());
     view! {
         <div class="pt-2 pb-1 sm:hidden" data-testid=format!("mobile-{section}")>
-            {rows.into_iter().map(|r| view! { <crate::screens::ListCard row=r selected=false/> }).collect_view()}
+            {rows.map(|r| view! { <crate::screens::ListCard row=r selected=false/> }).collect_view()}
         </div>
     }
 }

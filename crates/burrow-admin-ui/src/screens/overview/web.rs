@@ -1,9 +1,12 @@
+use burrow_admin_logic::top::top;
 use burrow_admin_proto::web::{RouteLine, WebSummary};
 use burrow_config::{Entry, ServiceEntry};
 use burrow_ui_kit::{Tone, tag_class};
 use leptos::prelude::*;
 
-use crate::route::{Link, Route};
+use crate::route::{self, Link, Route};
+
+use super::tables::view_all_link;
 
 fn service_link(service: String, rest: String) -> impl IntoView {
     let to = Route::Detail(ServiceEntry::section().into(), service.clone());
@@ -52,8 +55,9 @@ fn rows(web: WebSummary) -> impl IntoView {
     let empty = (web.hosts.is_empty() && web.tunnel.is_none()).then(|| {
         view! { <li class="px-4 py-2.5 text-[13px] text-text-muted">"No names yet: every connection to this port is closed."</li> }
     });
-    let hosts = web
-        .hosts
+    let (kept, total) = top(web.hosts, |h| (h.unencrypted(), 0));
+    let shown = kept.len();
+    let hosts = kept
         .into_iter()
         .map(|h| {
             let (row, kind, plain) = (h.name.clone(), h.served(), h.unencrypted());
@@ -70,7 +74,10 @@ fn rows(web: WebSummary) -> impl IntoView {
             }
         })
         .collect_view();
-    view! { <ul class="divide-y divide-border">{tunnel}{hosts}{empty}</ul> }
+    view! {
+        <ul class="divide-y divide-border">{tunnel}{hosts}{empty}</ul>
+        {view_all_link(Route::List(ServiceEntry::section().into()), Some((route::FILTER_QUERY, route::WEBSITES_FILTER)), shown, total)}
+    }
 }
 
 pub(super) fn websites_panel(web: Option<WebSummary>) -> impl IntoView {
