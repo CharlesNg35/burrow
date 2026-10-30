@@ -79,7 +79,10 @@ async fn the_four_tabs(c: &mut Ctx) {
             SECS,
         )
         .await;
-    assert!(ca.contains("tls: internal"), "{ca}");
+    assert!(
+        ca.contains("HTTPS: Local CA") && !ca.contains("tls:"),
+        "{ca}"
+    );
     both_widths(c, "settings-web").await;
     pick(c, "monitoring").await;
     both_widths(c, "settings-monitoring").await;

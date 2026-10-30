@@ -56,7 +56,7 @@ pub fn local_ca_card() -> impl IntoView {
             format!("Used by {}.", sites.join(", "))
         };
         let pending = ca.is_none().then(|| view! {
-            <p class="text-[13px] text-text-muted" data-testid="local-ca-pending">"No local CA exists yet. burrow makes one when the first site with HTTPS from the local CA (tls: internal) is applied."</p>
+            <p class="text-[13px] text-text-muted" data-testid="local-ca-pending">"No local CA exists yet. burrow makes one when the first site with HTTPS: Local CA is applied."</p>
         });
         let download = ca.is_some().then(|| view! {
             <burrow_ui_kit::Button label="Download CA certificate" icon="download" small=true testid="local-ca-download" on_click=move |_| crate::uploads::download_local_ca()/>
