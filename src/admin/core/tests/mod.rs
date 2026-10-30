@@ -133,7 +133,7 @@ impl Live for FakeLive {
         self.allows.clone()
     }
     fn free_port(&self, near: u16, _: u16, _: bool) -> Option<u16> {
-        Some(near)
+        (!self.busy.contains(&near)).then_some(near)
     }
     fn bind_probe(&self, addr: std::net::SocketAddr) -> std::io::Result<()> {
         match self.busy.contains(&addr.port()) {

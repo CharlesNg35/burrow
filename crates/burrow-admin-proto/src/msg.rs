@@ -42,6 +42,11 @@ pub mod req {
     ];
 }
 
+pub mod suggest {
+    pub const FREE_PORT: &str = "free-port";
+    pub const NAME: &str = "name";
+}
+
 pub mod ev {
     pub const STATUS: &str = "status";
     pub const CONFIG: &str = "config";

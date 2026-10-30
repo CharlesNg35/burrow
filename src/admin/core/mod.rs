@@ -414,7 +414,7 @@ impl Core {
 
     pub fn suggest(&self, req: &Suggest) -> Result<Suggestions, ApiError> {
         match req.what.as_str() {
-            "free-port" => {
+            burrow_admin_proto::msg::suggest::FREE_PORT => {
                 let near = req
                     .near
                     .unwrap_or(burrow_syntax::ports::FIRST_SERVICE_PORT.into())
@@ -437,7 +437,7 @@ impl Core {
                 }
                 Ok(Suggestions { values: Vec::new() })
             }
-            "name" => {
+            burrow_admin_proto::msg::suggest::NAME => {
                 let text = self.read()?;
                 let checked = plan::check_text(self, &text);
                 let section = match req.entity.as_deref().map(Entity::parse) {
