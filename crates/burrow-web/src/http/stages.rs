@@ -66,12 +66,7 @@ fn app_target(req: &mut Request<Body>, route: &Route) -> Option<String> {
     if path == req.uri().path() {
         return None;
     }
-    let target = match req.uri().query() {
-        Some(q) => format!("{path}?{q}"),
-        None => path,
-    };
-    *req.uri_mut() = target.parse().ok()?;
-    Some(route.prefix.clone())
+    redirect::set_path(req, &path).then(|| route.prefix.clone())
 }
 
 pub(crate) async fn to_service<U: Upstream>(

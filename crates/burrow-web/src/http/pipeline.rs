@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use burrow_syntax::url_path::normalize_path;
 use bytes::Bytes;
-use http::{HeaderValue, Method, Request, Response, StatusCode, Uri, header};
+use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 
@@ -80,21 +80,15 @@ fn normalize_target<B>(req: &mut Request<B>) -> bool {
     let Ok(path) = normalize_path(req.uri().path()) else {
         return false;
     };
-    let target = match req.uri().query() {
-        Some(q) => format!("{path}?{q}"),
-        None => path,
-    };
-    let Ok(uri) = target.parse::<Uri>() else {
-        return false;
-    };
     if let Some(authority) = req.uri().authority() {
         let Ok(v) = HeaderValue::from_str(authority.as_str()) else {
             return false;
         };
         req.headers_mut().insert(header::HOST, v);
+    } else if path == req.uri().path() {
+        return true;
     }
-    *req.uri_mut() = uri;
-    true
+    redirect::set_path(req, &path)
 }
 
 fn challenge_token(path: &str) -> Option<&str> {
@@ -238,6 +232,11 @@ mod tests {
         assert_eq!(req.headers()["host"], "[2001:db8::1]:8443");
         let req = normalized("/x", http::Version::HTTP_11);
         assert_eq!(req.headers()["host"], "blog.example.com");
+        assert_eq!(normalized("/x?y=1", http::Version::HTTP_11).uri(), "/x?y=1");
+        assert_eq!(
+            normalized("/%61b?y=1", http::Version::HTTP_11).uri(),
+            "/ab?y=1"
+        );
     }
 
     #[test]

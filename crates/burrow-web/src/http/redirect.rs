@@ -1,7 +1,21 @@
 use bytes::Bytes;
-use http::{HeaderValue, Response, StatusCode, header};
+use http::{HeaderValue, Request, Response, StatusCode, Uri, header};
 
 use super::{Body, full};
+
+pub(crate) fn set_path<B>(req: &mut Request<B>, path: &str) -> bool {
+    let target = match req.uri().query() {
+        Some(q) => format!("{path}?{q}"),
+        None => path.to_string(),
+    };
+    match target.parse::<Uri>() {
+        Ok(uri) => {
+            *req.uri_mut() = uri;
+            true
+        }
+        Err(_) => false,
+    }
+}
 
 pub fn rest_after<'a>(prefix: &str, path: &'a str) -> &'a str {
     let end = burrow_syntax::url_path::prefix_end(prefix, path).unwrap_or(0);
