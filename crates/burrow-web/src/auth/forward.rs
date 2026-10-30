@@ -21,12 +21,12 @@ fn dashed(name: &HeaderName) -> String {
     name.as_str().replace('_', "-")
 }
 
-fn listed(name: &HeaderName, copy: &[HeaderName]) -> bool {
+fn listed(name: &HeaderName, lists: &[&[HeaderName]]) -> bool {
     let n = dashed(name);
-    copy.iter().any(|c| c.as_str() == n)
+    lists.iter().flat_map(|l| l.iter()).any(|c| c.as_str() == n)
 }
 
-pub fn strip_visitor_copies(h: &mut HeaderMap, copy: &[HeaderName]) {
+pub fn strip_visitor_copies(h: &mut HeaderMap, lists: &[&[HeaderName]]) {
     let tokens = connection_tokens(h);
     let upgrade = tokens.contains(&header::UPGRADE);
     for t in &tokens {
@@ -38,7 +38,7 @@ pub fn strip_visitor_copies(h: &mut HeaderMap, copy: &[HeaderName]) {
     if upgrade {
         h.insert(header::CONNECTION, HeaderValue::from_static("upgrade"));
     }
-    let names: Vec<HeaderName> = h.keys().filter(|n| listed(n, copy)).cloned().collect();
+    let names: Vec<HeaderName> = h.keys().filter(|n| listed(n, lists)).cloned().collect();
     for n in names {
         h.remove(n);
     }

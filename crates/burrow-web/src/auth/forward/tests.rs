@@ -43,12 +43,29 @@ fn visitor_copies_and_their_underscore_variants_are_removed() {
         ("remote-email", "kept@example.com"),
         ("cookie", "a=b"),
     ]);
-    strip_visitor_copies(&mut h, &copy);
+    strip_visitor_copies(&mut h, &[&copy]);
     assert!(h.get("remote-user").is_none());
     assert!(h.get("remote_user").is_none());
     assert!(h.get("remote_groups").is_none());
     assert_eq!(h.get("remote-email").unwrap(), "kept@example.com");
     assert_eq!(h.get("cookie").unwrap(), "a=b");
+}
+
+#[test]
+fn the_headers_of_every_login_service_are_removed_not_only_the_sites_own() {
+    let own = names(&["remote-user"]);
+    let others = names(&["x-authentik-username", "remote-user"]);
+    let mut h = headers(&[
+        ("remote-user", "root"),
+        ("X-authentik-username", "akadmin"),
+        ("x_authentik_username", "akadmin"),
+        ("x-authentik-groups", "kept"),
+    ]);
+    strip_visitor_copies(&mut h, &[&own, &others]);
+    assert!(h.get("remote-user").is_none());
+    assert!(h.get("x-authentik-username").is_none());
+    assert!(h.get("x_authentik_username").is_none());
+    assert_eq!(h.get("x-authentik-groups").unwrap(), "kept");
 }
 
 #[test]
@@ -62,12 +79,12 @@ fn connection_tokens_go_now_so_they_cannot_remove_what_burrow_adds_later() {
         ("upgrade", "websocket"),
         ("x-secret", "1"),
     ]);
-    strip_visitor_copies(&mut h, &copy);
+    strip_visitor_copies(&mut h, &[&copy]);
     assert_eq!(h.get("connection").unwrap(), "upgrade");
     assert_eq!(h.get("upgrade").unwrap(), "websocket");
     assert!(h.get("x-secret").is_none());
     let mut plain = headers(&[("connection", "keep-alive, remote-user")]);
-    strip_visitor_copies(&mut plain, &copy);
+    strip_visitor_copies(&mut plain, &[&copy]);
     assert!(plain.get("connection").is_none());
 }
 

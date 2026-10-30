@@ -75,6 +75,7 @@ pub struct ForwardAuth {
     pub service: String,
     pub path: String,
     pub copy_headers: Vec<HeaderName>,
+    pub strip_headers: Vec<HeaderName>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

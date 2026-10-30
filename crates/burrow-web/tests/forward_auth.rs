@@ -113,6 +113,7 @@ fn wiki(timeout: Duration) -> Site {
         service: "authelia".into(),
         path: "/api/authz/forward-auth".into(),
         copy_headers: copy(),
+        strip_headers: vec![HeaderName::from_static("x-authentik-username")],
     });
     s.options.response_header_timeout = timeout;
     s
@@ -213,6 +214,21 @@ async fn a_grant_without_a_user_still_drops_the_visitors_copy() {
     assert!(!app.contains("remote-user"), "{r}");
     assert!(!app.contains("remote_user"), "{r}");
     assert!(!app.contains("remote-email"), "{r}");
+}
+
+#[tokio::test]
+async fn another_login_services_headers_never_reach_the_app_either() {
+    let w = world(Duration::from_secs(5)).await;
+    let r = w
+        .get(
+            "alice",
+            "X-authentik-username: akadmin\r\nX_Authentik_Username: akadmin\r\n",
+        )
+        .await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    let app = app_part(&r);
+    assert!(app.contains("remote-user: alice\n"), "{r}");
+    assert!(!app.contains("akadmin"), "{r}");
 }
 
 #[tokio::test]

@@ -40,11 +40,8 @@ pub(super) fn site_options(o: &settings::SiteOptions) -> SiteOptions {
         forward_auth: o.forward_auth.as_ref().map(|f| ForwardAuth {
             service: f.service.clone(),
             path: f.path.clone(),
-            copy_headers: f
-                .copy_headers
-                .iter()
-                .filter_map(|h| HeaderName::from_bytes(h.as_bytes()).ok())
-                .collect(),
+            copy_headers: header_names(&f.copy_headers),
+            strip_headers: header_names(&f.copy_headers),
         }),
         rate_limit: o.rate_limit.and_then(std::num::NonZeroU32::new),
         client_auth: o.client_auth.as_ref().map(|c| ClientAuth {
@@ -144,6 +141,13 @@ pub(super) fn dns_entries(list: &[settings::DnsSettings]) -> Vec<DnsEntry> {
             resolvers: e.resolvers.clone(),
             wildcards: e.wildcards.clone(),
         })
+        .collect()
+}
+
+fn header_names(names: &[String]) -> Vec<HeaderName> {
+    names
+        .iter()
+        .filter_map(|h| HeaderName::from_bytes(h.as_bytes()).ok())
         .collect()
 }
 

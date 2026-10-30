@@ -80,7 +80,7 @@ impl<U: Upstream> Gate<'_, U> {
         fa: &ForwardAuth,
         req: &mut Request<Incoming>,
     ) -> Option<Response<Body>> {
-        strip_visitor_copies(req.headers_mut(), &fa.copy_headers);
+        strip_visitor_copies(req.headers_mut(), &[&fa.copy_headers, &fa.strip_headers]);
         let pq = req.uri().path_and_query().map_or("/", |p| p.as_str());
         let asked = Asked {
             method: req.method(),
