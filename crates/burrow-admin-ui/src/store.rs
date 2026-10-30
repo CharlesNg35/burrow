@@ -266,13 +266,22 @@ impl Store {
                     .and_then(|h| h.iter().find(|e| e.rev == rev))
                     .map(|e| e.at as f64 * 1000.0)
             })
-            .or_else(|| self.rev_at.with(|m| m.get(rev).copied()));
+            .or_else(|| self.rev_at.with(|m| m.get(rev).copied()))
+            .or_else(|| self.started_with(rev));
         burrow_admin_logic::wording::version_name(at.map(crate::format::stamp).as_deref())
     }
 
     pub fn protocol_problem(&self, what: &str, e: impl std::fmt::Display) -> String {
         self.raw_error.set(Some(format!("{what}: {e}")));
         burrow_admin_logic::wording::PROTOCOL_ERROR.to_string()
+    }
+
+    fn started_with(&self, rev: &str) -> Option<f64> {
+        let running = self
+            .state
+            .with(|s| s.as_ref().is_some_and(|s| s.running.rev == rev));
+        let up = self.status.with(|s| s.as_ref().map(|s| s.uptime_secs))?;
+        running.then(|| self.status_at.get() - up as f64 * 1000.0)
     }
 
     pub fn note_rev(&self, rev: &str) {
