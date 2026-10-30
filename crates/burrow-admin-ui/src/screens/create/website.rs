@@ -226,6 +226,73 @@ fn service_name_of(
     (svc_name, service, name_issue)
 }
 
+#[derive(Clone, Copy)]
+struct Checks {
+    web_on: Memo<bool>,
+    https_in: RwSignal<String>,
+    http_in: RwSignal<String>,
+    p: Memo<Ports>,
+    names: RwSignal<Vec<String>>,
+    client: RwSignal<Vec<String>>,
+    target: RwSignal<String>,
+    asks_email: Memo<bool>,
+    email: RwSignal<String>,
+    service: Memo<String>,
+    name_issue: Signal<Option<String>>,
+}
+
+fn website_checks(c: Checks) -> Memo<Option<String>> {
+    let Checks {
+        web_on,
+        https_in,
+        http_in,
+        p,
+        names,
+        client,
+        target,
+        asks_email,
+        email,
+        service,
+        name_issue,
+    } = c;
+    Memo::new(move |_| {
+        if !web_on.get() {
+            let found = port_problem("HTTPS port", &https_in.get())
+                .or_else(|| port_problem("HTTP port", &http_in.get()));
+            if found.is_some() {
+                return found;
+            }
+            if !p.get().https && !p.get().http {
+                return Some("Give the web proxy an HTTPS port, an HTTP port or both".to_string());
+            }
+        }
+        if names.with(Vec::is_empty) {
+            return Some("Add the website's name".to_string());
+        }
+        if client.with(Vec::is_empty) {
+            return Some("Pick the client that runs the app".to_string());
+        }
+        if target.with(|t| t.trim().is_empty()) {
+            return Some("Give the app's port".to_string());
+        }
+        if asks_email.get()
+            && let Some(n) = names
+                .get()
+                .into_iter()
+                .find(|n| checks_for(n, p.get().numbers, false, None).is_err())
+        {
+            return Some(burrow_admin_logic::wording::no_check(&n));
+        }
+        if asks_email.get() && !email.with(|m| m.contains('@')) {
+            return Some("Give Let's Encrypt's contact email".to_string());
+        }
+        if service.with(String::is_empty) {
+            return Some("Give the service a name".to_string());
+        }
+        name_issue.get()
+    })
+}
+
 #[component]
 pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl IntoView {
     let s = store();
@@ -268,41 +335,18 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
     let asks_email = Memo::new(move |_| {
         tls.get() == TlsMode::Auto.wire() && needs_letsencrypt(&names.get(), &web.get())
     });
-    let problem = Memo::new(move |_| {
-        if !web_on.get() {
-            let found = port_problem("HTTPS port", &https_in.get())
-                .or_else(|| port_problem("HTTP port", &http_in.get()));
-            if found.is_some() {
-                return found;
-            }
-            if !p.get().https && !p.get().http {
-                return Some("Give the web proxy an HTTPS port, an HTTP port or both".to_string());
-            }
-        }
-        if names.with(Vec::is_empty) {
-            return Some("Add the website's name".to_string());
-        }
-        if client.with(Vec::is_empty) {
-            return Some("Pick the client that runs the app".to_string());
-        }
-        if target.with(|t| t.trim().is_empty()) {
-            return Some("Give the app's port".to_string());
-        }
-        if asks_email.get()
-            && let Some(n) = names
-                .get()
-                .into_iter()
-                .find(|n| checks_for(n, p.get().numbers, false, None).is_err())
-        {
-            return Some(burrow_admin_logic::wording::no_check(&n));
-        }
-        if asks_email.get() && !email.with(|m| m.contains('@')) {
-            return Some("Give Let's Encrypt's contact email".to_string());
-        }
-        if service.with(String::is_empty) {
-            return Some("Give the service a name".to_string());
-        }
-        name_issue.get()
+    let problem = website_checks(Checks {
+        web_on,
+        https_in,
+        http_in,
+        p,
+        names,
+        client,
+        target,
+        asks_email,
+        email,
+        service,
+        name_issue,
     });
     let finish = move |_| {
         if problem.get_untracked().is_some() {

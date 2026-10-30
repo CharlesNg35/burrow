@@ -104,6 +104,14 @@ pub fn Combobox(
         new_name,
         create_error,
     };
+    let nav = Nav {
+        open,
+        active,
+        query,
+        visible,
+        selected,
+        multi,
+    };
     let lid = list_id.clone();
     let act_id = {
         let id = id.clone();
@@ -160,38 +168,7 @@ pub fn Combobox(
                         active.set(0);
                         open.set(true);
                     }
-                    on:keydown=move |e| match e.key().as_str() {
-                        "ArrowDown" => {
-                            e.prevent_default();
-                            open.set(true);
-                            let n = visible.with(Vec::len);
-                            if n > 0 {
-                                active.update(|a| *a = (*a + 1).min(n - 1));
-                            }
-                        }
-                        "ArrowUp" => {
-                            e.prevent_default();
-                            active.update(|a| *a = a.saturating_sub(1));
-                        }
-                        "Enter" => {
-                            e.prevent_default();
-                            if let Some(o) = visible.with(|v| v.get(active.get_untracked()).cloned()) {
-                                pick(o.value);
-                            }
-                        }
-                        "Escape" => {
-                            if open.get_untracked() {
-                                e.stop_propagation();
-                                open.set(false);
-                            }
-                        }
-                        "Backspace" if multi && query.with_untracked(String::is_empty) => {
-                            if let Some(last) = selected.get_untracked().last().cloned() {
-                                remove(last);
-                            }
-                        }
-                        _ => {}
-                    }
+                    on:keydown=move |e| on_key(&e, nav, &pick, &remove)
                 />
                 {(!multi).then(|| view! { <span class="pointer-events-none mr-1.5 ml-auto text-text-muted" aria-hidden="true" data-single=""><Icon name="chevron-down" small=true/></span> })}
             </div>
@@ -205,6 +182,51 @@ pub fn Combobox(
                 </div>
             </Show>
         </div>
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Nav {
+    open: RwSignal<bool>,
+    active: RwSignal<usize>,
+    query: RwSignal<String>,
+    visible: Memo<Vec<ComboOption>>,
+    selected: Signal<Vec<String>>,
+    multi: bool,
+}
+
+fn on_key(e: &web_sys::KeyboardEvent, n: Nav, pick: &dyn Fn(String), remove: &dyn Fn(String)) {
+    match e.key().as_str() {
+        "ArrowDown" => {
+            e.prevent_default();
+            n.open.set(true);
+            let len = n.visible.with(Vec::len);
+            if len > 0 {
+                n.active.update(|a| *a = (*a + 1).min(len - 1));
+            }
+        }
+        "ArrowUp" => {
+            e.prevent_default();
+            n.active.update(|a| *a = a.saturating_sub(1));
+        }
+        "Enter" => {
+            e.prevent_default();
+            if let Some(o) = n.visible.with(|v| v.get(n.active.get_untracked()).cloned()) {
+                pick(o.value);
+            }
+        }
+        "Escape" => {
+            if n.open.get_untracked() {
+                e.stop_propagation();
+                n.open.set(false);
+            }
+        }
+        "Backspace" if n.multi && n.query.with_untracked(String::is_empty) => {
+            if let Some(last) = n.selected.get_untracked().last().cloned() {
+                remove(last);
+            }
+        }
+        _ => {}
     }
 }
 
