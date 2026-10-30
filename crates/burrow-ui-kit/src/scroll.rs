@@ -16,10 +16,21 @@ fn show(el: &web_sys::HtmlElement, selector: &str) {
         return;
     }
     if let Ok(Some(on)) = el.query_selector(selector) {
-        let opts = web_sys::ScrollIntoViewOptions::new();
-        opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
-        opts.set_inline(web_sys::ScrollLogicalPosition::Nearest);
-        on.scroll_into_view_with_scroll_into_view_options(&opts);
+        let (row, item) = (el.get_bounding_client_rect(), on.get_bounding_client_rect());
+        let by = sideways(row.left(), row.right(), item.left(), item.right());
+        if by != 0.0 {
+            el.set_scroll_left(el.scroll_left() + by.round() as i32);
+        }
+    }
+}
+
+fn sideways(row_left: f64, row_right: f64, left: f64, right: f64) -> f64 {
+    if left < row_left {
+        left - row_left
+    } else if right > row_right {
+        right - row_right
+    } else {
+        0.0
     }
 }
 
@@ -86,6 +97,13 @@ mod tests {
         assert!(more_on_the_right(0, 300, 420));
         assert!(more_on_the_right(60, 300, 420));
         assert!(!more_on_the_right(120, 300, 420), "scrolled to the end");
+    }
+
+    #[test]
+    fn the_active_item_comes_into_view_by_scrolling_only_the_row() {
+        assert_eq!(sideways(0.0, 300.0, 20.0, 80.0), 0.0);
+        assert_eq!(sideways(0.0, 300.0, 280.0, 340.0), 40.0);
+        assert_eq!(sideways(10.0, 300.0, -30.0, 30.0), -40.0);
     }
 
     #[test]

@@ -11,6 +11,11 @@ const WIDTHS: [(i64, &str); 4] = [
 ];
 
 async fn one_line(c: &Ctx, what: &str, w: i64) {
+    let y: f64 = c.ui.eval("window.scrollY").await;
+    assert_eq!(
+        y, 0.0,
+        "{what} at {w}px: bringing the active chip into view leaves the page where it is"
+    );
     let tops: Vec<f64> = c
         .ui
         .eval(&format!("[...document.querySelectorAll('{ROW} [data-filter]')].filter(b => b.offsetParent).map(b => Math.round(b.getBoundingClientRect().top))"))
