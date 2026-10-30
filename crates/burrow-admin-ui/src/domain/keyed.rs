@@ -1,5 +1,5 @@
 use burrow_admin_logic::check::check;
-use burrow_admin_proto::schema::{Entity, Node, SemType};
+use burrow_admin_proto::schema::{Node, SemType};
 use burrow_admin_proto::serde_json::Value;
 
 use crate::store::store;
@@ -8,16 +8,6 @@ use super::FieldCtx;
 use burrow_admin_logic::shorthand::Shorthand;
 use burrow_ui_kit::{TextInput, Toggle, button_class};
 use leptos::prelude::*;
-
-fn example(key: &Node, label: &str) -> &'static str {
-    match key.sem {
-        SemType::UrlPath => "/old",
-        SemType::HostName(_) => "old.example.com",
-        SemType::Name(ref c) if c.entity == Entity::Login => "authelia",
-        _ if label.contains("header") => "X-Frame-Options",
-        _ => "old.example.com",
-    }
-}
 
 pub(super) fn key_adder(
     id: String,
@@ -58,8 +48,8 @@ pub(super) fn key_adder(
                     id=format!("{id}-add")
                     value=text
                     on_input=move |v: String| text.set(v)
-                    placeholder=format!("for example {}", example(&key, &label.to_lowercase()))
-                    label=format!("Add to {label}")
+                    placeholder=burrow_admin_logic::wording::add_label(&label, &key.label)
+                    label=burrow_admin_logic::wording::add_label(&label, &key.label)
                     invalid=Signal::derive(move || problem.get().is_some())
                     described_by=Signal::derive({
                         let m = msg_id.clone();
@@ -69,7 +59,7 @@ pub(super) fn key_adder(
                 />
                 {move || problem.get().map(|p| view! { <p id=format!("{id}-add-msg") class="mt-1 text-xs text-danger">{p}</p> })}
             </div>
-            <button type="button" id=button_id class=button_class("secondary", true) on:click=move |_| c2()>
+            <button type="button" id=button_id class=format!("{} h-[38px]", button_class("secondary", false)) on:click=move |_| c2()>
                 "Add"
             </button>
         </div>

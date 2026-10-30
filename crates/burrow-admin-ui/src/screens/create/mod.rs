@@ -46,7 +46,6 @@ pub(crate) fn name_input(
                 invalid=Signal::derive(move || problem.get().is_some())
                 described_by=msg.clone()
                 mono=true
-                placeholder=format!("for example {example}")
             />
             {move || ok().then(|| view! {
                 <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 text-xs font-semibold text-success"><burrow_ui_kit::Icon name="check" small=true/>"available"</span>

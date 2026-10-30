@@ -43,6 +43,24 @@ fn key_path(head: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*'))
 }
 
+pub const REPO: &str = "https://github.com/CharlesNg35/burrow";
+
+pub fn releases() -> String {
+    format!("{REPO}/releases/latest")
+}
+
+pub fn docs(page: &str) -> String {
+    format!("{REPO}/blob/main/docs/{page}")
+}
+
+pub fn add_label(field: &str, item: &str) -> String {
+    if item.is_empty() {
+        format!("Add to {field}")
+    } else {
+        format!("Add {}", item.to_lowercase())
+    }
+}
+
 pub fn help_shown(code: &str, help: Option<&str>) -> Option<String> {
     if code == UNUSED_VISITOR {
         return Some(

@@ -62,7 +62,7 @@ pub(super) fn object_list(fc: FieldCtx, item: Node) -> AnyView {
         <div class="space-y-2" id=fc.id.clone()>
             {rows}
             <button type="button" id=format!("{}-add-button", fc.id) class=button_class("secondary", true) on:click=add>
-                {format!("Add {}", if item_label.is_empty() { "one".to_string() } else { item_label.to_lowercase() })}
+                {burrow_admin_logic::wording::add_label(&fc.node.label, &item_label)}
             </button>
         </div>
     }

@@ -151,6 +151,7 @@ pub(super) fn map_editor(
             _ => None,
         })
         .filter(|e| burrow_config::entity_path(e) == fc.path);
+    let add_label = burrow_admin_logic::wording::add_label(&fc.node.label, &value_node.label);
     let rows = move || {
         keys.get()
             .into_iter()
@@ -203,7 +204,7 @@ pub(super) fn map_editor(
                 <div class="w-60">
                     <Select
                         id=format!("{}-add", fc.id)
-                        label=format!("Add to {}", fc.node.label)
+                        label=add_label.clone()
                         options=candidates
                         value=adding
                         on_change=add.clone()
