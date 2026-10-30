@@ -50,12 +50,13 @@ pub fn init_client(
     } = ask_login(Role::Client, &path, opts, prompt)?;
     let value = client_value(&server, &name, &secret_text, &["127.0.0.0/8".to_string()]);
     write_new(&path, &render(&value, format), opts.force)?;
-    writeln!(
+    crate::base::output::say(
         out,
-        "wrote {} (allows 127.0.0.0/8; edit \"allow\" to expose other networks)",
-        path.display()
-    )
-    .map_err(|e| Failure::new(format!("cannot write output: {e}")))?;
+        format!(
+            "wrote {} (allows 127.0.0.0/8; edit \"allow\" to expose other networks)",
+            path.display()
+        ),
+    )?;
     Ok(path)
 }
 

@@ -21,6 +21,7 @@ pub const UNITS: &[(&str, Layer)] = &[
     ("base::failure", Layer::Base),
     ("base::fs", Layer::Base),
     ("base::logfile", Layer::Base),
+    ("base::output", Layer::Base),
     ("base::ports", Layer::Base),
     ("base::process", Layer::Base),
     ("base::prompt", Layer::Base),

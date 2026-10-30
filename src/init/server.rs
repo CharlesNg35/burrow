@@ -170,7 +170,7 @@ struct Written<'a> {
 }
 
 fn line(out: &mut dyn Write, s: String) -> Result<(), Failure> {
-    writeln!(out, "{s}").map_err(|e| Failure::new(format!("cannot write output: {e}")))
+    crate::base::output::say(out, s)
 }
 
 fn report(

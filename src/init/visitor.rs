@@ -8,6 +8,7 @@ use serde_json::{Map, Value, json};
 use super::export::{ConfigOutput, VISITOR, connect_address, load_server, pick_name, secret_text};
 use super::{InitOptions, Login, ask_login, resolve_output, write_new};
 use crate::base::failure::Failure;
+use crate::base::output::say;
 use crate::base::prompt::Prompter;
 use crate::config::emit::render;
 use crate::config::env::EnvSource;
@@ -55,14 +56,14 @@ pub fn init_visitor(
         Err(f) => {
             write_new(&path, &bare, opts.force)?;
             let why = format!("{}, so the server was not asked", f.message);
-            return say(out, &later(&why)).map(|()| path);
+            return say(out, later(&why)).map(|()| path);
         }
     };
     let fetched = match crate::dialer::fetch::grants(&settings) {
         Ok(g) => g,
         Err(n) if !n.rejected => {
             write_new(&path, &bare, opts.force)?;
-            return say(out, &later(&n.failure.message)).map(|()| path);
+            return say(out, later(&n.failure.message)).map(|()| path);
         }
         Err(n) => return Err(n.failure),
     };
@@ -84,7 +85,7 @@ pub fn init_visitor(
     if planned.forwards.is_empty() && planned.unplaced.is_empty() {
         return say(
             out,
-            &format!(
+            format!(
                 "wrote {}; the server lets visitor \"{name}\" use nothing yet",
                 path.display()
             ),
@@ -249,16 +250,12 @@ fn update_visitor(
     })?;
     say(
         out,
-        &format!(
+        format!(
             "updated {}; a running burrow visit applies it by itself",
             path.display()
         ),
     )
     .map(|()| path)
-}
-
-fn say(out: &mut dyn Write, text: &str) -> Result<(), Failure> {
-    writeln!(out, "{text}").map_err(|e| Failure::new(format!("cannot write output: {e}")))
 }
 
 fn settings_of(

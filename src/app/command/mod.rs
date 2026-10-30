@@ -3,7 +3,7 @@ mod ca;
 mod passwd;
 mod pick;
 
-use std::io::{IsTerminal, Write};
+use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
@@ -56,12 +56,7 @@ pub fn main() -> ExitCode {
 }
 
 fn print(s: &str) -> Result<(), Failure> {
-    let mut out = std::io::stdout().lock();
-    match out.write_all(s.as_bytes()).and_then(|_| out.flush()) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(e) => Err(Failure::new(format!("cannot write output: {e}"))),
-    }
+    crate::base::output::put(&mut std::io::stdout().lock(), s)
 }
 
 fn config_path(

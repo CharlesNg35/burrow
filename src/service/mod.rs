@@ -25,6 +25,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::base::failure::Failure;
+use crate::base::output::say;
 use crate::install::{Manifest, Platform, all_manifests, load_manifest, manifest_path};
 
 pub use checks::misfits;
@@ -134,15 +135,6 @@ pub trait Backend {
     }
     fn manual_stop(&self, name: &str) -> String {
         format!("stop {name} in the service manager")
-    }
-}
-
-fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
-    match writeln!(out, "{}", line.as_ref()) {
-        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
-            Err(Failure::new(format!("cannot write output: {e}")))
-        }
-        _ => Ok(()),
     }
 }
 

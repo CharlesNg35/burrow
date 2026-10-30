@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::base::failure::{Failure, admin, cmd};
+use crate::base::output::say;
 use crate::install::Manifest;
 use crate::service::{self, parse_version};
 
@@ -100,15 +101,6 @@ pub fn find_asset(sums: &str, platform: &str, ext: &str) -> Option<Asset> {
             sha256: hash.to_ascii_lowercase(),
         })
     })
-}
-
-fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
-    match writeln!(out, "{}", line.as_ref()).and_then(|_| out.flush()) {
-        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
-            Err(Failure::new(format!("cannot write output: {e}")))
-        }
-        _ => Ok(()),
-    }
 }
 
 fn in_container() -> bool {

@@ -12,6 +12,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::base::failure::{Failure, admin, cmd, file_reason};
+use crate::base::output::say;
 use crate::base::prompt::Prompter;
 use crate::base::style::Style;
 use crate::config::Format;
@@ -70,10 +71,6 @@ fn choose(
         (None, [one]) => Ok(one.clone()),
         (None, _) => pick::ask(found, prompt),
     }
-}
-
-fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
-    writeln!(out, "{}", line.as_ref()).map_err(|e| Failure::new(format!("cannot write: {e}")))
 }
 
 fn service_env(f: &Found) -> Option<BTreeMap<String, String>> {

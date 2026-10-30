@@ -6,6 +6,7 @@ pub mod channel;
 pub mod failure;
 pub mod fs;
 pub mod logfile;
+pub mod output;
 pub(crate) mod ports;
 pub mod process;
 pub mod prompt;
