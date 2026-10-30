@@ -4,6 +4,14 @@ use burrow_admin_proto::codes::{
     REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, WEB_OFF, WEB_TCP_ONLY, WILDCARD_NEEDS_DNS,
 };
 
+const WEB_PROXY: &str = "Settings, Web proxy";
+
+pub fn no_check(subject: &str) -> String {
+    format!(
+        "Let's Encrypt cannot check {subject}: its TLS and HTTP checks reach only ports 443 and 80; set the HTTPS port to 443 or the HTTP port to 80 in {WEB_PROXY}, use the DNS check (a DNS provider under {WEB_PROXY}, Let's Encrypt), or use your own certificate file"
+    )
+}
+
 const TCP_ONLY: [(&str, &str); 5] = [
     (
         WEB_TCP_ONLY,
@@ -36,7 +44,9 @@ fn key_path(head: &str) -> bool {
 
 pub fn help_shown(code: &str, help: Option<&str>) -> Option<String> {
     if code == NO_HTTP {
-        return Some("Set the HTTP port (80) in Settings, Web proxy so http:// addresses are sent to https://".into());
+        return Some(format!(
+            "Set the HTTP port (80) in {WEB_PROXY} so http:// addresses are sent to https://"
+        ));
     }
     help.map(str::to_string)
 }
@@ -49,27 +59,29 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     let subject = subjects.first().map_or("", String::as_str);
     if code == REDIRECT_NEEDS_HTTP {
-        return "answering plain HTTP too needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in Settings, Web proxy, or send http:// to https://".into();
-    }
-    if code == PLAIN_NEEDS_HTTP {
-        return "plain HTTP needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in Settings, Web proxy, or choose another HTTPS option".into();
-    }
-    if code == NO_CHECK {
         return format!(
-            "Let's Encrypt cannot check {subject}: its TLS and HTTP checks reach only ports 443 and 80; set the HTTPS port to 443 or the HTTP port to 80 in Settings, Web proxy, use the DNS check (a DNS provider under Settings, Web proxy, Let's Encrypt), or use your own certificate file"
+            "answering plain HTTP too needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in {WEB_PROXY}, or send http:// to https://"
         );
     }
+    if code == PLAIN_NEEDS_HTTP {
+        return format!(
+            "plain HTTP needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in {WEB_PROXY}, or choose another HTTPS option"
+        );
+    }
+    if code == NO_CHECK {
+        return no_check(subject);
+    }
     if code == WEB_OFF {
-        return "the web proxy is off; turn it on with its ports in Settings, Web proxy".into();
+        return format!("the web proxy is off; turn it on with its ports in {WEB_PROXY}");
     }
     if code == NO_CERTIFICATE {
         return format!(
-            "{subject} has no certificate: turn on Let's Encrypt under Settings, Web proxy, choose My own certificate under HTTPS, or list the name in the web proxy's Certificate files"
+            "{subject} has no certificate: turn on Let's Encrypt under {WEB_PROXY}, choose My own certificate under HTTPS, or list the name in the web proxy's Certificate files"
         );
     }
     if code == WILDCARD_NEEDS_DNS {
         return format!(
-            "Let's Encrypt gives {subject} only through a DNS check: add a DNS provider for its domain under Settings, Web proxy, Let's Encrypt, or use your own certificate file for it"
+            "Let's Encrypt gives {subject} only through a DNS check: add a DNS provider for its domain under {WEB_PROXY}, Let's Encrypt, or use your own certificate file for it"
         );
     }
     if code == PLAIN_HTTP {
