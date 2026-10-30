@@ -1,6 +1,7 @@
 mod access_keys;
 mod certs;
 mod client;
+mod client_ref;
 mod dns;
 mod entries;
 mod options;
@@ -17,6 +18,7 @@ pub use certs::{CertFile, Directory, DirectoryName, LetsEncrypt};
 pub use client::{
     CLIENT_MAX_CONNECTIONS, CLIENT_MAX_UDP_PEERS, Cipher, ClientConfig, OnRejected, Reconnect,
 };
+pub use client_ref::{ClientRef, WEIGHT_MAX, WeightedClient, ref_name};
 pub use dns::{AcmeDnsDns, CloudflareDns, DnsEntry, Rfc2136Dns};
 pub use entries::{
     Bind, ClientEntry, HealthCheck, HealthCheckSetting, Mode, Protocol, ProxyVersion, Reach,

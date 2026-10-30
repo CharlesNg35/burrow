@@ -1,3 +1,4 @@
+mod balance;
 mod client;
 mod connection;
 mod local;

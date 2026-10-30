@@ -111,6 +111,8 @@ pub struct RefListC {
     pub entity: Entity,
     #[serde(default)]
     pub ordered: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub weighted: bool,
     #[serde(default = "yes")]
     pub unique: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

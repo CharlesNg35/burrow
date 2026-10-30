@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::{ServiceWeb, is_default};
+use super::{ClientRef, ServiceWeb, is_default};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -191,11 +191,11 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(help = "Clients that can each reach the target; with two or more, Mode chooses how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
-    pub clients: Vec<String>,
+    #[admin(help = "Clients that can each reach the target; with two or more, Mode chooses how one is picked", ty = ref_list(client, ordered, weighted, reserved = "self"), group = who, one_of = "who")]
+    pub clients: Vec<ClientRef>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
-        description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them"
+        description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least_connections sends each new one to the client with the fewest open connections"
     )]
     #[admin(group = who, enabled_if(len_ge(clients, 2), "This applies only with two or more clients"))]
     pub mode: Mode,
@@ -313,13 +313,21 @@ pub struct ServiceEntry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     #[default]
     #[admin(label = "Failover", help = "Use the first client that is up")]
     Failover,
-    #[admin(label = "Balance", help = "Spread new connections over all clients")]
+    #[admin(
+        label = "Balance",
+        help = "Spread new connections over all clients that are up, by their weight"
+    )]
     Balance,
+    #[admin(
+        label = "Least connections",
+        help = "Send each new connection to the client that is up with the fewest open connections"
+    )]
+    LeastConnections,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

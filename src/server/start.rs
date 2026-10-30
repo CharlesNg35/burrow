@@ -247,6 +247,7 @@ pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
             match svc.mode {
                 burrow_config::Mode::Failover => "failover",
                 burrow_config::Mode::Balance => "balance",
+                burrow_config::Mode::LeastConnections => "least connections",
             }
         ),
     };
@@ -332,7 +333,7 @@ impl Server {
             probes: Mutex::new(HashMap::new()),
             web_wait: Mutex::new(None),
             standing: Mutex::new(standing::Standing::default()),
-            turns: Mutex::new(HashMap::new()),
+            wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(
                 &settings,
                 Vec::new(),

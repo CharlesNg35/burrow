@@ -7,7 +7,9 @@ use burrow_admin_proto::value::get;
 use burrow_admin_proto::schema::Entity;
 
 use crate::field::{Entry, entity_at};
-use crate::model::{ClientEntry, ServerConfig, ServiceEntry, VisitorEntry, WebSite};
+use crate::model::{
+    ClientEntry, ServerConfig, ServiceEntry, VisitorEntry, WebSite, WeightedClient,
+};
 
 pub fn rename_refs(root: &mut Value, entry: &[String], to: &str) -> Vec<Path> {
     let Some((from, parent)) = entry.split_last() else {
@@ -63,6 +65,8 @@ fn rename_in_services(root: &mut Value, section: &str, from: &str, to: &str) -> 
                     Some(Value::Array(items)) => items.iter_mut().for_each(|v| {
                         if v.as_str() == Some(from) {
                             *v = Value::String(to.to_string());
+                        } else if crate::model::ref_name(v) == Some(from) {
+                            WeightedClient::NAME.set(v, Value::String(to.to_string()));
                         }
                     }),
                     Some(v) if v.as_str() == Some(from) => *v = Value::String(to.to_string()),
@@ -101,27 +105,25 @@ struct Refs {
 }
 
 fn names_in(v: Option<&Value>) -> Vec<String> {
-    match v {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect(),
-        Some(Value::String(s)) => vec![s.clone()],
-        _ => Vec::new(),
-    }
+    ServiceEntry::listed_names(v)
 }
 
 fn refs(section: &str, v: &Value, shared: &BTreeSet<String>) -> Option<Refs> {
     let mut rest = v.as_object().cloned().unwrap_or_default();
     if section == ServiceEntry::section() {
-        let mut clients = names_in(rest.remove(ServiceEntry::CLIENT.key()).as_ref());
-        clients.extend(names_in(rest.remove(ServiceEntry::CLIENTS.key()).as_ref()));
+        let single = rest.remove(ServiceEntry::CLIENT.key());
+        let listed = rest.remove(ServiceEntry::CLIENTS.key());
+        let mut clients = names_in(single.as_ref());
+        clients.extend(names_in(listed.as_ref()));
         let visitors = names_in(rest.remove(ServiceEntry::VISITORS.key()).as_ref());
-        let order = clients
-            .iter()
-            .filter(|c| shared.contains(*c))
-            .map(|c| Value::String(c.clone()))
+        let entries = match listed {
+            Some(Value::Array(a)) => a,
+            other => other.into_iter().collect(),
+        };
+        let order = single
+            .into_iter()
+            .chain(entries)
+            .filter(|c| crate::model::ref_name(c).is_some_and(|n| shared.contains(n)))
             .collect();
         return Some(Refs {
             rest: Value::Object(rest),
@@ -234,6 +236,13 @@ mod tests {
             .keys()
             .collect();
         assert_eq!(keys, ["home2", "office", "lab"]);
+        let mut weighted =
+            json!({"services": {"db": {"clients": ["a", {"name": "home", "weight": 3}]}}});
+        rename_refs(&mut weighted, &p("clients", "home"), "home2");
+        assert_eq!(
+            weighted["services"]["db"]["clients"],
+            json!(["a", {"name": "home2", "weight": 3}])
+        );
         rename_refs(&mut doc, &p("visitors", "home"), "guest");
         assert_eq!(doc["services"]["ssh"]["visitors"], json!(["guest"]));
         assert_eq!(doc["services"]["web"]["client"], "home2");

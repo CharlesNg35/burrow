@@ -137,7 +137,7 @@ carriers!(Duration: u32, u64);
 carriers!(Size: u32, u64);
 carriers!(Rate: String);
 carriers!(Ref: String);
-carriers!(RefList: Vec<String>);
+carriers!(RefList: Vec<String>, Vec<crate::model::ClientRef>);
 carriers!(Name: String);
 carriers!(Path: String);
 carriers!(Upload: String);

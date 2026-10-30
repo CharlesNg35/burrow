@@ -1,4 +1,5 @@
 pub mod admin_hook;
+mod balance;
 #[cfg(feature = "web")]
 mod certs;
 mod control;
@@ -74,7 +75,7 @@ pub struct Shared {
     probes: Mutex<health::Probes>,
     web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
     standing: Mutex<standing::Standing>,
-    turns: Mutex<HashMap<String, usize>>,
+    wheels: Mutex<balance::Wheels>,
     local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,
     #[cfg(feature = "web")]
@@ -166,6 +167,10 @@ impl Shared {
     }
 
     fn sync_limits(&self, settings: &ServerSettings) {
+        self.wheels
+            .lock()
+            .expect("wheels lock")
+            .retain(&settings.services);
         let mut limits = self.limits.lock().expect("limits lock");
         limits.retain(|name, _| settings.services.contains_key(name));
         for (name, limit) in limits.iter() {

@@ -243,19 +243,20 @@ pub(super) fn usable(
     }
 }
 
-pub(super) fn clients_for(shared: &Shared, grant: &Grant) -> Vec<crate::server::via::Via> {
+pub(super) fn clients_for(shared: &Shared, grant: &Grant) -> crate::server::pick::Picked {
     match &grant.service {
         Some(name) => shared
             .settings()
             .services
             .get(name)
             .map(|svc| shared.route(name, svc, &grant.target))
-            .unwrap_or_default(),
+            .unwrap_or_else(|| crate::server::pick::Picked::from(Vec::new())),
         None => grant
             .clients
             .first()
             .and_then(|c| shared.via(c))
             .into_iter()
-            .collect(),
+            .collect::<Vec<_>>()
+            .into(),
     }
 }

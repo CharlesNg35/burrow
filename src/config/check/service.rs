@@ -80,6 +80,7 @@ pub(super) fn check_service<'a>(
     let listed = listed_visitors(name, svc, spans, out);
     let bandwidth = bandwidth(name, svc, spans, out);
     let clients = check_clients(name, svc, spans, out);
+    let weights = super::balance::check_weights(name, svc, spans, out);
     let health = health(svc);
     check_tcp_only(name, svc, clients.len(), health.is_some(), spans, out);
     let (target, ports) = target?;
@@ -88,6 +89,7 @@ pub(super) fn check_service<'a>(
     }
     Some(Service {
         clients,
+        weights,
         mode: svc.mode,
         health,
         bind: bind.map(|(a, _)| a),
@@ -184,6 +186,7 @@ fn check_tcp_only(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
+    let mode_tcp_only = format!("mode {} only works for tcp services", svc.mode.wire());
     for field in ServiceEntry::TCP_ONLY {
         let generic = format!("{field} only works for tcp services");
         let (set, code, why) = match *field {
@@ -198,9 +201,9 @@ fn check_tcp_only(
                 "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
             ),
             "mode" => (
-                svc.mode == Mode::Balance && clients > 1,
+                svc.mode != Mode::Failover && clients > 1,
                 burrow_admin_proto::codes::BALANCE_TCP_ONLY,
-                "mode balance only works for tcp services",
+                mode_tcp_only.as_str(),
             ),
             "health_check" => (
                 health,
@@ -248,10 +251,14 @@ fn check_clients(
         ),
         _ => {}
     }
-    let named = svc.client.iter().map(|c| (None, c));
-    let listed = svc.clients.iter().enumerate().map(|(i, c)| (Some(i), c));
+    let named = svc.client.iter().map(|c| (None, c.as_str()));
+    let listed = svc
+        .clients
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (Some(i), c.name()));
     for (i, c) in named.chain(listed) {
-        if clients.contains(c) {
+        if clients.iter().any(|x| x == c) {
             let at = i.map(|i| i.to_string());
             let mut place = vec!["services", name, "clients"];
             place.extend(at.as_deref());
@@ -265,7 +272,7 @@ fn check_clients(
             );
             continue;
         }
-        clients.push(c.clone());
+        clients.push(c.to_string());
     }
     clients
 }

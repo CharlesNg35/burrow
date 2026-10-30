@@ -8,6 +8,8 @@ mod http_check;
 mod selection;
 #[path = "failover/udp_moves.rs"]
 mod udp_moves;
+#[path = "failover/weights.rs"]
+mod weights;
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;

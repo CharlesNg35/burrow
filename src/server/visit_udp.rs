@@ -75,7 +75,7 @@ pub(super) async fn serve(
     shared: &Arc<Shared>,
     channel: &mut Channel,
     visit: Visit<'_>,
-    clients: Vec<Via>,
+    clients: super::pick::Picked,
 ) -> (Outcome, bool) {
     let grant = visit.grant;
     let way = Way {

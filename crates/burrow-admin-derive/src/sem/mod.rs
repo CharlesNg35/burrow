@@ -262,9 +262,10 @@ fn scalar_sem(
         "ref_list" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);
             let ordered = Term::flag(args, "ordered");
+            let weighted = Term::flag(args, "weighted");
             let max = opt_int(Term::value(args, "max").and_then(Term::as_int));
             let reserved = reserved(args);
-            quote!(#p::SemType::RefList(#p::RefListC { entity: #e, ordered: #ordered, unique: true, max: #max, reserved: #reserved }))
+            quote!(#p::SemType::RefList(#p::RefListC { entity: #e, ordered: #ordered, weighted: #weighted, unique: true, max: #max, reserved: #reserved }))
         }
         "name" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);

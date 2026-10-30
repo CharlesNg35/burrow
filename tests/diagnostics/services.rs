@@ -309,7 +309,7 @@ fn several_clients() {
        |
     29 |     mode: random
        |           ^^^^^^ not a valid mode
-       = help: valid values: failover, balance
+       = help: valid values: failover, balance, least_connections
 
     error: "health_check" in service "e" must be true or false or a mapping, found a string
       --> server.yaml:30:19
@@ -319,6 +319,75 @@ fn several_clients() {
        = help: write it as an indented block of "key: value" lines
 
     server.yaml: 8 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn client_weights() {
+    use burrow::config::Loaded;
+    use burrow_config::Mode;
+    let ok = server(
+        "  web:\n    clients: [home, {name: office, weight: 3}]\n    mode: balance\n    bind: 4000\n    target: 4000\n  db:\n    clients: [home, office]\n    mode: least_connections\n    bind: 4001\n    target: 4001\n",
+    );
+    let o = load_str("server.yaml", &ok, Format::Yaml, None, &env);
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("server config loads")
+    };
+    assert_eq!(s.services["web"].clients, ["home", "office"]);
+    assert_eq!(s.services["web"].weight_of("office"), 3);
+    assert_eq!(s.services["web"].weight_of("home"), 1);
+    assert_eq!(s.services["db"].mode, Mode::LeastConnections);
+    insta::assert_snapshot!(render("server.yaml", &server("  a:\n    clients: [home, {name: office, weight: 2}]\n    bind: 4000\n    target: 4000\n  b:\n    clients: [home, {name: office, weight: 0}]\n    mode: balance\n    bind: 4001\n    target: 4001\n  c:\n    clients: [home, {name: office, wieght: 3}]\n    mode: balance\n    bind: 4002\n    target: 4002\n  d:\n    clients: [home, {name: home, weight: 2}]\n    mode: balance\n    bind: 4003\n    target: 4003\n  e:\n    clients: [home, office]\n    mode: least_connections\n    protocol: udp\n    bind: 4004\n    target: 4004\n  f:\n    clients: [home, {name: office, weight: 2}]\n    mode: least_connections\n    bind: 4005\n    target: 4005\n  g:\n    clients: [home, {name: ofice, weight: 2}]\n    mode: balance\n    bind: 4006\n    target: 4006\n"), None), @r#"
+    error: service "a" gives client "office" a weight, but weights only apply with mode: balance
+      --> server.yaml:9:44
+       |
+     9 |     clients: [home, {name: office, weight: 2}]
+       |                                            ^ only used by mode: balance
+       = help: remove the weight, or set mode: balance
+
+    error: "weight" in "services.b.clients[1]" must be between 1 and 1000, found 0
+      --> server.yaml:13:44
+       |
+    13 |     clients: [home, {name: office, weight: 0}]
+       |                                            ^ must be between 1 and 1000
+       = help: use a value between 1 and 1000
+
+    error: unknown field "wieght" in "services.c.clients[1]"
+      --> server.yaml:18:36
+       |
+    18 |     clients: [home, {name: office, wieght: 3}]
+       |                                    ^^^^^^ unknown field
+       = help: did you mean "weight"? valid fields: name, weight
+
+    error: service "d" lists client "home" twice
+      --> server.yaml:23:21
+       |
+    23 |     clients: [home, {name: home, weight: 2}]
+       |                     ^^^^^^^^^^^^^^^^^^^^^^^
+       = help: list each client once
+
+    error: service "e" is udp, but mode least_connections only works for tcp services
+      --> server.yaml:29:11
+       |
+    29 |     mode: least_connections
+       |           ^^^^^^^^^^^^^^^^^
+       = help: remove mode:, or set protocol: tcp
+
+    error: service "f" gives client "office" a weight, but weights only apply with mode: balance
+      --> server.yaml:34:44
+       |
+    34 |     clients: [home, {name: office, weight: 2}]
+       |                                            ^ only used by mode: balance
+       = help: remove the weight, or set mode: balance
+
+    error: unknown client "ofice" referenced by service "g"
+      --> server.yaml:39:28
+       |
+    39 |     clients: [home, {name: ofice, weight: 2}]
+       |                            ^^^^^ no client with this name
+       = help: did you mean "office"? defined clients: home, office
+
+    server.yaml: 7 errors, 0 warnings
     "#);
 }
 

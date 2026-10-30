@@ -1,25 +1,54 @@
-use super::Shared;
 use super::standing::Seen;
 use super::via::Via;
+use super::{CountGuard, Shared};
 use crate::config::settings::Service;
 use burrow_config::Mode;
 
+pub(crate) struct Picked {
+    pub(crate) vias: Vec<Via>,
+    held: Option<Held>,
+}
+
+pub(super) struct Held {
+    pub(super) name: String,
+    pub(super) guard: CountGuard,
+    pub(super) before: usize,
+}
+
+impl Picked {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.vias.is_empty()
+    }
+
+    pub(super) fn split(self) -> (Vec<Via>, Option<Held>) {
+        (self.vias, self.held)
+    }
+}
+
+impl From<Vec<Via>> for Picked {
+    fn from(vias: Vec<Via>) -> Self {
+        Picked { vias, held: None }
+    }
+}
+
 impl Shared {
-    pub(crate) fn route(&self, service: &str, svc: &Service, target: &str) -> Vec<Via> {
-        self.order(service, svc, target, true)
+    pub(crate) fn route(&self, service: &str, svc: &Service, target: &str) -> Picked {
+        let (vias, held) = self.order(service, svc, target, true);
+        Picked { vias, held }
     }
 
     pub(crate) fn pick(&self, service: &str, svc: &Service, target: &str) -> Option<Via> {
-        self.route(service, svc, target).into_iter().next()
+        self.route(service, svc, target).vias.into_iter().next()
     }
 
     pub(crate) fn preferred(&self, service: &str, svc: &Service, target: &str) -> Option<String> {
         match svc.mode {
             Mode::Failover => self
                 .order(service, svc, target, false)
+                .0
                 .first()
                 .map(|s| s.name().to_string()),
-            Mode::Balance => None,
+            Mode::Balance | Mode::LeastConnections => None,
         }
     }
 
@@ -30,7 +59,13 @@ impl Shared {
         })
     }
 
-    fn order(&self, service: &str, svc: &Service, target: &str, rotate: bool) -> Vec<Via> {
+    fn order(
+        &self,
+        service: &str,
+        svc: &Service,
+        target: &str,
+        hold: bool,
+    ) -> (Vec<Via>, Option<Held>) {
         let connected = self.connected(&svc.clients);
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
         for s in connected {
@@ -42,22 +77,42 @@ impl Shared {
                 Seen::Clear => aside.push(s),
             }
         }
+        let mut wheels = self.wheels.lock().expect("wheels lock");
         let head = [&mut clear, &mut aside, &mut refused]
             .into_iter()
             .find(|g| !g.is_empty());
         if let Some(head) = head
-            && rotate
-            && svc.mode == Mode::Balance
+            && hold
         {
-            let mut turns = self.turns.lock().expect("turns lock");
-            let turn = turns.entry(service.to_string()).or_default();
-            *turn = turn.wrapping_add(1);
-            let len = head.len();
-            head.rotate_left(*turn % len);
+            match svc.mode {
+                Mode::Failover => {}
+                Mode::Balance => {
+                    let first = {
+                        let group: Vec<(&str, u32)> = head
+                            .iter()
+                            .map(|v| (v.name(), svc.weight_of(v.name())))
+                            .collect();
+                        wheels.turn(service, svc, &group)
+                    };
+                    head.rotate_left(first);
+                }
+                Mode::LeastConnections => {
+                    head.sort_by_cached_key(|v| self.client_counts.current(v.name()));
+                }
+            }
         }
         clear.extend(aside);
         clear.extend(refused);
-        clear
+        let held = clear.first().filter(|_| hold).map(|v| {
+            let (guard, before) = self.client_opens(v.name());
+            Held {
+                name: v.name().to_string(),
+                guard,
+                before,
+            }
+        });
+        drop(wheels);
+        (clear, held)
     }
 
     #[cfg(feature = "web")]

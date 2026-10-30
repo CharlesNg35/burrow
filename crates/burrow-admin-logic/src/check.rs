@@ -255,10 +255,31 @@ fn check_ref_list(c: &RefListC, v: &Value) -> Result<(), String> {
     };
     let names: Vec<String> = items
         .iter()
-        .filter_map(|x| x.as_str().map(str::to_string))
+        .filter_map(|x| {
+            x.as_str()
+                .or_else(|| weighted_name(c, x))
+                .map(str::to_string)
+        })
         .collect();
     if names.len() != items.len() {
-        return Err("expected a list of names".into());
+        return Err(if c.weighted {
+            "expected a list of names, or {name, weight}".into()
+        } else {
+            "expected a list of names".into()
+        });
+    }
+    if let Some(w) = items
+        .iter()
+        .filter_map(|x| burrow_config::WeightedClient::WEIGHT.get(x))
+        .find(|w| {
+            !w.as_i64()
+                .is_some_and(|w| (1..=burrow_config::WEIGHT_MAX).contains(&w))
+        })
+    {
+        return Err(format!(
+            "weight {w} is not a whole number from 1 to {}",
+            burrow_config::WEIGHT_MAX
+        ));
     }
     if let Some(m) = c.max
         && names.len() > m as usize
@@ -274,6 +295,18 @@ fn check_ref_list(c: &RefListC, v: &Value) -> Result<(), String> {
         return Err(format!("\"{}\" is listed twice", d.1));
     }
     Ok(())
+}
+
+fn weighted_name<'a>(c: &RefListC, v: &'a Value) -> Option<&'a str> {
+    let m = v.as_object().filter(|_| c.weighted)?;
+    let known = [
+        burrow_config::WeightedClient::NAME.key(),
+        burrow_config::WeightedClient::WEIGHT.key(),
+    ];
+    if m.keys().any(|k| !known.contains(&k.as_str())) {
+        return None;
+    }
+    burrow_config::ref_name(v)
 }
 
 fn shape_fits(b: &Node, v: &Value) -> bool {
@@ -385,7 +418,7 @@ pub fn refs_exist(node: &Node, v: &Value, names: &[String]) -> Result<(), String
         (SemType::Ref(_), Value::String(s)) => missing(s).map_or(Ok(()), Err),
         (SemType::RefList(_), Value::Array(a)) => a
             .iter()
-            .filter_map(Value::as_str)
+            .filter_map(burrow_config::ref_name)
             .find_map(missing)
             .map_or(Ok(()), Err),
         (SemType::RefList(_), Value::String(s)) => missing(s).map_or(Ok(()), Err),
@@ -602,11 +635,16 @@ mod tests {
         let refs = SemType::RefList(RefListC {
             entity: burrow_admin_proto::schema::Entity::Client,
             ordered: true,
+            weighted: false,
             unique: true,
             max: None,
             reserved: vec!["self".into()],
         });
         ok(refs.clone(), json!(["home", "office"]));
+        bad(
+            refs.clone(),
+            json!(["home", {"name": "office", "weight": 2}]),
+        );
         assert!(bad(refs.clone(), json!(["home", "home"])).contains("twice"));
         let n = node(refs);
         assert_eq!(
@@ -617,6 +655,30 @@ mod tests {
             refs_exist(&n, &json!(["home", "self"]), &["home".into()]),
             Ok(()),
             "a reserved name is always a valid reference"
+        );
+    }
+
+    #[test]
+    fn a_weighted_list_takes_names_with_a_weight_from_1_to_1000() {
+        let refs = SemType::RefList(RefListC {
+            entity: burrow_admin_proto::schema::Entity::Client,
+            ordered: true,
+            weighted: true,
+            unique: true,
+            max: None,
+            reserved: Vec::new(),
+        });
+        ok(
+            refs.clone(),
+            json!(["a", {"name": "b", "weight": 3}, {"name": "c"}]),
+        );
+        assert!(bad(refs.clone(), json!(["a", {"name": "a", "weight": 2}])).contains("twice"));
+        assert!(bad(refs.clone(), json!([{"name": "b", "weight": 0}])).contains("1 to 1000"));
+        assert!(bad(refs.clone(), json!([{"name": "b", "wieght": 2}])).contains("{name, weight}"));
+        let n = node(refs);
+        assert_eq!(
+            refs_exist(&n, &json!(["a", {"name": "x", "weight": 2}]), &["a".into()]),
+            Err("\"x\" does not exist".into())
         );
     }
 

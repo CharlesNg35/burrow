@@ -87,7 +87,7 @@ pub(super) enum Refusal {
 
 pub(super) struct Admitted {
     stats: Arc<crate::metrics::ServiceStats>,
-    clients: Vec<super::via::Via>,
+    clients: super::pick::Picked,
     _guard: super::CountGuard,
     _tracked: super::ActiveConn,
 }
@@ -162,7 +162,7 @@ pub(super) async fn visit(
         peer,
         several: svc.clients.len() > 1,
     };
-    let mut tries = Tries::new(&shared, &way, admitted.clients.clone());
+    let mut tries = Tries::new(&shared, &way, admitted.clients);
     let outcome = loop {
         let Some((session, ch)) = tries.next().await else {
             break tries.outcome();

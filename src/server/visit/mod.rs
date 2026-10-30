@@ -281,7 +281,7 @@ async fn forward_tcp(
     shared: &Arc<Shared>,
     channel: &mut crate::wire::transport::Channel,
     a: Attempt<'_>,
-    clients: Vec<super::via::Via>,
+    clients: super::pick::Picked,
 ) -> (Outcome, bool) {
     let Attempt {
         visitor,

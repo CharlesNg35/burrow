@@ -12,6 +12,7 @@ pub const PROXY_PROTOCOL_TCP_ONLY: &str = "proxy-protocol-tcp-only";
 pub const MAX_CONNECTIONS_TCP_ONLY: &str = "max-connections-tcp-only";
 pub const BALANCE_TCP_ONLY: &str = "balance-tcp-only";
 pub const HEALTH_CHECK_TCP_ONLY: &str = "health-check-tcp-only";
+pub const WEIGHT_NOT_BALANCE: &str = "weight-not-balance";
 pub const DUPLICATE_BIND: &str = "duplicate-bind";
 pub const PORT_IN_USE: &str = "port-in-use";
 pub const WEB_PORT_SHARED: &str = "web-port-shared";

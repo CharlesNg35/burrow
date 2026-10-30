@@ -164,6 +164,7 @@ pub struct HttpCheck {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Service {
     pub clients: Vec<String>,
+    pub weights: BTreeMap<String, u32>,
     pub mode: Mode,
     pub health: Option<Health>,
     pub bind: Option<SocketAddr>,
@@ -181,6 +182,7 @@ impl Default for Service {
     fn default() -> Self {
         Service {
             clients: Vec::new(),
+            weights: BTreeMap::new(),
             mode: Mode::Failover,
             health: None,
             bind: None,
@@ -197,6 +199,10 @@ impl Default for Service {
 }
 
 impl Service {
+    pub fn weight_of(&self, client: &str) -> u32 {
+        self.weights.get(client).copied().unwrap_or(1)
+    }
+
     pub fn target_at(&self, index: u16) -> String {
         crate::config::check::ports::port_at(&self.target, index)
     }

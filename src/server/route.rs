@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tracing::debug;
 
 use super::CountGuard;
+use super::pick::{Held, Picked};
 use super::via::Via;
 use super::{Shared, take_channel};
 use crate::config::settings::ServerSettings;
@@ -46,18 +47,21 @@ pub(super) struct Tries<'a> {
     way: &'a Way<'a>,
     settings: Arc<ServerSettings>,
     clients: std::vec::IntoIter<Via>,
+    held: Option<Held>,
     early: Early,
     last: Outcome,
     active: Option<CountGuard>,
 }
 
 impl<'a> Tries<'a> {
-    pub(super) fn new(shared: &'a Arc<Shared>, way: &'a Way<'a>, clients: Vec<Via>) -> Tries<'a> {
+    pub(super) fn new(shared: &'a Arc<Shared>, way: &'a Way<'a>, picked: Picked) -> Tries<'a> {
+        let (clients, held) = picked.split();
         Tries {
             shared,
             way,
             settings: shared.settings(),
             clients: clients.into_iter(),
+            held,
             early: Early::default(),
             last: Outcome::Unavailable(Status::Offline),
             active: None,
@@ -77,7 +81,10 @@ impl<'a> Tries<'a> {
                 .get(client)
                 .and_then(|c| c.max_connections)
                 .unwrap_or(self.settings.max_connections_per_client);
-            let (active, before) = self.shared.client_opens(client);
+            let (active, before) = match self.held.take() {
+                Some(h) if h.name == client => (h.guard, h.before),
+                _ => self.shared.client_opens(client),
+            };
             if before >= limit {
                 self.last = Outcome::Full(client.to_string());
                 continue;

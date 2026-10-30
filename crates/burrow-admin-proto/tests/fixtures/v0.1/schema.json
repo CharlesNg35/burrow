@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5292cd3458e8ef2e",
+  "hash": "b2s:786b17c72ed53c52",
   "root": {
     "label": "Server",
     "sem": {
@@ -1619,6 +1619,7 @@
                           "t": "ref_list",
                           "entity": "client",
                           "ordered": true,
+                          "weighted": true,
                           "unique": true,
                           "reserved": [
                             "self"
@@ -1637,7 +1638,7 @@
                       "key": "mode",
                       "node": {
                         "label": "Mode",
-                        "help": "With several clients: failover uses the first one that is up, balance spreads new connections over all of them",
+                        "help": "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least_connections sends each new one to the client with the fewest open connections",
                         "sem": {
                           "t": "enum",
                           "options": [
@@ -1649,7 +1650,12 @@
                             {
                               "value": "balance",
                               "label": "Balance",
-                              "help": "Spread new connections over all clients"
+                              "help": "Spread new connections over all clients that are up, by their weight"
+                            },
+                            {
+                              "value": "least_connections",
+                              "label": "Least connections",
+                              "help": "Send each new connection to the client that is up with the fewest open connections"
                             }
                           ]
                         },
