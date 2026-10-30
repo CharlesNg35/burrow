@@ -4,7 +4,7 @@ use super::checks::needs_low_ports;
 use super::control::{interrupts, logs_again, source_note};
 use super::install::{burrows_account, name_arg};
 #[cfg(unix)]
-use super::install::{installs_from, place_binary, recorded_source, service_binary_for};
+use super::install::{installs_from, place_binary, recorded_source};
 use super::previous::{StartAgain, Undo, given_note, start_installed, take_over};
 use super::uninstall::differs;
 use super::uninstall::{Kept, keep_admin_copy};
@@ -200,9 +200,8 @@ fn a_trusted_binary_elsewhere_is_never_used_in_place() {
         "/usr/bin/true is root-only here"
     );
     let p = Platform::current();
-    let (binary, copied) = service_binary_for(trusted, p);
-    assert_eq!(binary, p.service_binary());
-    assert!(copied);
+    let binary = p.service_binary();
+    assert_ne!(binary, trusted);
     #[cfg(target_os = "linux")]
     {
         let unit = systemd::Systemd.render(&Manifest {
@@ -826,7 +825,6 @@ fn a_record_whose_bin_folder_users_can_now_change_is_managed_but_its_binary_neve
             "{}",
             recorded_version(&installed)
         );
-        assert_eq!(service_binary_for(&usual, p).0, p.service_binary());
     });
 }
 

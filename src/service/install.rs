@@ -67,7 +67,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = crate::base::fs::canonical(&current).unwrap_or(current);
-    let (binary, copy_binary) = service_binary_for(&current, platform);
+    let binary = platform.service_binary();
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
         name: name.clone(),
@@ -77,7 +77,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         env_file: env_file.clone(),
         log_file: platform.log_file(&short),
         binary: binary.clone(),
-        copied_binary: copy_binary,
+        copied_binary: true,
         account: account.clone(),
         created_account: false,
         low_ports,
@@ -144,9 +144,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
 
     backend.prepare_dirs(&account)?;
     super::uninstall::say_skipped(&backend.state_folder(&manifest)?, &account, out)?;
-    let kept_binary = keep_previous_binary(again.manifest, &binary, copy_binary, &current);
+    let kept_binary = keep_previous_binary(again.manifest, &binary, &current);
     let _leftover = Leftover(kept_binary.clone());
-    if copy_binary && !system::same_content(&current, &binary) {
+    if !system::same_content(&current, &binary) {
         copy_service_binary(&current, &binary, platform, &name, out)?;
     }
     let undo = again.manifest.map(|p| Undo {
@@ -229,11 +229,9 @@ fn print_unit(
 fn keep_previous_binary(
     previous: Option<&Manifest>,
     binary: &Path,
-    copy_binary: bool,
     current: &Path,
 ) -> Option<PathBuf> {
     (previous.is_some_and(|p| p.binary == binary)
-        && copy_binary
         && binary.exists()
         && !system::same_content(current, binary))
     .then(|| binary.with_extension("reinstall"))
@@ -485,8 +483,4 @@ pub(super) fn place_binary(current: &Path, binary: &Path, usual: &Path) -> Resul
     #[cfg(not(unix))]
     let _ = usual;
     system::copy_file(current, binary, true)
-}
-
-pub(super) fn service_binary_for(_current: &Path, platform: Platform) -> (PathBuf, bool) {
-    (platform.service_binary(), true)
 }
