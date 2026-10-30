@@ -1,27 +1,29 @@
 # Services
 
-A **service** is one thing you expose through burrow: a port on the server that leads to a target reached by a client. Services are defined only in the server's config, under `services`. The client needs no change, and saving the file applies it.
+A **service** is one thing you expose through burrow: a port on the server that leads to a target reached by a client. A web app, SSH, a game server, DNS or a database are each one service. Services are defined only in the server's config, under `services`, so the server decides what is exposed. The client needs no change, and saving the file applies it.
 
-Every option is listed in [configuration.md](configuration.md#serveryaml).
+This page shows how to expose each kind of service and how to keep it safe and up. Every option is listed in [configuration.md](configuration.md#serveryaml), and websites have [their own pages](web.md).
 
-- [A public service](#a-public-service)
-- [UDP](#udp)
-- [Port ranges](#port-ranges)
+- [Expose an app on a public port](#expose-an-app-on-a-public-port)
+- [Expose a UDP service](#expose-a-udp-service)
+- [Expose a range of ports](#expose-a-range-of-ports)
 - [Who may connect](#who-may-connect)
-- [The real client address (PROXY protocol)](#the-real-client-address-proxy-protocol)
+- [Pass the user's real address to the app (PROXY protocol)](#pass-the-users-real-address-to-the-app-proxy-protocol)
 - [Several clients](#several-clients)
-- [Speed and connection limits](#speed-and-connection-limits)
-- [Unix sockets](#unix-sockets)
+- [Limit speed and connections](#limit-speed-and-connections)
+- [Reach a Unix socket](#reach-a-unix-socket)
 - [On the server itself](#on-the-server-itself)
 - [Private services](#private-services)
 
-## A public service
+## Expose an app on a public port
 
 A service needs three things:
 
 - `client`: the name of the client that reaches the target;
 - `bind`: the address the server listens on for users;
 - `target`: where the client connects, **as seen from the client**.
+
+This service makes the app on port 3000 of the client machine reachable on port 7840 of the server:
 
 ```yaml
 # server.yaml, under services:
@@ -31,7 +33,7 @@ web:
   target: 3000              # the client connects to 127.0.0.1:3000, on the client machine
 ```
 
-`bind` and `target` can be written several ways:
+`bind` and `target` can be written several ways, for apps on the client, on other machines of its network, or reachable only from the server itself:
 
 ```yaml
 # server.yaml, under services:
@@ -43,9 +45,9 @@ cloud: { client: home, bind: 8443, target: nextcloud.lan:443 }          # a host
 
 The client must allow each target in its `allow` list (see [configuration.md](configuration.md#clientyaml)). `burrow client-config` writes that list for you from the server's services. When you add a service later, add its target to the client's `allow` list too, or print the client config again.
 
-## UDP
+## Expose a UDP service
 
-Add `protocol: udp`. Everything else is the same.
+DNS, WireGuard, game servers and other UDP services work the same way: add `protocol: udp`. This one makes the home router's DNS reachable on port 5353 of the server:
 
 ```yaml
 # server.yaml, under services:
@@ -58,9 +60,9 @@ dns:
 
 A UDP peer that sends nothing for 2 minutes is forgotten (`udp.session_timeout_secs`). A UDP service follows its target to a new address when the target's DNS name changes.
 
-## Port ranges
+## Expose a range of ports
 
-One service can expose a range of ports. Each public port leads to the same position in the target range: 30000 to 30000, 30001 to 30001, and so on. Both ranges must have the same length, at most 1000 ports.
+Some apps, like game servers or media servers, use many ports. One service can expose a whole range of them. Each public port leads to the same position in the target range: 30000 to 30000, 30001 to 30001, and so on. Both ranges must have the same length, at most 1000 ports. This one exposes eleven UDP ports of a game server:
 
 ```yaml
 # server.yaml, under services:
@@ -75,7 +77,7 @@ The ranges do not need to start at the same port: `bind: 40000-40010` with `targ
 
 ## Who may connect
 
-`allow_from` lets only these source addresses connect. `deny_from` blocks some addresses. Both take IP addresses or CIDR ranges (`203.0.113.0/24` means 203.0.113.0 to 203.0.113.255).
+A public port is open to the whole internet unless you narrow it. `allow_from` lets only these source addresses connect. `deny_from` blocks some addresses. Both take IP addresses or CIDR ranges (`203.0.113.0/24` means 203.0.113.0 to 203.0.113.255). This SSH service is open to two networks, except one address:
 
 ```yaml
 # server.yaml, under services:
@@ -96,9 +98,9 @@ A visitor that connects through a proxy in front of `websocket.listen` (nginx, C
 
 </details>
 
-## The real client address (PROXY protocol)
+## Pass the user's real address to the app (PROXY protocol)
 
-Through a tunnel, your app sees every connection coming from the burrow client, not from the real user. With `proxy_protocol: v1` (text) or `v2` (binary), the server sends the user's real address first, in the PROXY protocol that nginx, Caddy, HAProxy, Traefik and Postfix understand.
+Through a tunnel, your app sees every connection coming from the burrow client, not from the real user. With `proxy_protocol: v1` (text) or `v2` (binary), the server sends the user's real address first, in the PROXY protocol that nginx, Caddy, HAProxy, Traefik and Postfix understand. Turn it on for the service:
 
 ```yaml
 # server.yaml, under services:
@@ -109,6 +111,8 @@ web:
   proxy_protocol: v2
 ```
 
+Then tell the app to read it. For nginx on the client machine:
+
 ```nginx
 # nginx.conf of the target app, on the client machine
 server { listen 8443 ssl proxy_protocol; set_real_ip_from 127.0.0.1; real_ip_header proxy_protocol; }
@@ -118,7 +122,7 @@ Turn it on only when the target expects it: an app that does not understand the 
 
 ## Several clients
 
-List more than one client under `clients` to keep a service up when a machine goes away. This works for TCP and UDP services; `mode: balance` and `health_check` are for TCP services only, so a UDP service uses failover.
+Run the same app on two machines, and the service stays up when one of them goes away. List more than one client under `clients`. This works for TCP and UDP services; `mode: balance` and `health_check` are for TCP services only, so a UDP service uses failover. This web service spreads its connections over two clients and skips one whose app stops answering:
 
 ```yaml
 # server.yaml, under services:
@@ -144,7 +148,9 @@ When a client cannot reach the target, or its `allow` list refuses it, the conne
 | `failures` | `2` | failed checks in a row before a client counts as down |
 | `path` | none | for a website: ask the app for this path, like `/healthz`, instead of only opening a connection; 2xx and 3xx count as up. See [Health checks for websites](web/health-checks.md) |
 
-## Speed and connection limits
+## Limit speed and connections
+
+A busy service can fill the server's or the home connection's bandwidth. These limits keep a backup service from taking all of it:
 
 ```yaml
 # server.yaml, under services:
@@ -159,9 +165,9 @@ backup:
 - `bandwidth` caps each direction of a service. Write it in bits per second (`kbit`, `mbit`, `gbit`, like `40mbit`) or bytes per second (`kb`, `mb`, `gb`, like `5MB`). Without it, a service is unlimited. TCP slows down to the limit; UDP datagrams over it are dropped.
 - `max_connections` limits open connections of a TCP service. A client also has a limit (`limits.max_connections_per_client`, 8192 by default, or `max_connections` on the client).
 
-## Unix sockets
+## Reach a Unix socket
 
-`target: unix:/path` makes the client connect to a Unix socket instead of a TCP port, for example Docker's socket or PostgreSQL's.
+Some apps listen on a Unix socket instead of a TCP port, for example Docker or PostgreSQL. `target: unix:/path` makes the client connect to that socket. This makes Docker's socket on the home machine a private service for the laptop:
 
 ```yaml
 # server.yaml, under services:
@@ -170,6 +176,8 @@ docker:
   target: unix:/var/run/docker.sock
   visitors: [laptop]
 ```
+
+The client must allow the socket:
 
 ```yaml
 # client.yaml
@@ -187,7 +195,7 @@ allow:
 
 ## On the server itself
 
-`client: self` makes the server connect to the target itself, with no client. Use it for something that runs next to the server, like a database, a web app, or a machine on the server's own network.
+`client: self` makes the server connect to the target itself, with no client. Use it for something that runs next to the server, like a database, a web app, or a machine on the server's own network. Here the server reaches its own database, web app and network, and shares one service with a client:
 
 ```yaml
 # server.yaml
@@ -212,7 +220,7 @@ The server never connects to its own listen, WebSocket or metrics addresses, wha
 
 ## Private services
 
-A service without `bind` opens no port on the server at all. Only the visitors it lists can reach it, from their own machines. See [visitors.md](visitors.md).
+A service without `bind` opens no port on the server at all. Only the visitors it lists can reach it, from their own machines. Use it for anything that should never face the internet, like a database or SSH. See [visitors.md](visitors.md).
 
 ```yaml
 # server.yaml, under services:
@@ -221,3 +229,10 @@ db:
   target: 5432        # no bind: private
   visitors: [laptop]
 ```
+
+## Next steps
+
+- [Private services and visitors](visitors.md): use private services from your laptop.
+- [Websites](web.md): serve a TCP service by name, with HTTPS.
+- [Monitoring](monitoring.md): see each service's connections and traffic.
+- [All service keys](configuration.md#serveryaml).

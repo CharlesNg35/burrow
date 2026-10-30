@@ -2,7 +2,12 @@
 
 Sometimes the server can only be reached on the usual web ports, for example because it sits behind nginx, Caddy, Cloudflare or a Kubernetes ingress, or because a firewall only lets HTTPS through. Clients and visitors can then connect over **WebSocket**, a standard way to keep a long-lived connection open through web servers and proxies.
 
-WebSocket is off unless you turn it on. Everything works exactly as over TCP, and the proxy in between only sees encrypted data.
+WebSocket is off unless you turn it on. Everything works exactly as over TCP, and the proxy in between only sees encrypted data. There are two ways to set it up:
+
+- **Behind your own web server or proxy** (nginx, Caddy, Cloudflare, Kubernetes): burrow listens on a local port, and the web server forwards `wss://` to it. See [Setup](#setup) and the [configs for common proxies](#examples).
+- **burrow on port 443 itself**, with a certificate it gets from Let's Encrypt: see [Automatic HTTPS for the tunnel](#automatic-https-for-the-tunnel).
+
+This is how the first way looks:
 
 ```
 client ══ wss://tunnel.example.com/burrow ══> nginx or Caddy (TLS) ──> burrow server on 127.0.0.1:7836
@@ -10,7 +15,7 @@ client ══ wss://tunnel.example.com/burrow ══> nginx or Caddy (TLS) ─�
 
 ## Setup
 
-On the server:
+These steps put burrow behind a web server you already run. On the server, write a config with WebSocket on a local port:
 
 ```sh
 ./burrow init server --ws --server tunnel.example.com   # WebSocket on 127.0.0.1:7836/burrow, no TCP port for clients
@@ -24,7 +29,7 @@ websocket:
   path: /burrow
 ```
 
-Then point your web server at `127.0.0.1:7836` (examples below). Clients and visitors use the URL as their server:
+Then point your web server at `127.0.0.1:7836` ([examples below](#examples)). Clients and visitors use the URL as their server:
 
 ```yaml
 # client.yaml
@@ -42,11 +47,13 @@ server: wss://tunnel.example.com/burrow   # wss:// is WebSocket over TLS (HTTPS)
 
 ## Automatic HTTPS for the tunnel
 
-burrow can get and renew the tunnel's certificate from Let's Encrypt by itself, with no nginx or certbot. The tunnel then shares port 443 with the web proxy, which may serve no websites at all:
+When nothing else runs on the server's port 443, burrow can take it itself, and get and renew the tunnel's certificate from Let's Encrypt, with no nginx or certbot. The tunnel then shares port 443 with burrow's [web proxy](web.md), which may serve no websites at all. One command writes it:
 
 ```sh
 ./burrow init server --ws --email you@example.com --server tunnel.example.com
 ```
+
+The tunnel's part of the config looks like this:
 
 ```yaml
 # server.yaml
@@ -98,6 +105,8 @@ Point `tunnel.example.com` at the server, open port 443, and start. Clients use 
 - **Its own port:** without `host`, `websocket.listen` is a port of its own, as in the setup above. Plain `ws://` on port 443 works but gets a note from validate: networks that expect TLS there may block it.
 
 ## Examples
+
+Ready configs for the proxies burrow is most often put behind. The proxy configs forward `wss://tunnel.example.com/burrow` to burrow on `127.0.0.1:7836`, as in [Setup](#setup); the last one has burrow serve `wss://` with your own certificate files.
 
 <details>
 <summary><b>nginx</b></summary>
@@ -247,3 +256,9 @@ Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are reso
 For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`. `ca` takes either a CA that signed the server's certificate, or the server's certificate itself. That exact certificate is then accepted even though no public CA signed it, and certificates signed by public CAs are still accepted too, so `ca` adds trust but does not limit it.
 
 </details>
+
+## Next steps
+
+- [The tunnel on the web ports](web/tunnel.md): more ways to share 443 or 80 with websites.
+- [Websites](web.md): serve your apps on the same port.
+- [Security](security.md): what the proxy in between can and cannot see.

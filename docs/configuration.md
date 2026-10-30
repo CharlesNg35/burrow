@@ -1,14 +1,18 @@
 # Configuration
 
-burrow has three kinds of config files, one for each role:
+Everything burrow does is written in a config file, and nothing runs that the file does not ask for. This page explains how the files are written, how changes are applied, and lists every key with its default. Read it when you write a config by hand or look up what a key does; the other pages show the keys at work for each task.
 
-- **server.yaml** for the server, the machine with a public address. It lists the clients, the visitors and the services.
-- **client.yaml** for a client, a machine behind NAT that reaches your apps.
+Each machine has one file, for its role:
+
+- **server.yaml** for the server, the machine with a public address. It lists the clients, the visitors and the services, and decides what is exposed.
+- **client.yaml** for a client, a machine behind NAT (a home or office router) that reaches your apps.
 - **visitor.yaml** for a visitor, one of your own machines (a laptop, for example) that uses private services. See [visitors.md](visitors.md).
 
-You rarely write client.yaml or visitor.yaml by hand: `burrow client-config` and `burrow visitor-config` print them from the server's config.
+You rarely write client.yaml or visitor.yaml by hand: `burrow client-config` and `burrow visitor-config` print them from the server's config. The words used here are explained in the [glossary](glossary.md).
 
 ## Format
+
+The rules every config file follows:
 
 - YAML (`.yaml`, `.yml`) or JSON (`.json`). Both use the same keys.
 - `${VAR}` is replaced by the environment variable `VAR`, so secrets can stay out of the file. An unset variable is an error. Write `$${` for a literal `${`.
@@ -17,6 +21,8 @@ You rarely write client.yaml or visitor.yaml by hand: `burrow client-config` and
 - Relative file paths, such as certificate files, are relative to the folder of the config file.
 - When you leave out `-c`, burrow uses `server.yaml`, `client.yaml` or `visitor.yaml` in the current folder.
 
+These commands help you write a config:
+
 ```sh
 ./burrow validate -c server.yaml            # check a config without starting: exit 0 valid, 1 invalid, 2 usage error
 ./burrow validate --strict                  # also fail on warnings
@@ -24,7 +30,7 @@ You rarely write client.yaml or visitor.yaml by hand: `burrow client-config` and
 ./burrow edit                               # open a config in your editor; it is checked, saved and applied
 ```
 
-`validate` reports every problem with its line and column, and suggests a fix:
+`validate` reports every problem at once, with its line and column, and suggests a fix:
 
 ```
 $ ./burrow validate
@@ -49,7 +55,7 @@ The same checks run when burrow starts and each time a config is reloaded. A con
 
 ## Short forms
 
-Addresses can be written in full, or shortened. These pairs mean the same thing:
+Addresses can be written in full, or shortened to save typing. In each line below, the short form and the comment mean the same thing:
 
 ```yaml
 # server.yaml
@@ -80,7 +86,7 @@ forwards:
 
 ## Reloading
 
-Saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
+You never need to restart burrow to change what it does. Saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
 
 - **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. Only a change to `listen` needs a restart.
 - **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` and `max_udp_peers` included: a new limit counts for new connections and new UDP peers. Open connections keep running, except those whose target the new `allow` no longer permits.
@@ -89,6 +95,8 @@ Saving a config applies it, on the server, the client and the visitor. You can a
 Files are also checked again every 30 seconds, so changes through a Docker file mount or a network share are applied too.
 
 ## server.yaml
+
+The server's file holds the port clients connect to, the clients and visitors with their secrets, and the services. This one has a public web app, a public UDP service and a private database:
 
 ```yaml
 # server.yaml
@@ -213,6 +221,8 @@ services:
 
 ## client.yaml
 
+A client's file says which server to connect to, its own name and secret, and which targets it agrees to reach. `burrow client-config` writes it for you; this one shows the kinds of `allow` entries:
+
 ```yaml
 # client.yaml
 server: myserver.example.com:7835 # or wss://tunnel.example.com/burrow
@@ -257,6 +267,8 @@ By default a client keeps retrying until it is stopped, and follows a server tha
 
 ## visitor.yaml
 
+A visitor's file says which server to connect to, its own name and secret, and the forwards: local ports on your machine that lead to a service or a target. `burrow visitor-config` writes it for you; this one shows every kind of forward:
+
 ```yaml
 # visitor.yaml
 server: myserver.example.com
@@ -291,10 +303,17 @@ Each forward opens a local port on the visitor's machine. See [visitors.md](visi
 
 ## Secrets
 
-A secret is 32 random bytes, written in base64 or hex. Make one with:
+Each client and visitor logs in with its own secret. A secret is 32 random bytes, written in base64 or hex. Make one with:
 
 ```sh
 ./burrow gensecret
 ```
 
 Never use a password: burrow refuses a secret that is not exactly 32 bytes or does not look random. To change a secret without downtime, list both on the server (`secret: [old, new]`), switch the client to the new one, then remove the old one. See [security.md](security.md).
+
+## Next steps
+
+- [Services](services.md): expose ports, limit who may connect, use several clients.
+- [Private services and visitors](visitors.md): reach your machines from your laptop.
+- [Websites](web.md): serve apps by name with HTTPS.
+- [Running as a service](service.md): start burrow at boot.
