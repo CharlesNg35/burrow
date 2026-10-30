@@ -199,6 +199,17 @@ impl RunningServer {
         }
         self.reload_tx.send(next).await.unwrap();
     }
+
+    pub async fn reload_applied(&self, next: ServerSettings) -> burrow::server::ApplyReport {
+        let mut applies = self.shared.applies();
+        let seq = applies.borrow().seq;
+        self.reload(next).await;
+        tokio::time::timeout(Duration::from_secs(10), applies.wait_for(|r| r.seq > seq))
+            .await
+            .expect("the server applies the reload within 10 s")
+            .expect("the server is running")
+            .clone()
+    }
 }
 
 pub struct RunningClient {

@@ -112,8 +112,7 @@ async fn a_removed_host_resets_its_silent_visitor_and_a_kept_one_flows_on() {
         "nas".into(),
         WebSite::passthrough(vec!["nas.example.com".into(), "files.example.com".into()]),
     );
-    t.server.reload(next.clone()).await;
-    wait_for(|| shared.settings_snapshot().web == next.web).await;
+    t.server.reload_applied(next.clone()).await;
     assert!(
         reset_quickly(&mut removed).await,
         "a removed host's visitor is reset"

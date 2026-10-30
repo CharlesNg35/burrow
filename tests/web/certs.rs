@@ -77,9 +77,7 @@ async fn a_sites_own_file_is_served_shown_in_status_and_rewritten_in_place_on_re
     let mut next = s.clone();
     own_file(&mut next, dir.path());
     assert_ne!(next.web, s.web, "the new bytes change the settings");
-    t.server.reload(next.clone()).await;
-    let shared = t.server.shared.clone();
-    wait_for(|| shared.settings_snapshot().web == next.web).await;
+    t.server.reload_applied(next.clone()).await;
     assert!(shows(web, &second).await, "the rewritten file is served");
     assert!(!shows(web, &first).await);
 }
@@ -108,9 +106,7 @@ async fn an_open_https_connection_keeps_working_after_its_certificate_is_swapped
     write(dir.path(), &second);
     let mut next = s.clone();
     own_file(&mut next, dir.path());
-    t.server.reload(next.clone()).await;
-    let shared = t.server.shared.clone();
-    wait_for(|| shared.settings_snapshot().web == next.web).await;
+    t.server.reload_applied(next.clone()).await;
     assert!(
         shows(web, &second).await,
         "new connections get the new file"

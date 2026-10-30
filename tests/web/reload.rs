@@ -28,9 +28,7 @@ async fn hosts_added_and_removed_on_save_take_effect_and_close_what_they_removed
         "git".into(),
         WebSite::passthrough(vec!["git.example.com".into()]),
     );
-    t.server.reload(next.clone()).await;
-    let shared = t.server.shared.clone();
-    wait_for(|| shared.settings_snapshot().web == next.web).await;
+    t.server.reload_applied(next.clone()).await;
     let mut g = visit(web, "git.example.com", &git_cert).await.unwrap();
     assert_eq!(ask(&mut g, b"b").await.unwrap(), b"git:b");
     assert_eq!(
@@ -41,8 +39,7 @@ async fn hosts_added_and_removed_on_save_take_effect_and_close_what_they_removed
 
     let mut fewer = next.clone();
     fewer.web.as_mut().unwrap().sites.remove("nas");
-    t.server.reload(fewer.clone()).await;
-    wait_for(|| shared.settings_snapshot().web == fewer.web).await;
+    t.server.reload_applied(fewer.clone()).await;
     assert!(closed(web, "nas.example.com").await);
     let cut = tokio::time::timeout(Duration::from_secs(5), ask(&mut open, b"d")).await;
     assert!(
