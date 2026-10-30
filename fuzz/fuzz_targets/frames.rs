@@ -13,9 +13,15 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(m) = ServerMsg::decode(data) {
         assert_eq!(ServerMsg::decode(&m.encode()), Ok(m));
     }
-    let _ = ClientMsg::decode(data);
-    let _ = Connect::decode(data);
-    let _ = Hello::decode(data);
+    if let Ok(m) = ClientMsg::decode(data) {
+        assert_eq!(ClientMsg::decode(&m.encode()), Ok(m));
+    }
+    if let Ok(c) = Connect::decode(data) {
+        assert_eq!(Connect::decode(&c.encode()), Ok(c));
+    }
+    if let Ok(h) = Hello::decode(data) {
+        assert_eq!(Hello::decode(&h.encode()), Ok(h));
+    }
     let _ = Status::decode(data);
     if let Ok(r) = VisitRequest::decode(data) {
         assert_eq!(VisitRequest::decode(&r.encode().unwrap()), Ok(r));
