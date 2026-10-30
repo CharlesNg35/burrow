@@ -51,18 +51,19 @@ pub fn export(a: &CaExportArgs, out: &mut dyn Write) -> Result<u8, Failure> {
     let state = state_of(a)?;
     let path = state.join("ca").join("root.pem");
     let raw = read(&path, &state)?;
-    let certs = certificates(&raw).ok_or_else(|| {
+    let mut certs = certificates(&raw).ok_or_else(|| {
         Failure::new(format!(
             "{} holds no certificate, so nothing is exported",
             path.display()
         ))
     })?;
     let bytes = if a.der {
-        certs[0].clone()
+        certs.swap_remove(0)
     } else {
+        let lf = pem::EncodeConfig::new().set_line_ending(pem::LineEnding::LF);
         certs
-            .iter()
-            .map(|c| pem(c))
+            .into_iter()
+            .map(|c| pem::encode_config(&pem::Pem::new("CERTIFICATE", c), lf))
             .collect::<String>()
             .into_bytes()
     };
@@ -126,22 +127,10 @@ fn certificates(raw: &[u8]) -> Option<Vec<Vec<u8>>> {
     let mut found = Vec::new();
     for c in CertificateDer::pem_slice_iter(raw) {
         let c = c.ok()?;
-        RootCertStore::empty().add(c.clone()).ok()?;
         found.push(c.to_vec());
+        RootCertStore::empty().add(c).ok()?;
     }
     (!found.is_empty()).then_some(found)
-}
-
-fn pem(der: &[u8]) -> String {
-    use base64::Engine as _;
-    let text = base64::engine::general_purpose::STANDARD.encode(der);
-    let mut out = String::from("-----BEGIN CERTIFICATE-----\n");
-    for line in text.as_bytes().chunks(64) {
-        out.push_str(&String::from_utf8_lossy(line));
-        out.push('\n');
-    }
-    out.push_str("-----END CERTIFICATE-----\n");
-    out
 }
 
 #[cfg(all(test, feature = "web"))]

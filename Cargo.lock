@@ -446,6 +446,7 @@ dependencies = [
  "mimalloc",
  "nix",
  "notify",
+ "pem",
  "percent-encoding",
  "rcgen",
  "ring",

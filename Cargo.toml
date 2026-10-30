@@ -56,6 +56,7 @@ notify = "8.2.0"
 ring = "0.17.14"
 rmcp = { version = "3.7.0", default-features = false, features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
 rpassword = { version = "7.5.4", optional = true }
+pem = "4.0.0"
 percent-encoding = "2.3.2"
 saphyr-parser = "0.2.2"
 schemars = "1.2.3"
