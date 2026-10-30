@@ -25,6 +25,12 @@ impl PeerCount for Arc<Shared> {
     }
 }
 
+const NO_CLIENT_PAUSE: Duration = Duration::from_millis(500);
+const TAKE_FAILED_PAUSE: Duration = Duration::from_millis(500);
+const RETRY_SOON: Duration = Duration::from_millis(200);
+const REFUSED_PAUSE: Duration = Duration::from_secs(5);
+const REPICK: Duration = Duration::from_secs(1);
+
 pub async fn udp_service(
     shared: Arc<Shared>,
     name: String,
@@ -41,23 +47,23 @@ pub async fn udp_service(
         let svc = config.borrow().clone();
         let Some(hop) = shared.pick(&name, &svc, index) else {
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
+                _ = tokio::time::sleep(NO_CLIENT_PAUSE) => continue,
                 _ = stop.changed() => return,
             }
         };
         let target = hop.target.clone();
         let session = &hop.via;
-        let ch = match tokio::time::timeout(Duration::from_secs(10), session.take()).await {
+        let ch = match tokio::time::timeout(super::TAKE_TIMEOUT, session.take()).await {
             Ok(Ok(ch)) => ch,
             Ok(Err(TakeError::TooManyPending)) | Ok(Err(TakeError::Closed)) => {
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(TAKE_FAILED_PAUSE).await;
                 continue;
             }
             Err(_) => {
                 if svc.several() {
                     shared.troubled(&name, session, &target, &crate::forward::no_reply());
                 }
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(TAKE_FAILED_PAUSE).await;
                 continue;
             }
         };
@@ -87,13 +93,13 @@ pub async fn udp_service(
                     shared.troubled(&name, session, &target, &ForwardError::Status(status));
                 }
                 let pause = if svc.several() && shared.has_clear(&name, &svc, index) {
-                    Duration::from_millis(200)
+                    RETRY_SOON
                 } else {
-                    Duration::from_secs(5)
+                    REFUSED_PAUSE
                 };
                 tokio::time::sleep(pause).await;
             }
-            Err(None) => tokio::time::sleep(Duration::from_millis(200)).await,
+            Err(None) => tokio::time::sleep(RETRY_SOON).await,
         }
     }
 }
@@ -169,7 +175,7 @@ async fn relay(
         index,
         session,
         config,
-        repick: tokio::time::interval(Duration::from_secs(1)),
+        repick: tokio::time::interval(REPICK),
         stop: shared.shutdown.clone(),
     };
     match front::run(&mut front, link, &mut hooks).await {
