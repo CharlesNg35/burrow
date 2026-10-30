@@ -64,7 +64,7 @@ pub(super) fn summary(
     let open = Memo::new(move |_| expanded.get() == Some(i));
     let toggle = move |_| expanded.update(|x| *x = if *x == Some(i) { None } else { Some(i) });
     view! {
-        <div class="flex items-center gap-1 py-1 @min-[560px]:hidden" data-entry-summary="">
+        <div class="order-1 flex items-center gap-1 py-1 @min-[560px]:hidden" data-entry-summary="">
             <button type="button" class="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 py-1 text-left" aria-expanded=move || open.get().to_string() data-testid="entry-toggle" on:click=toggle>
                 <span class="text-sm font-semibold text-text"><StatusDot on=false text=name tone=tone/></span>
                 <span class="max-w-full text-xs [overflow-wrap:anywhere]" data-entry-sum="">{text}</span>

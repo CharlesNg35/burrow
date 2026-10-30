@@ -296,15 +296,14 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
     let head = summary(&place, i, options, balance, expanded, phone_menu);
     let body = move || {
         if expanded.get() == Some(i) {
-            "flex flex-wrap items-center gap-x-3 gap-y-2 @max-[560px]:pb-2"
+            "order-2 flex flex-wrap items-center gap-x-3 gap-y-2 @max-[560px]:pb-2"
         } else {
-            "flex flex-wrap items-center gap-x-3 gap-y-2 @max-[560px]:hidden"
+            "order-2 flex flex-wrap items-center gap-x-3 gap-y-2 @max-[560px]:hidden"
         }
     };
     let target = target_cell(&place, i, open);
     view! {
-        <div class="py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
-            {head}
+        <div class="flex flex-col py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
             <div class=body>
                 <div class=format!("order-1 min-w-0 flex-1 @min-[560px]:flex-none {CLIENT_W}")>
                     <Combobox id=format!("{id}-client") options=options selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
@@ -319,7 +318,8 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
                     <Stepper id=format!("{id}-weight") value=weight on_input=set_weight default=1 min=1 max=burrow_config::WEIGHT_MAX invalid=weight_bad placeholder="default 1" label="Weight" narrow_only=true/>
                 </div>
             </div>
-            {move || problem.get().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
+            {head}
+            {move || problem.get().map(|m| view! { <p class="order-3 mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
         </div>
     }
     .into_any()
