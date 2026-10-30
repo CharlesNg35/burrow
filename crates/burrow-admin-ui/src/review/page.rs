@@ -11,6 +11,8 @@ use crate::screens::{DetailPane, ListPane, Row, master_detail};
 use crate::store::{Store, short_rev, store};
 
 use super::detail::{detail, outcome_view};
+
+const SEE_CHANGES: &str = "See what changed";
 use super::{change_groups, group_line, kind_look};
 
 #[component]
@@ -188,7 +190,7 @@ fn review_body(
             return view! {
                 <Callout tone=Tone::Warning title=format!("Based on rev {}; the file is now rev {}", short_rev(&base), short_rev(&now)) testid="review-stale">
                     <p class="mb-2.5">"The config changed on the server after you started. Your draft is kept; check it on the new rev to see what it applies."</p>
-                    <Button label=format!("Review my draft on rev {}", short_rev(&now)) variant="primary" icon="refresh" small=true on_click=move |_| recheck(s)/>
+                    <Button label=super::REVIEW_ON_NEW variant="primary" icon="refresh" small=true on_click=move |_| recheck(s)/>
                 </Callout>
             }
             .into_any();
@@ -312,7 +314,7 @@ pub fn ConflictDialog() -> impl IntoView {
                 })
         })
     };
-    let n_mine = move || e.review_count();
+    let n_mine = move || e.plan.with(|p| p.as_ref().map_or(0, |p| p.changes.len()));
     let sub = Signal::derive(move || {
         format!(
             "Rev {} was written by a {} while you were editing rev {}. Nothing was applied. Your draft is kept.",
@@ -332,7 +334,7 @@ pub fn ConflictDialog() -> impl IntoView {
                 <h3 class=label>{move || format!("Changed on the server · rev {}", current())}</h3>
                 <ul class="mb-4 text-sm" data-testid="conflict-theirs">{theirs}</ul>
             })}
-            <h3 class=label>{move || format!("Your draft · {} change{}", n_mine(), if n_mine() == 1 { "" } else { "s" })}</h3>
+            {move || (n_mine() > 0).then(|| view! { <h3 class=label>{format!("Your draft · {} change{}", n_mine(), if n_mine() == 1 { "" } else { "s" })}</h3> })}
             <ul class="mb-5 text-sm" data-testid="conflict-mine">{mine}</ul>
             <div class="flex flex-wrap items-center gap-2">
                 <Button label="Discard my draft" variant="ghost-danger" testid="conflict-discard" on_click=move |_| {
@@ -341,13 +343,13 @@ pub fn ConflictDialog() -> impl IntoView {
                     crate::api::load_state(s);
                 }/>
                 <span class="flex-1"></span>
-                <Button label=Signal::derive(move || format!("View rev {}", current())) variant="secondary" testid="conflict-view" on_click=move |_| {
+                <Button label=SEE_CHANGES variant="secondary" testid="conflict-view" on_click=move |_| {
                     let rev = e.conflict.with_untracked(|c| c.as_ref().map(|c| c.current.clone()));
                     e.conflict_revert.set(None);
                     e.end_conflict();
                     route::go(Route::Activity(rev.and_then(|r| crate::screens::activity::entry_of_rev(&r))));
                 }/>
-                <Button label=Signal::derive(move || format!("Review my draft on rev {}", current())) variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| recheck(s)/>
+                <Button label=super::REVIEW_ON_NEW variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| recheck(s)/>
             </div>
         </Dialog>
     }

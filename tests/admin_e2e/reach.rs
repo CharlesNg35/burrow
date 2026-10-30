@@ -98,7 +98,9 @@ async fn turn_off(c: &mut Ctx, way: &str, says: &str, step: &str) -> String {
 async fn the_review_says_what_goes(c: &mut Ctx, port: u16) {
     let text = turn_off(c, "web", "stops website", "website-off-applied").await;
     assert!(
-        text.contains("stops website nas.example.com and removes its settings: passthrough"),
+        text.contains(
+            "stops website nas.example.com and removes its settings: HTTPS (the app does its own)"
+        ),
         "{text}"
     );
     assert!(!c.world.config().contains("nas.example.com"));

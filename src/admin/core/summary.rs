@@ -105,7 +105,13 @@ fn fields_changed(
         }
     }
     for k in o.keys().filter(|k| !n.contains_key(*k)) {
-        parts.push(format!("{k} removed"));
+        parts.push(
+            if k == ServiceEntry::WEB.key() && kind == ServiceEntry::ENTITY {
+                "website turned off".to_string()
+            } else {
+                format!("{k} removed")
+            },
+        );
     }
     if !parts.is_empty() {
         let label = kind[..1].to_uppercase() + &kind[1..];

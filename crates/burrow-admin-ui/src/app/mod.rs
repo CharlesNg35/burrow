@@ -353,8 +353,8 @@ fn Banners() -> impl IntoView {
             (None, None) => (String::new(), String::new()),
         };
         let action = match stale {
-            Some((_, now)) => view! {
-                <Button label=format!("Review my draft on rev {}", short_rev(&now)) small=true testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
+            Some(_) => view! {
+                <Button label=crate::review::REVIEW_ON_NEW small=true testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
             }
             .into_any(),
             None => view! {

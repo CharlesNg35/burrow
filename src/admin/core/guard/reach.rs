@@ -26,7 +26,7 @@ fn site_settings(site: &WebSite) -> Vec<String> {
     let o = &site.options;
     let mut out = Vec::new();
     match site.tls {
-        WebTls::Passthrough => out.push("passthrough".to_string()),
+        WebTls::Passthrough => out.push("HTTPS (the app does its own)".to_string()),
         WebTls::Off => out.push("plain HTTP".to_string()),
         _ => out.push("HTTPS".to_string()),
     }
