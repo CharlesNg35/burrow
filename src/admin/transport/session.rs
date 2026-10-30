@@ -23,10 +23,6 @@ pub trait Access: Send + Sync {
     fn revoked(&self) -> Option<String>;
 }
 
-enum Out {
-    Message(Vec<u8>),
-}
-
 struct Ctx {
     hub: Arc<Hub>,
     session: Arc<Session>,
@@ -160,7 +156,7 @@ async fn handle(cx: Arc<Ctx>, req: Request) -> Vec<u8> {
 }
 
 async fn writer_task(
-    mut rx: mpsc::Receiver<Out>,
+    mut rx: mpsc::Receiver<Vec<u8>>,
     mut writer: crate::wire::record::RecordWriter,
     mut wr: crate::wire::transport::OwnedWriteHalf,
     ping: Duration,
@@ -170,7 +166,7 @@ async fn writer_task(
         let next = tokio::time::timeout(ping, rx.recv()).await;
         let records = match next {
             Err(_) => vec![frame::ping().to_vec()],
-            Ok(Some(Out::Message(m))) => match frame::chunks(&m) {
+            Ok(Some(m)) => match frame::chunks(&m) {
                 Ok(r) => r,
                 Err(e) => {
                     debug!("admin message of {} bytes dropped: {e}", m.len());
@@ -211,7 +207,7 @@ pub async fn run(
         mut reader,
     } = channel;
     let (mut rd, wr) = stream.into_split();
-    let (tx, rx) = mpsc::channel::<Out>(64);
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(64);
     let (ping, silence) = super::keepalive();
     let writer = tokio::spawn(writer_task(rx, writer, wr, ping));
     let visitor = session.visitor.clone();
@@ -240,7 +236,7 @@ pub async fn run(
         let tx = tx.clone();
         async move {
             matches!(
-                tokio::time::timeout_at(until, tx.send(Out::Message(bytes))).await,
+                tokio::time::timeout_at(until, tx.send(bytes)).await,
                 Ok(Ok(()))
             )
         }
@@ -303,7 +299,7 @@ pub async fn run(
             } => {
                 let status = crate::admin::hooks::status(cx.hub.core.status());
                 let ev = msg::event(msg::ev::STATUS, serde_json::to_value(status).unwrap_or_default());
-                let _ = tx.try_send(Out::Message(encode(&ev)));
+                let _ = tx.try_send(encode(&ev));
             }
             changed = reloads.changed() => {
                 if changed.is_err() {
