@@ -16,10 +16,6 @@ use crate::wire::protocol::{Connect, MAX_DATAGRAM, Status, decode_datagram, enco
 use crate::wire::transport::Channel;
 use crate::wire::transport::resolve::Resolver;
 
-thread_local! {
-    static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
-}
-
 struct Peer {
     sock: Arc<UdpSocket>,
     to: SocketAddr,
@@ -56,25 +52,22 @@ async fn connected_socket(target: SocketAddr) -> std::io::Result<Arc<UdpSocket>>
 }
 
 fn receive(sock: &UdpSocket) -> Option<Vec<u8>> {
-    RECEIVE.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        match sock.try_recv(&mut buf) {
-            Ok(n) => Some(buf[..n].to_vec()),
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::ConnectionRefused {
-                    static REFUSED: Throttle = Throttle::new();
-                    if let Some(more) = REFUSED.allow() {
-                        warn!(
-                            "UDP target {} refused a datagram; is anything listening there?{more}",
-                            sock.peer_addr()
-                                .map_or_else(|_| "?".to_string(), |a| a.to_string())
-                        );
-                    }
+    match crate::wire::transport::udp::try_recv_owned(sock) {
+        Ok((datagram, _)) => Some(datagram),
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                static REFUSED: Throttle = Throttle::new();
+                if let Some(more) = REFUSED.allow() {
+                    warn!(
+                        "UDP target {} refused a datagram; is anything listening there?{more}",
+                        sock.peer_addr()
+                            .map_or_else(|_| "?".to_string(), |a| a.to_string())
+                    );
                 }
-                None
             }
+            None
         }
-    })
+    }
 }
 
 pub(super) fn preferred(addrs: &[SocketAddr]) -> SocketAddr {

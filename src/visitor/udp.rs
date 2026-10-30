@@ -259,10 +259,6 @@ pub(super) async fn serve(
     }
 }
 
-thread_local! {
-    static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
-}
-
 pub(super) enum Received {
     Datagram(Vec<u8>, SocketAddr),
     Nothing,
@@ -270,17 +266,14 @@ pub(super) enum Received {
 }
 
 pub(super) fn receive_from(socket: &UdpSocket, name: &str) -> Received {
-    RECEIVE.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        match socket.try_recv_from(&mut buf) {
-            Ok((n, from)) => Received::Datagram(buf[..n].to_vec(), from),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Received::Nothing,
-            Err(e) => {
-                debug!("forward \"{name}\": UDP receive error: {e}");
-                Received::Failed
-            }
+    match crate::wire::transport::udp::try_recv_owned(socket) {
+        Ok((datagram, from)) => Received::Datagram(datagram, from),
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Received::Nothing,
+        Err(e) => {
+            debug!("forward \"{name}\": UDP receive error: {e}");
+            Received::Failed
         }
-    })
+    }
 }
 
 pub(super) const RECEIVE_ERROR_PAUSE: Duration = Duration::from_millis(100);
