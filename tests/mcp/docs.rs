@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::process::Stdio;
 
 use clap::Parser;
@@ -12,8 +13,14 @@ use super::{Visitor, visitor};
 const MCP_MD: &str = include_str!("../../docs/mcp.md");
 
 async fn printed(v: &Visitor, args: &[&str]) -> (String, String) {
+    let empty = tempfile::tempdir().unwrap();
+    printed_with_path(v, args, empty.path().as_os_str()).await
+}
+
+async fn printed_with_path(v: &Visitor, args: &[&str], path: &OsStr) -> (String, String) {
     let out = v
         .command(args)
+        .env("PATH", path)
         .stdin(Stdio::null())
         .stderr(Stdio::piped())
         .output()
@@ -114,6 +121,26 @@ async fn the_printed_stdio_setup_starts_a_working_server() {
         assert_eq!(words[0], this, "{claude}");
         assert_eq!(tool_count(&v, &words[0], &words[1..]).await, 4);
     }
+    let _ = w.stop.send(true);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_burrow_linked_on_path_is_printed_by_its_link() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let bin = tempfile::tempdir().unwrap();
+    let link = bin.path().join("burrow");
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_burrow"), &link).unwrap();
+    let link = link.to_str().unwrap();
+    let path = bin.path().as_os_str();
+    let (codex, _) = printed_with_path(&v, &["--print-config", "codex"], path).await;
+    let t: toml::Value = toml::from_str(&codex).unwrap();
+    let entry = &t["mcp_servers"]["burrow"];
+    assert_eq!(entry["command"].as_str(), Some(link), "{codex}");
+    assert_eq!(tool_count(&v, link, &strings(&entry["args"])).await, 4);
+    let (claude, _) = printed_with_path(&v, &["--print-config", "claude"], path).await;
+    assert_eq!(burrow_args(&command_in(&claude))[0], link, "{claude}");
     let _ = w.stop.send(true);
 }
 

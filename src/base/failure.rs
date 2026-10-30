@@ -132,20 +132,22 @@ pub fn file_reason(e: &std::io::Error) -> String {
     }
 }
 
+pub fn found_in(path: &std::ffi::OsStr, exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let me = dunce::canonicalize(exe).ok()?;
+    let dirs = std::env::split_paths(path).filter(|dir| dir.is_absolute());
+    let dirs = std::env::join_paths(dirs).ok()?;
+    let found = which::which_in("burrow", Some(dirs), me.parent()?).ok()?;
+    dunce::canonicalize(&found)
+        .is_ok_and(|p| p == me)
+        .then_some(found)
+}
+
+pub fn found_on_path(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    found_in(&std::env::var_os("PATH")?, exe)
+}
+
 fn on_path(exe: &std::path::Path) -> bool {
-    let name = if cfg!(windows) {
-        "burrow.exe"
-    } else {
-        "burrow"
-    };
-    let Ok(me) = std::fs::canonicalize(exe) else {
-        return false;
-    };
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path)
-            .filter(|dir| !cfg!(windows) || dir.is_absolute())
-            .any(|dir| std::fs::canonicalize(dir.join(name)).is_ok_and(|p| p == me))
-    })
+    found_on_path(exe).is_some()
 }
 
 fn command_for(arg0: Option<&std::ffi::OsStr>) -> String {
@@ -263,6 +265,44 @@ mod command_tests {
             command_for(Some(OsStr::new("target/debug/deps/integration-1234"))),
             "burrow"
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod path_tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::os::unix::fs::symlink;
+    use std::path::{Path, PathBuf};
+
+    fn dir_with(target: &Path) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("burrow");
+        symlink(target, &link).unwrap();
+        (dir, link)
+    }
+
+    fn path(dirs: &[&Path]) -> OsString {
+        std::env::join_paths(dirs).unwrap()
+    }
+
+    #[test]
+    fn a_link_on_path_to_this_burrow_is_named_as_the_shell_finds_it() {
+        let me = std::env::current_exe().unwrap();
+        let (ours, link) = dir_with(&me);
+        let (other, _) = dir_with(Path::new("/bin/sh"));
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(
+            found_in(&path(&[empty.path(), ours.path()]), &me),
+            Some(link.clone())
+        );
+        assert_eq!(
+            found_in(&path(&[ours.path(), other.path()]), &me),
+            Some(link)
+        );
+        assert_eq!(found_in(&path(&[other.path(), ours.path()]), &me), None);
+        assert_eq!(found_in(&path(&[empty.path()]), &me), None);
+        assert_eq!(found_in(&path(&[Path::new("relative/dir")]), &me), None);
     }
 }
 

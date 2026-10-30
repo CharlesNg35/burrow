@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use super::http::ENDPOINT;
 use crate::admin_link::token::Token;
-use crate::base::failure::{path_arg, program_arg};
+use crate::base::failure::{found_on_path, path_arg, program_arg};
 
 pub const SERVER_NAME: &str = "burrow";
 pub const TOKEN_VAR: &str = "BURROW_MCP_TOKEN";
@@ -61,7 +61,7 @@ pub fn url(port: u16) -> String {
 
 pub fn program() -> PathBuf {
     match std::env::current_exe().and_then(dunce::canonicalize) {
-        Ok(path) => path,
+        Ok(path) => found_on_path(&path).unwrap_or(path),
         Err(e) => {
             crate::say_errln!(
                 "cannot find where this burrow is ({e}), so the setup names plain `burrow`, which must then be on PATH"
@@ -297,7 +297,7 @@ mod tests {
         let program = program();
         assert!(program.is_absolute(), "{}", program.display());
         assert_eq!(
-            program,
+            dunce::canonicalize(&program).unwrap(),
             dunce::canonicalize(std::env::current_exe().unwrap()).unwrap()
         );
     }

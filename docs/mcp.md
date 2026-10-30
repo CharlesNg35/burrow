@@ -15,7 +15,7 @@ Setting it up takes two steps: an admin visitor on the server, and one entry in 
 burrow mcp -c ops-laptop.yaml --print-config claude   # or codex, or cursor
 ```
 
-The app then starts `burrow mcp` itself and talks to it over stdin and stdout; there is no port and no token. The setup names the burrow you ran by its full path, so the app finds it even when burrow is not on its `PATH`; if you move burrow, print the setup again. If that path cannot be found, the setup says plain `burrow` and a note on stderr says so. `burrow mcp` works the same on Linux, macOS and Windows. The setups look like this, for burrow in `/home/me/bin`; on Windows, Codex's file is `%USERPROFILE%\.codex\config.toml` and Cursor's `%USERPROFILE%\.cursor\mcp.json`, and the paths are Windows paths, like `C:\\Users\\me\\bin\\burrow.exe` in JSON.
+The app then starts `burrow mcp` itself and talks to it over stdin and stdout; there is no port and no token. The setup names the burrow you ran by its full path, so the app finds it even when burrow is not on its `PATH`. If the `burrow` your shell finds on `PATH` is this same burrow, for example a link such as `/opt/homebrew/bin/burrow`, the setup names that path, so it keeps working after an upgrade; otherwise it names the file itself, and if you move that file, print the setup again. If that path cannot be found, the setup says plain `burrow` and a note on stderr says so. `burrow mcp` works the same on Linux, macOS and Windows. The setups look like this, for burrow in `/home/me/bin`; on Windows, Codex's file is `%USERPROFILE%\.codex\config.toml` and Cursor's `%USERPROFILE%\.cursor\mcp.json`, and the paths are Windows paths, like `C:\\Users\\me\\bin\\burrow.exe` in JSON.
 
 Claude Code, with one command:
 
