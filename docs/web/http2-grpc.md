@@ -1,5 +1,7 @@
 # HTTP/2 and gRPC
 
+HTTP/2 is the newer version of HTTP that browsers use to load a page's many parts over one connection. burrow speaks it to browsers by default. gRPC, a way for programs to call each other that runs on HTTP/2, works too, once the site speaks HTTP/2 to the app as well. This page shows both, and the limits a long gRPC stream meets.
+
 In [How it works](how-it-works.md): HTTP/2 is agreed in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port); [step 2](how-it-works.md#2-a-request-is-answered) says what happens when a stream fails.
 
 ## HTTP/2
@@ -11,6 +13,8 @@ Browsers use HTTP/2 on `web.https` when they can, which loads pages with many pa
 - burrow sets every HTTP/2 limit itself, against the attacks of recent years (see [security.md](../security.md#websites)).
 
 ## gRPC
+
+This config serves a gRPC app from the office as `grpc.example.com`:
 
 ```yaml
 # server.yaml
@@ -41,3 +45,8 @@ A long-lived gRPC stream is limited by burrow's timeouts like any request:
 - a connection with nothing in flight is closed after `idle_timeout_secs`; an open stream keeps it alive, HTTP/2 PINGs alone do not.
 
 Raise `response_header_timeout_secs` on the site for a method that thinks a long time before its first answer.
+
+## Next steps
+
+- [Health checks for websites](health-checks.md): use `health_check: true` for gRPC apps.
+- [Security](../security.md#websites): the HTTP/2 limits burrow sets.

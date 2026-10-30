@@ -1,10 +1,12 @@
 # Paths and redirects
 
+One name does not have to lead to one app. With paths, `example.com/api` can go to an API in the office while the rest of `example.com` stays on the website at home. With redirects, old names and moved pages send visitors to their new address. This page shows both, and how burrow reads a path so a rule cannot be walked around.
+
 In [How it works](how-it-works.md): routes are picked in [step 2](how-it-works.md#2-a-request-is-answered), and on port 80 in [step 6](how-it-works.md#6-port-80).
 
 ## Paths: several apps on one name
 
-One name can be split between services by `paths`. The longest matching path wins, and a path covers itself and everything below it: `/api` matches `/api` and `/api/users`, never `/apix`. A service without `paths` takes everything the others leave.
+One name can be split between services by `paths`. The longest matching path wins, and a path covers itself and everything below it: `/api` matches `/api` and `/api/users`, never `/apix`. A service without `paths` takes everything the others leave. Here the website runs at home and its API in the office, under one name:
 
 ```yaml
 # server.yaml
@@ -35,7 +37,7 @@ services:
 
 ### How burrow reads a path
 
-burrow cleans each request's path once, before it picks a route, and sends the clean path to the app. Paths are matched like nginx, and forwarded cleaned like Traefik:
+The same page can be asked for in many spellings, like `//admin` or `/%61dmin`. burrow cleans each request's path once, before it picks a route, and sends the clean path to the app. Paths are matched like nginx, and forwarded cleaned like Traefik:
 
 - repeated slashes are merged: `//admin` is `/admin`;
 - escapes of plain characters are decoded and the others written in capitals: `/%61pi` is `/api`, and `%2f` is `%2F`;
@@ -46,6 +48,8 @@ burrow cleans each request's path once, before it picks a route, and sends the c
 So a password on `/wp-admin` cannot be walked around with `//wp-admin` or `/%77p-admin`. The paths you write in the config are cleaned the same way.
 
 ## Redirects
+
+A redirect tells the browser to go to another address, for a moved page, a renamed site or the `www.` name. There are three kinds, all in this config:
 
 ```yaml
 # server.yaml
@@ -74,3 +78,8 @@ services:
 - `web.redirect_names` is for names with no site of their own, or one path of a name another service serves (`example.com/shop` above): a longer path is a route of its own.
 - A target is a full address (`https://...`) or a path on the same name (`/new`).
 - Names that only redirect still get a certificate, the same way as a site's names.
+
+## Next steps
+
+- [Who may visit](access.md): protect a path with a password or a login.
+- [Recipes](recipes.md): Grafana under a path, single sign-on with authentik.

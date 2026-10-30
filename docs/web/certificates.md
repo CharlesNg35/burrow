@@ -1,8 +1,10 @@
 # Certificates
 
+A browser opens an HTTPS site only when the site shows a valid certificate for its name. burrow gets and renews these certificates for you, from Let's Encrypt for public names or from its own local CA for names on your network, or uses certificate files you already have. This page shows each way, how to get wildcards and certificates for names the internet cannot reach, and what to check when a certificate fails.
+
 In [How it works](how-it-works.md): [step 3](how-it-works.md#3-which-certificate-a-name-gets) picks the certificate, [step 4](how-it-works.md#4-lets-encrypt-checks-and-renewal) gets it from Let's Encrypt.
 
-For each name of an HTTPS site, burrow takes the first that applies:
+For each name of an HTTPS site, burrow takes the first of these that applies:
 
 1. the site's own `tls: {cert, key}`, or its uploaded certificate;
 2. `tls: internal`: burrow's own local CA, for names on your network ([below](#the-local-ca-tls-internal));
@@ -12,6 +14,8 @@ For each name of an HTTPS site, burrow takes the first that applies:
 If none applies, validate refuses the name and says how to fix it.
 
 ### Your own files
+
+If you already have certificates, for example from certbot or your company's CA, list each file with the names it serves under `web.certificates`. Let's Encrypt is then never contacted for those names:
 
 ```yaml
 # server.yaml
@@ -35,7 +39,7 @@ web:
 
 The admin UI can upload a certificate and its key instead of naming files in server.yaml: under a site's HTTPS choice **My own certificate**, in an entry of `web.certificates`, and for the CAs of `target_tls`, `client_auth` (with its revocation list) and `letsencrypt`. Pick the certificate chain and its key, in one file or two; burrow checks them at once, the same way validate checks a file: the key fits, the certificate covers the site's names and has not expired, a CA is a CA, and a revocation list is signed by the site's `client_auth` CA.
 
-burrow keeps the upload in its state folder, private to the service account, under a name made from its contents, and writes only that name into the config:
+burrow keeps the upload in its state folder, private to the service account, under a name made from its contents, and writes only that name into the config, like this:
 
 ```yaml
 # server.yaml
@@ -57,7 +61,7 @@ services:
 
 ### The local CA: tls: internal
 
-For names that live only on your network, like `nas.lan` or `printer.home.arpa`, Let's Encrypt cannot help: it never sees them. With `tls: internal`, burrow signs their certificates itself, with its own certificate authority (CA). Install the CA's certificate once on each device, and every such site opens without a warning.
+For names that live only on your network, like `nas.lan` or `printer.home.arpa`, Let's Encrypt cannot help: it never sees them. With `tls: internal`, burrow signs their certificates itself, with its own certificate authority (CA). Install the CA's certificate once on each device, and every such site opens without a warning. This serves a NAS on its LAN name and address:
 
 ```yaml
 # server.yaml
@@ -80,7 +84,7 @@ services:
 
 #### Installing the CA on your devices
 
-Get the certificate from the admin UI (Settings, **Local certificate authority**, **Download CA certificate**), or on the server with `burrow ca export --out burrow-local-ca.crt` (add `--der` for tools that want DER). Before you trust it, compare its SHA-256 fingerprint with the one in `burrow status` or the admin UI.
+Each device that opens these sites must trust the CA once. Get the certificate from the admin UI (Settings, **Local certificate authority**, **Download CA certificate**), or on the server with `burrow ca export --out burrow-local-ca.crt` (add `--der` for tools that want DER). Before you trust it, compare its SHA-256 fingerprint with the one in `burrow status` or the admin UI.
 
 | Device | How |
 | --- | --- |
@@ -95,6 +99,8 @@ Get the certificate from the admin UI (Settings, **Local certificate authority**
 | Chrome, Edge, Safari | use the system's roots, so the steps above are enough |
 
 ### Let's Encrypt
+
+[Let's Encrypt](https://letsencrypt.org/) gives free certificates to anyone who shows they control a name. With an email under `web.letsencrypt`, burrow orders a certificate for every name that has no other source, proves the name with one of Let's Encrypt's checks, and renews it before it expires. The commented lines show the other choices:
 
 ```yaml
 # server.yaml
@@ -122,7 +128,7 @@ web:
 
 ### DNS checks: wildcards and names the internet cannot reach
 
-With a DNS check, Let's Encrypt reads a TXT record that burrow sets at `_acme-challenge.<name>`. No port has to be reachable from the internet, so it suits wildcards (Let's Encrypt gives them only this way), names inside your LAN, and servers whose ports 80 and 443 are closed. `letsencrypt.dns` lists how burrow sets records, each provider with the domains it manages:
+With a DNS check, Let's Encrypt reads a TXT record that burrow sets at `_acme-challenge.<name>`. No port has to be reachable from the internet, so it suits wildcards (Let's Encrypt gives them only this way), names inside your LAN, and servers whose ports 80 and 443 are closed. `letsencrypt.dns` lists how burrow sets records, each provider with the domains it manages. This config uses Cloudflare for two domains, with one shared wildcard, and the company's own DNS server for a name inside the LAN:
 
 ```yaml
 # server.yaml
@@ -159,7 +165,7 @@ services:
 
 #### Shared wildcards
 
-Many sites under one domain are best served by one wildcard certificate: one order and one renewal instead of one per site. List it in `wildcards` on the entry that manages its domain, like `wildcards: ["*.example.com"]` above.
+A wildcard certificate, like `*.example.com`, covers every name one label below it. Many sites under one domain are best served by one wildcard certificate: one order and one renewal instead of one per site. List it in `wildcards` on the entry that manages its domain, like `wildcards: ["*.example.com"]` above.
 
 - Each wildcard is one certificate that also covers its parent name (`*.example.com` with `example.com`).
 - It is ordered when the config is saved, kept, and renewed by itself. Every site one label under it reuses it, also one added later; names two labels down get their own.
@@ -168,11 +174,11 @@ Many sites under one domain are best served by one wildcard certificate: one ord
 
 #### Cloudflare
 
-Create an API token at <https://dash.cloudflare.com/profile/api-tokens> with **Zone: Read** and **DNS: Edit**, limited to the zones you list (Zone Resources: Include, Specific zone). Give it to burrow as `${CF_TOKEN}` from the service's environment, or `file:/etc/burrow/cf.token`.
+If Cloudflare runs your DNS, burrow sets the records through its API. Create an API token at <https://dash.cloudflare.com/profile/api-tokens> with **Zone: Read** and **DNS: Edit**, limited to the zones you list (Zone Resources: Include, Specific zone). Give it to burrow as `${CF_TOKEN}` from the service's environment, or `file:/etc/burrow/cf.token`.
 
 #### RFC 2136: BIND, Knot, PowerDNS, Technitium
 
-burrow sends a dynamic update signed with a TSIG key to `server`, the zone's primary, and finds the zone itself. Make a key, and allow it to change only the `_acme-challenge` TXT records:
+If you run your own DNS server, burrow can set the records with a standard dynamic update (RFC 2136): it sends one signed with a TSIG key to `server`, the zone's primary, and finds the zone itself. Make a key, and allow it to change only the `_acme-challenge` TXT records. For BIND:
 
 ```text
 # BIND: tsig-keygen -a hmac-sha256 burrow-key > /etc/bind/burrow-key.conf, then in the zone:
@@ -191,7 +197,7 @@ zone "example.org" {
 
 #### acme-dns
 
-[acme-dns](https://github.com/acme-dns/acme-dns) serves only ACME records, so your main DNS provider needs no API at all: point each name's `_acme-challenge` CNAME at the acme-dns server once, and burrow updates the record there.
+[acme-dns](https://github.com/acme-dns/acme-dns) serves only ACME records, so your main DNS provider needs no API at all: point each name's `_acme-challenge` CNAME at the acme-dns server once, and burrow updates the record there. Give burrow the account acme-dns made for you:
 
 ```yaml
 # server.yaml
@@ -212,7 +218,9 @@ web:
 
 #### A command for any provider
 
-`command` runs a program of yours, like lego's `exec` provider: `PROGRAM present|cleanup NAME VALUE`, where `NAME` is the record's name with a final dot (the `_acme-challenge` name, or its CNAME target). It gets no secrets from burrow and an empty environment apart from `PATH`, so it reads its own credentials from a file. It must finish within 60 seconds, and it must add the value, not replace the record: a wildcard and its parent name set two values side by side. Installed as a service, it runs as the service account under the service's limits: on Linux it cannot see /home, can write only burrow's own folders, and cannot run programs that compile code at run time (`MemoryDenyWriteExecute`, so a Node.js hook fails); keep it and its credentials file outside /home, readable by that account.
+For any other DNS provider, `command` runs a program of yours, like lego's `exec` provider: `PROGRAM present|cleanup NAME VALUE`, where `NAME` is the record's name with a final dot (the `_acme-challenge` name, or its CNAME target). It gets no secrets from burrow and an empty environment apart from `PATH`, so it reads its own credentials from a file. It must finish within 60 seconds, and it must add the value, not replace the record: a wildcard and its parent name set two values side by side. Installed as a service, it runs as the service account under the service's limits: on Linux it cannot see /home, can write only burrow's own folders, and cannot run programs that compile code at run time (`MemoryDenyWriteExecute`, so a Node.js hook fails); keep it and its credentials file outside /home, readable by that account.
+
+This script sets the record with `nsupdate`:
 
 ```sh
 #!/bin/sh
@@ -241,3 +249,9 @@ Scripts written for lego's exec provider work unchanged when they read their cre
 2. **Ports:** port 443 (or 80) reaches burrow from the internet, not only from your network. A router must forward it.
 3. **Firewalls:** nothing blocks Let's Encrypt's checks from abroad.
 4. **Limits:** after many failures Let's Encrypt slows down; burrow follows its schedule. `directory: staging` tries everything against the test service without counting against your limits.
+
+## Next steps
+
+- [Who may visit](access.md): passwords, single sign-on and device certificates.
+- [Behind a proxy](proxies.md): certificates when Cloudflare or a router is in front.
+- [Monitoring](../monitoring.md): watch certificates in `burrow status` and with metrics.

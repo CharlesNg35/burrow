@@ -1,8 +1,10 @@
 # Headers, limits and pages
 
+These keys shape what a site sends and accepts: headers added for the app or the browser, the biggest upload, how long the app may take, your own error pages, a maintenance page, and HTTPS from burrow to an app that only speaks HTTPS. Most sites need none of them.
+
 In [How it works](how-it-works.md): [step 2](how-it-works.md#2-a-request-is-answered) says when each key applies and which page answers.
 
-These keys work under `web:` for every site, and in a service's `web:` for that site; the site's own value wins.
+These keys work under `web:` for every site, and in a service's `web:` for that site; the site's own value wins, and a site's `request_headers` and `response_headers` are added to those under `web:`. This config sets defaults for every site, lets Proxmox take big uploads, and puts a shop in maintenance:
 
 ```yaml
 # server.yaml
@@ -43,7 +45,7 @@ services:
 
 ### HTTPS to the app
 
-`target_tls` is for apps that speak HTTPS themselves:
+Some apps, like Proxmox, UniFi or a NAS admin page, only answer over HTTPS. `target_tls` makes burrow speak HTTPS to them, and says how their certificate is checked:
 
 | `target_tls` | The app's certificate is |
 | --- | --- |
@@ -55,7 +57,14 @@ An IP target needs its IP address in the app's certificate. A plain-HTTP app beh
 
 ## Limits
 
+burrow also applies these fixed limits to every website connection, so slow or broken visitors cannot tie up the server:
+
 - A connection has 10 seconds to send its first TLS message, and at most 16 KiB of it is read before the name is known.
 - Connections that have not shown a name yet are limited like the tunnel's own handshakes (`limits.max_handshakes`), with their own counter: a flood of web connections cannot block tunnel clients, and the other way round.
 - A tunnel connection on the shared port has `limits.handshake_timeout_secs` in total for TLS, the WebSocket upgrade and burrow's own handshake.
 - Stopping or reloading the server lets a request in flight finish for up to 10 seconds.
+
+## Next steps
+
+- [Who may visit](access.md): rate limits, passwords and logins.
+- [All web keys with their defaults](../configuration.md#serveryaml).

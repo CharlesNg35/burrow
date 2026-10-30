@@ -1,8 +1,12 @@
 # Behind a proxy, a load balancer or a home router
 
+burrow does not have to face the internet directly. It can sit behind Cloudflare, Cloudflare Tunnel or a load balancer, or behind a home router that forwards ports to it. Two things then need care: burrow must learn each visitor's real address from the proxy, without believing anyone else who claims one, and Let's Encrypt's checks must still reach it. This page shows both.
+
 In [How it works](how-it-works.md): the PROXY header is read in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port), `X-Forwarded-*` is believed in [step 2](how-it-works.md#2-a-request-is-answered) and [step 6](how-it-works.md#6-port-80).
 
 ## Behind Cloudflare or a load balancer
+
+Tell burrow which proxies are in front, and how each passes the visitor's address on. This config trusts Cloudflare's headers and a TCP load balancer's PROXY header:
 
 ```yaml
 # server.yaml
@@ -33,3 +37,8 @@ web:
   letsencrypt:
     email: ops@example.com
 ```
+
+## Next steps
+
+- [Nextcloud behind Cloudflare](recipes.md#nextcloud-behind-cloudflare), a complete recipe.
+- [Certificates](certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach): DNS checks, when no port can be reached from the internet.

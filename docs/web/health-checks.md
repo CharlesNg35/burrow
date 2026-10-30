@@ -1,8 +1,10 @@
 # Health checks for websites
 
+A website with several clients should send visitors only to an app that works. A health check asks the app, through each client, every few seconds, and a client whose app stops answering gets no new visitors until it answers again.
+
 In [How it works](how-it-works.md): a service whose clients are all down answers `503` in [step 2](how-it-works.md#2-a-request-is-answered).
 
-`health_check` (see [services.md](../services.md)) checks through each client that the app answers. For a website, `path` makes it ask the app for a page instead of only opening a connection:
+`health_check` (see [services.md](../services.md)) checks through each client that the app answers. For a website, `path` makes it ask the app for a page instead of only opening a connection. This blog runs on two clients, and the check asks each for `/healthz`:
 
 ```yaml
 # server.yaml
@@ -23,3 +25,8 @@ services:
 - **The path must not need a login:** 401 and 403 count as down. Pick a page the app serves to anyone, like a status endpoint.
 - `burrow status` and the admin UI show why a client counts as down.
 - `path` needs a website burrow serves: validate refuses it on a service without `web:`, on a passthrough site and with the web proxy off.
+
+## Next steps
+
+- [Several clients](../services.md#several-clients): failover, balance and the other health check keys.
+- [Monitoring](../monitoring.md): see which clients are up.

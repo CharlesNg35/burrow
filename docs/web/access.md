@@ -1,6 +1,10 @@
 # Who may visit
 
+A website at home is often meant for you, your family or your team, not the whole internet. burrow can check visitors before a request reaches the app: by address, by rate, with a password, through a single sign-on service like Authelia or authentik, or with a certificate on each device. The app needs no change for any of them.
+
 In [How it works](how-it-works.md): device certificates are checked in the handshake, in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port), and the other checks run for each request, in this order, in [step 2](how-it-works.md#2-a-request-is-answered).
+
+Each key below lets in a kind of visitor, and says what the others get:
 
 | Key | Who gets in | Otherwise |
 | --- | --- | --- |
@@ -19,6 +23,8 @@ The logins guard the website only. A service that also has its own `bind` port i
 A service's `allow_from` and `deny_from` ([Who may connect](../services.md#who-may-connect)) apply to its website too, before any password, so a refused address costs no work. Behind a proxy in `web.trusted_proxies`, the address is the visitor's own, from `X-Forwarded-For` ([Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer)). Let's Encrypt's checks are answered before this, so a site open only to your network still gets its certificate.
 
 ## Rate limits
+
+A rate limit caps how many requests one address may send, which slows down scrapers and password guessing. This config sets a default for every site and a tighter limit on the shop:
 
 ```yaml
 # server.yaml
@@ -42,6 +48,8 @@ services:
 - A reload keeps the counts of a site whose `rate_limit` did not change.
 
 ## Passwords
+
+The simplest login: the browser asks for a user name and password before it shows the site. This config gives one user access to a file site:
 
 ```yaml
 # server.yaml
@@ -70,7 +78,9 @@ The browser asks for a user name and password; the app never sees them, as burro
 
 ## Single sign-on
 
-`forward_auth` asks a login service, like [Authelia](https://www.authelia.com/integration/proxies/caddy/) or [authentik](https://docs.goauthentik.io/add-secure-apps/providers/proxy/server_caddy/), before each request. If it says yes, the request goes on to the app with the headers it names; if not, its answer, usually a redirect to its login page, goes back to the visitor.
+`forward_auth` asks a login service, like [Authelia](https://www.authelia.com/integration/proxies/caddy/) or [authentik](https://docs.goauthentik.io/add-secure-apps/providers/proxy/server_caddy/), before each request. If it says yes, the request goes on to the app with the headers it names; if not, its answer, usually a redirect to its login page, goes back to the visitor. One login then covers every site, with two-factor sign-in if the login service offers it.
+
+This config puts a wiki behind Authelia, which runs as a site of its own:
 
 ```yaml
 # server.yaml
@@ -108,7 +118,7 @@ In Authelia, set `session.cookies` with your `domain` and `authelia_url: https:/
 
 ## Device certificates
 
-With `client_auth`, only devices with a certificate signed by your CA get in. The check happens in the TLS handshake, before any request, so a device without one never sees the site. It suits a few sites only you and your family use, like a NAS or Home Assistant, opened to the internet.
+With `client_auth`, only devices with a certificate signed by your CA get in. The check happens in the TLS handshake, before any request, so a device without one never sees the site. It suits a few sites only you and your family use, like a NAS or Home Assistant, opened to the internet. This config lets only your devices reach the NAS:
 
 ```yaml
 # server.yaml
@@ -134,6 +144,8 @@ services:
 - A revoked device's connections that are already open stay open until they close.
 
 ### Your own device CA
+
+Device certificates need a small CA of your own, which signs one certificate per device and can revoke a lost one. Two ways to run it follow.
 
 With [step-ca](https://smallstep.com/docs/step-ca/), turn on its CRL in `ca.json` with `"crl": {"enabled": true, "generateOnRevoke": true}`, give each device a certificate, and point `ca` at a file with step-ca's intermediate and root certificates. Without `generateOnRevoke`, step-ca writes a new list only every 16 hours or so ([its configuration docs](https://smallstep.com/docs/step-ca/configuration/): `generateOnRevoke` is off by default, and the list renews after about 2/3 of `cacheDuration`, 24 h), so a lost phone would stay admitted until then. step-ca serves the list at `/1.0/crl`; fetch it into the file after a revoke, and now and then, for example from cron:
 
@@ -175,3 +187,9 @@ openssl ca -config ca.cnf -gencrl -out devices.crl && cp devices.crl /etc/burrow
 - The `crlnumber` file makes a version 2 list, which burrow needs.
 - Make a new list before `default_crl_days` run out, even with nothing to revoke, or `burrow status` warns that it is past its date.
 - Some phones refuse a `.p12` from OpenSSL 3; `openssl pkcs12 -export -legacy` writes the older form they read.
+
+## Next steps
+
+- [Behind a proxy](proxies.md): get the visitor's real address behind Cloudflare, so `allow_from` and rate limits see it.
+- [Single sign-on with authentik](recipes.md#single-sign-on-with-authentik).
+- [Security](../security.md#websites): how these checks are kept from being walked around.

@@ -1,6 +1,6 @@
 # How it works
 
-This page follows a visitor through burrow, step by step, in the order the code runs. Each topic page links back to the step it changes. Nothing here needs to be set: it is what the keys on the other pages do, and when.
+This page follows a visitor through burrow, step by step, in the order the code runs. Read it when you want to know why a request got a certain answer, which check runs first, or which certificate a name gets. Each topic page links back to the step it changes. Nothing here needs to be set: it is what the keys on the other pages do, and when.
 
 1. [A connection arrives on the HTTPS port](#1-a-connection-arrives-on-the-https-port)
 2. [A request is answered](#2-a-request-is-answered)
@@ -155,3 +155,8 @@ request on web.http ──> Let's Encrypt HTTP check?   answered
    - an HTTPS site redirects to `https://` with `308`, the path and query kept, and the port named when `web.https` is not 443; while its certificate is on its way it gets `503` instead, so a visitor is never sent to a name with no certificate yet;
    - a passthrough site, the tunnel's own name and an unknown name get `404`.
 6. **Then the request goes on as in [step 2](#2-a-request-is-answered)**, from the route on.
+
+## Next steps
+
+- [Websites](../web.md): set up a first website.
+- [A full example](full-example.md): every key in one config, and what validate checks.

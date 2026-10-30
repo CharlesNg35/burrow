@@ -1,10 +1,12 @@
 # The tunnel on the web ports
 
+Some networks let only web traffic out, on ports 443 and 80. burrow clients and visitors can then connect to the server on those same ports, sharing them with your websites: the tunnel gets a name of its own, or a path on a website's name, and a certificate like any site. This page shows the common setups; [websocket.md](../websocket.md#automatic-https-for-the-tunnel) explains every case.
+
 In [How it works](how-it-works.md): the tunnel takes its name in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port), its path in [step 2](how-it-works.md#2-a-request-is-answered), and port 80 in [step 6](how-it-works.md#6-port-80).
 
 ## The tunnel on the same port
 
-burrow clients can connect over `wss://` on the same port as the websites, to a name of their own:
+burrow clients can connect over `wss://` on the same port as the websites, to a name of their own. The server shares port 443, and the client uses the tunnel's URL:
 
 ```yaml
 # server.yaml
@@ -29,6 +31,8 @@ server: wss://tunnel.example.com/burrow
 
 ### The tunnel on port 8443, no port 80, through DNS
 
+When ports 443 and 80 are taken or blocked, the tunnel can use another port and get its certificate through a DNS check:
+
 ```yaml
 # server.yaml
 web:
@@ -47,6 +51,8 @@ websocket:
 
 ### The tunnel on port 80, plain ws (still encrypted by burrow)
 
+When only port 80 gets through, the tunnel can use plain `ws://` there. burrow's own encryption still protects the data:
+
 ```yaml
 # server.yaml
 web:
@@ -56,3 +62,7 @@ websocket:
   host: tunnel.example.com
   path: /burrow # clients use ws://tunnel.example.com/burrow
 ```
+
+## Next steps
+
+- [Servers reachable only through HTTP(S)](../websocket.md): WebSocket behind nginx, Caddy or Cloudflare.

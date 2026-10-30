@@ -1,12 +1,14 @@
 # Recipes
 
-Each recipe goes through the steps of [How it works](how-it-works.md).
+Short, complete configs for common cases and well-known apps. Find the one closest to what you want, copy it, and change the names. Each recipe goes through the steps of [How it works](how-it-works.md).
 
 ## Examples
 
 Each example is the web part of a `server.yaml`: add it to the `listen:` and `clients:` of [A first website](../web.md#a-first-website) (`office` is a second client, written like `home`). Every one of them is checked by burrow's tests.
 
 ### The minimum: websites with automatic HTTPS
+
+One app, one name, a certificate from Let's Encrypt:
 
 ```yaml
 # server.yaml
@@ -23,6 +25,8 @@ services:
 ```
 
 ### One site with two names
+
+A site reached as both `example.com` and `www.example.com`:
 
 ```yaml
 # server.yaml
@@ -42,6 +46,8 @@ A service's names get one certificate together: `example.com` and `www.example.c
 
 ### Your own certificates only (Let's Encrypt never contacted)
 
+When you already have a certificate, here a wildcard, and want nothing ordered:
+
 ```yaml
 # server.yaml
 web:
@@ -58,6 +64,8 @@ services:
 ```
 
 ### Many sites under one domain: one shared wildcard
+
+Several sites under `example.com` share one Let's Encrypt wildcard, got through Cloudflare's DNS:
 
 ```yaml
 # server.yaml
@@ -76,6 +84,8 @@ services:
 ```
 
 ### Many apps under your own wildcard file
+
+Several apps, on two clients, under a wildcard file you already have:
 
 ```yaml
 # server.yaml
@@ -98,6 +108,8 @@ services:
 
 ### Plain HTTP only (LAN, or behind a proxy that does HTTPS)
 
+No HTTPS port and no certificates, for a site on your home network:
+
 ```yaml
 # server.yaml
 web:
@@ -113,6 +125,8 @@ services:
 `allow_from` sees the address the server sees. It keeps the site to your network only when the burrow server is on that network too; a server on the internet sees your router's public address instead.
 
 ### An app on the server itself
+
+An app that runs on the burrow server, like a Git server, needs no client:
 
 ```yaml
 # server.yaml
@@ -131,6 +145,8 @@ services:
 `client: self` reaches its own target without a `self:` block; `self.allow` only limits what visitors may `reach` on the server ([services.md](../services.md)).
 
 ### Single sign-on with authentik
+
+Every app under `*.apps.example.com` behind one [authentik](https://goauthentik.io/) login:
 
 ```yaml
 # server.yaml
@@ -169,6 +185,8 @@ In authentik, create a Proxy provider in "Forward auth (domain level)" mode for 
 
 ### Home Assistant
 
+[Home Assistant](https://www.home-assistant.io/) on its own name:
+
 ```yaml
 # server.yaml
 web:
@@ -186,6 +204,8 @@ services:
 Home Assistant's pages and apps keep a WebSocket open (`/api/websocket`), which burrow passes through like any other request. Home Assistant blocks requests that come through a reverse proxy it does not trust, so in Home Assistant open Settings > System > Network, and under HTTP server turn on Trust X-Forwarded-For and add the address of the machine that runs the burrow client to Trusted proxies (`127.0.0.1` when the client runs on the Home Assistant machine), as its [HTTP integration docs](https://www.home-assistant.io/integrations/http/) say.
 
 ### Nextcloud behind Cloudflare
+
+Nextcloud, with Cloudflare's proxy in front and big uploads allowed:
 
 ```yaml
 # server.yaml
@@ -208,6 +228,8 @@ services:
 In Nextcloud's `config.php`, trust the address the burrow client connects from (`'trusted_proxies' => ['127.0.0.1']` when it runs on the same machine), add `cloud.example.com` to `trusted_domains`, and set `'overwriteprotocol' => 'https'`. Nextcloud then reads the visitor's address from `X-Forwarded-For`, which burrow fills from Cloudflare's.
 
 ### Grafana under a path
+
+Grafana at `example.com/grafana`, next to the main website:
 
 ```yaml
 # server.yaml
@@ -232,6 +254,8 @@ services:
 Tell Grafana its public address so its links keep the prefix: `root_url = https://example.com/grafana/` in the `[server]` section of `grafana.ini`. Without `app_path`, set `serve_from_sub_path = true` there as well, and Grafana handles the prefix itself.
 
 ### A site for an IP address, with no domain
+
+No domain at all: Let's Encrypt gives short-lived certificates for the server's public IP address too:
 
 ```yaml
 # server.yaml
@@ -259,4 +283,9 @@ allow:
   - 127.0.0.1/32:8081 # the shop app on this machine
 ```
 
-`listen: 7835` on the server is the tunnel's own port, for clients and visitors; it is not a website port. Clients can also come in on 443, see below.
+`listen: 7835` on the server is the tunnel's own port, for clients and visitors; it is not a website port. Clients can also come in on 443: see [The tunnel on the web ports](tunnel.md).
+
+## Next steps
+
+- [A full example](full-example.md): every website key in one commented config.
+- [The tunnel on the web ports](tunnel.md): let clients connect on 443 too.

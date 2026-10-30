@@ -7,9 +7,13 @@ browser ── https://blog.example.com ──> server:443 ══ tunnel ══ 
 burrow client ── wss://tunnel.example.com/burrow ──> server:443 (the tunnel can share the port)
 ```
 
-Nothing of this runs unless you write it in the config.
+Use it to put a blog, a wiki, Home Assistant, Nextcloud or any web app at home on its own name with a valid certificate, without a separate nginx or Caddy and certbot on the server. Nothing of this runs unless you write it in the config: the web proxy starts with a top-level `web:` block, and a service becomes a website with its own `web:`.
+
+New words on these pages, like wildcard, passthrough or the Let's Encrypt checks, are explained in the [glossary](glossary.md#websites).
 
 ## A first website
+
+This config serves the app on port 8080 of the home machine as `https://blog.example.com`, with a certificate from Let's Encrypt:
 
 ```yaml
 # server.yaml
@@ -29,6 +33,8 @@ services:
     web: blog.example.com
 ```
 
+Then:
+
 1. Point `blog.example.com` at the server in your DNS (an `A` or `AAAA` record).
 2. Open ports 443 and 80 in the server's firewall.
 3. Start the server, or save the config if it runs already.
@@ -47,6 +53,8 @@ http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks 
 
 ## The ports
 
+The web proxy listens on up to two ports of the server, set under `web:`:
+
 | Key | What it does |
 | --- | --- |
 | `web.https` | HTTPS for every website, and the TLS services passed through by name. |
@@ -59,7 +67,7 @@ http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks 
 
 ## How a website is served
 
-A service becomes a website by having its own `web:`. The short forms `web: blog.example.com` and `web: [example.com, www.example.com]` list the names. The long form says more:
+A service becomes a website by having its own `web:`. The short forms `web: blog.example.com` and `web: [example.com, www.example.com]` list the names. The long form says more; this one serves a site on two names, with the defaults written out:
 
 ```yaml
 # server.yaml
@@ -78,7 +86,7 @@ services:
       https_redirect: true # the default: http:// goes to https://
 ```
 
-`tls` says who does HTTPS:
+`tls` says who does HTTPS for the site, and where its certificate comes from:
 
 | `tls` | What happens |
 | --- | --- |
@@ -90,7 +98,7 @@ services:
 
 `https_redirect` decides what an HTTPS site does on `web.http`: `true` (the default) sends visitors to the same address on `https://` with a permanent redirect (308); `false` answers plain HTTP too. Set it for every site under `web:`, or per site.
 
-Names:
+The names of a site follow these rules:
 
 - `hosts` takes DNS names, like `blog.example.com`, wildcards of one label, like `*.apps.example.com`, and IP addresses, like `203.0.113.10`.
 - A wildcard covers exactly one label: `*.apps.example.com` covers `x.apps.example.com`, not `apps.example.com` and not `a.b.apps.example.com`. An exact name in another service wins over a wildcard.
@@ -99,6 +107,8 @@ Names:
 - Names are added and removed when you save the config.
 
 ### What burrow does for a website
+
+Every website gets these without any setting:
 
 - **Requests go to the app through the tunnel**, one connection per visitor connection. WebSocket upgrades work.
 - **The app learns who asked:** burrow sets `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port` and `X-Real-IP`. A visitor's own `Forwarded` and `X-Forwarded-*` headers are removed first; only the proxies in `web.trusted_proxies` are believed ([Behind Cloudflare or a load balancer](web/proxies.md#behind-cloudflare-or-a-load-balancer)).
@@ -110,6 +120,8 @@ Names:
 - **`allow_from` limits visitors, not Let's Encrypt:** burrow answers Let's Encrypt's checks before it looks at the site, so a site open only to `192.168.1.0/24` still gets its certificate. Behind a CDN or another proxy, `allow_from` sees the proxy's address, not the visitor's.
 
 ## Plain HTTP websites
+
+A site on your home network, or behind a proxy that already does HTTPS, may not need HTTPS from burrow. Without `web.https`, every site is plain HTTP. This one serves a dashboard to the home network only:
 
 ```yaml
 # server.yaml
@@ -149,6 +161,8 @@ services:
 On port 80, passthrough names get `404`: burrow cannot redirect a site whose HTTPS it does not do.
 
 ## More about websites
+
+Each page below covers one part in depth, starts with what it is for, and links back to the step of [How it works](web/how-it-works.md) it changes.
 
 | Page | What it covers |
 | --- | --- |
