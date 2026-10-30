@@ -116,7 +116,7 @@ Every website gets these without any setting:
 - **Pages when something is wrong**, instead of a broken connection: `503` when no client of the service is connected, all are down or the service is at its connection limit, `502` when the client cannot reach the app, `404` for an unknown name on port 80. A failure after the app started answering closes the connection.
 - **Time limits:** a visitor has 10 seconds to send a request's headers (`web.request_header_timeout_secs`, also how long an idle kept-alive connection stays open), and a connection that moves no data for 60 seconds is closed (`web.idle_timeout_secs`; WebSockets stay open). A connection still waiting for the app's next bytes is not idle: an app that goes quiet in the middle of an answer, like a quiet event stream, is kept open while the visitor stays, and closed when the visitor leaves. A visitor who stops reading an answer counts as idle.
 - **TLS 1.2 and 1.3.** TLS 1.0 and 1.1 are retired (RFC 8996); clients that only speak them cannot reach any site on the port, passthrough sites included.
-- Everything else a service does works for websites too: several clients with failover or balance, health checks, `allow_from`, `max_connections`, `bandwidth`.
+- Everything else a service does works for websites too: several clients with failover, balance or least_connections, health checks, `allow_from`, `max_connections`, `bandwidth`.
 - **`allow_from` limits visitors, not Let's Encrypt:** burrow answers Let's Encrypt's checks before it looks at the site, so a site open only to `192.168.1.0/24` still gets its certificate. Behind a CDN or another proxy, `allow_from` sees the proxy's address, not the visitor's.
 
 ## Plain HTTP websites

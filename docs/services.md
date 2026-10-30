@@ -122,20 +122,36 @@ Turn it on only when the target expects it: an app that does not understand the 
 
 ## Several clients
 
-Run the same app on two machines, and the service stays up when one of them goes away. List more than one client under `clients`. This works for TCP and UDP services; `mode: balance` and `health_check` are for TCP services only, so a UDP service uses failover. This web service spreads its connections over two clients and skips one whose app stops answering:
+Run the same app on two machines, and the service stays up when one of them goes away. List more than one client under `clients`. This works for TCP and UDP services; `mode: balance`, `mode: least_connections` and `health_check` are for TCP services only, so a UDP service uses failover. This web service spreads its connections over two clients and skips one whose app stops answering:
 
 ```yaml
 # server.yaml, under services:
 web:
   clients: [home-1, home-2]
-  mode: balance          # or failover (the default)
+  mode: balance          # or failover (the default), or least_connections
   health_check: true     # or { interval_secs: 10, timeout_secs: 3, failures: 2 }
   bind: 443
   target: 127.0.0.1:8443
 ```
 
 - **`failover`** (the default) uses the first connected client in the list, and moves to the next one while it is away.
-- **`balance`** spreads new connections over all connected clients.
+- **`balance`** spreads new connections over all connected clients, in turn.
+- **`least_connections`** sends each new connection to the connected client with the fewest open connections. When several have the same number, the first one in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine.
+
+All three skip a client whose health check failed, as described below.
+
+**Weights.** With `balance`, a client can get a bigger share: write it as `{name, weight}`. The weight is a whole number from 1 to 1000, and 1 is the default. Here `home-1` gets 3 of every 4 new connections:
+
+```yaml
+# server.yaml, under services:
+web:
+  clients: [{name: home-1, weight: 3}, home-2]
+  mode: balance
+  bind: 443
+  target: 127.0.0.1:8443
+```
+
+The turns are spread out evenly, so `home-1` does not get three connections in a row and then `home-2` one. This is how nginx does weighted round robin. Weights only apply to `balance`, so `validate` refuses them with the other modes.
 
 When a client cannot reach the target, or its `allow` list refuses it, the connection moves to the next client at once, and that client is skipped for a while. `burrow status` shows it as `failing` or `refused`. Open connections stay on their client.
 

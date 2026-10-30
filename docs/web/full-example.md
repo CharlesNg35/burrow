@@ -341,6 +341,14 @@ services:
     client: home
     target: 5432
     visitors: [laptop]
+
+  # One app on two machines: new connections take turns, and office gets 3 of every 4
+  game:
+    clients: [{name: office, weight: 3}, home]
+    mode: balance # or least_connections: each one goes to the machine with the fewest open
+    health_check: true # a machine whose app does not answer gets none
+    bind: 7850
+    target: 7000
 ```
 
 Where each name gets its certificate:
