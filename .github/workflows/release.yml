@@ -49,6 +49,7 @@ jobs:
           name: admin-ui-dist
           path: crates/burrow-admin-ui/dist
           if-no-files-found: error
+          retention-days: 1
 
   binaries:
     needs: [version, ui]
@@ -171,6 +172,7 @@ jobs:
           name: dist-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
+          retention-days: 1
 
   publish:
     needs: binaries
@@ -273,3 +275,16 @@ jobs:
           subject-name: ghcr.io/${{ env.OWNER }}/burrow
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  cleanup:
+    name: delete this run's artifacts
+    needs: [publish, image]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: "*"
+          failOnError: false
