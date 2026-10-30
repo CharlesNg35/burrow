@@ -146,7 +146,7 @@ fn proxy_note(
     let listed = |h: &str| {
         shared
             .iter()
-            .any(|w| w.strip_prefix("*.") == Some(h) || burrow_syntax::web::covers(w, h))
+            .any(|w| burrow_syntax::web::shared_wildcard_covers(w, h))
             || !matches!(entry_for(files.iter().copied().enumerate(), h), Ok(None))
     };
     let mut hosts: Vec<(String, String, Option<burrow_syntax::web::Challenge>)> = Vec::new();

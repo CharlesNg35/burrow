@@ -31,9 +31,10 @@ impl<'a> Sources<'a> {
     }
 
     fn lists(&self, host: &str) -> bool {
-        let shared = self.wildcards.iter().any(|w| {
-            w == host || w.strip_prefix("*.") == Some(host) || burrow_syntax::web::covers(w, host)
-        });
+        let shared = self
+            .wildcards
+            .iter()
+            .any(|w| burrow_syntax::web::shared_wildcard_covers(w, host));
         shared
             || !matches!(
                 entry_for(self.entries.iter().copied().enumerate(), host),

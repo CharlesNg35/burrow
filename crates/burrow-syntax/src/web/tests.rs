@@ -318,3 +318,12 @@ fn a_certificate_is_due_for_the_warning_strictly_inside_14_days() {
     const { assert!(DNS_WAIT_MIN_SECS <= DNS_WAIT_SECS && DNS_WAIT_SECS <= DNS_WAIT_MAX_SECS) };
     assert!(LETSENCRYPT_STAGING.contains("acme-staging"));
 }
+
+#[test]
+fn a_shared_wildcard_covers_its_parent_and_one_label_below() {
+    assert!(shared_wildcard_covers("*.a.com", "a.com"));
+    assert!(shared_wildcard_covers("*.a.com", "x.a.com"));
+    assert!(shared_wildcard_covers("*.a.com", "*.a.com"));
+    assert!(!shared_wildcard_covers("*.a.com", "y.x.a.com"));
+    assert!(!shared_wildcard_covers("*.a.com", "b.com"));
+}

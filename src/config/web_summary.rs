@@ -104,11 +104,7 @@ fn shared_wildcard(web: &WebSettings, name: &str) -> Option<String> {
         .dns
         .iter()
         .flat_map(|e| e.wildcards.iter())
-        .find(|w| {
-            w.as_str() == name
-                || w.strip_prefix("*.") == Some(name)
-                || burrow_syntax::web::covers(w, name)
-        })
+        .find(|w| burrow_syntax::web::shared_wildcard_covers(w, name))
         .cloned()
 }
 

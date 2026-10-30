@@ -87,6 +87,10 @@ pub fn covers(pattern: &str, name: &str) -> bool {
     }
 }
 
+pub fn shared_wildcard_covers(wildcard: &str, host: &str) -> bool {
+    wildcard.strip_prefix("*.") == Some(host) || covers(wildcard, host)
+}
+
 pub fn wildcard_of(name: &str) -> Option<String> {
     let (first, rest) = name.split_once('.')?;
     (!first.is_empty() && rest.contains('.')).then(|| format!("*.{rest}"))

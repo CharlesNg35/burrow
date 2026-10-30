@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use burrow_syntax::web::{Twice, covers, entry_for, is_wildcard, sni_name};
+use burrow_syntax::web::{Twice, entry_for, is_wildcard, shared_wildcard_covers, sni_name};
 
 use super::{CertName, CertOrigin};
 use crate::{CertSettings, CertSource, ProxySettings, SiteTls, TunnelMode, TunnelPort};
@@ -57,10 +57,7 @@ pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
     };
     let shares = |host: &str| {
         let h = sni_name(host);
-        !shared(&h)
-            && wildcards
-                .iter()
-                .any(|w| covers(w, &h) || w.strip_prefix("*.") == Some(h.as_str()))
+        !shared(&h) && wildcards.iter().any(|w| shared_wildcard_covers(w, &h))
     };
     for site in &settings.sites {
         if let SiteTls::Https(source) = &site.tls {
