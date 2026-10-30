@@ -9,7 +9,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::{Frame, Incoming};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::mpsc;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::pki_types::ServerName;
@@ -20,6 +20,7 @@ pub const HOST: &str = "site.example.com";
 pub const OTHER: &str = "other.example.com";
 pub const H2: &[u8] = b"h2";
 pub const H1: &[u8] = b"http/1.1";
+const APP_BACKLOG: u32 = 4096;
 
 #[derive(Default)]
 pub struct Counts {
@@ -131,8 +132,14 @@ pub async fn app_h2c() -> App {
     app_with(true).await
 }
 
+fn app_listener() -> TcpListener {
+    let s = TcpSocket::new_v4().unwrap();
+    s.bind(SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
+    s.listen(APP_BACKLOG).unwrap()
+}
+
 async fn app_with(h2c: bool) -> App {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = app_listener();
     let addr = l.local_addr().unwrap();
     let counts = Arc::new(Counts::default());
     let c = counts.clone();
