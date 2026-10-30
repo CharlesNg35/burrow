@@ -324,12 +324,7 @@ impl Backend for Systemd {
     fn start(&self, m: &Manifest) -> Result<(), Failure> {
         run("systemctl", &["start", &m.name])
             .map(drop)
-            .map_err(|f| {
-                f.hint(format!(
-                    "see why with: {}",
-                    crate::base::failure::admin(&format!("service logs {}", m.name))
-                ))
-            })
+            .map_err(|f| f.hint(super::logs_hint(&m.name)))
     }
 
     fn stop(&self, m: &Manifest) -> Result<(), Failure> {
@@ -386,10 +381,7 @@ impl Backend for Systemd {
         };
         let pid = get("MainPID").parse::<u32>().ok().filter(|p| *p > 0);
         let detail = match get("ExecMainStatus").as_str() {
-            "3" => format!(
-                "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                crate::base::failure::admin(&format!("service start {}", m.name))
-            ),
+            code if super::is_config_exit(code) => super::config_exit_detail(&m.name),
             "203" => format!(
                 "{} {}: systemd could not run {} as {} (203/EXEC); the account may not reach the binary",
                 get("ActiveState"),

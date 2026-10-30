@@ -390,10 +390,7 @@ impl Backend for WindowsService {
             return Ok(());
         }
         service.start::<&OsStr>(&[]).map_err(|e| {
-            scm_error(&format!("start {}", m.name), e).hint(format!(
-                "see why with: {}",
-                crate::base::failure::admin(&format!("service logs {}", m.name))
-            ))
+            scm_error(&format!("start {}", m.name), e).hint(super::logs_hint(&m.name))
         })?;
         wait_for(
             &service,
@@ -451,11 +448,10 @@ impl Backend for WindowsService {
         };
         let state = format!("{:?}", st.current_state).to_lowercase();
         let detail = match st.exit_code {
-            ServiceExitCode::ServiceSpecific(3) => {
-                format!(
-                    "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                    crate::base::failure::admin(&format!("service start {}", m.name))
-                )
+            ServiceExitCode::ServiceSpecific(c)
+                if c == u32::from(crate::base::failure::EXIT_CONFIG) =>
+            {
+                super::config_exit_detail(&m.name)
             }
             ServiceExitCode::ServiceSpecific(c) if c != 0 => {
                 format!("{state} (last exit code {c})")

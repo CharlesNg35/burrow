@@ -278,10 +278,7 @@ fn swap(
             "{} did not start with {mine}; {outcome}",
             failed.join(", ")
         ))
-        .hint(format!(
-            "see why with: {}",
-            crate::base::failure::admin(&format!("service logs {}", failed[0]))
-        )));
+        .hint(super::logs_hint(&failed[0])));
     }
     for m in &users {
         let mut updated = m.clone();

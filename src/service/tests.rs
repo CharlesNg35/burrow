@@ -914,3 +914,14 @@ fn versions_follow_semver_strictly() {
     assert!(v("1.0.0-1") < v("1.0.0-a"));
     assert_eq!(parse_version("1.0.0-"), None);
 }
+
+#[test]
+fn the_config_exit_code_reads_the_same_on_every_backend() {
+    assert!(is_config_exit("3"));
+    assert!(!is_config_exit("203"));
+    assert!(!is_config_exit(""));
+    let detail = config_exit_detail("burrow-server");
+    assert!(detail.contains("(exit 3)"), "{detail}");
+    assert!(detail.contains("service start burrow-server"), "{detail}");
+    assert!(logs_hint("burrow-server").contains("service logs burrow-server"));
+}

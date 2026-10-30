@@ -146,6 +146,26 @@ fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
     }
 }
 
+pub(super) fn config_exit_detail(name: &str) -> String {
+    format!(
+        "the config has errors or cannot be read (exit {}); fix it, then: {}",
+        crate::base::failure::EXIT_CONFIG,
+        crate::base::failure::admin(&format!("service start {name}"))
+    )
+}
+
+#[cfg(any(unix, test))]
+pub(super) fn is_config_exit(code: &str) -> bool {
+    code.parse::<u8>() == Ok(crate::base::failure::EXIT_CONFIG)
+}
+
+pub(super) fn logs_hint(name: &str) -> String {
+    format!(
+        "see why with: {}",
+        crate::base::failure::admin(&format!("service logs {name}"))
+    )
+}
+
 pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failure> {
     let raw = match given {
         Some(n) => n.to_string(),
