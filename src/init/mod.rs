@@ -172,13 +172,14 @@ fn check_env_name(name: &str) -> Result<(), Failure> {
 }
 
 pub fn write_new(path: &Path, contents: &str, force: bool) -> Result<(), Failure> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true);
     if force {
-        opts.create(true).truncate(true);
-    } else {
-        opts.create_new(true);
+        return crate::base::fs::write_private(path, contents).map_err(|e| {
+            Failure::new(format!("cannot write {}: {e}", path.display()))
+                .hint("check that the directory exists and is writable")
+        });
     }
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -297,4 +298,31 @@ fn ask_login(
         name,
         secret_text,
     })
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn force_replaces_the_file_whole_and_never_writes_through_a_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        std::fs::write(&path, "old: 1\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(write_new(&path, "new: 2\n", false).is_err());
+        write_new(&path, "new: 2\n", true).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new: 2\n");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        let target = dir.path().join("elsewhere.yaml");
+        std::fs::write(&target, "theirs: 1\n").unwrap();
+        let link = dir.path().join("linked.yaml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        write_new(&link, "new: 3\n", true).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "theirs: 1\n");
+        assert!(!std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "new: 3\n");
+    }
 }
