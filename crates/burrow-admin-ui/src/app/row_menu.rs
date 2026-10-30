@@ -1,4 +1,4 @@
-use burrow_ui_kit::{Icon, MENU_ITEM, menu_class};
+use burrow_ui_kit::{Icon, MENU_ITEM, button_class, menu_class};
 use leptos::prelude::*;
 
 const MENU: &str = "row-menu";
@@ -55,7 +55,7 @@ pub(crate) fn row_menu(
         <div class="relative">
             <button
                 type="button"
-                class="flex size-7 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3"
+                class=format!("{} w-9 px-0", button_class("ghost", false))
                 aria-label=label.clone()
                 title=label
                 aria-haspopup="true"
@@ -67,7 +67,7 @@ pub(crate) fn row_menu(
             >
                 <Icon name="more"/>
             </button>
-            <div class=menu_class("top-8 right-0 w-44", false) id=move || mine.get().then_some(MENU) tabindex="-1" data-testid="row-menu" class:hidden=move || !mine.get() on:click=move |_| open.set(None)>
+            <div class=menu_class("top-10 right-0 w-56", false) id=move || mine.get().then_some(MENU) tabindex="-1" data-testid="row-menu" class:hidden=move || !mine.get() on:click=move |_| open.set(None)>
                 {items}
             </div>
         </div>
