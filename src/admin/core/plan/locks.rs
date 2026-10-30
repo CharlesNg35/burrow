@@ -208,7 +208,7 @@ pub(super) fn keep_locked(
         }
         notes.push(burrow_admin_proto::plan::Impact {
             level: burrow_admin_proto::plan::Level::Info,
-            code: "locked-kept".into(),
+            code: burrow_admin_proto::codes::LOCKED_KEPT.into(),
             message: format!(
                 "{} kept at {} (locked)",
                 path.join("."),

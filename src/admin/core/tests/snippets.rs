@@ -284,7 +284,10 @@ fn read_level_and_read_only_files_cannot_write() {
     assert!(core.generate_secret(&r).is_err());
     let st = core.state(&r).unwrap();
     assert!(!st.file.writable);
-    assert_eq!(st.file.why_not.unwrap().code, "read-level");
+    assert_eq!(
+        st.file.why_not.unwrap().code,
+        burrow_admin_proto::codes::READ_LEVEL
+    );
     assert!(st.values["visitors"]["ops"]["secret"]["$secret"]["fp"].is_string());
     assert!(
         !serde_json::to_string(&st.values)

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use burrow_admin_proto::codes;
 use burrow_admin_proto::plan::{Impact, Level};
 use burrow_config::{SELF, ServerConfig};
 
@@ -150,7 +151,7 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
         if let Some(to) = renamed_to(services, name) {
             let (level, msg, confirm) =
                 service_renamed(name, &to, svc, new.services.get(&to), open_of(name));
-            push(level, "renames", msg, confirm);
+            push(level, codes::RENAMES, msg, confirm);
             continue;
         }
         match new.services.get(name) {
@@ -163,7 +164,12 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
                 if open > 0 {
                     msg.push_str(&format!("; closes {} on it", connections(open)));
                 }
-                push(Level::Danger, "removes-service", msg, Some(name.clone()));
+                push(
+                    Level::Danger,
+                    codes::REMOVES_SERVICE,
+                    msg,
+                    Some(name.clone()),
+                );
             }
             Some(n)
                 if n.bind.is_some()
@@ -188,7 +194,7 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
                 } else {
                     Level::Warning
                 };
-                push(level, "rebinds-service", msg, confirm);
+                push(level, codes::REBINDS_SERVICE, msg, confirm);
             }
             Some(n)
                 if n.target != svc.target
@@ -207,7 +213,7 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
         [] => {}
         [one] => push(
             Level::Info,
-            "changes-service",
+            codes::CHANGES_SERVICE,
             format!(
                 "service {one} uses its new target or clients for new connections; open ones stay"
             ),
@@ -215,7 +221,7 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
         ),
         [first @ .., last] => push(
             Level::Info,
-            "changes-service",
+            codes::CHANGES_SERVICE,
             format!(
                 "services {} and {last} use their new target or clients for new connections; open ones stay",
                 first.join(", ")
@@ -229,7 +235,7 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
                 Some(_) => format!("adds service {name}; port {} opens", ports_of(svc)),
                 None => format!("adds private service {name}"),
             };
-            push(Level::Info, "adds-service", msg, None);
+            push(Level::Info, codes::ADDS_SERVICE, msg, None);
         }
     }
 }
@@ -277,7 +283,7 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
                     None,
                 ),
             };
-            push(level, "renames", msg, confirm);
+            push(level, codes::RENAMES, msg, confirm);
             continue;
         }
         match new.clients.get(name) {
@@ -290,7 +296,12 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
                         msg.push_str(&format!(", closing {}", connections(open)));
                     }
                 }
-                push(Level::Danger, "removes-client", msg, Some(name.clone()));
+                push(
+                    Level::Danger,
+                    codes::REMOVES_CLIENT,
+                    msg,
+                    Some(name.clone()),
+                );
             }
             Some(n) => {
                 if let Some(s) = live {
@@ -300,7 +311,7 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
                         let open = client_open(name);
                         push(
                             Level::Danger,
-                            "disconnects-client",
+                            codes::DISCONNECTS_CLIENT,
                             format!(
                                 "client {name} is connected with secret {}, which this change removes; it will be disconnected{}",
                                 s.secret_fp,
@@ -324,7 +335,7 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
     {
         push(
             Level::Info,
-            burrow_admin_proto::codes::ADDS_CLIENT,
+            codes::ADDS_CLIENT,
             format!("adds client {name}"),
             None,
         );
@@ -370,7 +381,7 @@ fn visitor_impacts(cx: &Before, out: &mut Vec<Impact>) {
             } else {
                 (Level::Warning, None)
             };
-            push(level, "renames", msg, confirm);
+            push(level, codes::RENAMES, msg, confirm);
         }
         let now = to.as_deref().unwrap_or(name);
         match new.visitors.get(now) {
@@ -380,7 +391,12 @@ fn visitor_impacts(cx: &Before, out: &mut Vec<Impact>) {
                 } else {
                     format!("removes visitor {name}")
                 };
-                push(Level::Danger, "removes-visitor", msg, Some(name.clone()));
+                push(
+                    Level::Danger,
+                    codes::REMOVES_VISITOR,
+                    msg,
+                    Some(name.clone()),
+                );
             }
             Some(n) => {
                 let had: BTreeSet<String> = old
@@ -422,7 +438,7 @@ fn visitor_impacts(cx: &Before, out: &mut Vec<Impact>) {
                     };
                     push(
                         level,
-                        "visitor-loses-access",
+                        codes::VISITOR_LOSES_ACCESS,
                         msg,
                         (open > 0).then(|| name.clone()),
                     );
@@ -452,7 +468,7 @@ fn setting_impacts(cx: &Before, restart: &[String], out: &mut Vec<Impact>) {
             } else {
                 Level::Info
             },
-            "changes-self-allow",
+            codes::CHANGES_SELF_ALLOW,
             format!(
                 "changes self.allow; of the {} to this server, those the new list no longer permits close",
                 connections(open)
@@ -463,7 +479,7 @@ fn setting_impacts(cx: &Before, restart: &[String], out: &mut Vec<Impact>) {
     if new.listen != old.listen {
         push(
             Level::Danger,
-            "changes-listen",
+            codes::CHANGES_LISTEN,
             format!(
                 "changes the TCP listener from {} to {}; it takes effect when the server restarts",
                 old.listen.map_or_else(|| "off".into(), |a| a.to_string()),
@@ -476,7 +492,7 @@ fn setting_impacts(cx: &Before, restart: &[String], out: &mut Vec<Impact>) {
         let n = sessions.len();
         push(
             Level::Danger,
-            "plaintext-toggled",
+            codes::PLAINTEXT_TOGGLED,
             format!(
                 "{} encryption of forwarded data; every connected client ({n}) reconnects",
                 if new.insecure_plaintext {
@@ -492,7 +508,7 @@ fn setting_impacts(cx: &Before, restart: &[String], out: &mut Vec<Impact>) {
         if field != ServerConfig::LISTEN.key() {
             push(
                 Level::Info,
-                "restart-needed",
+                codes::RESTART_NEEDED,
                 format!("{field} takes effect when the server restarts"),
                 None,
             );

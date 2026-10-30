@@ -176,7 +176,7 @@ pub(super) fn judge(
 fn listen_clash(c: crate::config::settings::ListenClash) -> Diag {
     Diag {
         severity: burrow_admin_proto::diag::Severity::Error,
-        code: "listen-clash".into(),
+        code: burrow_admin_proto::codes::LISTEN_CLASH.into(),
         message: format!(
             "{} uses {}, which this server keeps listening on until it restarts",
             c.what, c.kept

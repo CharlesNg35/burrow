@@ -61,7 +61,7 @@ impl Store for MemStore {
     fn writable(&self) -> Result<(), WhyNot> {
         if self.read_only {
             return Err(WhyNot {
-                code: "read-only-fs".into(),
+                code: burrow_admin_proto::codes::READ_ONLY_FS.into(),
                 message: "read only".into(),
                 hint: String::new(),
             });

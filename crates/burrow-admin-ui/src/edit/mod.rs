@@ -446,7 +446,7 @@ mod tests {
             impacts: vec![
                 Impact {
                     level: Level::Danger,
-                    code: "removes-service".into(),
+                    code: burrow_admin_proto::codes::REMOVES_SERVICE.into(),
                     message: "x".into(),
                     confirm: Some("web".into()),
                 },

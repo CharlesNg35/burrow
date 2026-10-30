@@ -264,7 +264,7 @@ impl Store for FileStore {
                     return Ok(());
                 }
                 Err(WhyNot {
-                    code: "file-not-writable".into(),
+                    code: burrow_admin_proto::codes::FILE_NOT_WRITABLE.into(),
                     message: format!("the server cannot write {}", self.path.display()),
                     hint: format!(
                         "give the account the server runs as write access to {}",
@@ -564,9 +564,9 @@ fn folder_why_not(path: &Path, folder: &Path, e: &std::io::Error) -> WhyNot {
         std::env::var_os("INVOCATION_ID").is_some() || crate::install::in_service_folder(path);
     WhyNot {
         code: if ro {
-            "read-only-fs".into()
+            burrow_admin_proto::codes::READ_ONLY_FS.into()
         } else {
-            "folder-not-writable".into()
+            burrow_admin_proto::codes::FOLDER_NOT_WRITABLE.into()
         },
         message: if ro && installed {
             format!(
@@ -738,10 +738,13 @@ mod tests {
     fn a_read_only_filesystem_is_told_apart_from_a_folder_without_rights() {
         let (path, folder) = (Path::new("/srv/server.yaml"), Path::new("/srv"));
         let why = |kind: std::io::ErrorKind| folder_why_not(path, folder, &kind.into()).code;
-        assert_eq!(why(std::io::ErrorKind::ReadOnlyFilesystem), "read-only-fs");
+        assert_eq!(
+            why(std::io::ErrorKind::ReadOnlyFilesystem),
+            burrow_admin_proto::codes::READ_ONLY_FS
+        );
         assert_eq!(
             why(std::io::ErrorKind::PermissionDenied),
-            "folder-not-writable"
+            burrow_admin_proto::codes::FOLDER_NOT_WRITABLE
         );
     }
 
@@ -765,7 +768,7 @@ mod tests {
         let kept = store.version(&text::rev("listen: 1\n"));
         std::fs::set_permissions(&inner, std::fs::Permissions::from_mode(0o700)).unwrap();
         let why = why.expect("not writable");
-        assert_eq!(why.code, "folder-not-writable");
+        assert_eq!(why.code, burrow_admin_proto::codes::FOLDER_NOT_WRITABLE);
         assert!(problem.unwrap().contains("in memory only"));
         assert_eq!(
             kept.as_deref(),

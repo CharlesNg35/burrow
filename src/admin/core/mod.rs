@@ -305,7 +305,7 @@ impl Core {
                     hint: w.hint.clone(),
                 }),
                 (Ok(()), false) => Some(WireWhyNot {
-                    code: "read-level".into(),
+                    code: burrow_admin_proto::codes::READ_LEVEL.into(),
                     message: format!("visitor \"{}\" has read access only", s.visitor),
                     hint: format!(
                         "to change the config from here, set \"admin: write\" for visitor \"{}\" in the server config",

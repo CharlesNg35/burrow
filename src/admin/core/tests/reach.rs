@@ -60,7 +60,10 @@ fn turning_off_the_public_port_says_which_port_closes() {
     assert_eq!(level, Level::Warning);
     assert_eq!(msg, "closes port 9000 (removes bind: 0.0.0.0:9000)");
     assert!(
-        !plan.impacts.iter().any(|i| i.code == "rebinds-service"),
+        !plan
+            .impacts
+            .iter()
+            .any(|i| i.code == burrow_admin_proto::codes::REBINDS_SERVICE),
         "one impact, not two: {:#?}",
         plan.impacts
     );

@@ -244,7 +244,7 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
     let kept = plan
         .impacts
         .iter()
-        .find(|i| i.code == "locked-kept")
+        .find(|i| i.code == burrow_admin_proto::codes::LOCKED_KEPT)
         .expect("a note");
     assert_eq!(kept.message, "listen kept at 7999 (locked)");
     let computed = plan::compute(
@@ -285,7 +285,7 @@ fn a_reload_that_would_clash_with_the_kept_listener_is_predicted() {
         .plan
         .diags
         .iter()
-        .find(|d| d.code == "listen-clash")
+        .find(|d| d.code == burrow_admin_proto::codes::LISTEN_CLASH)
         .unwrap();
     assert_eq!(d.path.as_deref().unwrap(), p(&["services", "web", "bind"]));
 }

@@ -249,7 +249,7 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
             .plan
             .impacts
             .iter()
-            .any(|i| i.code == "locked-kept"),
+            .any(|i| i.code == burrow_admin_proto::codes::LOCKED_KEPT),
         "{:?}",
         reverted.plan.impacts
     );

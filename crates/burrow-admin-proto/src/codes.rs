@@ -34,6 +34,25 @@ pub const UNKNOWN_LOGIN: &str = "unknown-login";
 pub const FORWARD_AUTH_UNUSED: &str = "forward-auth-unused";
 pub const UNUSED_VISITOR: &str = "unused-visitor";
 pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
+pub const RENAMES: &str = "renames";
+pub const REMOVES_SERVICE: &str = "removes-service";
+pub const REBINDS_SERVICE: &str = "rebinds-service";
+pub const CHANGES_SERVICE: &str = "changes-service";
+pub const ADDS_SERVICE: &str = "adds-service";
+pub const REMOVES_CLIENT: &str = "removes-client";
+pub const DISCONNECTS_CLIENT: &str = "disconnects-client";
+pub const REMOVES_VISITOR: &str = "removes-visitor";
+pub const VISITOR_LOSES_ACCESS: &str = "visitor-loses-access";
+pub const CHANGES_SELF_ALLOW: &str = "changes-self-allow";
+pub const CHANGES_LISTEN: &str = "changes-listen";
+pub const PLAINTEXT_TOGGLED: &str = "plaintext-toggled";
+pub const RESTART_NEEDED: &str = "restart-needed";
+pub const LISTEN_CLASH: &str = "listen-clash";
+pub const LOCKED_KEPT: &str = "locked-kept";
+pub const READ_LEVEL: &str = "read-level";
+pub const FILE_NOT_WRITABLE: &str = "file-not-writable";
+pub const READ_ONLY_FS: &str = "read-only-fs";
+pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,

@@ -58,7 +58,10 @@ fn impacts_count_the_connections_a_change_closes() {
         ..Default::default()
     };
     let i = impacts(&old, &new, &status, &[], &[], &[]);
-    let removed = i.iter().find(|i| i.code == "removes-service").unwrap();
+    let removed = i
+        .iter()
+        .find(|i| i.code == burrow_admin_proto::codes::REMOVES_SERVICE)
+        .unwrap();
     assert_eq!(
         removed.message,
         "removes service web; port 0.0.0.0:7840 closes; closes 12 open connections on it"
@@ -68,7 +71,8 @@ fn impacts_count_the_connections_a_change_closes() {
     let i = impacts(&old, &moved, &status, &[], &[], &[]);
     assert!(
         i.iter()
-            .any(|i| i.code == "rebinds-service" && i.confirm.as_deref() == Some("web"))
+            .any(|i| i.code == burrow_admin_proto::codes::REBINDS_SERVICE
+                && i.confirm.as_deref() == Some("web"))
     );
 }
 
@@ -98,11 +102,16 @@ fn removing_the_secret_a_client_is_connected_with_disconnects_it() {
     let i = impacts(&old, &new, &Status::default(), &live, &[], &[]);
     assert!(
         i.iter()
-            .any(|i| i.code == "disconnects-client" && i.confirm.as_deref() == Some("home")),
+            .any(|i| i.code == burrow_admin_proto::codes::DISCONNECTS_CLIENT
+                && i.confirm.as_deref() == Some("home")),
         "{i:?}"
     );
     let safe = impacts(&old, &new, &Status::default(), &[], &[], &[]);
-    assert!(!safe.iter().any(|i| i.code == "disconnects-client"));
+    assert!(
+        !safe
+            .iter()
+            .any(|i| i.code == burrow_admin_proto::codes::DISCONNECTS_CLIENT)
+    );
 }
 
 #[test]
@@ -156,7 +165,10 @@ fn a_new_self_allow_names_the_reach_connections_it_may_close() {
         ..Default::default()
     };
     let i = impacts(&old, &new, &status, &[], &[], &[]);
-    let changed = i.iter().find(|i| i.code == "changes-self-allow").unwrap();
+    let changed = i
+        .iter()
+        .find(|i| i.code == burrow_admin_proto::codes::CHANGES_SELF_ALLOW)
+        .unwrap();
     assert_eq!(
         changed.message,
         "changes self.allow; of the 3 open connections to this server, those the new list no longer permits close"
@@ -468,7 +480,7 @@ fn services_that_only_change_target_or_clients_share_one_impact() {
     ));
     let changed: Vec<String> = impacts(&old, &new, &Status::default(), &[], &[], &[])
         .into_iter()
-        .filter(|i| i.code == "changes-service")
+        .filter(|i| i.code == burrow_admin_proto::codes::CHANGES_SERVICE)
         .map(|i| i.message)
         .collect();
     assert_eq!(
@@ -526,7 +538,10 @@ fn renaming_a_connected_client_says_it_is_locked_out_until_its_config_says_the_n
         ..Default::default()
     };
     let i = impacts(&old, &new, &status, &live, &[], &renames);
-    let r = i.iter().find(|i| i.code == "renames").expect("renames");
+    let r = i
+        .iter()
+        .find(|i| i.code == burrow_admin_proto::codes::RENAMES)
+        .expect("renames");
     assert_eq!(
         r.message,
         "renames client home to house; it is connected and will be disconnected, closing 2 open connections, until its client.yaml says name: house"
@@ -535,11 +550,15 @@ fn renaming_a_connected_client_says_it_is_locked_out_until_its_config_says_the_n
     assert_eq!(r.confirm.as_deref(), Some("home"));
     assert!(
         i.iter()
-            .all(|i| i.code != "removes-client" && i.code != "adds-client"),
+            .all(|i| i.code != burrow_admin_proto::codes::REMOVES_CLIENT
+                && i.code != burrow_admin_proto::codes::ADDS_CLIENT),
         "{i:?}"
     );
     let away = impacts(&old, &new, &Status::default(), &[], &[], &renames);
-    let r = away.iter().find(|i| i.code == "renames").expect("renames");
+    let r = away
+        .iter()
+        .find(|i| i.code == burrow_admin_proto::codes::RENAMES)
+        .expect("renames");
     assert_eq!(
         r.message,
         "renames client home to house; it cannot connect until its client.yaml says name: house"
@@ -563,7 +582,10 @@ fn renaming_a_bound_service_closes_its_port_and_its_open_connections() {
         ..Default::default()
     };
     let i = impacts(&old, &new, &status, &[], &[], &renames);
-    let r = i.iter().find(|i| i.code == "renames").expect("renames");
+    let r = i
+        .iter()
+        .find(|i| i.code == burrow_admin_proto::codes::RENAMES)
+        .expect("renames");
     assert_eq!(
         r.message,
         "renames service web to site; port 0.0.0.0:7840 closes and reopens; closes 3 open connections on it"
@@ -572,11 +594,15 @@ fn renaming_a_bound_service_closes_its_port_and_its_open_connections() {
     assert_eq!(r.confirm.as_deref(), Some("web"));
     assert!(
         i.iter()
-            .all(|i| i.code != "removes-service" && i.code != "adds-service"),
+            .all(|i| i.code != burrow_admin_proto::codes::REMOVES_SERVICE
+                && i.code != burrow_admin_proto::codes::ADDS_SERVICE),
         "{i:?}"
     );
     let idle = impacts(&old, &new, &Status::default(), &[], &[], &renames);
-    let r = idle.iter().find(|i| i.code == "renames").expect("renames");
+    let r = idle
+        .iter()
+        .find(|i| i.code == burrow_admin_proto::codes::RENAMES)
+        .expect("renames");
     assert_eq!(r.level, Level::Danger, "the port still closes");
     assert_eq!(r.confirm.as_deref(), Some("web"));
 }
@@ -601,7 +627,10 @@ fn renaming_a_visitor_with_open_tunnels_closes_them() {
         ..Default::default()
     };
     let i = impacts(&old, &new, &status, &[], &[], &renames);
-    let r = i.iter().find(|i| i.code == "renames").expect("renames");
+    let r = i
+        .iter()
+        .find(|i| i.code == burrow_admin_proto::codes::RENAMES)
+        .expect("renames");
     assert_eq!(
         r.message,
         "renames visitor home to phone; closes 1 open connection; it cannot connect until its visitor.yaml says name: phone"
@@ -639,21 +668,27 @@ fn a_rename_hides_only_the_removal_and_addition_of_the_entity_in_its_own_section
         .map(|i| (i.code.as_str(), i.confirm.as_deref()))
         .collect();
     assert!(
-        codes.contains(&("removes-client", Some("home"))),
+        codes.contains(&(burrow_admin_proto::codes::REMOVES_CLIENT, Some("home"))),
         "{codes:?}"
     );
     assert!(
-        codes.contains(&("removes-service", Some("web"))),
+        codes.contains(&(burrow_admin_proto::codes::REMOVES_SERVICE, Some("web"))),
         "{codes:?}"
     );
     assert!(
-        i.iter()
-            .any(|i| i.code == "adds-service" && i.message.contains("site")),
+        i.iter().any(
+            |i| i.code == burrow_admin_proto::codes::ADDS_SERVICE && i.message.contains("site")
+        ),
         "{i:?}"
     );
     assert!(
-        !codes.contains(&("removes-visitor", Some("home"))),
+        !codes.contains(&(burrow_admin_proto::codes::REMOVES_VISITOR, Some("home"))),
         "{codes:?}"
     );
-    assert_eq!(i.iter().filter(|i| i.code == "renames").count(), 1);
+    assert_eq!(
+        i.iter()
+            .filter(|i| i.code == burrow_admin_proto::codes::RENAMES)
+            .count(),
+        1
+    );
 }
