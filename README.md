@@ -331,7 +331,7 @@ Then print its config on the server, and open the admin with it on your machine:
 <details>
 <summary><b>Screenshots</b></summary>
 
-The Overview: live counts, traffic, what needs attention, and tabs for services, clients, visitors, websites and certificates.
+The Overview: live counts, traffic, what needs attention, clients that are away, and a table of services, clients and visitors (with websites and certificates once the web proxy is on).
 
 ![The Overview page of burrow admin](docs/images/admin-overview.png)
 
@@ -343,7 +343,7 @@ A service page: how connections flow, and "Reached by", the ways in to this serv
 
 ![A service page of burrow admin with its flow and its Reached by settings](docs/images/admin-service.png)
 
-Settings, in four tabs: Server, Connections, Web and Monitoring, with one search across all of them.
+Settings, in four tabs: Server, Connections, Web and Monitoring, with one search across all of them. Here the Web tab, with the web proxy's ports, Let's Encrypt and the local certificate authority.
 
 ![The Settings page of burrow admin with its four tabs](docs/images/admin-settings.png)
 
