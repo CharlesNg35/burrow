@@ -353,7 +353,7 @@ fn steps(
         Callback::new(move |c: Vec<String>| client.set(c.into_iter().last().into_iter().collect()));
     view! {
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
-            {step(1, "Address", "The names visitors type.")}
+            {step(1, "Names", "The names visitors type.")}
             <div class="md:col-span-2">
                 <ChipInput
                     id="new-website-names"

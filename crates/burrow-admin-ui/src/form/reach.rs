@@ -192,7 +192,13 @@ fn way_block(sw: Switch, field: Option<(Field, Path, Path, Path)>) -> impl IntoV
     let under = match way {
         Way::Website => website_row(&sw).into_any(),
         _ => {
-            let body = field.map(|(f, fp, fs, entity)| row(f, fp, fs, entity));
+            let body = field.map(|(f, fp, fs, entity)| {
+                if way == Way::Visitors {
+                    view! { <leptos::context::Provider value=super::row::QuietLabel>{row(f, fp, fs, entity)}</leptos::context::Provider> }.into_any()
+                } else {
+                    row(f, fp, fs, entity)
+                }
+            });
             let shown = move || on.get() && blocked.get().is_none();
             view! { <div class="mt-3 border-l-2 border-rowline pl-4 sm:ml-[17px]" class:hidden=move || !shown()>{body}</div> }.into_any()
         }

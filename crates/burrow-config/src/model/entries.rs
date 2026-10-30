@@ -23,7 +23,7 @@ pub struct ClientEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Max connections on this server",
+        label = "Maximum connections on this server",
         help = "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
         none_label = "Server default",
         default_from("/limits/max_connections_per_client"),
@@ -64,6 +64,8 @@ pub struct VisitorEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
+        label = "Maximum connections",
+        help = "Open connections this visitor may have at once, for example 20; empty is unlimited",
         group = traffic,
         none_label = "Unlimited",
         advanced
@@ -74,7 +76,7 @@ pub struct VisitorEntry {
         description = "Let this visitor administer the server with burrow admin: read shows the dashboard and the config, write may also change it"
     )]
     #[admin(
-        label = "Admin access",
+        label = "Level",
         group = admin,
         none_label = "None",
         danger_when_set,
@@ -243,6 +245,7 @@ pub struct ServiceEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
+        label = "Maximum connections",
         group = access,
         none_label = "Unlimited",
         advanced
@@ -303,7 +306,7 @@ pub struct ServiceEntry {
         description = "Make this service a website on the web proxy: a host name, a list of them, or {hosts, tls}"
     )]
     #[admin(
-        label = "Website",
+        label = "Names",
         help = "Names that lead to this service on the web proxy's HTTPS port, for example nas.example.com",
         group = website,
         none_label = "Not a website"

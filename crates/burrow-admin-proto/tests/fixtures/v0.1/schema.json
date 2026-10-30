@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:c25e8badf807ac85",
+  "hash": "b2s:248ceb1518d1b596",
   "root": {
     "label": "Server",
     "sem": {
@@ -1305,7 +1305,7 @@
                     {
                       "key": "max_connections",
                       "node": {
-                        "label": "Max connections on this server",
+                        "label": "Maximum connections on this server",
                         "help": "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
                         "sem": {
                           "t": "optional",
@@ -1421,8 +1421,8 @@
                     {
                       "key": "max_connections",
                       "node": {
-                        "label": "Max connections",
-                        "help": "Maximum concurrent connections for this visitor",
+                        "label": "Maximum connections",
+                        "help": "Open connections this visitor may have at once, for example 20; empty is unlimited",
                         "sem": {
                           "t": "optional",
                           "inner": {
@@ -1442,7 +1442,7 @@
                     {
                       "key": "admin",
                       "node": {
-                        "label": "Admin access",
+                        "label": "Level",
                         "help": "Let this visitor administer the server with burrow admin: read shows the dashboard and the config, write may also change it",
                         "sem": {
                           "t": "optional",
@@ -1874,7 +1874,7 @@
                     {
                       "key": "max_connections",
                       "node": {
-                        "label": "Max connections",
+                        "label": "Maximum connections",
                         "help": "Maximum concurrent connections for this service",
                         "sem": {
                           "t": "optional",
@@ -2026,7 +2026,7 @@
                     {
                       "key": "web",
                       "node": {
-                        "label": "Website",
+                        "label": "Names",
                         "help": "Names that lead to this service on the web proxy's HTTPS port, for example nas.example.com",
                         "sem": {
                           "t": "optional",
@@ -2067,7 +2067,7 @@
                                       {
                                         "key": "hosts",
                                         "node": {
-                                          "label": "Host names",
+                                          "label": "Names",
                                           "help": "Names that lead to this service, for example nas.example.com, *.apps.example.com or 203.0.113.10",
                                           "sem": {
                                             "t": "list",
@@ -3240,7 +3240,7 @@
                   "key": "max_connections_per_client",
                   "node": {
                     "label": "Max connections per client",
-                    "help": "Connections this server forwards to one client at once, unless that client has its own Max connections on this server",
+                    "help": "Connections this server forwards to one client at once, unless that client has its own Maximum connections on this server",
                     "sem": {
                       "t": "integer",
                       "min": 1,

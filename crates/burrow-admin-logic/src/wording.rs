@@ -24,7 +24,7 @@ const TCP_ONLY: [(&str, &str); 5] = [
     ),
     (
         MAX_CONNECTIONS_TCP_ONLY,
-        "Max connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Max UDP peers per port under Settings limits the peers of each port)",
+        "Maximum connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Max UDP peers per port under Settings limits the peers of each port)",
     ),
     (
         BALANCE_TCP_ONLY,
@@ -266,7 +266,7 @@ mod tests {
             (
                 MAX_CONNECTIONS_TCP_ONLY,
                 "service \"web\" is udp, but max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
-                "Max connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Max UDP peers per port under Settings limits the peers of each port)",
+                "Maximum connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Max UDP peers per port under Settings limits the peers of each port)",
             ),
             (
                 BALANCE_TCP_ONLY,

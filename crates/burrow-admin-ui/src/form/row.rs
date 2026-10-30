@@ -19,6 +19,9 @@ use super::{
     object_view, value_view,
 };
 
+#[derive(Clone, Copy)]
+pub(crate) struct QuietLabel;
+
 pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     let s = store();
     let e = s.edit;
@@ -94,6 +97,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         String::new()
     };
     let wide = node.wide.unwrap_or_else(|| is_wide(&node));
+    let quiet = use_context::<QuietLabel>().is_some();
     let saved_line = matches!(
         inner(&node).sem,
         SemType::IpPort(_) | SemType::PortRange(_) | SemType::Target(_)
@@ -116,6 +120,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     aside=aside.clone()
                     table=show_keys
                     wide=wide
+                    quiet=quiet
                     state=state
                 >
                     {body}

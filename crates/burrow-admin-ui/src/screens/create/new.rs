@@ -193,7 +193,7 @@ fn limits_section(
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
             <burrow_ui_kit::SectionHead title={if what == ClientEntry::ENTITY { "Limits and services" } else { "Access and limits" }} sub="Both optional."/>
             <div>
-                <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{if what == ClientEntry::ENTITY { "Max connections on this server" } else { "Max connections" }}<span class="font-normal text-text-faint">"· optional"</span></span>
+                <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{if what == ClientEntry::ENTITY { "Maximum connections on this server" } else { "Maximum connections" }}<span class="font-normal text-text-faint">"· optional"</span></span>
                 <div class="flex items-center gap-2">
                     <div class="w-56">
                         <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="connections"/>

@@ -16,7 +16,7 @@ pub struct WebSite {
     )]
     #[admin(
         ty = list(host_name),
-        label = "Host names",
+        label = "Names",
         help = "Names that lead to this service, for example nas.example.com, *.apps.example.com or 203.0.113.10"
     )]
     pub hosts: Vec<String>,

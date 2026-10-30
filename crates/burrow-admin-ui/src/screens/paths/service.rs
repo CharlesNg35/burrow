@@ -79,7 +79,7 @@ pub fn service(
     let kind = match (bound(svc), public) {
         (true, _) => "Public port",
         (false, true) => "Website",
-        (false, false) => "Private service",
+        (false, false) => "Service",
     };
     if on_server {
         let mode = edges.remove(1);

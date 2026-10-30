@@ -50,6 +50,7 @@ pub fn FieldRow(
     #[prop(optional)] table: bool,
     #[prop(optional, into)] aside: Vec<(String, Tone)>,
     #[prop(optional, into)] state: Signal<FieldState>,
+    #[prop(optional)] quiet: bool,
     children: Children,
 ) -> impl IntoView {
     let help_id = format!("{id}-help");
@@ -82,7 +83,7 @@ pub fn FieldRow(
             .or(s.info.map(|m| field_message(Tone::Info, m)))
     };
     let help_text = move || {
-        (has_help && !hide_help.get() && state.with(|s| s.error.is_none())).then(|| {
+        (has_help && !quiet && !hide_help.get() && state.with(|s| s.error.is_none())).then(|| {
             let help = help.clone();
             let id = help_id.clone();
             view! { <p class="mt-1.5 text-xs text-text-muted" id=id>{help}</p> }
@@ -96,7 +97,7 @@ pub fn FieldRow(
             data-disabled=move || state.get().disabled_reason.is_some().then_some("true")
             data-modified=move || state.get().modified.then_some("true")
         >
-            <div class=if table { "flex min-w-0 flex-col items-start gap-1 pt-2" } else { "mb-1.5 flex flex-wrap items-center gap-2" }>
+            <div class=if quiet { "sr-only" } else if table { "flex min-w-0 flex-col items-start gap-1 pt-2" } else { "mb-1.5 flex flex-wrap items-center gap-2" }>
                 <label class="text-sm font-semibold" for=id.clone() id=format!("{id}-label")>
                     {label}
                 </label>

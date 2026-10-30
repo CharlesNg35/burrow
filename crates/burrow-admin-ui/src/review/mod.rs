@@ -283,7 +283,7 @@ mod tests {
         let p = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
             place_of(&root, &p(&["visitors", "laptop", "max_connections"])),
-            "Visitor laptop · Max connections"
+            "Visitor laptop · Maximum connections"
         );
         assert_eq!(
             place_of(&root, &p(&["services", "web", "allow_from", "1"])),
