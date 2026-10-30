@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:89cef6dd10eafa60",
+  "hash": "b2s:88085f355810f636",
   "root": {
     "label": "Server",
     "sem": {
@@ -1615,7 +1615,7 @@
                       "key": "clients",
                       "node": {
                         "label": "Clients",
-                        "help": "Clients that can each reach the target, each with its own target if it has one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked",
+                        "help": "Clients that can each reach the target, each at the main target or another one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked",
                         "sem": {
                           "t": "ref_entries",
                           "entity": "client",
@@ -1828,8 +1828,8 @@
                     {
                       "key": "target",
                       "node": {
-                        "label": "Target on the client",
-                        "help": "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself",
+                        "label": "Main target",
+                        "help": "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself; a client row can use another target",
                         "sem": {
                           "t": "target",
                           "ranges": true,

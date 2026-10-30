@@ -191,9 +191,9 @@ pub struct ServiceEntry {
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
-        description = "Several clients that can each reach the target, instead of client: a name, or {name, target, weight} for its own target and its share with mode: balance; see mode"
+        description = "Several clients that can each reach the target, instead of client: a name, or {name, target, weight} for another target and its share with mode: balance; see mode"
     )]
-    #[admin(help = "Clients that can each reach the target, each with its own target if it has one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked", ty = ref_entries(client, reserved = "self"), group = who, one_of = "who")]
+    #[admin(help = "Clients that can each reach the target, each at the main target or another one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked", ty = ref_entries(client, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<ClientRef>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
@@ -231,9 +231,9 @@ pub struct ServiceEntry {
     #[schemars(
         description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
     )]
-    #[admin(help = "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself",
+    #[admin(help = "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself; a client row can use another target",
         ty = target(ranges, unix),
-        label = "Target on the client",
+        label = "Main target",
         group = exposure,
         same_len(bind),
         cross(bind, protocol)

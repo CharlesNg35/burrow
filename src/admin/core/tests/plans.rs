@@ -200,7 +200,7 @@ fn a_hand_edit_after_the_state_was_read_is_described_in_the_conflict() {
     let c: burrow_admin_proto::plan::Conflict = serde_json::from_value(e.body).unwrap();
     assert!(c.known);
     let theirs: Vec<&str> = c.theirs.iter().map(|t| t.summary.as_str()).collect();
-    assert_eq!(theirs, ["Service web: Target on the client 3000 → 3001"]);
+    assert_eq!(theirs, ["Service web: Main target 3000 → 3001"]);
 }
 
 #[test]

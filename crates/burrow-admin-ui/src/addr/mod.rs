@@ -267,3 +267,26 @@ pub fn server_editor(fc: FieldCtx) -> AnyView {
     }
     .into_any()
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_main_target_has_one_name_in_the_schema_and_the_client_rows() {
+        use burrow_config::admin_schema::AdminSchema;
+        let schema =
+            burrow_admin_proto::serde_json::to_string(&burrow_config::ServerConfig::node())
+                .unwrap()
+                .to_lowercase();
+        let rows = [
+            include_str!("entries.rs"),
+            include_str!("entry_target.rs"),
+            include_str!("entry_summary.rs"),
+        ]
+        .concat()
+        .to_lowercase();
+        for old in ["service target", "own target"] {
+            assert!(!schema.contains(old), "the schema still says {old}");
+            assert!(!rows.contains(old), "the client rows still say {old}");
+        }
+    }
+}

@@ -27,11 +27,11 @@ pub struct ServiceClient {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Where this client connects instead of the service target, for example 10.0.0.12:3000; a range must have as many ports as the service target"
+        description = "Where this client connects instead of the main target, for example 10.0.0.12:3000; a range must have as many ports as the main target"
     )]
     #[admin(
-        help = "Where this client connects instead of the service target, for example 10.0.0.12:3000",
-        none_label = "The service target"
+        help = "Where this client connects instead of the main target, for example 10.0.0.12:3000",
+        none_label = "The main target"
     )]
     pub target: Option<Target>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

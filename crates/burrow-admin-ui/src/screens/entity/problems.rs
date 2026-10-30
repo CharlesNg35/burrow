@@ -339,18 +339,18 @@ mod tests {
             before: false,
             subjects: Vec::new(),
         };
-        let label = |_: &Path| "Target on the client".to_string();
+        let label = |_: &Path| "Main target".to_string();
         let server = server_problem(&entity, &d, &label);
         assert_eq!(
             server,
             (
                 p(&["services", "pool", "target"]),
-                "Target on the client is required".into()
+                "Main target is required".into()
             )
         );
         let own = vec![(
             p(&["services", "pool", "target"]),
-            "Target on the client is required".to_string(),
+            "Main target is required".to_string(),
         )];
         assert_eq!(merged(own.clone(), vec![server.clone()]), own);
         let other = (p(&["services", "pool", "bind"]), "taken".to_string());

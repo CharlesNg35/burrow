@@ -96,6 +96,8 @@ pub fn version_name(stamp: Option<&str>) -> String {
     }
 }
 pub const MAIN_TARGET: &str = "main target";
+pub const OTHER_TARGET: &str = "another target";
+pub const USE_MAIN_TARGET: &str = "Use the main target";
 
 pub fn capital(text: &str) -> String {
     let mut chars = text.chars();
@@ -268,11 +270,8 @@ mod tests {
         assert_eq!(missing_field(MISSING_FIELD, raw), Some("target"));
         assert_eq!(missing_field("other", raw), None);
         assert_eq!(shown(MISSING_FIELD, raw, &[]), "target is required");
-        assert_eq!(
-            required("Target on the client"),
-            "Target on the client is required"
-        );
-        let label = "Target on the client";
+        assert_eq!(required("Main target"), "Main target is required");
+        let label = "Main target";
         assert_eq!(beside_label(label, &required(label)), "required");
         assert_eq!(
             beside_label("Weight", "Weight must be 1 to 1000"),
@@ -303,7 +302,7 @@ mod tests {
                 "path": ["services", "pool"]
             }))
             .unwrap();
-        assert_eq!(diag_text(&d), "Target on the client is required");
+        assert_eq!(diag_text(&d), "Main target is required");
     }
 
     #[test]

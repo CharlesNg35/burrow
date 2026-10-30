@@ -137,8 +137,17 @@ pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView 
     };
     let placeholder = main
         .get_untracked()
-        .map(|m| format!("uses {m}"))
-        .unwrap_or_else(|| "uses the main target".into());
+        .map(|m| format!("{} {m}", burrow_admin_logic::wording::MAIN_TARGET))
+        .unwrap_or_else(|| format!("the {}", burrow_admin_logic::wording::MAIN_TARGET));
+    let client = place
+        .read()
+        .get(i)
+        .map(|r| r.name.clone())
+        .unwrap_or_default();
+    let other_label = format!(
+        "{} for {client}",
+        burrow_admin_logic::wording::capital(burrow_admin_logic::wording::OTHER_TARGET)
+    );
     move || {
         if editing.get() {
             let escape = escape.clone();
@@ -150,10 +159,10 @@ pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView 
                         _ => {}
                     }>
                     <div class="min-w-0 max-w-[280px] flex-1">
-                        <TextInput id=id.clone() value=target on_input=set_target on_blur=Callback::new(move |_| close()) invalid=invalid mono=true placeholder=placeholder.clone() label="Own target"/>
+                        <TextInput id=id.clone() value=target on_input=set_target on_blur=Callback::new(move |_| close()) invalid=invalid mono=true placeholder=placeholder.clone() label=other_label.clone()/>
                     </div>
                     <span on:mousedown=|ev| ev.prevent_default()>
-                        <burrow_ui_kit::IconButton icon="x" label="Use the main target" testid="own-target-clear" on_click=clear/>
+                        <burrow_ui_kit::IconButton icon="x" label=burrow_admin_logic::wording::USE_MAIN_TARGET testid="own-target-clear" on_click=clear/>
                     </span>
                 </div>
             }

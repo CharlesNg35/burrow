@@ -183,7 +183,7 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
             "the empty main target is one problem in plain words: {listed}"
         );
         assert!(
-            listed.contains("Target on the client: required"),
+            listed.contains("Main target: required"),
             "the label is not repeated: {listed}"
         );
         c.ui.wait_text("[data-testid=list] [data-row=pool]", "→ not set", SECS)

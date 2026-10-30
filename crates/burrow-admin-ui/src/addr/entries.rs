@@ -139,7 +139,7 @@ fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
     if own {
         let place = place.clone();
         items.push(MenuItem {
-            label: "Use main target",
+            label: burrow_admin_logic::wording::USE_MAIN_TARGET,
             testid: "entry-main",
             danger: false,
             run: Callback::new(move |_: ()| to_main(&place, i, open)),
