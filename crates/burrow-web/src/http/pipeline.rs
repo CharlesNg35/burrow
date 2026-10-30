@@ -68,8 +68,8 @@ pub(crate) async fn handle<U: Upstream>(
         Action::Service(service) => {
             let asked = Asked {
                 host,
-                route: route.clone(),
-                service: service.clone(),
+                route,
+                service,
             };
             to_service(shared, conn, &table, asked, req).await
         }

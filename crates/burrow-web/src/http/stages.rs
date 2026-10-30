@@ -19,10 +19,10 @@ use crate::log::{Entry, kept_request_id, new_request_id};
 use crate::route::{Route, Table};
 use crate::{Upstream, Visitor};
 
-pub(crate) struct Asked {
+pub(crate) struct Asked<'a> {
     pub host: String,
-    pub route: Route,
-    pub service: String,
+    pub route: &'a Route,
+    pub service: &'a str,
 }
 
 fn request_id(h: &HeaderMap, client: &Client) -> String {
@@ -40,7 +40,7 @@ fn protocol(v: Version) -> &'static str {
     }
 }
 
-fn entry(req: &Request<Incoming>, client: &Client, asked: &Asked, id: Option<&str>) -> Entry {
+fn entry(req: &Request<Incoming>, client: &Client, asked: &Asked<'_>, id: Option<&str>) -> Entry {
     Entry {
         time: SystemTime::now(),
         client: client.ip,
@@ -55,7 +55,7 @@ fn entry(req: &Request<Incoming>, client: &Client, asked: &Asked, id: Option<&st
         status: 0,
         bytes: 0,
         ms: 0,
-        service: asked.service.clone(),
+        service: asked.service.to_string(),
         request_id: id.map(str::to_string),
     }
 }
@@ -78,11 +78,12 @@ pub(crate) async fn to_service<U: Upstream>(
     shared: &Arc<Shared<U>>,
     conn: &Conn,
     table: &Table,
-    asked: Asked,
+    asked: Asked<'_>,
     req: Request<Incoming>,
 ) -> Response<Body> {
     let started = Instant::now();
-    let Some(site) = table.site(&asked.service).cloned() else {
+    let service = asked.service;
+    let Some(site) = table.site(asked.service).cloned() else {
         return Page::NotFound.response();
     };
     let https = conn.name.is_some();
@@ -103,14 +104,14 @@ pub(crate) async fn to_service<U: Upstream>(
         shared,
         conn,
         (table, &site),
-        &asked,
+        asked,
         client,
         id.as_deref(),
         req,
     )
     .await;
     finish(&site, &method, https, gzip, id.as_deref(), &mut resp);
-    shared.up.answered(&asked.service, resp.status());
+    shared.up.answered(service, resp.status());
     if let (Some((sink, format)), Some(mut e)) = (log, logged) {
         e.status = resp.status().as_u16();
         resp = resp.map(|b| Logged::new(b, e, started, sink, format).boxed());
@@ -145,7 +146,7 @@ async fn answer<U: Upstream>(
     shared: &Arc<Shared<U>>,
     conn: &Conn,
     (table, site): (&Table, &SiteRun),
-    asked: &Asked,
+    asked: Asked<'_>,
     client: Client,
     id: Option<&str>,
     mut req: Request<Incoming>,
@@ -154,7 +155,7 @@ async fn answer<U: Upstream>(
     let visitor = Visitor {
         addr: SocketAddr::new(client.ip, conn.peer.port()),
         local: conn.local,
-        host: asked.host.clone(),
+        host: asked.host,
     };
     let gate = Gate {
         up: shared.up.as_ref(),
@@ -185,7 +186,7 @@ async fn answer<U: Upstream>(
         }),
         None => req.map(|b| b.map_err(Into::into).boxed()),
     };
-    let prefix = app_target(&mut req, &asked.route);
+    let prefix = app_target(&mut req, asked.route);
     let f = Forward {
         site,
         visitor,
