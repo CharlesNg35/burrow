@@ -68,6 +68,10 @@ What the pages do, and what stays a file edit:
 - Before each change from burrow admin, the previous file is kept beside it in `.server.yaml.history/` (the last 20, mode 0600). Activity lists the versions by the time they were applied, and you can go back to each after a review. When that folder cannot be written, the history is kept in memory only.
 - Every change goes through a review page, with what changes in server.yaml and what it affects, before it is applied, and a hand edit made meanwhile shows as a conflict instead of being overwritten.
 
+## Mixed versions
+
+The burrow on your machine and the one on the server don't need the same version. A newer burrow admin works with an older server: it says the server is older in Needs attention, and leaves out what that server cannot do. An older burrow admin, for example v0.1.2, can open a newer server too. When the config uses settings it doesn't know, such as clients with their own target or weight, websites or named login services, its Needs attention lists them ("This burrow admin is older than the server and cannot edit some settings here: …"), and it shows them as text instead of a form. Editing stays allowed, because the server checks every change. To edit those settings in forms, update burrow on your machine.
+
 ## Security notes
 
 The admin can change the server's config, so it is guarded closely:
