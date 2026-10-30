@@ -497,8 +497,15 @@ fn new_website(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-testid=new-website-tls] input[value=passthrough]").await;
         c.ui.wait_gone("[data-testid=new-website-email]", SECS)
             .await;
-        let service = c.ui.text("[data-testid=new-website-service]").await;
-        assert!(service.contains("\"shop\""), "{service}");
+        let service: String =
+            c.ui.eval("document.getElementById('new-website-service').value")
+                .await;
+        assert_eq!(
+            service, "shop",
+            "the service name is prefilled from the first name"
+        );
+        let status = c.ui.text("[data-testid=new-website-service]").await;
+        assert!(status.contains("Adds service shop"), "{status}");
         c.ui.wait_text("[data-testid=entity-list] [data-row=__new]", "shop", SECS)
             .await;
         let server = c.ui.text("[data-testid=new-website-path]").await;

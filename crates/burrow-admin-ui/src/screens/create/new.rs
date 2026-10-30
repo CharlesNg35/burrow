@@ -93,14 +93,17 @@ pub fn NewEntity(
             {(what != "service").then(|| limits_section(what, name, max, placeholder_max, options, links))}
             <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
             <burrow_ui_kit::StickyBar>
-                <span class="flex items-center gap-1.5 text-sm text-text-muted">
-                    <burrow_ui_kit::Icon name="info" small=true/>
-                    {if what == ServiceEntry::ENTITY {
-                        "You set the client and target next."
+                {burrow_ui_kit::bar_status(Signal::derive(move || {
+                    if name.with(String::is_empty) {
+                        "Type a name first".to_string()
+                    } else if let Some(p) = problem.get() {
+                        p
+                    } else if what == ServiceEntry::ENTITY {
+                        "You set the client and target next.".to_string()
                     } else {
-                        "The secret is shown once, after apply."
-                    }}
-                </span>
+                        "The secret is shown once, after apply.".to_string()
+                    }
+                }))}
                 <span class="ml-auto"></span>
                 <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
                 <Button

@@ -19,7 +19,7 @@ mod scroll;
 mod spark;
 mod toast;
 
-pub use bar::StickyBar;
+pub use bar::{StickyBar, bar_status};
 pub use basic::{
     Button, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, MENU_ITEM, MONO, Mono, Muted,
     PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, TabMark, Table, Tabs, Tag,

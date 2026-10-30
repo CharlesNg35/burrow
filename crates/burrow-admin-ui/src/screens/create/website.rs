@@ -198,6 +198,29 @@ fn site_value(names: &[String], client: &str, target: &str, tls: &str) -> Value 
     v
 }
 
+fn service_name_of(
+    names: RwSignal<Vec<String>>,
+) -> (RwSignal<String>, Memo<String>, Signal<Option<String>>) {
+    let suggested = Memo::new(move |_| service_name(&names.get(), &taken(ServiceEntry::section())));
+    let svc_name = RwSignal::new(String::new());
+    let auto = StoredValue::new(String::new());
+    Effect::new(move |_| {
+        let s = suggested.get();
+        if svc_name.get_untracked() == auto.get_value() {
+            svc_name.set(s.clone());
+        }
+        auto.set_value(s);
+    });
+    let service = Memo::new(move |_| svc_name.get().trim().to_string());
+    let name_issue = Signal::derive(move || {
+        let n = service.get();
+        (!n.is_empty())
+            .then(|| name_problem(&n, ServiceEntry::section(), None))
+            .flatten()
+    });
+    (svc_name, service, name_issue)
+}
+
 #[component]
 pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl IntoView {
     let s = store();
@@ -228,7 +251,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
     let check_name = Callback::new(move |t: String| {
         burrow_admin_logic::web::site_name_problem(&t, plain.get_untracked())
     });
-    let service = Memo::new(move |_| service_name(&names.get(), &taken(ServiceEntry::section())));
+    let (svc_name, service, name_issue) = service_name_of(names);
     Effect::new(move |_| {
         let n = if names.with(Vec::is_empty) {
             String::new()
@@ -271,7 +294,10 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         if asks_email.get() && !email.with(|m| m.contains('@')) {
             return Some("Give Let's Encrypt's contact email".to_string());
         }
-        name_problem(&service.get(), ServiceEntry::section(), None)
+        if service.with(String::is_empty) {
+            return Some("Give the service a name".to_string());
+        }
+        name_issue.get()
     });
     let finish = move |_| {
         if problem.get_untracked().is_some() {
@@ -314,6 +340,10 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             {move || (!web_on.get()).then(|| web_step(https_in, http_in))}
             <PathDiagram data=diagram testid="new-website-path"/>
             {steps(names, check_name, client, target, tls, p)}
+            <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="new-website-name">
+                {step(5, "Service name", "A short name for lists, commands and Review.")}
+                {super::name_input("new-website-service", "Service name", svc_name, name_issue, true, "blog or shop")}
+            </section>
             {move || asks_email.get().then(|| email_step(email))}
             {move || problem.get().filter(|_| !names.with(Vec::is_empty)).map(|m| view! {
                 <p class="mb-2 flex items-center gap-1.5 text-sm text-danger" data-testid="new-website-problem">
@@ -322,7 +352,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                 </p>
             })}
             <burrow_ui_kit::StickyBar>
-                <span class="text-sm text-text-muted" data-testid="new-website-service">{move || format!("Service \"{}\"", service.get())}</span>
+                <span data-testid="new-website-service">{burrow_ui_kit::bar_status(Signal::derive(move || problem.get().unwrap_or_else(|| format!("Adds service {} to your changes", service.get()))))}</span>
                 <span class="ml-auto"></span>
                 <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); draft_name.set(String::new()); }/>
                 <Button
@@ -393,7 +423,6 @@ fn steps(
                 {move || view! {
                     <burrow_ui_kit::RadioList name="new-website-tls" options=Signal::derive(move || tls_options(p.get())) value=Signal::derive(move || tls.get()) label="HTTPS" on_change=move |m: String| tls.set(m)/>
                 }}
-                <p class="mt-1.5 text-xs text-text-muted">"Automatic gets a certificate for every name. Your own certificate files are set in server.yaml (burrow edit). Each choice needs the web proxy's HTTPS or HTTP port to be on."</p>
             </div>
         </section>
     }
@@ -418,7 +447,7 @@ fn web_step(https: RwSignal<String>, http: RwSignal<String>) -> impl IntoView {
 fn email_step(email: RwSignal<String>) -> impl IntoView {
     view! {
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="new-website-email">
-            {step(5, "Let's Encrypt", "Automatic certificates for this server.")}
+            {step(6, "Let's Encrypt", "Automatic certificates for this server.")}
             <div>
                 <TextInput id="new-website-email" value=Signal::derive(move || email.get()) on_input=move |t: String| email.set(t) placeholder="ops@example.com"/>
                 <p class="mt-1.5 text-xs text-text-muted">
