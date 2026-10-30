@@ -2,7 +2,7 @@ use burrow_admin_proto::msg::{self, AuditEntry, ErrorCode};
 use burrow_admin_proto::plan::{Applied, Conflict, ReloadFailed, RevealedSecret};
 
 use crate::admin::core::ports::WriteError;
-use crate::admin::core::{ApiError, Core, Session, text};
+use crate::admin::core::{ApiError, Core, Session};
 
 use super::{Computed, compute};
 
@@ -150,7 +150,7 @@ pub fn finish(
     let plan = &begun.computed.plan;
     let entry = |result: &str| AuditEntry {
         id: 0,
-        at: text::now_unix(),
+        at: burrow_syntax::duration::now_secs(),
         visitor: s.visitor.clone(),
         from: s.peer.ip().to_string(),
         base: plan.base.clone(),

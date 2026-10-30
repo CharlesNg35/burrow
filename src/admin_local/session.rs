@@ -53,13 +53,6 @@ pub struct Keep {
     pub config: PathBuf,
 }
 
-pub fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 fn live(text: &str, now: u64) -> Option<Stored> {
     serde_json::from_str::<Stored>(text)
         .ok()

@@ -31,7 +31,7 @@ pub fn kept(state: &Path) -> usize {
 
 #[cfg(feature = "web")]
 fn remove_unreferenced(state: &Path, keep: &[String]) -> usize {
-    burrow_web::tls::uploads::prune(state, keep, burrow_web::tls::now_secs())
+    burrow_web::tls::uploads::prune(state, keep, burrow_syntax::duration::now_secs())
 }
 
 #[cfg(feature = "web")]
@@ -61,7 +61,7 @@ pub fn store(state: &Path, req: &Request<'_>) -> Result<Uploaded, String> {
     let stored = uploads::store(
         state,
         &up,
-        burrow_web::tls::now_secs(),
+        burrow_syntax::duration::now_secs(),
         &super::private_write,
     )
     .map_err(|e| format!("the file {e}"))?;

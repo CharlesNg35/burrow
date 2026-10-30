@@ -321,7 +321,7 @@ impl Store for FileStore {
                 (
                     Version {
                         rev: rev.to_string(),
-                        at: text::now_unix(),
+                        at: burrow_syntax::duration::now_secs(),
                     },
                     body.to_string(),
                 ),

@@ -6,12 +6,6 @@ use crate::metrics::render::duration;
 use crate::metrics::{CertSourceStatus, CertStateStatus, CertStatus, Status};
 use burrow_admin_proto::status::CertCheck;
 
-pub(super) fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
-}
-
 fn source(c: &CertStatus) -> String {
     let base = match &c.source {
         CertSourceStatus::OwnFile { path } => format!("own file {path}"),

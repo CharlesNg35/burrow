@@ -51,11 +51,7 @@ impl std::fmt::Debug for Store {
 type Pair = (PathBuf, PathBuf);
 type Loaded = HashMap<Pair, Result<Arc<CertifiedKey>, String>>;
 
-pub fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
-}
+pub use burrow_syntax::duration::now_secs;
 
 pub fn expires(ck: &CertifiedKey) -> Option<u64> {
     x509::facts(ck.cert.first()?).map(|f| f.not_after)

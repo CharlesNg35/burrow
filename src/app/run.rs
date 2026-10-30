@@ -221,8 +221,8 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
         let config = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let sess = match &store {
             Some(d) => {
-                session::sweep(d, session::now());
-                session::load(d, &config, session::now())
+                session::sweep(d, burrow_syntax::duration::now_secs());
+                session::load(d, &config, burrow_syntax::duration::now_secs())
             }
             None => session::Session::fresh(),
         };

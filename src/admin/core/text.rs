@@ -65,12 +65,6 @@ fn looks_random(t: &str) -> bool {
     digits > 0 && upper > 0 && lower > 0
 }
 
-pub fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

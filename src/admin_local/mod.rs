@@ -353,7 +353,9 @@ pub async fn serve_session(
         let k = keep.as_ref()?;
         let (dir, config, s, port) = (k.dir.clone(), k.config.clone(), s.clone(), addr.port());
         Some(tokio::task::spawn_blocking(move || {
-            if let Err(e) = session::save(&dir, &config, &s, port, session::now()) {
+            if let Err(e) =
+                session::save(&dir, &config, &s, port, burrow_syntax::duration::now_secs())
+            {
                 debug!("cannot keep the admin session in {}: {e}", dir.display());
             }
         }))

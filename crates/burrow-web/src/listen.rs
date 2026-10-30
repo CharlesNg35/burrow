@@ -230,9 +230,7 @@ async fn sweep<U: Upstream>(shared: Arc<Shared<U>>) {
 static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
 
 fn warn_accept(e: &std::io::Error) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+    let now = burrow_syntax::duration::now_secs();
     let last = LAST_WARNED.load(Ordering::Relaxed);
     if now >= last + 60
         && LAST_WARNED
