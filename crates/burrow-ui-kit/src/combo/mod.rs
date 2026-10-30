@@ -145,7 +145,7 @@ pub fn Combobox(
                     autocomplete="off"
                     spellcheck="false"
                     class="h-[26px] min-w-24 flex-1 bg-transparent px-1.5 text-sm outline-none placeholder:text-text-faint"
-                    placeholder=placeholder
+                    placeholder=move || if multi || selected.with(|s| s.iter().all(String::is_empty)) { placeholder.clone() } else { String::new() }
                     aria-label=(!label.is_empty()).then_some(label)
                     aria-expanded=move || open.get().to_string()
                     aria-controls=lid.clone()
@@ -193,6 +193,7 @@ pub fn Combobox(
                         _ => {}
                     }
                 />
+                {(!multi).then(|| view! { <span class="pointer-events-none mr-1.5 ml-auto text-text-muted" aria-hidden="true" data-single=""><Icon name="chevron-down" small=true/></span> })}
             </div>
             <Show when=move || open.get()>
                 <div class=move || format!("absolute left-0 z-30 w-[min(470px,100%)] min-w-64 rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
@@ -242,8 +243,13 @@ fn chips(
             };
             let v2 = v.clone();
             let removable = multi || clearable;
+            let look = match (missing, multi) {
+                (true, _) => "bg-danger-weak text-danger",
+                (false, true) => "bg-surface-3 ring-1 ring-border ring-inset dark:ring-0",
+                (false, false) => "",
+            };
             view! {
-                <span class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {}", if missing { "bg-danger-weak text-danger" } else { "bg-surface-3 ring-1 ring-border ring-inset dark:ring-0" }) data-chip=v.clone()>
+                <span class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {look}") data-chip=v.clone()>
                     <span class=format!("size-2 rounded-full {}", dot_class(dot)) aria-hidden="true"></span>
                     {text.clone()}
                     {removable.then(|| view! {
