@@ -131,6 +131,7 @@ pub struct Throttled<'a, S> {
     inner: S,
     bucket: Option<&'a Bucket>,
     sleep: Option<Pin<Box<Sleep>>>,
+    waiting: bool,
 }
 
 impl<'a, S> Throttled<'a, S> {
@@ -139,6 +140,7 @@ impl<'a, S> Throttled<'a, S> {
             inner,
             bucket,
             sleep: None,
+            waiting: false,
         }
     }
 
@@ -147,14 +149,21 @@ impl<'a, S> Throttled<'a, S> {
             return Poll::Ready(want);
         };
         loop {
-            if let Some(sleep) = self.sleep.as_mut() {
-                ready!(sleep.as_mut().poll(cx));
-                self.sleep = None;
+            if self.waiting {
+                if let Some(sleep) = self.sleep.as_mut() {
+                    ready!(sleep.as_mut().poll(cx));
+                }
+                self.waiting = false;
             }
             match bucket.ready(want) {
                 Ok(n) => return Poll::Ready(n),
                 Err(wait) => {
-                    self.sleep = Some(Box::pin(tokio::time::sleep(wait)));
+                    let at = tokio::time::Instant::now() + wait;
+                    match self.sleep.as_mut() {
+                        Some(sleep) => sleep.as_mut().reset(at),
+                        None => self.sleep = Some(Box::pin(tokio::time::sleep_until(at))),
+                    }
+                    self.waiting = true;
                 }
             }
         }
@@ -308,6 +317,28 @@ mod tests {
         let took = started.elapsed();
         assert_eq!(got.len(), data.len());
         assert!(took >= Duration::from_millis(350), "too fast: {took:?}");
+    }
+
+    #[tokio::test]
+    async fn a_throttled_stream_reuses_one_timer_for_every_wait() {
+        let limit = Limit::new(400_000);
+        let (a, mut b) = tokio::io::duplex(1 << 20);
+        let reader = tokio::spawn(async move {
+            let mut got = Vec::new();
+            b.read_to_end(&mut got).await.unwrap();
+            got.len()
+        });
+        let mut w = Throttled::new(a, Some(&limit.outbound));
+        let data = vec![7u8; 100_000];
+        let timer = |w: &Throttled<'_, _>| w.sleep.as_ref().map(|s| &**s as *const Sleep);
+        w.write_all(&data).await.unwrap();
+        let first = timer(&w);
+        assert!(first.is_some(), "the rate made the writer wait");
+        w.write_all(&data).await.unwrap();
+        assert_eq!(timer(&w), first);
+        w.shutdown().await.unwrap();
+        drop(w);
+        assert_eq!(reader.await.unwrap(), 200_000);
     }
 
     #[tokio::test]
