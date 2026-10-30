@@ -138,13 +138,13 @@ pub(super) fn check_clients(
         entries: Vec::new(),
     };
     let mut seen: Vec<(String, Option<String>)> = Vec::new();
-    let named = svc.client.iter().map(|c| (None, c.as_str(), None, None));
+    let named = svc.client.iter().map(|c| (None, c.as_str(), None, None, 1));
     let all = svc
         .clients
         .iter()
         .enumerate()
-        .map(|(i, c)| (Some(i), c.name(), c.target(), c.given_weight()));
-    for (i, client, own, weight) in named.chain(all) {
+        .map(|(i, c)| (Some(i), c.name(), c.target(), c.given_weight(), c.weight()));
+    for (i, client, own, given, weight) in named.chain(all) {
         let at = i.map(|i| i.to_string());
         let mut place = vec!["services", name, "clients"];
         place.extend(at.as_deref());
@@ -159,7 +159,7 @@ pub(super) fn check_clients(
             continue;
         }
         seen.push((client.to_string(), effective));
-        if weight.is_some() && svc.mode != Mode::Balance {
+        if given.is_some() && svc.mode != Mode::Balance {
             let mut w = place.clone();
             w.push(ServiceClient::WEIGHT.key());
             out.push(
@@ -175,9 +175,6 @@ pub(super) fn check_clients(
         if !listed.names.iter().any(|n| n == client) {
             listed.names.push(client.to_string());
         }
-        let weight = weight
-            .filter(|w| (1..=burrow_config::WEIGHT_MAX).contains(w))
-            .map_or(1, |w| w as u32);
         let service_target = service.map_or("", |s| s.0.as_str());
         listed
             .entries

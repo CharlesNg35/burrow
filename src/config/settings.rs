@@ -512,6 +512,20 @@ mod tests {
     }
 
     #[test]
+    fn a_balanced_client_keeps_its_weight_and_a_named_client_weighs_one() {
+        let s = settings(&format!(
+            "listen: 7835\nclients:\n  a: {{ secret: SECRET }}\n  b: {{ secret: {} }}\nservices:\n  web:\n    mode: balance\n    bind: 7840\n    target: 80\n    clients: [{{ name: a, weight: 3 }}, b]\n",
+            Secret::generate().encode()
+        ));
+        let weights: Vec<(&str, u32)> = s.services["web"]
+            .entries
+            .iter()
+            .map(|e| (e.client.as_str(), e.weight))
+            .collect();
+        assert_eq!(weights, [("a", 3), ("b", 1)]);
+    }
+
+    #[test]
     fn admin_access_names_why_a_visitor_has_none() {
         let base = format!(
             "listen: 7835\nclients:\n  home: {{ secret: SECRET }}\nvisitors:\n  ops: {{ secret: {}, admin: write, admin_from: [10.0.0.0/8] }}\nservices:\n  web: {{ client: home, bind: 7840, target: 80 }}\n",
