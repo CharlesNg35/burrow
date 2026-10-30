@@ -20,6 +20,17 @@ pub struct WebSite {
         help = "Names that lead to this service, for example nas.example.com, *.apps.example.com or 203.0.113.10"
     )]
     pub hosts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Only these paths on those names, each with everything below it, for example [/api]; the longest matching path wins; all paths when not set"
+    )]
+    #[admin(
+        ty = list(url_path),
+        help = "Only these paths on the names lead here, each with everything below it, for example /api for /api and /api/users but not /apix; the longest match wins",
+        empty_label = "All paths",
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
+    )]
+    pub paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "auto (a certificate for every name, the default with web.https), passthrough (the app does its own HTTPS; burrow only reads the name), off (plain HTTP) or {cert, key} (this site's own certificate file)"
@@ -62,17 +73,6 @@ pub struct WebSite {
         )
     )]
     pub challenge: Option<ChallengeKind>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[schemars(
-        description = "Only these paths on those names, each with everything below it, for example [/api]; the longest matching path wins; all paths when not set"
-    )]
-    #[admin(
-        ty = list(url_path),
-        help = "Only these paths on the names lead here, each with everything below it, for example /api for /api and /api/users but not /apix; the longest match wins",
-        empty_label = "All paths",
-        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
-    )]
-    pub paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "What the app sees in place of the matched path: paths: [/api] with app_path: /v1 sends /api/users as /v1/users; / removes the prefix"

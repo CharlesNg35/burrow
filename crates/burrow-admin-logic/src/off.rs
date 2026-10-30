@@ -19,9 +19,13 @@ pub fn group_line(n: usize, reason: &str) -> String {
 
 pub fn groups<T>(items: &[(Option<String>, T)]) -> Vec<(String, Vec<usize>)> {
     let mut out: Vec<(String, Vec<usize>)> = Vec::new();
+    let mut from = 0;
     for (i, (reason, _)) in items.iter().enumerate() {
-        let Some(r) = reason else { continue };
-        match out.iter_mut().find(|(k, _)| k == r) {
+        let Some(r) = reason else {
+            from = out.len();
+            continue;
+        };
+        match out[from..].iter_mut().find(|(k, _)| k == r) {
             Some((_, v)) => v.push(i),
             None => out.push((r.clone(), vec![i])),
         }
@@ -52,8 +56,13 @@ mod tests {
             (None, 1),
             (Some("a".to_string()), 2),
             (Some("b".to_string()), 3),
+            (Some("a".to_string()), 4),
         ];
-        assert_eq!(groups(&items), [("a".to_string(), vec![0, 2])]);
+        assert_eq!(
+            groups(&items),
+            [("a".to_string(), vec![2, 4])],
+            "a field that always applies ends a group, so a field placed before it keeps its place"
+        );
     }
 
     #[test]

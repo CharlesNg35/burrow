@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:44ebb737f42c6e19",
+  "hash": "b2s:89cef6dd10eafa60",
   "root": {
     "label": "Server",
     "sem": {
@@ -2089,6 +2089,34 @@
                                         }
                                       },
                                       {
+                                        "key": "paths",
+                                        "node": {
+                                          "label": "Paths",
+                                          "help": "Only these paths on the names lead here, each with everything below it, for example /api for /api and /api/users but not /apix; the longest match wins",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            }
+                                          },
+                                          "empty_label": "All paths",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
                                         "key": "tls",
                                         "node": {
                                           "label": "HTTPS",
@@ -2298,34 +2326,6 @@
                                                 ]
                                               },
                                               "reason": "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
-                                            }
-                                          ]
-                                        }
-                                      },
-                                      {
-                                        "key": "paths",
-                                        "node": {
-                                          "label": "Paths",
-                                          "help": "Only these paths on the names lead here, each with everything below it, for example /api for /api and /api/users but not /apix; the longest match wins",
-                                          "sem": {
-                                            "t": "list",
-                                            "item": {
-                                              "sem": {
-                                                "t": "url_path"
-                                              }
-                                            }
-                                          },
-                                          "empty_label": "All paths",
-                                          "relations": [
-                                            {
-                                              "r": "enabled_if",
-                                              "cond": {
-                                                "ne": [
-                                                  "tls",
-                                                  "passthrough"
-                                                ]
-                                              },
-                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
