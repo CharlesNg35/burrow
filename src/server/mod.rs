@@ -105,15 +105,7 @@ struct Counts(Mutex<HashMap<String, Arc<AtomicUsize>>>);
 
 impl Counts {
     fn enter(&self, name: &str) -> (CountGuard, usize) {
-        let count = self
-            .0
-            .lock()
-            .expect("counts lock")
-            .entry(name.to_string())
-            .or_default()
-            .clone();
-        let before = count.fetch_add(1, Ordering::AcqRel);
-        (CountGuard(count), before)
+        enter_in(&mut self.0.lock().expect("counts lock"), name)
     }
 
     fn retain(&self, keep: impl Fn(&str) -> bool) {
@@ -124,12 +116,28 @@ impl Counts {
     }
 
     fn current(&self, name: &str) -> u64 {
-        self.0
-            .lock()
-            .expect("counts lock")
-            .get(name)
-            .map_or(0, |c| c.load(Ordering::Acquire) as u64)
+        current_in(&self.0.lock().expect("counts lock"), name)
     }
+}
+
+fn enter_in<K, Q>(counts: &mut HashMap<K, Arc<AtomicUsize>>, key: &Q) -> (CountGuard, usize)
+where
+    K: std::borrow::Borrow<Q> + Eq + std::hash::Hash,
+    Q: Eq + std::hash::Hash + ToOwned<Owned = K> + ?Sized,
+{
+    let count = crate::base::slots::shared_slot(counts, key, Arc::default);
+    let before = count.fetch_add(1, Ordering::AcqRel);
+    (CountGuard(count), before)
+}
+
+fn current_in<K, Q>(counts: &HashMap<K, Arc<AtomicUsize>>, key: &Q) -> u64
+where
+    K: std::borrow::Borrow<Q> + Eq + std::hash::Hash,
+    Q: Eq + std::hash::Hash + ?Sized,
+{
+    counts
+        .get(key)
+        .map_or(0, |c| c.load(Ordering::Acquire) as u64)
 }
 
 pub(super) struct CountGuard(Arc<AtomicUsize>);
@@ -173,12 +181,8 @@ impl Shared {
             .get(service)
             .and_then(|s| s.bandwidth)
             .unwrap_or(0);
-        self.limits
-            .lock()
-            .expect("limits lock")
-            .entry(service.to_string())
-            .or_insert_with(|| Limit::new(rate))
-            .clone()
+        let mut limits = self.limits.lock().expect("limits lock");
+        crate::base::slots::shared_slot(&mut limits, service, || Limit::new(rate))
     }
 
     fn sync_limits(&self, settings: &ServerSettings) {

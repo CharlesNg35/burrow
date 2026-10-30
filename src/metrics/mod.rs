@@ -96,21 +96,13 @@ impl Default for Metrics {
 
 impl Metrics {
     pub fn service(&self, name: &str) -> Arc<ServiceStats> {
-        self.services
-            .lock()
-            .expect("metrics lock")
-            .entry(name.to_string())
-            .or_default()
-            .clone()
+        let mut all = self.services.lock().expect("metrics lock");
+        crate::base::slots::shared_slot(&mut all, name, Arc::default)
     }
 
     pub fn visitor(&self, name: &str) -> Arc<VisitorStats> {
-        self.visitors
-            .lock()
-            .expect("metrics lock")
-            .entry(name.to_string())
-            .or_default()
-            .clone()
+        let mut all = self.visitors.lock().expect("metrics lock");
+        crate::base::slots::shared_slot(&mut all, name, Arc::default)
     }
 
     pub fn refuse(&self, service: &str) {
@@ -128,8 +120,12 @@ impl Metrics {
 
     pub fn client_busy(&self, name: &str) {
         let mut busy = self.busy.lock().expect("metrics lock");
-        let entry = busy.entry(name.to_string()).or_insert((0, Instant::now()));
-        *entry = (entry.0 + 1, Instant::now());
+        match busy.get_mut(name) {
+            Some(entry) => *entry = (entry.0 + 1, Instant::now()),
+            None => {
+                busy.insert(name.to_string(), (1, Instant::now()));
+            }
+        }
     }
 
     pub fn busy(&self, name: &str) -> (u64, bool) {

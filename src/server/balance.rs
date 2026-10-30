@@ -15,12 +15,7 @@ impl EntryCounts {
             Some(of) => of,
             None => all.entry(service.to_string()).or_default(),
         };
-        let count = match of.get(key) {
-            Some(c) => c.clone(),
-            None => of.entry(key.clone()).or_default().clone(),
-        };
-        count.fetch_add(1, Ordering::AcqRel);
-        CountGuard(count)
+        super::enter_in(of, key).0
     }
 
     pub(super) fn current(&self, service: &str, key: &EntryKey) -> u64 {
@@ -28,8 +23,7 @@ impl EntryCounts {
             .lock()
             .expect("entry counts lock")
             .get(service)
-            .and_then(|of| of.get(key))
-            .map_or(0, |c| c.load(Ordering::Acquire) as u64)
+            .map_or(0, |of| super::current_in(of, key))
     }
 
     pub(super) fn prune(&self, services: &BTreeMap<String, Service>) {
@@ -186,5 +180,19 @@ mod tests {
         assert_ne!(even.entries_id(), heavy.entries_id());
         wheels.retain(&BTreeMap::new());
         assert!(wheels.0.is_empty());
+    }
+
+    #[test]
+    fn entry_counts_rise_per_enter_and_fall_back_to_zero_when_the_guards_drop() {
+        let counts = EntryCounts::default();
+        let key = Entry::new("a", None, 1, "t:1").key;
+        let first = counts.enter("web", &key);
+        let second = counts.enter("web", &key);
+        assert_eq!(counts.current("web", &key), 2);
+        assert_eq!(counts.current("other", &key), 0);
+        drop(first);
+        drop(second);
+        assert_eq!(counts.current("web", &key), 0);
+        assert_eq!(counts.0.lock().unwrap()["web"].len(), 1);
     }
 }

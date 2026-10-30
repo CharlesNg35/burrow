@@ -23,6 +23,7 @@ pub const UNITS: &[(&str, Layer)] = &[
     ("base::ports", Layer::Base),
     ("base::process", Layer::Base),
     ("base::prompt", Layer::Base),
+    ("base::slots", Layer::Base),
     ("base::style", Layer::Base),
     ("base::suggest", Layer::Base),
     ("wire::handshake", Layer::Wire),

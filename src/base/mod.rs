@@ -8,5 +8,6 @@ pub mod logfile;
 pub(crate) mod ports;
 pub mod process;
 pub mod prompt;
+pub mod slots;
 pub mod style;
 pub mod suggest;
