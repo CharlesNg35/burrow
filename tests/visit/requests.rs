@@ -292,8 +292,7 @@ async fn widening_reach_keeps_open_visits() {
             },
         )]
         .into();
-        s.tunnel.server.reload(next).await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        s.tunnel.server.reload_applied(next).await;
         open.write_all(b"ping").await.unwrap();
         let mut back = [0u8; 4];
         let got = tokio::time::timeout(Duration::from_secs(3), open.read_exact(&mut back)).await;

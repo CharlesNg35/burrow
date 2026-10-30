@@ -340,8 +340,7 @@ async fn shrinking_a_range_closes_connections_on_the_ports_it_dropped() {
     let conn = open_echo(SocketAddr::from(([127, 0, 0, 1], public + 1))).await;
     let mut next = settings;
     next.services.insert("game".into(), ranged(1));
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    t.server.reload_applied(next).await;
     assert!(
         tokio::net::TcpStream::connect(("127.0.0.1", public + 1))
             .await

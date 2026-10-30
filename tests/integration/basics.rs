@@ -140,9 +140,11 @@ async fn hot_reload_add_change_remove_without_dropping() {
     assert_eq!(roundtrip(new_addr, b"api").await, b"api");
 
     next.services.get_mut("web").unwrap().target = echo2.to_string();
-    t.server.reload(next.clone()).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(roundtrip(web, b"x").await, b"two");
+    t.server.reload_applied(next.clone()).await;
+    assert!(
+        within_tries(50, || async { roundtrip(web, b"x").await == b"two" }).await,
+        "the new target answers"
+    );
 
     next.services.remove("api");
     t.server.reload(next.clone()).await;

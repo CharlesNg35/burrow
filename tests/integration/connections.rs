@@ -149,8 +149,7 @@ async fn adding_a_secret_keeps_open_connections() {
     next.services
         .insert("web".into(), service(echo, Protocol::Tcp));
     next.clients.get_mut("home").unwrap().secrets = vec![secret, Secret::generate()];
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    t.server.reload_applied(next).await;
     conn.write_all(b"pong").await.unwrap();
     let mut buf = [0u8; 4];
     conn.read_exact(&mut buf).await.unwrap();
@@ -229,8 +228,8 @@ async fn reload_onto_the_kept_control_port_is_rejected() {
     let mut a = service(echo, Protocol::Tcp);
     a.bind = Some(t.server.addr);
     next.services.insert("a".into(), a);
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let report = t.server.reload_applied(next).await;
+    assert!(report.rejected.is_some(), "{report:?}");
     assert_eq!(roundtrip(old, b"kept").await, b"kept");
 }
 

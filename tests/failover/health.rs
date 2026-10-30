@@ -105,8 +105,7 @@ async fn adding_a_backup_client_keeps_open_visits() {
     let mut web = private_service(echo, &["laptop"]);
     web.clients.push("spare".into());
     next.services.insert("web".into(), web);
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    t.server.reload_applied(next).await;
     conn.write_all(b"ping").await.unwrap();
     let mut buf = [0u8; 4];
     let r = tokio::time::timeout(Duration::from_secs(3), conn.read_exact(&mut buf)).await;

@@ -242,8 +242,7 @@ async fn a_new_handshake_limit_is_used_after_a_reload() {
     let shared = server.shared.clone();
     wait_for(|| shared.status().handshakes_refused >= 1).await;
     settings.max_handshakes = 4;
-    server.reload(settings).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    server.reload_applied(settings).await;
     let before = refused();
     let _third = TcpStream::connect(server.addr).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;

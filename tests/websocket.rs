@@ -227,8 +227,7 @@ async fn reload_changes_the_websocket_path() {
     next.websocket.as_mut().unwrap().listen = ws;
     next.websocket.as_mut().unwrap().path = "/two".into();
     next.services.get_mut("web").unwrap().bind = Some(srv.services["web"]);
-    srv.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    srv.reload_applied(next).await;
     let _cli = connected(&srv, ws_client(&format!("ws://{ws}/two"), secret, None)).await;
     assert_eq!(roundtrip(srv.services["web"], b"moved").await, b"moved");
 }
@@ -518,8 +517,7 @@ async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload
     let elsewhere = busy.local_addr().unwrap();
     let mut moved = first.clone();
     moved.websocket.as_mut().unwrap().listen = elsewhere;
-    srv.reload(moved.clone()).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    srv.reload_applied(moved.clone()).await;
     let kept = connected(
         &srv,
         ws_client(&format!("ws://{ws}/burrow"), secret.clone(), None),
@@ -528,8 +526,7 @@ async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload
     kept.stop.send(true).unwrap();
     kept.task.await.unwrap();
     drop(busy);
-    srv.reload(moved).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    srv.reload_applied(moved).await;
     let _moved = connected(
         &srv,
         ws_client(&format!("ws://{elsewhere}/burrow"), secret, None),
@@ -586,8 +583,7 @@ async fn a_service_can_take_the_port_of_a_websocket_removed_in_the_same_reload()
     let mut web = service("127.0.0.1:1".parse().unwrap(), Protocol::Tcp);
     web.bind = Some(port);
     next.services.insert("web".into(), web);
-    srv.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    srv.reload_applied(next).await;
     let mut conn = TcpStream::connect(port)
         .await
         .expect("the service listens on the freed port");

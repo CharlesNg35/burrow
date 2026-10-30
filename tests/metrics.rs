@@ -354,8 +354,7 @@ async fn moving_metrics_to_a_busy_port_keeps_the_old_endpoint() {
     let mut next = settings.clone();
     let moved = busy.local_addr().unwrap();
     next.metrics = Some(moved);
-    t.server.reload(next.clone()).await;
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    t.server.reload_applied(next.clone()).await;
     let r = tokio::task::spawn_blocking(move || scrape(old))
         .await
         .unwrap();
@@ -364,8 +363,7 @@ async fn moving_metrics_to_a_busy_port_keeps_the_old_endpoint() {
         "no metrics endpoint left after a failed move: {r:?}"
     );
     drop(busy);
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    t.server.reload_applied(next).await;
     let r = tokio::task::spawn_blocking(move || scrape(moved))
         .await
         .unwrap();
@@ -524,8 +522,8 @@ async fn a_reload_that_moves_metrics_onto_the_kept_listen_port_is_rejected() {
     next.listen = Some(other);
     next.metrics = Some(kept);
     next.max_handshakes = settings.max_handshakes + 1;
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let report = t.server.reload_applied(next).await;
+    assert!(report.rejected.is_some(), "{report:?}");
     let now = t.server.shared.settings_snapshot();
     assert_eq!(now.max_handshakes, settings.max_handshakes);
     assert_eq!(now.metrics, None);

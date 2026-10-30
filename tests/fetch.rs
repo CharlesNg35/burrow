@@ -143,8 +143,7 @@ async fn an_update_adds_and_removes_forwards_and_keeps_the_rest_of_the_file() {
     let target = echo_server().await;
     next.services
         .insert("web".into(), private_service(target, &["laptop"]));
-    w.server.reload(next).await;
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    w.server.reload_applied(next).await;
 
     let dry = w.burrow(&["init", "visitor", "--update"]);
     assert!(dry.status.success(), "{}", text(&dry));
@@ -177,8 +176,7 @@ async fn an_update_from_outside_a_services_allow_from_keeps_its_forward() {
         allow: vec!["10.0.0.0/8".parse().unwrap()],
         deny: vec![],
     };
-    w.server.reload(next).await;
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    w.server.reload_applied(next).await;
     let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
     assert!(out.status.success(), "{}", text(&out));
     assert!(!text(&out).contains("- db"), "{}", text(&out));
@@ -356,8 +354,7 @@ async fn narrowed_reach_is_written_as_the_visitors_own_rules_and_hides_the_allow
         ]),
     )]
     .into();
-    w.server.reload(next).await;
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    w.server.reload_applied(next).await;
     let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
     assert!(out.status.success(), "{}", text(&out));
     assert!(text(&out).contains("~ home"), "{}", text(&out));
@@ -390,8 +387,7 @@ async fn a_note_that_shrank_to_a_prefix_of_the_old_one_is_still_updated() {
         next
     };
     for r in ["127.0.0.0/8:2200-2210", "127.0.0.0/8:2200"] {
-        w.server.reload(rules(r)).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        w.server.reload_applied(rules(r)).await;
         let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
         assert!(out.status.success(), "{}", text(&out));
         let yaml = read(&w.path("visitor.yaml"));
@@ -414,8 +410,7 @@ async fn an_update_through_a_symlink_changes_the_real_file_and_keeps_the_link() 
     let target = echo_server().await;
     next.services
         .insert("web".into(), private_service(target, &["laptop"]));
-    w.server.reload(next).await;
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    w.server.reload_applied(next).await;
     let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
     assert!(out.status.success(), "{}", text(&out));
     let link = std::fs::symlink_metadata(w.path("visitor.yaml")).unwrap();

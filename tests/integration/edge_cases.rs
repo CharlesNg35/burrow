@@ -143,8 +143,8 @@ async fn a_service_whose_port_was_busy_at_reload_listens_once_it_is_free() {
     let mut late = service(echo, Protocol::Tcp);
     late.bind = Some(port);
     next.services.insert("late".into(), late);
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let report = t.server.reload_applied(next).await;
+    assert_eq!(report.unbound, ["\"late\""], "{report:?}");
     assert_eq!(roundtrip(t.server.services["web"], b"kept").await, b"kept");
     drop(busy);
     let mut up = false;
