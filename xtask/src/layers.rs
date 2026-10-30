@@ -17,6 +17,7 @@ pub const GROUPS: &[&str] = &["app", "base", "policy", "wire"];
 
 pub const UNITS: &[(&str, Layer)] = &[
     ("base::access", Layer::Base),
+    ("base::channel", Layer::Base),
     ("base::failure", Layer::Base),
     ("base::fs", Layer::Base),
     ("base::logfile", Layer::Base),

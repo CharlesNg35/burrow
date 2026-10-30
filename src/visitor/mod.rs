@@ -397,7 +397,7 @@ impl Visitor {
                     ));
                 }
                 Some(_) = open.join_next(), if !open.is_empty() => {}
-                next = next_reload(&mut reloads) => {
+                next = crate::base::channel::next_reload(&mut reloads) => {
                     self.apply(next, &mut listening, &tx).await;
                 }
                 _ = stop.changed() => break,
@@ -534,18 +534,6 @@ fn summary(connection: &[&str], forwards: &[&str]) -> String {
         return "config reloaded: nothing changed".into();
     }
     format!("config reloaded: {}", parts.join("; "))
-}
-
-async fn next_reload(reloads: &mut Option<mpsc::Receiver<VisitorSettings>>) -> VisitorSettings {
-    loop {
-        match reloads {
-            Some(rx) => match rx.recv().await {
-                Some(next) => return next,
-                None => *reloads = None,
-            },
-            None => std::future::pending::<()>().await,
-        }
-    }
 }
 
 #[cfg(test)]

@@ -105,18 +105,6 @@ fn dialer_for(settings: &ClientSettings, resolver: &Arc<dyn Resolver>) -> Arc<Di
     Arc::new(dialer)
 }
 
-async fn next_reload(reloads: &mut Option<mpsc::Receiver<ClientSettings>>) -> ClientSettings {
-    loop {
-        match reloads {
-            Some(rx) => match rx.recv().await {
-                Some(next) => return next,
-                None => *reloads = None,
-            },
-            None => std::future::pending::<()>().await,
-        }
-    }
-}
-
 impl Client {
     pub fn new(settings: ClientSettings) -> Self {
         let (state, _) = watch::channel(State::Connecting);
@@ -206,7 +194,7 @@ impl Client {
                     tokio::select! {
                         e = &mut session => break e,
                         _ = stop.changed() => break SessionEnd::Stop,
-                        next = next_reload(&mut reloads) => {
+                        next = crate::base::channel::next_reload(&mut reloads) => {
                             if self.apply(next, &mut backoff) {
                                 break SessionEnd::Reconnect;
                             }
@@ -305,7 +293,7 @@ impl Client {
                 tokio::select! {
                     _ = &mut sleep => break,
                     _ = stop.changed() => return self.stopped(),
-                    next = next_reload(&mut reloads) => {
+                    next = crate::base::channel::next_reload(&mut reloads) => {
                         if self.apply(next, &mut backoff) {
                             rejected = None;
                             let _ = self.state.send(State::Connecting);
