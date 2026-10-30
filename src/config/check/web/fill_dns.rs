@@ -59,6 +59,19 @@ pub(super) fn secret(value: &str, base_dir: &Path) -> Option<SecretText> {
     (!text.is_empty()).then(|| SecretText::new(text))
 }
 
+pub(super) fn secret_files(list: &[DnsEntry], base_dir: &Path) -> Vec<std::path::PathBuf> {
+    let values = list.iter().flat_map(|e| {
+        let c = e.cloudflare.iter().map(|c| &c.token);
+        let r = e.rfc2136.iter().map(|r| &r.secret);
+        let a = e.acme_dns.iter().flat_map(|a| [&a.username, &a.password]);
+        c.chain(r).chain(a)
+    });
+    values
+        .filter_map(|v| v.trim().strip_prefix(FILE_PREFIX))
+        .map(|p| base_dir.join(p.trim()))
+        .collect()
+}
+
 fn names(list: &[String]) -> Vec<String> {
     list.iter()
         .filter_map(|n| host_name(n, SingleLabel::Allowed).ok())

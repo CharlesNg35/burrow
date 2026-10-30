@@ -16,11 +16,17 @@ fn web_in(dir: &Path) -> WebSettings {
     let cfg: ServerConfig = serde_json::from_value(json!({
         "web": {
             "https": 443,
-            "letsencrypt": {"email": "ops@example.com", "ca": "ca.pem"},
+            "letsencrypt": {"email": "ops@example.com", "ca": "ca.pem", "dns": [
+                {"domains": ["example.com"], "cloudflare": {"token": "file:cf.token"}},
+                {"domains": ["example.org"], "rfc2136": {
+                    "server": "10.0.0.53", "key_name": "acme", "secret": "file: tsig.key"
+                }}
+            ]},
             "certificates": [{"hosts": ["*.example.com"], "cert": "w.pem", "key": "w.key"}]
         },
         "services": {"blog": {"client": "home", "target": 80, "web": {
-            "hosts": ["blog.example.com"], "tls": {"cert": "b.pem", "key": "b.key"}
+            "hosts": ["blog.example.com"], "tls": {"cert": "b.pem", "key": "b.key"},
+            "target_tls": {"ca": "app-ca.pem"}
         }}}
     }))
     .unwrap();
@@ -49,7 +55,16 @@ fn every_certificate_file_is_listed_for_the_watcher() {
     let web = web_in(dir.path());
     assert!(matches!(web.sites["blog"].tls, WebTls::Files { .. }));
     let listed = web.cert_files();
-    for f in ["b.pem", "b.key", "w.pem", "w.key", "ca.pem"] {
+    for f in [
+        "b.pem",
+        "b.key",
+        "w.pem",
+        "w.key",
+        "ca.pem",
+        "app-ca.pem",
+        "cf.token",
+        "tsig.key",
+    ] {
         assert!(listed.contains(&dir.path().join(f)), "{f}: {listed:?}");
     }
 }

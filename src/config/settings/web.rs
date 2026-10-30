@@ -65,6 +65,7 @@ pub struct LetsEncrypt {
     pub profile: Option<String>,
     pub state_dir: Option<PathBuf>,
     pub dns: Vec<super::dns::DnsSettings>,
+    pub secret_files: Vec<PathBuf>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -121,11 +122,17 @@ impl WebSettings {
         for c in &self.certificates {
             out.extend([c.cert.clone(), c.key.clone()]);
         }
-        out.extend(self.letsencrypt.as_ref().and_then(|l| l.ca.clone()));
+        if let Some(l) = &self.letsencrypt {
+            out.extend(l.ca.clone());
+            out.extend(l.secret_files.iter().cloned());
+        }
         for site in self.sites.values() {
             if let Some(c) = &site.options.client_auth {
                 out.push(c.ca.clone());
                 out.extend(c.crl.clone());
+            }
+            if let super::site::TargetTls::Ca(ca) = &site.options.target_tls {
+                out.push(ca.clone());
             }
         }
         out
