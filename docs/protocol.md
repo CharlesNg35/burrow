@@ -1,6 +1,6 @@
 # burrow wire protocol, version 1
 
-This page describes the bytes burrow's server, clients and visitors exchange: how a connection is opened and authenticated, and how records, control messages, data, visit and admin channels work. It is for contributors and for reviewing burrow's security; using burrow needs none of it. The plain-words summary is in [security.md](security.md).
+This page describes the bytes burrow's server, clients and visitors exchange: how a connection is opened and authenticated, and how records, control messages, data, visit and admin channels work. It is for contributors and security reviewers; using burrow needs none of it. The plain-words summary is in [security.md](security.md).
 
 All integers are big-endian. "Record" means one Noise transport message with a 2-byte length prefix.
 
@@ -22,7 +22,11 @@ Every channel, control or data, does its own full Noise handshake.
 The byte stream below can be carried in two ways. Both carry exactly the same bytes.
 
 - **TCP** (`listen`): the stream is the TCP connection.
-- **WebSocket** (`websocket`, opt-in): the client sends an HTTP/1.1 `GET <path>` upgrade request (RFC 6455), optionally over TLS (`wss://`), with any extra `headers` from its config. Before upgrading, the server reads at most 8 KiB of request head and answers `404` for any other path, `426` for a non-upgrade request on the path, and `400` or `431` for malformed or oversized heads. After the upgrade, the stream is the concatenation of the payloads of binary messages, in order. The sender batches records into messages of up to 128 KiB, and larger messages are rejected. Text, ping and pong messages carry no stream data, more than 100 of them within 10 s end the connection, as do more than 100 pings in a row while the peer reads none of the pongs, and a close message ends the stream. Authentication is still the Noise handshake below: the URL, path and headers are not secrets.
+- **WebSocket** (`websocket`, opt-in): the client sends an HTTP/1.1 `GET <path>` upgrade request (RFC 6455), optionally over TLS (`wss://`), with any extra `headers` from its config.
+  - Before upgrading, the server reads at most 8 KiB of request head. It answers `404` for any other path, `426` for a non-upgrade request on the path, and `400` or `431` for malformed or oversized heads.
+  - After the upgrade, the stream is the concatenation of the payloads of binary messages, in order. The sender batches records into messages of up to 128 KiB, and larger messages are rejected.
+  - Text, ping and pong messages carry no stream data. More than 100 of them within 10 s end the connection, as do more than 100 pings in a row while the peer reads none of the pongs. A close message ends the stream.
+  - Authentication is still the Noise handshake below: the URL, path and headers are not secrets.
 
 On a WebSocket carrier, data channels always use encrypted records, even with `insecure_plaintext`, because WebSocket has no half-close for the raw-stream mode in section 8.
 

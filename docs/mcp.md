@@ -1,21 +1,29 @@
 # burrow mcp
 
-`burrow mcp` lets an AI app such as Claude Code, Claude Desktop or Cursor read a running server and, if you allow it, change its config. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). It runs on your machine with a visitor config, exactly like [burrow admin](admin.md), and uses the same encrypted admin channel: the server opens no new port, and the visitor's `admin: read` or `admin: write` is the only permission.
+`burrow mcp` lets an AI app such as Claude Code, Claude Desktop or Cursor read a running server and, if you allow it, change its config. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). Like [burrow admin](admin.md), it runs on your machine with a visitor config and uses the same encrypted admin channel. The server opens no new port, and the visitor's `admin: read` or `admin: write` is the only permission.
 
-Use it to ask your AI app questions like "which clients are offline?" or "why does this certificate fail?", or to have it prepare a config change that you review before it applies. The AI sees what `burrow admin` shows, never a secret.
+Ask your AI app questions like "which clients are offline?" or "why does this certificate fail?", or have it prepare a config change that you review before it applies. The AI sees what `burrow admin` shows, never a secret.
 
-Back to the [README](../README.md). The admin setup (the visitor with `admin`, `visitor-config`): [admin.md](admin.md#setup).
+Back to the [README](../README.md).
 
 ## Setup
 
-Setting it up takes two steps: an admin visitor on the server, and one entry in your AI app's settings. Give a visitor admin rights and copy its config to your machine, as [admin.md](admin.md#setup) shows. Then let `burrow mcp` print the setup for your app, with the full paths of this burrow and of the visitor config filled in:
+Setup takes two steps: an admin visitor on the server, and one entry in your AI app's settings. First give a visitor admin rights and copy its config to your machine, as [admin.md](admin.md#setup) shows. Then let `burrow mcp` print the setup for your app, with the full paths of this burrow and of the visitor config filled in:
 
 ```sh
 # a terminal on your machine
 burrow mcp -c ops-laptop.yaml --print-config claude   # or codex, or cursor
 ```
 
-The app then starts `burrow mcp` itself and talks to it over stdin and stdout; there is no port and no token. The setup names the burrow you ran by its full path, so the app finds it even when burrow is not on its `PATH`. If the `burrow` your shell finds on `PATH` is this same burrow, for example a link such as `/opt/homebrew/bin/burrow`, the setup names that path, so it keeps working after an upgrade; otherwise it names the file itself, and if you move that file, print the setup again. If that path cannot be found, the setup says plain `burrow` and a note on stderr says so. `burrow mcp` works the same on Linux, macOS and Windows. The setups look like this, for burrow in `/home/me/bin`; on Windows, Codex's file is `%USERPROFILE%\.codex\config.toml` and Cursor's `%USERPROFILE%\.cursor\mcp.json`, and the paths are Windows paths, like `C:\\Users\\me\\bin\\burrow.exe` in JSON.
+The app then starts `burrow mcp` itself and talks to it over stdin and stdout, with no port and no token.
+
+The setup names the burrow you ran by its full path, so the app finds it even when burrow is not on its `PATH`:
+
+- If the `burrow` your shell finds on `PATH` is this same burrow, for example a link such as `/opt/homebrew/bin/burrow`, the setup names that path, so it keeps working after an upgrade.
+- Otherwise it names the file itself; if you move that file, print the setup again.
+- If neither path can be found, the setup says plain `burrow`, and a note on stderr says so.
+
+`burrow mcp` works the same on Linux, macOS and Windows. The setups below are for burrow in `/home/me/bin`. On Windows, Codex's file is `%USERPROFILE%\.codex\config.toml` and Cursor's is `%USERPROFILE%\.cursor\mcp.json`, and the paths are Windows paths, like `C:\\Users\\me\\bin\\burrow.exe` in JSON.
 
 Claude Code, with one command:
 
@@ -67,7 +75,7 @@ The file is `~/Library/Application Support/Claude/claude_desktop_config.json` on
 
 ## What the AI can do
 
-burrow gives the AI app these tools. Some are listed only when writing is allowed, as the last column says:
+burrow gives the AI app these tools. Some are listed only when writing is allowed:
 
 | Tool | What it does | Listed when |
 |---|---|---|
@@ -86,7 +94,7 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 claude mcp add burrow -- /home/me/bin/burrow mcp -c /home/me/ops-laptop.yaml --allow-write
 ```
 
-A change always takes two steps: `check_change` returns the diff and a plan id, and `apply_change` applies exactly that plan. Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, and at most 16 plans at a time.
+A change always takes two steps: `check_change` returns the diff and a plan id, and `apply_change` applies exactly that plan. Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, with at most 16 plans at a time.
 
 ## Over HTTP
 
@@ -111,8 +119,9 @@ Ready-made setup for your AI app:
 ```
 
 - It listens on `127.0.0.1` only, on 7838, on every system; `--port N` uses another port and `--port 0` a free one.
-- Every request needs that header. The token is made once per visitor config and kept in a file only you can read (mode 0600, or an access list for you alone on Windows), in burrow's private state folder (the same folder as the [burrow admin](admin.md#security-notes) sessions), so the app's setup keeps working after a restart. `--token-file FILE` keeps it in FILE instead.
-- `--no-print-token` prints only the URL line; use it when the output goes to a log or a shared screen, and in a service. `--print-token` prints just the token and exits. `--new-token` makes a new token, and the old one stops working at once, also in a `burrow mcp` that is running. The token is never a command-line argument.
+- Every request needs that header. The token is made once per visitor config, so the app's setup keeps working after a restart. It is kept in a file only you can read (mode 0600, or an access list for you alone on Windows), in burrow's private state folder, next to the [burrow admin](admin.md#security-notes) sessions. `--token-file FILE` keeps it in FILE instead.
+- `--no-print-token` prints only the URL line: use it in a service, or when the output goes to a log or a shared screen. `--print-token` prints just the token and exits.
+- `--new-token` makes a new token. The old one stops working at once, also in a `burrow mcp` that is running. The token is never a command-line argument.
 - Requests from a web page (an `Origin` other than `http://127.0.0.1:<port>` or `http://localhost:<port>`) get 403, so a website cannot reach it through your browser.
 
 The HTTP setups for each app:
@@ -129,7 +138,7 @@ url = "http://127.0.0.1:7838/mcp"
 bearer_token_env_var = "BURROW_MCP_TOKEN"
 ```
 
-Codex reads the token from `BURROW_MCP_TOKEN`, so it stays out of the file: `--print-config codex` also prints the `export BURROW_MCP_TOKEN=...` line for the shell that starts Codex.
+Codex reads the token from `BURROW_MCP_TOKEN`, so it stays out of the file. `--print-config codex` also prints the `export BURROW_MCP_TOKEN=...` line for the shell that starts Codex.
 
 Cursor, in `~/.cursor/mcp.json`:
 
@@ -152,7 +161,8 @@ An AI app that can change your server must not be able to do harm by mistake or 
 
 - **Read-only by default.** Writes need `--allow-write` on your machine and `admin: write` on the server.
 - **Only checked changes are applied.** `apply_change` takes a plan id from `check_change`; the server refuses another change or a config that changed since, and impacts that need confirming must be named.
-- **Secrets never reach the AI.** Results show secrets as fingerprints or `${ENV}` names, the AI cannot generate secrets or ask for connect snippets, and the server's rules from [admin.md](admin.md#security-notes) apply unchanged: admin access can be lowered but never granted or widened, and the last 20 versions are kept and can be reverted.
+- **Secrets never reach the AI.** Results show secrets as fingerprints or `${ENV}` names, and the AI cannot generate secrets or ask for connect snippets.
+- **The server's rules from [admin.md](admin.md#security-notes) apply unchanged:** admin access can be lowered but never granted or widened, and the last 20 versions are kept and can be reverted.
 - **Results are data, not instructions.** Names, host names, log lines and other text in results can be written by outsiders. The tool descriptions tell the AI so, and nothing applies without a diff you can see.
 - **Your app asks you** before each tool call unless you turned that off; keep it on for `apply_change`.
 - Activity in burrow admin shows changes made through `burrow mcp` under the visitor's name.

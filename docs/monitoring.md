@@ -1,16 +1,16 @@
 # Monitoring
 
-Monitoring tells you whether your clients are connected, which services carry traffic, and whether every certificate is fine, before a user notices a problem. This page also covers running burrow at large scale and its logs. There are three ways to see what burrow is doing:
+Monitoring tells you whether your clients are connected, which services carry traffic, and whether every certificate is fine, before a user notices a problem. This page also covers running burrow at large scale, and its logs. There are three ways to see what burrow is doing:
 
 - **`burrow status`** on the server machine: clients, services, visitors and traffic, with no setup.
 - **Prometheus metrics**, off unless you turn them on.
 - **`burrow admin`**, a live dashboard in your browser. See [admin.md](admin.md).
 
-For clients and visitors, use the service commands and logs: `burrow service status` and `burrow service logs -f`. See [service.md](service.md).
+For clients and visitors, use `burrow service status` and `burrow service logs -f` ([service.md](service.md)).
 
 ## burrow status
 
-The quickest look: `burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network.
+`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network.
 
 Run it on the server machine:
 
@@ -23,7 +23,7 @@ burrow status -f --interval 5     # refresh every 5 seconds
 burrow status --json              # the raw data, for scripts
 ```
 
-A server installed as a service needs `sudo` (an administrator terminal on Windows). A server that does not answer is named as such, not taken for stopped. The output looks like this:
+A server installed as a service needs `sudo` (an administrator terminal on Windows). A server that does not answer is shown as not answering, not as stopped. The output looks like this:
 
 ```
 $ sudo burrow status
@@ -78,7 +78,7 @@ A failing certificate gets a line with the reason, and a link when Let's Encrypt
 - **at limit** after a client's state: in the last minute the client refused new connections because it reached its `max_connections`. In `--json`, `at_limit` is true, and `busy_total` counts those refusals since the server started.
 - **REFUSED:** connections the service refused: a blocked source address, a limit (the service's own, or a client that answered busy at its `max_connections`), or no client to serve it.
 - **IN:** bytes from users to the target. **OUT:** bytes back to users.
-- **LAST USED** of a visitor: `now` while it has connections open, otherwise how long ago it last opened or closed one, or a running `burrow visit` or `burrow init visitor` last checked in (`2 min ago`), or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
+- **LAST USED** of a visitor: `now` while it has connections open. Otherwise, how long ago it last opened or closed one, or a running `burrow visit` or `burrow init visitor` last checked in (`2 min ago`); or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
 - **CLIENTS** of a service: whether each client can serve it now. `failing` or `refused` means the client could not reach the target or its `allow` list refused it, so it is skipped for a while.
 - **refused handshakes:** connections that failed to log in, because of a wrong secret, an unknown name or a limit.
 
@@ -106,7 +106,7 @@ scrape_configs:
 
 Let's Encrypt no longer sends expiry emails, so alert on certificates yourself, for example when `burrow_certificate_expiry_timestamp_seconds - time()` drops below 14 days.
 
-Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone who reaches it sees the names of your clients, services and visitors, and their traffic.
+Keep `listen` on `127.0.0.1` unless a firewall limits who can connect. Anyone who reaches it sees the names of your clients, services and visitors, and their traffic.
 
 <details>
 <summary><b>All metrics</b></summary>
@@ -133,7 +133,7 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone wh
 
 ## Running at scale
 
-burrow handles many connections at once; past tens of thousands, the operating system's limits matter more than burrow's. Measured on Linux with idle connections:
+Past tens of thousands of connections, the operating system's limits matter more than burrow's. Measured on Linux with idle connections:
 
 | | memory per idle connection | 100,000 idle connections |
 | --- | --- | --- |
@@ -142,7 +142,9 @@ burrow handles many connections at once; past tens of thousands, the operating s
 
 The 100,000 connections opened in 5 seconds.
 
-**Limits per client.** A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once, and the server keeps at most `limits.max_connections_per_client` (8192) connections per client. Beyond these limits new connections are refused, and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit` and the client logs a warning at most once a minute. Raise the limits in client.yaml and server.yaml; a saved file applies at once. Above about 28,000 connections through one client, also widen the local port range (see below):
+**Limits per client.** A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once. The server keeps at most `limits.max_connections_per_client` (8192) connections per client. Beyond these limits, new connections are refused and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit`, and the client logs a warning at most once a minute.
+
+Raise the limits in client.yaml and server.yaml; a saved file applies at once. Above about 28,000 connections through one client, also widen the local port range (see below):
 
 ```yaml
 # client.yaml
@@ -167,20 +169,20 @@ limits:
   ```
 
   When it is full, the kernel logs "nf_conntrack: table full, dropping packet" and new connections time out.
-- **Local ports:** a machine opens about 28,000 connections from one source address to one address and port. Every connection through a client also needs a channel from the client to the server's address, so one client keeps at most about 28,000 connections open, whatever their targets. Widen the range, or spread the load over several clients on other machines or with other server addresses:
+- **Local ports:** a machine opens about 28,000 connections from one source address to one address and port. Every connection through a client also needs a channel from the client to the server's address. So one client keeps at most about 28,000 connections open, whatever their targets. Widen the range, or spread the load over several clients on other machines or with other server addresses:
 
   ```
   sysctl net.ipv4.ip_local_port_range
   sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
   ```
 
-- **Open files:** every connection uses open files on the server and the client. burrow raises its own limit to the hard limit at start, so the hard limit is what counts. `burrow service install` sets 1048576 on Linux. For a burrow you run by hand, raising the hard limit needs root: set `nofile` in `/etc/security/limits.conf`, or `LimitNOFILE=` in your own systemd unit. If the limit is too small, the client lowers `max_connections` and `max_udp_peers` to fit; it logs a warning when it lowers a value you set.
+- **Open files:** every connection uses open files on the server and the client. burrow raises its own limit to the hard limit at start, so the hard limit is what counts. `burrow service install` sets 1048576 on Linux. For a burrow you run by hand, raising the hard limit needs root: set `nofile` in `/etc/security/limits.conf`, or `LimitNOFILE=` in your own systemd unit. If the limit is too small, the client lowers `max_connections` and `max_udp_peers` to fit, and logs a warning when it lowers a value you set.
 
 To keep a `sysctl -w` change after a reboot, put the same line, without `sudo sysctl -w`, in a file such as `/etc/sysctl.d/90-burrow.conf`.
 
 ## Logs
 
-The log says what burrow does and why something failed. burrow logs to the terminal by default. These options work with every command:
+The log says what burrow does and why something failed. burrow logs to the terminal by default, and these options work with every command:
 
 | option | meaning |
 | --- | --- |
@@ -189,7 +191,7 @@ The log says what burrow does and why something failed. burrow logs to the termi
 | `--log-json` | one JSON object per line, for log collectors |
 | `--log-file FILE` | write to this file, rotated at 10 MB with 5 old files kept |
 
-An installed service writes its log to a file; `burrow service logs -f` follows it. See [service.md](service.md).
+An installed service writes its log to a file, and `burrow service logs -f` follows it ([service.md](service.md)).
 
 ## Next steps
 
