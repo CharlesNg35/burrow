@@ -22,7 +22,7 @@ pub(super) fn object_toggle(
                 <burrow_ui_kit::Toggle
                     id=id
                     checked=is_set
-                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
+                    label=Signal::derive(move || if is_set.get() { "On".to_string() } else { "Off".to_string() })
                     on_change=move |on: bool| {
                         e.set(&p, on.then(|| Value::Object(Default::default())));
                     }

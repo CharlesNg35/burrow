@@ -165,27 +165,35 @@ fn object_row(p: &Parts, n: Node, lock_here: bool, hint: String) -> AnyView {
     let (p4, sp4, en4) = (path.clone(), spath.clone(), entity.clone());
     let body = move || {
         if !optional || is_set.get() {
-            object_view(&n, p4.clone(), sp4.clone(), en4.clone())
+            let inside = object_view(&n, p4.clone(), sp4.clone(), en4.clone());
+            view! { <div class="mt-2 rounded-[10px] border border-border bg-surface px-3.5 py-3 dark:bg-surface-2">{inside}</div> }.into_any()
+        } else if optional && can && editing.try_get().unwrap_or(false) {
+            view! { <span hidden data-testid="not-set"></span> }.into_any()
         } else {
-            view! { <p class="text-sm text-text-muted" data-testid="not-set">{none_label.clone()}</p> }
+            view! { <p class="mt-1 text-sm text-text-muted" data-testid="not-set">{none_label.clone()}</p> }
                 .into_any()
         }
     };
     let visible = Memo::new(move |_| st.with(|s| s.visible));
     let (jp, js) = (join(&path), join(&spath));
+    let show_keys = use_context::<ShowKeys>().map(|k| k.0).unwrap_or(false);
+    let key_hint = if show_keys {
+        path.join(".\u{200b}")
+    } else {
+        String::new()
+    };
+    let id = field_id(&path);
     (move || {
         visible.get().then(|| {
-            let (toggle, body) = (toggle.clone(), body.clone());
+            let (toggle, body, hint) = (toggle.clone(), body.clone(), hint.clone());
             view! {
-                <fieldset class="rounded-[10px] border border-border bg-surface px-3.5 py-3 md:col-span-2 dark:bg-surface-2" data-path=jp.clone() data-schema=js.clone()>
-                    <legend class="px-1 text-sm font-semibold">{label.clone()}</legend>
-                    <div class="mb-3 flex flex-wrap items-center gap-3">
-                        <p class="flex-1 text-xs text-text-muted">{help.clone()}</p>
+                <FieldRow id=format!("{id}-block") label=label.clone() help=help.clone() path=jp.clone() schema_path=js.clone() key_hint=key_hint.clone() table=show_keys wide=true>
+                    <div class="flex flex-wrap items-center gap-3">
                         {lock_here.then(|| view! { <burrow_ui_kit::LockLine text=hint.clone() testid="locked-hint"/> })}
                         {toggle}
                     </div>
                     {body}
-                </fieldset>
+                </FieldRow>
             }
         })
     })
