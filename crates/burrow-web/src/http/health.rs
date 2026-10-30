@@ -1,12 +1,12 @@
 use bytes::Bytes;
 use http::header::{ACCEPT, CONNECTION, HOST, USER_AGENT};
 use http::uri::PathAndQuery;
-use http::{HeaderValue, Request, StatusCode, Uri, Version};
+use http::{HeaderValue, Request, Response, StatusCode, Uri, Version};
 use http_body_util::Empty;
+use hyper::body::Incoming;
 use hyper_util::rt::TokioIo;
 
 use super::site::{Hop, hop};
-use super::{MAX_HEAD, MAX_HEADERS};
 use crate::{BoxIo, SiteOptions};
 
 pub struct HealthCheck {
@@ -103,18 +103,9 @@ impl HealthCheck {
 
     async fn secure(&self, io: BoxIo) -> Result<BoxIo, String> {
         match &self.hop {
-            Ok(Hop::Plain) => Ok(io),
-            Ok(Hop::Tls(connector, name)) => match connector.connect(name.clone(), io).await {
-                Ok(tls)
-                    if self.http2
-                        && tls.get_ref().1.alpn_protocol() != Some(crate::terminate::H2) =>
-                {
-                    Err("the app did not agree to HTTP/2 over TLS (ALPN h2)".into())
-                }
-                Ok(tls) => Ok(Box::new(tls)),
-                Err(e) => Err(format!("TLS to the app failed: {e}")),
-            },
-            Ok(Hop::Broken) => Err("target_tls cannot be used".into()),
+            Ok(how) => super::upstream::hop(io, how, self.http2)
+                .await
+                .map_err(|e| e.to_string()),
             Err(e) => Err(format!("target_tls: {e}")),
         }
     }
@@ -130,23 +121,11 @@ impl HealthCheck {
     }
 
     async fn over_h1(&self, io: TokioIo<BoxIo>) -> Result<StatusCode, String> {
-        let (mut tx, conn) = hyper::client::conn::http1::Builder::new()
-            .max_header_size(MAX_HEAD)
-            .max_headers(MAX_HEADERS)
+        let (mut tx, conn) = super::h2::app_http1()
             .handshake(io)
             .await
             .map_err(|e| no_http(&e))?;
-        let send = tx.send_request(self.h1_request());
-        tokio::pin!(conn, send);
-        let answer = tokio::select! {
-            biased;
-            r = &mut send => r,
-            r = &mut conn => match r {
-                Ok(()) => send.await,
-                Err(e) => return Err(no_http(&e)),
-            },
-        };
-        Ok(answer.map_err(|e| no_http(&e))?.status())
+        answered(tx.send_request(self.h1_request()), conn).await
     }
 
     async fn over_h2(&self, io: TokioIo<BoxIo>) -> Result<StatusCode, String> {
@@ -155,18 +134,25 @@ impl HealthCheck {
             .handshake(io)
             .await
             .map_err(|e| no_http(&e))?;
-        let send = tx.send_request(req);
-        tokio::pin!(conn, send);
-        let answer = tokio::select! {
-            biased;
-            r = &mut send => r,
-            r = &mut conn => match r {
-                Ok(()) => send.await,
-                Err(e) => return Err(no_http(&e)),
-            },
-        };
-        Ok(answer.map_err(|e| no_http(&e))?.status())
+        answered(tx.send_request(req), conn).await
     }
+}
+
+async fn answered<S, C>(send: S, conn: C) -> Result<StatusCode, String>
+where
+    S: Future<Output = hyper::Result<Response<Incoming>>>,
+    C: Future<Output = hyper::Result<()>>,
+{
+    tokio::pin!(conn, send);
+    let answer = tokio::select! {
+        biased;
+        r = &mut send => r,
+        r = &mut conn => match r {
+            Ok(()) => send.await,
+            Err(e) => return Err(no_http(&e)),
+        },
+    };
+    Ok(answer.map_err(|e| no_http(&e))?.status())
 }
 
 #[cfg(test)]

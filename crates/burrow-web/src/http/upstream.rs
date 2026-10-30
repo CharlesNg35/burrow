@@ -44,21 +44,40 @@ pub(crate) enum Failed {
     Broken,
 }
 
-pub(super) async fn hop(io: BoxIo, how: &Hop, http2: bool) -> Result<BoxIo, Failed> {
+pub(super) enum HopError {
+    NoH2,
+    Tls(std::io::Error),
+    Broken,
+}
+
+impl std::fmt::Display for HopError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HopError::NoH2 => f.write_str("the app did not agree to HTTP/2 over TLS (ALPN h2)"),
+            HopError::Tls(e) => write!(f, "TLS to the app failed: {e}"),
+            HopError::Broken => f.write_str("target_tls cannot be used"),
+        }
+    }
+}
+
+impl From<HopError> for Failed {
+    fn from(e: HopError) -> Failed {
+        debug!("web: {e}");
+        Failed::Broken
+    }
+}
+
+pub(super) async fn hop(io: BoxIo, how: &Hop, http2: bool) -> Result<BoxIo, HopError> {
     match how {
         Hop::Plain => Ok(io),
         Hop::Tls(connector, name) => match connector.connect(name.clone(), io).await {
             Ok(tls) if http2 && tls.get_ref().1.alpn_protocol() != Some(crate::terminate::H2) => {
-                debug!("web: the app did not agree to HTTP/2 over TLS (ALPN h2)");
-                Err(Failed::Broken)
+                Err(HopError::NoH2)
             }
             Ok(tls) => Ok(Box::new(tls)),
-            Err(e) => {
-                debug!("web: TLS to the app failed: {e}");
-                Err(Failed::Broken)
-            }
+            Err(e) => Err(HopError::Tls(e)),
         },
-        Hop::Broken => Err(Failed::Broken),
+        Hop::Broken => Err(HopError::Broken),
     }
 }
 
