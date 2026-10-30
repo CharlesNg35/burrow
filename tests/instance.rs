@@ -11,11 +11,15 @@ struct Setup {
 }
 
 fn setup() -> Setup {
+    setup_with("", "")
+}
+
+fn setup_with(top: &str, services: &str) -> Setup {
     let dir = tempfile::tempdir().unwrap();
     let locks = tempfile::tempdir().unwrap();
     let secret = burrow::wire::secret::Secret::generate().encode();
     let cfg = format!(
-        "listen: 127.0.0.1:{}\nclients:\n  home:\n    secret: {secret}\nservices:\n  web:\n    client: home\n    bind: 127.0.0.1:{}\n    target: 127.0.0.1:3000\n",
+        "listen: 127.0.0.1:{}\nclients:\n  home:\n    secret: {secret}\n{top}services:\n  web:\n    client: home\n    bind: 127.0.0.1:{}\n    target: 127.0.0.1:3000\n{services}",
         free_port(),
         free_port()
     );
@@ -65,6 +69,56 @@ fn second_start_is_refused_and_crash_releases_the_lock() {
     wait_running(&mut third);
     third.kill().unwrap();
     third.wait().unwrap();
+}
+
+#[cfg(feature = "web")]
+#[test]
+fn a_second_server_that_fails_the_lock_leaves_the_uploads_alone() {
+    let s = setup_with(
+        &format!("web:\n  http: 127.0.0.1:{}\n", free_port()),
+        "  site:\n    client: home\n    target: 127.0.0.1:8080\n    web: { hosts: [example.com], tls: off }\n",
+    );
+    let state = s.dir.path().join("state");
+    let files = state.join("files");
+    std::fs::create_dir_all(&files).unwrap();
+    let old = files.join("pair-00000000000000aa.pem");
+    std::fs::write(&old, "x").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    let config = s.dir.path().join("server.yaml");
+    let identity = burrow::instance::Identity::server(&config);
+    let held = burrow::instance::acquire_in(s.locks.path(), &identity, &config).unwrap();
+    let server = || {
+        let mut c = burrow(&s);
+        c.arg("server").arg("--state-dir").arg(&state);
+        c
+    };
+
+    let second = server().output().unwrap();
+    assert_eq!(second.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&second.stderr);
+    assert!(err.contains("is already running"), "{err}");
+    assert!(old.exists(), "the refused server removed an upload");
+
+    drop(held);
+    let mut first = server().spawn().unwrap();
+    let start = Instant::now();
+    while old.exists() && start.elapsed() < Duration::from_secs(10) {
+        assert!(first.try_wait().unwrap().is_none(), "server exited early");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    first.kill().unwrap();
+    let out = first.wait_with_output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !old.exists(),
+        "the running server keeps an unused upload: {err}"
+    );
+    assert!(err.contains("removed 1 uploaded files"), "{err}");
 }
 
 #[test]

@@ -388,9 +388,9 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             path.display()
         )));
     };
-    crate::server::uploads::prune_unused(&settings, &cfg);
     let _instance = instance::acquire(&Identity::server(path), path)?;
     init_logging(&logging)?;
+    crate::server::uploads::prune_unused(&settings, &cfg);
     drive(async move {
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
