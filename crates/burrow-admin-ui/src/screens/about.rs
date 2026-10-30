@@ -19,13 +19,13 @@ pub fn About() -> impl IntoView {
         let schema = s.schema.get()?;
         let level = w.you.level.wire();
         let writable = if st.file.writable {
-            "yes".to_string()
+            "Yes".to_string()
         } else {
             st.file
                 .why_not
                 .as_ref()
-                .map(|w| format!("no: {}", w.message))
-                .unwrap_or_else(|| "no".into())
+                .map(|w| format!("No: {}", w.message))
+                .unwrap_or_else(|| "No".into())
         };
         let facts: Vec<(&str, String)> = vec![
             (
@@ -67,7 +67,7 @@ pub fn About() -> impl IntoView {
                 format!("{} · admin {level} · from {}", w.you.visitor, w.you.from),
             ),
             ("Config file", st.file.path.clone()),
-            ("Format", st.file.format.clone()),
+            ("Format", st.file.format.to_uppercase()),
             ("Writable", writable),
             (
                 "History",
@@ -93,6 +93,7 @@ pub fn About() -> impl IntoView {
         <PageHeader sub="Versions and where the config lives">"About"</PageHeader>
         <Card>
             {rows}
+            <div class="mt-4">
             <Button
                 label=Signal::derive(move || if copied.get() { "Copied".to_string() } else { "Copy diagnostics".to_string() })
                 testid="copy-diagnostics"
@@ -101,6 +102,7 @@ pub fn About() -> impl IntoView {
                     copied.set(true);
                 }
             />
+            </div>
         </Card>
         </div>
     }
