@@ -49,6 +49,7 @@ pub(super) fn Header() -> impl IntoView {
         CURRENT.to_string()
     });
     let read_only = Memo::new(move |_| s.conn.get() == Conn::Open && !s.can_write());
+    let ended = Memo::new(move |_| s.conn.with(Conn::is_final));
     let why_open = RwSignal::new(false);
     let retry_open = RwSignal::new(false);
     popover(menu_open, "server-switcher", "server-menu");
@@ -90,7 +91,7 @@ pub(super) fn Header() -> impl IntoView {
             <div class="relative flex min-w-0 items-center gap-2.5">
                 {mobile_back(s)}
                 <span class=move || format!("flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" }) aria-hidden="true"><Icon name="logo" large=true/></span>
-                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
+                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised disabled:cursor-default disabled:hover:bg-transparent" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" disabled=move || ended.get() title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>
                     </span>
@@ -105,11 +106,11 @@ pub(super) fn Header() -> impl IntoView {
                     </div>
                 </Show>
             </div>
-            <nav aria-label="Sections" class="min-w-0 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 dark:border-hdr-raised-2">
+            <nav aria-label="Sections" inert=move || ended.get().then_some("") class:opacity-50=move || ended.get() class="min-w-0 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 dark:border-hdr-raised-2">
                 <ScrollRow active=current_tab class="gap-0.5" testid="nav-row">{nav}</ScrollRow>
             </nav>
             <div class="flex items-center justify-end gap-3" data-testid="header-right">
-                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
+                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised disabled:cursor-not-allowed disabled:opacity-50" aria-label="Search (/)" title="Search (/)" data-testid="search-open" disabled=move || ended.get() on:click=move |_| s.search_open.set(true)>
                     <Icon name="search"/>
                 </button>
                 <button

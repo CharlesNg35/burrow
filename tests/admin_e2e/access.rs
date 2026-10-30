@@ -433,6 +433,14 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             "an ended session does not retry"
         );
         c.ui.shot("admin-session-ended").await;
+        let live: bool = c
+            .ui
+            .eval("!document.querySelector('[data-testid=search-open]').disabled || !document.querySelector('[data-testid=server-switcher]').disabled || !document.querySelector('nav[aria-label=Sections]').inert")
+            .await;
+        assert!(
+            !live,
+            "after the session ends the header's controls do nothing and say so"
+        );
         c.ui.take_errors();
     })
 }

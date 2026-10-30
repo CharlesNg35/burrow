@@ -129,7 +129,12 @@ pub fn App() -> impl IntoView {
                 s.search_open.set(false);
                 return;
             }
-            if e.ctrl_key() || e.meta_key() || e.alt_key() || typing_now() {
+            if e.ctrl_key()
+                || e.meta_key()
+                || e.alt_key()
+                || typing_now()
+                || s.conn.with_untracked(Conn::is_final)
+            {
                 return;
             }
             match e.key().as_str() {
