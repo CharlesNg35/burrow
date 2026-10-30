@@ -72,11 +72,12 @@ pub fn logins(doc: &Value) -> Map<String, Value> {
 }
 
 pub fn chosen(site: &Value, logins: &Map<String, Value>) -> Option<String> {
-    match WebSite::FORWARD_AUTH.get(site)? {
-        Value::String(n) => Some(n.trim().to_string()),
-        Value::Bool(true) if logins.len() == 1 => logins.keys().next().cloned(),
-        _ => None,
-    }
+    let setting: burrow_config::ForwardAuthSetting =
+        burrow_admin_proto::serde_json::from_value(WebSite::FORWARD_AUTH.get(site)?.clone())
+            .ok()?;
+    setting
+        .chosen_name(logins.keys().map(String::as_str))
+        .map(str::to_string)
 }
 
 pub fn used_by(doc: &Value, name: &str) -> Vec<String> {

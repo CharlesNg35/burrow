@@ -66,23 +66,28 @@ impl ForwardAuthSetting {
         !matches!(self, ForwardAuthSetting::On(false))
     }
 
-    pub fn pick<'a>(&'a self, logins: &'a BTreeMap<String, ForwardAuthConfig>) -> LoginPick<'a> {
+    pub fn chosen_name<'a>(
+        &'a self,
+        mut names: impl ExactSizeIterator<Item = &'a str>,
+    ) -> Option<&'a str> {
         match self {
-            ForwardAuthSetting::On(false) => LoginPick::Off,
-            ForwardAuthSetting::On(true) => match logins.len() {
-                0 => LoginPick::NoneDefined,
-                1 => logins
-                    .iter()
-                    .next()
-                    .map_or(LoginPick::NoneDefined, |(n, f)| LoginPick::Found(n, f)),
-                _ => LoginPick::Unclear,
-            },
-            ForwardAuthSetting::Name(n) => {
-                let n = n.trim();
-                logins
+            ForwardAuthSetting::On(false) => None,
+            ForwardAuthSetting::On(true) => (names.len() == 1).then(|| names.next()).flatten(),
+            ForwardAuthSetting::Name(n) => Some(n.trim()),
+        }
+    }
+
+    pub fn pick<'a>(&'a self, logins: &'a BTreeMap<String, ForwardAuthConfig>) -> LoginPick<'a> {
+        match (self, logins.len()) {
+            (ForwardAuthSetting::On(false), _) => LoginPick::Off,
+            (ForwardAuthSetting::On(true), 0) => LoginPick::NoneDefined,
+            (ForwardAuthSetting::On(true), n) if n > 1 => LoginPick::Unclear,
+            _ => match self.chosen_name(logins.keys().map(String::as_str)) {
+                Some(n) => logins
                     .get_key_value(n)
-                    .map_or(LoginPick::Unknown(n), |(k, f)| LoginPick::Found(k, f))
-            }
+                    .map_or(LoginPick::Unknown(n), |(k, f)| LoginPick::Found(k, f)),
+                None => LoginPick::NoneDefined,
+            },
         }
     }
 }
