@@ -176,3 +176,37 @@ fn password_set_writes_only_a_password_field() {
         assert!(e.message.contains("is not a password"), "{}", e.message);
     }
 }
+
+#[test]
+fn secrets_and_passwords_share_one_cap_that_holds_under_parallel_hashing() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    for _ in 0..crate::admin::core::MAX_PENDING_SECRETS - 1 {
+        core.generate_secret(&s).unwrap();
+    }
+    let ask = |s: &crate::admin::core::Session| {
+        dispatch(
+            &core,
+            s,
+            req::HASH_PASSWORD,
+            &json!({ "password": "correct horse" }),
+        )
+    };
+    let answers: Vec<_> = std::thread::scope(|scope| {
+        let running: Vec<_> = (0..crate::admin::MAX_INFLIGHT)
+            .map(|_| scope.spawn(|| ask(&s)))
+            .collect();
+        running.into_iter().map(|t| t.join().unwrap()).collect()
+    });
+    let held = answers.iter().filter(|a| a.is_ok()).count();
+    assert_eq!(held, 1, "only one free place was left");
+    for a in answers.iter().filter_map(|a| a.as_ref().err()) {
+        assert_eq!(a.code, ErrorCode::Busy, "{}", a.message);
+    }
+    assert_eq!(
+        core.generate_secret(&s).err().map(|e| e.code),
+        Some(ErrorCode::Busy)
+    );
+    assert_eq!(ask(&s).err().map(|e| e.code), Some(ErrorCode::Busy));
+}

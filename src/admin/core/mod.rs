@@ -18,6 +18,7 @@ pub use dispatch::{dispatch, ok, parse};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use burrow_admin_proto::msg::{
@@ -34,6 +35,7 @@ use crate::wire::secret::Secret;
 use ports::{Env, Live, Store};
 
 pub const MAX_PENDING_SECRETS: usize = 16;
+pub const SECRET_PREFIX: &str = "s";
 pub const PENDING_SECRET_TTL: Duration = Duration::from_secs(30 * 60);
 const AUDIT_RING: usize = 200;
 
@@ -84,7 +86,7 @@ pub struct Session {
     pub via_websocket: bool,
     pub client: String,
     pending: Mutex<Vec<Pending>>,
-    next_handle: Mutex<u64>,
+    next_handle: AtomicU64,
 }
 
 impl Session {
@@ -104,13 +106,45 @@ impl Session {
             via_websocket,
             client,
             pending: Mutex::new(Vec::new()),
-            next_handle: Mutex::new(0),
+            next_handle: AtomicU64::new(0),
         }
     }
 
     fn prune(&self) {
         let mut p = self.pending.lock().expect("pending lock");
         p.retain(|s| s.at.elapsed() < PENDING_SECRET_TTL);
+    }
+
+    fn full(pending: &[Pending]) -> Result<(), ApiError> {
+        if pending.len() < MAX_PENDING_SECRETS {
+            return Ok(());
+        }
+        Err(ApiError::new(
+            ErrorCode::Busy,
+            format!(
+                "at most {MAX_PENDING_SECRETS} unused secrets and passwords per session; apply or reload the page"
+            ),
+        ))
+    }
+
+    fn has_room(&self) -> Result<(), ApiError> {
+        self.prune();
+        Session::full(&self.pending.lock().expect("pending lock"))
+    }
+
+    fn hold(&self, prefix: &str, value: Zeroizing<String>, fp: String) -> Result<String, ApiError> {
+        self.prune();
+        let mut pending = self.pending.lock().expect("pending lock");
+        Session::full(&pending)?;
+        let n = self.next_handle.fetch_add(1, Ordering::Relaxed) + 1;
+        let handle = format!("{prefix}{n}");
+        pending.push(Pending {
+            handle: handle.clone(),
+            value,
+            fp,
+            at: Instant::now(),
+        });
+        Ok(handle)
     }
 
     pub fn pending_secret(&self, handle: &str) -> Option<(String, String)> {
@@ -376,27 +410,9 @@ impl Core {
                 "read access cannot generate secrets",
             ));
         }
-        s.prune();
-        let mut pending = s.pending.lock().expect("pending lock");
-        if pending.len() >= MAX_PENDING_SECRETS {
-            return Err(ApiError::new(
-                ErrorCode::Busy,
-                format!(
-                    "at most {MAX_PENDING_SECRETS} unused generated secrets per session; apply or reload the page"
-                ),
-            ));
-        }
-        let mut n = s.next_handle.lock().expect("handle lock");
-        *n += 1;
         let secret = Secret::generate();
-        let handle = format!("s{n}");
         let fp = secret.fingerprint();
-        pending.push(Pending {
-            handle: handle.clone(),
-            value: Zeroizing::new(secret.encode()),
-            fp: fp.clone(),
-            at: Instant::now(),
-        });
+        let handle = s.hold(SECRET_PREFIX, Zeroizing::new(secret.encode()), fp.clone())?;
         Ok(GeneratedSecret { handle, fp })
     }
 
