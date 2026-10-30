@@ -166,3 +166,12 @@ pub fn Drawer(
         </Show>
     }
 }
+
+const TIP: &str = "pointer-events-none absolute z-10 rounded-[6px] bg-tip px-2 py-1 text-xs whitespace-nowrap text-tip-text shadow-overlay";
+
+#[component]
+pub fn Tooltip(x: f64, y: f64, #[prop(into)] text: String) -> impl IntoView {
+    view! {
+        <div class=TIP role="tooltip" data-testid="tooltip" style:left=format!("{x:.0}px") style:top=format!("{y:.0}px")>{text}</div>
+    }
+}

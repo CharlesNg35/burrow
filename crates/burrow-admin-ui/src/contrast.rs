@@ -193,3 +193,11 @@ fn the_ratio_matches_known_values() {
     assert!((ratio([0.0; 3], [255.0; 3]) - 21.0).abs() < 1e-9);
     assert!((ratio([255.0; 3], [255.0; 3]) - 1.0).abs() < 1e-9);
 }
+
+#[test]
+fn the_one_tooltip_uses_the_tip_colours_in_both_themes() {
+    let kit = include_str!("../../burrow-ui-kit/src/overlay.rs");
+    assert!(kit.contains("bg-tip") && kit.contains("text-tip-text"));
+    let flow = include_str!("screens/flow/view.rs");
+    assert!(flow.contains("<Tooltip") && !flow.contains("bg-tip"));
+}
