@@ -126,7 +126,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             })}
             {(!empty).then(|| diff_section(&plan, lines, added, removed, split))}
             {destructive.then(|| view! {
-                <div class="mb-6 rounded-[10px] border border-l-[3px] border-border border-l-danger bg-danger-weak/50 p-3.5 dark:bg-surface" data-testid="confirms">
+                <div class=format!("mb-6 rounded-[10px] p-3.5 {}", burrow_ui_kit::DANGER_CARD) data-testid="confirms">
                     <p class="flex items-center gap-2 text-sm font-semibold text-danger"><Icon name="alert"/>"Destructive change"</p>
                     {confirms}
                 </div>
