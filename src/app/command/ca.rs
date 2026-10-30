@@ -96,11 +96,7 @@ fn read(path: &Path, state: &Path) -> Result<Vec<u8>, Failure> {
         ),
         _ => Failure::new(format!("cannot read {}: {e}", path.display())),
     };
-    let mut opts = std::fs::OpenOptions::new();
-    opts.read(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut opts, libc::O_NOFOLLOW);
-    let file = opts.open(path).map_err(|e| {
+    let file = crate::base::fs::open_plain(path).map_err(|e| {
         if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
             Failure::new(format!(
                 "{} is a link, not burrow's own file, so it is not read",
@@ -110,9 +106,9 @@ fn read(path: &Path, state: &Path) -> Result<Vec<u8>, Failure> {
             fail(e)
         }
     })?;
-    if !file.metadata().map_err(fail)?.is_file() {
+    let Some(file) = file else {
         return Err(Failure::new(format!("{} is not a file", path.display())));
-    }
+    };
     let mut bytes = Vec::new();
     file.take(MAX_ROOT_FILE)
         .read_to_end(&mut bytes)
@@ -242,5 +238,28 @@ mod tests {
             );
             assert!(out.is_empty());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_planted_as_the_root_file_is_refused_without_waiting() {
+        let state = tempfile::tempdir().unwrap();
+        let ca = state.path().join("ca");
+        std::fs::create_dir_all(&ca).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(ca.join("root.pem"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let dir = state.path().to_path_buf();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let e = export(&args(&dir, false, None), &mut Vec::new()).unwrap_err();
+            tx.send(e.message).unwrap();
+        });
+        let message = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the export does not wait on the fifo");
+        assert!(message.ends_with("is not a file"), "{message}");
     }
 }
