@@ -20,7 +20,7 @@ pub fn tag_class(tone: Tone) -> String {
     )
 }
 
-pub fn field_message(tone: Tone, m: String) -> AnyView {
+pub fn field_message(tone: Tone, m: impl IntoView + 'static) -> AnyView {
     let (icon, class) = match tone {
         Tone::Danger => ("alert-circle", "text-danger"),
         Tone::Warning => ("alert", "text-warning"),
@@ -83,7 +83,11 @@ pub fn FieldRow(
             .or(s.info.map(|m| field_message(Tone::Info, m)))
     };
     let help_text = move || {
-        (has_help && !quiet && !hide_help.get() && state.with(|s| s.error.is_none())).then(|| {
+        (has_help
+            && !quiet
+            && !hide_help.get()
+            && state.with(|s| s.error.is_none() && s.disabled_reason.is_none()))
+        .then(|| {
             let help = help.clone();
             let id = help_id.clone();
             view! { <p class="mt-1.5 text-xs text-text-muted" id=id>{help}</p> }
