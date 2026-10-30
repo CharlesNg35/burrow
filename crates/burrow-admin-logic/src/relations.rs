@@ -64,6 +64,8 @@ fn tri(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> Option<bool> {
     }
 }
 
+pub const PICK_ONE: &str = "pick at least one";
+
 pub fn holds(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> bool {
     tri(c, get).unwrap_or(true)
 }
@@ -148,7 +150,7 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
         let set: Vec<&String> = keys.iter().filter(|k| set_in(value, k)).collect();
         let names = keys.join(" or ");
         match set.len() {
-            0 => out.push((keys[0].clone(), format!("set {names}"))),
+            0 => out.push((keys[keys.len() - 1].clone(), PICK_ONE.into())),
             1 => {}
             _ => {
                 for k in set {
@@ -296,10 +298,7 @@ mod tests {
         assert_eq!(both.len(), 2, "{both:?}");
         assert!(both[0].1.contains("only one of client or clients"));
         let none = entity_problems(svc, &json!({"target": 2}));
-        assert_eq!(
-            none,
-            vec![("client".into(), "set client or clients".into())]
-        );
+        assert_eq!(none, vec![("clients".into(), PICK_ONE.into())]);
         let ranges = entity_problems(
             svc,
             &json!({"client": "a", "bind": "7000-7002", "target": "3000-3001"}),

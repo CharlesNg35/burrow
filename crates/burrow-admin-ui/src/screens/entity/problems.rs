@@ -276,7 +276,7 @@ pub(super) fn problem_list(
     view! {
         <div class="mb-4" data-testid="form-problems">
             <Callout tone=Tone::Danger title=title>
-                <p class="mb-1.5">"Fix them to save:"</p>
+                <p class="mb-1.5">{if n == 1 { "Fix it to save:" } else { "Fix them to save:" }}</p>
                 <ul class="space-y-1">
                     {problems.into_iter().map(|p| {
                         let path = p.path.clone();
