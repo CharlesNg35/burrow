@@ -198,6 +198,18 @@ docker run -d --name burrow -p 7835:7835 -p 7840:7840 --user "$(id -u):$(id -g)"
 - Mount the folder that holds the config, not the file. An editor that saves by writing a new file would leave a file mount on the old one, and the change would never apply.
 - Publish each service's port with `-p`, and the clients' port 7835.
 
+A server with `web:` keeps its certificates, its Let's Encrypt account and its local CA in a state folder. In a container, give that folder a writable volume, name it with `--state-dir`, and publish ports 443 and 80:
+
+```sh
+mkdir -p burrow-state
+docker run -d --name burrow -p 7835:7835 -p 443:443 -p 80:80 --user "$(id -u):$(id -g)" \
+  -v "$PWD/burrow:/etc/burrow:ro" -v "$PWD/burrow-state:/var/lib/burrow" \
+  ghcr.io/charlesng35/burrow server -c /etc/burrow/server.yaml --state-dir /var/lib/burrow
+```
+
+- Without the volume, the folder is inside the container: a new container starts with a new account and orders every certificate again, and Let's Encrypt gives at most 5 certificates for the same names a week. With `--user` and no `--state-dir`, the folder would be under `/`, where the user cannot write.
+- Docker lets a container's user listen on ports below 1024 by default (since Docker 20.10), so the image's non-root user can serve 443 and 80.
+
 <details>
 <summary><b>Docker Compose: a server and a client</b></summary>
 

@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Pull Pebble 2.10.1 and pebble-challtestsrv 2.10.1
-        run: docker pull ghcr.io/letsencrypt/pebble:2.10.1 && docker pull ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
+        run: docker pull ghcr.io/letsencrypt/pebble:2.10.1@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199 && docker pull ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1@sha256:12ce21884def456bcf9786542113949e1f19dc7738d2c70e156c2d0c38a1405b
       - name: Certificates from Let's Encrypt's test server, Pebble in strict mode, then with half of all nonces refused
         env:
           BURROW_PEBBLE: "1"
