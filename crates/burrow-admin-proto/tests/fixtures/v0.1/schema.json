@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:f7bdffd2230da8e4",
+  "hash": "b2s:3b8ca49ffeca33b9",
   "root": {
     "label": "Server",
     "sem": {
@@ -324,7 +324,7 @@
                                   "key": "path",
                                   "node": {
                                     "label": "Path",
-                                    "help": "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/nginx for authentik",
+                                    "help": "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/caddy for authentik",
                                     "sem": {
                                       "t": "url_path"
                                     },

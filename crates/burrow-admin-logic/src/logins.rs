@@ -36,14 +36,14 @@ pub const PRESETS: [Preset; 3] = [
             "X-Authentik-Name",
             "X-Authentik-Uid",
         ],
-        note: "needs a Proxy provider in forward auth mode on authentik's embedded outpost",
+        note: "Needs a Proxy provider in forward auth mode on authentik's embedded outpost.",
     },
     Preset {
         kind: "oauth2-proxy",
         name: "oauth2-proxy",
         path: "/oauth2/auth",
         headers: &["X-Auth-Request-User", "X-Auth-Request-Email"],
-        note: "start oauth2-proxy with --reverse-proxy and --set-xauthrequest so it sends these headers",
+        note: "Start oauth2-proxy with --reverse-proxy and --set-xauthrequest so it sends these headers.",
     },
 ];
 
@@ -101,17 +101,20 @@ pub fn config(v: &Value) -> Option<ForwardAuthConfig> {
 }
 
 pub fn summary(c: &ForwardAuthConfig) -> String {
-    format!("{} · {} · {}", kind_of(&c.path), c.service, c.path)
+    match kind_of(&c.path) {
+        OTHER => format!("Service {}, path {}", c.service, c.path),
+        kind => format!("{kind} on service {}, path {}", c.service, c.path),
+    }
 }
 
 pub fn passes(c: &ForwardAuthConfig) -> String {
     if c.copy_headers.is_empty() {
         return "no login headers".to_string();
     }
-    let (shown, more) = crate::top::some_names(&c.copy_headers);
-    match more {
-        Some(m) => format!("{shown} {m}"),
-        None => shown,
+    let shown: Vec<&str> = c.copy_headers.iter().take(3).map(String::as_str).collect();
+    match c.copy_headers.len().saturating_sub(3) {
+        0 => shown.join(", "),
+        more => format!("{} (+{more})", shown.join(", ")),
     }
 }
 
@@ -121,10 +124,7 @@ pub fn note(name: &str, c: &ForwardAuthConfig) -> String {
     } else {
         c.copy_headers.join(", ")
     };
-    format!(
-        "{name} asks {} at {} whether each visitor is logged in; the app gets {gets}",
-        c.service, c.path
-    )
+    format!("{name}: {}; the app gets {gets}", summary(c))
 }
 
 #[cfg(test)]
@@ -172,6 +172,18 @@ mod tests {
     }
 
     #[test]
+    fn the_path_help_gives_the_same_examples_as_the_presets() {
+        use burrow_config::admin_schema::AdminSchema;
+        let node = ForwardAuthConfig::node();
+        let help = &burrow_admin_proto::schema::Node::at(&node, &["path".to_string()])
+            .expect("path")
+            .help;
+        for p in &PRESETS[..2] {
+            assert!(help.contains(p.path), "{} in {help}", p.path);
+        }
+    }
+
+    #[test]
     fn a_login_service_is_used_by_the_sites_that_name_it() {
         let d = doc();
         assert_eq!(
@@ -190,11 +202,14 @@ mod tests {
     #[test]
     fn the_card_and_the_site_note_say_what_the_login_does() {
         let c = config(&doc()["web"]["forward_auth"]["sso"]).unwrap();
-        assert_eq!(summary(&c), "Authelia · authelia · /api/authz/forward-auth");
+        assert_eq!(
+            summary(&c),
+            "Authelia on service authelia, path /api/authz/forward-auth"
+        );
         assert_eq!(passes(&c), "Remote-User");
         assert_eq!(
             note("sso", &c),
-            "sso asks authelia at /api/authz/forward-auth whether each visitor is logged in; the app gets Remote-User"
+            "sso: Authelia on service authelia, path /api/authz/forward-auth; the app gets Remote-User"
         );
         let many = ForwardAuthConfig {
             copy_headers: PRESETS[1].headers.iter().map(|h| h.to_string()).collect(),
@@ -202,7 +217,7 @@ mod tests {
         };
         assert_eq!(
             passes(&many),
-            "X-Authentik-Username, X-Authentik-Groups, X-Authentik-Email +2 more"
+            "X-Authentik-Username, X-Authentik-Groups, X-Authentik-Email (+2)"
         );
     }
 }

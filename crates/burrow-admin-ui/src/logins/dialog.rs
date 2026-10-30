@@ -3,7 +3,7 @@ use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{Value, json};
 use burrow_admin_proto::value::child;
 use burrow_config::{Entry, ForwardAuthConfig, ServiceEntry};
-use burrow_ui_kit::{Button, ChipInput, Dialog, Select, TextInput};
+use burrow_ui_kit::{Button, ChipInput, Dialog, Select, TextInput, Tone, field_message};
 use leptos::prelude::*;
 
 use crate::screens::create::{name_input, problem_of};
@@ -85,6 +85,20 @@ impl Draft {
     }
 }
 
+fn flags_as_code(text: &'static str) -> impl IntoView {
+    text.split(' ')
+        .enumerate()
+        .map(|(i, w)| {
+            let gap = (i > 0).then_some(" ");
+            if w.starts_with("--") {
+                view! { {gap}<code class="font-mono">{w}</code> }.into_any()
+            } else {
+                view! { {gap}{w} }.into_any()
+            }
+        })
+        .collect_view()
+}
+
 fn header_ok(h: String) -> Option<String> {
     (!burrow_syntax::web::headers::is_name(h.trim()))
         .then(|| "a header name has no spaces or colons, like Remote-User".to_string())
@@ -158,7 +172,10 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
         .map(|k| (k.to_string(), k.to_string()))
         .collect();
     let note = move || {
-        preset(&d.kind.get()).map(|p| p.note).filter(|n| !n.is_empty()).map(|n| view! { <p class="text-xs text-text-muted" data-testid="login-preset-note">{n}</p> })
+        preset(&d.kind.get())
+            .map(|p| p.note)
+            .filter(|n| !n.is_empty())
+            .map(|n| view! { <div data-testid="login-preset-note">{field_message(Tone::Info, flags_as_code(n))}</div> })
     };
     let save = move || {
         let name = match open.get_untracked() {
@@ -176,7 +193,10 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
     view! {
         <Dialog open=shown title=title testid="login-dialog" wide=true>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {labelled("login-kind", "Kind", view! { <Select id="login-kind" options=kind_options.clone() value=d.kind on_change=on_kind/> }.into_any())}
+                <div>
+                    {labelled("login-kind", "Kind", view! { <Select id="login-kind" options=kind_options.clone() value=d.kind on_change=on_kind/> }.into_any())}
+                    {note}
+                </div>
                 {labelled("login-service", "Service", view! { <Select id="login-service" options=Signal::derive(services) value=d.service on_change=on_service/> }.into_any())}
                 {move || adding.get().then(|| name_input("login-name", "Name", d.name, name_problem, true, "authelia or sso"))}
                 <div class="md:col-span-2">
@@ -184,12 +204,12 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
                     <p class="mt-1.5 text-xs text-danger">{move || path_problem.get()}</p>
                 </div>
                 <div class="md:col-span-2">
-                    {labelled("login-headers", "Headers to the app", view! { <ChipInput id="login-headers" items=d.headers on_change=on_headers check=header_ok placeholder="Remote-User" empty_label="None"/> }.into_any())}
+                    {labelled("login-headers", "Headers to the app", view! { <ChipInput id="login-headers" items=d.headers on_change=on_headers check=header_ok placeholder="Add a header" empty_label="None"/> }.into_any())}
                     <p class="mt-1.5 text-xs text-text-muted">"Headers from the login service's answer that the app receives; a visitor's own copies are always removed."</p>
                 </div>
-                <div class="md:col-span-2">{note}</div>
             </div>
-            <div class="mt-4 flex justify-end gap-2">
+            <div class="mt-4 flex flex-wrap items-center justify-end gap-2">
+                <span class="mr-auto text-xs text-text-muted" data-testid="dialog-status">{move || blocked.get().map(|b| format!("{}{}", b[..1].to_uppercase(), &b[1..]))}</span>
                 <Button label="Cancel" on_click=move |_| shown.set(false)/>
                 <Button
                     label=Signal::derive(move || if adding.get() { "Add login service".to_string() } else { "Save".to_string() })

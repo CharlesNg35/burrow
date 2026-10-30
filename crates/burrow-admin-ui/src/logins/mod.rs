@@ -88,7 +88,7 @@ fn card(name: String, ctl: Controls) -> impl IntoView {
             .map(|c| (summary(&c), passes(&c)))
             .unwrap_or_default();
         view! {
-            <p class="mt-1 font-mono text-[13px] text-text-muted" data-testid="login-summary">{sum}</p>
+            <p class="mt-1 text-[13px] text-text-muted" data-testid="login-summary">{sum}</p>
             <p class="mt-0.5 text-[13px]" data-testid="login-passes">"Passes to the app: "<span class="font-mono">{pass}</span></p>
             <p class="mt-1">{site_links(sites)}</p>
         }
@@ -194,9 +194,9 @@ pub(crate) fn login_services(label: String, help: String, path: Path, spath: Pat
         ctl.editing.track();
         let n = names.get();
         if n.is_empty() {
-            return view! { <p class="text-sm text-text-muted" data-testid="logins-none">"None yet. A login service checks each visitor of a website, like Authelia or authentik."</p> }.into_any();
+            return view! { <p class="text-sm text-text-muted" data-testid="logins-none">"None yet"</p> }.into_any();
         }
-        view! { <ul class="grid grid-cols-1 gap-2 md:grid-cols-2" data-testid="login-cards">{n.into_iter().map(|name| card(name, ctl)).collect_view()}</ul> }.into_any()
+        view! { <ul class="grid grid-cols-1 gap-2" data-testid="login-cards">{n.into_iter().map(|name| card(name, ctl)).collect_view()}</ul> }.into_any()
     };
     let add = move || {
         ctl.editing.get().then(|| view! {

@@ -20,7 +20,7 @@ pub struct ForwardAuthConfig {
     )]
     #[admin(
         ty = url_path,
-        help = "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/nginx for authentik"
+        help = "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/caddy for authentik"
     )]
     pub path: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

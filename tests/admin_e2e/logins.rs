@@ -34,7 +34,7 @@ async fn the_cards_say_what_each_one_does(c: &mut Ctx) {
     c.ui.wait_for(&card("authelia"), SECS).await;
     let text = c.ui.text(&card("authelia")).await;
     for want in [
-        "Authelia · authelia · /api/authz/forward-auth",
+        "Authelia on service authelia, path /api/authz/forward-auth",
         "Passes to the app: Remote-User",
         "Used by 1 site: wiki",
     ] {
