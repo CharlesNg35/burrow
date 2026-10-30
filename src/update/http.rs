@@ -193,6 +193,32 @@ pub enum Fetched {
     NotFound,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetchError {
+    Insecure(String),
+    Failed(String),
+}
+
+impl std::fmt::Display for FetchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FetchError::Insecure(why) | FetchError::Failed(why) => f.write_str(why),
+        }
+    }
+}
+
+impl From<String> for FetchError {
+    fn from(why: String) -> Self {
+        FetchError::Failed(why)
+    }
+}
+
+impl From<FetchError> for String {
+    fn from(e: FetchError) -> Self {
+        e.to_string()
+    }
+}
+
 async fn open(url: &Url, proxy: Option<&ProxyConfig>) -> Result<Box<dyn Io>, String> {
     let via = proxy
         .map(|p| format!(" through proxy {p:?}"))
@@ -309,23 +335,23 @@ pub async fn get(
     url: &str,
     limit: usize,
     env: &dyn Fn(&str) -> Option<String>,
-) -> Result<Fetched, String> {
+) -> Result<Fetched, FetchError> {
     let mut url = Url::parse(url)?;
     for _ in 0..=MAX_REDIRECTS {
         if !url.tls && !url.is_loopback() {
-            return Err(format!(
+            return Err(FetchError::Insecure(format!(
                 "{url} is plain http, where anyone on the way could swap the download; use https:// (http:// is accepted only for this machine)"
-            ));
+            )));
         }
         let proxy = proxy_from_env(&url, env)?;
         if !url.tls
             && let Some(p) = &proxy
             && !loopback_host(p.addr.rsplit_once(':').map_or(p.addr.as_str(), |(h, _)| h))
         {
-            return Err(format!(
+            return Err(FetchError::Insecure(format!(
                 "{url} is plain http, and the proxy {} would carry it over the network; use https://",
                 p.addr
-            ));
+            )));
         }
         let (head, body) = fetch_once(&url, proxy.as_ref(), limit).await?;
         match head.code {
@@ -337,18 +363,19 @@ pub async fn get(
                     .ok_or_else(|| format!("{url} redirected without a Location"))?;
                 let next = url.join(&to)?;
                 if url.tls && !next.tls {
-                    return Err(format!("{url} redirected from https to {next}"));
+                    return Err(format!("{url} redirected from https to {next}").into());
                 }
                 url = next;
             }
             code => {
                 return Err(format!("{url} answered {code} {}", head.reason)
                     .trim_end()
-                    .to_string());
+                    .to_string()
+                    .into());
             }
         }
     }
-    Err(format!("too many redirects from {url}"))
+    Err(format!("too many redirects from {url}").into())
 }
 
 #[cfg(test)]
@@ -376,14 +403,20 @@ mod tests {
             .await
             .err()
             .unwrap();
-        assert!(refused.contains("use https://"), "{refused}");
+        assert!(
+            matches!(&refused, FetchError::Insecure(why) if why.contains("use https://")),
+            "{refused}"
+        );
         let proxied = get("http://127.0.0.1:1/releases", 1024, &|n: &str| {
             (n == "HTTP_PROXY").then(|| "http://proxy.example:3128".to_string())
         })
         .await
         .err()
         .unwrap();
-        assert!(proxied.contains("over the network"), "{proxied}");
+        assert!(
+            matches!(&proxied, FetchError::Insecure(why) if why.contains("over the network")),
+            "{proxied}"
+        );
     }
 
     #[test]

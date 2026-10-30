@@ -116,7 +116,7 @@ fn in_container() -> bool {
         && (Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists())
 }
 
-fn fetch(url: &str, limit: usize) -> Result<http::Fetched, String> {
+fn fetch(url: &str, limit: usize) -> Result<http::Fetched, http::FetchError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -308,7 +308,7 @@ fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Fail
             return Err(Failure::new(format!("{what} at {base}"))
                 .hint(format!("see the releases at {base}")));
         }
-        Err(e) if e.contains("is plain http") => {
+        Err(e @ http::FetchError::Insecure(_)) => {
             return Err(Failure::new(format!("cannot check for a new version: {e}")));
         }
         Err(e) => {
