@@ -73,6 +73,14 @@ async fn collapsed_and_remembered(c: &mut Ctx) {
     assert!(region_hidden(c, ACCESS).await);
     let text = c.ui.text(ACCESS).await;
     assert_eq!(text, "More settings · 3 at their defaults");
+    let carded: bool = c
+        .ui
+        .eval("[...document.querySelectorAll('[data-form-tab] section[data-group]')].every(s => s.classList.contains('rounded-card') && s.classList.contains('bg-surface'))")
+        .await;
+    assert!(
+        carded,
+        "each section of an entity page is a white card, as in Settings"
+    );
     assert_eq!(
         c.ui.count("[data-group=access] [data-schema='services/*/bandwidth']")
             .await,

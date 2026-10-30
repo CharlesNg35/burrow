@@ -374,15 +374,12 @@ fn section_view(
         return view! { <div class="divide-y divide-rowline" data-group=key>{rows}</div> }
             .into_any();
     }
-    let title = (!label.is_empty()).then(|| {
-        view! {
-            <burrow_ui_kit::SectionHead title={label} sub={sub}/>
-        }
-    });
+    let head = (!label.is_empty())
+        .then(|| burrow_ui_kit::card_head(label, (!sub.is_empty()).then_some(sub), ().into_any()));
     view! {
-        <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-group=key>
-            {title}
-            {rows}
+        <section class="mb-4 scroll-mt-20 rounded-card border border-border bg-surface" data-group=key>
+            {head}
+            <div class="grid grid-cols-1 gap-x-6 gap-y-[22px] px-4 py-4 md:grid-cols-2">{rows}</div>
         </section>
     }
     .into_any()
