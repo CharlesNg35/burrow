@@ -44,6 +44,23 @@ pub fn running_as_service() {
     AS_SERVICE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+const LOCK_ATTEMPTS: u32 = 5;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Locked {
+    Keep,
+    Again,
+    Moved,
+}
+
+pub(super) fn after_lock(attempts: u32, in_place: bool) -> Locked {
+    match (in_place, attempts < LOCK_ATTEMPTS) {
+        (true, _) => Locked::Keep,
+        (false, true) => Locked::Again,
+        (false, false) => Locked::Moved,
+    }
+}
+
 pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
     let path = dir.join(format!("{}.{}", identity.key(), super::LOCK_EXTENSION));
     let prepared = prepare_dir(dir);
@@ -79,8 +96,17 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
             Err(e) => return Err(open_failure(&path, &e)),
         };
         match file.try_lock() {
-            Ok(()) if attempts < 5 && !names(&path, &file) => continue,
-            Ok(()) => break (file, writable),
+            Ok(()) => match after_lock(attempts, names(&path, &file)) {
+                Locked::Keep => break (file, writable),
+                Locked::Again => continue,
+                Locked::Moved => {
+                    return Err(Failure::new(format!(
+                        "cannot keep the lock file {} in place",
+                        path.display()
+                    ))
+                    .hint("another program keeps replacing it; check that folder"));
+                }
+            },
             Err(TryLockError::WouldBlock) if !held_by_a_trusted_instance(&path) => {
                 crate::say_errln!(
                     "warning: {} is locked by a process burrow does not trust (another user's, or one that left no note); starting anyway",

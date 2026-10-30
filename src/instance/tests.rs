@@ -425,3 +425,13 @@ fn server_identity_follows_the_real_file() {
     let via_dot = Identity::server(&dir.path().join(".").join("server.yaml"));
     assert_eq!(direct, via_dot);
 }
+
+#[test]
+fn a_lock_whose_file_keeps_being_replaced_is_given_up_not_kept() {
+    use super::lock::{Locked, after_lock};
+    assert_eq!(after_lock(1, true), Locked::Keep);
+    assert_eq!(after_lock(1, false), Locked::Again);
+    assert_eq!(after_lock(4, false), Locked::Again);
+    assert_eq!(after_lock(5, false), Locked::Moved);
+    assert_eq!(after_lock(5, true), Locked::Keep);
+}
