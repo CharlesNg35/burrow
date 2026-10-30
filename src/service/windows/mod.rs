@@ -16,15 +16,13 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use super::{Backend, Manifest, Platform, Status};
 use crate::base::failure::Failure;
+use crate::base::windows::{ADMINS, SYSTEM, USERS};
 use acl::{
-    TRUSTED_OWNERS, broad, grant, grant_dirs, holds_only_hand_run_folders, icacls, is_link,
-    owner_and_me, revoke,
+    broad, grant, grant_dirs, holds_only_hand_run_folders, icacls, is_link, owner_and_me, revoke,
+    trusted_owner,
 };
 pub use dispatch::dispatch;
 
-const SYSTEM: &str = "*S-1-5-18";
-const ADMINS: &str = "*S-1-5-32-544";
-const USERS: &str = "*S-1-5-32-545";
 const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
     .union(ServiceAccess::START)
     .union(ServiceAccess::STOP)
@@ -220,7 +218,7 @@ impl Backend for WindowsService {
                     ))
                     .hint("run the command again from an elevated Windows PowerShell; if it keeps failing, delete the folder and run it again"));
                 };
-                if owner != me && !TRUSTED_OWNERS.contains(&owner.as_str()) {
+                if owner != me && !trusted_owner(&owner) {
                     return Err(Failure::new(format!(
                         "{} already exists and belongs to {owner}, not to administrators",
                         dir.display()
@@ -496,10 +494,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let (owner, me) =
                 owner_and_me(dir.path()).expect("the owner of a folder this test made is read");
-            assert!(
-                owner == me || TRUSTED_OWNERS.contains(&owner.as_str()),
-                "{owner} {me}"
-            );
+            assert!(owner == me || trusted_owner(&owner), "{owner} {me}");
             return;
         }
         let pf = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());

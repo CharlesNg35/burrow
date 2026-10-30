@@ -179,17 +179,12 @@ pub(crate) fn restrict_on_windows(path: &Path) {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|u| !u.is_empty());
-    let mut args = vec![
-        path.display().to_string(),
-        "/inheritance:r".into(),
-        "/grant:r".into(),
-        "*S-1-5-18:F".into(),
-        "*S-1-5-32-544:F".into(),
-    ];
-    if let Some(me) = me {
-        args.push(format!("{me}:F"));
-    }
-    let _ = std::process::Command::new("icacls").args(&args).output();
+    use super::windows::{ADMINS, SYSTEM, icacls};
+    let (system, admins) = (format!("{SYSTEM}:F"), format!("{ADMINS}:F"));
+    let mine = me.map(|me| format!("{me}:F"));
+    let mut args = vec!["/inheritance:r", "/grant:r", &system, &admins];
+    args.extend(mine.as_deref());
+    let _ = icacls(path, &args);
 }
 
 #[cfg(test)]
@@ -251,7 +246,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let shared = std::process::Command::new("icacls")
             .arg(dir.path())
-            .args(["/grant", "*S-1-5-32-545:(OI)(CI)M"])
+            .args([
+                "/grant",
+                &format!("{}:(OI)(CI)M", super::super::windows::USERS),
+            ])
             .output()
             .unwrap();
         assert!(shared.status.success());
@@ -264,7 +262,8 @@ mod tests {
             .unwrap();
         let acl = String::from_utf8_lossy(&acl.stdout).to_string();
         assert!(
-            !acl.contains("S-1-5-32-545") && !acl.contains("BUILTIN\\Users"),
+            !acl.contains(super::super::windows::bare(super::super::windows::USERS))
+                && !acl.contains("BUILTIN\\Users"),
             "{acl}"
         );
         assert_eq!(

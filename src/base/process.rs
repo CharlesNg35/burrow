@@ -3,13 +3,18 @@ use std::process::Command;
 use crate::base::failure::Failure;
 
 pub fn run(program: &str, args: &[&str]) -> Result<String, Failure> {
-    let out = Command::new(program)
-        .args(args)
+    output_of(Command::new(program).args(args))
+}
+
+pub fn output_of(command: &mut Command) -> Result<String, Failure> {
+    let program = command.get_program().to_string_lossy().into_owned();
+    let out = command
         .output()
         .map_err(|e| Failure::new(format!("cannot run {program}: {e}")))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
+        let args: Vec<_> = command.get_args().map(|a| a.to_string_lossy()).collect();
         let err = String::from_utf8_lossy(&out.stderr);
         let msg = err.trim();
         Err(Failure::new(format!(

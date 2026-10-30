@@ -2,21 +2,16 @@ use std::path::{Path, PathBuf};
 
 use super::system_account;
 use crate::base::failure::Failure;
-use crate::base::process::run;
 use crate::install::Platform;
 
-pub(super) fn icacls(path: &Path, args: &[&str]) -> Result<(), Failure> {
-    let p = path.to_string_lossy();
-    let mut all = vec![p.as_ref()];
-    all.extend_from_slice(args);
-    run("icacls", &all).map(drop)
-}
+pub(super) use crate::base::windows::icacls;
 
-pub(super) const TRUSTED_OWNERS: [&str; 3] = [
-    "S-1-5-32-544",
-    "S-1-5-18",
-    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
-];
+const TRUSTED_INSTALLER: &str = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+
+pub(super) fn trusted_owner(sid: &str) -> bool {
+    use crate::base::windows::{ADMINS, SYSTEM, bare};
+    [bare(ADMINS), bare(SYSTEM), TRUSTED_INSTALLER].contains(&sid)
+}
 
 pub(super) fn owner_and_me(path: &Path) -> Option<(String, String)> {
     let script = format!(

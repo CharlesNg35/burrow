@@ -232,21 +232,11 @@ pub fn private_dir(dir: &Path) -> std::io::Result<()> {
     }
     #[cfg(windows)]
     {
-        let icacls = |args: &[&str]| {
-            std::process::Command::new("icacls")
-                .arg(dir)
-                .args(args)
-                .output()
-                .is_ok_and(|o| o.status.success())
-        };
-        let done = icacls(&["/setowner", "*S-1-5-32-544"])
-            && icacls(&["/reset"])
-            && icacls(&[
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:(OI)(CI)F",
-                "*S-1-5-32-544:(OI)(CI)F",
-            ]);
+        use crate::base::windows::{ADMINS, SYSTEM, icacls};
+        let (system, admins) = (format!("{SYSTEM}:(OI)(CI)F"), format!("{ADMINS}:(OI)(CI)F"));
+        let done = icacls(dir, &["/setowner", ADMINS]).is_ok()
+            && icacls(dir, &["/reset"]).is_ok()
+            && icacls(dir, &["/inheritance:r", "/grant:r", &system, &admins]).is_ok();
         if !done {
             return Err(std::io::Error::other(format!(
                 "cannot restrict {} to administrators",

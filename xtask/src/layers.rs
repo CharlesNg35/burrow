@@ -28,6 +28,7 @@ pub const UNITS: &[(&str, Layer)] = &[
     ("base::slots", Layer::Base),
     ("base::style", Layer::Base),
     ("base::suggest", Layer::Base),
+    ("base::windows", Layer::Base),
     ("wire::handshake", Layer::Wire),
     ("wire::noise", Layer::Wire),
     ("wire::protocol", Layer::Wire),
