@@ -2,11 +2,14 @@
 
 pub mod admin;
 pub mod certs;
+pub mod output;
 pub mod ports;
 pub mod socks;
 
 #[allow(unused_imports)]
 pub use certs::{Cert, ca_flagged, cert};
+#[allow(unused_imports)]
+pub use output::{read_until, text};
 #[allow(unused_imports)]
 pub use ports::{free_port, free_range};
 

@@ -101,14 +101,6 @@ impl World {
     }
 }
 
-fn text(o: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    )
-}
-
 fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap()
 }

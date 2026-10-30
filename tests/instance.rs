@@ -198,10 +198,12 @@ fn an_ad_hoc_visit_does_not_warn_that_the_file_has_no_forwards() {
         ])
         .spawn()
         .unwrap();
-    std::thread::sleep(Duration::from_millis(1500));
+    let stderr = child.stderr.take().unwrap();
+    let err = common::read_until(stderr, Duration::from_secs(15), |e| {
+        e.contains("service \"web\"")
+    });
     let _ = child.kill();
-    let out = child.wait_with_output().unwrap();
-    let err = String::from_utf8_lossy(&out.stderr);
+    let _ = child.wait();
     assert!(!err.contains("no forwards are defined"), "{err}");
     assert!(err.contains("service \"web\""), "{err}");
 }
