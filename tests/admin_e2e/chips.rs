@@ -39,37 +39,44 @@ async fn one_line(c: &Ctx, what: &str, w: i64) {
     );
 }
 
+fn one_line_js() -> String {
+    format!(
+        "(() => {{ const t = [...document.querySelectorAll('{ROW} [data-filter]')].filter(b => b.offsetParent).map(b => Math.round(b.getBoundingClientRect().top)); return t.length > 1 && t.every(x => x === t[0]); }})()"
+    )
+}
+
+fn chip_inside_js(chip: &str) -> String {
+    format!(
+        "(() => {{ const r = document.querySelector('{ROW}').getBoundingClientRect(); const b = document.querySelector('{ROW} [data-filter={chip}]').getBoundingClientRect(); return b.left >= r.left - 1 && b.right <= r.right + 1; }})()"
+    )
+}
+
 async fn last_chip_scrolls_into_view(c: &mut Ctx, what: &str, w: i64) {
-    let (fits, fade): (bool, String) = c
+    let fits: bool = c
         .ui
-        .eval(&format!("(() => {{ const r = document.querySelector('{ROW}'); r.scrollLeft = 0; return [r.scrollWidth <= r.clientWidth + 1, r.dataset.fade]; }})()"))
+        .eval(&format!("(() => {{ const r = document.querySelector('{ROW}'); r.scrollLeft = 0; return r.scrollWidth <= r.clientWidth + 1; }})()"))
         .await;
     if fits {
         return;
     }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let fade: String = if fade == "true" {
-        fade
-    } else {
-        c.ui.eval(&format!("document.querySelector('{ROW}').dataset.fade"))
-            .await
-    };
-    assert_eq!(fade, "true", "{what} at {w}px: the cut edge fades");
+    c.ui.wait_true(
+        &format!("document.querySelector('{ROW}').dataset.fade === 'true'"),
+        &format!("{what} at {w}px: the cut edge fades"),
+        SECS,
+    )
+    .await;
     let last: String =
         c.ui.eval(&format!(
             "[...document.querySelectorAll('{ROW} [data-filter]')].pop().dataset.filter"
         ))
         .await;
     c.ui.click(&format!("{ROW} [data-filter={last}]")).await;
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-    let inside: bool = c
-        .ui
-        .eval(&format!("(() => {{ const r = document.querySelector('{ROW}').getBoundingClientRect(); const b = document.querySelector('{ROW} [data-filter={last}]').getBoundingClientRect(); return b.left >= r.left - 1 && b.right <= r.right + 1; }})()"))
-        .await;
-    assert!(
-        inside,
-        "{what} at {w}px: the active chip {last} is scrolled into view"
-    );
+    c.ui.wait_true(
+        &chip_inside_js(&last),
+        &format!("{what} at {w}px: the active chip {last} is scrolled into view"),
+        SECS,
+    )
+    .await;
     c.ui.shot(&format!("{what}-chips-{w}-last")).await;
     c.ui.click(&format!("{ROW} [data-filter=all]")).await;
 }
@@ -87,7 +94,8 @@ fn chips(c: &mut Ctx) -> Flow<'_> {
                 c.ui.viewport(w, 900).await;
                 c.ui.nav(path).await;
                 c.ui.wait_for(&format!("{ROW} [data-filter]"), SECS).await;
-                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                c.ui.wait_true(&one_line_js(), &format!("{what} at {w}px: one line"), SECS)
+                    .await;
                 one_line(c, what, w).await;
                 c.ui.shot(&format!("{what}-chips-{name}")).await;
                 last_chip_scrolls_into_view(c, what, w).await;
@@ -98,13 +106,12 @@ fn chips(c: &mut Ctx) -> Flow<'_> {
             c.ui.nav(path).await;
             c.ui.wait_for("[data-testid=nav-row] [aria-current=page]", SECS)
                 .await;
-            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-            let (one, seen): (bool, bool) = c
-                .ui
-                .eval("(() => { const r = document.querySelector('[data-testid=nav-row]'); const a = [...r.querySelectorAll('a')].map(x => Math.round(x.getBoundingClientRect().top)); const b = r.getBoundingClientRect(), on = r.querySelector('[aria-current=page]').getBoundingClientRect(); return [a.every(t => t === a[0]), on.left >= b.left - 1 && on.right <= b.right + 1]; })()")
-                .await;
-            assert!(one, "the top navigation is one line at 360 px on {path}");
-            assert!(seen, "the current section is in view at 360 px on {path}");
+            c.ui.wait_true(
+                "(() => { const r = document.querySelector('[data-testid=nav-row]'); const a = [...r.querySelectorAll('a')].map(x => Math.round(x.getBoundingClientRect().top)); const b = r.getBoundingClientRect(), on = r.querySelector('[aria-current=page]').getBoundingClientRect(); return a.every(t => t === a[0]) && on.left >= b.left - 1 && on.right <= b.right + 1; })()",
+                &format!("the top navigation is one line with the current section in view at 360 px on {path}"),
+                SECS,
+            )
+            .await;
             c.ui.shot(&format!("nav-360{}", path.replace('/', "-")))
                 .await;
         }

@@ -262,6 +262,17 @@ impl Ui {
         }
     }
 
+    pub async fn wait_true(&self, expr: &str, what: &str, timeout: Duration) {
+        let started = Instant::now();
+        while !self.eval::<bool>(expr).await {
+            assert!(
+                started.elapsed() < timeout,
+                "{what}: not true within {timeout:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     pub async fn wait_text(&self, css: &str, wanted: &str, timeout: Duration) -> String {
         let started = Instant::now();
         loop {
