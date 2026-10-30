@@ -362,7 +362,7 @@ pub async fn run(
 
 fn status_interval(sub: &Subscribe) -> Option<tokio::time::Interval> {
     (sub.status_ms > 0).then(|| {
-        let ms = sub.status_ms.clamp(500, 60_000);
+        let ms = sub.status_ms.clamp(msg::MIN_STATUS_MS, msg::MAX_STATUS_MS);
         let mut i = tokio::time::interval(Duration::from_millis(ms));
         i.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         i

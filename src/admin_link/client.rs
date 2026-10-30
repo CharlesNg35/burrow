@@ -13,7 +13,6 @@ use crate::dialer::Dialer;
 use crate::dialer::admin::{AdminRx, AdminTx};
 
 pub const ANSWER: Duration = Duration::from_secs(60);
-const STATUS_EVERY_MS: u64 = 500;
 
 #[derive(Debug)]
 pub enum LinkError {
@@ -220,7 +219,7 @@ impl Link {
             Ok(o) => {
                 let conn = &mut o.conn;
                 let read = async {
-                    self.subscribe(conn, STATUS_EVERY_MS).await?;
+                    self.subscribe(conn, msg::MIN_STATUS_MS).await?;
                     let status = self.wait(conn, Want::Event(msg::ev::STATUS)).await?;
                     self.subscribe(conn, 0).await?;
                     Ok(status)

@@ -320,6 +320,9 @@ pub struct SessionInfo {
     pub from: String,
 }
 
+pub const MIN_STATUS_MS: u64 = 500;
+pub const MAX_STATUS_MS: u64 = 60_000;
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Subscribe {
     #[serde(default)]
