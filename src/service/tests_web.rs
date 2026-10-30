@@ -300,3 +300,78 @@ fn purge_finds_the_access_log_in_the_services_own_log_folder_only() {
         "the service's env file holds the secret, as when the service runs"
     );
 }
+
+#[test]
+fn purge_spares_every_file_another_installed_service_owns() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let secret = crate::wire::secret::Secret::generate().encode();
+    let setup = |case: &str| {
+        let base = root.join(case);
+        let logs = base.join("logs");
+        let folder = base.join("home");
+        let state = base.join("state");
+        for d in [&logs, &folder, &state] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let config = folder.join("server.yaml");
+        std::fs::write(
+            &config,
+            format!(
+                "listen: 7835\nclients:\n  home: {{ secret: {secret} }}\nweb:\n  https: 443\n  access_log: {}\nservices:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n",
+                logs.join("home-access.log").display()
+            ),
+        )
+        .unwrap();
+        for f in [
+            "home.log",
+            "home.log.1",
+            "home-access.log",
+            "home-access.log.1",
+        ] {
+            std::fs::write(logs.join(f), "x").unwrap();
+        }
+        std::fs::write(base.join("shared.env"), "A=1\n").unwrap();
+        std::fs::write(state.join("account.json"), "{}").unwrap();
+        let mut home = manifest(Some(state.to_str().unwrap()));
+        home.config = config;
+        home.log_file = logs.join("home.log");
+        home.env_file = Some(base.join("shared.env"));
+        let mut other = manifest(Some(state.to_str().unwrap()));
+        other.name = "burrow-home-access".into();
+        other.config = base.join("home-access").join("server.yaml");
+        other.log_file = logs.join("home-access.log");
+        other.env_file = Some(base.join("shared.env"));
+        (base, home, other)
+    };
+    let purge = |home: &Manifest, others: &[Manifest]| {
+        let owned = super::uninstall::others_files(others, |_| BTreeMap::new());
+        let logs = super::uninstall::own_logs(home, &BTreeMap::new(), &owned);
+        let mut out = Vec::new();
+        super::uninstall::purge_files(home, &logs, &owned, &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+
+    let (base, home, other) = setup("two");
+    let said = purge(&home, std::slice::from_ref(&other));
+    assert!(!home.folder().exists(), "{said}");
+    assert!(!base.join("logs/home.log.1").exists(), "{said}");
+    for theirs in [
+        "logs/home-access.log",
+        "logs/home-access.log.1",
+        "shared.env",
+        "state/account.json",
+    ] {
+        assert!(base.join(theirs).exists(), "{theirs}: {said}");
+    }
+    assert!(
+        said.contains("which another installed service also uses"),
+        "{said}"
+    );
+
+    let (base, home, _) = setup("alone");
+    let said = purge(&home, &[]);
+    for gone in ["home", "logs/home-access.log", "shared.env", "state"] {
+        assert!(!base.join(gone).exists(), "{gone}: {said}");
+    }
+}
