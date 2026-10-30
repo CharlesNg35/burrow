@@ -359,20 +359,31 @@ impl Visitor {
             .collect()
     }
 
+    fn start(
+        &self,
+        f: &Forward,
+        bound: Vec<Bound>,
+        tx: &mpsc::Sender<forward::Incoming>,
+        prefix: &str,
+    ) -> Listening {
+        let at = bound
+            .first()
+            .and_then(|b| b.listener.local_addr().ok())
+            .unwrap_or(f.local);
+        info!("{prefix}{}", describe(f, at));
+        Listening {
+            forward: f.clone(),
+            tasks: self.listen(bound, tx),
+        }
+    }
+
     pub async fn run(mut self, mut stop: watch::Receiver<bool>) {
         let (tx, mut rx) = mpsc::channel(64);
         let mut listening = std::collections::BTreeMap::new();
         for (name, f) in self.settings.forwards.clone() {
-            let at = self.local_addr(&name).unwrap_or(f.local);
-            info!("{}", describe(&f, at));
             let bound: Vec<Bound> = self.bound.extract_if(.., |b| b.name == name).collect();
-            listening.insert(
-                name,
-                Listening {
-                    forward: f,
-                    tasks: self.listen(bound, &tx),
-                },
-            );
+            let started = self.start(&f, bound, &tx, "");
+            listening.insert(name, started);
         }
         tokio::spawn(forward::check(
             self.dialer.clone(),
@@ -422,18 +433,8 @@ impl Visitor {
                 continue;
             }
             if let Ok(bound) = bind_forward(name, f) {
-                let at = bound
-                    .first()
-                    .and_then(|b| b.listener.local_addr().ok())
-                    .unwrap_or(f.local);
-                info!("forward \"{name}\" could listen now: {}", describe(f, at));
-                listening.insert(
-                    name.clone(),
-                    Listening {
-                        forward: f.clone(),
-                        tasks: self.listen(bound, tx),
-                    },
-                );
+                let prefix = format!("forward \"{name}\" could listen now: ");
+                listening.insert(name.clone(), self.start(f, bound, tx, &prefix));
             }
         }
     }
@@ -483,18 +484,7 @@ impl Visitor {
             }
             match bind_forward(name, f) {
                 Ok(bound) => {
-                    let at = bound
-                        .first()
-                        .and_then(|b| b.listener.local_addr().ok())
-                        .unwrap_or(f.local);
-                    info!("{}", describe(f, at));
-                    listening.insert(
-                        name.clone(),
-                        Listening {
-                            forward: f.clone(),
-                            tasks: self.listen(bound, tx),
-                        },
-                    );
+                    listening.insert(name.clone(), self.start(f, bound, tx, ""));
                     added.push((name, f));
                 }
                 Err(e) => error!(
