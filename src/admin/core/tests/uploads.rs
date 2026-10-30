@@ -96,3 +96,15 @@ fn any_admin_can_fetch_the_local_cas_certificate_once_it_exists() {
     );
     assert!(!got.to_string().contains("PRIVATE"));
 }
+
+#[test]
+fn a_local_ca_that_cannot_be_read_says_why_instead_of_that_there_is_none() {
+    let w = world();
+    let core = core_for(&w.text);
+    let read = session(&w, AdminLevel::Read);
+    let root = crate::server::uploads::root_pem(&core.store.state_dir());
+    std::fs::create_dir_all(&root).unwrap();
+    let e = dispatch(&core, &read, req::LOCAL_CA, &json!({})).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Internal, "{}", e.message);
+    assert!(e.message.starts_with("cannot read "), "{}", e.message);
+}

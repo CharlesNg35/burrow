@@ -87,11 +87,20 @@ pub fn local_ca(core: &Core) -> Result<serde_json::Value, ApiError> {
     if let Some(why) = crate::install::missing_state_folder(core.store.path()) {
         return Err(ApiError::new(ErrorCode::Invalid, why));
     }
-    match std::fs::read_to_string(files::root_pem(&core.store.state_dir())) {
+    let path = files::root_pem(&core.store.state_dir());
+    match std::fs::read_to_string(&path) {
         Ok(pem) => Ok(serde_json::json!({ "pem": pem })),
-        Err(_) => Err(ApiError::new(
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ApiError::new(
             ErrorCode::Invalid,
             "there is no local CA yet; burrow makes it for the first site with tls: internal",
+        )),
+        Err(e) => Err(ApiError::new(
+            ErrorCode::Internal,
+            format!(
+                "cannot read {}: {}",
+                path.display(),
+                crate::base::failure::file_reason(&e)
+            ),
         )),
     }
 }
