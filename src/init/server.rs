@@ -251,11 +251,18 @@ fn next_steps(
             ),
         );
     };
-    let allow = site.map_or_else(
-        || "127.0.0.1/32:3000".to_string(),
-        |s| web::allow_for(&s.target),
-    );
-    let client_cfg = client_value(server, done.client, done.secret_text, &[allow]);
+    let mut notes = Vec::new();
+    let allow = match site {
+        Some(s) => {
+            let target = s
+                .target
+                .parse::<u16>()
+                .map_or_else(|_| s.target.clone(), |p| format!("127.0.0.1:{p}"));
+            super::client::allow_list([(s.service.as_str(), target.as_str(), 1)], &mut notes)
+        }
+        None => vec!["127.0.0.1/32:3000".to_string()],
+    };
+    let client_cfg = client_value(server, done.client, done.secret_text, &allow);
     let client_path = match done.format {
         Format::Yaml => "client.yaml",
         Format::Json => "client.json",
@@ -264,5 +271,9 @@ fn next_steps(
         out,
         format!("\nclient config (save as {client_path} on the client machine):\n"),
     )?;
-    line(out, render(&client_cfg, done.format))
+    line(out, render(&client_cfg, done.format))?;
+    for n in notes {
+        line(out, format!("note: {n}"))?;
+    }
+    Ok(())
 }

@@ -1,3 +1,4 @@
+use burrow::config::Loaded;
 use burrow::init::{InitOptions, WebSocketInit, init_server};
 
 use super::load;
@@ -214,4 +215,73 @@ fn a_website_and_the_tunnel_share_port_443() {
         "{text}"
     );
     assert!(text.contains("web: blog.example.com"), "{text}");
+}
+
+#[test]
+fn the_printed_client_config_allows_the_websites_target_like_client_config_does() {
+    let cases: [(&str, &[&str], bool); 5] = [
+        ("8080", &["127.0.0.1/32:8080"], false),
+        ("10.0.0.5:8080", &["10.0.0.5/32:8080"], false),
+        ("[::1]:8080", &["[::1/128]:8080"], false),
+        (
+            "localhost:8080",
+            &["127.0.0.1/32:8080", "[::1/128]:8080"],
+            false,
+        ),
+        ("nas.lan:8080", &[], true),
+    ];
+    for (target, want, host_note) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        let mut out = Vec::new();
+        init_server(
+            &InitOptions {
+                output: Some(path.clone()),
+                server: Some("tun.example.com".into()),
+                email: Some("ops@example.com".into()),
+                web: Some(WebInit {
+                    domain: "blog.example.com".into(),
+                    client: None,
+                    target: Some(target.into()),
+                }),
+                ..Default::default()
+            },
+            &mut out,
+        )
+        .unwrap();
+        let printed = String::from_utf8(out).unwrap();
+        let shown = printed
+            .split("client config (save as client.yaml on the client machine):")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{target}: {printed}"));
+        let config = shown.split("\nnote: ").next().unwrap();
+        let client_path = dir.path().join("client.yaml");
+        std::fs::write(&client_path, config).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&client_path, mode).unwrap();
+        }
+        let Loaded::Client(client, _) = load(&client_path) else {
+            panic!("{target}: {printed}");
+        };
+        let allow = client.allow.rules().unwrap_or_default();
+        assert_eq!(allow, want, "{target}: {printed}");
+        let note = "service \"blog\" targets host name nas.lan; add its IP address to \"allow\" on the client";
+        assert_eq!(printed.contains(note), host_note, "{target}: {printed}");
+        let listed = burrow::init::client_config(
+            None,
+            &path,
+            Some("tun.example.com"),
+            burrow::config::Format::Yaml,
+            &burrow::config::env::ProcessEnv,
+        )
+        .unwrap();
+        let allow_of = |text: &str| {
+            text.split_once("allow:")
+                .map(|(_, a)| a.trim_end().to_string())
+        };
+        assert_eq!(allow_of(config), allow_of(&listed.text), "{target}");
+    }
 }

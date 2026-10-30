@@ -220,14 +220,3 @@ pub(super) fn site_note(s: &Site) -> String {
         s.domain, s.domain
     )
 }
-
-pub(super) fn allow_for(target: &str) -> String {
-    if let Ok(port) = target.parse::<u16>() {
-        return format!("127.0.0.1/32:{port}");
-    }
-    match target.parse::<std::net::SocketAddr>() {
-        Ok(a) if a.is_ipv4() => format!("{}/32:{}", a.ip(), a.port()),
-        Ok(a) => format!("{}/128:{}", a.ip(), a.port()),
-        Err(_) => "127.0.0.1/32:3000".to_string(),
-    }
-}
