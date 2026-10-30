@@ -86,7 +86,7 @@ impl FileStore {
             .extension()
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_else(|| "yaml".into());
-        let hex = rev.trim_start_matches("b2s:");
+        let hex = text::rev_hex(rev).unwrap_or(rev);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
@@ -206,15 +206,14 @@ fn parse_kept(name: &str) -> Option<(u128, Version)> {
     let (at, rest) = name.split_once('-')?;
     let hex = rest.split('.').next()?;
     let nanos: u128 = at.parse().ok()?;
-    (hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
-        (
-            nanos,
-            Version {
-                rev: format!("b2s:{hex}"),
-                at: (nanos / 1_000_000_000) as u64,
-            },
-        )
-    })
+    let rev = text::rev_from_hex(hex)?;
+    Some((
+        nanos,
+        Version {
+            rev,
+            at: (nanos / 1_000_000_000) as u64,
+        },
+    ))
 }
 
 impl Store for FileStore {

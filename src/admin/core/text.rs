@@ -1,11 +1,25 @@
 use blake2::Digest;
+use burrow_admin_proto::REV_PREFIX;
 
 use crate::wire::secret::Secret;
 
+const REV_BYTES: usize = 8;
+
+fn rev_of(digest: &[u8]) -> String {
+    format!("{REV_PREFIX}{}", hex::encode(&digest[..REV_BYTES]))
+}
+
+pub fn rev_hex(rev: &str) -> Option<&str> {
+    rev.strip_prefix(REV_PREFIX)
+}
+
+pub fn rev_from_hex(hex: &str) -> Option<String> {
+    let good = hex.len() == 2 * REV_BYTES && hex.bytes().all(|b| b.is_ascii_hexdigit());
+    good.then(|| format!("{REV_PREFIX}{hex}"))
+}
+
 pub fn rev(text: &str) -> String {
-    let digest = blake2::Blake2s256::digest(text.as_bytes());
-    let hex = hex::encode(&digest[..8]);
-    format!("b2s:{hex}")
+    rev_of(&blake2::Blake2s256::digest(text.as_bytes()))
 }
 
 pub fn hash_parts(parts: &[&[u8]]) -> String {
@@ -14,9 +28,7 @@ pub fn hash_parts(parts: &[&[u8]]) -> String {
         h.update((p.len() as u64).to_be_bytes());
         h.update(p);
     }
-    let digest = h.finalize();
-    let hex = hex::encode(&digest[..8]);
-    format!("b2s:{hex}")
+    rev_of(&h.finalize())
 }
 
 fn token_char(c: char) -> bool {

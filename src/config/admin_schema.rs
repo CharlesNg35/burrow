@@ -22,7 +22,7 @@ pub fn schema_hash(schema: &Schema) -> String {
     .unwrap_or_default();
     let digest = blake2::Blake2s256::digest(&bytes);
     let hex = hex::encode(&digest[..8]);
-    format!("b2s:{hex}")
+    format!("{}{hex}", burrow_admin_proto::REV_PREFIX)
 }
 
 #[cfg(test)]

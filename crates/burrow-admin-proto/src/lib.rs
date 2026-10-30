@@ -25,6 +25,7 @@ pub type Path = Vec<String>;
 pub const PROTOCOL_MIN: u8 = 1;
 pub const PROTOCOL_MAX: u8 = 1;
 pub const SCHEMA_VERSION: u32 = 1;
+pub const REV_PREFIX: &str = "b2s:";
 
 pub mod features {
     pub const STATUS_STREAM: &str = "status.stream";

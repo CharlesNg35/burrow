@@ -261,7 +261,10 @@ impl Store {
 }
 
 pub fn short_rev(rev: &str) -> String {
-    rev.trim_start_matches("b2s:").chars().take(8).collect()
+    rev.trim_start_matches(burrow_admin_proto::REV_PREFIX)
+        .chars()
+        .take(8)
+        .collect()
 }
 
 pub fn store() -> Store {

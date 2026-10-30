@@ -58,7 +58,9 @@ pub fn About() -> impl IntoView {
                 format!(
                     "version {} · {}",
                     schema.schema_version,
-                    schema.hash.trim_start_matches("b2s:")
+                    schema
+                        .hash
+                        .trim_start_matches(burrow_admin_proto::REV_PREFIX)
                 ),
             ),
             ("This UI's schema version", SCHEMA_VERSION.to_string()),
