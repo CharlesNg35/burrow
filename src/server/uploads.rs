@@ -18,10 +18,7 @@ pub fn prune_unused(
     let Some(state) = settings.web.as_ref().and_then(|w| w.state_dir.clone()) else {
         return 0;
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let removed = remove_unreferenced(&state, &burrow_config::uploads::upload_ids(cfg), now);
+    let removed = remove_unreferenced(&state, &burrow_config::uploads::upload_ids(cfg));
     if removed > 0 {
         tracing::info!("removed {removed} uploaded files the config no longer uses");
     }
@@ -33,8 +30,8 @@ pub fn kept(state: &Path) -> usize {
 }
 
 #[cfg(feature = "web")]
-fn remove_unreferenced(state: &Path, keep: &[String], now: u64) -> usize {
-    burrow_web::tls::uploads::prune(state, keep, now)
+fn remove_unreferenced(state: &Path, keep: &[String]) -> usize {
+    burrow_web::tls::uploads::prune(state, keep, burrow_web::tls::now_secs())
 }
 
 #[cfg(feature = "web")]
@@ -53,7 +50,7 @@ pub fn root_pem(state: &Path) -> PathBuf {
 }
 
 #[cfg(feature = "web")]
-pub fn store(state: &Path, req: &Request<'_>, now: u64) -> Result<Uploaded, String> {
+pub fn store(state: &Path, req: &Request<'_>) -> Result<Uploaded, String> {
     use burrow_web::tls::uploads;
     let up = uploads::Upload {
         kind: req.kind,
@@ -61,8 +58,13 @@ pub fn store(state: &Path, req: &Request<'_>, now: u64) -> Result<Uploaded, Stri
         hosts: req.hosts,
         cas: req.cas,
     };
-    let stored = uploads::store(state, &up, now, &super::private_write)
-        .map_err(|e| format!("the file {e}"))?;
+    let stored = uploads::store(
+        state,
+        &up,
+        burrow_web::tls::now_secs(),
+        &super::private_write,
+    )
+    .map_err(|e| format!("the file {e}"))?;
     Ok(Uploaded {
         id: stored.id,
         warnings: stored.warnings,
@@ -79,7 +81,7 @@ pub fn folder(state: &Path) -> PathBuf {
 }
 
 #[cfg(not(feature = "web"))]
-fn remove_unreferenced(_: &Path, _: &[String], _: u64) -> usize {
+fn remove_unreferenced(_: &Path, _: &[String]) -> usize {
     0
 }
 
@@ -94,7 +96,7 @@ pub fn root_pem(state: &Path) -> PathBuf {
 }
 
 #[cfg(not(feature = "web"))]
-pub fn store(_: &Path, _: &Request<'_>, _: u64) -> Result<Uploaded, String> {
+pub fn store(_: &Path, _: &Request<'_>) -> Result<Uploaded, String> {
     Err("this build of burrow has no web proxy".into())
 }
 
@@ -132,12 +134,8 @@ mod tests {
             burrow_config::uploads::upload_ids(&cfg),
             vec![ids[7].clone()]
         );
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
         assert_eq!(
-            remove_unreferenced(state.path(), &burrow_config::uploads::upload_ids(&cfg), now),
+            remove_unreferenced(state.path(), &burrow_config::uploads::upload_ids(&cfg)),
             MAX_KEPT - 1
         );
         assert!(

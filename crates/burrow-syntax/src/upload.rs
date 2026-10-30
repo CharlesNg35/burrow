@@ -1,3 +1,5 @@
+pub const DRAFT_SECS: u64 = 30 * 60;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Pair,

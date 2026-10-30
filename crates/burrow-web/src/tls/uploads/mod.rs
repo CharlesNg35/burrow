@@ -13,6 +13,8 @@ use zeroize::Zeroizing;
 
 use super::files;
 
+pub use burrow_syntax::upload::DRAFT_SECS;
+
 pub const PAIR_LIMIT: usize = (64 + 16) * 1024;
 pub const CA_LIMIT: usize = 256 * 1024;
 pub const CRL_LIMIT: usize = 1024 * 1024;
@@ -98,8 +100,6 @@ pub fn load(state: &Path, id: &str) -> Result<Zeroizing<Vec<u8>>, String> {
         .map(Zeroizing::new)
         .map_err(|e| format!("cannot read the upload {id}: {e}"))
 }
-
-pub const DRAFT_SECS: u64 = 30 * 60;
 
 fn young(entry: &std::fs::DirEntry, now: u64) -> bool {
     entry

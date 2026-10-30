@@ -64,7 +64,8 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
         return Err(ApiError::new(
             ErrorCode::Busy,
             format!(
-                "burrow keeps at most {MAX_KEPT} uploaded files; apply your changes first: then burrow removes the uploads the config no longer uses that are older than 30 minutes"
+                "burrow keeps at most {MAX_KEPT} uploaded files; apply your changes first: then burrow removes the uploads the config no longer uses that are older than {} minutes",
+                burrow_syntax::upload::DRAFT_SECS / 60
             ),
         ));
     }
@@ -73,16 +74,13 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
     } else {
         Zeroizing::new(Vec::new())
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
     let r = files::Request {
         kind,
         pem: req.pem.as_bytes(),
         hosts: &req.hosts,
         cas: &cas,
     };
-    files::store(&state, &r, now).map_err(|e| ApiError::new(ErrorCode::Invalid, e))
+    files::store(&state, &r).map_err(|e| ApiError::new(ErrorCode::Invalid, e))
 }
 
 pub fn local_ca(core: &Core) -> Result<serde_json::Value, ApiError> {
