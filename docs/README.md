@@ -1,6 +1,6 @@
 # burrow docs
 
-burrow makes apps on machines behind a router or firewall reachable through a public server, as plain ports, as websites with HTTPS, or privately for your own devices. These pages explain each part. If you are new, start with the [quick start in the README](../README.md#quick-start), then pick the page for what you want to do.
+burrow makes apps on machines behind a router or firewall reachable through a public server: as plain ports, as websites with HTTPS, or privately for your own devices. These pages explain each part. If you are new, start with the [quick start in the README](../README.md#quick-start), then pick the page for what you want to do.
 
 Words like client, visitor, service and target have one meaning throughout; the [glossary](glossary.md) lists them.
 

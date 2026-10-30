@@ -1,6 +1,6 @@
 # Configuration
 
-Everything burrow does is written in a config file, and nothing runs that the file does not ask for. This page explains how the files are written, how changes are applied, and lists every key with its default. Read it when you write a config by hand or look up what a key does; the other pages show the keys at work for each task.
+Everything burrow does is written in a config file, and nothing runs that the file does not ask for. This page explains how the files are written and how changes apply, and lists every key with its default. Read it to write a config by hand or to look up a key; the other pages show the keys at work for each task.
 
 Each machine has one file, for its role:
 
@@ -8,7 +8,7 @@ Each machine has one file, for its role:
 - **client.yaml** for a client, a machine behind NAT (a home or office router) that reaches your apps.
 - **visitor.yaml** for a visitor, one of your own machines (a laptop, for example) that uses private services. See [visitors.md](visitors.md).
 
-You rarely write client.yaml or visitor.yaml by hand: `burrow client-config` and `burrow visitor-config` print them from the server's config. The words used here are explained in the [glossary](glossary.md).
+You rarely write client.yaml or visitor.yaml by hand: `burrow client-config` and `burrow visitor-config` print them from the server's config. The [glossary](glossary.md) explains the words used here.
 
 ## Format
 
@@ -51,11 +51,11 @@ error: unknown field "trget" in service "web"
 server.yaml: 2 errors, 0 warnings
 ```
 
-The same checks run when burrow starts and each time a config is reloaded. A config that does not pass is not applied, and the running one is kept.
+The same checks run when burrow starts and at each reload. A config that fails them is not applied, and the running one stays.
 
 ## Short forms
 
-Addresses can be written in full, or shortened to save typing. In each line below, the short form and the comment mean the same thing:
+Addresses can be written in full or shortened. In each line below, the short form and the comment mean the same thing:
 
 ```yaml
 # server.yaml
@@ -86,13 +86,13 @@ forwards:
 
 ## Reloading
 
-You never need to restart burrow to change what it does. Saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
+You never need to restart burrow to change what it does: saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
 
 - **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. Only a change to `listen` needs a restart.
-- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` and `max_udp_peers` included: a new limit counts for new connections and new UDP peers. Open connections keep running, except those whose target the new `allow` no longer permits.
+- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` and `max_udp_peers` included; a new limit counts for new connections and new UDP peers. Open connections keep running, except those whose target the new `allow` no longer permits.
 - **Visitor:** only the forwards that changed are opened or closed.
 
-Files are also checked again every 30 seconds, so changes through a Docker file mount or a network share are applied too.
+burrow also checks the file every 30 seconds, so changes through a Docker file mount or a network share apply too.
 
 ## server.yaml
 
@@ -221,7 +221,7 @@ services:
 
 ## client.yaml
 
-A client's file says which server to connect to, its own name and secret, and which targets it agrees to reach. `burrow client-config` writes it for you; this one shows the kinds of `allow` entries:
+A client's file names the server, the client's own name and secret, and the targets it agrees to reach. `burrow client-config` writes it for you; this one shows the kinds of `allow` entries:
 
 ```yaml
 # client.yaml
@@ -236,7 +236,7 @@ allow:
   - unix:/run/postgresql/* # Unix sockets: one path, or every socket in a folder
 ```
 
-`allow` is the list of targets this client agrees to connect to. Anything else is refused, even when the server asks for it. Each entry is an address range in CIDR form (`192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, `/32` means one address), optionally with `:port` or `:low-high`. Host names are checked after they are resolved. `burrow client-config` writes this list from the server's services.
+`allow` is the list of targets this client agrees to connect to; anything else is refused, even when the server asks for it. Each entry is an address range in CIDR form, optionally with `:port` or `:low-high`: `192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, and `/32` means one address. Host names are checked after they are resolved. `burrow client-config` writes this list from the server's services.
 
 <details>
 <summary><b>All client.yaml keys</b></summary>
@@ -267,7 +267,7 @@ By default a client keeps retrying until it is stopped, and follows a server tha
 
 ## visitor.yaml
 
-A visitor's file says which server to connect to, its own name and secret, and the forwards: local ports on your machine that lead to a service or a target. `burrow visitor-config` writes it for you; this one shows every kind of forward:
+A visitor's file names the server, the visitor's own name and secret, and its forwards: local ports on your machine that lead to a service or a target. `burrow visitor-config` writes it for you; this one shows every kind of forward:
 
 ```yaml
 # visitor.yaml
@@ -281,7 +281,7 @@ forwards:
   dns: { service: dns, protocol: udp, local: 5353 } # a private UDP service
 ```
 
-Each forward opens a local port on the visitor's machine. See [visitors.md](visitors.md) for what each kind does.
+[visitors.md](visitors.md) explains each kind of forward.
 
 <details>
 <summary><b>All visitor.yaml keys</b></summary>
@@ -309,7 +309,7 @@ Each client and visitor logs in with its own secret. A secret is 32 random bytes
 ./burrow gensecret
 ```
 
-Never use a password: burrow refuses a secret that is not exactly 32 bytes or does not look random. To change a secret without downtime, list both on the server (`secret: [old, new]`), switch the client to the new one, then remove the old one. See [security.md](security.md).
+Never use a password: burrow refuses a secret that is not exactly 32 bytes or does not look random. To change a secret without downtime, list both on the server (`secret: [old, new]`), switch the client to the new one, then remove the old one ([security.md](security.md)).
 
 ## Next steps
 

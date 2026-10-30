@@ -1,6 +1,6 @@
 # Glossary
 
-The words burrow's docs, its messages and the admin UI use, each with one meaning. When a page uses one of these words, it means what this page says.
+The words that burrow's docs, its messages and the admin UI use, each with one meaning throughout.
 
 ## The tunnel
 
@@ -40,7 +40,7 @@ The words burrow's docs, its messages and the admin UI use, each with one meanin
 | **wildcard** | A name like `*.example.com` that covers every name exactly one label below it, like `blog.example.com`. |
 | **certificate** | The file that lets a browser trust an HTTPS site. burrow gets them from Let's Encrypt, from your files, or from its local CA. |
 | **Let's Encrypt** | A free, automatic certificate authority. burrow orders and renews its certificates for you once `web.letsencrypt` has an email. |
-| **check** (Let's Encrypt) | How Let's Encrypt confirms you control a name before it gives a certificate: the **TLS check** on port 443, the **HTTP check** on port 80, or the **DNS check**, a TXT record burrow sets through your DNS provider. The ACME standard calls them challenges, hence the `challenge` key. |
+| **check** (Let's Encrypt) | How Let's Encrypt confirms you control a name before it issues a certificate: the **TLS check** on port 443, the **HTTP check** on port 80, or the **DNS check**, a TXT record burrow sets through your DNS provider. The ACME standard calls them challenges, hence the `challenge` key. |
 | **shared wildcard** | One Let's Encrypt wildcard certificate, listed under `letsencrypt.dns[].wildcards`, that every site under it reuses. |
 | **local CA** | burrow's own certificate authority, for names that live only on your network (`tls: internal`). You install its certificate once on each device. |
 | **passthrough** | `tls: passthrough`: burrow reads only the name and passes the encrypted connection to an app that does its own HTTPS. |
