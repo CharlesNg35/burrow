@@ -242,12 +242,7 @@ impl Backend for Launchd {
                     Failure::new(format!("cannot give {} to root: {e}", dir.display()))
                 })?;
             }
-            let mut kept = vec![m.log_file.clone()];
-            kept.extend((1..=crate::base::logfile::KEEP).map(|n| {
-                let mut name = m.log_file.as_os_str().to_owned();
-                name.push(format!(".{n}"));
-                std::path::PathBuf::from(name)
-            }));
+            let kept = crate::base::logfile::all_files(&m.log_file);
             for f in kept.iter().filter(|f| f.symlink_metadata().is_ok()) {
                 if f.symlink_metadata()
                     .is_ok_and(|m| m.file_type().is_symlink())

@@ -7,8 +7,8 @@ use super::checks::{
     refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
-    StartAgain, Takeover, Undo, give_old_files, given_note, own_logs, release_previous,
-    start_installed, take_over,
+    StartAgain, Takeover, Undo, give_old_files, given_note, release_previous, start_installed,
+    take_over,
 };
 use super::uninstall::{Kept, keep_admin_copy};
 use super::{Backend, background, name_for, save_manifest, say, stray, system};
@@ -276,7 +276,7 @@ fn say_installed(
             manifest.role
         ),
     )?;
-    let mut own = own_logs(&manifest.log_file);
+    let mut own = crate::base::logfile::all_files(&manifest.log_file);
     own.push(config.to_path_buf());
     own.extend(manifest.env_file.clone());
     let given = give_old_files(old_files, account, &own);

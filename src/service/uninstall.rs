@@ -87,11 +87,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     say(out, format!("removed service {}", m.name))?;
     let others = all_manifests();
     let strays = stray::strays();
-    let mut logs = vec![m.log_file.clone()];
-    logs.extend(
-        (1..=crate::base::logfile::KEEP)
-            .map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
-    );
+    let logs = crate::base::logfile::all_files(&m.log_file);
     let mut kept = Vec::new();
     let mut kept_folder = None;
     let state = m.web_state.clone().filter(|d| real_dir(d));
