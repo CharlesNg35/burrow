@@ -32,7 +32,7 @@ impl Tone {
             Tone::Neutral => "border border-border bg-surface-3 text-text-muted",
             Tone::Accent | Tone::Info => "bg-accent-weak text-accent-ink",
             Tone::Success => "bg-success-weak text-success",
-            Tone::Warning => "bg-warning-weak text-warning",
+            Tone::Warning => "border border-warning/40 text-warning",
             Tone::Danger => "bg-danger-weak text-danger",
             Tone::Violet => "bg-udp-weak text-udp",
         }

@@ -16,14 +16,7 @@ pub struct FieldState {
 pub fn tag_class(tone: Tone) -> String {
     format!(
         "inline-flex h-[18px] items-center gap-1 rounded-xs px-1.5 text-[10px] font-bold tracking-wide whitespace-nowrap {}",
-        match tone {
-            Tone::Warning => "border border-warning/40 text-warning",
-            Tone::Success => "bg-success-weak text-success",
-            Tone::Accent | Tone::Info => "bg-accent-weak text-accent-ink",
-            Tone::Danger => "bg-danger-weak text-danger",
-            Tone::Violet => "bg-udp-weak text-udp",
-            Tone::Neutral => "border border-border bg-surface-3 text-text-muted",
-        }
+        tone.tag()
     )
 }
 
@@ -124,5 +117,29 @@ pub fn FieldRow(
                 </div>
             })}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tag_and_a_chip_of_one_tone_share_its_colours() {
+        for tone in [
+            Tone::Neutral,
+            Tone::Accent,
+            Tone::Success,
+            Tone::Warning,
+            Tone::Danger,
+            Tone::Info,
+            Tone::Violet,
+        ] {
+            assert!(tag_class(tone).ends_with(tone.tag()), "{tone:?}");
+            assert!(
+                crate::chip_class(tone, false).contains(tone.tag()),
+                "{tone:?}"
+            );
+        }
     }
 }
