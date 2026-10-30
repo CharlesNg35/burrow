@@ -1,5 +1,6 @@
 mod common;
 
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -56,9 +57,10 @@ fn second_start_is_refused_and_crash_releases_the_lock() {
     let mut first = burrow(&s).arg("server").spawn().unwrap();
     wait_running(&mut first);
 
-    let second = burrow(&s).arg("server").output().unwrap();
-    assert_eq!(second.status.code(), Some(1));
-    let err = String::from_utf8_lossy(&second.stderr);
+    let mut c = burrow(&s);
+    let log = logged(&s, c.arg("server"), "second");
+    let (code, err) = finish(c.spawn().unwrap(), &log, Duration::from_secs(30));
+    assert_eq!(code, Some(1), "{err}");
     assert!(err.contains("is already running"), "{err}");
     assert!(err.contains(&format!("pid {}", first.id())), "{err}");
 
@@ -71,6 +73,43 @@ fn second_start_is_refused_and_crash_releases_the_lock() {
     third.wait().unwrap();
 }
 
+fn logged(s: &Setup, c: &mut Command, name: &str) -> PathBuf {
+    let log = s.dir.path().join(format!("{name}.log"));
+    c.stderr(std::fs::File::create(&log).unwrap());
+    log
+}
+
+fn stopped(mut child: Child, log: &Path) -> String {
+    let _ = child.kill();
+    let _ = child.wait();
+    std::fs::read_to_string(log).unwrap_or_default()
+}
+
+fn finish(mut child: Child, log: &Path, within: Duration) -> (Option<i32>, String) {
+    let start = Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if start.elapsed() >= within {
+            let text = stopped(child, log);
+            panic!("burrow did not exit within {within:?}, so it was killed; its log:\n{text}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let code = child.wait().unwrap().code();
+    (code, std::fs::read_to_string(log).unwrap_or_default())
+}
+
+#[cfg(feature = "web")]
+fn until(child: &mut Child, within: Duration, mut done: impl FnMut() -> bool) -> bool {
+    let start = Instant::now();
+    while !done() {
+        if start.elapsed() >= within || child.try_wait().unwrap().is_some() {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    true
+}
+
 #[cfg(feature = "web")]
 #[test]
 fn a_second_server_that_fails_the_lock_leaves_the_uploads_alone() {
@@ -79,9 +118,25 @@ fn a_second_server_that_fails_the_lock_leaves_the_uploads_alone() {
         "  site:\n    client: home\n    target: 127.0.0.1:8080\n    web: { hosts: [example.com], tls: off }\n",
     );
     let state = s.dir.path().join("state");
-    let files = state.join("files");
-    std::fs::create_dir_all(&files).unwrap();
-    let old = files.join("pair-00000000000000aa.pem");
+    let old = state.join("files").join("pair-00000000000000aa.pem");
+    let server = |name: &str| {
+        let mut c = burrow(&s);
+        c.arg("server").arg("--state-dir").arg(&state);
+        let log = logged(&s, &mut c, name);
+        (c.spawn().unwrap(), log)
+    };
+    let (mut holder, holder_log) = server("holder");
+    let id = holder.id();
+    let locked = until(&mut holder, Duration::from_secs(30), || {
+        burrow::instance::running_in(s.locks.path())
+            .iter()
+            .any(|r| r.pid == id)
+    });
+    if !locked {
+        let text = stopped(holder, &holder_log);
+        panic!("the first server did not take the lock; its log:\n{text}");
+    }
+    std::fs::create_dir_all(old.parent().unwrap()).unwrap();
     std::fs::write(&old, "x").unwrap();
     std::fs::File::options()
         .write(true)
@@ -89,35 +144,18 @@ fn a_second_server_that_fails_the_lock_leaves_the_uploads_alone() {
         .unwrap()
         .set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
         .unwrap();
-    let config = s.dir.path().join("server.yaml");
-    let identity = burrow::instance::Identity::server(&config);
-    let held = burrow::instance::acquire_in(s.locks.path(), &identity, &config).unwrap();
-    let server = || {
-        let mut c = burrow(&s);
-        c.arg("server").arg("--state-dir").arg(&state);
-        c
-    };
 
-    let second = server().output().unwrap();
-    assert_eq!(second.status.code(), Some(1));
-    let err = String::from_utf8_lossy(&second.stderr);
+    let (second, log) = server("second");
+    let (code, err) = finish(second, &log, Duration::from_secs(30));
+    stopped(holder, &holder_log);
+    assert_eq!(code, Some(1), "{err}");
     assert!(err.contains("is already running"), "{err}");
     assert!(old.exists(), "the refused server removed an upload");
 
-    drop(held);
-    let mut first = server().spawn().unwrap();
-    let start = Instant::now();
-    while old.exists() && start.elapsed() < Duration::from_secs(10) {
-        assert!(first.try_wait().unwrap().is_none(), "server exited early");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    first.kill().unwrap();
-    let out = first.wait_with_output().unwrap();
-    let err = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        !old.exists(),
-        "the running server keeps an unused upload: {err}"
-    );
+    let (mut third, log) = server("third");
+    let pruned = until(&mut third, Duration::from_secs(30), || !old.exists());
+    let err = stopped(third, &log);
+    assert!(pruned, "the running server keeps an unused upload: {err}");
     assert!(err.contains("removed 1 uploaded files"), "{err}");
 }
 
@@ -131,9 +169,11 @@ fn config_is_found_in_the_current_folder() {
         String::from_utf8_lossy(&out.stderr)
     );
     std::fs::remove_file(s.dir.path().join("server.yaml")).unwrap();
-    let out = burrow(&s).arg("server").output().unwrap();
-    assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stderr).contains(" init server"));
+    let mut c = burrow(&s);
+    let log = logged(&s, c.arg("server"), "missing");
+    let (code, err) = finish(c.spawn().unwrap(), &log, Duration::from_secs(30));
+    assert_eq!(code, Some(2), "{err}");
+    assert!(err.contains(" init server"), "{err}");
 }
 
 #[test]

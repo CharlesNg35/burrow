@@ -46,7 +46,10 @@ fn config(path: &Path, ports: (u16, u16, u16), tls: &str) {
 async fn nudge(tx: &mpsc::Sender<Nudge>) -> ReloadOutcome {
     let (reply, back) = oneshot::channel();
     tx.send(Nudge { reply }).await.unwrap();
-    back.await.unwrap()
+    tokio::time::timeout(Duration::from_secs(30), back)
+        .await
+        .expect("the reload answers within 30 s")
+        .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -127,7 +130,10 @@ async fn a_reload_the_server_refuses_keeps_the_upload_only_the_new_settings_drop
     refused.web.as_mut().unwrap().uploads.clear();
     let mut applies = srv.shared.applies();
     srv.reload(refused).await;
-    applies.changed().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(30), applies.changed())
+        .await
+        .expect("the server answers the reload within 30 s")
+        .unwrap();
     assert!(upload.exists(), "a refused reload removed an upload");
 
     let mut dropped = s;
