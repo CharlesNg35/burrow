@@ -236,7 +236,14 @@ fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=detail][data-name=local]", SECS)
             .await;
         let clients = "[data-schema='services/*/clients']";
-        c.ui.click(&format!("{clients} [data-remove]")).await;
+        c.ui.click(&format!(
+            "{clients} [data-entry='0'] [data-testid=row-more]"
+        ))
+        .await;
+        c.ui.click(&format!(
+            "{clients} [data-entry='0'] [data-testid=entry-remove]"
+        ))
+        .await;
         c.ui.click("#f-services-local-clients").await;
         c.ui.wait_for(&format!("{clients} [data-option=self]"), SECS)
             .await;

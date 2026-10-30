@@ -199,7 +199,11 @@ pub struct ServiceEntry {
     #[schemars(
         description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least_connections sends each new one to the client with the fewest open connections"
     )]
-    #[admin(group = who, enabled_if(len_ge(clients, 2), "This applies only with two or more clients"))]
+    #[admin(
+        help = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones",
+        group = who,
+        enabled_if(len_ge(clients, 2), "This applies only with two or more clients")
+    )]
     pub mode: Mode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

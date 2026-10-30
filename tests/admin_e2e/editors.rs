@@ -68,7 +68,12 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("health-check-custom").await;
 
         let client = "[data-schema='services/*/clients']";
-        c.ui.click(&format!("{client} [data-remove]")).await;
+        c.ui.click(&format!("{client} [data-entry='0'] [data-testid=row-more]"))
+            .await;
+        c.ui.click(&format!(
+            "{client} [data-entry='0'] [data-testid=entry-remove]"
+        ))
+        .await;
         c.ui.wait_for("[data-testid=form-problems]", SECS).await;
         c.ui.shot("no-client-is-a-problem").await;
         c.ui.fill("#f-services-web-clients", "off").await;

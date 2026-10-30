@@ -2,9 +2,10 @@ use burrow_admin_logic::entries::{Row, rows, to_values};
 use burrow_admin_proto::schema::{Node, RefEntriesC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Mode, ServiceEntry};
-use burrow_ui_kit::{Combobox, TextInput, button_class};
+use burrow_ui_kit::{Combobox, TextInput};
 use leptos::prelude::*;
 
+use crate::app::{MenuItem, row_menu, row_menus};
 use crate::domain::{FieldCtx, set_checked};
 use crate::edit::diags_at;
 use crate::form::{Ctx, plain, ref_link};
@@ -73,7 +74,18 @@ impl Place {
     }
 }
 
-fn row_view(place: Place, c: RefEntriesC, i: usize, balance: Signal<bool>) -> AnyView {
+struct Look {
+    balance: Signal<bool>,
+    menus: RwSignal<Option<String>>,
+    last: bool,
+}
+
+fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
+    let Look {
+        balance,
+        menus,
+        last,
+    } = look;
     let e = store().edit;
     let id = format!("{}-{i}", place.fc.id);
     let current = {
@@ -121,7 +133,7 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, balance: Signal<bool>) -> An
     let set_weight = on(|all, i, t| all[i].weight = typed(&t).filter(|w| w.as_i64() != Some(1)));
     let act = |f: fn(&mut Vec<Row>, usize)| {
         let place = place.clone();
-        move |_: leptos::ev::MouseEvent| place.edit(|all| f(all, i))
+        Callback::new(move |_: ()| place.edit(|all| f(all, i)))
     };
     let up = act(|all, i| {
         if i > 0 {
@@ -140,6 +152,41 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, balance: Signal<bool>) -> An
     let remove = act(|all, i| {
         all.remove(i);
     });
+    let mut items = Vec::new();
+    if i > 0 {
+        items.push(MenuItem {
+            label: "Move up",
+            testid: "entry-up",
+            danger: false,
+            run: up,
+        });
+    }
+    if !last {
+        items.push(MenuItem {
+            label: "Move down",
+            testid: "entry-down",
+            danger: false,
+            run: down,
+        });
+    }
+    items.push(MenuItem {
+        label: "Another target",
+        testid: "entry-again",
+        danger: false,
+        run: again,
+    });
+    items.push(MenuItem {
+        label: "Remove",
+        testid: "entry-remove",
+        danger: true,
+        run: remove,
+    });
+    let menu = row_menu(
+        menus,
+        i.to_string(),
+        format!("More for entry {}", i + 1),
+        items,
+    );
     let weight_id = format!("{id}-weight");
     let mut at = place.fc.path.clone();
     at.push(i.to_string());
@@ -160,14 +207,9 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, balance: Signal<bool>) -> An
                     <TextInput id=format!("{id}-target") value=target on_input=set_target mono=true placeholder=service_target label="Target"/>
                 </div>
                 <div class="w-[140px]" class:hidden=move || !balance.get() data-weight="">
-                    <TextInput id=weight_id value=weight on_input=set_weight numeric=true suffix="shares" placeholder="1" label="Weight"/>
+                    <TextInput id=weight_id value=weight on_input=set_weight numeric=true placeholder="1" label="Weight"/>
                 </div>
-                <div class="flex gap-1">
-                    <button type="button" class=button_class("ghost", true) aria-label="Move up" data-up="" on:click=up>"↑"</button>
-                    <button type="button" class=button_class("ghost", true) aria-label="Move down" data-down="" on:click=down>"↓"</button>
-                    <button type="button" class=button_class("ghost", true) data-again="" on:click=again>"+ another target"</button>
-                    <button type="button" class=button_class("ghost", true) aria-label="Remove" data-remove="" on:click=remove>"Remove"</button>
-                </div>
+                <div class="pb-1.5">{menu}</div>
             </div>
             {move || problem().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
         </div>
@@ -210,16 +252,40 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
             }
         })
     };
+    let menus = row_menus();
     let rows = {
         let (place, c) = (place.clone(), c.clone());
         move || {
-            (0..count.get())
-                .map(|i| row_view(place.clone(), c.clone(), i, balance))
+            let n = count.get();
+            (0..n)
+                .map(|i| {
+                    row_view(
+                        place.clone(),
+                        c.clone(),
+                        i,
+                        Look {
+                            balance,
+                            menus,
+                            last: i + 1 == n,
+                        },
+                    )
+                })
                 .collect_view()
         }
     };
+    let head = move || {
+        (count.get() > 0).then(|| view! {
+            <div class="flex gap-2 px-3 text-xs font-semibold text-text-muted max-sm:hidden" data-entries-head="">
+                <span class="min-w-[160px] flex-1">"Client"</span>
+                <span class="min-w-[180px] flex-1">"Target"</span>
+                <span class="w-[140px]" class:hidden=move || !balance.get()>"Weight"</span>
+                <span class="w-7" aria-hidden="true"></span>
+            </div>
+        })
+    };
     view! {
         <div class="space-y-2" data-entries="" on:focusout=move |_| { let _ = touched.try_set(true); }>
+            {head}
             {rows}
             <div class="max-w-[320px]" data-add-entry="">
                 <Combobox id=fc.id.clone() options=options selected=Signal::stored(Vec::new()) on_change=add placeholder="Add client…" label="Add client" create_label=create_label on_create=on_create/>

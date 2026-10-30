@@ -31,11 +31,11 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.fill(weight, "3").await;
         c.ui.wait_gone(row, SECS).await;
         row_clean(c, field).await;
-        click_js(c, "[data-entry='1'] [data-again]").await;
+        click_js(c, "[data-entry='1'] [data-testid=entry-again]").await;
         c.ui.wait_for("[data-entry='2']", SECS).await;
         c.ui.fill("#f-services-pool-clients-2-target", "10.0.0.13:8080")
             .await;
-        click_js(c, "[data-entry='2'] [data-up]").await;
+        click_js(c, "[data-entry='2'] [data-testid=entry-up]").await;
         let mut moved = String::new();
         for _ in 0..50 {
             moved =
@@ -60,8 +60,8 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=health] [data-row]", SECS).await;
         let rows = c.ui.text("[data-testid=health]").await;
         assert!(
-            rows.contains("office → 10.0.0.13:8080"),
-            "one row per entry: {rows}"
+            rows.contains("→ 10.0.0.13:8080") && rows.contains("(service target)"),
+            "one row per entry, each with its target: {rows}"
         );
         c.ui.shot("client-entries-health").await;
         c.ui.nav("/clients").await;

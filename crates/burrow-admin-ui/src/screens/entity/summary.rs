@@ -141,6 +141,10 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                 let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
                 let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
                 let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
+                let default_target = ServiceEntry::TARGET
+                    .get(&svc)
+                    .map(plain)
+                    .unwrap_or_default();
                 let rows = listed
                     .into_iter()
                     .map(|en| {
@@ -152,14 +156,15 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let h = hs.map(|h| h.up);
                         let why = hs.and_then(|h| h.reason.clone());
                         let set = aside.iter().find(|a| a.client == c && a.target == t).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
-                        let label = match &t {
-                            Some(t) => format!("{c} → {t}"),
-                            None => c.clone(),
+                        let to = match &t {
+                            Some(t) => format!("→ {t}"),
+                            None => format!("→ {default_target} (service target)"),
                         };
+                        let label = c.clone();
                         let open = format::count(en.open);
                         view! {
                             <tr data-row=c.clone()>
-                                <th scope="row"><StatusDot on=on text=label/></th>
+                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 font-mono text-xs font-normal text-text-muted" data-testid="entry-target">{to}</span></th>
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
                                 <td class="font-mono text-[13px] text-text-muted max-sm:hidden">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
                                 <td>{match h {
