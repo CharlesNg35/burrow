@@ -251,3 +251,33 @@ fn every_server_with_web_gets_the_state_folder_so_the_admin_can_add_uploads_late
     )));
     assert!(!super::web_files::needs_state(&cfg(serde_json::json!({}))));
 }
+
+#[cfg(unix)]
+#[test]
+fn purge_finds_the_access_log_in_the_services_own_log_folder_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let logs = dir.path().join("logs");
+    let secret = crate::wire::secret::Secret::generate().encode();
+    let write = |access: &std::path::Path| {
+        let config = dir.path().join("server.yaml");
+        std::fs::write(
+            &config,
+            format!(
+                "listen: 7835\nclients:\n  home: {{ secret: {secret} }}\nweb:\n  https: 443\n  access_log: {}\nservices:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n",
+                access.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut m = manifest(None);
+        m.config = config;
+        m.log_file = logs.join("home.log");
+        super::uninstall::access_logs(&m)
+    };
+    let own = logs.join("access.log");
+    let found = write(&own);
+    assert_eq!(found.first(), Some(&own), "{found:?}");
+    assert!(found.contains(&logs.join("access.log.1")), "{found:?}");
+    assert!(write(&dir.path().join("elsewhere").join("access.log")).is_empty());
+}

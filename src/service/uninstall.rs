@@ -87,7 +87,8 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     say(out, format!("removed service {}", m.name))?;
     let others = all_manifests();
     let strays = stray::strays();
-    let logs = crate::base::logfile::all_files(&m.log_file);
+    let mut logs = crate::base::logfile::all_files(&m.log_file);
+    logs.extend(access_logs(&m));
     let mut kept = Vec::new();
     let mut kept_folder = None;
     let state = m.web_state.clone().filter(|d| real_dir(d));
@@ -180,6 +181,21 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
 
 fn real_dir(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
+}
+
+pub(super) fn access_logs(m: &Manifest) -> Vec<PathBuf> {
+    let env = crate::config::env::ProcessEnv;
+    let Ok(outcome) = crate::config::load_file(&m.config, Some(crate::config::Role::Server), &env)
+    else {
+        return Vec::new();
+    };
+    let Some(crate::config::Loaded::Server(_, cfg)) = outcome.loaded else {
+        return Vec::new();
+    };
+    super::web_files::access_log(&cfg)
+        .filter(|l| super::web_files::log_folder_refusal(l, &m.log_file, cfg!(windows)).is_none())
+        .map(|l| crate::base::logfile::all_files(&l))
+        .unwrap_or_default()
 }
 
 fn purge_files(m: &Manifest, logs: &[PathBuf], out: &mut dyn Write) -> Result<(), Failure> {
