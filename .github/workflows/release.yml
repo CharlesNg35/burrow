@@ -22,6 +22,7 @@ env:
 jobs:
   version:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tag matches Cargo.toml
@@ -35,6 +36,7 @@ jobs:
 
   ui:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup target add wasm32-unknown-unknown
@@ -69,6 +71,7 @@ jobs:
           - { asset: linux-riscv64, target: riscv64gc-unknown-linux-musl, os: ubuntu-latest, zig: true }
           - { asset: freebsd-amd64, target: x86_64-unknown-freebsd, os: ubuntu-latest, zig: true }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup target add ${{ matrix.target }}
@@ -177,6 +180,7 @@ jobs:
   publish:
     needs: binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
@@ -219,6 +223,7 @@ jobs:
   image:
     needs: [publish, ui]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
@@ -281,6 +286,7 @@ jobs:
     needs: [publish, image]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: write
     steps:
