@@ -5,7 +5,7 @@ pub const NAMES: usize = 3;
 
 pub fn top<T>(mut rows: Vec<T>, rank: impl Fn(&T) -> (bool, u64)) -> (Vec<T>, usize) {
     let total = rows.len();
-    rows.sort_by_key(|r| {
+    rows.sort_by_cached_key(|r| {
         let (problem, busy) = rank(r);
         (Reverse(problem), Reverse(busy))
     });

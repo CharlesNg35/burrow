@@ -83,7 +83,6 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>) -> AnyView {
     let of = |name: &str| {
         st.as_ref()
             .and_then(|st| st.clients.iter().find(|c| c.name == name))
-            .cloned()
     };
     let serving = |name: &str| {
         ServiceEntry::entries(&v)
@@ -91,17 +90,16 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>) -> AnyView {
     };
     let (kept, total) = top(n, |name| {
         let c = of(name);
-        let away = !c.as_ref().is_some_and(|c| c.connected) && serving(name);
+        let away = !c.is_some_and(|c| c.connected) && serving(name);
         (
-            away || c.as_ref().is_some_and(|c| c.at_limit),
+            away || c.is_some_and(|c| c.at_limit),
             c.map_or(0, |c| c.open),
         )
     });
     let rows = kept
-        .clone()
-        .into_iter()
+        .iter()
         .map(|name| {
-            let c = of(&name);
+            let c = of(name);
             let on = c.as_ref().is_some_and(|c| c.connected);
             let since = c
                 .as_ref()
@@ -110,9 +108,9 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>) -> AnyView {
                     (None, Some(a)) => Some(format!("left {}", format::ago(a))),
                     _ => None,
                 })
-                .unwrap_or_else(|| format::left_of(&name, None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
+                .unwrap_or_else(|| format::left_of(name, None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
             let serves: Vec<String> = ServiceEntry::entries(&v)
-                .map(|m| m.iter().filter(|(_, x)| clients_of(x).contains(&name)).map(|(k, _)| k.clone()).collect())
+                .map(|m| m.iter().filter(|(_, x)| clients_of(x).contains(name)).map(|(k, _)| k.clone()).collect())
                 .unwrap_or_default();
             let label = name.clone();
             view! {
@@ -140,21 +138,19 @@ pub(super) fn visitors_table(s: Store, values: Memo<Value>) -> AnyView {
     let of = |name: &str| {
         st.as_ref()
             .and_then(|st| st.visitors.iter().find(|c| c.name == name))
-            .cloned()
     };
     let (kept, total) = top(n, |name| {
         (
             false,
-            of(name).map_or(0, |x| x.open * 2 + u64::from(s.in_use(&x))),
+            of(name).map_or(0, |x| x.open * 2 + u64::from(s.in_use(x))),
         )
     });
     let rows = kept
-        .clone()
-        .into_iter()
+        .iter()
         .map(|name| {
-            let x = of(&name);
+            let x = of(name);
             let open = x.as_ref().map(|x| x.open).unwrap_or(0);
-            let admin = VisitorEntry::ADMIN.at(&v, &name).map(plain);
+            let admin = VisitorEntry::ADMIN.at(&v, name).map(plain);
             let may: Vec<String> = ServiceEntry::entries(&v)
                 .map(|m| m.iter().filter(|(_, s)| ServiceEntry::VISITORS.get(s).and_then(Value::as_array).is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))).map(|(k, _)| k.clone()).collect())
                 .unwrap_or_default();
