@@ -66,7 +66,7 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
                 .await,
             0
         );
-        c.ui.click("[data-schema='services/*/clients'] [data-option=office] input")
+        c.ui.click("[data-schema='services/*/clients'] [data-option=office]")
             .await;
         c.ui.wait_for("[data-schema='services/*/mode'] [data-editor]", SECS)
             .await;
@@ -238,8 +238,7 @@ fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
         let offered = c.ui.text(&format!("{clients} [data-option=self]")).await;
         assert!(offered.contains("This server"), "{offered}");
         c.ui.shot("this-server-in-the-picker").await;
-        c.ui.click(&format!("{clients} [data-option=self] input"))
-            .await;
+        c.ui.click(&format!("{clients} [data-option=self]")).await;
         c.ui.wait_for(&format!("{clients} [data-chip=self]"), SECS)
             .await;
         click_js(c, "#f-services-local-reach-bind").await;

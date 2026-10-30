@@ -91,6 +91,30 @@ pub(super) fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOpti
         .collect()
 }
 
+pub(super) type OnCreate = Option<Callback<String, Option<String>>>;
+
+pub(super) fn create_for(entity: &Entity) -> (String, OnCreate) {
+    let section = match entity {
+        Entity::Client => Some(ClientEntry::section()),
+        Entity::Visitor => Some(VisitorEntry::section()),
+        _ => None,
+    };
+    let can = store().can_write_now();
+    let create_label = section
+        .map(|s| format!("New {}…", crate::screens::create::singular(s)))
+        .unwrap_or_default();
+    let on_create = section.filter(|_| can).map(|sec| {
+        Callback::new(move |name: String| {
+            if let Some(p) = crate::screens::create::name_problem(&name, sec, None) {
+                return Some(p);
+            }
+            crate::screens::create::create_with(sec, &name, None, None, &[]);
+            None
+        })
+    });
+    (create_label, on_create)
+}
+
 pub fn merged_partner(spath: &[String]) -> Option<String> {
     let (key, parent) = spath.split_last()?;
     store().schema.with_untracked(|s| {
@@ -195,24 +219,7 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         let path = fc.path.clone();
         Signal::derive(move || touched.get() && e.local.with(|l| l.contains_key(&path)))
     };
-    let section = match entity {
-        Entity::Client => Some(ClientEntry::section()),
-        Entity::Visitor => Some(VisitorEntry::section()),
-        _ => None,
-    };
-    let can = store().can_write_now();
-    let create_label = section
-        .map(|s| format!("New {}…", crate::screens::create::singular(s)))
-        .unwrap_or_default();
-    let on_create = section.filter(|_| can).map(|sec| {
-        Callback::new(move |name: String| {
-            if let Some(p) = crate::screens::create::name_problem(&name, sec, None) {
-                return Some(p);
-            }
-            crate::screens::create::create_with(sec, &name, None, None, &[]);
-            None
-        })
-    });
+    let (create_label, on_create) = create_for(&entity);
     view! {
         <div data-picker=if multi { "multi" } else { "single" } on:focusout=move |_| { let _ = touched.try_set(true); }>
             <Combobox

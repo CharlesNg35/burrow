@@ -95,13 +95,7 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, balance: Signal<bool>) -> An
     });
     let weight = Signal::derive({
         let current = current.clone();
-        move || {
-            current()
-                .weight
-                .as_ref()
-                .map(plain)
-                .unwrap_or_else(|| "1".into())
-        }
+        move || current().weight.as_ref().map(plain).unwrap_or_default()
     });
     let service_target = e
         .value(&sibling(&place.fc.path, ServiceEntry::TARGET.rel()))
@@ -157,7 +151,7 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, balance: Signal<bool>) -> An
         })
     };
     view! {
-        <div class="rounded-input border border-border px-3 py-2" data-entry=i.to_string()>
+        <div class="rounded-input border border-border px-3 py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
             <div class="flex flex-wrap items-end gap-2">
                 <div class="min-w-[160px] flex-1">
                     <Combobox id=format!("{id}-client") options=options selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
@@ -165,11 +159,9 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, balance: Signal<bool>) -> An
                 <div class="min-w-[180px] flex-1">
                     <TextInput id=format!("{id}-target") value=target on_input=set_target mono=true placeholder=service_target label="Target"/>
                 </div>
-                <Show when=move || balance.get()>
-                    <div class="w-[140px]">
-                        <TextInput id=weight_id.clone() value=weight on_input=set_weight numeric=true suffix="shares" label="Weight"/>
-                    </div>
-                </Show>
+                <div class="w-[140px]" class:hidden=move || !balance.get() data-weight="">
+                    <TextInput id=weight_id value=weight on_input=set_weight numeric=true suffix="shares" placeholder="1" label="Weight"/>
+                </div>
                 <div class="flex gap-1">
                     <button type="button" class=button_class("ghost", true) aria-label="Move up" data-up="" on:click=up>"↑"</button>
                     <button type="button" class=button_class("ghost", true) aria-label="Move down" data-down="" on:click=down>"↓"</button>
@@ -208,6 +200,8 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
         let (entity, reserved) = (c.entity.clone(), c.reserved.clone());
         Signal::derive(move || super::picker::options_for(&entity, &reserved))
     };
+    let (create_label, on_create) = super::picker::create_for(&c.entity);
+    let touched = fc.touched;
     let add = {
         let place = place.clone();
         Callback::new(move |picked: Vec<String>| {
@@ -225,10 +219,10 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
         }
     };
     view! {
-        <div class="space-y-2" id=fc.id.clone() data-entries="">
+        <div class="space-y-2" data-entries="" on:focusout=move |_| { let _ = touched.try_set(true); }>
             {rows}
             <div class="max-w-[320px]" data-add-entry="">
-                <Combobox id=format!("{}-add", fc.id) options=options selected=Signal::stored(Vec::new()) on_change=add placeholder="Add client…" label="Add client"/>
+                <Combobox id=fc.id.clone() options=options selected=Signal::stored(Vec::new()) on_change=add placeholder="Add client…" label="Add client" create_label=create_label on_create=on_create/>
             </div>
         </div>
     }
