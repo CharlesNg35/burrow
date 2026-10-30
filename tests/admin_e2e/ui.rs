@@ -184,6 +184,13 @@ impl Ui {
         }
     }
 
+    pub async fn init_script(&self, js: &str) {
+        self.page
+            .evaluate_on_new_document(js.to_string())
+            .await
+            .expect("a script for every new document");
+    }
+
     pub async fn eval<T: serde::de::DeserializeOwned>(&self, expr: &str) -> T {
         let started = Instant::now();
         loop {

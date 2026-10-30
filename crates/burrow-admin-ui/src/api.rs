@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,6 +32,20 @@ struct Client {
 thread_local! {
     static CLIENT: RefCell<Option<Client>> = const { RefCell::new(None) };
     static ATTEMPT: RefCell<u32> = const { RefCell::new(0) };
+    static GEN: Cell<u64> = const { Cell::new(0) };
+}
+
+fn current(generation: u64) -> bool {
+    GEN.with(Cell::get) == generation
+}
+
+fn drop_old_socket() {
+    if let Some(old) = CLIENT.with(|c| c.borrow_mut().take()) {
+        old.ws.set_onopen(None);
+        old.ws.set_onmessage(None);
+        old.ws.set_onclose(None);
+        let _ = old.ws.close();
+    }
 }
 
 fn now_ms() -> f64 {
@@ -76,6 +90,10 @@ pub fn connect(store: Store) {
         });
         return;
     };
+    let generation = GEN.with(|g| {
+        g.set(g.get() + 1);
+        g.get()
+    });
     let auth =
         serde_json::to_string(&burrow_admin_proto::local::Auth { auth: token }).unwrap_or_default();
     let ws_open = ws.clone();
@@ -83,15 +101,23 @@ pub fn connect(store: Store) {
         let _ = ws_open.send_with_str(&auth);
     });
     let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
+        if !current(generation) {
+            return;
+        }
         if let Some(text) = e.data().as_string() {
             incoming(store, &text);
         }
     });
-    let on_close = Closure::<dyn FnMut(CloseEvent)>::new(move |e: CloseEvent| closed(store, &e));
+    let on_close = Closure::<dyn FnMut(CloseEvent)>::new(move |e: CloseEvent| {
+        if current(generation) {
+            closed(store, &e, generation);
+        }
+    });
     ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
     ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
     fail_pending();
+    drop_old_socket();
     CLIENT.with(|c| {
         *c.borrow_mut() = Some(Client {
             ws,
@@ -134,7 +160,7 @@ pub fn unanswered() -> ErrorBody {
     }
 }
 
-fn closed(store: Store, e: &CloseEvent) {
+fn closed(store: Store, e: &CloseEvent, generation: u64) {
     fail_pending();
     let was = store.conn.get_untracked();
     match was {
@@ -155,7 +181,11 @@ fn closed(store: Store, e: &CloseEvent) {
     let delay = retry_delay(store.admin_down.get_untracked(), attempt);
     store.retry_at.set(now_ms() + f64::from(delay));
     set_timeout(
-        move || connect(store),
+        move || {
+            if current(generation) {
+                connect(store);
+            }
+        },
         std::time::Duration::from_millis(u64::from(delay)),
     );
 }
