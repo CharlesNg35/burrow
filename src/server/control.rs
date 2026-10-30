@@ -223,7 +223,7 @@ fn on_off(b: bool) -> &'static str {
 
 fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
     use crate::policy::allowlist::{AllowList, Rule};
-    let allow = if rules == ["any"] {
+    let allow = if rules == [burrow_syntax::rule::ANY] {
         AllowList::All
     } else {
         let parsed: Option<Vec<Rule>> = rules.iter().map(|r| r.parse().ok()).collect();

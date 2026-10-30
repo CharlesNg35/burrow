@@ -65,6 +65,30 @@ mod tests {
     }
 
     #[test]
+    fn reach_offers_the_one_any_token_of_the_allow_syntax() {
+        use crate::admin_schema::AdminSchema;
+        use burrow_admin_proto::schema::SemType;
+        let SemType::Union(u) = Reach::node().sem else {
+            panic!("reach is a union");
+        };
+        let offered: Vec<String> = u
+            .branches
+            .iter()
+            .filter_map(|b| match &b.sem {
+                SemType::Enum(e) => Some(
+                    e.options
+                        .iter()
+                        .map(|o| o.value.clone())
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(offered, [burrow_syntax::rule::ANY]);
+    }
+
+    #[test]
     fn a_client_keeps_16384_connections_unless_told_otherwise() {
         let base = json!({"server": "tunnel.example.com", "name": "home", "secret": "x"});
         let plain: ClientConfig = serde_json::from_value(base.clone()).unwrap();

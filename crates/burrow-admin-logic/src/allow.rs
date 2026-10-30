@@ -1,10 +1,10 @@
 use burrow_admin_proto::status::ClientStatus;
+use burrow_syntax::rule::ANY;
 
 pub const SET_THERE: &str = "set on that machine";
 pub const UNKNOWN: &str = "unknown";
 pub const OFFLINE: &str = "not connected";
 pub const ANYTHING: &str = "anything (allow_all)";
-const ANY: &str = "any";
 
 pub fn shown(feature: bool, client: Option<&ClientStatus>) -> String {
     if !feature {

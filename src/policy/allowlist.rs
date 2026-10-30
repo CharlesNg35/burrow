@@ -39,7 +39,7 @@ impl AllowList {
     pub fn describe(&self) -> Vec<String> {
         let max = crate::wire::protocol::MAX_ALLOW_RULES;
         match self {
-            AllowList::All => vec!["any".into()],
+            AllowList::All => vec![burrow_syntax::rule::ANY.into()],
             AllowList::Rules(rules) => {
                 let shown = |r: &Rule| {
                     let text = r.to_string();

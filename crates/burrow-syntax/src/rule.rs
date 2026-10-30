@@ -4,6 +4,8 @@ use std::str::FromStr;
 
 use crate::cidr::Cidr;
 
+pub const ANY: &str = "any";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NetRule {
     pub net: Cidr,

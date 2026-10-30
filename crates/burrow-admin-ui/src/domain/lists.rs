@@ -5,6 +5,7 @@ use burrow_admin_proto::schema::{Entity, Node, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::child;
 use burrow_config::ServiceEntry;
+use burrow_syntax::rule::ANY;
 use burrow_ui_kit::{ChipInput, Segmented, Select, button_class};
 use leptos::prelude::*;
 
@@ -130,7 +131,7 @@ pub(super) fn map_editor(
     let free = key.is_some() && entity.is_none();
     let add_default = match &inner(&value_node).sem {
         _ if free => Value::String(String::new()),
-        SemType::Union(_) | SemType::Text(_) | SemType::Enum(_) => Value::String("any".into()),
+        SemType::Union(_) | SemType::Text(_) | SemType::Enum(_) => Value::String(ANY.into()),
         SemType::List(_) => Value::Array(Vec::new()),
         _ => Value::Object(Default::default()),
     };
@@ -222,8 +223,6 @@ fn any_or_rules(u: &UnionC) -> Option<Node> {
     });
     list.filter(|_| any)
 }
-
-const ANY: &str = "any";
 
 fn any_or_rules_editor(fc: FieldCtx, item: Node) -> AnyView {
     let e = store().edit;

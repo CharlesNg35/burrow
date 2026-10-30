@@ -128,7 +128,7 @@ pub(super) fn check_reach(
     };
     if let [one] = entries
         && !many
-        && one.trim() == "any"
+        && one.trim() == burrow_syntax::rule::ANY
     {
         return Some(AllowList::All);
     }
@@ -178,7 +178,7 @@ pub(super) fn check_reach(
     let mut rules = Vec::new();
     let mut ok = true;
     for (i, entry) in entries.iter().enumerate() {
-        if entry.trim() == "any" {
+        if entry.trim() == burrow_syntax::rule::ANY {
             out.push(
                 Diagnostic::error(
                     "invalid-reach",
