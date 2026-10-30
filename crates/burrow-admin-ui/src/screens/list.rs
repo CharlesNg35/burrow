@@ -138,7 +138,8 @@ pub fn ListPane(
         }
         None => new_button(on_new, new_label, new_disabled).map(IntoAny::into_any),
     };
-    let chips = filter_chips(filters, filter, rows, no_counts);
+    let nothing = Signal::derive(move || rows.with(|r| r.iter().all(|x| x.key.starts_with("__"))));
+    let chips = filter_chips(filters, filter, rows, no_counts, nothing);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     keep_selected_in_view(list_ref, selected, visible);
     let look = Look { no_counts, compact };
@@ -155,7 +156,7 @@ pub fn ListPane(
                     <span class="text-sm text-text-muted" data-testid="list-count">{move || count.get()}</span>
                     {new_button}
                 </div>
-                <div class="mb-2.5">{search_box(q, search_label)}</div>
+                <div class="mb-2.5">{search_box(q, search_label, nothing)}</div>
                 {chips}
             </div>
             <div
@@ -296,14 +297,22 @@ fn new_button(
     })
 }
 
-pub(crate) fn search_box(q: RwSignal<String>, label: String) -> impl IntoView {
+const NOTHING_YET: &str = "Nothing to search yet";
+
+pub(crate) fn search_box(
+    q: RwSignal<String>,
+    label: String,
+    nothing: Signal<bool>,
+) -> impl IntoView {
     view! {
         <div class="relative">
             <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-faint"><Icon name="search" small=true/></span>
             <input
                 id="list-search"
                 type="text"
-                class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak"
+                class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:cursor-not-allowed disabled:opacity-55"
+                disabled=move || nothing.get()
+                title=move || nothing.get().then_some(NOTHING_YET)
                 placeholder=label.clone()
                 aria-label=label
                 prop:value=move || q.get()
@@ -319,6 +328,7 @@ pub(crate) fn filter_chips(
     filter: RwSignal<&'static str>,
     rows: Signal<Vec<Row>>,
     no_counts: bool,
+    nothing: Signal<bool>,
 ) -> impl IntoView {
     let active = active_item("data-filter", filter.into());
     let chips = filters
@@ -327,7 +337,9 @@ pub(crate) fn filter_chips(
             view! {
                 <button
                     type="button"
-                    class="h-6 shrink-0 cursor-pointer rounded-full border px-2 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink"
+                    class="h-6 shrink-0 cursor-pointer rounded-full border px-2 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink disabled:cursor-not-allowed disabled:opacity-55"
+                    disabled=move || nothing.get()
+                    title=move || nothing.get().then_some(NOTHING_YET)
                     class:border-border=move || filter.get() != key
                     class:text-text-muted=move || filter.get() != key
                     aria-pressed=move || (filter.get() == key).to_string()
