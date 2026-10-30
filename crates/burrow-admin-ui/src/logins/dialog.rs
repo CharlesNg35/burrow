@@ -127,20 +127,8 @@ fn labelled(id: &'static str, label: &'static str, body: AnyView) -> impl IntoVi
 pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
     let e = store().edit;
     let d = Draft::new();
-    let shown = RwSignal::new(false);
-    Effect::new(move |_| {
-        let o = open.get();
-        d.fill(&o);
-        let now = o != Open::Closed;
-        if shown.get_untracked() != now {
-            shown.set(now);
-        }
-    });
-    Effect::new(move |_| {
-        if !shown.get() && open.with_untracked(|o| *o != Open::Closed) {
-            open.set(Open::Closed);
-        }
-    });
+    Effect::new(move |_| d.fill(&open.get()));
+    let shown = crate::app::shown_while(open, |o| *o != Open::Closed, |o| *o = Open::Closed);
     let adding = Signal::derive(move || open.get() == Open::Add);
     let name_problem = Signal::derive(move || {
         if !adding.get() {

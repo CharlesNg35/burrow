@@ -120,18 +120,7 @@ struct Controls {
 
 fn remove_dialog(removing: RwSignal<Option<String>>) -> impl IntoView {
     let e = store().edit;
-    let shown = RwSignal::new(false);
-    Effect::new(move |_| {
-        let now = removing.with(Option::is_some);
-        if shown.get_untracked() != now {
-            shown.set(now);
-        }
-    });
-    Effect::new(move |_| {
-        if !shown.get() && removing.with_untracked(Option::is_some) {
-            removing.set(None);
-        }
-    });
+    let shown = crate::app::shown_while(removing, Option::is_some, |o| *o = None);
     let title = Signal::derive(move || {
         format!(
             "Remove login service {}",
@@ -164,16 +153,11 @@ fn remove_dialog(removing: RwSignal<Option<String>>) -> impl IntoView {
 }
 
 fn rename_dialog(renaming: RwSignal<Option<String>>) -> impl IntoView {
+    let open = crate::app::shown_while(renaming, Option::is_some, |o| *o = None);
     move || {
-        renaming.get().map(|name| {
-            let open = RwSignal::new(true);
-            Effect::new(move |_| {
-                if !open.get() && renaming.with_untracked(Option::is_some) {
-                    renaming.set(None);
-                }
-            });
-            view! { <crate::screens::create::RenameEntity entity=Entity::Login name=name open=open/> }
-        })
+        renaming
+            .get()
+            .map(|name| view! { <crate::screens::create::RenameEntity entity=Entity::Login name=name open=open/> })
     }
 }
 

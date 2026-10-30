@@ -14,18 +14,7 @@ pub(crate) struct Item {
 
 pub(crate) fn row_menus() -> RwSignal<Option<String>> {
     let open: RwSignal<Option<String>> = RwSignal::new(None);
-    let shown = RwSignal::new(false);
-    Effect::new(move |_| {
-        let now = open.with(Option::is_some);
-        if shown.get_untracked() != now {
-            shown.set(now);
-        }
-    });
-    Effect::new(move |_| {
-        if !shown.get() && open.with_untracked(Option::is_some) {
-            open.set(None);
-        }
-    });
+    let shown = super::shown_while(open, Option::is_some, |o| *o = None);
     super::popover(shown, BUTTON, MENU);
     open
 }
