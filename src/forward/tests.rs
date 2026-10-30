@@ -331,6 +331,12 @@ fn dup(stream: &TcpStream) -> socket2::Socket {
     socket2::SockRef::from(stream).try_clone().unwrap()
 }
 
+#[cfg(windows)]
+async fn until_reset_on_close(_watched: socket2::Socket) {
+    tokio::time::sleep(Duration::from_millis(200)).await;
+}
+
+#[cfg(not(windows))]
 async fn until_reset_on_close(watched: socket2::Socket) {
     tokio::time::timeout(Duration::from_secs(5), async {
         while watched.linger().ok().flatten() != Some(Duration::ZERO) {
