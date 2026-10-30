@@ -25,12 +25,17 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
             "  plain:\n    reach: { home: [127.0.0.1/32] }\n",
         )
     });
-    c.ui.wait_text(
-        "[data-testid=entity-list] [data-row=plain]",
-        "reach: home",
-        SECS,
-    )
-    .await;
+    c.ui.fill("#list-search", "home").await;
+    c.ui.wait_for("[data-testid=entity-list] [data-row=plain]", SECS)
+        .await;
+    let line =
+        c.ui.text("[data-testid=entity-list] [data-row=plain]")
+            .await;
+    assert!(
+        !line.contains("reach") && !line.contains("services"),
+        "the sidebar finds a visitor by its reach but shows only its name and status: {line}"
+    );
+    c.ui.fill("#list-search", "").await;
     assert_eq!(
         c.ui.count("[data-testid=banner-changed]").await,
         0,

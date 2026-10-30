@@ -82,11 +82,6 @@ pub(super) fn client_row(
                 .collect()
         })
         .unwrap_or_default();
-    let serves = if served.is_empty() {
-        "no services".to_string()
-    } else {
-        served.join(", ")
-    };
     let left = c.as_ref().and_then(|c| c.left_secs_ago);
     Row {
         key: name.clone(),
@@ -111,13 +106,14 @@ pub(super) fn client_row(
                 .unwrap_or_default();
             let since = format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
             if host.is_empty() {
-                format!("for {since} · {serves}")
+                format!("for {since}")
             } else {
-                format!("{host} · for {since} · {serves}")
+                format!("{host} · for {since}")
             }
         } else {
-            serves
+            String::new()
         },
+        terms: served.join(" "),
         group: if on {
             "Online".into()
         } else {
@@ -171,19 +167,11 @@ pub(super) fn visitor_row(
         .and_then(Value::as_object)
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
-    let mut line2 = if may.is_empty() {
-        "no services".to_string()
-    } else {
-        may.join(", ")
-    };
-    if !reach.is_empty() {
-        line2.push_str(&format!(" · reach: {}", reach.join(", ")));
-    }
     Row {
         key: name.clone(),
         to,
         icon: if admin.is_some() { "shield" } else { "person" },
-        dot: None,
+        dot: Some(if in_use { Tone::Success } else { Tone::Neutral }),
         title: name.clone(),
         title_tag: admin.map(|a| {
             (
@@ -202,7 +190,12 @@ pub(super) fn visitor_row(
         } else {
             String::new()
         },
-        line2,
+        terms: may
+            .iter()
+            .chain(&reach)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" "),
         tags: Vec::new(),
         group: if in_use {
             "In use now".into()
