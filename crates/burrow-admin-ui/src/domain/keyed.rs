@@ -53,7 +53,7 @@ pub(super) fn key_adder(
     let button_id = format!("{id}-add-button");
     view! {
         <div class="flex items-start gap-2 pt-1">
-            <div class="w-60">
+            <div class="min-w-0 flex-1">
                 <TextInput
                     id=format!("{id}-add")
                     value=text
