@@ -122,6 +122,7 @@ pub fn check_server(
             |mut w| {
                 w.written = super::web::written(spans);
                 w.state_dir = state.map(Path::to_path_buf);
+                w.uploads = burrow_config::uploads::upload_ids(cfg);
                 if let Some(le) = w.letsencrypt.as_mut() {
                     le.state_dir = w.state_dir.clone();
                 }

@@ -29,6 +29,7 @@ pub struct WebSettings {
     pub written: Written,
     pub http2: bool,
     pub state_dir: Option<PathBuf>,
+    pub uploads: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +107,7 @@ impl WebSettings {
             written: Written::default(),
             http2: true,
             state_dir: None,
+            uploads: Vec::new(),
         }
     }
 

@@ -16,7 +16,6 @@ use crate::config::{Loaded, Role, load_file};
 pub trait Watched: Clone + PartialEq + Send + 'static {
     const ROLE: Role;
     fn from_loaded(loaded: Loaded) -> Option<Self>;
-    fn accepted(_loaded: &Loaded) {}
     fn files(&self, config: &Path) -> Vec<PathBuf> {
         vec![config.to_path_buf()]
     }
@@ -28,11 +27,6 @@ impl Watched for ServerSettings {
         match loaded {
             Loaded::Server(s, _) => Some(*s),
             _ => None,
-        }
-    }
-    fn accepted(loaded: &Loaded) {
-        if let Loaded::Server(s, cfg) = loaded {
-            crate::server::uploads::prune_unused(s, cfg);
         }
     }
     fn files(&self, config: &Path) -> Vec<PathBuf> {
@@ -105,20 +99,6 @@ pub enum ReloadOutcome {
     Rejected(String),
 }
 
-fn load_accepted<S: Watched>(
-    file: &Path,
-    env: &Env,
-) -> Result<crate::config::Outcome, crate::config::load::LoadError> {
-    let loaded = load_file(file, Some(S::ROLE), env);
-    if let Ok(o) = &loaded
-        && !o.report.has_errors()
-        && let Some(l) = &o.loaded
-    {
-        S::accepted(l);
-    }
-    loaded
-}
-
 async fn next_nudge(nudges: &mut Option<mpsc::Receiver<Nudge>>) -> Option<Nudge> {
     match nudges.as_mut() {
         Some(rx) => rx.recv().await,
@@ -185,7 +165,10 @@ pub async fn follow_nudged<S: Watched>(
             }
             seen = now;
             let (file, vars) = (path.clone(), env.clone());
-            let Some(loaded) = worker.run(move || load_accepted::<S>(&file, &vars)).await else {
+            let Some(loaded) = worker
+                .run(move || load_file(&file, Some(S::ROLE), &vars))
+                .await
+            else {
                 return;
             };
             let outcome = match loaded {

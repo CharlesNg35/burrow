@@ -52,6 +52,9 @@ impl Server {
         log_former_private_services(&current, &next);
         self.update_sessions(&current, &next);
         self.report_reload(&changed, &next, unbound, web_wait);
+        let web = next.web.clone();
+        let _ =
+            tokio::task::spawn_blocking(move || super::uploads::prune_unused(web.as_ref())).await;
     }
 
     fn listen_change_refused(&self, current: &ServerSettings, next: &ServerSettings) -> bool {

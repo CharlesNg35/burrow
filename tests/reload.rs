@@ -7,6 +7,9 @@ mod live;
 mod processes;
 #[path = "reload/signals.rs"]
 mod signals;
+#[cfg(feature = "web")]
+#[path = "reload/uploads.rs"]
+mod uploads;
 
 use std::net::SocketAddr;
 use std::time::Duration;

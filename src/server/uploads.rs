@@ -11,14 +11,14 @@ pub struct Request<'a> {
     pub cas: &'a [u8],
 }
 
-pub fn prune_unused(
-    settings: &crate::config::settings::ServerSettings,
-    cfg: &burrow_config::ServerConfig,
-) -> usize {
-    let Some(state) = settings.web.as_ref().and_then(|w| w.state_dir.clone()) else {
+pub fn prune_unused(web: Option<&crate::config::settings::WebSettings>) -> usize {
+    let Some(web) = web else {
         return 0;
     };
-    let removed = remove_unreferenced(&state, &burrow_config::uploads::upload_ids(cfg));
+    let Some(state) = web.state_dir.as_deref() else {
+        return 0;
+    };
+    let removed = remove_unreferenced(state, &web.uploads);
     if removed > 0 {
         tracing::info!("removed {removed} uploaded files the config no longer uses");
     }
