@@ -35,6 +35,11 @@ pub const FORWARD_AUTH_UNUSED: &str = "forward-auth-unused";
 pub const UNUSED_VISITOR: &str = "unused-visitor";
 pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
 pub const ENV_UNSET: &str = "env-unset";
+pub const WRONG_ROLE: &str = "wrong-role";
+pub const NO_FORWARDS: &str = "no-forwards";
+pub const SYNTAX: &str = "syntax";
+pub const NO_SERVICES: &str = "no-services";
+pub const NO_CLIENTS: &str = "no-clients";
 pub const RENAMES: &str = "renames";
 pub const REMOVES_SERVICE: &str = "removes-service";
 pub const REBINDS_SERVICE: &str = "rebinds-service";
@@ -75,3 +80,5 @@ pub const READ_BY_THE_UI: [&str; 18] = [
     NO_HTTP,
     UNUSED_VISITOR,
 ];
+
+pub const READ_BY_THE_CLI: [&str; 5] = [WRONG_ROLE, NO_FORWARDS, SYNTAX, NO_SERVICES, NO_CLIENTS];

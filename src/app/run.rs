@@ -81,7 +81,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
         .report
         .diagnostics
         .iter()
-        .find(|d| d.code == "wrong-role")
+        .find(|d| d.code == burrow_admin_proto::codes::WRONG_ROLE)
     {
         let f = Failure::usage(d.message.clone());
         return Err(match &d.help {
@@ -189,7 +189,12 @@ fn stop_on_signal(external: Option<watch::Receiver<bool>>) -> watch::Receiver<bo
 }
 
 fn visitor(path: &Path, env: &Env) -> Result<crate::config::settings::VisitorSettings, Failure> {
-    let loaded = load(path, Role::Visitor, env, &["no-forwards"])?;
+    let loaded = load(
+        path,
+        Role::Visitor,
+        env,
+        &[burrow_admin_proto::codes::NO_FORWARDS],
+    )?;
     let Loaded::Visitor(settings, _) = loaded else {
         return Err(Failure::new(format!(
             "{} is not a visitor config",
@@ -459,7 +464,7 @@ fn run_visitor(
     hold_hangup();
     let (stop, env) = split(hosted);
     let quiet: &[&str] = match pick {
-        Pick::Adhoc { .. } => &["no-forwards"],
+        Pick::Adhoc { .. } => &[burrow_admin_proto::codes::NO_FORWARDS],
         _ => &[],
     };
     let Loaded::Visitor(mut settings, _) = load(path, Role::Visitor, &env, quiet)? else {

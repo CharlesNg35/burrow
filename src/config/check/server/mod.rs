@@ -207,7 +207,7 @@ fn check_clients(
     if cfg.clients.is_empty() {
         out.push(
             Diagnostic::warning(
-                "no-clients",
+                burrow_admin_proto::codes::NO_CLIENTS,
                 "no clients are defined, so nobody can connect",
             )
             .at(spans.key(&["clients"]))
@@ -326,7 +326,7 @@ fn check_all_services<'a>(
 ) {
     if cfg.services.is_empty() && cfg.visitors.values().all(|v| v.reach.is_empty()) {
         out.push(
-            Diagnostic::warning("no-services", "no services are defined, so nothing is exposed")
+            Diagnostic::warning(burrow_admin_proto::codes::NO_SERVICES, "no services are defined, so nothing is exposed")
                 .at(spans.key(&["services"]))
                 .help(format!("add a service, for example:\n         services:\n           web: {{ client: NAME, bind: 0.0.0.0:{}, target: 127.0.0.1:80 }}", burrow_syntax::ports::FIRST_SERVICE_PORT)),
         );

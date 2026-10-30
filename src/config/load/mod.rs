@@ -158,7 +158,7 @@ pub fn load_file(
         .report
         .diagnostics
         .iter()
-        .any(|d| d.code == "syntax")
+        .any(|d| d.code == burrow_admin_proto::codes::SYNTAX)
         && let Some(spare) = crate::config::save::spare_next_to(path)
     {
         outcome.report.push(
@@ -284,10 +284,13 @@ fn json_syntax(src: &str) -> Option<Diagnostic> {
     let msg = err.to_string();
     let msg = msg.split(" at line ").next().unwrap_or(&msg).to_string();
     Some(
-        Diagnostic::error("syntax", format!("invalid JSON: {msg}"))
-            .at(Span::point(pos))
-            .label("here")
-            .help("check for a missing comma, quote or bracket just before this point"),
+        Diagnostic::error(
+            burrow_admin_proto::codes::SYNTAX,
+            format!("invalid JSON: {msg}"),
+        )
+        .at(Span::point(pos))
+        .label("here")
+        .help("check for a missing comma, quote or bracket just before this point"),
     )
 }
 
@@ -340,7 +343,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let before = load_file(&config, Some(Role::Server), &nothing).unwrap();
-        assert!(codes(&before).contains(&"syntax"));
+        assert!(codes(&before).contains(&burrow_admin_proto::codes::SYNTAX));
         assert!(!codes(&before).contains(&"edit-spare"));
         let spare = dir.path().join(".server.yaml.burrow-edit-9");
         std::fs::write(&spare, "listen: 7835\n").unwrap();
@@ -372,7 +375,10 @@ mod tests {
         ] {
             let o = load_str("c.yaml", src, Format::Yaml, Some(Role::Server), &nothing);
             assert!(
-                o.report.diagnostics.iter().any(|d| d.code == "syntax"),
+                o.report
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code == burrow_admin_proto::codes::SYNTAX),
                 "{src}"
             );
             let shown = o

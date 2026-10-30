@@ -32,3 +32,24 @@ fn every_code_the_admin_ui_reads_is_emitted_by_validate() {
         "each code is emitted through burrow_admin_proto::codes, never spelled: {missing:?}"
     );
 }
+
+#[test]
+fn every_code_the_cli_reads_is_emitted_through_its_const() {
+    let mut text = String::new();
+    sources(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src/config"),
+        &mut text,
+    );
+    let missing: Vec<&str> = burrow_admin_proto::codes::READ_BY_THE_CLI
+        .iter()
+        .copied()
+        .filter(|code| {
+            let name = code.to_ascii_uppercase().replace('-', "_");
+            !text.contains(&format!("codes::{name}")) || text.contains(&format!("\"{code}\""))
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "each code is emitted through burrow_admin_proto::codes, never spelled: {missing:?}"
+    );
+}

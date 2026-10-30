@@ -164,7 +164,7 @@ fn syntax_errors(src: &str, errors: Vec<tree::ParseError>, report: &mut Report) 
             "check the indentation and the \"key: value\" structure around this line"
         };
         report.push(
-            Diagnostic::error("syntax", e.message)
+            Diagnostic::error(burrow_admin_proto::codes::SYNTAX, e.message)
                 .at(e.span)
                 .label("here")
                 .help(help),
@@ -189,7 +189,7 @@ fn wrong_role(name: &str, wanted: Role, found: Role) -> Option<Diagnostic> {
     };
     Some(
         Diagnostic::error(
-            "wrong-role",
+            burrow_admin_proto::codes::WRONG_ROLE,
             format!(
                 "{name} is a {} config, not a {} config",
                 found.as_str(),
@@ -263,8 +263,8 @@ fn check_semantics(
         let hidden = d
             .span
             .is_some_and(|s| env_spans.iter().any(|e| within(s, *e)))
-            || (d.code == "no-services" && raw_len("services") > 0)
-            || (d.code == "no-clients" && raw_len("clients") > 0);
+            || (d.code == burrow_admin_proto::codes::NO_SERVICES && raw_len("services") > 0)
+            || (d.code == burrow_admin_proto::codes::NO_CLIENTS && raw_len("clients") > 0);
         if !hidden {
             report.push(d);
         }
