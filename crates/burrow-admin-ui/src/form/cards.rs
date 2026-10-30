@@ -220,7 +220,8 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         .clone()
         .unwrap_or_else(|| "Not set".into());
     let help = f.node.help.clone();
-    let first = fields(&inner_node).first().cloned();
+    let inside = fields(&inner_node);
+    let first = (inside.len() == 1).then(|| inside[0].clone());
     let unset_label = first
         .as_ref()
         .map_or_else(|| f.node.label.clone(), |g| g.node.label.clone());
