@@ -18,11 +18,20 @@ pub fn is_set(node: &Node, value: Option<&Value>) -> bool {
     }
 }
 
+pub fn hides(essential: usize, advanced: usize) -> bool {
+    advanced >= 2 || (advanced == 1 && essential > 0)
+}
+
 pub fn split<'a>(fields: &[&'a Field], all_advanced: bool) -> (Vec<&'a Field>, Vec<&'a Field>) {
-    fields
+    let (essential, advanced): (Vec<&Field>, Vec<&Field>) = fields
         .iter()
         .copied()
-        .partition(|f| !(all_advanced || f.node.advanced))
+        .partition(|f| !(all_advanced || f.node.advanced));
+    if hides(essential.len(), advanced.len()) {
+        (essential, advanced)
+    } else {
+        (fields.to_vec(), Vec::new())
+    }
 }
 
 pub fn summary(set: usize, total: usize) -> String {
@@ -102,6 +111,30 @@ mod tests {
         let (essential, advanced) = split(&all, true);
         assert!(essential.is_empty());
         assert_eq!(keys(&advanced), ["visitors", "deny_from", "allow_from"]);
+    }
+
+    #[test]
+    fn more_settings_hides_two_or_more_fields_or_one_beside_essential_ones() {
+        let (a, b, c) = (
+            field("allow_from", "Allow from", false, None),
+            field("deny_from", "Deny from", true, None),
+            field("bandwidth", "Bandwidth", true, None),
+        );
+        let keys = |v: &[&Field]| v.iter().map(|f| f.key.clone()).collect::<Vec<_>>();
+        let (essential, advanced) = split(&[&b], false);
+        assert_eq!(keys(&essential), ["deny_from"]);
+        assert!(advanced.is_empty());
+        let (essential, advanced) = split(&[&a], true);
+        assert_eq!(keys(&essential), ["allow_from"]);
+        assert!(advanced.is_empty());
+        let (essential, advanced) = split(&[&a, &b], false);
+        assert_eq!(keys(&essential), ["allow_from"]);
+        assert_eq!(keys(&advanced), ["deny_from"]);
+        let (essential, advanced) = split(&[&b, &c], false);
+        assert!(essential.is_empty());
+        assert_eq!(keys(&advanced), ["deny_from", "bandwidth"]);
+        assert!(!hides(0, 0) && !hides(3, 0) && !hides(0, 1));
+        assert!(hides(1, 1) && hides(0, 2));
     }
 
     #[test]

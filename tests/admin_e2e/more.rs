@@ -105,10 +105,30 @@ async fn set_fields_open(c: &mut Ctx) {
     assert!(expanded(c, admin).await, "a set Admin only from shows");
     assert_eq!(c.ui.text(admin).await, "More settings · 1 set");
     c.ui.shot("visitor-set-open").await;
+    assert_eq!(
+        c.ui.count("[data-group=traffic] [data-testid=more-settings]")
+            .await,
+        0,
+        "a section whose only field is advanced shows it directly"
+    );
+    c.ui.wait_for(
+        "[data-group=traffic] [data-schema='visitors/*/max_connections']",
+        SECS,
+    )
+    .await;
     settings_tab(c, "/clients/office").await;
-    let more = "[data-form-tab] [data-testid=more-settings]";
-    assert!(expanded(c, more).await, "a set client limit shows");
-    c.ui.shot("client-set-open").await;
+    assert_eq!(
+        c.ui.count("[data-form-tab] [data-testid=more-settings]")
+            .await,
+        0,
+        "one advanced field is not hidden behind More settings"
+    );
+    c.ui.wait_for(
+        "[data-form-tab] [data-schema='clients/*/max_connections']",
+        SECS,
+    )
+    .await;
+    c.ui.shot("client-single-advanced").await;
     settings_tab(c, "/services/web").await;
     let view = summaries(c).await;
     edit_mode(c).await;
@@ -121,30 +141,37 @@ async fn set_fields_open(c: &mut Ctx) {
 }
 
 async fn error_opens(c: &mut Ctx) {
-    c.ui.click(TRAFFIC).await;
-    wait_expanded(c, TRAFFIC, true).await;
-    c.ui.choose("f-services-web-proxy-protocol", "v1").await;
+    assert_eq!(
+        c.ui.count(TRAFFIC).await,
+        0,
+        "PROXY protocol, the only Traffic field, shows directly"
+    );
+    c.ui.click(ACCESS).await;
+    wait_expanded(c, ACCESS, true).await;
+    c.ui.fill("#f-services-web-max-connections", "9").await;
     wait_checked(c).await;
-    c.ui.wait_text(TRAFFIC, "1 set", SECS).await;
-    c.ui.click(TRAFFIC).await;
-    wait_expanded(c, TRAFFIC, false).await;
+    c.ui.wait_text(ACCESS, "1 set", SECS).await;
+    c.ui.click(ACCESS).await;
+    wait_expanded(c, ACCESS, false).await;
     c.ui.choose("f-services-web-protocol", "udp").await;
     wait_checked(c).await;
-    wait_expanded(c, TRAFFIC, true).await;
+    wait_expanded(c, ACCESS, true).await;
     c.ui.shot("service-error-opens").await;
-    c.ui.click(TRAFFIC).await;
-    wait_expanded(c, TRAFFIC, false).await;
+    c.ui.click(ACCESS).await;
+    wait_expanded(c, ACCESS, false).await;
     c.ui.click("[data-testid=form-problems] button").await;
-    wait_expanded(c, TRAFFIC, true).await;
+    wait_expanded(c, ACCESS, true).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let focused: String = c
         .ui
         .eval("document.activeElement ? (document.activeElement.closest('[data-schema]') || {}).getAttribute?.('data-schema') || '' : ''")
         .await;
     assert_eq!(
-        focused, "services/*/proxy_protocol",
+        focused, "services/*/max_connections",
         "the link lands on the field"
     );
+    c.ui.click(ACCESS).await;
+    wait_expanded(c, ACCESS, false).await;
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 }
@@ -191,8 +218,8 @@ fn more(c: &mut Ctx) -> Flow<'_> {
         found_opens(c).await;
         c.ui.dark(true).await;
         settings_tab(c, "/services/web").await;
-        c.ui.click(TRAFFIC).await;
-        wait_expanded(c, TRAFFIC, true).await;
+        c.ui.click(ACCESS).await;
+        wait_expanded(c, ACCESS, true).await;
         c.ui.shot("service-dark").await;
         c.ui.viewport(420, 900).await;
         c.ui.shot("service-dark-phone").await;

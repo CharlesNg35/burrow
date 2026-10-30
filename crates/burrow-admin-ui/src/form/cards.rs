@@ -159,7 +159,9 @@ fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
 fn all_advanced(node: &Node) -> bool {
     let inside = fields(inner(node));
     let one_group = inner(node).groups.len() <= 1;
-    one_group && !inside.is_empty() && (node.advanced || inside.iter().all(|f| f.node.advanced))
+    one_group
+        && burrow_admin_logic::more::hides(0, inside.len())
+        && (node.advanced || inside.iter().all(|f| f.node.advanced))
 }
 
 pub fn settings_card(c: &SettingsCard) -> AnyView {
