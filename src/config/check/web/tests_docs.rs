@@ -478,6 +478,16 @@ fn keys_under(
     }
 }
 
+fn shows_key(block: &str, key: &str) -> bool {
+    let written = format!("{key}:");
+    block.match_indices(&written).any(|(at, _)| {
+        let before = block[..at].chars().next_back();
+        let after = block[at + written.len()..].chars().next();
+        matches!(before, None | Some(' ' | '\n' | '{' | ','))
+            && matches!(after, None | Some(' ' | '\n'))
+    })
+}
+
 #[test]
 fn the_full_example_shows_every_web_key_of_the_schema() {
     let schema = crate::config::admin_schema::server_schema();
@@ -487,15 +497,19 @@ fn the_full_example_shows_every_web_key_of_the_schema() {
         keys_under(schema.root.at(&path).expect("a web node"), &mut keys);
     }
     assert!(keys.len() > 60, "{keys:?}");
+    assert!(!shows_key("ca_upload: x\n", "upload"));
+    assert!(!shows_key("http2: true\n", "http"));
+    assert!(shows_key("tls: { upload: x }\n", "upload"));
     let md = WEB_PAGES
         .iter()
         .find(|(name, _)| *name == "web/full-example.md")
         .unwrap()
         .1;
-    let missing: Vec<&String> = keys
-        .iter()
-        .filter(|k| !md.contains(&format!("{k}:")))
-        .collect();
+    let block = yaml_blocks(md)
+        .into_iter()
+        .find(|b| b.contains("1. THE TUNNEL"))
+        .expect("the full example");
+    let missing: Vec<&String> = keys.iter().filter(|k| !shows_key(&block, k)).collect();
     assert!(
         missing.is_empty(),
         "docs/web/full-example.md lacks {missing:?}"
