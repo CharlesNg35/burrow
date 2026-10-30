@@ -1,38 +1,57 @@
-pub fn parse_rate(text: &str) -> Result<u64, String> {
-    let trimmed = text.trim();
-    let trimmed = trimmed.strip_suffix("/s").unwrap_or(trimmed);
-    let t = match trimmed.strip_suffix("Bps") {
-        Some(prefix) => format!("{}b", prefix.to_ascii_lowercase()),
-        None => {
-            let lower = trimmed.to_ascii_lowercase();
-            match lower.strip_suffix("bps") {
-                Some(prefix) => format!("{prefix}bit"),
-                None => lower,
-            }
-        }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Unit {
+    bits: bool,
+    power: i32,
+}
+
+impl Unit {
+    fn bytes(self) -> f64 {
+        let scale = 10f64.powi(self.power);
+        if self.bits { scale / 8.0 } else { scale }
+    }
+}
+
+fn unit_of(text: &str) -> Option<Unit> {
+    let t = text.trim();
+    let t = t.strip_suffix("/s").unwrap_or(t).trim_end();
+    let lower = t.to_ascii_lowercase();
+    let (bits, prefix) = match t.strip_suffix("Bps") {
+        Some(p) => (false, p.to_ascii_lowercase()),
+        None => match lower
+            .strip_suffix("bps")
+            .or_else(|| lower.strip_suffix("bit"))
+        {
+            Some(p) => (true, p.to_string()),
+            None => (false, lower.strip_suffix('b')?.to_string()),
+        },
     };
-    let split = t
+    let power = match prefix.as_str() {
+        "" => 0,
+        "k" => 3,
+        "m" => 6,
+        "g" => 9,
+        _ => return None,
+    };
+    Some(Unit { bits, power })
+}
+
+fn number_and_unit(text: &str) -> (&str, &str) {
+    let t = text.trim();
+    let at = t
         .find(|c: char| !(c.is_ascii_digit() || c == '.'))
         .unwrap_or(t.len());
-    let (number, unit) = t.split_at(split);
+    t.split_at(at)
+}
+
+pub fn parse_rate(text: &str) -> Result<u64, String> {
+    let (number, unit) = number_and_unit(text);
     let value: f64 = number
         .parse()
         .ok()
         .filter(|v: &f64| v.is_finite() && *v > 0.0)
         .ok_or_else(|| format!("\"{text}\" does not start with a positive number"))?;
-    let bytes = match unit.trim() {
-        "bit" => value / 8.0,
-        "kbit" => value * 1e3 / 8.0,
-        "mbit" => value * 1e6 / 8.0,
-        "gbit" => value * 1e9 / 8.0,
-        "b" => value,
-        "kb" => value * 1e3,
-        "mb" => value * 1e6,
-        "gb" => value * 1e9,
-        other => {
-            return Err(format!("\"{other}\" is not a rate unit"));
-        }
-    };
+    let unit = unit_of(unit).ok_or_else(|| format!("\"{}\" is not a rate unit", unit.trim()))?;
+    let bytes = value * unit.bytes();
     if bytes < 1000.0 {
         return Err(format!("{text} is below the minimum of 1kb (8kbit)"));
     }
@@ -96,29 +115,30 @@ impl RateUnit {
         }
     }
 
+    fn unit(self) -> Unit {
+        let (bits, power) = match self {
+            RateUnit::Kbit => (true, 3),
+            RateUnit::Mbit => (true, 6),
+            RateUnit::Gbit => (true, 9),
+            RateUnit::KB => (false, 3),
+            RateUnit::MB => (false, 6),
+            RateUnit::GB => (false, 9),
+        };
+        Unit { bits, power }
+    }
+
     pub fn from_suffix(s: &str) -> Option<RateUnit> {
         RateUnit::ALL.into_iter().find(|u| u.suffix() == s)
     }
 }
 
 pub fn split(text: &str) -> Option<(String, RateUnit)> {
-    let t = text.trim();
-    let at = t.find(|c: char| !(c.is_ascii_digit() || c == '.'))?;
-    let (n, u) = t.split_at(at);
-    let u = u.trim().trim_end_matches("/s");
-    let unit = match u.to_ascii_lowercase().as_str() {
-        "kbit" | "kbps" => RateUnit::Kbit,
-        "mbit" | "mbps" => RateUnit::Mbit,
-        "gbit" | "gbps" => RateUnit::Gbit,
-        "kb" => RateUnit::KB,
-        "mb" => RateUnit::MB,
-        "gb" => RateUnit::GB,
-        _ => return None,
-    };
-    let unit = match (u, unit) {
-        ("kbps" | "Kbps", _) => RateUnit::Kbit,
-        _ => unit,
-    };
+    let (n, u) = number_and_unit(text);
+    if n.is_empty() {
+        return None;
+    }
+    let unit = unit_of(u)?;
+    let unit = RateUnit::ALL.into_iter().find(|r| r.unit() == unit)?;
     Some((n.to_string(), unit))
 }
 
@@ -188,5 +208,34 @@ mod tests {
         assert_eq!(compose("40", RateUnit::Mbit), "40mbit");
         assert_eq!(parse_rate(&compose("5", RateUnit::MB)).unwrap(), 5_000_000);
         assert_eq!(equivalent(5_000_000), "40 Mbit/s ≈ 5 MB/s");
+    }
+
+    #[test]
+    fn split_agrees_with_parse_rate() {
+        for x in [
+            "5MBps",
+            "5Mbps",
+            "5mbps",
+            "5KBps",
+            "50Kbps",
+            "40mbit",
+            "40Mbit/s",
+            "5MB",
+            "2.5gbit",
+            "3GBps",
+            "7kb",
+            "70 kbit/s",
+        ] {
+            let (n, u) = split(x).unwrap();
+            assert_eq!(
+                parse_rate(&compose(&n, u)).ok(),
+                Some(parse_rate(x).unwrap()),
+                "{x}"
+            );
+        }
+        assert_eq!(split("5MBps"), Some(("5".into(), RateUnit::MB)));
+        for u in RateUnit::ALL {
+            assert_eq!(split(&compose("9", u)), Some(("9".into(), u)));
+        }
     }
 }
