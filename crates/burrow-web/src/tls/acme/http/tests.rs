@@ -136,6 +136,26 @@ async fn a_503_records_its_retry_after() {
     assert_eq!(client.take_wait(), Some(Duration::from_secs(120)));
 }
 
+#[tokio::test]
+async fn a_refused_nonce_is_counted_and_another_refusal_is_not() {
+    let ask = |status: &'static str, kind: &'static str| async move {
+        let body = format!(r#"{{"type": "urn:ietf:params:acme:error:{kind}", "detail": "no"}}"#);
+        let s = serve(answer(status, "", &body), false).await;
+        let client = Client::new(Some(&s.ca), Limits::default()).unwrap();
+        let before = nonce_refusals();
+        let mut resp = client.request(get(&s.url)).await.unwrap();
+        let body = resp.body.into_bytes().await.unwrap();
+        assert!(
+            String::from_utf8_lossy(&body).contains(kind),
+            "the body is kept"
+        );
+        nonce_refusals() - before
+    };
+    assert_eq!(ask("400 Bad Request", "malformed").await, 0);
+    assert_eq!(ask("403 Forbidden", "badNonce").await, 0);
+    assert_eq!(ask("400 Bad Request", "badNonce").await, 1);
+}
+
 #[test]
 fn retry_after_dates_become_seconds_and_garbage_is_dropped() {
     let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);

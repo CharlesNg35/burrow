@@ -15,13 +15,18 @@ use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 use super::pebble::{DIRECTORY, Pebble};
 use super::responder::{Responder, start};
 
-struct Ctx {
-    p: Pebble,
-    r: Responder,
-    root: CertificateDer<'static>,
+pub(super) struct Ctx {
+    pub(super) p: Pebble,
+    pub(super) r: Responder,
+    pub(super) root: CertificateDer<'static>,
 }
 
-fn settings(ctx: &Ctx, state: &Path, checks: &[CertCheck], profile: Option<&str>) -> CertSettings {
+pub(super) fn settings(
+    ctx: &Ctx,
+    state: &Path,
+    checks: &[CertCheck],
+    profile: Option<&str>,
+) -> CertSettings {
     CertSettings {
         acme: Some(AcmeSettings {
             directory_url: DIRECTORY.into(),
@@ -43,7 +48,7 @@ fn with_a_name_pebble_never_validated(group: &str, host: &str) -> Vec<CertName> 
     names(group, &[host, UNVALIDATED])
 }
 
-fn names(group: &str, hosts: &[&str]) -> Vec<CertName> {
+pub(super) fn names(group: &str, hosts: &[&str]) -> Vec<CertName> {
     hosts
         .iter()
         .map(|h| CertName {
@@ -54,14 +59,18 @@ fn names(group: &str, hosts: &[&str]) -> Vec<CertName> {
         .collect()
 }
 
-async fn open_store(ctx: &Ctx, settings: &CertSettings, names: &[CertName]) -> Arc<Store> {
+pub(super) async fn open_store(
+    ctx: &Ctx,
+    settings: &CertSettings,
+    names: &[CertName],
+) -> Arc<Store> {
     let store = Store::new();
     ctx.r.serve(store.clone());
     store.apply(settings, names).await;
     store
 }
 
-fn status_of(store: &Store, name: &str) -> CertStatus {
+pub(super) fn status_of(store: &Store, name: &str) -> CertStatus {
     store
         .status()
         .into_iter()
@@ -89,7 +98,7 @@ async fn until(
     }
 }
 
-async fn served(ctx: &Ctx, name: &str) -> Option<CertificateDer<'static>> {
+pub(super) async fn served(ctx: &Ctx, name: &str) -> Option<CertificateDer<'static>> {
     let mut roots = RootCertStore::empty();
     roots.add(ctx.root.clone()).unwrap();
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -138,7 +147,7 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-const PAST: &str =
+pub(super) const PAST: &str =
     r#"{"suggestedWindow": {"start": "2020-01-01T00:00:00Z", "end": "2020-01-02T00:00:00Z"}}"#;
 
 pub async fn all(p: Pebble) {
@@ -168,6 +177,15 @@ pub async fn all(p: Pebble) {
     an_added_name_reorders_once_and_a_removed_name_orders_nothing(&ctx).await;
     fallback_directory(&ctx).await;
     authz_reuse(&ctx).await;
+    let Ctx { p, r, .. } = ctx;
+    p.run_pebble(&["PEBBLE_AUTHZREUSE=0", "PEBBLE_WFE_NONCEREJECT=50"])
+        .await;
+    let ctx = Ctx {
+        root: p.root().await,
+        p,
+        r,
+    };
+    super::nonce::refused_nonces_are_retried(&ctx).await;
     let Ctx { p, r, .. } = ctx;
     drop(r);
     p.run_pebble(&["PEBBLE_AUTHZREUSE=0"]).await;

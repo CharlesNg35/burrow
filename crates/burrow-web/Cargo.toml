@@ -54,6 +54,10 @@ tokio = { version = "1.53.3", features = ["rt-multi-thread", "test-util", "proce
 tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "ring", "getrandom"] }
 
 [[test]]
+name = "acme"
+required-features = ["admin-test-hooks"]
+
+[[test]]
 name = "dns01"
 required-features = ["admin-test-hooks"]
 

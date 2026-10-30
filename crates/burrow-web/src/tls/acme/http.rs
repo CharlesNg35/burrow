@@ -119,27 +119,17 @@ impl Client {
     pub async fn fetch(&self, req: Request<Vec<u8>>) -> Result<Response<Bytes>, String> {
         let (parts, body) = req.into_parts();
         let req = Request::from_parts(parts, BodyWrapper::from(body));
-        let resp = tokio::time::timeout(self.limits.request, self.send(req))
+        tokio::time::timeout(self.limits.request, self.send(req))
             .await
             .map_err(|_| "no answer in time".to_string())?
-            .map_err(|e| e.to_string())?;
-        let (parts, body) = resp.into_parts();
-        let body = body
-            .collect()
-            .await
-            .map_err(|e| format!("reading the answer: {e}"))?
-            .to_bytes();
-        Ok(Response::from_parts(parts, body))
+            .map_err(|e| e.to_string())
     }
 
     pub fn take_wait(&self) -> Option<Duration> {
         self.told_to_wait.lock().expect("wait lock").take()
     }
 
-    async fn send(
-        &self,
-        req: Request<BodyWrapper<Bytes>>,
-    ) -> Result<Response<Full<Bytes>>, Failure> {
+    async fn send(&self, req: Request<BodyWrapper<Bytes>>) -> Result<Response<Bytes>, Failure> {
         let uri = req.uri().clone();
         let host = uri
             .host()
@@ -177,7 +167,7 @@ impl Client {
         io: I,
         uri: &http::Uri,
         req: Request<BodyWrapper<Bytes>>,
-    ) -> Result<Response<Full<Bytes>>, Failure>
+    ) -> Result<Response<Bytes>, Failure>
     where
         I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     {
@@ -199,7 +189,7 @@ impl Client {
             .await
             .map_err(|e| format!("reading the answer: {e}"))?
             .to_bytes();
-        Ok(Response::from_parts(parts, Full::new(body)))
+        Ok(Response::from_parts(parts, body))
     }
 }
 
@@ -255,9 +245,29 @@ impl HttpClient for Client {
             {
                 *me.told_to_wait.lock().expect("wait lock") = wait;
             }
-            Ok(BytesResponse::from(resp))
+            #[cfg(any(test, feature = "admin-test-hooks"))]
+            count_nonce_refusal(&resp);
+            Ok(BytesResponse::from(resp.map(Full::new)))
         })
     }
+}
+
+#[cfg(any(test, feature = "admin-test-hooks"))]
+static NONCE_REFUSALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(any(test, feature = "admin-test-hooks"))]
+fn count_nonce_refusal(resp: &Response<Bytes>) {
+    let refused = resp.status() == StatusCode::BAD_REQUEST
+        && serde_json::from_slice::<instant_acme::Problem>(resp.body())
+            .is_ok_and(|p| p.r#type.as_deref() == Some("urn:ietf:params:acme:error:badNonce"));
+    if refused {
+        NONCE_REFUSALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(any(test, feature = "admin-test-hooks"))]
+pub fn nonce_refusals() -> u64 {
+    NONCE_REFUSALS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(test)]

@@ -139,6 +139,9 @@ impl Pebble {
             PEBBLE_NAME,
         ];
         args.extend(["-e", "PEBBLE_VA_NOSLEEP=1", "-v", &mount]);
+        if !env.iter().any(|e| e.starts_with("PEBBLE_WFE_NONCEREJECT=")) {
+            args.extend(["-e", "PEBBLE_WFE_NONCEREJECT=0"]);
+        }
         for e in env {
             args.extend(["-e", e]);
         }
