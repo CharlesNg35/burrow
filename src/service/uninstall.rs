@@ -7,7 +7,7 @@ use crate::base::failure::Failure;
 use crate::install::{Manifest, Platform, all_manifests, manifest_path};
 
 pub(super) fn admin_history(config: &Path) -> PathBuf {
-    crate::admin::adapters::history_dir_of(config)
+    crate::config::save::history_dir_of(config)
 }
 
 #[cfg(unix)]

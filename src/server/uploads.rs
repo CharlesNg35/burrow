@@ -22,7 +22,14 @@ pub fn prune_unused(web: Option<&crate::config::settings::WebSettings>) -> usize
     else {
         return 0;
     };
-    let removed = remove_unreferenced(state, &web.uploads);
+    let mut keep = web.uploads.clone();
+    keep.extend(
+        web.history
+            .as_deref()
+            .map(crate::config::save::history_upload_ids)
+            .unwrap_or_default(),
+    );
+    let removed = remove_unreferenced(state, &keep);
     if removed > 0 {
         tracing::info!("removed {removed} uploaded files the config no longer uses");
     }
@@ -108,22 +115,27 @@ pub fn store(_: &Path, _: &Request<'_>) -> Result<Uploaded, String> {
 mod tests {
     use super::*;
 
+    fn old_upload(state: &Path, id: &str) {
+        let dir = folder(state);
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join(format!("{id}.pem"));
+        std::fs::write(&f, "x").unwrap();
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&f)
+            .unwrap()
+            .set_modified(hour_ago)
+            .unwrap();
+    }
+
     #[test]
     fn an_apply_removes_old_uploads_no_config_uses_so_new_ones_fit_again() {
         let state = tempfile::tempdir().unwrap();
         let dir = folder(state.path());
-        std::fs::create_dir_all(&dir).unwrap();
-        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
         let ids: Vec<String> = (0..MAX_KEPT).map(|i| format!("pair-{i:016x}")).collect();
         for id in &ids {
-            let f = dir.join(format!("{id}.pem"));
-            std::fs::write(&f, "x").unwrap();
-            std::fs::File::options()
-                .write(true)
-                .open(&f)
-                .unwrap()
-                .set_modified(hour_ago)
-                .unwrap();
+            old_upload(state.path(), id);
         }
         std::fs::write(dir.join("ca-00000000000000ff.pem"), "fresh draft").unwrap();
         assert!(
@@ -151,5 +163,46 @@ mod tests {
             "a draft younger than 30 min stays"
         );
         assert!(kept(state.path()) < MAX_KEPT, "the next upload fits");
+    }
+
+    #[test]
+    fn an_upload_only_a_kept_admin_version_names_survives_the_prune_so_a_revert_finds_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let config = dir.path().join("server.yaml");
+        let secret = crate::wire::secret::Secret::generate().encode();
+        std::fs::write(
+            &config,
+            format!(
+                "listen: 7835\nclients:\n  home: {{ secret: {secret} }}\nweb:\n  https: 443\nservices:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n"
+            ),
+        )
+        .unwrap();
+        let history = crate::config::save::history_dir_of(&config);
+        std::fs::create_dir_all(&history).unwrap();
+        std::fs::write(
+            history.join("1000-00ab.yaml"),
+            "web:\n  certificates:\n    - hosts: [a.example.com]\n      upload: \"pair-00000000000000aa\"\n  letsencrypt: {ca_upload: ca-00000000000000ca}\n",
+        )
+        .unwrap();
+        for id in [
+            "pair-00000000000000aa",
+            "ca-00000000000000ca",
+            "pair-00000000000000bb",
+        ] {
+            old_upload(&state, id);
+        }
+        let env = crate::config::env::ProcessEnv;
+        let outcome =
+            crate::config::load_file(&config, Some(crate::config::Role::Server), &env).unwrap();
+        let Some(crate::config::Loaded::Server(settings, _)) = outcome.loaded else {
+            panic!("{:?}", outcome.report);
+        };
+        let mut web = settings.web.unwrap();
+        web.state_dir = Some(state.clone());
+        assert_eq!(prune_unused(Some(&web)), 1);
+        assert!(file(&state, "pair-00000000000000aa").unwrap().exists());
+        assert!(file(&state, "ca-00000000000000ca").unwrap().exists());
+        assert!(!file(&state, "pair-00000000000000bb").unwrap().exists());
     }
 }

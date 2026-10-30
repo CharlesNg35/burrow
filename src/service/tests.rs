@@ -59,7 +59,7 @@ fn a_config_the_account_swapped_for_a_link_is_never_read_into_the_history() {
     std::fs::remove_file(&config).unwrap();
     std::fs::hard_link(&private, &config).unwrap();
     assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::NotPlain);
-    let history = crate::admin::adapters::history_dir_of(&config);
+    let history = crate::config::save::history_dir_of(&config);
     let kept: Vec<String> = std::fs::read_dir(&history)
         .map(|d| {
             d.flatten()

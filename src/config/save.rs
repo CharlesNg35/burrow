@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::env::EnvSource;
 use crate::config::load::load_str_at;
@@ -117,6 +117,41 @@ fn open_folder(folder: &Path) -> std::io::Result<rustix::fd::OwnedFd> {
 
 fn spare_prefix(name: &str) -> String {
     format!(".{name}.burrow-edit-")
+}
+
+pub fn history_dir_of(config: &Path) -> PathBuf {
+    let name = config
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "config".into());
+    config
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+        .join(format!(".{name}.history"))
+}
+
+pub fn history_upload_ids(history: &Path) -> Vec<String> {
+    use std::io::Read;
+    let Ok(entries) = std::fs::read_dir(history) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let Some(mut file) = crate::base::fs::open_plain(&entry.path()).ok().flatten() else {
+            continue;
+        };
+        let mut text = String::new();
+        if file.read_to_string(&mut text).is_err() {
+            continue;
+        }
+        for word in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')) {
+            if burrow_syntax::upload::kind_of(word).is_some() && !ids.iter().any(|i| i == word) {
+                ids.push(word.to_string());
+            }
+        }
+    }
+    ids
 }
 
 pub fn spare_next_to(path: &Path) -> Option<std::path::PathBuf> {

@@ -32,18 +32,6 @@ pub struct FileStore {
     problem: Mutex<Option<String>>,
 }
 
-pub fn history_dir_of(config: &Path) -> PathBuf {
-    let name = config
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "config".into());
-    config
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-        .join(format!(".{name}.history"))
-}
-
 impl FileStore {
     pub fn new(path: &Path) -> FileStore {
         FileStore {
@@ -55,7 +43,7 @@ impl FileStore {
     }
 
     fn dir(&self) -> PathBuf {
-        history_dir_of(&self.path)
+        crate::config::save::history_dir_of(&self.path)
     }
 
     fn folder(&self) -> PathBuf {

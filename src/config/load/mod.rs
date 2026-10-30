@@ -122,6 +122,11 @@ pub fn load_file(
         role,
         env,
     );
+    if let Some(Loaded::Server(s, _)) = outcome.loaded.as_mut()
+        && let Some(w) = s.web.as_mut()
+    {
+        w.history = Some(crate::config::save::history_dir_of(path));
+    }
     if let Some(w) = permission_warning(path) {
         outcome.report.push(w);
         outcome.report.sort();
