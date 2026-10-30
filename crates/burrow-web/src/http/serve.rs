@@ -33,18 +33,25 @@ pub(crate) struct Conn {
     pub peer: SocketAddr,
     pub local: SocketAddr,
     pub name: Option<String>,
+    pub proto: Proto,
     pub ups: Upstreams,
     pub activity: Arc<Activity>,
     pub stalls: Stalls,
 }
 
 impl Conn {
-    pub(crate) fn new(peer: SocketAddr, local: SocketAddr, name: Option<String>) -> Conn {
+    pub(crate) fn new(
+        peer: SocketAddr,
+        local: SocketAddr,
+        name: Option<String>,
+        proto: Proto,
+    ) -> Conn {
         Conn {
             peer,
             local,
             name,
-            ups: Upstreams::default(),
+            proto,
+            ups: Upstreams::new(proto),
             activity: Activity::new(),
             stalls: Stalls::new(),
         }
@@ -87,12 +94,8 @@ fn service<U: Upstream>(
     })
 }
 
-pub(crate) async fn serve<U: Upstream>(
-    shared: Arc<Shared<U>>,
-    io: BoxIo,
-    conn: Conn,
-    proto: Proto,
-) {
+pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: Conn) {
+    let proto = conn.proto;
     let conn = Arc::new(conn);
     let activity = conn.activity.clone();
     let io = TokioIo::new(Box::new(Watched::new(io, activity, proto == Proto::H1)) as BoxIo);

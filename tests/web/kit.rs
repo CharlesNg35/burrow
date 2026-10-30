@@ -34,15 +34,20 @@ pub fn acceptor(c: &Cert) -> TlsAcceptor {
 }
 
 pub fn trusting(c: &Cert) -> TlsConnector {
+    trusting_alpn(c, &[])
+}
+
+pub fn trusting_alpn(c: &Cert, alpn: &[&[u8]]) -> TlsConnector {
     let mut roots = rustls::RootCertStore::empty();
     roots
         .add(CertificateDer::from_pem_slice(c.cert_pem.as_bytes()).unwrap())
         .unwrap();
-    let config = ClientConfig::builder_with_provider(provider())
+    let mut config = ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
         .unwrap()
         .with_root_certificates(roots)
         .with_no_client_auth();
+    config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
     TlsConnector::from(Arc::new(config))
 }
 

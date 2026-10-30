@@ -143,9 +143,33 @@ async fn an_8_mib_upload_and_300_parallel_streams_finish_on_one_connection() {
     }
     let most = Counts::get(&a.counts.most_live);
     assert!(
-        most <= burrow_web::http::upstream::pool::APP_CONNECTIONS,
+        most <= usize::try_from(burrow_web::http::h2::MAX_STREAMS).unwrap(),
         "{most} app connections at once for one visitor connection"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sixteen_parallel_1_mib_uploads_on_one_connection_all_finish() {
+    let a = app().await;
+    let p = proxy(&a, |_| {}).await;
+    let c = client(p.https_addr().unwrap()).await;
+    let mut tasks = Vec::new();
+    for _ in 0..16 {
+        let mut c = c.clone();
+        tasks.push(tokio::spawn(async move {
+            let mut post = request(&site_uri("/up"), &[]);
+            *post.method_mut() = http::Method::POST;
+            send(&mut c, post, Some(Bytes::from(vec![b'u'; 1024 * 1024]))).await
+        }));
+    }
+    for t in tasks {
+        let (status, body) = t.await.unwrap();
+        assert_eq!(
+            status, 200,
+            "waiting uploads must not hold the window: {body}"
+        );
+        assert!(body.contains("body-len: 1048576"), "{body}");
+    }
 }
 
 #[tokio::test]

@@ -11,6 +11,8 @@ mod common;
 mod ends;
 #[path = "web/health.rs"]
 mod health;
+#[path = "web/http2.rs"]
+mod http2;
 #[path = "web/http_edge.rs"]
 mod http_edge;
 #[path = "web/kit.rs"]

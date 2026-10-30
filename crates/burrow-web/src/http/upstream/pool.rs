@@ -11,6 +11,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
 
 use crate::Ending;
+use crate::http::Proto;
 use crate::http::{Body, BoxError};
 
 pub const APP_CONNECTIONS: usize = 8;
@@ -39,15 +40,25 @@ pub(crate) struct H2App {
 
 pub(crate) struct Upstreams {
     idle: Mutex<Vec<Stream>>,
+    cap: usize,
     slots: Arc<Semaphore>,
     h2: Mutex<Option<H2App>>,
 }
 
-impl Default for Upstreams {
-    fn default() -> Upstreams {
+pub(crate) fn app_connections(proto: Proto) -> usize {
+    match proto {
+        Proto::H1 => APP_CONNECTIONS,
+        Proto::H2 => usize::try_from(crate::http::h2::MAX_STREAMS).unwrap_or(APP_CONNECTIONS),
+    }
+}
+
+impl Upstreams {
+    pub(crate) fn new(proto: Proto) -> Upstreams {
+        let cap = app_connections(proto);
         Upstreams {
             idle: Mutex::default(),
-            slots: Arc::new(Semaphore::new(APP_CONNECTIONS)),
+            cap,
+            slots: Arc::new(Semaphore::new(cap)),
             h2: Mutex::default(),
         }
     }
@@ -76,7 +87,7 @@ impl Upstreams {
             {
                 return Some(idle.swap_remove(i));
             }
-            if self.slots.available_permits() + 1 < APP_CONNECTIONS {
+            if self.slots.available_permits() + 1 < self.cap {
                 return None;
             }
             let i = idle.iter().rposition(|s| s.serves(service, client))?;

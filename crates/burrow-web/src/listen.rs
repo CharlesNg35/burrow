@@ -310,8 +310,7 @@ async fn plain_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) 
             serve(
                 shared,
                 Box::new(io),
-                Conn::new(peer, local, None),
-                Proto::H1,
+                Conn::new(peer, local, None, Proto::H1),
             )
             .await;
         });
@@ -467,8 +466,7 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
                 serve(
                     shared.clone(),
                     tls,
-                    Conn::new(peer, local, Some(host)),
-                    proto,
+                    Conn::new(peer, local, Some(host), proto),
                 )
                 .await;
             }
