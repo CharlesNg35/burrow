@@ -182,11 +182,7 @@ fn wrong_role(name: &str, wanted: Role, found: Role) -> Option<Diagnostic> {
     if !clear {
         return None;
     }
-    let run = match found {
-        Role::Server => "server",
-        Role::Client => "client",
-        Role::Visitor => "visit",
-    };
+    let run = found.command();
     Some(
         Diagnostic::error(
             burrow_admin_proto::codes::WRONG_ROLE,
