@@ -141,6 +141,13 @@ impl Drop for CountGuard {
 }
 
 impl Shared {
+    pub(super) fn refused_handshake(&self) {
+        self.rejected.fetch_add(1, Ordering::Relaxed);
+        self.metrics
+            .handshakes_refused
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     pub(super) fn client_opens(&self, client: &str) -> (CountGuard, usize) {
         self.client_counts.enter(client)
     }

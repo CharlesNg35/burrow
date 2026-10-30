@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -148,11 +147,7 @@ pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
     let source = match source_slot(&shared.handshake_sources, peer.ip(), total, pressed) {
         Ok(source) => source,
         Err(()) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            shared.refused_handshake();
             debug!(%peer, "too many unauthenticated connections from this address, dropping");
             return None;
         }
@@ -163,11 +158,7 @@ pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
             _source: source,
         }),
         Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            shared.refused_handshake();
             debug!(%peer, "too many unauthenticated connections, dropping");
             None
         }
@@ -259,21 +250,14 @@ async fn upgraded_ws(
     permit: Permit,
     deadline: Instant,
 ) {
-    let refused = || {
-        shared.rejected.fetch_add(1, Ordering::Relaxed);
-        shared
-            .metrics
-            .handshakes_refused
-            .fetch_add(1, Ordering::Relaxed);
-    };
     match upgraded {
         Ok(Ok(mut conn)) => {
             conn.keep_alive(keepalive);
             authenticate(shared, Conn::from(conn), peer, permit, deadline).await
         }
-        Ok(Err(())) => refused(),
+        Ok(Err(())) => shared.refused_handshake(),
         Err(_) => {
-            refused();
+            shared.refused_handshake();
             debug!(%peer, "websocket upgrade timed out");
         }
     }
@@ -348,31 +332,15 @@ async fn authenticate(
     .await;
     let acc = match result {
         Ok(Ok(a)) => a,
-        Ok(Err(AcceptError::Rejected)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake rejected (wrong secret or unknown client name)");
-            return;
-        }
-        Ok(Err(e)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake failed: {e:?}");
-            return;
-        }
-        Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake timed out");
+        failed => {
+            shared.refused_handshake();
+            match failed {
+                Ok(Err(AcceptError::Rejected)) => {
+                    debug!(%peer, "handshake rejected (wrong secret or unknown client name)")
+                }
+                Ok(Err(e)) => debug!(%peer, "handshake failed: {e:?}"),
+                _ => debug!(%peer, "handshake timed out"),
+            }
             return;
         }
     };

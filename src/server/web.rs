@@ -31,13 +31,7 @@ impl Upstream for Doorway {
     }
 
     fn refused(&self) {
-        self.0
-            .rejected
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.0
-            .metrics
-            .handshakes_refused
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.0.refused_handshake();
     }
 
     fn allowed(&self, service: &str, from: &Visitor) -> bool {
