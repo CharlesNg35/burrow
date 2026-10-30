@@ -350,7 +350,7 @@ async fn moving_metrics_to_a_busy_port_keeps_the_old_endpoint() {
     settings.metrics = Some("127.0.0.1:0".parse().unwrap());
     let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
     let old = t.server.metrics.unwrap();
-    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let busy = std::net::TcpListener::bind(free_addr()).unwrap();
     let mut next = settings.clone();
     let moved = busy.local_addr().unwrap();
     next.metrics = Some(moved);

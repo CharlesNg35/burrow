@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use super::ports::free_port;
 use burrow_web::tls::acme::http::{Client, Limits};
 use bytes::Bytes;
 use instant_acme::{BodyWrapper, HttpClient};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio_rustls::rustls::pki_types::CertificateDer;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 
@@ -28,11 +29,6 @@ async fn docker(args: &[&str]) -> String {
         .await
         .expect("docker runs");
     String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
-
-async fn free_port() -> u16 {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    l.local_addr().unwrap().port()
 }
 
 fn config(tls_port: u16, http_port: u16) -> String {
@@ -94,7 +90,7 @@ impl Pebble {
         ])
         .await;
         let dir = tempfile::tempdir().unwrap();
-        let (tls_port, http_port) = (free_port().await, free_port().await);
+        let (tls_port, http_port) = (free_port(), free_port());
         std::fs::write(
             dir.path().join("pebble-config.json"),
             config(tls_port, http_port),

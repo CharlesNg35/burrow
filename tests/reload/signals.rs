@@ -9,7 +9,7 @@ use burrow::wire::secret::Secret;
 use tokio::net::TcpStream;
 
 #[cfg(unix)]
-use super::live::free_local;
+use super::common::free_addr;
 #[cfg(unix)]
 use super::process;
 
@@ -19,7 +19,7 @@ async fn a_server_whose_stderr_went_away_keeps_running_and_reloading() {
     use std::process::{Command, Stdio};
     let dir = tempfile::tempdir().unwrap();
     let locks = tempfile::tempdir().unwrap();
-    let (listen, web) = (free_local(), free_local());
+    let (listen, web) = (free_addr(), free_addr());
     let config = dir.path().join("server.yaml");
     let yaml = |services: &str| {
         format!(
@@ -86,7 +86,7 @@ async fn a_sighup_as_soon_as_the_port_is_open_does_not_kill_the_server() {
     use std::process::{Command, Stdio};
     let dir = tempfile::tempdir().unwrap();
     let locks = tempfile::tempdir().unwrap();
-    let listen = free_local();
+    let listen = free_addr();
     let config = dir.path().join("server.yaml");
     process::write(
         &config,

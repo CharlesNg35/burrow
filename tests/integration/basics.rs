@@ -129,9 +129,7 @@ async fn hot_reload_add_change_remove_without_dropping() {
     let mut buf = [0u8; 4];
     long.read_exact(&mut buf).await.unwrap();
 
-    let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let new_addr = free.local_addr().unwrap();
-    drop(free);
+    let new_addr = free_addr();
     let mut next = settings.clone();
     next.services.get_mut("web").unwrap().bind = Some(web);
     let mut added = service(echo1, Protocol::Tcp);

@@ -8,8 +8,7 @@ use crate::common::*;
 use crate::kit::*;
 
 async fn closed_port() -> SocketAddr {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    l.local_addr().unwrap()
+    free_addr()
 }
 
 async fn dying_app() -> SocketAddr {

@@ -8,7 +8,6 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 use super::common::*;
-use super::live::free_local;
 use super::process;
 use super::{Live, echoes, eventually};
 
@@ -107,14 +106,14 @@ async fn a_running_visitor_opens_a_forward_added_to_its_file() {
         server_line(server.addr),
         visitor_secret.encode()
     );
-    let first = free_local();
+    let first = free_addr();
     write(
         &config,
         &format!("{head}  db: {{ service: db, local: {first} }}\n"),
     );
     let visitor = Running::start("visit", &config, locks.path());
     assert!(eventually(first).await, "{}", visitor.log());
-    let second = free_local();
+    let second = free_addr();
     write(
         &config,
         &format!(

@@ -2,6 +2,8 @@
 mod common;
 mod listener;
 mod pebble;
+#[path = "../../../../tests/common/ports.rs"]
+mod ports;
 mod responder;
 mod scenarios;
 

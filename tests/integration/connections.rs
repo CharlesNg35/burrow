@@ -215,9 +215,7 @@ async fn reload_onto_the_kept_control_port_is_rejected() {
     let echo = echo_server().await;
     let secret = Secret::generate();
     let mut settings = server_settings(vec![secret.clone()]);
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    settings.listen = Some(free.local_addr().unwrap());
-    drop(free);
+    settings.listen = Some(free_addr());
     let t = tunnel_with(
         settings.clone(),
         vec![("a", service(echo, Protocol::Tcp))],

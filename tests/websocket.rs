@@ -365,9 +365,7 @@ async fn keepalive_keeps_pooled_channels_alive_through_an_idle_timeout_proxy() {
 async fn path_change_swaps_the_route_and_sends_old_path_clients_away() {
     let echo = echo_server().await;
     let secret = Secret::generate();
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port_addr = free.local_addr().unwrap();
-    drop(free);
+    let port_addr = free_addr();
     let mut s = ws_server(&secret, "/one", None);
     for name in ["office", "lab"] {
         s.clients.insert(
@@ -516,7 +514,7 @@ async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload
     let ws = srv.ws_addr.unwrap();
     let mut first = s.clone();
     first.websocket.as_mut().unwrap().listen = ws;
-    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let busy = std::net::TcpListener::bind(free_addr()).unwrap();
     let elsewhere = busy.local_addr().unwrap();
     let mut moved = first.clone();
     moved.websocket.as_mut().unwrap().listen = elsewhere;
@@ -544,9 +542,7 @@ async fn swapping_the_websocket_port_with_a_service_port_ends_with_both_listenin
     logs();
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/burrow", None);
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let web_port = free.local_addr().unwrap();
-    drop(free);
+    let web_port = free_addr();
     let mut web = service("127.0.0.1:1".parse().unwrap(), Protocol::Tcp);
     web.bind = Some(web_port);
     s.services.insert("web".into(), web);
@@ -581,9 +577,7 @@ async fn a_service_can_take_the_port_of_a_websocket_removed_in_the_same_reload()
     logs();
     let secret = Secret::generate();
     let mut s = server_settings(vec![secret.clone()]);
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = free.local_addr().unwrap();
-    drop(free);
+    let port = free_addr();
     s.websocket = ws_server(&secret, "/burrow", None).websocket;
     s.websocket.as_mut().unwrap().listen = port;
     let srv = start_server(s.clone()).await;

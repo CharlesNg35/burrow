@@ -39,7 +39,7 @@ async fn start_refuses_a_web_port_another_program_holds_with_the_find_hint() {
 async fn a_reload_to_a_taken_web_port_keeps_the_old_one_says_so_and_moves_once_it_is_free() {
     let now = local(free_port());
     let srv = start_server(with_web(Some(now), None)).await;
-    let held = std::net::TcpListener::bind(local(0)).unwrap();
+    let held = std::net::TcpListener::bind(local(free_port())).unwrap();
     let taken = held.local_addr().unwrap();
     let mut applies = srv.shared.applies();
     let seq = applies.borrow().seq;

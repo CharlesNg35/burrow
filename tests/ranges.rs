@@ -308,17 +308,10 @@ async fn an_idle_udp_range_does_not_use_up_the_clients_connection_limit() {
     );
 }
 
-fn free_tcp_range(from: u16, count: u16) -> u16 {
-    (from..60000)
-        .step_by(11)
-        .find(|p| (0..count).all(|i| std::net::TcpListener::bind(("127.0.0.1", p + i)).is_ok()))
-        .unwrap()
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shrinking_a_range_closes_connections_on_the_ports_it_dropped() {
     use tokio::io::AsyncWriteExt;
-    let target = free_tcp_range(42000, 2);
+    let target = free_range(2);
     for i in 0..2 {
         let l = tokio::net::TcpListener::bind(("127.0.0.1", target + i))
             .await
@@ -333,7 +326,7 @@ async fn shrinking_a_range_closes_connections_on_the_ports_it_dropped() {
             }
         });
     }
-    let public = free_tcp_range(target + 100, 2);
+    let public = free_range(2);
     let ranged = |ports: u16| Service {
         clients: vec!["home".into()],
         bind: Some(SocketAddr::from(([127, 0, 0, 1], public))),

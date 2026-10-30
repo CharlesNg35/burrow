@@ -83,9 +83,7 @@ async fn client_follows_the_server_to_a_new_address() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retries_forever_by_default() {
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = free.local_addr().unwrap();
-    drop(free);
+    let addr = free_addr();
     let mut c = client_settings(addr, Secret::generate());
     c.reconnect_max = Duration::from_millis(50);
     let cli = start_client(c).await;
@@ -100,9 +98,7 @@ async fn retries_forever_by_default() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gives_up_only_when_configured() {
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = free.local_addr().unwrap();
-    drop(free);
+    let addr = free_addr();
     let mut c = client_settings(addr, Secret::generate());
     c.reconnect_max = Duration::from_millis(100);
     c.give_up_after = Some(Duration::from_secs(1));

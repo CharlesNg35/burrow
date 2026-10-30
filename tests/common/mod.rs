@@ -421,14 +421,17 @@ pub async fn tunnel_with(
     }
 }
 
+pub fn free_addr() -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], free_port()))
+}
+
 pub fn refusing() -> (tokio::net::TcpSocket, SocketAddr) {
     let socket = tokio::net::TcpSocket::new_v4().unwrap();
-    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-    let addr = socket.local_addr().unwrap();
+    let addr = free_addr();
     if cfg!(any(target_os = "macos", windows)) {
-        drop(socket);
-        return (tokio::net::TcpSocket::new_v4().unwrap(), addr);
+        return (socket, addr);
     }
+    socket.bind(addr).unwrap();
     (socket, addr)
 }
 

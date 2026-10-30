@@ -133,7 +133,7 @@ async fn a_reload_with_ports_taken_by_other_programs_does_not_stall() {
 async fn a_service_whose_port_was_busy_at_reload_listens_once_it_is_free() {
     let echo = echo_server().await;
     let t = tunnel(vec![("web", service(echo, Protocol::Tcp))]).await;
-    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let busy = std::net::TcpListener::bind(free_addr()).unwrap();
     let port = busy.local_addr().unwrap();
     let mut next = server_settings(vec![t.secret.clone()]);
     next.listen = Some(t.server.addr);
@@ -242,12 +242,7 @@ async fn a_reloaded_udp_session_timeout_applies_to_running_relays() {
     let mut settings = server_settings(vec![secret.clone()]);
     settings.udp_session_timeout = Duration::from_secs(30);
     let mut dns = service(echo, Protocol::Udp);
-    dns.bind = Some(
-        std::net::UdpSocket::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap(),
-    );
+    dns.bind = Some(free_addr());
     settings.services.insert("dns".into(), dns);
     let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
     let target = t.server.services["dns"];
