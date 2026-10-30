@@ -136,7 +136,7 @@ web:
 
 - **`failover`** (the default) uses the first connected client in the list, and moves to the next one while it is away.
 - **`balance`** spreads new connections over all connected clients, in turn.
-- **`least_connections`** sends each new connection to the connected client with the fewest open connections. When several have the same number, the first one in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine.
+- **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service. When several have the same number, the first one in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine.
 
 All three skip a client whose health check failed, as described below.
 
