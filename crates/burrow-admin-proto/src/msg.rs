@@ -22,6 +22,24 @@ pub mod req {
     pub const UPLOAD: &str = "upload";
     pub const LOCAL_CA: &str = "local_ca";
     pub const HASH_PASSWORD: &str = "hash_password";
+
+    pub const ALL: &[&str] = &[
+        WELCOME,
+        SCHEMA,
+        STATE,
+        SUBSCRIBE,
+        VALIDATE,
+        APPLY,
+        GENERATE_SECRET,
+        CONNECT_INFO,
+        SUGGEST,
+        HISTORY,
+        REVERT,
+        PING,
+        UPLOAD,
+        LOCAL_CA,
+        HASH_PASSWORD,
+    ];
 }
 
 pub mod ev {
@@ -513,6 +531,15 @@ pub fn path(parts: &[&str]) -> Path {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn every_feature_a_request_needs_is_one_the_server_can_offer() {
+        for t in req::ALL {
+            if let Some(f) = needed_for(t) {
+                assert!(crate::features::ALL.contains(&f), "{t} needs {f}");
+            }
+        }
+    }
 
     #[test]
     fn envelopes() {

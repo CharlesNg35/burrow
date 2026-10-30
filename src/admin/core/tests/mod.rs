@@ -5,6 +5,7 @@ mod passwords;
 mod plans;
 mod reach;
 mod refs;
+mod requests;
 mod reverts;
 mod snippets;
 mod status;
