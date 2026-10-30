@@ -137,7 +137,7 @@ pub fn upgrade_of(h: &HeaderMap) -> Option<HeaderValue> {
         .then(|| HeaderValue::from_static("websocket"))
 }
 
-fn set(h: &mut HeaderMap, name: &'static str, value: &str) {
+pub(crate) fn set(h: &mut HeaderMap, name: &'static str, value: &str) {
     if let Ok(v) = HeaderValue::from_str(value) {
         h.insert(HeaderName::from_static(name), v);
     }

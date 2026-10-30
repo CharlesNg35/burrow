@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::net::{IpAddr, SocketAddr};
 
 use burrow_syntax::cidr::Cidr;
@@ -139,9 +140,17 @@ pub fn managed(name: &HeaderName) -> bool {
     MANAGED.contains(&name.as_str())
 }
 
-fn underscored(name: &HeaderName) -> bool {
+pub(crate) fn dashed(name: &HeaderName) -> Cow<'_, str> {
     let n = name.as_str();
-    n.contains('_') && MANAGED.contains(&n.replace('_', "-").as_str())
+    if n.contains('_') {
+        Cow::Owned(n.replace('_', "-"))
+    } else {
+        Cow::Borrowed(n)
+    }
+}
+
+fn underscored(name: &HeaderName) -> bool {
+    matches!(dashed(name), Cow::Owned(n) if MANAGED.contains(&n.as_str()))
 }
 
 pub fn strip_incoming(h: &mut HeaderMap, trusted_peer: bool) {

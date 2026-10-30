@@ -4,12 +4,15 @@ use http::{Method, Request};
 
 use crate::http::forwarded::{
     Client, FORWARDED_FOR, FORWARDED_HOST, FORWARDED_METHOD, FORWARDED_PROTO, FORWARDED_URI,
-    strip_incoming,
+    dashed, strip_incoming,
 };
-use crate::http::upstream::{connection_tokens, protected, strip_hop_by_hop};
+use crate::http::upstream::{connection_tokens, protected, set, strip_hop_by_hop};
 use crate::http::{Body, full};
 
-const ORIGINAL: [&str; 3] = ["x-original-url", "x-original-method", "x-original-uri"];
+const ORIGINAL_URL: &str = "x-original-url";
+const ORIGINAL_METHOD: &str = "x-original-method";
+const ORIGINAL_URI: &str = "x-original-uri";
+const ORIGINAL: [&str; 3] = [ORIGINAL_URL, ORIGINAL_METHOD, ORIGINAL_URI];
 
 const FRAMING: [HeaderName; 4] = [
     header::CONTENT_LENGTH,
@@ -17,10 +20,6 @@ const FRAMING: [HeaderName; 4] = [
     header::EXPECT,
     header::UPGRADE,
 ];
-
-fn dashed(name: &HeaderName) -> String {
-    name.as_str().replace('_', "-")
-}
 
 fn listed(name: &HeaderName, lists: &[&[HeaderName]]) -> bool {
     let n = dashed(name);
@@ -52,12 +51,6 @@ pub struct Asked<'a> {
     pub client: &'a Client,
 }
 
-fn set(h: &mut HeaderMap, name: &'static str, value: &str) {
-    if let Ok(v) = HeaderValue::from_str(value) {
-        h.insert(HeaderName::from_static(name), v);
-    }
-}
-
 pub fn subrequest_headers(visitor: &HeaderMap, asked: &Asked<'_>) -> HeaderMap {
     let mut h = visitor.clone();
     strip_hop_by_hop(&mut h);
@@ -67,7 +60,7 @@ pub fn subrequest_headers(visitor: &HeaderMap, asked: &Asked<'_>) -> HeaderMap {
     strip_incoming(&mut h, false);
     let originals: Vec<HeaderName> = h
         .keys()
-        .filter(|n| ORIGINAL.contains(&dashed(n).as_str()))
+        .filter(|n| ORIGINAL.contains(&&*dashed(n)))
         .cloned()
         .collect();
     for n in originals {
@@ -80,9 +73,9 @@ pub fn subrequest_headers(visitor: &HeaderMap, asked: &Asked<'_>) -> HeaderMap {
     set(&mut h, FORWARDED_URI, asked.path_and_query);
     set(&mut h, FORWARDED_FOR, &asked.client.forwarded_for);
     let url = format!("{proto}://{}{}", url_host(asked.host), asked.path_and_query);
-    set(&mut h, "x-original-url", &url);
-    set(&mut h, "x-original-uri", asked.path_and_query);
-    set(&mut h, "x-original-method", asked.method.as_str());
+    set(&mut h, ORIGINAL_URL, &url);
+    set(&mut h, ORIGINAL_URI, asked.path_and_query);
+    set(&mut h, ORIGINAL_METHOD, asked.method.as_str());
     h
 }
 
