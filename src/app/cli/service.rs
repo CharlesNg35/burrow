@@ -109,7 +109,7 @@ pub struct ServiceLogsArgs {
     #[arg(
         short = 'n',
         long,
-        default_value_t = 50,
+        default_value_t = crate::service::DEFAULT_LOG_LINES,
         help = "Number of lines to show"
     )]
     pub lines: usize,

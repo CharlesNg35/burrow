@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 use super::checks::misfits_of;
 use super::checks::needs_low_ports;
-use super::control::{interrupts, source_note};
+use super::control::{interrupts, logs_again, source_note};
 use super::install::{burrows_account, name_arg};
 #[cfg(unix)]
 use super::install::{installs_from, place_binary, recorded_source, service_binary_for};
@@ -952,4 +952,16 @@ fn a_manifest_with_an_unknown_role_is_damaged() {
     std::fs::write(&path, json.to_string()).unwrap();
     let read = crate::install::read_manifest(&path).unwrap_err();
     assert!(read.starts_with("damaged: "), "{read}");
+}
+
+#[test]
+fn the_logs_retry_hint_leaves_out_the_default_line_count() {
+    assert_eq!(
+        logs_again("burrow-home", 50, false),
+        "service logs burrow-home"
+    );
+    assert_eq!(
+        logs_again("burrow-home", 200, true),
+        "service logs burrow-home -n 200 -f"
+    );
 }

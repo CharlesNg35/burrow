@@ -188,17 +188,24 @@ pub fn list(out: &mut dyn Write) -> Result<(), Failure> {
     Ok(())
 }
 
-pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failure> {
-    let m = resolve(name)?;
-    let journal = system::backend().ok().and_then(|b| b.journal_hint(&m));
-    let mut out = std::io::stdout().lock();
-    let mut retry = format!("service logs {}", m.name);
-    if lines != 50 {
+pub const DEFAULT_LOG_LINES: usize = 50;
+
+pub(super) fn logs_again(name: &str, lines: usize, follow: bool) -> String {
+    let mut retry = format!("service logs {name}");
+    if lines != DEFAULT_LOG_LINES {
         retry.push_str(&format!(" -n {lines}"));
     }
     if follow {
         retry.push_str(" -f");
     }
+    retry
+}
+
+pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failure> {
+    let m = resolve(name)?;
+    let journal = system::backend().ok().and_then(|b| b.journal_hint(&m));
+    let mut out = std::io::stdout().lock();
+    let retry = logs_again(&m.name, lines, follow);
     logview::show(
         &m.log_file,
         lines,
