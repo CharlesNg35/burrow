@@ -5,24 +5,27 @@ use burrow_config::{Mode, ServiceEntry};
 use burrow_ui_kit::{Combobox, TextInput};
 use leptos::prelude::*;
 
+use super::entry_target::{Open, focus_soon, input_id, shifted, swapped, target_cell, to_main};
 use crate::app::{MenuItem, row_menu, row_menus};
+
+type OpenMap = std::collections::BTreeMap<usize, Option<Value>>;
 use crate::domain::{FieldCtx, set_checked};
 use crate::edit::diags_at;
 use crate::form::{Ctx, plain, ref_link};
 use crate::store::store;
 
-fn sibling(path: &[String], key: Vec<String>) -> Vec<String> {
+pub(super) fn sibling(path: &[String], key: Vec<String>) -> Vec<String> {
     let mut p = path.to_vec();
     p.pop();
     p.extend(key);
     p
 }
 
-fn text_of(v: &Option<Value>) -> String {
+pub(super) fn text_of(v: &Option<Value>) -> String {
     v.as_ref().map(plain).unwrap_or_default()
 }
 
-fn typed(text: &str) -> Option<Value> {
+pub(super) fn typed(text: &str) -> Option<Value> {
     let t = text.trim();
     if t.is_empty() {
         return None;
@@ -34,13 +37,13 @@ fn typed(text: &str) -> Option<Value> {
 }
 
 #[derive(Clone)]
-struct Place {
-    fc: FieldCtx,
+pub(super) struct Place {
+    pub(super) fc: FieldCtx,
     single: Option<Vec<String>>,
 }
 
 impl Place {
-    fn read(&self) -> Vec<Row> {
+    pub(super) fn read(&self) -> Vec<Row> {
         let e = store().edit;
         let listed = e.value(&self.fc.path);
         match (&listed, &self.single) {
@@ -67,7 +70,7 @@ impl Place {
         set_checked(&self.fc, &self.fc.node, v);
     }
 
-    fn edit(&self, f: impl FnOnce(&mut Vec<Row>)) {
+    pub(super) fn edit(&self, f: impl FnOnce(&mut Vec<Row>)) {
         let mut all = self.read();
         f(&mut all);
         self.write(all);
@@ -78,43 +81,15 @@ impl Place {
 struct Look {
     balance: Signal<bool>,
     menus: RwSignal<Option<String>>,
-    opened: RwSignal<std::collections::BTreeSet<usize>>,
+    open: Open,
     last: bool,
+    own: bool,
 }
 
-fn shifted(
-    set: &std::collections::BTreeSet<usize>,
-    from: usize,
-    by: isize,
-) -> std::collections::BTreeSet<usize> {
-    set.iter()
-        .filter_map(|&k| match k.cmp(&from) {
-            std::cmp::Ordering::Less => Some(k),
-            _ => k.checked_add_signed(by),
-        })
-        .collect()
-}
-
-fn swapped(
-    set: &std::collections::BTreeSet<usize>,
-    a: usize,
-    b: usize,
-) -> std::collections::BTreeSet<usize> {
-    set.iter()
-        .map(|&k| {
-            if k == a {
-                b
-            } else if k == b {
-                a
-            } else {
-                k
-            }
-        })
-        .collect()
-}
-
-fn menu_items(place: &Place, i: usize, look: Look, own: bool) -> Vec<MenuItem> {
-    let Look { opened, last, .. } = look;
+fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
+    let Look {
+        open, last, own, ..
+    } = look;
     let act = |f: fn(&mut Vec<Row>, usize)| {
         let place = place.clone();
         Callback::new(move |_: ()| place.edit(|all| f(all, i)))
@@ -136,32 +111,34 @@ fn menu_items(place: &Place, i: usize, look: Look, own: bool) -> Vec<MenuItem> {
     let remove = act(|all, i| {
         all.remove(i);
     });
-    let then = |run: Callback<()>, after: fn(&mut std::collections::BTreeSet<usize>, usize)| {
+    let then = |run: Callback<()>, after: fn(&mut OpenMap, usize)| {
         Callback::new(move |_: ()| {
             run.run(());
-            opened.update(|o| after(o, i));
+            open.update(|o| after(o, i));
         })
     };
     let mut items = Vec::new();
-    if !own {
+    if own {
+        let place = place.clone();
         items.push(MenuItem {
-            label: "Own target on this client",
-            testid: "entry-own",
+            label: "Use main target",
+            testid: "entry-main",
             danger: false,
-            run: Callback::new(move |_: ()| {
-                opened.update(|o| {
-                    o.insert(i);
-                })
-            }),
+            run: Callback::new(move |_: ()| to_main(&place, i, open)),
         });
     }
+    let next = input_id(place, i + 1);
+    let again = then(again, |o, i| {
+        *o = shifted(o, i + 1, 1);
+        o.insert(i + 1, None);
+    });
     items.push(MenuItem {
         label: "Add again with another target",
         testid: "entry-again",
         danger: false,
-        run: then(again, |o, i| {
-            *o = shifted(o, i + 1, 1);
-            o.insert(i + 1);
+        run: Callback::new(move |_: ()| {
+            again.run(());
+            focus_soon(next.clone());
         }),
     });
     if i > 0 {
@@ -192,11 +169,19 @@ fn menu_items(place: &Place, i: usize, look: Look, own: bool) -> Vec<MenuItem> {
     items
 }
 
+const CLIENT_W: &str = "sm:w-[240px]";
+const WEIGHT_W: &str = "sm:w-[96px]";
+const TARGET_W: &str = "sm:w-[320px]";
+
+fn cell_label(text: &'static str) -> impl IntoView {
+    view! { <span class="w-14 shrink-0 text-xs font-semibold text-text-muted sm:hidden">{text}</span> }
+}
+
 fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
     let Look {
         balance,
         menus,
-        opened,
+        open,
         ..
     } = look;
     let e = store().edit;
@@ -214,25 +199,10 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
                 .collect::<Vec<_>>()
         }
     });
-    let target = Signal::derive({
-        let current = current.clone();
-        move || text_of(&current().target)
-    });
-    let weight = Signal::derive({
-        let current = current.clone();
-        move || current().weight.as_ref().map(plain).unwrap_or_default()
-    });
-    let service_target = e
-        .value(&sibling(&place.fc.path, ServiceEntry::TARGET.rel()))
-        .map(|v| format!("uses {}", plain(&v)))
-        .unwrap_or_else(|| "uses the service target".into());
+    let weight = Signal::derive(move || current().weight.as_ref().map(plain).unwrap_or_default());
     let options = {
         let (entity, reserved) = (c.entity.clone(), c.reserved.clone());
         Signal::derive(move || super::picker::options_for(&entity, &reserved))
-    };
-    let on = |f: fn(&mut Vec<Row>, usize, String)| {
-        let place = place.clone();
-        Callback::new(move |t: String| place.edit(|all| f(all, i, t)))
     };
     let set_name = {
         let place = place.clone();
@@ -242,60 +212,56 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
             }
         })
     };
-    let set_target = on(|all, i, t| all[i].target = typed(&t));
-    let set_weight = on(|all, i, t| all[i].weight = typed(&t).filter(|w| w.as_i64() != Some(1)));
-    let own = {
-        let current = current.clone();
-        Memo::new(move |_| current().target.is_some() || opened.with(|o| o.contains(&i)))
+    let set_weight = {
+        let place = place.clone();
+        Callback::new(move |t: String| {
+            place.edit(|all| all[i].weight = typed(&t).filter(|w| w.as_i64() != Some(1)))
+        })
     };
-    let items = menu_items(&place, i, look, own.get_untracked());
     let menu = row_menu(
         menus,
         i.to_string(),
         format!("More for entry {}", i + 1),
-        items,
+        menu_items(&place, i, look),
     );
-    let clear = {
-        let place = place.clone();
-        move |_| {
-            place.edit(|all| all[i].target = None);
-            opened.update(|o| {
-                o.remove(&i);
-            });
-        }
-    };
-    let weight_id = format!("{id}-weight");
     let mut at = place.fc.path.clone();
     at.push(i.to_string());
+    let weight_at = {
+        let mut w = at.clone();
+        w.push(burrow_config::ServiceClient::WEIGHT.key().to_string());
+        w
+    };
+    let weight_bad = Signal::derive(move || {
+        e.plan
+            .with(|p| !diags_at(p.as_deref(), &weight_at, true).is_empty())
+    });
     let problem = move || {
         e.plan.with(|p| {
-            diags_at(p.as_deref(), &at, true)
-                .first()
-                .map(|d| burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects))
+            diags_at(p.as_deref(), &at, true).first().map(|d| {
+                let w = burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects);
+                burrow_admin_logic::wording::capital(&w)
+            })
         })
     };
-    let target_id = format!("{id}-target");
+    let target = target_cell(&place, i, open);
     view! {
-        <div class="rounded-input border border-border px-3 py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
-            <div class="flex flex-wrap items-end gap-2">
-                <div class="min-w-[160px] flex-1">
+        <div class="py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div class=format!("order-1 min-w-0 flex-1 sm:flex-none {CLIENT_W}")>
                     <Combobox id=format!("{id}-client") options=options selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
                 </div>
-                <div class="w-[140px]" class:hidden=move || !balance.get() data-weight="">
-                    <span class="mb-1 block text-xs font-semibold text-text-muted sm:hidden">"Weight"</span>
-                    <TextInput id=weight_id value=weight on_input=set_weight numeric=true placeholder="1" label="Weight"/>
+                <div class="order-2 sm:order-4">{menu}</div>
+                <div class=format!("order-3 flex min-h-[38px] basis-full items-center gap-2 sm:order-2 sm:basis-auto {TARGET_W}")>
+                    {cell_label("Target")}
+                    {target}
                 </div>
-                <div class="pb-1">{menu}</div>
-            </div>
-            {move || own.get().then(|| view! {
-                <div class="mt-2 flex items-center gap-2" data-own-target="">
-                    <span class="shrink-0 text-xs text-text-muted">"own target"</span>
-                    <div class="min-w-0 max-w-[280px] flex-1">
-                        <TextInput id=target_id.clone() value=target on_input=set_target mono=true placeholder=service_target.clone() label="Own target"/>
+                <div class=format!("order-4 flex basis-full items-center gap-2 sm:order-3 sm:basis-auto {WEIGHT_W}") class:hidden=move || !balance.get() data-weight="">
+                    {cell_label("Weight")}
+                    <div class="w-[96px]">
+                        <TextInput id=format!("{id}-weight") value=weight on_input=set_weight numeric=true invalid=weight_bad placeholder="default 1" label="Weight"/>
                     </div>
-                    <burrow_ui_kit::IconButton icon="x" label="Use the main target" testid="own-target-clear" on_click=clear.clone()/>
                 </div>
-            })}
+            </div>
             {move || problem().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
         </div>
     }
@@ -314,14 +280,20 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
         let place = place.clone();
         Memo::new(move |_| place.read().len())
     };
-    let balance = {
+    let is_balance = Signal::derive(move || {
+        e.value(&mode_path)
+            .and_then(|v| v.as_str().and_then(Mode::from_wire))
+            == Some(Mode::Balance)
+    });
+    let weighted = {
         let place = place.clone();
-        Signal::derive(move || {
-            let mode = e
-                .value(&mode_path)
-                .and_then(|v| v.as_str().and_then(Mode::from_wire));
-            mode == Some(Mode::Balance) || place.read().iter().any(|r| r.weight.is_some())
-        })
+        Memo::new(move |_| place.read().iter().any(|r| r.weight.is_some()))
+    };
+    let balance = Signal::derive(move || is_balance.get() || weighted.get());
+    let stray = Signal::derive(move || weighted.get() && !is_balance.get());
+    let clear_weights = {
+        let place = place.clone();
+        move |_| place.edit(|all| all.iter_mut().for_each(|r| r.weight = None))
     };
     let options = {
         let (entity, reserved) = (c.entity.clone(), c.reserved.clone());
@@ -338,12 +310,25 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
         })
     };
     let menus = row_menus();
-    let opened = RwSignal::new(std::collections::BTreeSet::new());
+    let open: Open = RwSignal::new(OpenMap::new());
+    let flags = {
+        let place = place.clone();
+        Memo::new(move |_| {
+            open.with(|o| {
+                place
+                    .read()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| r.target.is_some() || o.contains_key(&i))
+                    .collect::<Vec<_>>()
+            })
+        })
+    };
     let rows = {
         let (place, c) = (place.clone(), c.clone());
         move || {
-            let n = count.get();
-            opened.track();
+            let own = flags.get();
+            let n = own.len();
             (0..n)
                 .map(|i| {
                     untrack(|| {
@@ -354,8 +339,9 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
                             Look {
                                 balance,
                                 menus,
-                                opened,
+                                open,
                                 last: i + 1 == n,
+                                own: own[i],
                             },
                         )
                     })
@@ -365,18 +351,25 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     };
     let head = move || {
         (count.get() > 0).then(|| view! {
-            <div class="flex gap-2 px-3 text-xs font-semibold text-text-muted max-sm:hidden" data-entries-head="">
-                <span class="min-w-[160px] flex-1">"Client"</span>
-                <span class="w-[140px]" class:hidden=move || !balance.get()>"Weight"</span>
-                <span class="w-7" aria-hidden="true"></span>
+            <div class="flex gap-x-3 border-b border-border pb-1 text-xs font-semibold text-text-muted max-sm:hidden" data-entries-head="">
+                <span class=CLIENT_W>"Client"</span>
+                <span class=TARGET_W>"Target"</span>
+                <span class=WEIGHT_W class:hidden=move || !balance.get()>"Weight"</span>
+                <span class="w-9" aria-hidden="true"></span>
             </div>
         })
     };
     view! {
-        <div class="space-y-2" data-entries="" on:focusout=move |_| { let _ = touched.try_set(true); }>
+        <div data-entries="" on:focusout=move |_| { let _ = touched.try_set(true); }>
             {head}
-            {rows}
-            <div class="max-w-[320px]" data-add-entry="">
+            <div class="divide-y divide-border">{rows}</div>
+            <Show when=move || stray.get()>
+                <p class="mt-1 flex flex-wrap items-baseline gap-x-2 text-sm text-warning" data-stray-weights="">
+                    {burrow_admin_logic::wording::WEIGHTS_NEED_BALANCE}
+                    <button type="button" class=format!("cursor-pointer font-semibold {}", burrow_ui_kit::LINK) data-testid="clear-weights" on:click=clear_weights.clone()>"Clear weights"</button>
+                </p>
+            </Show>
+            <div class="mt-2 max-w-[240px]" data-add-entry="">
                 <Combobox id=fc.id.clone() options=options selected=Signal::stored(Vec::new()) on_change=add placeholder="Add client…" label="Add client" create_label=create_label on_create=on_create/>
             </div>
         </div>
