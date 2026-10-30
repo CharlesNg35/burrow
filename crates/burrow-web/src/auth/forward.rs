@@ -1,3 +1,4 @@
+use burrow_syntax::address::url_host;
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use http::{Method, Request};
 
@@ -57,14 +58,6 @@ fn set(h: &mut HeaderMap, name: &'static str, value: &str) {
     }
 }
 
-fn origin_host(host: &str) -> String {
-    if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    }
-}
-
 pub fn subrequest_headers(visitor: &HeaderMap, asked: &Asked<'_>) -> HeaderMap {
     let mut h = visitor.clone();
     strip_hop_by_hop(&mut h);
@@ -86,11 +79,7 @@ pub fn subrequest_headers(visitor: &HeaderMap, asked: &Asked<'_>) -> HeaderMap {
     set(&mut h, FORWARDED_HOST, asked.host);
     set(&mut h, FORWARDED_URI, asked.path_and_query);
     set(&mut h, FORWARDED_FOR, &asked.client.forwarded_for);
-    let url = format!(
-        "{proto}://{}{}",
-        origin_host(asked.host),
-        asked.path_and_query
-    );
+    let url = format!("{proto}://{}{}", url_host(asked.host), asked.path_and_query);
     set(&mut h, "x-original-url", &url);
     set(&mut h, "x-original-uri", asked.path_and_query);
     set(&mut h, "x-original-method", asked.method.as_str());

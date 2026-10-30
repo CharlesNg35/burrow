@@ -144,11 +144,7 @@ fn on_plain<U: Upstream>(
 }
 
 pub fn https_location(host: &str, port: Option<u16>, path_and_query: &str) -> String {
-    let host = if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    };
+    let host = burrow_syntax::address::url_host(host);
     match port {
         Some(p) if p != 443 => format!("https://{host}:{p}{path_and_query}"),
         _ => format!("https://{host}{path_and_query}"),

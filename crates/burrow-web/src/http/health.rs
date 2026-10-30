@@ -56,10 +56,7 @@ fn no_http(e: &hyper::Error) -> String {
 impl HealthCheck {
     pub fn build(site: &SiteOptions, ask: &Ask<'_>) -> Result<HealthCheck, String> {
         let Ask { host, path, agent } = *ask;
-        let host = match host.parse::<std::net::Ipv6Addr>() {
-            Ok(ip) => format!("[{ip}]"),
-            Err(_) => host.to_string(),
-        };
+        let host = burrow_syntax::address::url_host(host);
         Ok(HealthCheck {
             hop: hop(site),
             host: HeaderValue::from_str(&host)

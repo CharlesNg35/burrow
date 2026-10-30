@@ -1,3 +1,4 @@
+use burrow_syntax::address::url_host;
 use http::header::{self, HeaderMap, HeaderValue};
 use http::{Request, Response, Uri, Version};
 use http_body_util::BodyExt;
@@ -36,14 +37,6 @@ fn wants_trailers(h: &HeaderMap) -> bool {
         .any(|t| t.trim().eq_ignore_ascii_case("trailers"))
 }
 
-fn authority(host: &str) -> String {
-    if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    }
-}
-
 pub fn rewrite_for_h2<B>(req: &mut Request<B>, host: &str, client: &Client, https: bool) {
     let trailers = wants_trailers(req.headers());
     let crumbs: Vec<HeaderValue> = req
@@ -66,7 +59,7 @@ pub fn rewrite_for_h2<B>(req: &mut Request<B>, host: &str, client: &Client, http
     }
     let scheme = if https { "https" } else { "http" };
     let pq = req.uri().path_and_query().map_or("/", |p| p.as_str());
-    let absolute = format!("{scheme}://{}{pq}", authority(host));
+    let absolute = format!("{scheme}://{}{pq}", url_host(host));
     *req.uri_mut() = absolute.parse().unwrap_or_else(|_| Uri::from_static("/"));
     *req.version_mut() = Version::HTTP_2;
 }

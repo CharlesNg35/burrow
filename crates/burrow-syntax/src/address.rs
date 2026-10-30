@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::net::{IpAddr, SocketAddr};
 
 use crate::endpoint::{Endpoint, with_default_port};
@@ -46,6 +47,14 @@ fn reach_of_ip(ip: IpAddr) -> Option<Reach> {
                 None
             }
         }
+    }
+}
+
+pub fn url_host(host: &str) -> Cow<'_, str> {
+    if host.contains(':') && !host.starts_with('[') {
+        Cow::Owned(format!("[{host}]"))
+    } else {
+        Cow::Borrowed(host)
     }
 }
 
@@ -183,6 +192,14 @@ pub fn client_address(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_url_host_puts_only_a_bare_ipv6_address_in_brackets() {
+        assert_eq!(super::url_host("a.example.com"), "a.example.com");
+        assert_eq!(super::url_host("10.0.0.5"), "10.0.0.5");
+        assert_eq!(super::url_host("2001:db8::1"), "[2001:db8::1]");
+        assert_eq!(super::url_host("[2001:db8::1]"), "[2001:db8::1]");
+    }
+
     use super::*;
 
     fn tcp(given: &str, listen: &str) -> Result<(String, Vec<String>), AddressError> {

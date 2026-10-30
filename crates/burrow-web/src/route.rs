@@ -3,6 +3,7 @@ use std::collections::hash_map::Entry;
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use burrow_syntax::address::url_host;
 pub use burrow_syntax::url_path::{on_prefix, path_matches};
 use burrow_syntax::web::wildcard_of;
 
@@ -123,12 +124,7 @@ fn origin(site: &Site) -> Option<String> {
     } else {
         "https"
     };
-    let host = if first.contains(':') {
-        format!("[{first}]")
-    } else {
-        first.clone()
-    };
-    Some(format!("{scheme}://{host}"))
+    Some(format!("{scheme}://{}", url_host(first)))
 }
 
 fn add_site(hosts: &mut HashMap<String, Kind>, site: &Site) {
