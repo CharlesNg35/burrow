@@ -386,3 +386,31 @@ Sources, checked 2026-10-25: RFC 7617; RFC 6066 section 3; RFC 5280 section 5; O
 Accepted risks (industry standard): over HTTP, the bearer token is in the AI app's config or environment and is shown on the terminal at start, as Jupyter's token is; a local process that can read your files or your terminal can use it, as it could use your visitor config. The AI app's own approval of each tool call is a second layer, never the only one: a write admin with `--allow-write` lets the AI make every change the admin could, after a visible plan.
 
 Sources, checked 2026-10-25: MCP 2026-07-28 transports, stdio and Streamable HTTP (modelcontextprotocol.io/specification/2026-07-28/basic/transports); rmcp 3.7.0 docs and source (`StreamableHttpServerConfig`, `ToolRouter`, `tool_handler`); Claude Code MCP docs (code.claude.com/docs/en/mcp); Codex MCP docs (developers.openai.com/codex/mcp); Cursor MCP docs (cursor.com/docs/context/mcp); Claude Desktop local servers (modelcontextprotocol.io/docs/develop/connect-local-servers).
+
+## D51. HTTP/2 hardening is proved by configuration tests, the watchdog, h2spec, upstream regression tests and a memory measurement, not by attack traffic
+
+The owner chose (2026-10-26) to prove decision 0s without sending crafted attack frames from our tests. Five things prove it together:
+
+- **Every limit is pinned.** `http/h2.rs` holds the limits in one place, and the visitor server, the h2c/TLS app client and the HTTP/1.1 app link are built from it. A unit test checks each value and reads hyper's own builders, so a changed limit fails the test: 100 concurrent streams; 20 pending-accept resets (Rapid Reset); 256 local error resets (RUSTSEC-2024-0003, MadeYouReset); stream window 256 KiB and connection window 1 MiB, with no adaptive window; 16 KiB frames; a 32 KiB decoded header list; a 4,096-byte HPACK table; a 32 KiB send buffer per stream; a PING every 30 s answered within 20 s; and 100 header fields per request (431). An integration test reads the SETTINGS frame and the connection WINDOW_UPDATE the server really sends.
+- **The stalled-stream watchdog.** A normal client that stops reading a large response loses that stream about 10 s later: the app's body is dropped and the stream is reset, while the connection and its other streams stay open (`tests/h2/stall.rs`, `BURROW_H2_SLOW`, run in CI's h2 job).
+- **h2spec** 2.6.0 passes all 146 non-strict cases in CI's h2 job.
+- **Upstream regression tests.** The pinned h2 0.4.20 and hyper 1.12.0 (Cargo.lock; `cargo deny check advisories` is clean) carry the fixes, and h2's own tests prove them (tagged sources, github.com/hyperium/h2/tree/v0.4.20):
+  - Rapid Reset (CVE-2023-44487) and the reset flood (CVE-2023-26964): `tests/h2-tests/tests/stream_states.rs` tests `reset_streams_dont_grow_memory_continuously`, `go_away_with_pending_accepting` and `pending_accept_reset_streams_decrement_too`.
+  - RUSTSEC-2024-0003: `server.rs` tests `send_reset_explicitly_does_not_affect_local_limit` and `refused_requests_count_toward_local_reset_limit`.
+  - CONTINUATION (VU#421644): `server.rs` tests `too_many_continuation_frames_sends_goaway`, `abusive_headers_send_goaway` and `too_big_headers_sends_reset_after_431_if_not_eos`.
+  - MadeYouReset (VU#767506): `flow_control.rs` test `too_many_window_update_resets_causes_go_away`.
+  - Empty and small DATA frames (RUSTSEC-2026-0258): `stream_states.rs` tests `too_many_empty_data_frames_sends_goaway` and `too_many_small_data_frames_sends_goaway`.
+  - The HPACK decoder: `src/hpack/decoder.rs` test `test_decode_indexed_larger_than_table`, `src/frame/headers.rs` test `test_try_append_prevents_panic_on_max_size_reached`, and `server.rs` test `server_builder_header_table_size`.
+  - hyper passes our limits to h2 in `src/proto/h2/server.rs` (github.com/hyperium/hyper/tree/v1.12.0).
+- **Memory under heavy legitimate load.** The test server runs as its own process (the test binary started again as a child), and its VmHWM is read from /proc. N connections each keep 100 streams busy: 48 downloads of 1 MiB, 47 uploads of 1 MiB, and 5 slow readers taking 512 KiB at 64 KiB/s. Per connection = (VmHWM − idle RSS) / N:
+
+  | App | N = 10 | N = 50 |
+  |---|---|---|
+  | h2c (`target_http2`) | 5.1–5.5 MiB | not yet measured |
+  | HTTP/1.1, 32 KiB app read buffer | 8.1–8.2 MiB | not yet measured |
+
+  The aim is about 8 MiB. The gated test (`tests/h2/load.rs`, `BURROW_H2_SLOW`) allows 16 MiB, so only a real regression fails it.
+- **One app connection per HTTP/2 stream.** Measuring found a deadlock: an HTTP/2 visitor connection could use only 8 app connections. Each waiting upload had already been sent a full 256 KiB stream window, so 12 parallel 1 MiB uploads to an HTTP/1.1 app filled the 1 MiB connection window. The 8 running uploads then never got their last bytes, and all of them got 504 after 60 s. Now an HTTP/2 visitor connection may open up to `max_concurrent_streams` (100) app connections, like nginx and Caddy, which open one upstream connection per stream. The p5-research memory model already assumed this; HTTP/1.1 visitors keep 8. The service's `max_connections` still caps the total, and the extra streams get 503 at once. Tests: 16 parallel 1 MiB uploads all finish; with `max_connections: 4`, 16 uploads get only 200 or 503, within seconds.
+- **The app read buffer is 32 KiB** (it was 40 KiB). That is the low end of p5-research's 32–40 KiB, and it still holds the largest response head (32 KiB, MAX_HEAD). With one app connection per stream, it brings an HTTP/1.1 app from 8.6–8.8 MiB per connection (40 KiB, N = 10) to 8.1–8.2 MiB. That is a little over the 8 MiB aim, so the test's bound stays at 16 MiB.
+
+Sources, checked 2026-10-30: h2 v0.4.20 and hyper v1.12.0 tagged sources and CHANGELOG; RFC 9113 §5.1.2 and §6.5.2; CERT VU#421644 and VU#767506; RUSTSEC-2024-0003 and RUSTSEC-2026-0258; nginx ngx_http_v2_module and Caddy's reverse_proxy transport docs.
