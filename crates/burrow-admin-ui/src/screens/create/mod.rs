@@ -31,6 +31,7 @@ pub(crate) fn name_input(
     name: RwSignal<String>,
     problem: Signal<Option<String>>,
     available: bool,
+    example: &'static str,
 ) -> impl IntoView {
     let msg = format!("{id}-msg");
     let ok = move || available && !name.get().is_empty() && problem.get().is_none();
@@ -45,6 +46,7 @@ pub(crate) fn name_input(
                 invalid=Signal::derive(move || problem.get().is_some())
                 described_by=msg.clone()
                 mono=true
+                placeholder=format!("for example {example}")
             />
             {move || ok().then(|| view! {
                 <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 text-xs font-semibold text-success"><burrow_ui_kit::Icon name="check" small=true/>"available"</span>
@@ -53,7 +55,7 @@ pub(crate) fn name_input(
         <p id=msg class="mt-1.5 text-xs text-danger">{move || problem.get()}</p>
         <p class="text-xs text-text-muted">
             {move || ok().then(|| view! { <span class="sr-only" data-testid="name-available">"available"</span> })}
-            {format!("Letters, digits, dot, dash, underscore; up to {MAX_NAME_LEN} characters.")}
+            {format!("For example {example}. Letters, digits, dot, dash, underscore; up to {MAX_NAME_LEN} characters.")}
         </p>
     </div>
     }

@@ -86,8 +86,8 @@ pub fn NewEntity(
             <burrow_ui_kit::PageHeader sub=intro>{format!("New {what}")}</burrow_ui_kit::PageHeader>
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
-                <burrow_ui_kit::SectionHead title="Identity" sub={if what == "service" { "The name is the key in server.yaml." } else { "The name goes into the config on that machine." }}/>
-                {super::name_input("new-name", "Name", name, problem, true)}
+                <burrow_ui_kit::SectionHead title="Identity" sub={if what == "service" { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
+                {super::name_input("new-name", "Name", name, problem, true, if what == ServiceEntry::ENTITY { "nas or home-ssh" } else if what == ClientEntry::ENTITY { "home or office" } else { "laptop or phone" })}
                 {(what != "service").then(|| secret_field(secret))}
             </section>
             {(what != "service").then(|| limits_section(what, name, max, placeholder_max, options, links))}
