@@ -22,7 +22,7 @@ pub mod solve;
 pub mod system;
 pub mod wire;
 
-pub const DEFAULT_WAIT: Duration = Duration::from_secs(burrow_syntax::web::DNS_WAIT_SECS);
+pub use burrow_syntax::web::DNS_WAIT;
 pub const TXT_TTL: u32 = 60;
 
 pub type Fut<'a> = Pin<Box<dyn Future<Output = Result<(), Refusal>> + Send + 'a>>;
@@ -178,7 +178,7 @@ mod tests {
         DnsEntry {
             domains: domains.iter().map(|d| d.to_string()).collect(),
             provider,
-            wait: DEFAULT_WAIT,
+            wait: DNS_WAIT,
             resolvers: Vec::new(),
             wildcards: Vec::new(),
         }

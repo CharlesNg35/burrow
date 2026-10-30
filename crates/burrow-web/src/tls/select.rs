@@ -376,7 +376,7 @@ mod tests {
                 provider: crate::DnsProvider::Command {
                     path: "/usr/local/bin/burrow-dns".into(),
                 },
-                wait: crate::tls::acme::dns01::DEFAULT_WAIT,
+                wait: crate::tls::acme::dns01::DNS_WAIT,
                 resolvers: Vec::new(),
                 wildcards: vec!["*.Example.com".into()],
             }];

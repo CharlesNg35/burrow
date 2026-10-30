@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::super::fake::{Fake, World, cname};
-use super::super::{DEFAULT_WAIT, Fut, Secret};
+use super::super::{DNS_WAIT, Fut, Secret};
 use super::*;
 
 struct Writer {
@@ -187,5 +187,5 @@ fn the_challenge_name_drops_the_wildcard_and_takes_the_default_wait() {
         challenge_name("*.Example.com").unwrap().to_ascii(),
         "_acme-challenge.Example.com."
     );
-    assert_eq!(DEFAULT_WAIT, Duration::from_secs(120));
+    assert_eq!(DNS_WAIT, Duration::from_secs(120));
 }

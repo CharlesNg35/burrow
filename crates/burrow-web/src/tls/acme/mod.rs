@@ -304,7 +304,7 @@ mod tests {
             provider: dns01::DnsProvider::Command {
                 path: "/usr/local/bin/burrow-dns".into(),
             },
-            wait: dns01::DEFAULT_WAIT,
+            wait: dns01::DNS_WAIT,
             resolvers: Vec::new(),
             wildcards: Vec::new(),
         }];

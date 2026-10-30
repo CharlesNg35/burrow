@@ -156,6 +156,7 @@ pub fn expires_soon(not_after: u64, now: u64) -> bool {
 }
 
 pub const DNS_WAIT_SECS: u64 = 120;
+pub const DNS_WAIT: std::time::Duration = std::time::Duration::from_secs(DNS_WAIT_SECS);
 pub const DNS_WAIT_MIN_SECS: u64 = 10;
 pub const DNS_WAIT_MAX_SECS: u64 = 3600;
 
