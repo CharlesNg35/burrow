@@ -10,15 +10,7 @@ use crate::form::plain;
 pub(crate) use service::service;
 
 pub fn clients_of(svc: &Value) -> Vec<String> {
-    match (
-        ServiceEntry::CLIENT.get(svc),
-        ServiceEntry::CLIENTS.get(svc),
-    ) {
-        (Some(Value::String(c)), _) => vec![c.clone()],
-        (_, Some(Value::Array(a))) => a.iter().map(plain).collect(),
-        (_, Some(Value::String(c))) => vec![c.clone()],
-        _ => Vec::new(),
-    }
+    ServiceEntry::client_names(svc)
 }
 
 pub fn online(status: Option<&Status>, client: &str) -> bool {

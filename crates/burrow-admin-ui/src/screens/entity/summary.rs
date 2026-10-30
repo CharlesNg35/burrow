@@ -128,9 +128,11 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let why = health.iter().find(|h| h.client == c).and_then(|h| h.reason.clone());
                         let set = aside.iter().find(|a| a.client == c).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
                         let label = c.clone();
+                        let open = format::count(cs.as_ref().map_or(0, |y| y.open));
                         view! {
                             <tr data-row=c.clone()>
                                 <th scope="row"><StatusDot on=on text=label/></th>
+                                <td class="tabular-nums" data-testid="client-open">{open}</td>
                                 <td class="font-mono text-[13px] text-text-muted max-sm:hidden">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
@@ -154,7 +156,10 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         .and_then(Mode::from_wire),
                 ) {
                     (true, Some(Mode::Balance)) => {
-                        "balance · new connections spread over healthy clients".to_string()
+                        "balance · new connections spread over healthy clients by weight".to_string()
+                    }
+                    (true, Some(Mode::LeastConnections)) => {
+                        "least connections · the healthy client with the fewest open connections takes the next one".to_string()
                     }
                     (true, _) => {
                         "failover · the first healthy client takes new connections".to_string()
@@ -164,7 +169,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                 view! {
                     <div class="mb-4">
                         <Card title="Health per client" sub=mode flush=true testid="health">
-                            <Table head=vec!["Client", "~Connected from", "Health", "~Set aside"]>{rows}</Table>
+                            <Table head=vec!["Client", "Open", "~Connected from", "Health", "~Set aside"]>{rows}</Table>
                         </Card>
                     </div>
                 }

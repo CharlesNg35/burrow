@@ -44,6 +44,8 @@ mod tables;
 mod ui;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
+#[path = "admin_e2e/weights.rs"]
+mod weights;
 #[path = "admin_e2e/world.rs"]
 mod world;
 

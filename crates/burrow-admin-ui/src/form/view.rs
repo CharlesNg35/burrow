@@ -176,7 +176,10 @@ fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &Ctx) -> AnyV
 
 fn names(v: &Value) -> Vec<String> {
     match v {
-        Value::Array(a) => a.iter().map(plain).collect(),
+        Value::Array(a) => a
+            .iter()
+            .map(|x| burrow_config::ref_name(x).map_or_else(|| plain(x), str::to_string))
+            .collect(),
         other => vec![plain(other)],
     }
 }

@@ -121,26 +121,16 @@ pub fn create_with(
             continue;
         };
         if section == ClientEntry::section() {
-            let mut names: Vec<String> =
-                match (ServiceEntry::CLIENT.get(v), ServiceEntry::CLIENTS.get(v)) {
-                    (Some(Value::String(c)), _) => vec![c.clone()],
-                    (_, Some(Value::Array(a))) => a
-                        .iter()
-                        .filter_map(|x| x.as_str().map(str::to_string))
-                        .collect(),
-                    _ => Vec::new(),
-                };
+            let mut names = ServiceEntry::client_names(v);
             names.push(name.to_string());
+            let entries = ServiceEntry::keep_weights(ServiceEntry::CLIENTS.get(v), &names);
             let client = ServiceEntry::CLIENT.of(svc);
             let clients = ServiceEntry::CLIENTS.of(svc);
             if names.len() == 1 {
                 e.set(&client, Some(Value::String(names.remove(0))));
             } else {
                 e.set(&client, None);
-                e.set(
-                    &clients,
-                    Some(Value::Array(names.into_iter().map(Value::String).collect())),
-                );
+                e.set(&clients, Some(Value::Array(entries)));
             }
         } else {
             let visitors = ServiceEntry::VISITORS.of(svc);

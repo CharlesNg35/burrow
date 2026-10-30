@@ -1,5 +1,6 @@
 mod parts;
 mod picker;
+mod weights;
 
 use burrow_admin_logic::addr;
 use burrow_admin_logic::input::to_text;
