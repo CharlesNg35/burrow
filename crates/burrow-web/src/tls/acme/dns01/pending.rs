@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::tls::acme::storage::write_private;
 
-pub const GIVE_UP_SECS: u64 = 7 * 24 * 3600;
+pub const GIVE_UP_SECS: u64 = 7 * burrow_syntax::duration::DAY_SECS;
 
 static FILE: Mutex<()> = Mutex::new(());
 

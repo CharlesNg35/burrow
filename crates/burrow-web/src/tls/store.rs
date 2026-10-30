@@ -64,6 +64,7 @@ enum Serve {
 type Pair = (PathBuf, PathBuf);
 type Loaded = HashMap<Pair, Result<Arc<CertifiedKey>, String>>;
 
+use burrow_syntax::duration::DAY_SECS;
 pub use burrow_syntax::duration::now_secs;
 
 pub fn expires(ck: &CertifiedKey) -> Option<u64> {
@@ -81,11 +82,10 @@ fn warn_expiry(name: &str, path: &std::path::Path, expires: Option<u64>) -> bool
             path.display()
         );
     } else if burrow_syntax::web::expires_soon(at, now) {
-        let days = (at - now) / 86_400;
         warn!(
-            "certificate for {name} ({}) expires in {days} {}; replace the file",
+            "certificate for {name} ({}) expires in {}; replace the file",
             path.display(),
-            if days == 1 { "day" } else { "days" }
+            burrow_syntax::duration::days_left(at, now)
         );
     } else {
         return false;
@@ -322,7 +322,7 @@ impl Store {
         use std::sync::atomic::Ordering;
         let now = now_secs();
         let last = self.warned.load(Ordering::Relaxed);
-        if now < last + 24 * 3600
+        if now < last + DAY_SECS
             || self
                 .warned
                 .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)

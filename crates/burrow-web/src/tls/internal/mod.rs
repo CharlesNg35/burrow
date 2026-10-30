@@ -173,8 +173,8 @@ impl Internal {
             root_path: root_pem_path(&state),
             warning: (left < ROOT_WARNING_SECS).then(|| {
                 format!(
-                    "the local CA expires in {} days; burrow does not renew it on its own",
-                    left / 86_400
+                    "the local CA expires in {}; burrow does not renew it on its own",
+                    burrow_syntax::duration::days_left(ca.root_not_after, now)
                 )
             }),
         })

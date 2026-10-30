@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::storage::{account_dir, name_set, write_private};
 
 pub const LIMIT: usize = 4;
-pub const WINDOW_SECS: u64 = 7 * 24 * 3600;
+pub const WINDOW_SECS: u64 = 7 * burrow_syntax::duration::DAY_SECS;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Issued {
@@ -72,7 +72,7 @@ mod tests {
     fn four_new_certificates_for_the_same_names_in_a_week_stop_the_fifth_and_ari_is_exempt() {
         let state = tempfile::tempdir().unwrap();
         let p = path(state.path(), "https://acme.test/dir");
-        let day = 24 * 3600;
+        let day = burrow_syntax::duration::DAY_SECS;
         let ab = names(&["b.example.com", "a.example.com"]);
         let now = 1_800_000_000;
         for i in 0..3 {

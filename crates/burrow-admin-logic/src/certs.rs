@@ -4,7 +4,7 @@ use burrow_admin_proto::status::{
 };
 use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
 
-const DAY: u64 = 86_400;
+use burrow_syntax::duration::DAY_SECS as DAY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {

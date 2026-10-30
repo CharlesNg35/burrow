@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
-pub const KEEP_REMOVED_SECS: u64 = 30 * 24 * 3600;
+pub const KEEP_REMOVED_SECS: u64 = 30 * burrow_syntax::duration::DAY_SECS;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meta {
@@ -256,7 +256,7 @@ mod tests {
         let (blog, gone) = (dir("blog.example.com"), dir("gone.example.com"));
         save(&blog, &stored(&["blog.example.com"])).unwrap();
         save(&gone, &stored(&["gone.example.com"])).unwrap();
-        let day = 24 * 3600;
+        let day = burrow_syntax::duration::DAY_SECS;
         sweep(state.path(), std::slice::from_ref(&blog), 100 * day);
         assert!(gone.join("removed").exists());
         sweep(state.path(), std::slice::from_ref(&blog), 129 * day);

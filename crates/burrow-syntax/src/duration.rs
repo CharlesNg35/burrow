@@ -1,3 +1,12 @@
+pub const DAY_SECS: u64 = 86_400;
+
+pub fn days_left(at: u64, now: u64) -> String {
+    match at.saturating_sub(now) / DAY_SECS {
+        1 => "1 day".to_string(),
+        n => format!("{n} days"),
+    }
+}
+
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -122,6 +131,14 @@ pub fn check_range(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn days_left_says_one_day_and_counts_the_rest() {
+        use super::{DAY_SECS, days_left};
+        assert_eq!(days_left(DAY_SECS + 5, 0), "1 day");
+        assert_eq!(days_left(2 * DAY_SECS + 5, 0), "2 days");
+        assert_eq!(days_left(100, 0), "0 days");
+    }
+
     use super::*;
 
     #[test]

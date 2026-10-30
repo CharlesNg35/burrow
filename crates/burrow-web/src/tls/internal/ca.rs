@@ -14,13 +14,15 @@ use tokio_rustls::rustls::sign::CertifiedKey;
 
 pub use crate::tls::x509::fingerprint;
 
+use burrow_syntax::duration::DAY_SECS;
+
 use super::Write;
 
-pub const ROOT_SECS: u64 = 3600 * 86_400;
-pub const INTERMEDIATE_SECS: u64 = 7 * 86_400;
+pub const ROOT_SECS: u64 = 3600 * DAY_SECS;
+pub const INTERMEDIATE_SECS: u64 = 7 * DAY_SECS;
 pub const LEAF_SECS: u64 = 12 * 3600;
 pub const SKEW_SECS: u64 = 300;
-pub const ROOT_WARNING_SECS: u64 = 365 * 86_400;
+pub const ROOT_WARNING_SECS: u64 = 365 * DAY_SECS;
 
 pub const PERMITTED_NAMES: [&str; 5] = ["localhost", "local", "internal", "home.arpa", "lan"];
 pub const PERMITTED_NETS: [(&str, u8); 9] = [

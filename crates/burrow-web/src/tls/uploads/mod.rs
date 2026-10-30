@@ -202,8 +202,8 @@ fn dates(der: &[u8], now: u64, warnings: &mut Vec<String>, what: &str) -> Result
     }
     if burrow_syntax::web::expires_soon(facts.not_after, now) {
         warnings.push(format!(
-            "{what} expires in {} days",
-            (facts.not_after - now) / 86_400
+            "{what} expires in {}",
+            burrow_syntax::duration::days_left(facts.not_after, now)
         ));
     }
     Ok(())

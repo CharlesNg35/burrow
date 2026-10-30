@@ -17,7 +17,7 @@ use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
-pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(30 * 24 * 3600);
+pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(30 * burrow_syntax::duration::DAY_SECS);
 
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {

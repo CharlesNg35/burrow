@@ -188,7 +188,7 @@ impl Drop for Handle {
     }
 }
 
-const SWEEP_EVERY: u64 = 24 * 3600;
+const SWEEP_EVERY: u64 = burrow_syntax::duration::DAY_SECS;
 
 async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
     let mut groups: BTreeMap<String, Group> = BTreeMap::new();
