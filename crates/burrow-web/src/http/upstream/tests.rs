@@ -76,9 +76,9 @@ fn the_forwarded_headers_name_the_visitor_and_replace_what_it_sent() {
 }
 
 #[test]
-fn an_upgrade_is_kept_and_an_absolute_target_becomes_origin_form() {
+fn an_upgrade_is_kept() {
     let mut req = request(
-        "https://Blog.example.com/chat?room=1",
+        "/chat?room=1",
         &[
             ("host", "blog.example.com"),
             ("connection", "Upgrade"),
@@ -218,8 +218,13 @@ fn only_a_websocket_upgrade_reaches_the_app() {
 #[test]
 fn http2_cookie_crumbs_reach_an_http1_app_as_one_field_and_the_version_is_http1() {
     let mut req = request(
-        "https://blog.example.com/",
-        &[("cookie", "a=1"), ("cookie", "b=2"), ("cookie", "c=3")],
+        "/",
+        &[
+            ("host", "blog.example.com"),
+            ("cookie", "a=1"),
+            ("cookie", "b=2"),
+            ("cookie", "c=3"),
+        ],
     );
     *req.version_mut() = Version::HTTP_2;
     rewrite_request(&mut req, "blog.example.com", &visitor(true));

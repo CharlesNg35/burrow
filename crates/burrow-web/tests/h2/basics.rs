@@ -54,6 +54,22 @@ async fn an_h2_request_reaches_the_app_over_http1_with_host_from_the_authority()
 }
 
 #[tokio::test]
+async fn an_h2_authority_port_reaches_the_app_in_host_and_x_forwarded_port() {
+    let a = app().await;
+    let p = proxy(&a, |_| {}).await;
+    let addr = p.https_addr().unwrap();
+    let mut c = client(addr).await;
+    let port = addr.port();
+    let (status, body) = get(&mut c, &format!("https://{HOST}:{port}/")).await;
+    assert_eq!(status, 200);
+    assert!(body.contains(&format!("\nhost: {HOST}:{port}\n")), "{body}");
+    assert!(
+        body.contains(&format!("\nx-forwarded-port: {port}\n")),
+        "{body}"
+    );
+}
+
+#[tokio::test]
 async fn another_name_on_a_reused_connection_gets_421_and_a_different_host_gets_400() {
     let a = app().await;
     let p = proxy(&a, |_| {}).await;

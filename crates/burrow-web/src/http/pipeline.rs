@@ -43,7 +43,7 @@ pub(crate) async fn handle<U: Upstream>(
             }
         }
     }
-    if !normalize_target(&mut req, &host) {
+    if !normalize_target(&mut req) {
         return Page::BadRequest.response();
     }
     let table = shared.table();
@@ -76,7 +76,7 @@ pub(crate) async fn handle<U: Upstream>(
     }
 }
 
-fn normalize_target<B>(req: &mut Request<B>, host: &str) -> bool {
+fn normalize_target<B>(req: &mut Request<B>) -> bool {
     let Ok(path) = normalize_path(req.uri().path()) else {
         return false;
     };
@@ -87,8 +87,8 @@ fn normalize_target<B>(req: &mut Request<B>, host: &str) -> bool {
     let Ok(uri) = target.parse::<Uri>() else {
         return false;
     };
-    if req.uri().authority().is_some() {
-        let Ok(v) = HeaderValue::from_str(host) else {
+    if let Some(authority) = req.uri().authority() {
+        let Ok(v) = HeaderValue::from_str(authority.as_str()) else {
             return false;
         };
         req.headers_mut().insert(header::HOST, v);
@@ -214,6 +214,34 @@ mod tests {
         assert_eq!(challenge_token("/.well-known/acme-challenge/a/b"), None);
         assert_eq!(challenge_token("/.well-known/acme-challenge/a.b"), None);
         assert_eq!(challenge_token("/other"), None);
+    }
+
+    fn normalized(uri: &str, version: http::Version) -> Request<()> {
+        let mut req = Request::builder()
+            .uri(uri)
+            .version(version)
+            .header(header::HOST, "blog.example.com")
+            .body(())
+            .unwrap();
+        assert!(normalize_target(&mut req));
+        req
+    }
+
+    #[test]
+    fn an_absolute_target_becomes_origin_form_with_host_set_to_its_authority() {
+        let req = normalized(
+            "https://Blog.example.com/chat?room=1",
+            http::Version::HTTP_11,
+        );
+        assert_eq!(req.uri(), "/chat?room=1");
+        assert_eq!(req.headers()["host"], "Blog.example.com");
+        let req = normalized("https://blog.example.com:8443/a", http::Version::HTTP_2);
+        assert_eq!(req.uri(), "/a");
+        assert_eq!(req.headers()["host"], "blog.example.com:8443");
+        let req = normalized("https://[2001:db8::1]:8443/", http::Version::HTTP_2);
+        assert_eq!(req.headers()["host"], "[2001:db8::1]:8443");
+        let req = normalized("/x", http::Version::HTTP_11);
+        assert_eq!(req.headers()["host"], "blog.example.com");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
-use http::{Request, Response, StatusCode, Uri, Version};
+use http::{Request, Response, StatusCode, Version};
 use http_body_util::BodyExt;
 use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
@@ -168,13 +168,6 @@ pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, client: &Client) {
         *req.version_mut() = Version::HTTP_11;
     }
     let upgrade = upgrade_of(req.headers());
-    if req.uri().authority().is_some() {
-        if let Ok(v) = HeaderValue::from_str(host) {
-            req.headers_mut().insert(header::HOST, v);
-        }
-        let origin = req.uri().path_and_query().map_or("/", |p| p.as_str());
-        *req.uri_mut() = origin.parse().unwrap_or_else(|_| Uri::from_static("/"));
-    }
     let h = req.headers_mut();
     strip_hop_by_hop(h);
     strip_incoming(h, client.trusted_peer);
