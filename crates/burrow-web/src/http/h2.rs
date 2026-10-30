@@ -15,7 +15,7 @@ pub const SEND_BUF: usize = 32 * 1024;
 pub const HEADER_TABLE: u32 = 4096;
 pub const PING_EVERY: Duration = Duration::from_secs(30);
 pub const PING_ANSWER: Duration = Duration::from_secs(20);
-pub const APP_READ_BUF: usize = 40 * 1024;
+pub const APP_READ_BUF: usize = 32 * 1024;
 
 pub(crate) fn server() -> hyper::server::conn::http2::Builder<TokioExecutor> {
     let mut b = hyper::server::conn::http2::Builder::new(TokioExecutor::new());

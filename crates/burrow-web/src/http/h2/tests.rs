@@ -22,7 +22,7 @@ fn the_decided_limits_keep_their_values() {
     assert_eq!(HEADER_TABLE, 4096);
     assert_eq!(PING_EVERY, Duration::from_secs(30));
     assert_eq!(PING_ANSWER, Duration::from_secs(20));
-    assert_eq!(APP_READ_BUF, 40_960);
+    assert_eq!(APP_READ_BUF, 32_768);
     assert_eq!(MAX_HEAD, 32_768);
     assert_eq!(MAX_HEADERS, 100);
 }
@@ -74,7 +74,7 @@ fn the_app_client_builders_carry_every_limit() {
         &[
             "h1_max_headers: Some(100)",
             "h1_max_header_size: Some(32768)",
-            "h1_max_buf_size: Some(40960)",
+            "h1_max_buf_size: Some(32768)",
         ],
     );
 }
