@@ -172,13 +172,12 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
     let on_service = Callback::new(move |s: String| d.service.set(s));
     let on_path = Callback::new(move |t: String| d.path.set(t));
     let on_headers = Callback::new(move |h: Vec<String>| d.headers.set(h));
-    let service_bad = Signal::derive(move || service_problem.get().is_some());
     let path_bad = Signal::derive(move || path_problem.get().is_some());
     view! {
         <Dialog open=shown title=title testid="login-dialog" wide=true>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {labelled("login-kind", "Kind", view! { <Select id="login-kind" options=kind_options.clone() value=d.kind on_change=on_kind/> }.into_any())}
-                {labelled("login-service", "Service", view! { <Select id="login-service" options=Signal::derive(services) value=d.service on_change=on_service invalid=service_bad/> }.into_any())}
+                {labelled("login-service", "Service", view! { <Select id="login-service" options=Signal::derive(services) value=d.service on_change=on_service/> }.into_any())}
                 {move || adding.get().then(|| name_input("login-name", "Name", d.name, name_problem, true, "authelia or sso"))}
                 <div class="md:col-span-2">
                     {labelled("login-path", "Path", view! { <TextInput id="login-path" value=d.path on_input=on_path invalid=path_bad mono=true placeholder="/api/authz/forward-auth"/> }.into_any())}

@@ -206,8 +206,14 @@ pub(crate) fn login_services(label: String, help: String, path: Path, spath: Pat
         })
     };
     let (jp, js) = (crate::form::join(&path), crate::form::join(&spath));
+    let table = use_context::<crate::form::ShowKeys>().is_some_and(|k| k.0);
+    let key_hint = if table {
+        path.join(".\u{200b}")
+    } else {
+        String::new()
+    };
     view! {
-        <FieldRow id="login-services" label=label help=help path=jp schema_path=js wide=true>
+        <FieldRow id="login-services" label=label help=help path=jp schema_path=js key_hint=key_hint table=table wide=true>
             {list}
             {add}
         </FieldRow>
