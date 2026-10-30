@@ -34,26 +34,12 @@ pub(super) fn replace_linked(path: &Path) -> std::io::Result<Option<(File, bool)
         Err(TryLockError::WouldBlock) => {}
         Err(TryLockError::Error(e)) => return Err(e),
     }
-    if names(path, &old) {
+    if crate::base::fs::names(path, &old) {
         std::fs::remove_file(path)?;
     }
     let opened = open_shared(path).map(Some);
     drop(old);
     opened
-}
-
-#[cfg(unix)]
-pub(super) fn names(path: &Path, file: &File) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (std::fs::symlink_metadata(path), file.metadata()) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
-    }
-}
-
-#[cfg(not(unix))]
-pub(super) fn names(_path: &Path, _file: &File) -> bool {
-    true
 }
 
 pub(super) fn single_file(f: File) -> std::io::Result<File> {

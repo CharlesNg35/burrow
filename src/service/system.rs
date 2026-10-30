@@ -181,20 +181,6 @@ impl Operation {
     }
 }
 
-#[cfg(unix)]
-fn names(path: &Path, file: &std::fs::File) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (std::fs::symlink_metadata(path), file.metadata()) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
-    }
-}
-
-#[cfg(not(unix))]
-fn names(_path: &Path, _file: &std::fs::File) -> bool {
-    true
-}
-
 pub const OPERATION_LOCK: &str = "operation.lock";
 
 pub fn operation(out: &mut dyn std::io::Write) -> Result<Operation, Failure> {
@@ -244,7 +230,9 @@ fn operation_in(
             continue;
         }
         match file.try_lock() {
-            Ok(()) if names(&path, &file) => return Ok(Operation { _file: file, path }),
+            Ok(()) if crate::base::fs::names(&path, &file) => {
+                return Ok(Operation { _file: file, path });
+            }
             Ok(()) => {
                 replaced += 1;
                 continue;

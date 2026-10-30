@@ -2,8 +2,8 @@ use std::fs::{OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 
 use super::note::{
-    NOTE_PATIENCE, extra_links, names, no_follow, open_shared, replace_linked, single_file,
-    trusted_note, write_note,
+    NOTE_PATIENCE, extra_links, no_follow, open_shared, replace_linked, single_file, trusted_note,
+    write_note,
 };
 use super::safe_dir;
 use super::{
@@ -96,7 +96,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
             Err(e) => return Err(open_failure(&path, &e)),
         };
         match file.try_lock() {
-            Ok(()) => match after_lock(attempts, names(&path, &file)) {
+            Ok(()) => match after_lock(attempts, crate::base::fs::names(&path, &file)) {
                 Locked::Keep => break (file, writable),
                 Locked::Again => continue,
                 Locked::Moved => {

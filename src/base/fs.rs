@@ -135,6 +135,20 @@ pub fn replace(tmp: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
+#[cfg(unix)]
+pub fn names(path: &Path, file: &std::fs::File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::symlink_metadata(path), file.metadata()) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+pub fn names(_path: &Path, _file: &std::fs::File) -> bool {
+    true
+}
+
 #[cfg(windows)]
 pub(crate) fn restrict_on_windows(path: &Path) {
     let me = std::process::Command::new("whoami")
