@@ -1,5 +1,5 @@
-//! The web proxy on burrow's HTTPS port: it reads the TLS name, passes TLS through to a
-//! service or hands the connection to burrow's tunnel. It knows nothing about the config file.
+//! The web proxy on burrow's HTTPS and HTTP ports: it routes by TLS name and Host, passes TLS through, ends TLS and
+//! reverse-proxies HTTP/1.1 and HTTP/2 to services, gets certificates (files, ACME, local CA) and hands tunnel connections to burrow.
 //! It must not depend on burrow, burrow-config, burrow-admin-* or burrow-ui-kit.
 
 #![forbid(unsafe_code)]
