@@ -17,7 +17,7 @@ js-sys = "0.3"
 leptos = { version = "=0.8.22", features = ["csr"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["BinaryType", "Blob", "CloseEvent", "Document", "CssStyleDeclaration", "DomRect", "Element", "Event", "File", "FileList", "History", "HtmlElement", "HtmlInputElement", "Location", "MessageEvent", "PopStateEvent", "ScrollIntoViewOptions", "ScrollLogicalPosition", "BeforeUnloadEvent", "Storage", "WebSocket", "Window"] }
+web-sys = { version = "0.3", features = ["BinaryType", "Blob", "CloseEvent", "Document", "CssStyleDeclaration", "DomRect", "Element", "Event", "File", "FileList", "History", "HtmlElement", "HtmlInputElement", "Location", "MessageEvent", "PopStateEvent", "ResizeObserver", "ScrollIntoViewOptions", "ScrollLogicalPosition", "BeforeUnloadEvent", "Storage", "WebSocket", "Window"] }
 
 [lints]
 workspace = true

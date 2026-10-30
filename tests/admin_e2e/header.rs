@@ -299,3 +299,60 @@ fn read_only(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 fn a_read_only_admin_sees_everything_and_is_told_why_it_cannot_change_it() {
     run("read-only", Options::default(), false, read_only);
 }
+
+const HEADER_MEASURED: &str = "Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr-h')) - document.querySelector('[data-testid=header]').getBoundingClientRect().height) < 0.5";
+
+fn header_height(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        for width in [1100, 390, 1440] {
+            c.ui.viewport(width, 900).await;
+            c.ui.wait_true(
+                HEADER_MEASURED,
+                "--hdr-h follows the header's height on a normal load",
+                SECS,
+            )
+            .await;
+        }
+        c.ui.viewport(1100, 900).await;
+        c.ui.wait_true(HEADER_MEASURED, "--hdr-h at 1100 px", SECS)
+            .await;
+        c.ui.wait_true(
+            "Math.abs(parseFloat(getComputedStyle(document.querySelector('[data-testid=list]').closest('aside')).top) - document.querySelector('[data-testid=header]').getBoundingClientRect().height) < 0.5",
+            "the sticky list's offset is the header's real height between lg and xl",
+            SECS,
+        )
+        .await;
+        c.ui.wait_true(
+            "document.documentElement.scrollHeight <= innerHeight",
+            "a short page fits under the real header, so the list never slides beneath it",
+            SECS,
+        )
+        .await;
+        c.ui.click("[role=tablist] [data-tab=settings]").await;
+        c.ui.wait_for("[data-schema='services/*/target']", SECS)
+            .await;
+        let tall: bool =
+            c.ui.eval("document.documentElement.scrollHeight > innerHeight + 300")
+                .await;
+        assert!(
+            tall,
+            "the settings page is taller than the window, so the page scrolls"
+        );
+        let _: bool = c.ui.eval("(window.scrollTo(0, 600), true)").await;
+        c.ui.wait_true(
+            "document.querySelector('[data-testid=list]').closest('aside').getBoundingClientRect().top >= document.querySelector('[data-testid=header]').getBoundingClientRect().bottom - 1",
+            "the sticky list sits below the header between lg and xl",
+            SECS,
+        )
+        .await;
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_header_height_is_measured_from_the_start_at_every_width() {
+    run("header-height", Options::default(), false, header_height);
+}

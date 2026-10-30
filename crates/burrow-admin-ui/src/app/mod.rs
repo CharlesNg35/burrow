@@ -80,6 +80,34 @@ pub fn diagnostics(s: Store) -> String {
     .unwrap_or_default()
 }
 
+fn header_height(header: &web_sys::Element) {
+    if let Some(root) = document().document_element() {
+        let px = header.get_bounding_client_rect().height();
+        let _ = root
+            .unchecked_ref::<web_sys::HtmlElement>()
+            .style()
+            .set_property("--hdr-h", &format!("{px}px"));
+    }
+}
+
+fn watch_header() {
+    let Some(header) = document()
+        .query_selector("[data-testid=header]")
+        .ok()
+        .flatten()
+    else {
+        set_timeout(watch_header, std::time::Duration::from_millis(200));
+        return;
+    };
+    header_height(&header);
+    let seen = header.clone();
+    let on_resize = Closure::<dyn FnMut()>::new(move || header_height(&seen));
+    if let Ok(observer) = web_sys::ResizeObserver::new(on_resize.as_ref().unchecked_ref()) {
+        observer.observe(&header);
+    }
+    on_resize.forget();
+}
+
 #[component]
 pub fn App() -> impl IntoView {
     let s = Store::new(route::current());
@@ -93,31 +121,12 @@ pub fn App() -> impl IntoView {
     on_pop.forget();
     let on_hash = Closure::<dyn FnMut()>::new(move || {
         if s.conn.get_untracked() == Conn::NoToken {
-            let header_height = || {
-                if let Some(h) = document()
-                    .query_selector("[data-testid=header]")
-                    .ok()
-                    .flatten()
-                    && let Some(root) = document().document_element()
-                {
-                    let px = h.get_bounding_client_rect().height();
-                    let _ = root
-                        .unchecked_ref::<web_sys::HtmlElement>()
-                        .style()
-                        .set_property("--hdr-h", &format!("{px}px"));
-                }
-            };
-            let resize = Closure::<dyn FnMut()>::new(header_height);
-            let _ = window()
-                .add_event_listener_with_callback("resize", resize.as_ref().unchecked_ref());
-            resize.forget();
-            set_timeout(header_height, std::time::Duration::from_millis(100));
-            set_timeout(header_height, std::time::Duration::from_millis(1500));
             api::connect(s);
         }
     });
     window().set_onhashchange(Some(on_hash.as_ref().unchecked_ref()));
     on_hash.forget();
+    request_animation_frame(watch_header);
     let on_leave = Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(
         move |ev: web_sys::BeforeUnloadEvent| {
             if s.edit.dirty() {
@@ -185,7 +194,7 @@ pub fn App() -> impl IntoView {
                 view! {
                     <Header/>
                     <Banners/>
-                    <main id="main" tabindex="-1" class="min-h-[calc(100vh-64px)]">
+                    <main id="main" tabindex="-1" class="min-h-[calc(100vh-var(--hdr-h,64px))]">
                         <Body/>
                     </main>
                     <ConflictDialog/>
