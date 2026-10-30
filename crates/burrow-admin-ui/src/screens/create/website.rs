@@ -1,13 +1,12 @@
 use burrow_admin_logic::web::{needs_letsencrypt, service_name, website};
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_config::admin_schema::AdminEnum;
 use burrow_config::{
     ClientEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, TlsMode, WebConfig,
 };
 use burrow_syntax::web::{CheckPorts, checks_for};
 use burrow_ui_kit::{
     Button, ChipInput, ComboOption, Combobox, Edge, EdgeState, Hop, HopState, PathData,
-    PathDiagram, Segmented, TextInput, Tone,
+    PathDiagram, TextInput, Tone,
 };
 use leptos::prelude::*;
 
@@ -152,18 +151,24 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
     }
 }
 
-fn tls_options(p: Ports) -> Vec<(String, String, bool)> {
-    burrow_config::TlsMode::options()
-        .into_iter()
-        .map(|o| {
-            let off = if o.value == TlsMode::Off.wire() {
-                !p.http
+fn tls_options(p: Ports) -> Vec<burrow_ui_kit::RadioOption> {
+    crate::domain::website::https_options(|v| {
+        if v == crate::domain::website::files_choice() {
+            return Some("set its certificate files on the website once it exists".to_string());
+        }
+        let blocked = if v == TlsMode::Off.wire() {
+            !p.http
+        } else {
+            !p.https
+        };
+        blocked.then(|| {
+            if v == TlsMode::Off.wire() {
+                "needs the web proxy's HTTP port".to_string()
             } else {
-                !p.https
-            };
-            (o.value, o.label, off)
+                "needs the web proxy's HTTPS port".to_string()
+            }
         })
-        .collect()
+    })
 }
 
 fn clients() -> Vec<ComboOption> {
@@ -386,7 +391,7 @@ fn steps(
             {step(4, "HTTPS", "Who does HTTPS for this website.")}
             <div class="md:col-span-2" data-testid="new-website-tls">
                 {move || view! {
-                    <Segmented name="new-website-tls" options=tls_options(p.get()) value=Signal::derive(move || tls.get()) label="HTTPS" on_change=move |m: String| tls.set(m)/>
+                    <burrow_ui_kit::RadioList name="new-website-tls" options=Signal::derive(move || tls_options(p.get())) value=Signal::derive(move || tls.get()) label="HTTPS" on_change=move |m: String| tls.set(m)/>
                 }}
                 <p class="mt-1.5 text-xs text-text-muted">"Automatic gets a certificate for every name. Your own certificate files are set in server.yaml (burrow edit). Each choice needs the web proxy's HTTPS or HTTP port to be on."</p>
             </div>

@@ -3,7 +3,7 @@ use burrow_admin_logic::web::{is_plain, names, site_name_problem, tls_of, websit
 use burrow_admin_proto::schema::{Node, ObjectC, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Entry, ServerConfig, ServiceEntry, TlsMode, WebConfig, WebSite};
-use burrow_ui_kit::ChipInput;
+use burrow_ui_kit::{ChipInput, RadioList, RadioOption};
 use leptos::prelude::*;
 
 use crate::store::store;
@@ -11,6 +11,31 @@ use crate::store::store;
 use super::FieldCtx;
 
 const FILES: &str = "files";
+const FILES_LABEL: &str = "My own certificate";
+const FILES_HELP: &str = "certificate and key files that you set on the website";
+
+pub(crate) fn https_options(off: impl Fn(&str) -> Option<String>) -> Vec<RadioOption> {
+    use burrow_config::admin_schema::AdminEnum;
+    TlsMode::options()
+        .into_iter()
+        .map(|o| (o.value, o.label, o.help))
+        .chain([(
+            FILES.to_string(),
+            FILES_LABEL.to_string(),
+            FILES_HELP.to_string(),
+        )])
+        .map(|(value, label, help)| RadioOption {
+            disabled: off(&value),
+            value,
+            label,
+            help,
+        })
+        .collect()
+}
+
+pub(crate) fn files_choice() -> &'static str {
+    FILES
+}
 
 pub(super) fn host_item(u: &UnionC) -> Option<Node> {
     u.branches
@@ -19,35 +44,14 @@ pub(super) fn host_item(u: &UnionC) -> Option<Node> {
         .cloned()
 }
 
-struct Choices {
-    options: Vec<(String, String, bool)>,
-    files: Option<ObjectC>,
-}
-
-fn choices(tls: Option<&Node>) -> Choices {
-    let mut options = Vec::new();
-    let mut files = None;
-    let mut files_label = String::new();
-    if let Some(SemType::Union(u)) = tls.map(|n| &inner(n).sem) {
-        for b in &u.branches {
-            match &inner(b).sem {
-                SemType::Enum(e) => options.extend(
-                    e.options
-                        .iter()
-                        .map(|o| (o.value.clone(), o.label.clone(), false)),
-                ),
-                SemType::Object(o) => {
-                    files = Some(o.clone());
-                    files_label = inner(b).label.clone();
-                }
-                _ => {}
-            }
-        }
-    }
-    if files.is_some() {
-        options.push((FILES.to_string(), files_label, false));
-    }
-    Choices { options, files }
+fn files_of(tls: Option<&Node>) -> Option<ObjectC> {
+    let Some(SemType::Union(u)) = tls.map(|n| &inner(n).sem) else {
+        return None;
+    };
+    u.branches.iter().find_map(|b| match &inner(b).sem {
+        SemType::Object(o) => Some(o.clone()),
+        _ => None,
+    })
 }
 
 fn mode_of(tls: Option<&Value>) -> String {
@@ -80,7 +84,11 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
     let path = fc.path.clone();
     let value = Memo::new(move |_| e.value(&path));
     let mode = Signal::derive(move || mode_of(value.get().as_ref()));
-    let Choices { options, files } = choices(Some(&fc.node));
+    let files = files_of(Some(&fc.node));
+    let options = https_options(|v| {
+        (v == FILES && files.is_none())
+            .then(|| "this build has no certificate files choice".to_string())
+    });
     let p2 = fc.path.clone();
     let touched = fc.touched;
     let on_mode = move |m: String| {
@@ -94,12 +102,13 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
         e.set(&p2, v);
     };
     let below = files.map(|f| files_view(fc.clone(), f, value));
-    let choice = super::Choice {
-        options,
-        mode,
-        on_change: Callback::new(on_mode),
-    };
-    super::choice_box(&fc, Some("website-tls"), choice, below)
+    view! {
+        <div id=fc.id.clone() data-testid="website-tls">
+            <RadioList name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() on_change=on_mode/>
+            {below}
+        </div>
+    }
+    .into_any()
 }
 
 fn web_off() -> impl IntoView {

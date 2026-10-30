@@ -4,7 +4,7 @@ mod lists;
 mod objects;
 mod target_tls;
 mod units;
-mod website;
+pub(crate) mod website;
 
 use burrow_admin_logic::check::{check_in, refs_exist};
 use burrow_admin_logic::fallback::{Render, for_node};
