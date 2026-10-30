@@ -249,10 +249,15 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
         let now = tab.get();
         let shown = shown.get();
         let web_on = web_on.get();
-        let cards = settings_cards(&schema.root, &skip)
+        let mut cards = settings_cards(&schema.root, &skip)
             .into_iter()
             .filter(|c| shown.contains(&c.key))
             .collect::<Vec<_>>();
+        cards.sort_by_key(|c| {
+            c.fields.first().map_or(usize::MAX, |f| {
+                burrow_admin_logic::settings_tabs::rank(&f.key)
+            })
+        });
         let empty = cards.is_empty().then(|| {
             view! { <p class="py-6 text-sm text-text-muted" data-testid="settings-none">"No setting on this tab matches."</p> }
         });

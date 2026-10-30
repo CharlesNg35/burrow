@@ -56,9 +56,47 @@ pub fn tab_of(field: &str) -> Tab {
     }
 }
 
+pub fn rank(field: &str) -> usize {
+    [
+        ServerConfig::WEBSOCKET.key(),
+        ServerConfig::POOL.key(),
+        ServerConfig::HEARTBEAT.key(),
+        ServerConfig::TCP.key(),
+        ServerConfig::UDP.key(),
+        ServerConfig::LIMITS.key(),
+    ]
+    .iter()
+    .position(|k| *k == field)
+    .unwrap_or(usize::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_connections_tab_follows_the_ruled_order() {
+        let mut keys = [
+            ServerConfig::LIMITS.key(),
+            ServerConfig::UDP.key(),
+            ServerConfig::WEBSOCKET.key(),
+            ServerConfig::HEARTBEAT.key(),
+            ServerConfig::TCP.key(),
+            ServerConfig::POOL.key(),
+        ];
+        keys.sort_by_key(|k| rank(k));
+        assert_eq!(
+            keys,
+            [
+                ServerConfig::WEBSOCKET.key(),
+                ServerConfig::POOL.key(),
+                ServerConfig::HEARTBEAT.key(),
+                ServerConfig::TCP.key(),
+                ServerConfig::UDP.key(),
+                ServerConfig::LIMITS.key(),
+            ]
+        );
+    }
 
     #[test]
     fn each_server_field_has_its_settings_tab() {
