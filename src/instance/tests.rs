@@ -32,7 +32,6 @@ fn files_of_a_running_instance_stay_fresh_for_tmp_cleaners() {
     }
     assert_ne!(age(&file), old);
     drop(fresh);
-    std::thread::sleep(std::time::Duration::from_millis(50));
     set_old();
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert_eq!(age(&file), old, "a dropped guard kept touching");

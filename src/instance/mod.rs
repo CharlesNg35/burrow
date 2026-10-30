@@ -64,7 +64,17 @@ pub struct InstanceLock {
 const REFRESH: std::time::Duration = std::time::Duration::from_secs(3600);
 
 pub struct Fresh {
-    _stop: std::sync::mpsc::Sender<()>,
+    stop: Option<std::sync::mpsc::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Fresh {
+    fn drop(&mut self) {
+        self.stop.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 pub fn keep_fresh(paths: Vec<PathBuf>) -> Fresh {
@@ -73,7 +83,7 @@ pub fn keep_fresh(paths: Vec<PathBuf>) -> Fresh {
 
 fn keep_fresh_every(paths: Vec<PathBuf>, every: std::time::Duration) -> Fresh {
     let (stop, stopped) = std::sync::mpsc::channel::<()>();
-    let _ = std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("burrow-fresh".into())
         .spawn(move || {
             while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(every)
@@ -82,8 +92,12 @@ fn keep_fresh_every(paths: Vec<PathBuf>, every: std::time::Duration) -> Fresh {
                     touch(path);
                 }
             }
-        });
-    Fresh { _stop: stop }
+        })
+        .ok();
+    Fresh {
+        stop: Some(stop),
+        thread,
+    }
 }
 
 fn touch(path: &Path) {
