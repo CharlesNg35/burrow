@@ -268,10 +268,7 @@ impl Tools {
     )]
     async fn apply_change(&self, Parameters(a): Parameters<ApplyArgs>) -> CallToolResult {
         let Some(apply) = self.plans.apply(&a.plan, a.confirm) else {
-            return refused(
-                "unknown-plan",
-                "this plan is unknown or older than 30 minutes; run check_change again",
-            );
+            return refused("unknown-plan", &plans::gone_text());
         };
         let applied = async {
             let asked = body(&apply)?;

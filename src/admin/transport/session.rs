@@ -259,6 +259,7 @@ pub async fn run(
             )
         }
     };
+    let silent = format!("silent for {} s", silence.as_secs());
     let end = loop {
         let idle_left = IDLE.saturating_sub(last_request.elapsed());
         tokio::select! {
@@ -346,7 +347,7 @@ pub async fn run(
                 break "server stopping";
             }
             _ = tokio::time::sleep_until(heard + silence) => {
-                break "silent for 90 s";
+                break silent.as_str();
             }
             _ = tokio::time::sleep(idle_left), if status_every.is_none() && jobs.is_empty() => {
                 break "idle for 30 min";

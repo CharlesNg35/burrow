@@ -81,6 +81,7 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     let mut pings = tokio::time::interval_at(tokio::time::Instant::now() + ping, ping);
     pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut heard = tokio::time::Instant::now();
+    let silent = format!("the server sent nothing for {} s", silence.as_secs());
     let why = loop {
         tokio::select! {
             from_browser = ws.next() => match from_browser {
@@ -120,7 +121,7 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
                 }
             }
             _ = tokio::time::sleep_until(heard + silence) => {
-                break "the server sent nothing for 90 s";
+                break silent.as_str();
             }
         }
     };

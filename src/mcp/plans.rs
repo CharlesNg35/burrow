@@ -10,6 +10,13 @@ use serde_json::Value;
 pub const MAX_KEPT: usize = 16;
 pub const KEEP_FOR: Duration = Duration::from_secs(30 * 60);
 
+pub fn gone_text() -> String {
+    format!(
+        "this plan is unknown or older than {} minutes; run check_change again",
+        KEEP_FOR.as_secs() / 60
+    )
+}
+
 struct Kept {
     plan: String,
     base: String,
@@ -122,6 +129,11 @@ mod tests {
         let almost = then + KEEP_FOR - Duration::from_secs(1);
         assert!(p.apply_at("p1", Vec::new(), almost).is_some());
         assert!(p.apply_at("p1", Vec::new(), then + KEEP_FOR).is_none());
+        assert!(
+            gone_text().contains("older than 30 minutes"),
+            "{}",
+            gone_text()
+        );
     }
 
     #[test]
