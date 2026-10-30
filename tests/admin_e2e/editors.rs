@@ -20,12 +20,12 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.fill("#f-services-web-bind", &format!("127.0.0.1:{public}"))
             .await;
         row_clean(c, bind).await;
-        c.ui.wait_text(
-            "[data-schema='services/*/bind'] [data-testid=port-count]",
-            "1 port",
-            SECS,
-        )
-        .await;
+        assert_eq!(
+            c.ui.count("[data-schema='services/*/bind'] [data-testid=port-count]")
+                .await,
+            0,
+            "one port needs no count beside it"
+        );
         c.ui.select("#f-services-web-bind-host", "\u{1}specific")
             .await;
         c.ui.fill("#f-services-web-bind-host-ip", "999.1.1.1").await;

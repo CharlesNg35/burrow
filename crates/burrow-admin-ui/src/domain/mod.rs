@@ -254,8 +254,8 @@ pub fn cidr_size(text: &str) -> String {
     let v6 = addr.contains(':');
     let max = if v6 { 128 } else { 32 };
     match bits {
-        None if addr.parse::<std::net::IpAddr>().is_ok() => "single address".into(),
-        Some(b) if b == max => "single address".into(),
+        None if addr.parse::<std::net::IpAddr>().is_ok() => String::new(),
+        Some(b) if b == max => String::new(),
         Some(b) if b < max && !v6 => {
             let n = 1u64 << (max - b);
             if n >= 1_000_000 {
@@ -320,8 +320,8 @@ mod tests {
         assert_eq!(cidr_size("10.0.0.0/8"), "16.8 M addresses");
         assert_eq!(cidr_size("10.0.0.0/8:22"), "16.8 M addresses");
         assert_eq!(cidr_size("192.168.1.0/24:8000-8010"), "256 addresses");
-        assert_eq!(cidr_size("192.168.1.10:22"), "single address");
-        assert_eq!(cidr_size("192.168.1.10"), "single address");
+        assert_eq!(cidr_size("192.168.1.10:22"), "");
+        assert_eq!(cidr_size("192.168.1.10"), "");
         assert_eq!(cidr_size("[fd00::/64]:443"), "/64 network");
         assert_eq!(cidr_size("fd00::/64"), "/64 network");
         assert_eq!(cidr_size("unix:/run/app.sock"), "");
