@@ -299,11 +299,17 @@ fn hide_secret_lines(report: &mut Report) {
                 .get(s.start.line.saturating_sub(1))
                 .copied()
                 .unwrap_or("");
-            if line.contains("secret") {
+            if secret_line(line) {
                 d.snippet = false;
             }
         }
     }
+}
+
+fn secret_line(line: &str) -> bool {
+    let key = line.split(':').next().unwrap_or("");
+    let key = key.trim_matches(|c: char| c.is_whitespace() || "-\"'{[,".contains(c));
+    crate::config::check::secretish(key) || line.contains(burrow_syntax::secret_fmt::SECRET_WORD)
 }
 
 pub fn load_str(
@@ -353,5 +359,26 @@ mod tests {
         std::fs::write(&config, "listen: 7835\n").unwrap();
         let fine = load_file(&config, Some(Role::Server), &nothing).unwrap();
         assert!(!codes(&fine).contains(&"edit-spare"));
+    }
+
+    #[test]
+    fn a_syntax_error_on_a_secret_line_shows_no_snippet() {
+        let nothing = |_: &str| None;
+        for (src, value) in [
+            ("listen: 7835\npassword: hunter2: x\n", "hunter2"),
+            ("token: short1: ]\n", "short1"),
+            ("listen: 7835\npsk: \"abc1 [\n", "abc1"),
+            ("clients:\n  - key: k3y: v\n", "k3y"),
+        ] {
+            let o = load_str("c.yaml", src, Format::Yaml, Some(Role::Server), &nothing);
+            assert!(
+                o.report.diagnostics.iter().any(|d| d.code == "syntax"),
+                "{src}"
+            );
+            let shown = o
+                .report
+                .render_text(crate::base::style::Style { color: false });
+            assert!(!shown.contains(value), "{shown}");
+        }
     }
 }
