@@ -100,10 +100,12 @@ fn view_line(way: Way, svc: Path) -> impl IntoView {
     let p = child(&svc, way.key());
     let text = move || shown(way, e.value(&p).as_ref());
     view! {
-        <li class="flex flex-wrap items-baseline gap-x-2 border-b border-rowline py-2.5 text-[13.5px] first:pt-0 last:border-b-0" data-way=way.key()>
-            <span class="font-semibold">{way.label()}</span>
-            <span class="text-xs text-text-muted">{way.who()}</span>
-            <span class="ml-auto font-mono text-[13px]" data-testid="way-value">{text}</span>
+        <li class="border-b border-rowline py-3 first:pt-0 last:border-b-0" data-way=way.key()>
+            <div class="mb-1.5 flex flex-wrap items-baseline gap-x-2">
+                <span class="text-sm font-semibold">{way.label()}</span>
+                <span class="text-xs text-text-muted">{way.who()}</span>
+            </div>
+            <div class="font-mono text-[13px] break-words" data-testid="way-value">{text}</div>
         </li>
     }
 }

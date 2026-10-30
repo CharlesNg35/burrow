@@ -36,6 +36,11 @@ async fn all_three_show(c: &mut Ctx, port: u16) {
     for who in ["on its own port", "browsers, by name", "burrow visitor key"] {
         assert!(lines.contains(who), "{who} in {lines}");
     }
+    let stacked: bool = c
+        .ui
+        .eval(&format!("[...document.querySelectorAll('{VIEW} [data-way]')].every(li => li.querySelector('[data-testid=way-value]').getBoundingClientRect().top >= li.firstElementChild.getBoundingClientRect().bottom)"))
+        .await;
+    assert!(stacked, "each way in shows its value under its label");
     both_widths(c, "reached-by-view").await;
     edit_mode(c).await;
     for way in ["bind", "web", "visitors"] {
