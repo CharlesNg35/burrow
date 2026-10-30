@@ -1,8 +1,8 @@
 use burrow_admin_proto::codes::{
     BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, MISSING_FIELD,
-    NO_CERTIFICATE, NO_CHECK, NO_HTTP, PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY,
-    REDIRECT_NEEDS_HTTP, REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, UNUSED_VISITOR, WEB_OFF,
-    WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS,
+    NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PLAIN_HTTP, PLAIN_NEEDS_HTTP,
+    PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PASSTHROUGH, REDIRECT_PLAIN,
+    UNUSED_VISITOR, WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
@@ -192,9 +192,6 @@ pub fn missing_field<'a>(code: &str, message: &'a str) -> Option<&'a str> {
         .next()
         .filter(|k| !k.is_empty())
 }
-
-const OUT_OF_RANGE: &str = "out-of-range";
-const WRONG_TYPE: &str = "wrong-type";
 
 fn quoted_key(message: &str) -> Option<&str> {
     message.strip_prefix('"')?.split('"').next()

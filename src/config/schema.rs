@@ -400,7 +400,7 @@ impl<'a> Checker<'a> {
             };
             self.diagnostics.push(
                 Diagnostic::error(
-                    "out-of-range",
+                    burrow_admin_proto::codes::OUT_OF_RANGE,
                     format!(
                         "\"{}\" in {} must be {bounds}, found {value}",
                         ctx.field(),
@@ -436,7 +436,7 @@ impl<'a> Checker<'a> {
         };
         self.diagnostics.push(
             Diagnostic::error(
-                "wrong-type",
+                burrow_admin_proto::codes::WRONG_TYPE,
                 format!(
                     "\"{}\" in {} must be {want}, found {}",
                     ctx.field(),

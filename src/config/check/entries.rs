@@ -100,7 +100,7 @@ fn presence(name: &str, svc: &ServiceEntry, spans: &Spans, out: &mut Vec<Diagnos
     match (&svc.client, svc.clients.is_empty()) {
         (Some(_), false) => out.push(
             Diagnostic::error(
-                "client-and-clients",
+                burrow_admin_proto::codes::CLIENT_AND_CLIENTS,
                 format!("service \"{name}\" has both \"client\" and \"clients\""),
             )
             .at(spans.key(&["services", name, "clients"]))
@@ -109,7 +109,7 @@ fn presence(name: &str, svc: &ServiceEntry, spans: &Spans, out: &mut Vec<Diagnos
         ),
         (None, true) if !spans.has(&["services", name, "client"]) => out.push(
             Diagnostic::error(
-                "missing-client",
+                burrow_admin_proto::codes::MISSING_CLIENT,
                 format!("service \"{name}\" has no \"client\""),
             )
             .at(spans.key(&["services", name]))
@@ -186,14 +186,14 @@ pub(super) fn check_clients(
 fn duplicate(name: &str, client: &str, own: bool, at: Span) -> Diagnostic {
     if own {
         return Diagnostic::error(
-            "duplicate-client",
+            burrow_admin_proto::codes::DUPLICATE_CLIENT,
             format!("service \"{name}\" lists client \"{client}\" twice with the same target"),
         )
         .at(at)
         .help("give each entry of the same client its own target, or list the client once");
     }
     Diagnostic::error(
-        "duplicate-client",
+        burrow_admin_proto::codes::DUPLICATE_CLIENT,
         format!("service \"{name}\" lists client \"{client}\" twice"),
     )
     .at(at)

@@ -40,7 +40,7 @@ pub(super) fn check_access(
         {
             out.push(
                 Diagnostic::error(
-                    "auth-both",
+                    burrow_admin_proto::codes::AUTH_BOTH,
                     format!(
                         "services.{name}.web: basic_auth and forward_auth are both set; use one of them (the login service checks its own users)"
                     ),

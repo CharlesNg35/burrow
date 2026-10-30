@@ -149,7 +149,7 @@ fn listed_visitors(
             let at = i.to_string();
             out.push(
                 Diagnostic::error(
-                    "duplicate-visitor",
+                    burrow_admin_proto::codes::DUPLICATE_VISITOR,
                     format!("service \"{name}\" lists visitor \"{v}\" twice"),
                 )
                 .at(spans.value(&["services", name, "visitors", &at]))
