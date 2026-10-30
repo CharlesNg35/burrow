@@ -130,7 +130,9 @@ pub fn prune(state: &Path, keep: &[String], now: u64) -> usize {
     removed
 }
 
-fn sections(pem: &[u8]) -> Result<Vec<(SectionKind, Vec<u8>)>, String> {
+type Section = (SectionKind, Zeroizing<Vec<u8>>);
+
+fn sections(pem: &[u8]) -> Result<Vec<Section>, String> {
     let text = std::str::from_utf8(pem).map_err(|_| "is not a PEM text file".to_string())?;
     if text.contains("ENCRYPTED PRIVATE KEY") || text.contains("Proc-Type: 4,ENCRYPTED") {
         return Err("holds an encrypted key; remove its passphrase first, for example with openssl pkey -in key.pem -out plain.pem".into());
@@ -151,7 +153,8 @@ fn sections(pem: &[u8]) -> Result<Vec<(SectionKind, Vec<u8>)>, String> {
     }
     let mut out = Vec::new();
     for item in <(SectionKind, Vec<u8>) as PemObject>::pem_slice_iter(pem) {
-        out.push(item.map_err(|e| format!("is not readable PEM ({e})"))?);
+        let (kind, der) = item.map_err(|e| format!("is not readable PEM ({e})"))?;
+        out.push((kind, Zeroizing::new(der)));
     }
     Ok(out)
 }
@@ -170,7 +173,7 @@ pub fn check(up: &Upload<'_>, now: u64) -> Result<(Vec<String>, Described), Stri
     let certs: Vec<CertificateDer<'static>> = parts
         .iter()
         .filter(|(k, _)| *k == SectionKind::Certificate)
-        .map(|(_, d)| CertificateDer::from(d.clone()))
+        .map(|(_, d)| CertificateDer::from(d.to_vec()))
         .collect();
     let digest = ring::digest::digest(&ring::digest::SHA256, up.pem);
     let sha256 = digest
@@ -220,7 +223,7 @@ fn dates(der: &[u8], now: u64, warnings: &mut Vec<String>, what: &str) -> Result
 type Checked = (Vec<String>, Described);
 
 fn pair(
-    parts: &[(SectionKind, Vec<u8>)],
+    parts: &[Section],
     chain: Vec<CertificateDer<'static>>,
     hosts: &[String],
     now: u64,
@@ -234,7 +237,7 @@ fn pair(
             chain.len()
         ));
     }
-    let keys: Vec<&Vec<u8>> = parts
+    let keys: Vec<&Zeroizing<Vec<u8>>> = parts
         .iter()
         .filter(|(k, _)| {
             matches!(
@@ -250,7 +253,6 @@ fn pair(
             keys.len()
         ));
     };
-    let key = Zeroizing::new(key.to_vec());
     let private = PrivateKeyDer::try_from(key.to_vec())
         .map_err(|e| format!("holds an unreadable key ({e})"))?;
     let leaf_der = chain[0].to_vec();
@@ -313,7 +315,7 @@ fn cas(certs: &[CertificateDer<'static>], now: u64) -> Result<Checked, String> {
     Ok((warnings, d))
 }
 
-fn crls(parts: &[(SectionKind, Vec<u8>)], cas_pem: &[u8]) -> Result<Checked, String> {
+fn crls(parts: &[Section], cas_pem: &[u8]) -> Result<Checked, String> {
     let lists: Vec<CertificateRevocationListDer<'_>> = parts
         .iter()
         .filter(|(k, _)| *k == SectionKind::Crl)
