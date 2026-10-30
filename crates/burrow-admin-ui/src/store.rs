@@ -78,6 +78,8 @@ pub struct Store {
     pub edit: Edit,
 }
 
+pub const REVIEW: &str = "Review";
+
 impl Store {
     pub fn new(route: Route) -> Self {
         Store {
@@ -165,6 +167,10 @@ impl Store {
         });
         let me = *self;
         set_timeout(move || me.drop_toast(id), std::time::Duration::from_secs(5));
+    }
+
+    pub fn added_to_changes(&self) {
+        self.toast(Tone::Success, "Added to changes", Some(REVIEW));
     }
 
     fn drop_toast(&self, id: u64) {

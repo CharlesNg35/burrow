@@ -326,7 +326,7 @@ pub fn SnippetView(
 fn added_outside_edit(s: crate::store::Store, path: &[String]) {
     let entity: Vec<String> = path.iter().take(2).cloned().collect();
     if !s.edit.is_editing(&entity) {
-        s.toast(Tone::Success, "Added to changes", Some("Review"));
+        s.added_to_changes();
     }
 }
 

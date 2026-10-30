@@ -267,9 +267,19 @@ pub async fn overview_tab(c: &Ctx, tab: &str) {
         .await;
 }
 
+pub async fn toasts_clear_the_bar(c: &Ctx) {
+    c.ui.wait_true(
+        "(() => { const b = document.querySelector('[data-sticky-bar]'); if (!b) return true; const r = b.getBoundingClientRect(); return [...document.querySelectorAll('[data-testid=toast]')].every(t => { const q = t.getBoundingClientRect(); return q.bottom <= r.top + 1 || q.top >= r.bottom - 1 || q.right <= r.left || q.left >= r.right; }); })()",
+        "no toast covers the save bar or the Review buttons",
+        Duration::from_secs(3),
+    )
+    .await;
+}
+
 pub async fn open_review(c: &mut Ctx, step: &str) {
     review_now(c).await;
     c.ui.wait_for("[data-testid=review]", SECS).await;
+    toasts_clear_the_bar(c).await;
     c.ui.shot(step).await;
 }
 
@@ -285,6 +295,12 @@ pub async fn applied(c: &mut Ctx, step: &str) {
     )
     .await;
     c.ui.wait_gone("[data-testid=review]", SECS).await;
+    c.ui.wait_true(
+        "![...document.querySelectorAll('[data-testid=toast]')].some(t => t.textContent.includes('Added to changes'))",
+        "after Apply no Added to changes toast offers a Review with nothing to review",
+        SECS,
+    )
+    .await;
     c.ui.shot(step).await;
 }
 

@@ -331,7 +331,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
     let back = move || route::go(s.prev.get_untracked());
     let base = plan.base.clone();
     view! {
-    <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap" data-sticky-bar="">
+    <burrow_ui_kit::StickyBar flush=true class="max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap">
         <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted" data-testid="review-footer">{if empty {
             if revert {
                 "The file already matches that version.".to_string()
@@ -399,7 +399,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
                 />
             }.into_any()
         }}
-    </div>
+    </burrow_ui_kit::StickyBar>
     }
 }
 

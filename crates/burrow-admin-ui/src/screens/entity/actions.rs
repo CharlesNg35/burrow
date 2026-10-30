@@ -129,7 +129,7 @@ pub(super) fn save_bar(
         let path = path.clone();
         move || {
             e.stop_edit(&path);
-            s.toast(Tone::Success, "Added to changes", Some("Review"));
+            s.added_to_changes();
         }
     };
     move || {

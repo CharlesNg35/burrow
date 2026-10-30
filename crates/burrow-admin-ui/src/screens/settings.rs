@@ -325,7 +325,7 @@ pub fn Settings() -> impl IntoView {
     let close = move || discard_settings(e);
     let save = move || {
         e.stop_edit(&[]);
-        s.toast(Tone::Success, "Added to changes", Some("Review"));
+        s.added_to_changes();
     };
     let can = s.can_write_now();
     let filters = vec![

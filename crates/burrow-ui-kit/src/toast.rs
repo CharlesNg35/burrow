@@ -42,8 +42,16 @@ pub fn ToastHost(
             .unwrap_or(0.0);
         let top = w
             .document()
-            .and_then(|d| d.query_selector("[data-sticky-bar]").ok().flatten())
-            .map(|e| e.get_bounding_client_rect().top());
+            .and_then(|d| d.query_selector_all("[data-sticky-bar]").ok())
+            .and_then(|all| {
+                (0..all.length())
+                    .filter_map(|i| all.item(i))
+                    .filter_map(|n| wasm_bindgen::JsCast::dyn_into::<web_sys::Element>(n).ok())
+                    .map(|e| e.get_bounding_client_rect())
+                    .filter(|r| r.height() > 0.0)
+                    .map(|r| r.top())
+                    .reduce(f64::min)
+            });
         let bottom = match top {
             Some(t) if t > 0.0 && t < h => (h - t + 8.0).max(16.0),
             _ => 16.0,

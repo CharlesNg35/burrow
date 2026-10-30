@@ -188,9 +188,11 @@ pub fn App() -> impl IntoView {
         <ToastHost
             toasts=Signal::derive(move || {
                 let on_review = s.route.with(|r| *r == Route::Review);
+                let nothing = s.edit.pending() == 0;
                 s.toasts
                     .get()
                     .into_iter()
+                    .filter(|t| !(nothing && t.action.as_deref() == Some(crate::store::REVIEW)))
                     .map(|mut t| {
                         if on_review {
                             t.action = None;
