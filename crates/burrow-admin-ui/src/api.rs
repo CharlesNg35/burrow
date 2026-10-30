@@ -318,6 +318,7 @@ fn event(store: Store, ev: &str, body: Value) {
                             s.as_ref().map(|s| s.rev.clone()).unwrap_or_default()
                         });
                         store.changed_from.set((old, js_sys::Date::now()));
+                        store.note_rev(&c.rev);
                         store.changed.set(Some(c));
                     } else {
                         let by = if c.by.is_empty() || c.by == "file" {

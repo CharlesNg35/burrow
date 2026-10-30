@@ -13,7 +13,7 @@ use leptos::prelude::*;
 use crate::edit::{Outcome, missing_confirms, severity_tone};
 use crate::route::{self, Link, Route};
 use crate::screens::activity::diff_lines;
-use crate::store::{short_rev, store};
+use crate::store::store;
 
 use super::guard::{Guard, Refused, footer_text, guard, lockout_fixes};
 use super::{change_groups, diff_counts, impact_icon, nothing_to_apply, place_of, service_paths};
@@ -343,7 +343,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         } else if refused {
             format!("{IN_THE_FILE}.")
         } else {
-            format!("rev {} is kept in history; you can revert it from Activity.", short_rev(&base))
+            format!("The {} stays in Activity; you can go back to it.", store().version(&base))
         }}</span>
         <span class="sr-only" data-testid="apply-reason">{move || reason.get()}</span>
         {guard_view.clone().map(lockout_fixes)}

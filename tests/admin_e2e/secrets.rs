@@ -254,7 +254,7 @@ fn rotation(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=apply]").await;
         c.ui.wait_text(
             "[data-testid=toasts]",
-            "Applied rev",
+            "Applied: now the version of",
             Duration::from_secs(20),
         )
         .await;

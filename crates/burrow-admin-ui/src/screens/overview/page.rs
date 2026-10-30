@@ -166,9 +166,9 @@ pub fn Overview() -> impl IntoView {
         if let Some(st) = &st {
             parts.push(format!("up {}", format::span(st.uptime_secs)));
         }
-        let rev = s.short_rev();
-        if !rev.is_empty() {
-            parts.push(format!("rev {rev}"));
+        let version = s.current_version();
+        if !version.is_empty() {
+            parts.push(version);
         }
         parts.join(" · ")
     };

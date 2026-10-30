@@ -290,7 +290,7 @@ pub async fn applied(c: &mut Ctx, step: &str) {
     c.ui.click("[data-testid=apply]").await;
     c.ui.wait_text(
         "[data-testid=toasts]",
-        "Applied rev",
+        "Applied: now the version of",
         Duration::from_secs(20),
     )
     .await;

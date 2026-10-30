@@ -70,6 +70,7 @@ pub struct Store {
     pub changed: RwSignal<Option<ConfigEvent>>,
     pub changed_from: RwSignal<(String, f64)>,
     pub added_at: RwSignal<std::collections::BTreeMap<String, f64>>,
+    pub rev_at: RwSignal<std::collections::BTreeMap<String, f64>>,
     pub route: RwSignal<Route>,
     pub query_seen: RwSignal<u64>,
     pub prev: RwSignal<Route>,
@@ -106,6 +107,7 @@ impl Store {
             changed: RwSignal::new(None),
             changed_from: RwSignal::new((String::new(), 0.0)),
             added_at: RwSignal::new(std::collections::BTreeMap::new()),
+            rev_at: RwSignal::new(std::collections::BTreeMap::new()),
             prev: RwSignal::new(Route::Overview),
             server_addr: RwSignal::new(String::new()),
             route: RwSignal::new(route),
@@ -254,9 +256,28 @@ impl Store {
         v.open > 0 || self.me().as_deref() == Some(v.name.as_str())
     }
 
-    pub fn short_rev(&self) -> String {
-        self.state
-            .with(|s| s.as_ref().map(|s| short_rev(&s.rev)).unwrap_or_default())
+    pub fn version(&self, rev: &str) -> String {
+        let at = self
+            .history
+            .with(|h| {
+                h.as_ref()
+                    .and_then(|h| h.iter().find(|e| e.rev == rev))
+                    .map(|e| e.at as f64 * 1000.0)
+            })
+            .or_else(|| self.rev_at.with(|m| m.get(rev).copied()));
+        burrow_admin_logic::wording::version_name(at.map(crate::format::stamp).as_deref())
+    }
+
+    pub fn note_rev(&self, rev: &str) {
+        let now = js_sys::Date::now();
+        self.rev_at.update(|m| {
+            m.entry(rev.to_string()).or_insert(now);
+        });
+    }
+
+    pub fn current_version(&self) -> String {
+        let rev = self.state.with(|s| s.as_ref().map(|s| s.rev.clone()));
+        rev.map(|r| self.version(&r)).unwrap_or_default()
     }
 }
 

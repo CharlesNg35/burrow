@@ -6,7 +6,7 @@ use burrow_ui_kit::{Icon, Kbd};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
-use crate::store::{Store, short_rev, store};
+use crate::store::{Store, store};
 
 #[derive(Clone, PartialEq)]
 struct Hit {
@@ -230,7 +230,7 @@ fn history_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
                 out.push(Hit {
                     section: "Activity",
                     icon: "history",
-                    label: format!("rev {} · {summary}", short_rev(&e.rev)),
+                    label: format!("{} · {summary}", s.version(&e.rev)),
                     facet: crate::format::relative(e.at),
                     go: Route::Activity(Some(e.id.to_string())),
                     query: None,

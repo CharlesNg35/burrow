@@ -57,9 +57,9 @@ fn who(e: &AuditEntry) -> String {
     }
 }
 
-fn title_of(e: &AuditEntry) -> String {
+fn title_of(e: &AuditEntry, version: &dyn Fn(&str) -> String) -> String {
     if let Some(to) = &e.reverts {
-        return format!("Reverted to rev {}", short_rev(to));
+        return format!("Reverted to the {}", version(to));
     }
     e.changes
         .iter()
@@ -106,7 +106,7 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
                 to: Route::Activity(Some(e.id.to_string())),
                 icon: "history",
                 dot: Some(tone),
-                title: title_of(e),
+                title: title_of(e, &|r| store().version(r)),
                 meta: short_rev(&e.rev),
                 line2: {
                     let same = repeats(entries, i);
@@ -174,24 +174,23 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     } else {
         "Revert to before this change"
     };
-    let title = title_of(&entry);
+    let title = title_of(&entry, &|r| store().version(r));
     let newer_list = newer
         .into_iter()
         .map(|n| {
-            let rev = short_rev(&n.rev);
+            let rev = format::stamp(n.at as f64 * 1000.0);
             view! {
                 <li class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
                     <Link to=Route::Activity(Some(n.id.to_string())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
-                    <span class="truncate">{title_of(&n)}</span>
+                    <span class="truncate">{title_of(&n, &|r| store().version(r))}</span>
                     <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
                 </li>
             }
         })
         .collect::<Vec<_>>();
-    let base_short = short_rev(&entry.base);
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
-        {crate::screens::crumbs(Route::Activity(None), "Activity".into(), format!("rev {}", short_rev(&entry.rev)), Signal::stored(false), None)}
+        {crate::screens::crumbs(Route::Activity(None), "Activity".into(), store().version(&entry.rev), Signal::stored(false), None)}
         <PageHeader actions={view! { {can_revert.then(|| view! {
                 <Button
                     label=revert_label
@@ -207,7 +206,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                 />
             })} }.into_any()}>{title}</PageHeader>
         <Stats testid="version-stats">
-            <Stat label="Rev" value=short_rev(&entry.rev) detail=format!("replaced {base_short}")/>
+            <Stat label="Version" value=format::stamp(entry.at as f64 * 1000.0) detail=format!("replaced the {} · id {}", store().version(&entry.base), short_rev(&entry.rev))/>
             <Stat label="By" value=if hand(&entry) { "hand edit".to_string() } else { who(&entry) } detail=if hand(&entry) { "written to server.yaml directly".to_string() } else { entry.from.clone() }/>
             <Stat label="When" value=format::relative(entry.at) detail=""/>
         </Stats>
@@ -381,7 +380,12 @@ mod tests {
             visitor: "file".into(),
             ..reverted.clone()
         };
-        assert_eq!(title_of(&reverted), "Reverted to rev aaaa1111");
+        assert_eq!(
+            title_of(&reverted, &|_| burrow_admin_logic::wording::version_name(
+                Some("10:00:00")
+            )),
+            "Reverted to the version of 10:00:00"
+        );
         let list = [reverted, removed.clone(), added.clone()];
         assert!(repeats(&list, 0).is_none(), "the revert's title says it");
         let list = [by_hand, removed, added];

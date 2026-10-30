@@ -16,7 +16,7 @@ use crate::format;
 use crate::review::ConflictDialog;
 use crate::route::{self, Route};
 use crate::screens;
-use crate::store::{Conn, Store, short_rev, store};
+use crate::store::{Conn, Store, store};
 
 use header::Header;
 pub(crate) use header::popover;
@@ -382,9 +382,9 @@ fn Banners() -> impl IntoView {
                     let (_, at) = s.changed_from.get();
                     let when = if at == 0.0 || s.now.get() - at < 60_000.0 { "noticed just now".to_string() } else { format!("noticed at {}", crate::format::clock(at)) };
                     if revs.0.is_empty() {
-                        format!("now rev {} · {when}", short_rev(&revs.1))
+                        format!("now the {} · {when}", s.version(&revs.1))
                     } else {
-                        format!("rev {} → {} · {when}", short_rev(&revs.0), short_rev(&revs.1))
+                        format!("{} → {} · {when}", s.version(&revs.0), s.version(&revs.1))
                     }
                 }
                 testid="banner-changed"

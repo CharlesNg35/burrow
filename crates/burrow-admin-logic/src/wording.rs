@@ -88,6 +88,13 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 }
 
 pub const NOT_SET: &str = "not set";
+
+pub fn version_name(stamp: Option<&str>) -> String {
+    match stamp {
+        Some(s) => format!("version of {s}"),
+        None => "version (time unknown)".into(),
+    }
+}
 pub const MAIN_TARGET: &str = "main target";
 
 pub fn capital(text: &str) -> String {
@@ -226,6 +233,18 @@ mod tests {
             required("Target on the client"),
             "Target on the client is required"
         );
+        let label = "Target on the client";
+        assert_eq!(beside_label(label, &required(label)), "required");
+        assert_eq!(
+            beside_label("Weight", "Weight must be 1 to 1000"),
+            "must be 1 to 1000"
+        );
+        assert_eq!(beside_label("Weight", "Weights add up"), "Weights add up");
+        assert_eq!(beside_label("Bind", "port taken"), "port taken");
+        assert_eq!(capital("a weight"), "A weight");
+        assert_eq!(capital(""), "");
+        assert_eq!(version_name(Some("15:47:12")), "version of 15:47:12");
+        assert_eq!(version_name(None), "version (time unknown)");
     }
 
     #[test]
