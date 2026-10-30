@@ -77,11 +77,12 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             String::new()
         }
     });
-    let applies = if restart.is_empty() {
-        "applies on reload"
+    let applies = burrow_admin_logic::wording::applies_label(if restart.is_empty() {
+        &burrow_admin_proto::schema::Applies::Reload
     } else {
-        "needs a restart"
-    };
+        &burrow_admin_proto::schema::Applies::Restart
+    })
+    .unwrap_or_default();
     let warnings = new_diags.iter().filter(|d| !d.is_error()).count();
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     let facts = Facts {

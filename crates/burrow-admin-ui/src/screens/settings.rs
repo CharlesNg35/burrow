@@ -335,7 +335,15 @@ pub fn Settings() -> impl IntoView {
     let can = s.can_write_now();
     let filters = vec![
         ("all", "All".into()),
-        ("restart", "Restart".into()),
+        (
+            "restart",
+            burrow_admin_logic::wording::capital(
+                burrow_admin_logic::wording::applies_label(
+                    &burrow_admin_proto::schema::Applies::Restart,
+                )
+                .unwrap_or_default(),
+            ),
+        ),
         ("changed", "Changed".into()),
     ];
     view! {

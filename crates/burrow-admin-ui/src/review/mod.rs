@@ -63,7 +63,7 @@ pub fn change_groups(plan: &Plan) -> Vec<Group> {
     out
 }
 
-pub const REVIEW_ON_NEW: &str = "Review my draft on the new version";
+pub const REVIEW_ON_NEW: &str = "Review my changes on the new version";
 
 fn section_label(section: &str, n: usize) -> String {
     let one = match burrow_config::entity_of_section(section) {

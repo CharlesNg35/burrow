@@ -180,7 +180,7 @@ async fn navigation_keeps_the_edit(c: &mut Ctx) {
     c.ui.nav("/visitors").await;
     c.ui.wait_text(
         "[data-testid=entity-list] [data-row=laptop]",
-        "unsaved",
+        "not added",
         SECS,
     )
     .await;

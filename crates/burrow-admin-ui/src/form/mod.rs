@@ -135,12 +135,13 @@ fn is_wide(n: &Node) -> bool {
 }
 
 fn applies_tag(n: &Node) -> Option<(String, Tone)> {
-    match n.applies {
-        Some(Applies::Live) => Some(("live".into(), Tone::Success)),
-        Some(Applies::Reload) => Some(("on reload".into(), Tone::Accent)),
-        Some(Applies::Restart) => Some(("after restart".into(), Tone::Warning)),
-        Some(Applies::Unknown) | None => None,
-    }
+    let how = n.applies.as_ref()?;
+    let tone = match how {
+        Applies::Live => Tone::Success,
+        Applies::Reload => Tone::Accent,
+        Applies::Restart | Applies::Unknown => Tone::Warning,
+    };
+    burrow_admin_logic::wording::applies_label(how).map(|t| (t.to_string(), tone))
 }
 
 pub fn object_view(node: &Node, path: Path, spath: Path, entity: Path) -> AnyView {

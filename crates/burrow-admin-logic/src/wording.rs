@@ -89,6 +89,20 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 
 pub const NOT_SET: &str = "not set";
 
+pub fn applies_label(how: &burrow_admin_proto::schema::Applies) -> Option<&'static str> {
+    use burrow_admin_proto::schema::Applies;
+    match how {
+        Applies::Live => Some("applies at once"),
+        Applies::Reload => Some("applies to new connections"),
+        Applies::Restart => Some("needs a restart"),
+        Applies::Unknown => None,
+    }
+}
+pub const YOUR_CHANGES: &str = "your changes";
+pub const NOT_ADDED: &str = "not added";
+pub const IN_CHANGES: &str = "in your changes";
+pub const NOT_APPLIED: &str = "Not applied yet";
+
 pub fn version_name(stamp: Option<&str>) -> String {
     match stamp {
         Some(s) => format!("version of {s}"),
@@ -283,6 +297,13 @@ mod tests {
         assert_eq!(capital(""), "");
         assert_eq!(version_name(Some("15:47:12")), "version of 15:47:12");
         assert_eq!(version_name(None), "version (time unknown)");
+        use burrow_admin_proto::schema::Applies;
+        assert_eq!(applies_label(&Applies::Live), Some("applies at once"));
+        assert_eq!(
+            applies_label(&Applies::Reload),
+            Some("applies to new connections")
+        );
+        assert_eq!(applies_label(&Applies::Restart), Some("needs a restart"));
         let d: burrow_admin_proto::diag::Diag = burrow_admin_proto::serde_json::from_value(
             burrow_admin_proto::serde_json::json!({
                 "severity": "error",

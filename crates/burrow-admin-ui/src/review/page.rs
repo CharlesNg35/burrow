@@ -183,7 +183,7 @@ fn review_body(
         if !revert.get() && !e.dirty() {
             return view! {
                 {outcome_view()}
-                <EmptyState icon="check" title="Nothing to apply" message="Your draft has no changes left." testid="review-empty">
+                <EmptyState icon="check" title="Nothing to apply" message="Your changes leave the file as it is." testid="review-empty">
                     <Link to=s.prev.get_untracked() class=button_class("secondary", false)>"Back"</Link>
                 </EmptyState>
             }
@@ -194,7 +194,7 @@ fn review_body(
         {
             return view! {
                 <Callout tone=Tone::Warning title=format!("Based on the {}; the file is now the {}", s.version(&base), s.version(&now)) testid="review-stale">
-                    <p class="mb-2.5">"The config changed on the server after you started. Your draft is kept; check it on the new version to see what it applies."</p>
+                    <p class="mb-2.5">"The config changed on the server after you started. Your changes are kept; check them on the new version to see what they apply."</p>
                     <Button label=super::REVIEW_ON_NEW variant="primary" icon="refresh" small=true on_click=move |_| recheck(s)/>
                 </Callout>
             }
@@ -322,7 +322,7 @@ pub fn ConflictDialog() -> impl IntoView {
     let n_mine = move || e.plan.with(|p| p.as_ref().map_or(0, |p| p.changes.len()));
     let sub = Signal::derive(move || {
         format!(
-            "The {} was written by a {} while you were editing the {}. Nothing was applied. Your draft is kept.",
+            "The {} was written by a {} while you were editing the {}. Nothing was applied. Your changes are kept.",
             current(),
             if by() == "hand edit" {
                 "hand edit".to_string()
@@ -339,10 +339,10 @@ pub fn ConflictDialog() -> impl IntoView {
                 <h3 class=label>{move || format!("Changed on the server · {}", current())}</h3>
                 <ul class="mb-4 text-sm" data-testid="conflict-theirs">{theirs}</ul>
             })}
-            {move || (n_mine() > 0).then(|| view! { <h3 class=label>{format!("Your draft · {} change{}", n_mine(), if n_mine() == 1 { "" } else { "s" })}</h3> })}
+            {move || (n_mine() > 0).then(|| view! { <h3 class=label>{format!("{} · {}", burrow_admin_logic::wording::capital(burrow_admin_logic::wording::YOUR_CHANGES), n_mine())}</h3> })}
             <ul class="mb-5 text-sm" data-testid="conflict-mine">{mine}</ul>
             <div class="flex flex-wrap items-center gap-2">
-                <Button label="Discard my draft" variant="ghost-danger" testid="conflict-discard" on_click=move |_| {
+                <Button label="Discard my changes" variant="ghost-danger" testid="conflict-discard" on_click=move |_| {
                     e.conflict_revert.set(None);
                     e.discard();
                     crate::api::load_state(s);

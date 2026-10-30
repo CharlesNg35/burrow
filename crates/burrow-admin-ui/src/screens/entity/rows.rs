@@ -104,7 +104,7 @@ pub(super) fn client_row(
             (None, _) => String::new(),
         },
         line2: if pending.is_some() {
-            "Draft · not applied yet".into()
+            burrow_admin_logic::wording::NOT_APPLIED.into()
         } else if on {
             let host = c
                 .as_ref()

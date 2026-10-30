@@ -42,9 +42,15 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         .then_some("new");
         let entity_path = vec![section.to_string(), name.clone()];
         let mark = if s.edit.unsaved(&entity_path) {
-            Some(("unsaved".to_string(), Tone::Warning))
+            Some((
+                burrow_admin_logic::wording::NOT_ADDED.to_string(),
+                Tone::Warning,
+            ))
         } else if pending.is_none() && base_items.get(name) != Some(v) {
-            Some(("changed".to_string(), Tone::Accent))
+            Some((
+                burrow_admin_logic::wording::IN_CHANGES.to_string(),
+                Tone::Accent,
+            ))
         } else {
             None
         };
@@ -214,7 +220,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                             n
                         },
                         meta: "new".into(),
-                        line2: "Draft · not applied yet".into(),
+                        line2: burrow_admin_logic::wording::NOT_APPLIED.into(),
                         ..Row::default()
                     },
                 );

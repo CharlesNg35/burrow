@@ -301,8 +301,8 @@ fn Banners() -> impl IntoView {
             };
             let kept = match n {
                 0 => String::new(),
-                1 => " Your 1 pending change is kept.".to_string(),
-                n => format!(" Your {n} pending changes are kept."),
+                1 => " Your 1 change is kept.".to_string(),
+                n => format!(" Your {n} changes are kept."),
             };
             Some(view! {
                 <Banner
