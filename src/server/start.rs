@@ -27,7 +27,7 @@ pub(super) enum Bound {
 
 pub(super) struct ServiceTask {
     pub(super) service: Service,
-    pub(super) config: watch::Sender<Service>,
+    pub(super) config: watch::Sender<Arc<Service>>,
     pub(super) tasks: Vec<JoinHandle<()>>,
     pub(super) addr: Option<SocketAddr>,
 }
@@ -272,7 +272,7 @@ pub(super) fn spawn_service(
     svc: &Service,
     bound: Vec<(u16, Bound)>,
 ) -> ServiceTask {
-    let (config, rx) = watch::channel(svc.clone());
+    let (config, rx) = watch::channel(Arc::new(svc.clone()));
     let mut addr = None;
     let mut tasks = Vec::with_capacity(bound.len());
     for (index, b) in bound {

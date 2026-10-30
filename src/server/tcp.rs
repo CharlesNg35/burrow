@@ -20,7 +20,7 @@ pub(super) async fn tcp_service(
     shared: Arc<Shared>,
     name: String,
     listener: TcpListener,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
     index: u16,
 ) {
     loop {
@@ -59,7 +59,9 @@ pub(super) async fn tcp_service(
                 index,
                 door: Door::Bind,
             };
-            visit(shared, name, svc, Incoming::Tcp(visitor), entry, admitted).await;
+            let shape = Shape::of(&svc, &entry);
+            drop(svc);
+            visit(shared, name, shape, Incoming::Tcp(visitor), entry, admitted).await;
         });
     }
 }
@@ -77,6 +79,22 @@ pub(super) struct Entry {
     pub local: Option<SocketAddr>,
     pub index: u16,
     pub door: Door,
+}
+
+pub(super) struct Shape {
+    prefix: Vec<u8>,
+    several: bool,
+    public: Option<(Protocol, SocketAddr)>,
+}
+
+impl Shape {
+    pub(super) fn of(svc: &Service, entry: &Entry) -> Shape {
+        Shape {
+            prefix: proxy_prefix(svc, entry.peer, entry.local),
+            several: svc.several(),
+            public: public_of(svc, &entry.door),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,24 +143,20 @@ pub(super) fn admit(
 pub(super) async fn visit(
     shared: Arc<Shared>,
     name: String,
-    svc: Service,
+    shape: Shape,
     mut visitor: Incoming,
     entry: Entry,
     admitted: Admitted,
 ) {
     let settings = shared.settings();
     let Entry {
-        peer,
-        local,
-        index,
-        door,
+        peer, index, door, ..
     } = entry;
     let stats = admitted.stats.clone();
     let refuse = || {
         stats.refused.fetch_add(1, Ordering::Relaxed);
     };
     let label = format!("service \"{name}\"");
-    let prefix = proxy_prefix(&svc, peer, local);
     let limit = shared.limit(&name);
     let meter = Meter {
         limit: Some(&limit),
@@ -152,7 +166,7 @@ pub(super) async fn visit(
         service: Some(&name),
         label: &label,
         peer,
-        several: svc.several(),
+        several: shape.several,
     };
     let mut tries = Tries::new(&shared, &way, admitted.clients);
     let outcome = loop {
@@ -166,7 +180,7 @@ pub(super) async fn visit(
                 if !session.admitted(&shared) {
                     return Err(format!("client \"{client}\" is no longer allowed"));
                 }
-                shared.still_open(&name, client, peer.ip(), index, public_of(&svc, &door))?;
+                shared.still_open(&name, client, peer.ip(), index, shape.public)?;
                 match &door {
                     Door::Bind => Ok(()),
                     #[cfg(feature = "web")]
@@ -182,7 +196,7 @@ pub(super) async fn visit(
             let first = connect_frame(&name, &session.target);
             let opening = Opening {
                 first: &first,
-                prefix: &prefix,
+                prefix: &shape.prefix,
                 plaintext: settings.insecure_plaintext,
                 reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
             };

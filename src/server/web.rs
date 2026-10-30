@@ -11,7 +11,7 @@ use tracing::debug;
 use super::Shared;
 use super::listen::Permit;
 use super::route::Outcome;
-use super::tcp::{Door, Entry, Refusal, admit, visit};
+use super::tcp::{Door, Entry, Refusal, Shape, admit, visit};
 use crate::base::failure::Failure;
 use crate::config::settings::{ServerSettings, Shares, WebSettings, WebTls};
 use crate::forward::ForwardError;
@@ -69,17 +69,13 @@ fn open_door(
     door: Door,
 ) -> Result<BoxIo, Refused> {
     let settings = shared.settings();
-    let svc = settings
-        .services
-        .get(service)
-        .cloned()
-        .ok_or(Refused::Gone)?;
+    let svc = settings.services.get(service).ok_or(Refused::Gone)?;
     if !shared.source_allowed(service, from.addr.ip()) {
         shared.metrics.refuse(service);
         debug!(peer = %from.addr, "service \"{service}\": source address not allowed, closing");
         return Err(Refused::NotAllowed);
     }
-    let admitted = admit(shared, service, &svc, from.addr, 0).map_err(|r| match r {
+    let admitted = admit(shared, service, svc, from.addr, 0).map_err(|r| match r {
         Refusal::Full => Refused::Full,
         Refusal::NoClient => Refused::NoClient,
     })?;
@@ -91,10 +87,11 @@ fn open_door(
         index: 0,
         door,
     };
+    let shape = Shape::of(svc, &entry);
     tokio::spawn(visit(
         shared.clone(),
         service.to_string(),
-        svc,
+        shape,
         crate::forward::Incoming::Web(theirs),
         entry,
         admitted,

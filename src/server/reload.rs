@@ -228,7 +228,7 @@ impl Server {
                 let t = self.services.get_mut(name).expect("checked above");
                 if t.service != *svc {
                     t.service = svc.clone();
-                    let _ = t.config.send(svc.clone());
+                    let _ = t.config.send(Arc::new(svc.clone()));
                     info!("service \"{name}\" updated");
                     log_service(name, svc, t.addr);
                 }

@@ -29,7 +29,7 @@ pub async fn udp_service(
     shared: Arc<Shared>,
     name: String,
     socket: UdpSocket,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
     index: u16,
 ) {
     let socket = Arc::new(socket);
@@ -111,7 +111,7 @@ async fn relay(
     session: &super::via::Via,
     socket: Arc<UdpSocket>,
     ch: crate::wire::transport::Channel,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
 ) -> Result<(), Option<Status>> {
     let Port {
         name,
@@ -227,7 +227,7 @@ struct PublicPort<'a> {
     target: &'a str,
     index: u16,
     session: &'a super::via::Via,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
     repick: tokio::time::Interval,
     stop: watch::Receiver<bool>,
 }
@@ -312,8 +312,8 @@ impl Hooks for PublicPort<'_> {
                     if r.is_err() || moved {
                         return Interrupt::End(Ending::Done);
                     }
-                    let sources = self.config.borrow().sources.clone();
-                    return Interrupt::Retain(Box::new(move |addr| sources.permits(addr.ip())));
+                    let svc = self.config.borrow().clone();
+                    return Interrupt::Retain(Box::new(move |addr| svc.sources.permits(addr.ip())));
                 }
                 _ = self.session.closed() => return Interrupt::End(Ending::Done),
                 _ = self.stop.changed() => return Interrupt::End(Ending::Done),

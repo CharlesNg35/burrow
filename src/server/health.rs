@@ -65,8 +65,8 @@ impl Shared {
     }
 
     fn record(&self, service: &str, key: &EntryKey, failures: u32, result: Result<(), String>) {
-        let svc = self.settings().services.get(service).cloned();
-        let who = who(&key.client, &key.base, svc.as_ref());
+        let settings = self.settings();
+        let who = who(&key.client, &key.base, settings.services.get(service));
         let mut probes = self.probes.lock().expect("probes lock");
         let Some(p) = probes.get_mut(service).and_then(|of| of.get_mut(key)) else {
             return;
