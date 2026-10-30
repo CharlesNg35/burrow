@@ -14,7 +14,7 @@ use super::forwarded::{
 use super::idle::Activity;
 use super::pages::Page;
 use super::site::{Hop, SiteRun};
-use super::{Body, BoxError, MAX_HEAD, MAX_HEADERS};
+use super::{Body, BoxError};
 use crate::{BoxIo, Ending, Io, Refused, Upstream, Visitor};
 use pool::{Slotted, Stream};
 
@@ -68,10 +68,7 @@ pub(crate) async fn handshake(
 ) -> Result<(SendRequest<Body>, Option<Ending>), Failed> {
     let ending = io.ending();
     let io = hop(io, how, false).await?;
-    let (tx, conn) = hyper::client::conn::http1::Builder::new()
-        .max_buf_size(super::h2::APP_READ_BUF)
-        .max_header_size(MAX_HEAD)
-        .max_headers(MAX_HEADERS)
+    let (tx, conn) = super::h2::app_http1()
         .handshake(TokioIo::new(io))
         .await
         .map_err(|_| Failed::Broken)?;

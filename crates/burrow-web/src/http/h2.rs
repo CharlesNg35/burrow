@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 
-use super::MAX_HEAD;
+use super::{MAX_HEAD, MAX_HEADERS};
 
 pub const MAX_STREAMS: u32 = 100;
 pub const PENDING_ACCEPT_RESETS: usize = 20;
@@ -54,3 +54,14 @@ pub(crate) fn client() -> hyper::client::conn::http2::Builder<TokioExecutor> {
         .keep_alive_while_idle(false);
     b
 }
+
+pub(crate) fn app_http1() -> hyper::client::conn::http1::Builder {
+    let mut b = hyper::client::conn::http1::Builder::new();
+    b.max_buf_size(APP_READ_BUF)
+        .max_header_size(MAX_HEAD)
+        .max_headers(MAX_HEADERS);
+    b
+}
+
+#[cfg(test)]
+mod tests;
