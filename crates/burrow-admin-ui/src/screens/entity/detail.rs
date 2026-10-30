@@ -121,7 +121,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
                 crumb,
                 plural_s.to_string(),
                 name.clone(),
-                Signal::derive(move || editing.get()),
+                Signal::derive(move || !editing.get()),
                 Some(view! { {move || editing.get().then(|| view! { <span aria-hidden="true">"/"</span><span class="font-semibold text-text">"Edit"</span> })} }.into_any()),
             )}
             <burrow_ui_kit::PageHeader

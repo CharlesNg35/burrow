@@ -87,9 +87,9 @@ pub(super) fn Header() -> impl IntoView {
     let facts = facts(s);
     view! {
         <header class="sticky top-0 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 border-b border-hdr-line bg-hdr px-5 text-hdr-text max-xl:grid-cols-[minmax(0,1fr)_auto] max-xl:pt-3 max-sm:gap-x-2 max-sm:px-3 max-sm:pt-2 xl:h-16" data-testid="header">
-            {mobile_back(s)}
-            <div class=move || format!("relative flex min-w-0 items-center gap-2.5{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" })>
-                <span class="flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white" aria-hidden="true"><Icon name="logo" large=true/></span>
+            <div class="relative flex min-w-0 items-center gap-2.5">
+                {mobile_back(s)}
+                <span class=move || format!("flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" }) aria-hidden="true"><Icon name="logo" large=true/></span>
                 <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>

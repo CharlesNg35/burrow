@@ -55,15 +55,11 @@ pub(super) fn mobile_back(s: Store) -> impl IntoView + use<> {
         Route::Detail(sec, name) => {
             let label = crate::screens::plural(&sec);
             Some(view! {
-                <div class="flex min-w-0 items-center gap-2 sm:hidden" data-testid="mobile-back">
+                <div class="flex shrink-0 items-center sm:hidden" data-testid="mobile-back" data-entity=name>
                     <Link to=Route::List(sec.clone()) class="flex size-8 items-center justify-center rounded-md text-accent-ink no-underline">
                         <Icon name="chevron-left"/>
                         <span class="sr-only">{format!("Back to {label}")}</span>
                     </Link>
-                    <span class="flex min-w-0 flex-col">
-                        <span class="truncate font-semibold text-hdr-on">{name}</span>
-                        <span class="truncate text-[11px] text-hdr-muted">{move || if s.editing.get() { format!("{label} · editing") } else { label.to_string() }}</span>
-                    </span>
                 </div>
             })
         }

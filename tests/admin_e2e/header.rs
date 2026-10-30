@@ -194,6 +194,41 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     })
 }
 
+fn phone_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(390, 900).await;
+        c.ui.nav("/services/web").await;
+        c.ui.wait_for("[data-testid=mobile-back]", SECS).await;
+        let line = c.ui.text("[data-testid=server-line]").await;
+        assert!(
+            line.contains("127.0.0.1"),
+            "the phone header names the server: {line}"
+        );
+        let back = c.ui.text("[data-testid=mobile-back]").await;
+        assert!(
+            !back.contains("web"),
+            "the header names the server, not the page: {back}"
+        );
+        let crumb_hidden: bool = c
+            .ui
+            .eval("[...document.querySelectorAll('nav[aria-label=Breadcrumb]')].every(n => n.offsetParent === null)")
+            .await;
+        assert!(
+            crumb_hidden,
+            "the name shows once, as the title, not again in a breadcrumb"
+        );
+        c.ui.shot("phone-detail-header").await;
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_phone_header_names_the_server_on_every_page() {
+    run("phone-header", Options::default(), false, phone_header);
+}
+
 #[test]
 fn the_header_is_calm_in_every_state() {
     run("header", Options::default(), false, calm_header);
