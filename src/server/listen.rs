@@ -4,7 +4,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_rustls::TlsAcceptor;
@@ -391,13 +390,8 @@ async fn authenticate(
                 Some(s) if s.token == token => s.offer(acc.channel),
                 _ => {
                     debug!(%peer, "data channel for an unknown session, closing");
-                    let mut ch = acc.channel;
-                    let _ = ch
-                        .writer
-                        .send(&mut ch.stream, &[crate::wire::protocol::STALE_RECORD])
-                        .await;
-                    let _ = ch.stream.flush().await;
-                    let _ = ch.stream.finish().await;
+                    let stale = [crate::wire::protocol::STALE_RECORD];
+                    crate::forward::send_and_finish(acc.channel, &stale).await;
                 }
             }
         }

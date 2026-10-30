@@ -298,19 +298,25 @@ async fn a_half_closed_channel_still_carries_the_target_reply() {
 
 #[tokio::test]
 async fn a_reply_to_a_peer_that_never_reads_gives_up() {
-    let (a, _never_reads) = tcp_pair().await;
-    let ch = channel(a);
-    let Conn::Tcp(tcp) = &ch.stream else {
-        unreachable!()
-    };
-    let junk = vec![0u8; 1 << 16];
-    while tcp.try_write(&junk).is_ok() {}
-    tokio::time::timeout(
-        ANSWER_TIMEOUT + Duration::from_secs(3),
-        send_and_close(ch, &[0u8; 60_000]),
-    )
-    .await
-    .expect("the answer gives up");
+    for finish in [false, true] {
+        let (a, _never_reads) = tcp_pair().await;
+        let ch = channel(a);
+        let Conn::Tcp(tcp) = &ch.stream else {
+            unreachable!()
+        };
+        let junk = vec![0u8; 1 << 16];
+        while tcp.try_write(&junk).is_ok() {}
+        let bytes = [0u8; 60_000];
+        let answered = async {
+            match finish {
+                false => send_and_close(ch, &bytes).await,
+                true => send_and_finish(ch, &bytes).await,
+            }
+        };
+        tokio::time::timeout(ANSWER_TIMEOUT + Duration::from_secs(3), answered)
+            .await
+            .expect("the answer gives up");
+    }
 }
 
 async fn tcp_pair() -> (TcpStream, TcpStream) {
