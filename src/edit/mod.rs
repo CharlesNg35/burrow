@@ -109,7 +109,7 @@ fn only_missing_variables(checked: &crate::config::Outcome) -> bool {
         .diagnostics
         .iter()
         .filter(|d| d.severity == Severity::Error)
-        .all(|d| d.code == "env-unset")
+        .all(|d| d.code == burrow_admin_proto::codes::ENV_UNSET)
 }
 
 fn edit(
@@ -390,6 +390,18 @@ mod tests {
         let mut out = Vec::new();
         let code = edit(f, &mut editor(versions), prompt, &mut out).unwrap();
         (code, String::from_utf8(out).unwrap())
+    }
+
+    #[test]
+    fn only_unset_variables_offer_to_save_anyway() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = config(dir.path(), "client.yaml", &good());
+        let none = |_: &str| None::<String>;
+        let check = |text: &str| save::check(&f.path, Format::Yaml, Role::Client, text, &none);
+        let unset = good().replace("name: home", "name: ${BURROW_EDIT_UNSET_NAME}");
+        assert!(only_missing_variables(&check(&unset)));
+        let wrong = good().replace("name: home", "nmae: home");
+        assert!(!only_missing_variables(&check(&wrong)));
     }
 
     #[test]

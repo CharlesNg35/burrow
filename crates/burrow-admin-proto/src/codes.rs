@@ -34,6 +34,7 @@ pub const UNKNOWN_LOGIN: &str = "unknown-login";
 pub const FORWARD_AUTH_UNUSED: &str = "forward-auth-unused";
 pub const UNUSED_VISITOR: &str = "unused-visitor";
 pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
+pub const ENV_UNSET: &str = "env-unset";
 pub const RENAMES: &str = "renames";
 pub const REMOVES_SERVICE: &str = "removes-service";
 pub const REBINDS_SERVICE: &str = "rebinds-service";

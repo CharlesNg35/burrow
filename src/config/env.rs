@@ -108,7 +108,7 @@ fn expand_str(
                         None => {
                             out.push(
                                 Diagnostic::error(
-                                    "env-unset",
+                                    burrow_admin_proto::codes::ENV_UNSET,
                                     format!("environment variable \"{name}\" is not set"),
                                 )
                                 .at(sub_span(src, span, &token))

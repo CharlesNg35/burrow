@@ -211,7 +211,7 @@ fn variables_fill_number_and_boolean_fields() {
         .collect();
     assert_eq!(
         errors,
-        ["env-unset", "env-unset", "env-unset"],
+        [burrow_admin_proto::codes::ENV_UNSET; 3],
         "one error per unset variable"
     );
     let name = load_str(
@@ -240,7 +240,7 @@ fn variables_fill_number_and_boolean_fields() {
             .report
             .diagnostics
             .iter()
-            .any(|d| d.code == "env-unset")
+            .any(|d| d.code == burrow_admin_proto::codes::ENV_UNSET)
     );
 }
 
