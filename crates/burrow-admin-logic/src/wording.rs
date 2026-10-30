@@ -183,9 +183,31 @@ pub fn diag_text(d: &burrow_admin_proto::diag::Diag) -> String {
             format!("{}: {}", field_name(path, key), bounds_text(l))
         }
         (WRONG_TYPE, Some(l), Some(key)) => format!("{}: {l}", field_name(path, key)),
-        _ => shown(&d.code, &d.message, &d.subjects),
+        _ => crate::diag_words::worded(&d.code, d.subjects.first().map_or("", String::as_str))
+            .unwrap_or_else(|| shown(&d.code, &d.message, &d.subjects)),
     }
 }
+
+#[cfg(test)]
+pub(crate) const SHOWN_CODES: [&str; 17] = [
+    WEIGHT_NOT_BALANCE,
+    UNUSED_VISITOR,
+    NO_HTTP,
+    REDIRECT_NEEDS_HTTP,
+    PLAIN_NEEDS_HTTP,
+    NO_CHECK,
+    WEB_OFF,
+    NO_CERTIFICATE,
+    WILDCARD_NEEDS_DNS,
+    PLAIN_HTTP,
+    REDIRECT_PASSTHROUGH,
+    REDIRECT_PLAIN,
+    WEB_TCP_ONLY,
+    PROXY_PROTOCOL_TCP_ONLY,
+    MAX_CONNECTIONS_TCP_ONLY,
+    BALANCE_TCP_ONLY,
+    HEALTH_CHECK_TCP_ONLY,
+];
 
 pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     let subject = subjects.first().map_or("", String::as_str);

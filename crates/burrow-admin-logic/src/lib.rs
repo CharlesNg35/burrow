@@ -8,6 +8,7 @@ pub mod allow;
 pub mod certs;
 pub mod changeset;
 pub mod check;
+mod diag_words;
 pub mod entries;
 pub mod fallback;
 pub mod grant;
