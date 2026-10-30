@@ -23,10 +23,17 @@ fn internal_sites(doc: &Value) -> Vec<String> {
 }
 
 fn fact(label: &'static str, value: String, testid: &'static str) -> impl IntoView {
+    let parts: Vec<String> = value.split(':').map(str::to_string).collect();
+    let n = parts.len();
+    let shown = parts
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| view! { {p}{(i + 1 < n).then(|| view! { ":"<wbr/> })} })
+        .collect_view();
     view! {
-        <p class="flex flex-wrap gap-x-2 text-[13px]">
-            <span class="w-28 font-medium">{label}</span>
-            <span class="break-all font-mono" data-testid=testid>{value}</span>
+        <p class="flex flex-col gap-x-2 text-[13px] sm:flex-row">
+            <span class="w-28 shrink-0 font-medium">{label}</span>
+            <span class="font-mono" data-testid=testid>{shown}</span>
         </p>
     }
 }
@@ -51,9 +58,19 @@ pub fn local_ca_card() -> impl IntoView {
             }
         });
         let used = if sites.is_empty() {
-            "No site uses it yet.".to_string()
+            view! { "No site uses it yet." }.into_any()
         } else {
-            format!("Used by {}.", sites.join(", "))
+            let n = sites.len();
+            let links = sites
+                .into_iter()
+                .enumerate()
+                .map(|(i, s)| view! {
+                    {(i > 0).then_some(", ")}
+                    <crate::route::Link to=crate::route::Route::Detail(ServiceEntry::section().into(), s.clone()) class="font-semibold text-accent-ink no-underline hover:underline">{s}</crate::route::Link>
+                })
+                .collect_view();
+            view! { {format!("Used by {n} site{}: ", if n == 1 { "" } else { "s" })}{links} }
+                .into_any()
         };
         let pending = ca.is_none().then(|| view! {
             <p class="text-[13px] text-text-muted" data-testid="local-ca-pending">"No local CA exists yet. burrow makes one when the first site with HTTPS: Local CA is applied."</p>
@@ -68,7 +85,13 @@ pub fn local_ca_card() -> impl IntoView {
                     {pending}
                     {facts}
                     <p class="text-[13px]" data-testid="local-ca-sites">{used}</p>
-                    {ca.is_some().then(|| view! { <p class="text-xs text-text-muted">"Install this certificate once on each device that opens these sites; docs/web/certificates.md says how for each system and browser. Compare the SHA-256 above with what the device shows."</p> })}
+                    {ca.is_some().then(|| view! {
+                        <p class="text-xs text-text-muted">
+                            "Install this certificate once on each device that opens these sites; "
+                            <a href=burrow_admin_logic::wording::docs("web/certificates.md") target="_blank" rel="noopener noreferrer" class="font-semibold text-accent-ink" data-testid="local-ca-docs">"how to install it on each system and browser"</a>
+                            ". Compare the SHA-256 above with what the device shows."
+                        </p>
+                    })}
                     <div>{download}</div>
                 </div>
             </section>

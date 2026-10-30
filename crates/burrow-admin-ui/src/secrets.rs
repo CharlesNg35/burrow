@@ -206,8 +206,6 @@ fn os_now() -> String {
     }
 }
 
-const RELEASES: &str = "https://github.com/CharlesNg35/burrow/releases/latest";
-
 fn os_label(os: &str) -> &'static str {
     match os {
         "windows" => "Windows",
@@ -289,7 +287,7 @@ pub fn SnippetView(
                 "commands" => view! {
                     <div data-testid="snippet-commands">
                         <p class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                            <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=RELEASES target="_blank" rel="noopener noreferrer" data-testid="download">
+                            <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=burrow_admin_logic::wording::releases() target="_blank" rel="noopener noreferrer" data-testid="download">
                                 {move || format!("Download burrow for {}", os_label(&os.get()))}
                                 <burrow_ui_kit::Icon name="external" small=true/>
                             </a>
