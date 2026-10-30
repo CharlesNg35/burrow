@@ -119,6 +119,14 @@ fn set_in(v: &Value, key: &str) -> bool {
 }
 
 pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
+    let label = |k: &str| {
+        fields(entity)
+            .iter()
+            .find(|f| f.key == k)
+            .map(|f| f.node.label.clone())
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| k.to_string())
+    };
     let mut out = Vec::new();
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for f in fields(entity) {
@@ -136,8 +144,9 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
                         out.push((
                             f.key.clone(),
                             format!(
-                                "{a} {} here, but {other} has {b}",
-                                if a == 1 { "port" } else { "ports" }
+                                "{} has {b} {}; this needs {b} too, not {a}",
+                                label(other),
+                                if b == 1 { "port" } else { "ports" }
                             ),
                         ));
                     }
@@ -148,13 +157,17 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
     }
     for (_, keys) in groups {
         let set: Vec<&String> = keys.iter().filter(|k| set_in(value, k)).collect();
-        let names = keys.join(" or ");
+        let names = keys
+            .iter()
+            .map(|k| label(k))
+            .collect::<Vec<_>>()
+            .join(" or ");
         match set.len() {
             0 => out.push((keys[keys.len() - 1].clone(), PICK_ONE.into())),
             1 => {}
             _ => {
                 for k in set {
-                    out.push((k.clone(), format!("set only one of {names}")));
+                    out.push((k.clone(), format!("Set only one of {names}")));
                 }
             }
         }
@@ -296,7 +309,7 @@ mod tests {
             &json!({"client": "a", "clients": ["a", "b"], "target": 2}),
         );
         assert_eq!(both.len(), 2, "{both:?}");
-        assert!(both[0].1.contains("only one of client or clients"));
+        assert_eq!(both[0].1, "Set only one of Client or Clients");
         let none = entity_problems(svc, &json!({"target": 2}));
         assert_eq!(none, vec![("clients".into(), PICK_ONE.into())]);
         let ranges = entity_problems(
@@ -305,14 +318,20 @@ mod tests {
         );
         assert_eq!(
             ranges,
-            vec![("target".into(), "2 ports here, but bind has 3".into())]
+            vec![(
+                "target".into(),
+                "Public address has 3 ports; this needs 3 too, not 2".into()
+            )]
         );
         assert_eq!(
             entity_problems(
                 svc,
                 &json!({"client": "a", "bind": "7000-7002", "target": 3000})
             ),
-            vec![("target".into(), "1 port here, but bind has 3".into())],
+            vec![(
+                "target".into(),
+                "Public address has 3 ports; this needs 3 too, not 1".into()
+            )],
             "validate refuses it too (range-mismatch)"
         );
     }

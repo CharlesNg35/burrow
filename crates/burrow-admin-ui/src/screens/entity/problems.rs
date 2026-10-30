@@ -33,16 +33,9 @@ pub(super) fn problems_for(path: &Path) -> Problems {
                         .iter()
                         .filter(|d| d.is_error())
                         .filter_map(|d| {
-                            d.path.clone().map(|x| {
-                                (
-                                    x,
-                                    burrow_admin_logic::wording::shown(
-                                        &d.code,
-                                        &d.message,
-                                        &d.subjects,
-                                    ),
-                                )
-                            })
+                            d.path
+                                .clone()
+                                .map(|x| (x, burrow_admin_logic::wording::diag_text(d)))
                         })
                         .collect::<Vec<_>>()
                 })
@@ -117,7 +110,7 @@ fn server_problem(entity: &Path, d: &Diag, label: &dyn Fn(&Path) -> String) -> (
         let message = wording::required(&label(&at));
         return (at, message);
     }
-    let message = wording::shown(&d.code, &d.message, &d.subjects);
+    let message = wording::diag_text(d);
     (at, message)
 }
 

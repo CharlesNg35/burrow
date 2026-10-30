@@ -132,6 +132,45 @@ pub fn missing_field<'a>(code: &str, message: &'a str) -> Option<&'a str> {
         .filter(|k| !k.is_empty())
 }
 
+const OUT_OF_RANGE: &str = "out-of-range";
+const WRONG_TYPE: &str = "wrong-type";
+
+fn quoted_key(message: &str) -> Option<&str> {
+    message.strip_prefix('"')?.split('"').next()
+}
+
+fn field_name(path: Option<&[String]>, key: &str) -> String {
+    path.and_then(burrow_config::label_of)
+        .unwrap_or_else(|| capital(&key.replace('_', " ")))
+}
+
+fn bounds_text(label: &str) -> String {
+    let l = label.trim_start_matches("must be ");
+    match l
+        .strip_prefix("between ")
+        .and_then(|r| r.split_once(" and "))
+    {
+        Some((a, b)) => format!("{a} to {b}"),
+        None => l.to_string(),
+    }
+}
+
+pub fn diag_text(d: &burrow_admin_proto::diag::Diag) -> String {
+    let path = d.path.as_deref();
+    if let Some(key) = missing_field(&d.code, &d.message) {
+        let mut at = path.map(<[String]>::to_vec).unwrap_or_default();
+        at.push(key.to_string());
+        return required(&field_name(Some(&at), key));
+    }
+    match (d.code.as_str(), d.label.as_deref(), quoted_key(&d.message)) {
+        (OUT_OF_RANGE, Some(l), Some(key)) => {
+            format!("{}: {}", field_name(path, key), bounds_text(l))
+        }
+        (WRONG_TYPE, Some(l), Some(key)) => format!("{}: {l}", field_name(path, key)),
+        _ => shown(&d.code, &d.message, &d.subjects),
+    }
+}
+
 pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     let subject = subjects.first().map_or("", String::as_str);
     if let Some(key) = missing_field(code, message) {
@@ -245,6 +284,26 @@ mod tests {
         assert_eq!(capital(""), "");
         assert_eq!(version_name(Some("15:47:12")), "version of 15:47:12");
         assert_eq!(version_name(None), "version (time unknown)");
+        let d: burrow_admin_proto::diag::Diag = burrow_admin_proto::serde_json::from_value(
+            burrow_admin_proto::serde_json::json!({
+                "severity": "error",
+                "code": "out-of-range",
+                "message": "\"weight\" in \"services.pool.clients[0]\" must be between 1 and 1000, found 0",
+                "label": "must be between 1 and 1000",
+                "path": ["services", "pool", "clients", "0", "weight"]
+            }),
+        )
+        .unwrap();
+        assert_eq!(diag_text(&d), "Weight: 1 to 1000");
+        let d: burrow_admin_proto::diag::Diag =
+            burrow_admin_proto::serde_json::from_value(burrow_admin_proto::serde_json::json!({
+                "severity": "error",
+                "code": "missing-field",
+                "message": "missing field \"target\" in service \"pool\"",
+                "path": ["services", "pool"]
+            }))
+            .unwrap();
+        assert_eq!(diag_text(&d), "Target on the client is required");
     }
 
     #[test]

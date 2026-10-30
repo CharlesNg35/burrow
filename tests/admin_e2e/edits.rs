@@ -120,7 +120,7 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.wait_text(
             "[data-schema='services/*/target']",
-            "2 ports here, but bind has 3",
+            "Public address has 3 ports; this needs 3 too, not 2",
             SECS,
         )
         .await;

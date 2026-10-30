@@ -121,7 +121,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
             ),
             tone: Tone::Warning,
-            title: burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
+            title: burrow_admin_logic::wording::diag_text(d),
             detail: burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
                 .unwrap_or_default(),
             to: d.path.as_deref().and_then(link_of),

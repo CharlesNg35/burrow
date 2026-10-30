@@ -10,6 +10,8 @@ use burrow_syntax::{hostport, ip, name, ports, rate, rule, target};
 use crate::changeset::as_new_secret;
 use crate::fallback::{Render, for_node};
 
+const GROUP: &str = "This needs several settings, not a single value";
+
 pub fn check(node: &Node, v: &Value) -> Result<(), String> {
     if v.is_null() {
         return if node.required && node.default.is_none() {
@@ -87,14 +89,18 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::Bool => v
             .is_boolean()
             .then_some(())
-            .ok_or_else(|| "expected yes or no".to_string()),
+            .ok_or_else(|| "Pick Yes or No".to_string()),
         SemType::Enum(c) => {
             let s = want_text(v)?;
             if c.options.iter().any(|o| o.value == s) {
                 Ok(())
             } else {
-                let names: Vec<&str> = c.options.iter().map(|o| o.value.as_str()).collect();
-                Err(format!("pick one of {}", names.join(", ")))
+                let names: Vec<String> = c
+                    .options
+                    .iter()
+                    .map(|o| if o.label.is_empty() { o.value.clone() } else { o.label.clone() })
+                    .collect();
+                Err(format!("Pick one: {}", names.join(", ")))
             }
         }
         SemType::Ip(c) => check_ip(c, v),
@@ -167,11 +173,11 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::Object(o) => check_object(o, v),
         SemType::Map(c) => match v {
             Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
-            _ => Err("expected a group of settings".into()),
+            _ => Err(GROUP.into()),
         },
         SemType::RefMap(c) => match v {
             Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
-            _ => Err("expected a group of settings".into()),
+            _ => Err(GROUP.into()),
         },
         SemType::SecretRef(c) if c.reference => match v {
             Value::String(s) if !burrow_syntax::env::is_reference(s) => Err(
@@ -301,12 +307,21 @@ fn check_union(u: &UnionC, v: &Value) -> Result<(), String> {
 
 fn check_object(o: &ObjectC, v: &Value) -> Result<(), String> {
     let Value::Object(m) = v else {
-        return Err("expected a group of settings".into());
+        return Err(GROUP.into());
     };
     m.iter()
         .try_for_each(|(k, x)| match o.fields.iter().find(|f| f.key == *k) {
-            Some(f) => check(&f.node, x).map_err(|e| format!("{k}: {e}")),
-            None => Err(format!("{k} is not a setting here")),
+            Some(f) => check(&f.node, x).map_err(|e| {
+                let name = if f.node.label.is_empty() {
+                    k.as_str()
+                } else {
+                    f.node.label.as_str()
+                };
+                format!("{name}: {e}")
+            }),
+            None => Err(format!(
+                "{k} is not a setting burrow knows here; remove it in server.yaml"
+            )),
         })
 }
 
@@ -569,20 +584,20 @@ mod tests {
             options: vec![
                 EnumOption {
                     value: "tcp".into(),
-                    label: "tcp".into(),
+                    label: "TCP".into(),
                     help: String::new(),
                     danger: false,
                 },
                 EnumOption {
                     value: "udp".into(),
-                    label: "udp".into(),
+                    label: "UDP".into(),
                     help: String::new(),
                     danger: false,
                 },
             ],
         });
         ok(e.clone(), json!("udp"));
-        assert_eq!(bad(e, json!("sctp")), "pick one of tcp, udp");
+        assert_eq!(bad(e, json!("sctp")), "Pick one: TCP, UDP");
         ok(SemType::Cidr, json!("10.0.0.0/8"));
         bad(SemType::Cidr, json!("10.0.0.0/99"));
         ok(SemType::Cidr, json!("[2001:db8::1]"));

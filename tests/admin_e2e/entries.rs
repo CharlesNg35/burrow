@@ -109,11 +109,16 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for(weight, SECS).await;
         c.ui.fill(weight, "0").await;
         let row = "[data-entry='0'] [data-entry-error]";
-        let err = c.ui.wait_text(row, "weight", SECS).await;
+        let err = c.ui.wait_text(row, "Weight", SECS).await;
         assert!(
-            err.contains("1 and 1000"),
+            err == "Weight: 1 to 1000",
             "the row shows its own error: {err}"
         );
+        let twice: bool = c
+            .ui
+            .eval("[...document.querySelectorAll(\"[data-schema='services/*/clients'] [aria-live] p\")].some(p => /weight/i.test(p.textContent))")
+            .await;
+        assert!(!twice, "the weight error is shown once, on its row");
         c.ui.shot("client-entry-row-error").await;
         c.ui.fill(weight, "3").await;
         c.ui.wait_gone(row, SECS).await;

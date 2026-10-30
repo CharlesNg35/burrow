@@ -44,6 +44,8 @@ fn target_text(t: &Option<Value>) -> Option<String> {
     })
 }
 
+const ENTRY_SHAPE: &str = "Each entry needs a client name, and may have a target and a weight";
+
 pub fn rows(v: Option<&Value>) -> Vec<Row> {
     let row = |x: &Value| {
         ref_name(x).map(|n| Row {
@@ -92,19 +94,19 @@ pub fn check(c: &RefEntriesC, v: &Value) -> Result<(), String> {
     let mut seen: Vec<Row> = Vec::new();
     for item in items {
         if !item.is_string() && !known_keys(item) {
-            return Err("expected a client name, or {name, target, weight}".into());
+            return Err(ENTRY_SHAPE.into());
         }
         let Some(row) = rows(Some(&Value::Array(vec![item.clone()]))).pop() else {
-            return Err("expected a client name, or {name, target, weight}".into());
+            return Err(ENTRY_SHAPE.into());
         };
         let name = &row.name;
         if let Some(t) = &row.target {
             part(SemType::Target(c.target.clone()), t)
-                .map_err(|e| format!("the target of \"{name}\": {e}"))?;
+                .map_err(|e| format!("Target of {name}: {e}"))?;
         }
         if let Some(w) = &row.weight {
             part(SemType::Integer(c.weight.clone()), w)
-                .map_err(|e| format!("the weight of \"{name}\": {e}"))?;
+                .map_err(|e| format!("Weight of {name}: {e}"))?;
         }
         if seen.iter().any(|s| s.same_entry(&row)) {
             return Err(match row.target {
@@ -132,11 +134,11 @@ mod tests {
         let ok = json!(["a", {"name": "gw", "target": "10.0.0.12:3000"}, {"name": "gw", "target": 3001, "weight": 3}]);
         assert_eq!(check(&c(), &ok), Ok(()));
         let e = check(&c(), &json!([{"name": "b", "weight": 0}])).unwrap_err();
-        assert!(e.contains("weight of \"b\""), "{e}");
+        assert!(e.contains("Weight of b"), "{e}");
         let e = check(&c(), &json!([{"name": "b", "target": "nope:"}])).unwrap_err();
-        assert!(e.contains("target of \"b\""), "{e}");
+        assert!(e.contains("Target of b"), "{e}");
         let e = check(&c(), &json!([{"name": "b", "wieght": 2}])).unwrap_err();
-        assert!(e.contains("{name, target, weight}"), "{e}");
+        assert_eq!(e, ENTRY_SHAPE);
     }
 
     #[test]

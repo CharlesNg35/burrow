@@ -283,7 +283,7 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
     let problem = Memo::new(move |_| {
         e.plan.with(|p| {
             diags_at(p.as_deref(), &at, true).first().map(|d| {
-                let w = burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects);
+                let w = burrow_admin_logic::wording::diag_text(d);
                 burrow_admin_logic::wording::capital(&w)
             })
         })

@@ -209,6 +209,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
     let path = path.clone();
     let node = node.clone();
     let site = matches!(&inner(&node).sem, SemType::Union(u) if u.branches.iter().any(|b| matches!(inner(b).sem, SemType::HostName(_))));
+    let rows = matches!(&inner(&node).sem, SemType::RefEntries(_));
     Signal::derive(move || {
         let s = st.get();
         let picked = touched.get();
@@ -217,14 +218,16 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
                 .into_iter()
                 .filter(|d| picked || d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE)
                 .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))
-                .map(|d| {
-                    (
-                        d.severity,
-                        burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
-                    )
-                })
+                .filter(|d| !rows || d.path.as_ref().is_none_or(|x| x.len() <= path.len()))
+                .map(|d| (d.severity, burrow_admin_logic::wording::diag_text(d)))
                 .collect::<Vec<_>>()
         });
+        let row_speaks = rows
+            && e.plan.with(|p| {
+                diags_at(p.as_deref(), &path, true)
+                    .iter()
+                    .any(|d| d.path.as_ref().is_some_and(|x| x.len() > path.len()))
+            });
         let server_error = server
             .iter()
             .find(|(sev, _)| *sev == Severity::Error)
@@ -238,7 +241,8 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             .get()
             .then(|| e.local.with(|l| l.get(&path).cloned()))
             .flatten()
-            .or(related);
+            .or(related)
+            .filter(|_| !row_speaks);
         FieldState {
             error: local.or(server_error),
             warning: server_warning.or(s.warnings.first().cloned()),
