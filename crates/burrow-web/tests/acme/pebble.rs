@@ -22,13 +22,28 @@ pub struct Pebble {
     pub ca: PathBuf,
 }
 
-async fn docker(args: &[&str]) -> String {
+pub async fn docker(args: &[&str]) -> String {
     let out = tokio::process::Command::new("docker")
         .args(args)
         .output()
         .await
         .expect("docker runs");
     String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+pub async fn docker_logs(name: &str) -> String {
+    tokio::process::Command::new("docker")
+        .args(["logs", name])
+        .output()
+        .await
+        .map(|o| {
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&o.stdout),
+                String::from_utf8_lossy(&o.stderr)
+            )
+        })
+        .unwrap_or_default()
 }
 
 fn config(tls_port: u16, http_port: u16) -> String {
@@ -133,6 +148,7 @@ impl Pebble {
             "/burrow/pebble-config.json",
             "-dnsserver",
             dns,
+            "-strict",
         ]);
         docker(&args).await;
         for _ in 0..100 {
@@ -141,6 +157,11 @@ impl Pebble {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
+        let log = docker_logs(PEBBLE_NAME).await;
+        assert!(
+            log.contains("Running in strict mode"),
+            "Pebble runs with -strict, so its upcoming breaking changes are on: {log}"
+        );
         let from = format!("{PEBBLE_NAME}:/test/certs/pebble.minica.pem");
         docker(&["cp", &from, &self.ca.display().to_string()]).await;
         assert!(self.ca.exists(), "Pebble's API CA was copied out");
