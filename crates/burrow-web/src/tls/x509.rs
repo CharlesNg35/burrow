@@ -11,6 +11,22 @@ pub struct Facts {
     pub ari_id: Option<String>,
 }
 
+pub fn fingerprint(bytes: &[u8]) -> String {
+    ring::digest::digest(&ring::digest::SHA256, bytes)
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+pub fn short_hex(bytes: &[u8], n: usize) -> String {
+    ring::digest::digest(&ring::digest::SHA256, bytes).as_ref()[..n]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 pub fn facts(der: &[u8]) -> Option<Facts> {
     let cert = CertificateInner::<Raw>::from_der(der).ok()?;
     let tbs = cert.tbs_certificate();

@@ -22,12 +22,9 @@ pub struct Stored {
 }
 
 pub fn account_dir(state: &Path, directory: &str) -> PathBuf {
-    let digest = ring::digest::digest(&ring::digest::SHA256, directory.as_bytes());
-    let hex: String = digest.as_ref()[..8]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    state.join("acme").join(hex)
+    state
+        .join("acme")
+        .join(crate::tls::x509::short_hex(directory.as_bytes(), 8))
 }
 
 pub fn name_set(names: &[String]) -> Vec<String> {
@@ -39,11 +36,7 @@ pub fn name_set(names: &[String]) -> Vec<String> {
 
 pub fn cert_dir(state: &Path, names: &[String]) -> PathBuf {
     let set = name_set(names);
-    let digest = ring::digest::digest(&ring::digest::SHA256, set.join("\n").as_bytes());
-    let hex: String = digest.as_ref()[..6]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let hex = crate::tls::x509::short_hex(set.join("\n").as_bytes(), 6);
     let first: String = set
         .first()
         .map(String::as_str)

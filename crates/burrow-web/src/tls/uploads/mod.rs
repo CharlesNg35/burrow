@@ -69,12 +69,7 @@ pub fn path(state: &Path, id: &str) -> Option<PathBuf> {
 }
 
 pub fn id_of(kind: Kind, bytes: &[u8]) -> String {
-    let digest = ring::digest::digest(&ring::digest::SHA256, bytes);
-    let hex: String = digest.as_ref()[..8]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    format!("{}-{hex}", kind.prefix())
+    format!("{}-{}", kind.prefix(), super::x509::short_hex(bytes, 8))
 }
 
 pub fn store(state: &Path, up: &Upload<'_>, now: u64, write: Write<'_>) -> Result<Stored, String> {
@@ -175,13 +170,7 @@ pub fn check(up: &Upload<'_>, now: u64) -> Result<(Vec<String>, Described), Stri
         .filter(|(k, _)| *k == SectionKind::Certificate)
         .map(|(_, d)| CertificateDer::from(d.to_vec()))
         .collect();
-    let digest = ring::digest::digest(&ring::digest::SHA256, up.pem);
-    let sha256 = digest
-        .as_ref()
-        .iter()
-        .map(|b| format!("{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(":");
+    let sha256 = super::x509::fingerprint(up.pem);
     let (warnings, mut described) = match kind {
         Kind::Pair => pair(&parts, certs, up.hosts, now)?,
         Kind::Ca => cas(&certs, now)?,

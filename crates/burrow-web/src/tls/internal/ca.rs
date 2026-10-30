@@ -12,6 +12,8 @@ use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::sign::CertifiedKey;
 
+pub use crate::tls::x509::fingerprint;
+
 use super::Write;
 
 pub const ROOT_SECS: u64 = 3600 * 86_400;
@@ -112,15 +114,6 @@ fn read_key(path: &Path) -> Result<KeyPair, String> {
 
 fn save(write: Write<'_>, path: &Path, text: &str) -> Result<(), String> {
     write(path, text.as_bytes()).map_err(|e| format!("cannot save {}: {e}", path.display()))
-}
-
-pub fn fingerprint(der: &[u8]) -> String {
-    ring::digest::digest(&ring::digest::SHA256, der)
-        .as_ref()
-        .iter()
-        .map(|b| format!("{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(":")
 }
 
 impl Ca {
