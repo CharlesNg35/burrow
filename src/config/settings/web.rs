@@ -160,7 +160,11 @@ pub fn digest_of(files: &[PathBuf]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for f in files {
         f.hash(&mut h);
-        std::fs::read(f).ok().hash(&mut h);
+        std::fs::read(f)
+            .ok()
+            .map(zeroize::Zeroizing::new)
+            .as_deref()
+            .hash(&mut h);
     }
     h.finish()
 }
