@@ -438,16 +438,21 @@ pub fn refusing() -> (tokio::net::TcpSocket, SocketAddr) {
     (socket, addr)
 }
 
-pub fn scrape(addr: SocketAddr) -> Result<String, String> {
+pub fn http_get(addr: SocketAddr, path: &str) -> Result<String, String> {
     use std::io::{Read, Write};
     let timeout = Duration::from_secs(5);
     let mut s = std::net::TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
     s.set_read_timeout(Some(timeout))
         .map_err(|e| e.to_string())?;
-    s.write_all(b"GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").as_bytes())
         .map_err(|e| e.to_string())?;
     let mut raw = String::new();
     s.read_to_string(&mut raw).map_err(|e| e.to_string())?;
+    Ok(raw)
+}
+
+pub fn scrape(addr: SocketAddr) -> Result<String, String> {
+    let raw = http_get(addr, "/metrics")?;
     match raw.split_once("\r\n\r\n") {
         Some((head, body)) if head.starts_with("HTTP/1.1 200") => Ok(body.to_string()),
         _ => Err(format!("the metrics endpoint answered: {raw:.80}")),

@@ -11,14 +11,11 @@ use burrow_config::Protocol;
 use common::*;
 use tokio::net::TcpStream;
 
-fn http_get(addr: SocketAddr, path: &str) -> String {
-    use std::io::{Read, Write};
-    let mut s = std::net::TcpStream::connect(addr).unwrap();
-    s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
-        .unwrap();
-    let mut out = String::new();
-    s.read_to_string(&mut out).unwrap();
-    out
+async fn get(addr: SocketAddr, path: &'static str) -> String {
+    tokio::task::spawn_blocking(move || http_get(addr, path))
+        .await
+        .unwrap()
+        .unwrap()
 }
 
 async fn metered(services: Vec<(&str, Service)>) -> Tunnel {
@@ -64,7 +61,7 @@ async fn status_counts_connections_and_bytes() {
     assert_eq!(web.name, "web");
     assert_eq!((web.total, web.open, web.refused), (3, 0, 0));
     assert_eq!((web.bytes_in, web.bytes_out), (30_000, 30_000));
-    let text = http_get(addr, "/metrics");
+    let text = get(addr, "/metrics").await;
     assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{text}");
     for line in [
         "burrow_service_connections_total{service=\"web\"} 3",
@@ -73,7 +70,7 @@ async fn status_counts_connections_and_bytes() {
     ] {
         assert!(text.lines().any(|l| l == line), "missing {line} in\n{text}");
     }
-    assert!(http_get(addr, "/nope").starts_with("HTTP/1.1 404"));
+    assert!(get(addr, "/nope").await.starts_with("HTTP/1.1 404"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -560,7 +557,7 @@ async fn a_client_answering_busy_is_marked_at_limit_and_counted() {
     wait_for(|| shared.status().clients[0].busy_total == 2).await;
     assert!(t.server.shared.status().clients[0].at_limit);
     wait_for(|| shared.status().services[0].refused == 2).await;
-    let text = http_get(t.server.metrics.unwrap(), "/metrics");
+    let text = get(t.server.metrics.unwrap(), "/metrics").await;
     assert!(
         text.contains("burrow_client_busy_total{client=\"home\"} 2"),
         "{text}"
