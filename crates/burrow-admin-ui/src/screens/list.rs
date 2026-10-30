@@ -1,5 +1,4 @@
 use burrow_admin_logic::wording::{WriteAction, needs_write_admin};
-use burrow_config::Protocol;
 use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, ScrollRow, Tone, active_item, tag_class};
 use leptos::prelude::*;
 
@@ -337,8 +336,8 @@ pub(crate) fn filter_chips(
                 >
                     {label}
                     {move || {
-                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && (key == "all" || x.filters.contains(&key))).count());
-                        (!no_counts && key != "all" && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
+                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && x.filters.contains(&key)).count());
+                        (!no_counts && key != "all").then(|| view! { <span class=if n == 0 { "ml-1 text-text-faint" } else { "ml-1" } data-count=n.to_string()>{n}</span> })
                     }}
                 </button>
             }
