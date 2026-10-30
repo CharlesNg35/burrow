@@ -329,6 +329,7 @@ impl Server {
             service_counts: Counts::default(),
             visitor_counts: Counts::default(),
             client_counts: Counts::default(),
+            entry_counts: Counts::default(),
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
             web_wait: Mutex::new(None),

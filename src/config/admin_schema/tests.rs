@@ -283,7 +283,7 @@ fn refs_agree_with_check_refs() {
             };
             matches!(
                 sem,
-                SemType::Ref(_) | SemType::RefList(_) | SemType::RefMap(_)
+                SemType::Ref(_) | SemType::RefList(_) | SemType::RefEntries(_) | SemType::RefMap(_)
             )
         })
         .map(|(p, _)| p.join("."))
@@ -368,6 +368,9 @@ fn carriers_cover_semtypes() {
             SemType::Rate => assert_carrier::<String, sem::Rate>(),
             SemType::Ref(_) => assert_carrier::<String, sem::Ref>(),
             SemType::RefList(_) => assert_carrier::<Vec<String>, sem::RefList>(),
+            SemType::RefEntries(_) => {
+                assert_carrier::<Vec<burrow_config::ClientRef>, sem::RefEntries>()
+            }
             SemType::RefMap(_) => assert_carrier::<BTreeMap<String, Reach>, sem::RefMap>(),
             SemType::Name(_) => assert_carrier::<String, sem::Name>(),
             SemType::SecretRef(_) => assert_carrier::<Secrets, sem::SecretRef>(),

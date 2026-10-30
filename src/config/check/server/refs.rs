@@ -73,7 +73,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             if let Some(Value::Seq(items)) = svc.value.get("clients").map(|v| &v.value) {
                 for item in items {
                     let item = item
-                        .get(burrow_config::WeightedClient::NAME.key())
+                        .get(burrow_config::ServiceClient::NAME.key())
                         .unwrap_or(item);
                     if let Some(name) = item.as_str()
                         && name != SELF

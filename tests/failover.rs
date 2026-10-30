@@ -1,4 +1,6 @@
 mod common;
+#[path = "failover/entries.rs"]
+mod entries;
 #[path = "failover/health.rs"]
 mod health;
 #[cfg(feature = "web")]

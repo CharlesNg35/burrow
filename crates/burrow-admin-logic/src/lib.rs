@@ -8,6 +8,7 @@ pub mod allow;
 pub mod certs;
 pub mod changeset;
 pub mod check;
+pub mod entries;
 pub mod fallback;
 pub mod grant;
 pub mod history;

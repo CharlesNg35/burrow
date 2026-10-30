@@ -102,6 +102,7 @@ pub mod sem {
         Rate,
         Ref,
         RefList,
+        RefEntries,
         RefMap,
         Name,
         SecretRef,
@@ -137,7 +138,8 @@ carriers!(Duration: u32, u64);
 carriers!(Size: u32, u64);
 carriers!(Rate: String);
 carriers!(Ref: String);
-carriers!(RefList: Vec<String>, Vec<crate::model::ClientRef>);
+carriers!(RefList: Vec<String>);
+carriers!(RefEntries: Vec<crate::model::ClientRef>);
 carriers!(Name: String);
 carriers!(Path: String);
 carriers!(Upload: String);
@@ -157,8 +159,8 @@ pub mod __private {
     pub use burrow_admin_proto::schema::{
         Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
         HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC,
-        PasswordHashC, PathC, PortRangeC, RefC, RefListC, RefMapC, Relation, SecretRefC, SemType,
-        SizeC, TargetC, TextC, UnionC, UploadC,
+        PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC, RefMapC, Relation,
+        SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UploadC,
     };
     use burrow_admin_proto::serde_json;
     pub use serde_json::json;

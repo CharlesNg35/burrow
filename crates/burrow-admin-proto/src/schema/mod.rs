@@ -9,8 +9,8 @@ use crate::Path;
 pub use relation::{Cond, Relation};
 pub use sem::{
     DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
-    NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefListC, RefMapC,
-    SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC,
+    NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,
+    RefMapC, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC, WEIGHT_MAX,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

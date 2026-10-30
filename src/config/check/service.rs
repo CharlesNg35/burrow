@@ -2,10 +2,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use super::super::settings::{Health, HttpCheck, Service};
-use super::ports::{parse_ranged, ranges_conflict, show_addr, split_target};
-use super::{
-    MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, name_error, parse_host_port, unix, valid_name,
-};
+use super::ports::{parse_ranged, ranges_conflict, show_addr};
+use super::{SENSITIVE_PORTS, Spans, name_error, valid_name};
 use crate::config::diagnostics::Diagnostic;
 use crate::policy::allowlist::{Cidr, Sources};
 use burrow_config::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
@@ -53,7 +51,16 @@ pub(super) fn check_service<'a>(
         }
     };
     check_reachable(name, svc, spans, out);
-    let target = check_target(name, svc, spans, out);
+    let target = super::entries::check_target(
+        &super::entries::Whose {
+            name,
+            client: None,
+            protocol: svc.protocol,
+            at: spans.value(&path("target")),
+        },
+        &svc.target,
+        out,
+    );
     if let (Some((_, bind_ports)), Some((_, target_ports))) = (bind, &target)
         && bind_ports != *target_ports
     {
@@ -79,17 +86,23 @@ pub(super) fn check_service<'a>(
     };
     let listed = listed_visitors(name, svc, spans, out);
     let bandwidth = bandwidth(name, svc, spans, out);
-    let clients = check_clients(name, svc, spans, out);
-    let weights = super::balance::check_weights(name, svc, spans, out);
+    let listed_clients = super::entries::check_clients(name, svc, target.as_ref(), spans, out);
     let health = health(svc);
-    check_tcp_only(name, svc, clients.len(), health.is_some(), spans, out);
+    check_tcp_only(
+        name,
+        svc,
+        listed_clients.entries.len(),
+        health.is_some(),
+        spans,
+        out,
+    );
     let (target, ports) = target?;
     if svc.bind.is_some() && bind.is_none() {
         return None;
     }
     Some(Service {
-        clients,
-        weights,
+        clients: listed_clients.names,
+        entries: listed_clients.entries,
         mode: svc.mode,
         health,
         bind: bind.map(|(a, _)| a),
@@ -223,60 +236,6 @@ fn check_tcp_only(
     }
 }
 
-fn check_clients(
-    name: &str,
-    svc: &ServiceEntry,
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) -> Vec<String> {
-    let mut clients: Vec<String> = Vec::new();
-    match (&svc.client, svc.clients.is_empty()) {
-        (Some(_), false) => out.push(
-            Diagnostic::error(
-                "client-and-clients",
-                format!("service \"{name}\" has both \"client\" and \"clients\""),
-            )
-            .at(spans.key(&["services", name, "clients"]))
-            .label("use one or the other")
-            .help("keep \"client: NAME\" for one client, or list them all under \"clients\""),
-        ),
-        (None, true) if !spans.has(&["services", name, "client"]) => out.push(
-            Diagnostic::error(
-                "missing-client",
-                format!("service \"{name}\" has no \"client\""),
-            )
-            .at(spans.key(&["services", name]))
-            .label("which client reaches the target?")
-            .help("add \"client: NAME\" with a client from \"clients:\", or \"clients: [A, B]\" for several"),
-        ),
-        _ => {}
-    }
-    let named = svc.client.iter().map(|c| (None, c.as_str()));
-    let listed = svc
-        .clients
-        .iter()
-        .enumerate()
-        .map(|(i, c)| (Some(i), c.name()));
-    for (i, c) in named.chain(listed) {
-        if clients.iter().any(|x| x == c) {
-            let at = i.map(|i| i.to_string());
-            let mut place = vec!["services", name, "clients"];
-            place.extend(at.as_deref());
-            out.push(
-                Diagnostic::error(
-                    "duplicate-client",
-                    format!("service \"{name}\" lists client \"{c}\" twice"),
-                )
-                .at(spans.value(&place))
-                .help("list each client once"),
-            );
-            continue;
-        }
-        clients.push(c.to_string());
-    }
-    clients
-}
-
 fn health(svc: &ServiceEntry) -> Option<Health> {
     let tuned = match &svc.health_check {
         None | Some(HealthCheckSetting::On(false)) => return None,
@@ -348,77 +307,6 @@ fn tcp_only(
         } else {
             d.help(format!("remove {field}:, or set protocol: tcp"))
         });
-    }
-}
-
-fn check_target(
-    name: &str,
-    svc: &ServiceEntry,
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) -> Option<(String, u16)> {
-    let text = svc.target.host_port();
-    if let Some(path) = unix::path_of(&text) {
-        return check_socket(name, svc, &text, path, spans, out);
-    }
-    let checked = if text.len() > MAX_TARGET_LEN {
-        Err(format!(
-            "\"{text}\" is longer than {MAX_TARGET_LEN} characters"
-        ))
-    } else {
-        split_target(&text).and_then(|(base, ports)| parse_host_port(&base).map(|_| (base, ports)))
-    };
-    match checked {
-        Ok(t) => Some(t),
-        Err(e) => {
-            out.push(
-                Diagnostic::error(
-                    "invalid-address",
-                    format!("invalid target for service \"{name}\": {e}"),
-                )
-                .at(spans.value(&["services", name, "target"]))
-                .label("expected host:port or a port")
-                .help("use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, a range like 30000-30010, or unix:/path/to.sock"),
-            );
-            None
-        }
-    }
-}
-
-fn check_socket(
-    name: &str,
-    svc: &ServiceEntry,
-    text: &str,
-    path: &str,
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) -> Option<(String, u16)> {
-    let at = spans.value(&["services", name, "target"]);
-    if svc.protocol != Protocol::Tcp {
-        out.push(
-            Diagnostic::error(
-                "socket-tcp-only",
-                format!("service \"{name}\" is udp, but its target is a Unix socket"),
-            )
-            .at(at)
-            .help("Unix socket targets work for tcp services only"),
-        );
-        return None;
-    }
-    match unix::check_path(path) {
-        Ok(()) => Some((text.to_string(), 1)),
-        Err(e) => {
-            out.push(
-                Diagnostic::error(
-                    "invalid-address",
-                    format!("invalid target for service \"{name}\": {e}"),
-                )
-                .at(at)
-                .label("expected unix:/absolute/path")
-                .help("use the socket's full path as seen from the client, for example unix:/var/run/postgresql/.s.PGSQL.5432"),
-            );
-            None
-        }
     }
 }
 

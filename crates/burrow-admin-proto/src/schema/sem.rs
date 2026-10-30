@@ -106,13 +106,40 @@ pub struct RefC {
     pub reserved: Vec<String>,
 }
 
+pub const WEIGHT_MAX: i64 = 1000;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RefEntriesC {
+    pub entity: Entity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reserved: Vec<String>,
+    pub target: TargetC,
+    pub weight: IntegerC,
+}
+
+impl RefEntriesC {
+    pub fn new(entity: Entity, reserved: Vec<String>) -> RefEntriesC {
+        RefEntriesC {
+            entity,
+            reserved,
+            target: TargetC {
+                ranges: true,
+                unix: true,
+            },
+            weight: IntegerC {
+                min: Some(1),
+                max: Some(WEIGHT_MAX),
+                unit: Some("shares".into()),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefListC {
     pub entity: Entity,
     #[serde(default)]
     pub ordered: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub weighted: bool,
     #[serde(default = "yes")]
     pub unique: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -302,6 +329,7 @@ sem_types! {
     Rate "rate",
     Ref "ref" (RefC),
     RefList "ref_list" (RefListC),
+    RefEntries "ref_entries" (RefEntriesC),
     RefMap "ref_map" (RefMapC),
     Name "name" (NameC),
     SecretRef "secret_ref" (SecretRefC),
@@ -364,6 +392,7 @@ impl SemType {
         match self {
             SemType::Ref(r) => &r.reserved,
             SemType::RefList(r) => &r.reserved,
+            SemType::RefEntries(r) => &r.reserved,
             SemType::RefMap(r) => &r.reserved,
             SemType::Optional(o) => o.inner.sem.reserved(),
             _ => &[],
@@ -378,6 +407,7 @@ impl SemType {
             | SemType::Union(_)
             | SemType::RefMap(_)
             | SemType::RefList(_)
+            | SemType::RefEntries(_)
             | SemType::SecretRef(_) => false,
             SemType::Optional(o) => o.inner.sem.is_scalar(),
             SemType::Unknown(u) => u.fallback.first().is_none_or(SemType::is_scalar),

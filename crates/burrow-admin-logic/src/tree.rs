@@ -95,13 +95,15 @@ fn one_of(node: &Node) -> Option<&str> {
 fn pair(object: &Node) -> Option<(&str, &str)> {
     let all = fields(object);
     all.iter().find_map(|list| {
-        let SemType::RefList(l) = &inner(&list.node).sem else {
-            return None;
+        let entity = match &inner(&list.node).sem {
+            SemType::RefList(l) => &l.entity,
+            SemType::RefEntries(l) => &l.entity,
+            _ => return None,
         };
         let group = one_of(&list.node)?;
         all.iter()
             .find_map(|single| match &inner(&single.node).sem {
-                SemType::Ref(r) if r.entity == l.entity && one_of(&single.node) == Some(group) => {
+                SemType::Ref(r) if &r.entity == entity && one_of(&single.node) == Some(group) => {
                     Some((single.key.as_str(), list.key.as_str()))
                 }
                 _ => None,

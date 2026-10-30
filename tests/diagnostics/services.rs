@@ -281,7 +281,7 @@ fn several_clients() {
        |
     17 |     clients: [home, home, ofice]
        |                     ^^^^
-       = help: list each client once
+       = help: list each client once, or give each entry its own target
 
     error: unknown client "ofice" referenced by service "c"
       --> server.yaml:17:27
@@ -334,8 +334,8 @@ fn client_weights() {
         panic!("server config loads")
     };
     assert_eq!(s.services["web"].clients, ["home", "office"]);
-    assert_eq!(s.services["web"].weight_of("office"), 3);
-    assert_eq!(s.services["web"].weight_of("home"), 1);
+    let weights: Vec<u32> = s.services["web"].entries.iter().map(|e| e.weight).collect();
+    assert_eq!(weights, [1, 3]);
     assert_eq!(s.services["db"].mode, Mode::LeastConnections);
     insta::assert_snapshot!(render("server.yaml", &server("  a:\n    clients: [home, {name: office, weight: 2}]\n    bind: 4000\n    target: 4000\n  b:\n    clients: [home, {name: office, weight: 0}]\n    mode: balance\n    bind: 4001\n    target: 4001\n  c:\n    clients: [home, {name: office, wieght: 3}]\n    mode: balance\n    bind: 4002\n    target: 4002\n  d:\n    clients: [home, {name: home, weight: 2}]\n    mode: balance\n    bind: 4003\n    target: 4003\n  e:\n    clients: [home, office]\n    mode: least_connections\n    protocol: udp\n    bind: 4004\n    target: 4004\n  f:\n    clients: [home, {name: office, weight: 2}]\n    mode: least_connections\n    bind: 4005\n    target: 4005\n  g:\n    clients: [home, {name: ofice, weight: 2}]\n    mode: balance\n    bind: 4006\n    target: 4006\n"), None), @r#"
     error: service "a" gives client "office" a weight, but weights only apply with mode: balance
@@ -357,14 +357,14 @@ fn client_weights() {
        |
     18 |     clients: [home, {name: office, wieght: 3}]
        |                                    ^^^^^^ unknown field
-       = help: did you mean "weight"? valid fields: name, weight
+       = help: did you mean "weight"? valid fields: name, target, weight
 
     error: service "d" lists client "home" twice
       --> server.yaml:23:21
        |
     23 |     clients: [home, {name: home, weight: 2}]
        |                     ^^^^^^^^^^^^^^^^^^^^^^^
-       = help: list each client once
+       = help: list each client once, or give each entry its own target
 
     error: service "e" is udp, but mode least_connections only works for tcp services
       --> server.yaml:29:11
@@ -388,6 +388,66 @@ fn client_weights() {
        = help: did you mean "office"? defined clients: home, office
 
     server.yaml: 7 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn client_targets() {
+    use burrow::config::Loaded;
+    let ok = server(
+        "  web:\n    clients: [home, {name: office, target: 10.0.0.12:3000}, {name: office, target: 10.0.0.13:3000}]\n    bind: 4000\n    target: 3000\n",
+    );
+    let o = load_str("server.yaml", &ok, Format::Yaml, None, &env);
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("server config loads")
+    };
+    let targets: Vec<Option<&str>> = s.services["web"]
+        .entries
+        .iter()
+        .map(|e| e.target.as_deref())
+        .collect();
+    assert_eq!(
+        targets,
+        [None, Some("10.0.0.12:3000"), Some("10.0.0.13:3000")]
+    );
+    assert_eq!(s.services["web"].clients, ["home", "office"]);
+    insta::assert_snapshot!(render("server.yaml", &server("  a:\n    clients: [home, {name: office, target: \"nope:\"}]\n    bind: 4000\n    target: 4000\n  b:\n    clients: [home, {name: office, target: 30000-30001}]\n    bind: 4001\n    target: 4001\n  c:\n    clients: [{name: office, target: 8080}, {name: office, target: 8080}]\n    bind: 4002\n    target: 4002\n  d:\n    clients: [office, {name: office, target: 4003}]\n    bind: 4003\n    target: 4003\n  e:\n    clients: [home, {name: office, target: unix:/run/app.sock}]\n    protocol: udp\n    bind: 4004\n    target: 4004\n"), None), @r#"
+    error: invalid target for client "office" of service "a": "" is not a valid port (1-65535)
+      --> server.yaml:9:44
+       |
+     9 |     clients: [home, {name: office, target: "nope:"}]
+       |                                            ^^^^^^^ expected host:port or a port
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, a range like 30000-30010, or unix:/path/to.sock
+
+    error: client "office" of service "b" targets 2 ports, but the service targets 1
+      --> server.yaml:13:44
+       |
+    13 |     clients: [home, {name: office, target: 30000-30001}]
+       |                                            ^^^^^^^^^^^ not the same number of ports as the service target
+       = help: give it a range of the same size as the service's, for example 30000-30010, or one port
+
+    error: service "c" lists client "office" twice with the same target
+      --> server.yaml:17:45
+       |
+    17 |     clients: [{name: office, target: 8080}, {name: office, target: 8080}]
+       |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+       = help: give each entry of the same client its own target, or list the client once
+
+    error: service "d" lists client "office" twice with the same target
+      --> server.yaml:21:23
+       |
+    21 |     clients: [office, {name: office, target: 4003}]
+       |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+       = help: give each entry of the same client its own target, or list the client once
+
+    error: service "e" is udp, but the target of client "office" is a Unix socket
+      --> server.yaml:25:44
+       |
+    25 |     clients: [home, {name: office, target: unix:/run/app.sock}]
+       |                                            ^^^^^^^^^^^^^^^^^^
+       = help: Unix socket targets work for tcp services only
+
+    server.yaml: 5 errors, 0 warnings
     "#);
 }
 

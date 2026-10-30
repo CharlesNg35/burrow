@@ -68,10 +68,12 @@ pub(crate) fn sample() -> Status {
                 bytes_out: 8_400_000_000,
                 health: vec![HealthStatus {
                     client: "home".into(),
+                    target: None,
                     up: true,
                     reason: None,
                 }],
                 set_aside: vec![],
+                entries: vec![],
                 web: vec![],
                 http: None,
             },
@@ -93,6 +95,7 @@ pub(crate) fn sample() -> Status {
                 bytes_out: 0,
                 health: vec![],
                 set_aside: vec![],
+                entries: vec![],
                 web: vec![],
                 http: None,
             },
@@ -214,6 +217,7 @@ fn clients_set_aside_say_why() {
     let web = &mut s.services[0];
     web.set_aside = vec![SetAside {
         client: "home".into(),
+        target: None,
         refused: true,
     }];
     let text = render(&s, Paint::PLAIN, None);
@@ -226,6 +230,7 @@ fn clients_set_aside_say_why() {
     let web = &mut s.services[0];
     web.health = vec![HealthStatus {
         client: "home".into(),
+        target: None,
         up: false,
         reason: None,
     }];

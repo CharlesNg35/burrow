@@ -148,7 +148,7 @@ pub(super) fn mono(v: &Value) -> AnyView {
     view! { <span class="font-mono text-sm">{plain(v)}</span> }.into_any()
 }
 
-fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
+pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
     if reserved.iter().any(|r| r == name) {
         let to = Route::Settings;
         let local = name.to_string();
@@ -229,6 +229,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         }
         SemType::Ref(c) => ref_link(&c.entity, &plain(v), &c.reserved, ctx),
         SemType::RefList(c) => ref_list_view(c, v, ctx),
+        SemType::RefEntries(c) => crate::addr::entries_view(c, node, v, ctx),
         SemType::RefMap(c) => ref_map_view(c, v, ctx),
         SemType::SecretRef(c) if c.reference && v.is_string() => {
             let shown = format!("set, from {}", plain(v));

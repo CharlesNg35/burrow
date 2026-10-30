@@ -146,6 +146,8 @@ pub struct ServiceStatus {
     #[serde(default)]
     pub set_aside: Vec<SetAside>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entries: Vec<EntryStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<HttpCounts>,
@@ -161,11 +163,24 @@ pub struct SetAside {
     pub client: String,
     #[serde(default)]
     pub refused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct EntryStatus {
+    pub client: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default)]
+    pub open: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub client: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
     #[serde(default)]
     pub up: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

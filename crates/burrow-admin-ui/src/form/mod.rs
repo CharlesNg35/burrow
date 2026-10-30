@@ -24,8 +24,8 @@ pub(crate) use cards::{SettingsCard, card_fields, settings_card, settings_cards}
 use more::{More, more_settings};
 pub use more::{PageSearch, reveal};
 use row::row;
-pub(crate) use view::server_checked;
 use view::value_view;
+pub(crate) use view::{ref_link, server_checked};
 
 const SERVICES: &str = ServiceEntry::SECTION;
 const VISITORS: &str = VisitorEntry::SECTION;
@@ -118,6 +118,7 @@ fn editing_now() -> Signal<bool> {
 fn is_wide(n: &Node) -> bool {
     match &inner(n).sem {
         SemType::RefList(_)
+        | SemType::RefEntries(_)
         | SemType::List(_)
         | SemType::RefMap(_)
         | SemType::Map(_)

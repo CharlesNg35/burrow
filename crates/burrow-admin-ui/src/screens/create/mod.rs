@@ -121,13 +121,11 @@ pub fn create_with(
             continue;
         };
         if section == ClientEntry::section() {
-            let mut names = ServiceEntry::client_names(v);
-            names.push(name.to_string());
-            let entries = ServiceEntry::keep_weights(ServiceEntry::CLIENTS.get(v), &names);
+            let mut entries = ServiceEntry::with_client(v, name);
             let client = ServiceEntry::CLIENT.of(svc);
             let clients = ServiceEntry::CLIENTS.of(svc);
-            if names.len() == 1 {
-                e.set(&client, Some(Value::String(names.remove(0))));
+            if entries.len() == 1 {
+                e.set(&client, Some(entries.remove(0)));
             } else {
                 e.set(&client, None);
                 e.set(&clients, Some(Value::Array(entries)));

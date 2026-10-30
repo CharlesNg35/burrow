@@ -588,14 +588,14 @@ fn status_json_keeps_its_exact_shape() {
             health: vec![HealthStatus {
                 client: "home".into(),
                 up: true,
-                reason: None,
+                ..HealthStatus::default()
             }],
             set_aside: vec![SetAside {
                 client: "office".into(),
                 refused: true,
+                ..SetAside::default()
             }],
-            web: vec![],
-            http: None,
+            ..ServiceStatus::default()
         }],
         visitors: vec![VisitorStatus {
             name: "laptop".into(),

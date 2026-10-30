@@ -1,80 +1,139 @@
+use std::ops::Deref;
+
 use super::standing::Seen;
 use super::via::Via;
 use super::{CountGuard, Shared};
 use crate::config::settings::Service;
 use burrow_config::Mode;
 
+#[derive(Clone)]
+pub(crate) struct Hop {
+    pub(crate) via: Via,
+    pub(crate) target: String,
+    pub(crate) base: String,
+    pub(crate) weight: u32,
+}
+
+impl Deref for Hop {
+    type Target = Via;
+
+    fn deref(&self) -> &Via {
+        &self.via
+    }
+}
+
+impl Hop {
+    pub(crate) fn direct(via: Via, target: &str) -> Hop {
+        Hop {
+            via,
+            target: target.to_string(),
+            base: target.to_string(),
+            weight: 1,
+        }
+    }
+
+    pub(super) fn key(&self) -> String {
+        entry_key(self.via.name(), &self.base)
+    }
+}
+
+pub(super) fn entry_key(client: &str, base: &str) -> String {
+    format!("{client}\u{0}{base}")
+}
+
 pub(crate) struct Picked {
-    pub(crate) vias: Vec<Via>,
+    pub(crate) hops: Vec<Hop>,
     held: Option<Held>,
 }
 
 pub(super) struct Held {
     pub(super) name: String,
+    pub(super) target: String,
     pub(super) guard: CountGuard,
+    pub(super) entry: Option<CountGuard>,
     pub(super) before: usize,
 }
 
 impl Picked {
     pub(crate) fn is_empty(&self) -> bool {
-        self.vias.is_empty()
+        self.hops.is_empty()
     }
 
-    pub(super) fn split(self) -> (Vec<Via>, Option<Held>) {
-        (self.vias, self.held)
+    pub(super) fn split(self) -> (Vec<Hop>, Option<Held>) {
+        (self.hops, self.held)
     }
 }
 
-impl From<Vec<Via>> for Picked {
-    fn from(vias: Vec<Via>) -> Self {
-        Picked { vias, held: None }
+impl From<Vec<Hop>> for Picked {
+    fn from(hops: Vec<Hop>) -> Self {
+        Picked { hops, held: None }
     }
 }
 
 impl Shared {
-    pub(crate) fn route(&self, service: &str, svc: &Service, target: &str) -> Picked {
-        let (vias, held) = self.order(service, svc, target, true);
-        Picked { vias, held }
+    pub(crate) fn route(&self, service: &str, svc: &Service, index: u16) -> Picked {
+        let (hops, held) = self.order(service, svc, index, true);
+        Picked { hops, held }
     }
 
-    pub(crate) fn pick(&self, service: &str, svc: &Service, target: &str) -> Option<Via> {
-        self.route(service, svc, target).vias.into_iter().next()
+    pub(crate) fn pick(&self, service: &str, svc: &Service, index: u16) -> Option<Hop> {
+        self.route(service, svc, index).hops.into_iter().next()
     }
 
-    pub(crate) fn preferred(&self, service: &str, svc: &Service, target: &str) -> Option<String> {
+    pub(crate) fn preferred(
+        &self,
+        service: &str,
+        svc: &Service,
+        index: u16,
+    ) -> Option<(String, String)> {
         match svc.mode {
             Mode::Failover => self
-                .order(service, svc, target, false)
+                .order(service, svc, index, false)
                 .0
                 .first()
-                .map(|s| s.name().to_string()),
+                .map(|h| (h.name().to_string(), h.target.clone())),
             Mode::Balance | Mode::LeastConnections => None,
         }
     }
 
-    pub(crate) fn has_clear(&self, service: &str, svc: &Service, target: &str) -> bool {
-        self.connected(&svc.clients).iter().any(|s| {
-            (svc.health.is_none() || self.is_up(service, s.name()))
-                && self.seen(service, s, target) == Seen::Clear
+    pub(crate) fn has_clear(&self, service: &str, svc: &Service, index: u16) -> bool {
+        self.hops(service, svc, index).iter().any(|h| {
+            (svc.health.is_none() || self.is_up(service, h.name(), &h.base))
+                && self.seen(service, h, &h.target) == Seen::Clear
         })
+    }
+
+    fn hops(&self, _service: &str, svc: &Service, index: u16) -> Vec<Hop> {
+        let sessions = self.connected(&svc.clients);
+        svc.entries()
+            .iter()
+            .filter_map(|e| {
+                let via = sessions.iter().find(|v| v.name() == e.client)?;
+                Some(Hop {
+                    via: via.clone(),
+                    target: svc.entry_target_at(e, index),
+                    base: svc.target_of(e).to_string(),
+                    weight: e.weight,
+                })
+            })
+            .collect()
     }
 
     fn order(
         &self,
         service: &str,
         svc: &Service,
-        target: &str,
+        index: u16,
         hold: bool,
-    ) -> (Vec<Via>, Option<Held>) {
-        let connected = self.connected(&svc.clients);
+    ) -> (Vec<Hop>, Option<Held>) {
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
-        for s in connected {
-            let healthy = svc.health.is_none() || self.is_up(service, s.name());
-            match self.seen(service, &s, target) {
-                Seen::Refused => refused.push(s),
-                Seen::Aside => aside.push(s),
-                Seen::Clear if healthy => clear.push(s),
-                Seen::Clear => aside.push(s),
+        for h in self.hops(service, svc, index) {
+            let healthy = svc.health.is_none() || self.is_up(service, h.name(), &h.base);
+            match self.seen(service, &h, &h.target) {
+                Seen::Refused => refused.push(h),
+                Seen::Aside => aside.push(h),
+                Seen::Clear if healthy => clear.push(h),
+                Seen::Clear => aside.push(h),
             }
         }
         let mut wheels = self.wheels.lock().expect("wheels lock");
@@ -87,32 +146,50 @@ impl Shared {
             match svc.mode {
                 Mode::Failover => {}
                 Mode::Balance => {
-                    let first = {
-                        let group: Vec<(&str, u32)> = head
-                            .iter()
-                            .map(|v| (v.name(), svc.weight_of(v.name())))
-                            .collect();
-                        wheels.turn(service, svc, &group)
-                    };
+                    let keys: Vec<String> = head.iter().map(Hop::key).collect();
+                    let group: Vec<(&str, u32)> = keys
+                        .iter()
+                        .zip(head.iter())
+                        .map(|(k, h)| (k.as_str(), h.weight))
+                        .collect();
+                    let first = wheels.turn(service, svc, &group);
                     head.rotate_left(first);
                 }
                 Mode::LeastConnections => {
-                    head.sort_by_cached_key(|v| self.client_counts.current(v.name()));
+                    head.sort_by_cached_key(|h| self.entry_count(service, h));
                 }
             }
         }
         clear.extend(aside);
         clear.extend(refused);
-        let held = clear.first().filter(|_| hold).map(|v| {
-            let (guard, before) = self.client_opens(v.name());
+        let held = clear.first().filter(|_| hold).map(|h| {
+            let (guard, before) = self.client_opens(h.name());
             Held {
-                name: v.name().to_string(),
+                name: h.name().to_string(),
+                target: h.target.clone(),
                 guard,
+                entry: Some(self.entry_opens(service, h)),
                 before,
             }
         });
         drop(wheels);
         (clear, held)
+    }
+
+    pub(super) fn entry_opens(&self, service: &str, hop: &Hop) -> CountGuard {
+        self.entry_counts
+            .enter(&format!("{service}\u{0}{}", hop.key()))
+            .0
+    }
+
+    fn entry_count(&self, service: &str, hop: &Hop) -> u64 {
+        self.entry_counts
+            .current(&format!("{service}\u{0}{}", hop.key()))
+    }
+
+    pub(super) fn entry_open(&self, service: &str, client: &str, base: &str) -> u64 {
+        self.entry_counts
+            .current(&format!("{service}\u{0}{}", entry_key(client, base)))
     }
 
     #[cfg(feature = "web")]

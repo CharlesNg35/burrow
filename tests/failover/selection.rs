@@ -67,6 +67,7 @@ fn set_aside(farm: &Farm) -> Vec<SetAside> {
 pub(super) fn aside(client: &str, refused: bool) -> SetAside {
     SetAside {
         client: client.into(),
+        target: None,
         refused,
     }
 }

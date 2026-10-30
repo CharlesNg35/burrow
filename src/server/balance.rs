@@ -12,35 +12,31 @@ struct Wheel {
 }
 
 impl Wheel {
-    fn fits(&self, svc: &Service) -> bool {
-        self.config.len() == svc.clients.len()
-            && self
-                .config
-                .iter()
-                .zip(&svc.clients)
-                .all(|((n, w), c)| n == c && *w == svc.weight_of(c))
-    }
-
-    fn of(svc: &Service) -> Wheel {
-        Wheel {
-            config: svc
-                .clients
-                .iter()
-                .map(|c| (c.clone(), svc.weight_of(c)))
-                .collect(),
-            current: HashMap::new(),
-        }
+    fn config_of(svc: &Service) -> Vec<(String, u32)> {
+        svc.entries()
+            .iter()
+            .map(|e| {
+                (
+                    super::pick::entry_key(&e.client, svc.target_of(e)),
+                    e.weight,
+                )
+            })
+            .collect()
     }
 }
 
 impl Wheels {
     pub(super) fn turn(&mut self, service: &str, svc: &Service, group: &[(&str, u32)]) -> usize {
+        let config = Wheel::config_of(svc);
         let wheel = match self.0.get_mut(service) {
-            Some(w) if w.fits(svc) => w,
+            Some(w) if w.config == config => w,
             _ => self
                 .0
                 .entry(service.to_string())
-                .insert_entry(Wheel::of(svc))
+                .insert_entry(Wheel {
+                    config,
+                    current: HashMap::new(),
+                })
                 .into_mut(),
         };
         smooth(&mut wheel.current, group)
@@ -115,9 +111,13 @@ mod tests {
     fn a_changed_weight_starts_a_new_wheel_and_removed_services_go() {
         let svc = |w: u32| Service {
             clients: vec!["a".into(), "b".into()],
-            weights: [("a".to_string(), w)]
+            entries: [("a", w), ("b", 1)]
                 .into_iter()
-                .filter(|(_, w)| *w != 1)
+                .map(|(c, weight)| crate::config::settings::Entry {
+                    client: c.into(),
+                    target: None,
+                    weight,
+                })
                 .collect(),
             ..Service::default()
         };
@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(wheels.turn("web", &svc(1), &group), 1);
         let heavy = [("a", 2), ("b", 1)];
         assert_eq!(wheels.turn("web", &svc(2), &heavy), 0);
-        assert_eq!(wheels.0["web"].config[0], ("a".to_string(), 2));
+        assert_eq!(wheels.0["web"].config[0].1, 2);
         wheels.retain(&BTreeMap::new());
         assert!(wheels.0.is_empty());
     }

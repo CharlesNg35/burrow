@@ -1,6 +1,6 @@
-mod balance;
 mod client;
 mod connection;
+mod entries;
 mod local;
 pub mod ports;
 mod server;

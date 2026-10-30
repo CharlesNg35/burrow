@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use burrow::config::settings::{Entry, Service};
 use burrow_config::Mode;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
@@ -9,7 +10,7 @@ use tokio::net::TcpStream;
 use super::common::*;
 use super::{Farm, eventually_served_by, quick_health, served_by, web};
 
-async fn held(addr: SocketAddr) -> (TcpStream, char) {
+pub(super) async fn held(addr: SocketAddr) -> (TcpStream, char) {
     let mut s = TcpStream::connect(addr).await.unwrap();
     let mut tag = [0u8; 1];
     tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut tag))
@@ -17,6 +18,17 @@ async fn held(addr: SocketAddr) -> (TcpStream, char) {
         .expect("a tag in time")
         .expect("a tag");
     (s, tag[0] as char)
+}
+
+pub(super) fn weigh(svc: &mut Service, a: u32) {
+    svc.entries = [("a", a), ("b", 1)]
+        .into_iter()
+        .map(|(client, weight)| Entry {
+            client: client.into(),
+            target: None,
+            weight,
+        })
+        .collect();
 }
 
 fn open_of(farm: &Farm, client: &str) -> u64 {
@@ -36,7 +48,7 @@ async fn settled(farm: &Farm, a: u64, b: u64) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn balance_gives_each_client_its_weight() {
     let mut svc = web(Mode::Balance, None);
-    svc.weights.insert("a".into(), 3);
+    weigh(&mut svc, 3);
     let farm = Farm::start(svc, |_| {}).await;
     let addr = farm.server.services["web"];
     let mut seen = BTreeMap::new();
@@ -102,7 +114,7 @@ async fn an_unhealthy_client_is_skipped_by_balance_and_least_connections() {
     for mode in [Mode::Balance, Mode::LeastConnections] {
         let mut svc = web(mode, quick_health());
         if mode == Mode::Balance {
-            svc.weights.insert("a".into(), 5);
+            weigh(&mut svc, 5);
         }
         let mut farm = Farm::start(svc, |_| {}).await;
         let addr = farm.server.services["web"];

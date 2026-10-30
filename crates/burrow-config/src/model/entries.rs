@@ -189,9 +189,9 @@ pub struct ServiceEntry {
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
-        description = "Several clients that can each reach the target, instead of client; see mode"
+        description = "Several clients that can each reach the target, instead of client: a name, or {name, target, weight} for its own target and its share with mode: balance; see mode"
     )]
-    #[admin(help = "Clients that can each reach the target; with two or more, Mode chooses how one is picked", ty = ref_list(client, ordered, weighted, reserved = "self"), group = who, one_of = "who")]
+    #[admin(help = "Clients that can each reach the target, each with its own target if it has one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked", ty = ref_entries(client, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<ClientRef>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(

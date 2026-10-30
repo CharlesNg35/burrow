@@ -74,3 +74,55 @@ fn what_a_v0_1_2_ui_sends_still_decodes() {
     let sent = serde_json::to_value(&e).unwrap();
     assert!(sent.get("rev").is_some() && sent.get("id").is_some());
 }
+
+const V0_1_2_TAGS: [&str; 28] = [
+    "text",
+    "integer",
+    "bool",
+    "enum",
+    "ip",
+    "port",
+    "ip_port",
+    "port_range",
+    "target",
+    "host",
+    "server_address",
+    "cidr",
+    "cidr_rule",
+    "duration",
+    "size",
+    "rate",
+    "ref",
+    "ref_list",
+    "ref_map",
+    "name",
+    "secret_ref",
+    "path",
+    "url_path",
+    "object",
+    "map",
+    "list",
+    "union",
+    "optional",
+];
+
+#[test]
+fn a_v0_1_2_ui_edits_client_entries_as_raw_yaml_and_never_as_a_list_of_names() {
+    use crate::schema::{Entity, RefEntriesC, SemType};
+    let sent = serde_json::to_value(SemType::RefEntries(RefEntriesC::new(
+        Entity::Client,
+        vec!["self".into()],
+    )))
+    .unwrap();
+    let tag = sent["t"].as_str().unwrap();
+    assert!(
+        !V0_1_2_TAGS.contains(&tag),
+        "a v0.1.2 UI must not take {tag} for a type it knows, or it would drop {{name, target, weight}} entries"
+    );
+    assert!(
+        sent.get("fallback").is_none(),
+        "no fallback: a v0.1.2 UI then edits the list as raw YAML, which the server checks"
+    );
+    let back: SemType = serde_json::from_value(sent).unwrap();
+    assert!(matches!(back, SemType::RefEntries(_)));
+}

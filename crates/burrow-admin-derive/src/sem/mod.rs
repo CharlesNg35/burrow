@@ -54,6 +54,7 @@ pub fn marker(t: &Term) -> Option<syn::Ident> {
         "rate" => "Rate",
         "ref_" => "Ref",
         "ref_list" => "RefList",
+        "ref_entries" => "RefEntries",
         "ref_map" => "RefMap",
         "name" => "Name",
         "secret_ref" => "SecretRef",
@@ -262,10 +263,14 @@ fn scalar_sem(
         "ref_list" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);
             let ordered = Term::flag(args, "ordered");
-            let weighted = Term::flag(args, "weighted");
             let max = opt_int(Term::value(args, "max").and_then(Term::as_int));
             let reserved = reserved(args);
-            quote!(#p::SemType::RefList(#p::RefListC { entity: #e, ordered: #ordered, weighted: #weighted, unique: true, max: #max, reserved: #reserved }))
+            quote!(#p::SemType::RefList(#p::RefListC { entity: #e, ordered: #ordered, unique: true, max: #max, reserved: #reserved }))
+        }
+        "ref_entries" => {
+            let e = entity(Term::positional(args).first().copied(), span, errors);
+            let reserved = reserved(args);
+            quote!(#p::SemType::RefEntries(#p::RefEntriesC::new(#e, #reserved)))
         }
         "name" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);

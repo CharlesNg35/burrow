@@ -162,9 +162,16 @@ pub struct HttpCheck {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Entry {
+    pub client: String,
+    pub target: Option<String>,
+    pub weight: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Service {
     pub clients: Vec<String>,
-    pub weights: BTreeMap<String, u32>,
+    pub entries: Vec<Entry>,
     pub mode: Mode,
     pub health: Option<Health>,
     pub bind: Option<SocketAddr>,
@@ -182,7 +189,7 @@ impl Default for Service {
     fn default() -> Self {
         Service {
             clients: Vec::new(),
-            weights: BTreeMap::new(),
+            entries: Vec::new(),
             mode: Mode::Failover,
             health: None,
             bind: None,
@@ -199,8 +206,30 @@ impl Default for Service {
 }
 
 impl Service {
-    pub fn weight_of(&self, client: &str) -> u32 {
-        self.weights.get(client).copied().unwrap_or(1)
+    pub fn entries(&self) -> Vec<Entry> {
+        if !self.entries.is_empty() {
+            return self.entries.clone();
+        }
+        self.clients
+            .iter()
+            .map(|c| Entry {
+                client: c.clone(),
+                target: None,
+                weight: 1,
+            })
+            .collect()
+    }
+
+    pub fn several(&self) -> bool {
+        self.entries.len().max(self.clients.len()) > 1
+    }
+
+    pub fn target_of<'a>(&'a self, entry: &'a Entry) -> &'a str {
+        entry.target.as_deref().unwrap_or(&self.target)
+    }
+
+    pub fn entry_target_at(&self, entry: &Entry, index: u16) -> String {
+        crate::config::check::ports::port_at(self.target_of(entry), index)
     }
 
     pub fn target_at(&self, index: u16) -> String {

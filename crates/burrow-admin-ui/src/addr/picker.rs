@@ -1,6 +1,6 @@
-use burrow_admin_proto::schema::{Entity, SemType};
+use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use burrow_ui_kit::{ComboOption, Combobox, Tone};
 use leptos::prelude::*;
 
@@ -8,7 +8,7 @@ use crate::domain::{FieldCtx, names_of, set_checked};
 use crate::format;
 use crate::store::store;
 
-fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
+pub(super) fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
     let s = store();
     let status = s.status.get();
     let local = reserved.iter().map(|n| ComboOption {
@@ -100,7 +100,14 @@ pub fn merged_partner(spath: &[String]) -> Option<String> {
 }
 
 fn as_names(v: Option<Value>) -> Vec<String> {
-    ServiceEntry::listed_names(v.as_ref())
+    match v {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect(),
+        Some(Value::String(s)) => vec![s],
+        _ => Vec::new(),
+    }
 }
 
 fn only_one(entity: &Entity) -> Vec<String> {
@@ -167,22 +174,17 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     };
     let node = fc.node.clone();
     let fc2 = fc.clone();
-    let list_path = fc.path.clone();
     let on_change = Callback::new(move |list: Vec<String>| {
-        let kept = || {
-            Value::Array(ServiceEntry::keep_weights(
-                e.value(&list_path).as_ref(),
-                &list,
-            ))
-        };
         if merged {
             let one = list.len() == 1;
             e.set(&single_path, one.then(|| Value::String(list[0].clone())));
-            set_checked(&fc2, &node, (list.len() > 1).then(kept));
+            let many = (list.len() > 1)
+                .then(|| Value::Array(list.iter().cloned().map(Value::String).collect()));
+            set_checked(&fc2, &node, many);
             return;
         }
         let v = if multi {
-            (!list.is_empty()).then(kept)
+            (!list.is_empty()).then(|| Value::Array(list.into_iter().map(Value::String).collect()))
         } else {
             list.into_iter().next().map(Value::String)
         };
@@ -198,8 +200,6 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         Entity::Visitor => Some(VisitorEntry::section()),
         _ => None,
     };
-    let weighted = multi
-        && matches!(&burrow_admin_logic::tree::inner(&fc.node).sem, SemType::RefList(c) if c.weighted);
     let can = store().can_write_now();
     let create_label = section
         .map(|s| format!("New {}…", crate::screens::create::singular(s)))
@@ -230,7 +230,6 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
                 create_label=create_label
                 on_create=on_create
             />
-            {weighted.then(|| super::weights::weights(fc.clone()))}
         </div>
     }
     .into_any()

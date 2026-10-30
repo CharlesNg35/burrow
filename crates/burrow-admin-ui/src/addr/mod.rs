@@ -1,6 +1,6 @@
+mod entries;
 mod parts;
 mod picker;
-mod weights;
 
 use burrow_admin_logic::addr;
 use burrow_admin_logic::input::to_text;
@@ -11,6 +11,7 @@ use leptos::prelude::*;
 use crate::domain::{FieldCtx, set_checked};
 use crate::store::store;
 
+pub(crate) use entries::{entries, entries_view};
 use parts::{host_control, mode_switch, network, unix_input};
 pub(crate) use picker::{merged_partner, picker};
 

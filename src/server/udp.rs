@@ -39,13 +39,14 @@ pub async fn udp_service(
             return;
         }
         let svc = config.borrow().clone();
-        let target = svc.target_at(index);
-        let Some(session) = shared.pick(&name, &svc, &target) else {
+        let Some(hop) = shared.pick(&name, &svc, index) else {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
                 _ = stop.changed() => return,
             }
         };
+        let target = hop.target.clone();
+        let session = &hop.via;
         let ch = match tokio::time::timeout(Duration::from_secs(10), session.take()).await {
             Ok(Ok(ch)) => ch,
             Ok(Err(TakeError::TooManyPending)) | Ok(Err(TakeError::Closed)) => {
@@ -53,8 +54,8 @@ pub async fn udp_service(
                 continue;
             }
             Err(_) => {
-                if svc.clients.len() > 1 {
-                    shared.troubled(&name, &session, &target, &crate::forward::no_reply());
+                if svc.several() {
+                    shared.troubled(&name, session, &target, &crate::forward::no_reply());
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 continue;
@@ -68,8 +69,9 @@ pub async fn udp_service(
             name: &name,
             svc: &svc,
             target: &target,
+            index,
         };
-        match relay(&shared, port, &session, socket.clone(), ch, config.clone()).await {
+        match relay(&shared, port, session, socket.clone(), ch, config.clone()).await {
             Ok(()) => {}
             Err(Some(status)) => {
                 if status == Status::Busy {
@@ -81,10 +83,10 @@ pub async fn udp_service(
                     &target,
                     status,
                 );
-                if svc.clients.len() > 1 {
-                    shared.troubled(&name, &session, &target, &ForwardError::Status(status));
+                if svc.several() {
+                    shared.troubled(&name, session, &target, &ForwardError::Status(status));
                 }
-                let pause = if svc.clients.len() > 1 && shared.has_clear(&name, &svc, &target) {
+                let pause = if svc.several() && shared.has_clear(&name, &svc, index) {
                     Duration::from_millis(200)
                 } else {
                     Duration::from_secs(5)
@@ -100,6 +102,7 @@ struct Port<'a> {
     name: &'a str,
     svc: &'a Service,
     target: &'a str,
+    index: u16,
 }
 
 async fn relay(
@@ -110,7 +113,12 @@ async fn relay(
     ch: crate::wire::transport::Channel,
     config: watch::Receiver<Service>,
 ) -> Result<(), Option<Status>> {
-    let Port { name, svc, target } = port;
+    let Port {
+        name,
+        svc,
+        target,
+        index,
+    } = port;
     let connect = Connect {
         protocol: Protocol::Udp,
         service: name.to_string(),
@@ -132,13 +140,13 @@ async fn relay(
                     wait.as_secs()
                 );
             }
-            if svc.clients.len() > 1 {
+            if svc.several() {
                 shared.troubled(name, session, target, &crate::forward::no_reply());
             }
             return Err(None);
         }
     };
-    if svc.clients.len() > 1 {
+    if svc.several() {
         shared.accepted(name, session.name(), target);
     }
     info!(
@@ -161,6 +169,7 @@ async fn relay(
         name,
         svc,
         target,
+        index,
         session,
         config,
         repick: tokio::time::interval(Duration::from_secs(1)),
@@ -210,6 +219,7 @@ struct PublicPort<'a> {
     name: &'a str,
     svc: &'a Service,
     target: &'a str,
+    index: u16,
     session: &'a super::via::Via,
     config: watch::Receiver<Service>,
     repick: tokio::time::Interval,
@@ -251,7 +261,7 @@ impl Hooks for PublicPort<'_> {
                 stall.as_secs()
             );
         }
-        if self.svc.clients.len() > 1 {
+        if self.svc.several() {
             self.shared.troubled(
                 self.name,
                 self.session,
@@ -274,10 +284,10 @@ impl Hooks for PublicPort<'_> {
             tokio::select! {
                 _ = self.repick.tick() => {
                     let current = self.config.borrow().clone();
-                    if let Some(preferred) = self
+                    if let Some((preferred, _)) = self
                         .shared
-                        .preferred(self.name, &current, self.target)
-                        .filter(|p| p != self.session.name())
+                        .preferred(self.name, &current, self.index)
+                        .filter(|(c, t)| c != self.session.name() || t != self.target)
                     {
                         debug!(
                             "service \"{}\": moving the UDP relay to client \"{preferred}\"",
@@ -290,6 +300,7 @@ impl Hooks for PublicPort<'_> {
                     let moved = {
                         let next = self.config.borrow();
                         next.target != self.svc.target
+                            || next.entries != self.svc.entries
                             || !next.clients.iter().any(|c| c == self.session.name())
                     };
                     if r.is_err() || moved {

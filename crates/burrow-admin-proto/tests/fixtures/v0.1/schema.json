@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:786b17c72ed53c52",
+  "hash": "b2s:55c43fb8d7205607",
   "root": {
     "label": "Server",
     "sem": {
@@ -1614,16 +1614,22 @@
                       "key": "clients",
                       "node": {
                         "label": "Clients",
-                        "help": "Clients that can each reach the target; with two or more, Mode chooses how one is picked",
+                        "help": "Clients that can each reach the target, each with its own target if it has one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked",
                         "sem": {
-                          "t": "ref_list",
+                          "t": "ref_entries",
                           "entity": "client",
-                          "ordered": true,
-                          "weighted": true,
-                          "unique": true,
                           "reserved": [
                             "self"
-                          ]
+                          ],
+                          "target": {
+                            "ranges": true,
+                            "unix": true
+                          },
+                          "weight": {
+                            "min": 1,
+                            "max": 1000,
+                            "unit": "shares"
+                          }
                         },
                         "group": "who",
                         "relations": [

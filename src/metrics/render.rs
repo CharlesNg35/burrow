@@ -346,16 +346,19 @@ mod tests {
                 health: vec![
                     HealthStatus {
                         client: "home".into(),
+                        target: None,
                         up: true,
                         reason: None,
                     },
                     HealthStatus {
                         client: "office".into(),
+                        target: None,
                         up: false,
                         reason: None,
                     },
                 ],
                 set_aside: vec![],
+                entries: vec![],
                 web: vec!["example.com".into()],
                 http: Some(burrow_admin_proto::status::HttpCounts {
                     responses: [0, 140, 3, 9, 1],

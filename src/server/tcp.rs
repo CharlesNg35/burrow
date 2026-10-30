@@ -108,7 +108,7 @@ pub(super) fn admit(
         debug!(%peer, "service \"{name}\" is at its connection limit");
         return Err(Refusal::Full);
     }
-    let clients = shared.route(name, svc, &svc.target_at(index));
+    let clients = shared.route(name, svc, index);
     if clients.is_empty() {
         stats.refused.fetch_add(1, Ordering::Relaxed);
         debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
@@ -137,19 +137,12 @@ pub(super) async fn visit(
         index,
         door,
     } = entry;
-    let target = svc.target_at(index);
     let stats = admitted.stats.clone();
     let refuse = || {
         stats.refused.fetch_add(1, Ordering::Relaxed);
     };
     let label = format!("service \"{name}\"");
-    let (first, prefix) = first_bytes(&name, &target, &svc, peer, local);
-    let opening = Opening {
-        first: &first,
-        prefix: &prefix,
-        plaintext: settings.insecure_plaintext,
-        reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
-    };
+    let prefix = proxy_prefix(&svc, peer, local);
     let limit = shared.limit(&name);
     let meter = Meter {
         limit: Some(&limit),
@@ -157,10 +150,9 @@ pub(super) async fn visit(
     };
     let way = Way {
         service: Some(&name),
-        target: &target,
         label: &label,
         peer,
-        several: svc.clients.len() > 1,
+        several: svc.several(),
     };
     let mut tries = Tries::new(&shared, &way, admitted.clients);
     let outcome = loop {
@@ -187,8 +179,15 @@ pub(super) async fn visit(
                 debug!(%peer, "service \"{name}\": {why}, closing");
                 break 'attempt Opened::Gone(None);
             }
+            let first = connect_frame(&name, &session.target);
+            let opening = Opening {
+                first: &first,
+                prefix: &prefix,
+                plaintext: settings.insecure_plaintext,
+                reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
+            };
             let forward = open_tcp(ch, &mut visitor, &opening, meter, tries.early(), || {
-                way.accepted(&shared, client)
+                way.accepted(&shared, &session)
             });
             tokio::pin!(forward);
             loop {
@@ -227,28 +226,24 @@ pub(super) async fn visit(
     }
     #[cfg(feature = "web")]
     visitor.refused(super::web::refusal(&outcome));
-    log_outcome(&shared, &label, &target, peer, outcome, refuse);
+    log_outcome(&shared, &label, peer, outcome, refuse);
 }
 
-fn first_bytes(
-    name: &str,
-    target: &str,
-    svc: &Service,
-    peer: SocketAddr,
-    local: Option<SocketAddr>,
-) -> (Vec<u8>, Vec<u8>) {
-    let first = Connect {
+fn connect_frame(name: &str, target: &str) -> Vec<u8> {
+    Connect {
         protocol: Protocol::Tcp,
         service: name.to_string(),
         target: target.to_string(),
         only: None,
     }
-    .encode();
-    let prefix = match (svc.proxy_protocol, local) {
+    .encode()
+}
+
+fn proxy_prefix(svc: &Service, peer: SocketAddr, local: Option<SocketAddr>) -> Vec<u8> {
+    match (svc.proxy_protocol, local) {
         (Some(version), Some(local)) => header(version, peer, local),
         _ => Vec::new(),
-    };
-    (first, prefix)
+    }
 }
 
 fn public_of(svc: &Service, door: &Door) -> Option<(Protocol, SocketAddr)> {
@@ -262,7 +257,6 @@ fn public_of(svc: &Service, door: &Door) -> Option<(Protocol, SocketAddr)> {
 fn log_outcome(
     shared: &Shared,
     label: &str,
-    target: &str,
     peer: SocketAddr,
     outcome: Outcome,
     refuse: impl Fn(),
@@ -275,9 +269,14 @@ fn log_outcome(
         } => debug!(%peer, "{label}: connection ended: {e}"),
         Outcome::Done {
             client,
+            target,
             result: Err(error),
-        } => log_refusal(label, &client, target, &error),
-        Outcome::Refused { client, error } => log_refusal(label, &client, target, &error),
+        } => log_refusal(label, &client, &target, &error),
+        Outcome::Refused {
+            client,
+            target,
+            error,
+        } => log_refusal(label, &client, &target, &error),
         Outcome::Full(client) => {
             debug!(%peer, "client \"{client}\" is at its connection limit");
             shared.rejected.fetch_add(1, Ordering::Relaxed);

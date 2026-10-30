@@ -80,18 +80,10 @@ pub(super) async fn serve(
     let grant = visit.grant;
     let way = Way {
         service: grant.service.as_deref(),
-        target: &grant.target,
         label: visit.label,
         peer: visit.peer,
         several: visit.several,
     };
-    let connect = Connect {
-        protocol: Protocol::Udp,
-        service: grant.service.clone().unwrap_or_default(),
-        target: grant.target.clone(),
-        only: grant.only.clone(),
-    }
-    .encode();
     let mut forbidden = false;
     let mut tries = Tries::new(shared, &way, clients);
     let outcome = loop {
@@ -114,6 +106,13 @@ pub(super) async fn serve(
             break Outcome::Gone(None);
         }
         let wait = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
+        let connect = Connect {
+            protocol: Protocol::Udp,
+            service: grant.service.clone().unwrap_or_default(),
+            target: session.target.clone(),
+            only: grant.only.clone(),
+        }
+        .encode();
         let opened = match open_udp(ch, &connect, wait).await {
             Ok(link) => link,
             Err(failed) => {
@@ -128,7 +127,7 @@ pub(super) async fn serve(
                 }
             }
         };
-        way.accepted(shared, client);
+        way.accepted(shared, &session);
         if channel
             .writer
             .send(&mut channel.stream, &[Status::Ok as u8])
@@ -147,6 +146,7 @@ pub(super) async fn serve(
         relay(shared, channel, opened, &session, &visit, meter, &allowed).await;
         break Outcome::Done {
             client: client.to_string(),
+            target: session.target.clone(),
             result: Ok(()),
         };
     };

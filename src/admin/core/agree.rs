@@ -63,6 +63,7 @@ fn cases(sem: &SemType) -> Cases {
         SemType::Rate => Cases::Values(rate_cases()),
         SemType::Ref(_) => Cases::Values(ref_cases()),
         SemType::RefList(_) => Cases::Values(ref_list_cases()),
+        SemType::RefEntries(_) => Cases::Values(ref_entries_cases()),
         SemType::ServerAddress => Cases::Values(server_address_cases()),
         SemType::Cidr => Cases::Values(cidr_cases()),
         SemType::CidrRule => Cases::Values(cidr_rule_cases()),
@@ -262,7 +263,7 @@ fn ref_cases() -> Vec<Case> {
 }
 
 fn ref_list_cases() -> Vec<Case> {
-    let mut c = at(
+    at(
         ServiceEntry::VISITORS.of("web"),
         &[
             json!(["lap"]),
@@ -271,12 +272,23 @@ fn ref_list_cases() -> Vec<Case> {
             json!(["ghost"]),
             json!("lap"),
         ],
-    );
-    c.extend(at(
-        ServiceEntry::CLIENTS.of("web"),
-        &[json!(["home", "office"]), json!(["home", "home"])],
-    ));
-    c
+    )
+}
+
+fn ref_entries_cases() -> Vec<Case> {
+    at(
+        ServiceEntry::CLIENTS.of("pool"),
+        &[
+            json!(["home", "office"]),
+            json!(["home", "home"]),
+            json!(["ghost", "home"]),
+            json!([{"name": "home", "target": 8080}, {"name": "home", "target": 8081}]),
+            json!([{"name": "home", "target": 8080}, {"name": "home", "target": 8080}]),
+            json!([{"name": "home", "target": "10.0.0.12:3000"}, "office"]),
+            json!([{"name": "home", "target": "10.0.0.12:"}, "office"]),
+            json!([{"name": "home", "weight": 0}, "office"]),
+        ],
+    )
 }
 
 fn server_address_cases() -> Vec<Case> {
@@ -403,7 +415,7 @@ fn base() -> (super::tests::World, String) {
         )
         .replace(
             "\nservices:\n",
-            "\nweb:\n  https: 8443\n\nservices:\n  nas: { client: home, target: 443, web: { hosts: [nas.example.com], tls: passthrough } }\n",
+            "\nweb:\n  https: 8443\n\nservices:\n  nas: { client: home, target: 443, web: { hosts: [nas.example.com], tls: passthrough } }\n  pool: { clients: [home, office], target: 9000, visitors: [lap] }\n",
         );
     (w, text)
 }
@@ -447,6 +459,7 @@ fn ui_ok(core: &super::Core, base: &str, case: &Case) -> bool {
     let names = match &inner(node).sem {
         SemType::Ref(r) => entity_names(schema, &doc, &r.entity),
         SemType::RefList(r) => entity_names(schema, &doc, &r.entity),
+        SemType::RefEntries(r) => entity_names(schema, &doc, &r.entity),
         _ => Vec::new(),
     };
     let mut after = doc.clone();

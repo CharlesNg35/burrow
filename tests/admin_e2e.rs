@@ -12,6 +12,8 @@ mod edit_state;
 mod editors;
 #[path = "admin_e2e/edits.rs"]
 mod edits;
+#[path = "admin_e2e/entries.rs"]
+mod entries;
 #[path = "admin_e2e/guards.rs"]
 mod guards;
 #[path = "admin_e2e/header.rs"]
@@ -44,8 +46,6 @@ mod tables;
 mod ui;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
-#[path = "admin_e2e/weights.rs"]
-mod weights;
 #[path = "admin_e2e/world.rs"]
 mod world;
 

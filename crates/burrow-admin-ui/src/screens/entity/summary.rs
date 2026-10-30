@@ -1,6 +1,7 @@
 use burrow_admin_logic::allow;
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
+use burrow_admin_proto::status::EntryStatus;
 use burrow_config::Mode;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_config::{Limits, Pool, ServerConfig};
@@ -44,6 +45,26 @@ fn since_date(secs: u64) -> String {
         d.get_hours(),
         d.get_minutes()
     )
+}
+
+fn entry_rows(
+    x: Option<&burrow_admin_proto::status::ServiceStatus>,
+    st: Option<&burrow_admin_proto::status::Status>,
+    svc: &Value,
+) -> Vec<EntryStatus> {
+    match x.map(|x| x.entries.clone()).filter(|e| !e.is_empty()) {
+        Some(listed) => listed,
+        None => clients_of(svc)
+            .into_iter()
+            .map(|c| EntryStatus {
+                open: st
+                    .and_then(|x| x.clients.iter().find(|y| y.name == c))
+                    .map_or(0, |y| y.open),
+                client: c,
+                target: None,
+            })
+            .collect(),
+    }
 }
 
 pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
@@ -119,16 +140,23 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                     .unwrap_or(Value::Null);
                 let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
                 let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
-                let rows = clients_of(&svc)
+                let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
+                let rows = listed
                     .into_iter()
-                    .map(|c| {
+                    .map(|en| {
+                        let c = en.client.clone();
+                        let t = en.target.clone();
                         let cs = st.as_ref().and_then(|x| x.clients.iter().find(|y| y.name == c)).cloned();
                         let on = cs.as_ref().is_some_and(|y| y.connected);
-                        let h = health.iter().find(|h| h.client == c).map(|h| h.up);
-                        let why = health.iter().find(|h| h.client == c).and_then(|h| h.reason.clone());
-                        let set = aside.iter().find(|a| a.client == c).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
-                        let label = c.clone();
-                        let open = format::count(cs.as_ref().map_or(0, |y| y.open));
+                        let hs = health.iter().find(|h| h.client == c && h.target == t);
+                        let h = hs.map(|h| h.up);
+                        let why = hs.and_then(|h| h.reason.clone());
+                        let set = aside.iter().find(|a| a.client == c && a.target == t).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
+                        let label = match &t {
+                            Some(t) => format!("{c} → {t}"),
+                            None => c.clone(),
+                        };
+                        let open = format::count(en.open);
                         view! {
                             <tr data-row=c.clone()>
                                 <th scope="row"><StatusDot on=on text=label/></th>
@@ -148,7 +176,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                     })
                     .collect_view();
                 let mode = match (
-                    clients_of(&svc).len() > 1,
+                    burrow_admin_logic::entries::rows(ServiceEntry::CLIENTS.get(&svc)).len() > 1,
                     ServiceEntry::MODE
                         .get(&svc)
                         .map(plain)
@@ -169,7 +197,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                 view! {
                     <div class="mb-4">
                         <Card title="Health per client" sub=mode flush=true testid="health">
-                            <Table head=vec!["Client", "Open", "~Connected from", "Health", "~Set aside"]>{rows}</Table>
+                            <Table head=vec!["Client and target", "Open", "~Connected from", "Health", "~Set aside"]>{rows}</Table>
                         </Card>
                     </div>
                 }

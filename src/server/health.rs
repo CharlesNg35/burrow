@@ -36,28 +36,53 @@ impl Default for Probe {
     }
 }
 
-pub(crate) type Probes = HashMap<(String, String), Probe>;
+pub(crate) type Probes = HashMap<(String, String, String), Probe>;
+
+fn key(service: &str, client: &str, target: &str) -> (String, String, String) {
+    (service.to_string(), client.to_string(), target.to_string())
+}
+
+fn who(client: &str, target: &str, svc: Option<&crate::config::settings::Service>) -> String {
+    match svc.filter(|s| s.target != target) {
+        Some(_) => format!("client \"{client}\" ({target})"),
+        None => format!("client \"{client}\""),
+    }
+}
 
 impl Shared {
-    pub(crate) fn is_up(&self, service: &str, client: &str) -> bool {
+    pub(crate) fn is_up(&self, service: &str, client: &str, target: &str) -> bool {
         self.probes
             .lock()
             .expect("probes lock")
-            .get(&(service.to_string(), client.to_string()))
+            .get(&key(service, client, target))
             .is_none_or(|p| p.up)
     }
 
-    pub(crate) fn health_reason(&self, service: &str, client: &str) -> Option<String> {
+    pub(crate) fn health_reason(
+        &self,
+        service: &str,
+        client: &str,
+        target: &str,
+    ) -> Option<String> {
         self.probes
             .lock()
             .expect("probes lock")
-            .get(&(service.to_string(), client.to_string()))
+            .get(&key(service, client, target))
             .and_then(|p| p.reason.clone())
     }
 
-    fn record(&self, service: &str, client: &str, failures: u32, result: Result<(), String>) {
+    fn record(
+        &self,
+        service: &str,
+        client: &str,
+        target: &str,
+        failures: u32,
+        result: Result<(), String>,
+    ) {
+        let svc = self.settings().services.get(service).cloned();
+        let who = who(client, target, svc.as_ref());
         let mut probes = self.probes.lock().expect("probes lock");
-        let Some(p) = probes.get_mut(&(service.to_string(), client.to_string())) else {
+        let Some(p) = probes.get_mut(&key(service, client, target)) else {
             return;
         };
         p.running = false;
@@ -67,7 +92,7 @@ impl Shared {
                 p.reason = None;
                 if !p.up {
                     p.up = true;
-                    info!("service \"{service}\": client \"{client}\" reaches its target again");
+                    info!("service \"{service}\": {who} reaches its target again");
                 }
             }
             Err(why) => {
@@ -75,7 +100,7 @@ impl Shared {
                 if p.up && p.fails >= failures {
                     p.up = false;
                     warn!(
-                        "service \"{service}\": client \"{client}\" is down ({why}); new connections go to the other clients"
+                        "service \"{service}\": {who} is down ({why}); new connections go to the other clients"
                     );
                 }
                 p.reason = Some(why);
@@ -101,18 +126,25 @@ pub(super) async fn run(shared: Arc<Shared>) {
         let mut due = Vec::new();
         {
             let mut probes = shared.probes.lock().expect("probes lock");
-            probes.retain(|(service, client), p| {
+            probes.retain(|(service, client, target), p| {
                 settings.services.get(service).is_some_and(|s| {
-                    s.clients.contains(client)
+                    s.entries()
+                        .iter()
+                        .any(|e| &e.client == client && s.target_of(e) == target)
                         && s.health.as_ref().is_some_and(|h| h.http == p.http)
                 })
             });
             for (name, svc) in &settings.services {
                 let Some(health) = &svc.health else { continue };
-                for client in svc.clients.iter().filter(|c| connected.contains(c)) {
-                    let client = client.clone();
+                for entry in svc
+                    .entries()
+                    .iter()
+                    .filter(|e| connected.contains(&e.client))
+                {
+                    let client = entry.client.clone();
+                    let base = svc.target_of(entry).to_string();
                     let p = probes
-                        .entry((name.clone(), client.clone()))
+                        .entry((name.clone(), client.clone(), base.clone()))
                         .or_insert_with(|| Probe {
                             http: health.http.clone(),
                             ..Probe::default()
@@ -121,7 +153,8 @@ pub(super) async fn run(shared: Arc<Shared>) {
                         p.running = true;
                         p.last = Some(Instant::now());
                         let check = Check {
-                            target: svc.target_at(0),
+                            base,
+                            target: svc.entry_target_at(entry, 0),
                             http: checks.of(name),
                             timeout: health.timeout,
                             failures: health.failures,
@@ -140,13 +173,14 @@ pub(super) async fn run(shared: Arc<Shared>) {
                         .unwrap_or_else(|_| {
                             Err(format!("no answer within {}s", check.timeout.as_secs()))
                         });
-                shared.record(&service, &client, check.failures, result);
+                shared.record(&service, &client, &check.base, check.failures, result);
             });
         }
     }
 }
 
 struct Check {
+    base: String,
     target: String,
     http: Option<Http>,
     timeout: Duration,

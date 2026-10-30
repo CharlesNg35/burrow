@@ -2,12 +2,56 @@ use std::sync::atomic::Ordering;
 
 use super::Shared;
 use super::standing::Seen;
-use crate::config::settings::WebTls;
+use crate::config::settings::{Service, WebTls};
 use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus};
-use burrow_admin_proto::status::HttpCounts;
+use burrow_admin_proto::status::{EntryStatus, HttpCounts};
 use burrow_config::SELF;
 
+type EntryRows = (Vec<HealthStatus>, Vec<SetAside>, Vec<EntryStatus>);
+
 impl Shared {
+    fn entry_rows(&self, name: &str, svc: &Service) -> EntryRows {
+        let (mut health, mut aside, mut rows) = (Vec::new(), Vec::new(), Vec::new());
+        let sessions = self.connected(&svc.clients);
+        let entries = svc.entries();
+        for e in &entries {
+            let base = svc.target_of(e);
+            if entries.len() > 1 {
+                rows.push(EntryStatus {
+                    client: e.client.clone(),
+                    target: e.target.clone(),
+                    open: self.entry_open(name, &e.client, base),
+                });
+            }
+            let Some(via) = sessions.iter().find(|v| v.name() == e.client) else {
+                continue;
+            };
+            if svc.health.is_some() {
+                health.push(HealthStatus {
+                    client: e.client.clone(),
+                    target: e.target.clone(),
+                    up: self.is_up(name, &e.client, base),
+                    reason: self.health_reason(name, &e.client, base),
+                });
+            }
+            if entries.len() < 2 {
+                continue;
+            }
+            let targets: Vec<String> = (0..svc.ports.max(1))
+                .map(|i| svc.entry_target_at(e, i))
+                .collect();
+            match self.seen_of(name, via, &targets) {
+                Seen::Clear => {}
+                seen => aside.push(SetAside {
+                    client: e.client.clone(),
+                    refused: seen == Seen::Refused,
+                    target: e.target.clone(),
+                }),
+            }
+        }
+        (health, aside, rows)
+    }
+
     fn busy_of(&self, name: &str) -> ClientStatus {
         let (busy_total, at_limit) = self.metrics.busy(name);
         ClientStatus {
@@ -67,39 +111,14 @@ impl Shared {
             .map(|(name, svc)| {
                 let stats = self.metrics.service(name);
                 let site = settings.web.as_ref().and_then(|w| w.site_of(name));
-                let health = match svc.health {
-                    Some(_) => self
-                        .connected(&svc.clients)
-                        .iter()
-                        .map(|c| HealthStatus {
-                            client: c.name().to_string(),
-                            up: self.is_up(name, c.name()),
-                            reason: self.health_reason(name, c.name()),
-                        })
-                        .collect(),
-                    None => Vec::new(),
-                };
-                let set_aside = match svc.clients.len() {
-                    0 | 1 => Vec::new(),
-                    _ => self
-                        .connected(&svc.clients)
-                        .iter()
-                        .filter_map(|s| match self.seen_any(name, s) {
-                            Seen::Clear => None,
-                            seen => Some(SetAside {
-                                client: s.name().to_string(),
-                                refused: seen == Seen::Refused,
-                            }),
-                        })
-                        .collect(),
-                };
+                let (health, set_aside, entries) = self.entry_rows(name, svc);
                 ServiceStatus {
                     name: name.clone(),
                     protocol: svc.protocol.wire().to_string(),
                     bind: svc.shown_bind(),
                     target: svc.shown_target(),
                     clients: svc.clients.clone(),
-                    mode: (svc.clients.len() > 1).then(|| svc.mode.wire().to_string()),
+                    mode: svc.several().then(|| svc.mode.wire().to_string()),
                     bandwidth: svc.bandwidth,
                     visitors: svc.visitors.clone(),
                     proxy_protocol: svc.proxy_protocol.map(|v| v.wire().to_string()),
@@ -111,6 +130,7 @@ impl Shared {
                     bytes_out: stats.traffic.outbound.load(Ordering::Relaxed),
                     health,
                     set_aside,
+                    entries,
                     web: site.map(|s| s.hosts.clone()).unwrap_or_default(),
                     http: site
                         .filter(|s| s.tls != WebTls::Passthrough)

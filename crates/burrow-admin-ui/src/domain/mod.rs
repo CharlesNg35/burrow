@@ -101,6 +101,7 @@ fn ref_names(node: &Node) -> Vec<String> {
     match &inner(node).sem {
         SemType::Ref(r) => names_of(&r.entity),
         SemType::RefList(r) => names_of(&r.entity),
+        SemType::RefEntries(r) => names_of(&r.entity),
         _ => Vec::new(),
     }
 }
@@ -164,6 +165,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::Rate => rate_editor(fc),
         SemType::Ref(r) => crate::addr::picker(fc, r.entity.clone(), false),
         SemType::RefList(r) => crate::addr::picker(fc, r.entity.clone(), true),
+        SemType::RefEntries(r) => crate::addr::entries(fc, r.clone()),
         SemType::List(l) => list_editor(fc, (*l.item).clone()),
         SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), None, (*m.value).clone()),
         SemType::Map(m) if matches!(inner(&m.value).sem, SemType::PasswordHash(_)) => {

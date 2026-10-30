@@ -190,7 +190,14 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
                 };
                 push(level, "rebinds-service", msg, confirm);
             }
-            Some(n) if n.target != svc.target || n.clients != svc.clients => {
+            Some(n)
+                if n.target != svc.target
+                    || n.clients != svc.clients
+                    || n.entries()
+                        .iter()
+                        .map(|e| &e.target)
+                        .ne(svc.entries().iter().map(|e| &e.target)) =>
+            {
                 retargeted.push(name.clone());
             }
             _ => {}

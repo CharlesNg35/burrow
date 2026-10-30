@@ -7,9 +7,7 @@ use burrow_admin_proto::value::get;
 use burrow_admin_proto::schema::Entity;
 
 use crate::field::{Entry, entity_at};
-use crate::model::{
-    ClientEntry, ServerConfig, ServiceEntry, VisitorEntry, WebSite, WeightedClient,
-};
+use crate::model::{ClientEntry, ServerConfig, ServiceClient, ServiceEntry, VisitorEntry, WebSite};
 
 pub fn rename_refs(root: &mut Value, entry: &[String], to: &str) -> Vec<Path> {
     let Some((from, parent)) = entry.split_last() else {
@@ -66,7 +64,7 @@ fn rename_in_services(root: &mut Value, section: &str, from: &str, to: &str) -> 
                         if v.as_str() == Some(from) {
                             *v = Value::String(to.to_string());
                         } else if crate::model::ref_name(v) == Some(from) {
-                            WeightedClient::NAME.set(v, Value::String(to.to_string()));
+                            ServiceClient::NAME.set(v, Value::String(to.to_string()));
                         }
                     }),
                     Some(v) if v.as_str() == Some(from) => *v = Value::String(to.to_string()),
