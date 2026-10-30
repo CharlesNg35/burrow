@@ -1,4 +1,5 @@
 mod platform;
+mod role;
 mod state;
 pub(crate) mod trust;
 
@@ -10,12 +11,13 @@ use crate::base::failure::Failure;
 use trust::binary_trusted;
 
 pub use platform::Platform;
+pub use role::Role;
 pub use state::{choose_state_dir, missing_state_folder, service_state_dir, state_dir_for};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub name: String,
-    pub role: String,
+    pub role: Role,
     pub config: PathBuf,
     pub source_config: PathBuf,
     pub env_file: Option<PathBuf>,
@@ -44,10 +46,7 @@ impl Manifest {
     }
 
     pub fn command(&self) -> &str {
-        match self.role.as_str() {
-            "visitor" => "visit",
-            role => role,
-        }
+        self.role.command()
     }
 }
 

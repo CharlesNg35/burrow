@@ -110,7 +110,7 @@ pub fn read_units(
 pub fn bare(name: &str) -> Manifest {
     Manifest {
         name: name.to_string(),
-        role: String::new(),
+        role: crate::install::Role::Client,
         config: PathBuf::new(),
         source_config: PathBuf::new(),
         env_file: None,

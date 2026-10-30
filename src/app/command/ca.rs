@@ -13,7 +13,7 @@ fn state_of(a: &CaExportArgs) -> Result<PathBuf, Failure> {
     }
     let servers: Vec<_> = crate::install::all_manifests()
         .into_iter()
-        .filter(|m| m.role == "server")
+        .filter(|m| m.role == crate::install::Role::Server)
         .filter(|m| {
             a.name
                 .as_deref()

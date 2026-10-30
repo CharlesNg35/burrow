@@ -71,7 +71,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
         name: name.clone(),
-        role: checked.role.as_str().to_string(),
+        role: checked.role,
         config: config.clone(),
         source_config: recorded_source(load_manifest(&name).ok().as_ref(), &source),
         env_file: env_file.clone(),

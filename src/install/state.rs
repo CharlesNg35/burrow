@@ -58,7 +58,7 @@ fn missing_in(config: &Path, manifests: &[Manifest]) -> Option<String> {
 
 fn installed_for<'a>(config: &Path, manifests: &'a [Manifest]) -> Option<&'a Manifest> {
     manifests.iter().find(|m| {
-        m.role == "server"
+        m.role == super::Role::Server
             && [&m.config, &m.source_config]
                 .iter()
                 .any(|c| crate::base::fs::canonical_or_same(c) == config)
@@ -110,7 +110,7 @@ mod tests {
     fn manifest(name: &str, role: &str, config: &str, source: &str) -> Manifest {
         Manifest {
             name: name.into(),
-            role: role.into(),
+            role: crate::install::Role::parse(role).unwrap(),
             config: config.into(),
             source_config: source.into(),
             env_file: None,

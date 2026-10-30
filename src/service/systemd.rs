@@ -459,7 +459,7 @@ mod tests {
         ] {
             let m = Manifest {
                 name: "burrow-home".into(),
-                role: role.into(),
+                role: crate::install::Role::parse(role).unwrap(),
                 config: "/etc/burrow/home/server.yaml".into(),
                 source_config: "/home/me/home.yaml".into(),
                 env_file: None,
@@ -492,7 +492,7 @@ mod tests {
     fn server_manifest() -> Manifest {
         Manifest {
             name: "burrow-home".into(),
-            role: "server".into(),
+            role: crate::install::Role::Server,
             config: "/etc/burrow/home/server.yaml".into(),
             source_config: "/home/me/home.yaml".into(),
             env_file: Some("/etc/burrow/home.env".into()),

@@ -254,7 +254,7 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
         Pick::Config(p) => Some(canonical(p)),
         Pick::Service(name) => {
             let m = crate::service::resolve(Some(name))?;
-            if m.role != "server" {
+            if m.role != crate::install::Role::Server {
                 return Err(Failure::usage(format!(
                     "{} is a {} service, and burrow status shows servers only",
                     m.name, m.role

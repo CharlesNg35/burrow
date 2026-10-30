@@ -7,7 +7,7 @@ use super::*;
 fn manifest(web_state: Option<&str>) -> Manifest {
     Manifest {
         name: "burrow-home".into(),
-        role: "server".into(),
+        role: crate::install::Role::Server,
         config: "/etc/burrow/home/server.yaml".into(),
         source_config: "/srv/home.yaml".into(),
         env_file: None,

@@ -395,7 +395,7 @@ mod tests {
     fn plist_runs_the_service_account_and_escapes_values() {
         let m = Manifest {
             name: "burrow-home".into(),
-            role: "client".into(),
+            role: crate::install::Role::Client,
             config: "/etc/burrow/home/server.yaml".into(),
             source_config: "/Users/me/home.yaml".into(),
             env_file: None,
@@ -425,7 +425,7 @@ mod tests {
         );
         assert!(p.contains("<string>/usr/local/bin/burrow</string>\n    <string>client</string>"));
         let visitor = Manifest {
-            role: "visitor".into(),
+            role: crate::install::Role::Visitor,
             ..m
         };
         assert!(

@@ -111,7 +111,7 @@ pub fn visitor(
     let services: Vec<Installed> = if config.is_none() && (here.is_none() || service.is_some()) {
         crate::install::all_manifests()
             .into_iter()
-            .filter(|m| m.role == "visitor")
+            .filter(|m| m.role == crate::install::Role::Visitor)
             .map(|m| Installed {
                 name: m.name,
                 config: m.config,

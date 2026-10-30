@@ -14,6 +14,7 @@ use super::scm_error;
 use crate::app::run::{Hosted, Logging};
 use crate::base::failure::Failure;
 use crate::config::env::Env;
+use crate::install::Role;
 
 static NAME: OnceLock<String> = OnceLock::new();
 static EXIT: AtomicU8 = AtomicU8::new(0);
@@ -88,9 +89,9 @@ fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Fai
         stop: Some(stop),
         env: Env::with(crate::service::read_json_env(&m)),
     };
-    match m.role.as_str() {
-        "server" => crate::app::run::server_until(&m.config, logging, Some(hosted)),
-        "visitor" => crate::app::run::visit_until(&m.config, logging, Some(hosted)),
-        _ => crate::app::run::client_until(&m.config, logging, Some(hosted)),
+    match m.role {
+        Role::Server => crate::app::run::server_until(&m.config, logging, Some(hosted)),
+        Role::Visitor => crate::app::run::visit_until(&m.config, logging, Some(hosted)),
+        Role::Client => crate::app::run::client_until(&m.config, logging, Some(hosted)),
     }
 }

@@ -9,7 +9,7 @@ use super::previous::{StartAgain, Undo, given_note, start_installed, take_over};
 use super::uninstall::differs;
 use super::uninstall::{Kept, keep_admin_copy};
 use super::*;
-use crate::install::{in_service_folder, trustworthy, writable_hint};
+use crate::install::{Role, in_service_folder, trustworthy, writable_hint};
 use std::net::SocketAddr;
 
 #[test]
@@ -528,7 +528,7 @@ fn a_put_back_that_does_not_run_either_says_so() {
 fn record(p: Platform) -> Manifest {
     Manifest {
         name: "burrow-server".into(),
-        role: "server".into(),
+        role: Role::Server,
         config: p.config_dir().join("server").join("server.yaml"),
         source_config: PathBuf::from("server.yaml"),
         env_file: Some(p.config_dir().join("server.env")),
@@ -684,7 +684,7 @@ fn the_install_command_for_a_service_is_its_installed_config() {
     );
     let client = Manifest {
         name: "burrow-home".into(),
-        role: "client".into(),
+        role: Role::Client,
         config: p.config_dir().join("home").join("client.yaml"),
         ..record(p)
     };
@@ -726,7 +726,7 @@ fn installing_from_an_installed_config_reinstalls_its_own_service() {
     let p = Platform::current();
     let home = Manifest {
         name: "burrow-home".into(),
-        role: "client".into(),
+        role: Role::Client,
         config: p.config_dir().join("home").join("client.yaml"),
         ..record(p)
     };
@@ -940,4 +940,16 @@ fn a_json_env_file_is_read_and_a_missing_or_damaged_one_is_empty() {
     assert!(read_json_env(&m).is_empty());
     m.env_file = None;
     assert!(read_json_env(&m).is_empty());
+}
+
+#[test]
+fn a_manifest_with_an_unknown_role_is_damaged() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("burrow-server.json");
+    let mut json = serde_json::to_value(record(Platform::Linux)).unwrap();
+    assert_eq!(json["role"], "server");
+    json["role"] = "sever".into();
+    std::fs::write(&path, json.to_string()).unwrap();
+    let read = crate::install::read_manifest(&path).unwrap_err();
+    assert!(read.starts_with("damaged: "), "{read}");
 }

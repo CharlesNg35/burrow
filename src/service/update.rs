@@ -380,7 +380,7 @@ mod tests {
     fn service(name: &str, binary: &Path) -> Manifest {
         Manifest {
             name: name.into(),
-            role: "client".into(),
+            role: crate::install::Role::Client,
             config: PathBuf::from("/etc/burrow/x/client.yaml"),
             source_config: PathBuf::from("/tmp/x.yaml"),
             env_file: None,
