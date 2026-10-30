@@ -389,7 +389,7 @@ fn download(
         }
         Err(e) => return Err(Failure::new(format!("cannot download {}: {e}", asset.name))),
     };
-    let got = hex(&Sha256::digest(&data));
+    let got = hex::encode(Sha256::digest(&data));
     if got != asset.sha256 {
         return Err(Failure::new(format!(
             "{} does not match its SHA-256 in SHA256SUMS (expected {}, got {got}); nothing was changed",
@@ -472,10 +472,6 @@ fn update_services_with(me: &Path) -> String {
     } else {
         format!("sudo {me} service update")
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    hex::encode(bytes)
 }
 
 fn connect_hint(url: &str, env: &dyn Fn(&str) -> Option<String>) -> String {
@@ -659,7 +655,7 @@ mod tests {
     #[test]
     fn hashes_as_lowercase_hex() {
         assert_eq!(
-            hex(&Sha256::digest(b"abc")),
+            hex::encode(Sha256::digest(b"abc")),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
     }
