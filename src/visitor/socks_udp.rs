@@ -223,8 +223,8 @@ pub(super) async fn associate(a: Association) {
                     continue;
                 }
                 locked = Some(from);
-                let header = match parse(&datagram) {
-                    Ok(h) => h,
+                let (target, head_len) = match parse(&datagram) {
+                    Ok(h) => (h.target, h.head.len()),
                     Err(e) => {
                         static BAD: Throttle = Throttle::new();
                         if let Some(more) = BAD.allow() {
@@ -235,11 +235,11 @@ pub(super) async fn associate(a: Association) {
                 };
                 last = tokio::time::Instant::now();
                 let now = last;
-                let open = destinations.get(&header.target).is_some_and(|d| {
+                let open = destinations.get(&target).is_some_and(|d| {
                     !d.done.load(Ordering::Acquire) || d.ended.is_some_and(|t| now.duration_since(t) < RETRY)
                 });
                 if !open {
-                    destinations.remove(&header.target);
+                    destinations.remove(&target);
                     if destinations.len() >= MAX_DESTINATIONS {
                         static FULL: Throttle = Throttle::new();
                         if let Some(more) = FULL.allow() {
@@ -253,16 +253,16 @@ pub(super) async fn associate(a: Association) {
                         name: name.clone(),
                         to: VisitTarget::Client {
                             client: client.clone(),
-                            target: header.target.clone(),
+                            target: target.clone(),
                         },
-                        head: header.head.to_vec(),
+                        head: datagram[..head_len].to_vec(),
                         rx,
                         relay: relay.clone(),
                         app: from,
                         live: live.clone(),
                         done: done.clone(),
                     }));
-                    destinations.insert(header.target.clone(), Destination {
+                    destinations.insert(target.clone(), Destination {
                         tx,
                         done,
                         seen: now,
@@ -270,9 +270,11 @@ pub(super) async fn associate(a: Association) {
                         _task: AbortOnDrop(task),
                     });
                 }
-                if let Some(d) = destinations.get_mut(&header.target) {
+                if let Some(d) = destinations.get_mut(&target) {
                     d.seen = now;
-                    match Queued::new(header.data.to_vec(), &budget) {
+                    let mut data = datagram;
+                    data.drain(..head_len);
+                    match Queued::new(data, &budget) {
                         Some(q) => {
                             let _ = d.tx.try_send(q);
                         }
