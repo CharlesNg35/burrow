@@ -71,4 +71,10 @@ mod tests {
         assert_eq!(label_of(&p(&["services", "web", "nope"])), None);
         assert_eq!(app_https(), "the app does its own HTTPS");
     }
+
+    #[test]
+    fn labels_say_maximum_not_max() {
+        let all = burrow_admin_proto::serde_json::to_string(root()).unwrap();
+        assert!(!all.contains("\"label\":\"Max "), "a label starts with Max");
+    }
 }

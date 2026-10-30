@@ -210,7 +210,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             <Stat label="By" value=if hand(&entry) { "hand edit".to_string() } else { who(&entry) } detail=if hand(&entry) { "written to server.yaml directly".to_string() } else { entry.from.clone() }/>
             <Stat label="When" value=format::relative(entry.at) detail=""/>
         </Stats>
-        <h3 class=label>"Diff of this change"</h3>
+        <h3 class=label>{burrow_admin_logic::wording::CHANGED_LINES}</h3>
         <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
             {move || match diff.get() {
                 None => view! { <div class="p-4"><Skeleton lines=3/></div> }.into_any(),

@@ -5,7 +5,7 @@ pub fn has_ids(welcome: Option<&Welcome>) -> bool {
     welcome.is_some_and(|w| w.has(HISTORY_IDS))
 }
 
-pub const OLDER_REPEAT: &str = "This server is older and keeps one diff per version; the newest entry with this version shows it.";
+pub const OLDER_REPEAT: &str = "This server is older and keeps the changed lines once per version; the newest entry with this version shows them.";
 
 fn local_id(rev: &str, at: u64, nth: u64) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;

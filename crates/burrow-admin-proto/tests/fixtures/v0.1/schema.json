@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:b0791ec70e42cd7b",
+  "hash": "b2s:0c11f9d7c8374161",
   "root": {
     "label": "Server",
     "sem": {
@@ -85,7 +85,7 @@
                       "key": "host",
                       "node": {
                         "label": "Name on the HTTPS port",
-                        "help": "The name that leads to the tunnel when it shares the web proxy's HTTPS port, for example tunnel.example.com",
+                        "help": "The name that leads to burrow's WebSocket listener when it shares the web proxy's HTTPS port, for example tunnel.example.com",
                         "sem": {
                           "t": "optional",
                           "inner": {
@@ -168,7 +168,7 @@
                       "key": "challenge",
                       "node": {
                         "label": "Let's Encrypt check",
-                        "help": "How Let's Encrypt checks the tunnel's own name, for example http behind a proxy that does the HTTPS",
+                        "help": "How Let's Encrypt checks that name, for example http behind a proxy that does the HTTPS",
                         "sem": {
                           "t": "optional",
                           "inner": {
@@ -223,7 +223,7 @@
                       "key": "https",
                       "node": {
                         "label": "HTTPS port",
-                        "help": "The port where websites and TLS services are reached by name, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
+                        "help": "The port where websites are reached by name, including those whose app does its own HTTPS, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
                         "sem": {
                           "t": "optional",
                           "inner": {
@@ -1813,7 +1813,7 @@
                           }
                         },
                         "group": "reach",
-                        "none_label": "Private: no public port",
+                        "none_label": "No public port",
                         "relations": [
                           {
                             "r": "cross",
@@ -3242,7 +3242,7 @@
                 {
                   "key": "max_connections_per_client",
                   "node": {
-                    "label": "Max connections per client",
+                    "label": "Maximum connections per client",
                     "help": "Connections this server forwards to one client at once, unless that client has its own Maximum connections on this server",
                     "sem": {
                       "t": "integer",
@@ -3257,7 +3257,7 @@
                 {
                   "key": "max_pending",
                   "node": {
-                    "label": "Max waiting connections",
+                    "label": "Maximum waiting connections",
                     "help": "Connections waiting for a data channel, per client",
                     "sem": {
                       "t": "integer",
@@ -3278,20 +3278,20 @@
         {
           "key": "pool",
           "node": {
-            "label": "Pool of idle channels",
+            "label": "Ready connections to clients",
             "sem": {
               "t": "object",
               "fields": [
                 {
                   "key": "min_idle",
                   "node": {
-                    "label": "Idle channels kept ready",
-                    "help": "Data channels each client keeps open in advance, so a new connection starts without a round trip",
+                    "label": "Kept ready",
+                    "help": "Spare connections each client keeps open, so a new visitor connection starts without waiting",
                     "sem": {
                       "t": "integer",
                       "min": 0,
                       "max": 1024,
-                      "unit": "channels"
+                      "unit": "connections"
                     },
                     "default": 4
                   }
@@ -3299,13 +3299,13 @@
                 {
                   "key": "max_idle",
                   "node": {
-                    "label": "Max idle channels",
-                    "help": "Most data channels each client keeps ready; the pool grows toward it when busy and shrinks when idle",
+                    "label": "Maximum kept ready",
+                    "help": "Most spare connections each client keeps; more are added when busy and dropped when idle",
                     "sem": {
                       "t": "integer",
                       "min": 1,
                       "max": 4096,
-                      "unit": "channels"
+                      "unit": "connections"
                     },
                     "default": 64
                   }
@@ -3366,7 +3366,7 @@
                   "key": "session_timeout_secs",
                   "node": {
                     "label": "Session timeout",
-                    "help": "A UDP peer that sends nothing for this long is forgotten",
+                    "help": "A UDP sender that sends nothing for this long is forgotten",
                     "sem": {
                       "t": "duration",
                       "unit": "secs",
@@ -3378,13 +3378,13 @@
                 {
                   "key": "max_peers",
                   "node": {
-                    "label": "Max UDP peers per port",
-                    "help": "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped. For example 20000; the default is 4096",
+                    "label": "Maximum UDP senders per port",
+                    "help": "Most UDP senders one service port keeps at once; a datagram from a new sender beyond it is dropped. For example 20000; the default is 4096",
                     "sem": {
                       "t": "integer",
                       "min": 1,
                       "max": 1000000,
-                      "unit": "peers"
+                      "unit": "senders"
                     },
                     "default": 4096,
                     "applies": "live"

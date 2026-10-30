@@ -151,7 +151,9 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.nav("/settings?tab=connections").await;
         let peers = "[data-schema='udp/max_peers']";
         open_more(c, "udp/max_peers").await;
-        let help = c.ui.wait_text(peers, "Max UDP peers per port", SECS).await;
+        let help =
+            c.ui.wait_text(peers, "Maximum UDP senders per port", SECS)
+                .await;
         assert!(
             help.contains("For example 20000; the default is 4096"),
             "{help}"

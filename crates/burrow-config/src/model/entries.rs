@@ -64,7 +64,6 @@ pub struct VisitorEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Maximum connections",
         help = "Open connections this visitor may have at once, for example 20; empty is unlimited",
         group = traffic,
         none_label = "Unlimited",
@@ -224,7 +223,7 @@ pub struct ServiceEntry {
         ty = ip_port(ranges, max_range = 1000),
         label = "Public address",
         group = reach,
-        none_label = "Private: no public port",
+        none_label = "No public port",
         cross(target, protocol)
     )]
     pub bind: Option<Bind>,
@@ -250,7 +249,6 @@ pub struct ServiceEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Maximum connections",
         group = access,
         none_label = "Unlimited",
         advanced

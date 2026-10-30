@@ -54,7 +54,7 @@ pub struct Limits {
     pub max_connections_per_client: u32,
     #[schemars(description = "Connections waiting for a data channel, per client")]
     #[schemars(range(min = 1))]
-    #[admin(ty = integer(unit = "connections"), label = "Max waiting connections", applies = reload)]
+    #[admin(ty = integer(unit = "connections"), label = "Maximum waiting connections", applies = reload)]
     pub max_pending: u32,
 }
 
@@ -72,20 +72,20 @@ impl Default for Limits {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
-#[admin(label = "Pool")]
+#[admin(label = "Ready connections")]
 pub struct Pool {
     #[schemars(range(max = 1024))]
     #[admin(
-        ty = integer(unit = "channels"),
-        label = "Idle channels kept ready",
-        help = "Data channels each client keeps open in advance, so a new connection starts without a round trip"
+        ty = integer(unit = "connections"),
+        label = "Kept ready",
+        help = "Spare connections each client keeps open, so a new visitor connection starts without waiting"
     )]
     pub min_idle: u32,
     #[schemars(range(min = 1, max = 4096))]
     #[admin(
-        ty = integer(unit = "channels"),
-        label = "Max idle channels",
-        help = "Most data channels each client keeps ready; the pool grows toward it when busy and shrinks when idle"
+        ty = integer(unit = "connections"),
+        label = "Maximum kept ready",
+        help = "Most spare connections each client keeps; more are added when busy and dropped when idle"
     )]
     pub max_idle: u32,
 }
@@ -137,7 +137,7 @@ pub struct UdpOptions {
     #[schemars(range(min = 1))]
     #[admin(
         label = "Session timeout",
-        help = "A UDP peer that sends nothing for this long is forgotten"
+        help = "A UDP sender that sends nothing for this long is forgotten"
     )]
     pub session_timeout_secs: u32,
     #[schemars(
@@ -146,9 +146,9 @@ pub struct UdpOptions {
         extend("x-show-default" = true)
     )]
     #[admin(
-        ty = integer(unit = "peers"),
-        label = "Max UDP peers per port",
-        help = "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped. For example 20000; the default is 4096",
+        ty = integer(unit = "senders"),
+        label = "Maximum UDP senders per port",
+        help = "Most UDP senders one service port keeps at once; a datagram from a new sender beyond it is dropped. For example 20000; the default is 4096",
         applies = live
     )]
     pub max_peers: u32,

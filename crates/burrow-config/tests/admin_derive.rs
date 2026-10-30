@@ -13,7 +13,7 @@ const FAIL: &[(&str, &[&str])] = &[
     (
         "redundant_label",
         &[
-            "redundant label: \"Max visitors\" is already derived from the name",
+            "redundant label: \"Maximum visitors\" is already derived from the name",
             "redundant label: \"v1\" is already derived from the name",
         ],
     ),

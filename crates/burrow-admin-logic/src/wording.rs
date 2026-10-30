@@ -24,7 +24,7 @@ const TCP_ONLY: [(&str, &str); 5] = [
     ),
     (
         MAX_CONNECTIONS_TCP_ONLY,
-        "Maximum connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Max UDP peers per port under Settings limits the peers of each port)",
+        "Maximum connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Maximum UDP senders per port under Settings limits the senders of each port)",
     ),
     (
         BALANCE_TCP_ONLY,
@@ -88,6 +88,13 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 }
 
 pub const NOT_SET: &str = "not set";
+pub const UDP_SENDERS: &str = "UDP senders";
+pub const CHANGED_LINES: &str = "What changed in server.yaml";
+
+pub fn diff_head(added: usize, removed: usize, hidden: bool) -> String {
+    let secrets = if hidden { " · secrets hidden" } else { "" };
+    format!("{added} added, {removed} removed{secrets}")
+}
 pub const WRITTEN_AS: &str = "Saved as";
 pub const CONNECT_PLACEHOLDER: &str = "SERVER_ADDRESS";
 
@@ -342,6 +349,10 @@ mod tests {
         assert_eq!(version_name(Some("15:47:12")), "version of 15:47:12");
         assert_eq!(version_name(None), "version (time unknown)");
         assert_eq!(
+            diff_head(11, 3, true),
+            "11 added, 3 removed · secrets hidden"
+        );
+        assert_eq!(
             rewritten("Services", "a list of mappings"),
             "burrow rewrites Services in server.yaml in its own layout, because the new value cannot keep the old short form. Comments in that part are lost."
         );
@@ -486,7 +497,7 @@ mod tests {
             (
                 MAX_CONNECTIONS_TCP_ONLY,
                 "service \"web\" is udp, but max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
-                "Maximum connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Max UDP peers per port under Settings limits the peers of each port)",
+                "Maximum connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Maximum UDP senders per port under Settings limits the senders of each port)",
             ),
             (
                 BALANCE_TCP_ONLY,

@@ -298,13 +298,13 @@ fn diff_section(
     let secrets_in_diff = plan.secrets_in_diff.is_empty();
     view! {
     <div class="mb-2 flex items-center gap-2">
-        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">"server.yaml"</h3>
-        <span class="text-xs text-text-muted">{format!("+{added} −{removed}{}", if secrets_in_diff { "" } else { " · secrets masked" })}</span>
+        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{burrow_admin_logic::wording::CHANGED_LINES}</h3>
+        <span class="text-xs text-text-muted">{burrow_admin_logic::wording::diff_head(added, removed, !secrets_in_diff)}</span>
         <span class="ml-auto"></span>
         <Segmented
             name="diff-mode"
-            label="Diff layout"
-            options=vec![("unified".to_string(), "Unified".to_string(), false), ("split".to_string(), "Split".to_string(), false)]
+            label="Show the changed lines"
+            options=vec![("unified".to_string(), "One column".to_string(), false), ("split".to_string(), "Side by side".to_string(), false)]
             value=Signal::derive(move || if split.get() { "split".to_string() } else { "unified".to_string() })
             on_change=Callback::new(move |v: String| split.set(v == "split"))
         />

@@ -117,7 +117,7 @@ pub struct ServerConfig {
     #[admin(group = limits, advanced)]
     pub limits: Limits,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "Pool of idle channels", group = network, applies = reload, advanced)]
+    #[admin(label = "Ready connections to clients", group = network, applies = reload, advanced)]
     pub pool: Pool,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(label = "TCP", group = network, applies = live, advanced)]
@@ -169,7 +169,7 @@ pub struct WebSocketConfig {
     #[admin(
         ty = host_name,
         label = "Name on the HTTPS port",
-        help = "The name that leads to the tunnel when it shares the web proxy's HTTPS port, for example tunnel.example.com",
+        help = "The name that leads to burrow's WebSocket listener when it shares the web proxy's HTTPS port, for example tunnel.example.com",
         none_label = "Not shared"
     )]
     pub host: Option<String>,
@@ -195,7 +195,7 @@ pub struct WebSocketConfig {
     )]
     #[admin(
         label = "Let's Encrypt check",
-        help = "How Let's Encrypt checks the tunnel's own name, for example http behind a proxy that does the HTTPS",
+        help = "How Let's Encrypt checks that name, for example http behind a proxy that does the HTTPS",
         none_label = "Automatic",
         advanced
     )]

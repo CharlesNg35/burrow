@@ -291,7 +291,7 @@ mod tests {
         );
         assert_eq!(
             place_of(&root, &p(&["pool", "min_idle"])),
-            "Pool of idle channels · Idle channels kept ready"
+            "Ready connections to clients · Kept ready"
         );
         assert_eq!(place_of(&root, &p(&["nonsense"])), "nonsense");
     }

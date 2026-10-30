@@ -29,7 +29,7 @@ fn pool_range(doc: &Value) -> String {
         .get(doc)
         .and_then(Value::as_u64)
         .unwrap_or(u64::from(d.max_idle));
-    format!("{min} to {max} kept ready")
+    format!("keeps {min} to {max}")
 }
 
 fn since_date(secs: u64) -> String {
@@ -94,10 +94,12 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                     })
                     .unwrap_or(u64::from(Limits::default().max_connections_per_client));
                 let connected = c.as_ref().and_then(|c| c.connected_secs);
+                let ready_label =
+                    <burrow_config::Pool as burrow_config::admin_schema::AdminSchema>::node().label;
                 view! {
                     <Stats testid="live">
                         <Stat label="Open" value=c.as_ref().map(|c| format::count(c.open)).unwrap_or_else(|| "0".into()) detail=if c.as_ref().is_some_and(|c| c.at_limit) { "at the client's own limit".to_string() } else { format!("max {}", format::count(max)) }/>
-                        <Stat label="Idle channels" value=c.as_ref().map(|c| c.idle_channels.to_string()).unwrap_or_else(|| "0".into()) detail=pool_range(&doc)/>
+                        <Stat label={ready_label.clone()} value=c.as_ref().map(|c| c.idle_channels.to_string()).unwrap_or_else(|| "0".into()) detail=pool_range(&doc)/>
                         <Stat
                             label="Connected"
                             value=connected.map(format::span).unwrap_or_else(|| "—".into())

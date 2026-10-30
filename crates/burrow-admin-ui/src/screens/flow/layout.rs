@@ -288,7 +288,7 @@ fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize
         title: "this server".into(),
         right: String::new(),
         sub: format!(
-            "{}\n{total_open} open\n{rate} {unit} in\n{} UDP peers",
+            "{}\n{total_open} open\n{rate} {unit} in\n{} {}",
             status
                 .map(|s| s
                     .listening
@@ -297,7 +297,8 @@ fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize
                     .collect::<Vec<_>>()
                     .join(" · "))
                 .unwrap_or_default(),
-            status.map(|s| s.udp_peers).unwrap_or(0)
+            status.map(|s| s.udp_peers).unwrap_or(0),
+            burrow_admin_logic::wording::UDP_SENDERS
         ),
         badge: None,
         health: Health::Unknown,

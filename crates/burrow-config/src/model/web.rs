@@ -20,7 +20,7 @@ pub struct WebConfig {
     #[admin(
         ty = ip_port(default_ip = "::"),
         label = "HTTPS port",
-        help = "The port where websites and TLS services are reached by name, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
+        help = "The port where websites are reached by name, including those whose app does its own HTTPS, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
         none_label = "No HTTPS port"
     )]
     pub https: Option<Bind>,
