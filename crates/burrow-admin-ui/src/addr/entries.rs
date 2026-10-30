@@ -293,9 +293,7 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
                     <div class="min-w-0 max-w-[280px] flex-1">
                         <TextInput id=target_id.clone() value=target on_input=set_target mono=true placeholder=service_target.clone() label="Own target"/>
                     </div>
-                    <button type="button" class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3 hover:text-text" aria-label="Use the main target" title="Use the main target" data-testid="own-target-clear" on:click=clear.clone()>
-                        <burrow_ui_kit::Icon name="x" small=true/>
-                    </button>
+                    <burrow_ui_kit::IconButton icon="x" label="Use the main target" testid="own-target-clear" on_click=clear.clone()/>
                 </div>
             })}
             {move || problem().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}

@@ -21,9 +21,9 @@ mod toast;
 
 pub use bar::{StickyBar, bar_status};
 pub use basic::{
-    Button, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, MENU_ITEM, MONO, Mono, Muted,
-    PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, TabMark, Table, Tabs, Tag,
-    Tone, button_class, card_head, chip_class, menu_class,
+    Button, Card, Chip, Fact, Facts, IconButton, Kbd, Kpi, LABEL, LINK, LockLine, MENU_ITEM, MONO,
+    Mono, Muted, PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, TabMark,
+    Table, Tabs, Tag, Tone, button_class, card_head, chip_class, menu_class,
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};

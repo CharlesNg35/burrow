@@ -163,6 +163,27 @@ pub fn SpinDot() -> impl IntoView {
 }
 
 #[component]
+pub fn IconButton(
+    icon: &'static str,
+    #[prop(into)] label: String,
+    #[prop(optional)] testid: &'static str,
+    #[prop(into)] on_click: Callback<()>,
+) -> impl IntoView {
+    view! {
+        <button
+            type="button"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3 hover:text-text"
+            aria-label=label.clone()
+            title=label
+            data-testid=(!testid.is_empty()).then_some(testid)
+            on:click=move |_| on_click.run(())
+        >
+            <Icon name=icon small=true/>
+        </button>
+    }
+}
+
+#[component]
 pub fn Tag(
     #[prop(into)] text: Signal<String>,
     #[prop(optional)] tone: Tone,

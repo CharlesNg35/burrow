@@ -178,16 +178,7 @@ pub(super) fn map_editor(
                     <div class="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-start gap-2 py-1" data-key=k.clone()>
                         <div class="flex min-w-0 items-center gap-0.5 pt-1.5">
                             <span class="truncate font-mono text-sm">{label}</span>
-                            <button
-                                type="button"
-                                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-text-muted hover:bg-surface-3 hover:text-text"
-                                aria-label=format!("Remove {k}")
-                                title=format!("Remove {k}")
-                                data-testid="remove-key"
-                                on:click=move |_| e.remove_pruned(&p)
-                            >
-                                <burrow_ui_kit::Icon name="x" small=true/>
-                            </button>
+                            <burrow_ui_kit::IconButton icon="x" label=format!("Remove {k}") testid="remove-key" on_click=move |_| e.remove_pruned(&p)/>
                             {rename}
                         </div>
                         <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::keyed::string_editor(sub) } else { editor(sub) }}</div>
