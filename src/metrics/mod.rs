@@ -142,6 +142,30 @@ impl Metrics {
             })
     }
 
+    pub fn retain<S, V, C>(
+        &self,
+        services: &std::collections::BTreeMap<String, S>,
+        visitors: &std::collections::BTreeMap<String, V>,
+        clients: &std::collections::BTreeMap<String, C>,
+    ) {
+        self.services
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, s| Arc::strong_count(s) > 1 || services.contains_key(n));
+        self.visitors
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, s| Arc::strong_count(s) > 1 || visitors.contains_key(n));
+        self.left
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, _| clients.contains_key(n));
+        self.busy
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, _| clients.contains_key(n));
+    }
+
     pub fn uptime_secs(&self) -> u64 {
         self.started.elapsed().as_secs()
     }
@@ -164,6 +188,34 @@ pub use burrow_admin_proto::status::{
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_no_longer_configured_are_forgotten_unless_in_use() {
+        let m = Metrics::default();
+        let held = m.service("old");
+        m.service("gone").total.fetch_add(1, Ordering::Relaxed);
+        m.visitor("ops");
+        m.visitor("former");
+        m.client_left("home");
+        m.client_left("before");
+        m.client_busy("before");
+        let named = |names: &[&str]| -> std::collections::BTreeMap<String, ()> {
+            names.iter().map(|n| (n.to_string(), ())).collect()
+        };
+        m.retain(&named(&[]), &named(&["ops"]), &named(&["home"]));
+        let services = m.services.lock().unwrap();
+        assert!(services.contains_key("old") && !services.contains_key("gone"));
+        drop(services);
+        let visitors = m.visitors.lock().unwrap();
+        assert!(visitors.contains_key("ops") && !visitors.contains_key("former"));
+        drop(visitors);
+        assert!(m.left_secs_ago("home").is_some());
+        assert_eq!(m.left_secs_ago("before"), None);
+        assert_eq!(m.busy("before"), (0, false));
+        drop(held);
+        m.retain(&named(&[]), &named(&["ops"]), &named(&["home"]));
+        assert!(m.services.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn web_responses_are_counted_by_status_class() {

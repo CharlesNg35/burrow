@@ -116,6 +116,13 @@ impl Counts {
         (CountGuard(count), before)
     }
 
+    fn retain(&self, keep: impl Fn(&str) -> bool) {
+        self.0
+            .lock()
+            .expect("counts lock")
+            .retain(|name, c| Arc::strong_count(c) > 1 || keep(name));
+    }
+
     fn current(&self, name: &str) -> u64 {
         self.0
             .lock()
@@ -173,6 +180,14 @@ impl Shared {
             .expect("wheels lock")
             .retain(&settings.services);
         self.entry_counts.prune(&settings.services);
+        self.service_counts
+            .retain(|n| settings.services.contains_key(n));
+        self.visitor_counts
+            .retain(|n| settings.visitors.contains_key(n));
+        self.client_counts
+            .retain(|n| n == burrow_config::SELF || settings.clients.contains_key(n));
+        self.metrics
+            .retain(&settings.services, &settings.visitors, &settings.clients);
         let mut limits = self.limits.lock().expect("limits lock");
         limits.retain(|name, _| settings.services.contains_key(name));
         for (name, limit) in limits.iter() {
@@ -372,6 +387,19 @@ impl Server {
 mod tests {
     use super::*;
     use burrow_config::Protocol;
+
+    #[test]
+    fn a_count_for_a_name_no_longer_configured_goes_once_nothing_holds_it() {
+        let counts = Counts::default();
+        let (guard, _) = counts.enter("old");
+        counts.enter("kept");
+        counts.retain(|n| n == "kept");
+        assert_eq!(counts.current("old"), 1, "an open connection keeps it");
+        drop(guard);
+        counts.retain(|n| n == "kept");
+        assert!(!counts.0.lock().unwrap().contains_key("old"));
+        assert!(counts.0.lock().unwrap().contains_key("kept"));
+    }
 
     #[test]
     fn busy_port_hint_names_the_platform_tool_and_the_protocol() {
