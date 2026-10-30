@@ -272,6 +272,7 @@ tree() {
 interrupted() {
   local job="$1"
   shift
+  rm -f "$WORK/hup.out"
   "$@" > "$WORK/hup.out" 2>&1 &
   local fg=$!
   for _ in $(seq 1 500); do grep -q "in the background" "$WORK/hup.out" && break; sleep 0.02; done
