@@ -45,6 +45,12 @@ async fn at_most_eight(c: &mut Ctx, tab: &str, table: &str, total: usize) -> Vec
         )
         .await;
     assert_eq!(all, format!("View all {total} →"));
+    assert_eq!(
+        c.ui.count("[data-testid=overview-tabs] [data-testid=overview-open]")
+            .await,
+        0,
+        "one link to the list: the footer's View all"
+    );
     shown
 }
 

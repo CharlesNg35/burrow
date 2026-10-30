@@ -102,13 +102,33 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
             />
         }
     };
+    let total = move |t: &'static str| match t {
+        WEBSITES => s.status.with(|st| {
+            st.as_ref()
+                .and_then(|st| st.web.as_ref())
+                .map_or(0, |w| w.hosts.len())
+        }),
+        CERTIFICATES => {
+            let now = (s.now.get() / 1000.0) as u64;
+            s.status.with(|st| {
+                st.as_deref()
+                    .map_or(0, |st| burrow_admin_logic::certs::rows(st, now).len())
+            })
+        }
+        t => super::names(&values.get(), t).len(),
+    };
     let open = move || {
         let t = shown.get();
-        let rates = entity_of_section(t).is_some().then_some("current rates · ");
+        let cut = total(t) > burrow_admin_logic::top::ROWS;
+        let rates = entity_of_section(t).is_some().then_some(if cut {
+            "current rates"
+        } else {
+            "current rates · "
+        });
         let (to, query, label) = open_link(t);
         view! {
             {rates}
-            <Link to=to query=query class="font-semibold text-accent-ink no-underline hover:underline" testid="overview-open">{label}</Link>
+            {(!cut).then(|| view! { <Link to=to query=query class="font-semibold text-accent-ink no-underline hover:underline" testid="overview-open">{label}</Link> })}
         }
     };
     let panel = move || match (shown.get(), entity_of_section(shown.get())) {
