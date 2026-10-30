@@ -127,7 +127,10 @@ fn labelled(id: &'static str, label: &'static str, body: AnyView) -> impl IntoVi
 pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
     let e = store().edit;
     let d = Draft::new();
-    Effect::new(move |_| d.fill(&open.get()));
+    Effect::new(move |_| {
+        let now = open.get();
+        untrack(|| d.fill(&now));
+    });
     let shown = crate::app::shown_while(open, |o| *o != Open::Closed, |o| *o = Open::Closed);
     let adding = Signal::derive(move || open.get() == Open::Add);
     let name_problem = Signal::derive(move || {

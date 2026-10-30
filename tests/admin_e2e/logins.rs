@@ -52,6 +52,34 @@ async fn the_cards_say_what_each_one_does(c: &mut Ctx) {
     both_widths(c, "login-services-view").await;
 }
 
+async fn typing_survives_a_rebase(c: &mut Ctx) {
+    edit_mode(c).await;
+    menu(c, "authelia", "login-edit").await;
+    c.ui.wait_for("[data-testid=login-dialog] #login-path", SECS)
+        .await;
+    c.ui.fill("#login-path", "/typed/by/hand").await;
+    c.world
+        .hand_edit(|t| t.replace("    target: 8080\n", "    target: 8081\n"));
+    c.ui.wait_text(
+        "[data-testid=toasts]",
+        "Config changed",
+        std::time::Duration::from_secs(20),
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let path: String =
+        c.ui.eval("document.getElementById('login-path').value")
+            .await;
+    assert_eq!(
+        path, "/typed/by/hand",
+        "the open dialog keeps what was typed when the clean draft is re-based"
+    );
+    c.ui.click("[data-testid=login-dialog] button[aria-label=Close]")
+        .await;
+    c.ui.wait_gone("[data-testid=login-dialog]", SECS).await;
+    c.ui.click("[data-testid=discard-edit]").await;
+}
+
 async fn add_from_a_preset(c: &mut Ctx) {
     edit_mode(c).await;
     c.ui.click("[data-testid=login-add]").await;
@@ -153,6 +181,7 @@ fn logins(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         the_cards_say_what_each_one_does(c).await;
+        typing_survives_a_rebase(c).await;
         add_from_a_preset(c).await;
         remove_warns_and_rename_follows(c).await;
         the_site_picks_one(c).await;
