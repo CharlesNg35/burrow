@@ -174,6 +174,7 @@ services:
 - `crl` holds the CA's revocation lists, PEM or DER: a device listed there is refused. burrow reads the file again when it changes. If the file breaks, the last good list stays, with a warning in `burrow status`. A list past its next-update date still applies, with a warning, so a late publish never locks every device out. Validate refuses a list another CA signed, and an old version 1 list.
 - Every name of the site asks for a certificate. A name under a wildcard takes the wildcard's `client_auth` only when it has no site of its own. Each request must ask for the name of its connection (`421` otherwise), so a visitor cannot open an unprotected name and then ask for a protected one on the same connection.
 - `client_auth` is refused on the tunnel's name: burrow clients have no device certificate.
+- A site with `client_auth` is never served over plain HTTP. On `web.http` its names always get the redirect to `https://` (or the page that says the certificate is on its way), whatever `https_redirect` says, and also when a trusted proxy sends `X-Forwarded-Proto: https`: burrow cannot see a device certificate that was checked somewhere else. Validate refuses `client_auth` together with `https_redirect: false`, on the site or for all sites.
 - A revoked device's connections that are already open stay open until they close.
 
 ### Your own device CA

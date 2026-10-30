@@ -134,6 +134,47 @@ fn device_certificates_need_https_their_files_and_a_name_without_the_tunnel() {
 }
 
 #[test]
+fn device_certificates_refuse_https_redirect_false_on_the_site_or_for_all_sites() {
+    let site = |extra: &str| {
+        svc(
+            "nas",
+            &format!("{{ hosts: [nas.example.com], client_auth: {{ ca: ca.pem }}{extra} }}"),
+        )
+    };
+    let refusal = |from: &str| {
+        format!(
+            "services.nas.web.client_auth: {from} would serve this site over plain http:// too, where no device certificate can be asked; remove https_redirect: false, or remove client_auth"
+        )
+    };
+    let own = errs("", &site(", https_redirect: false"));
+    assert!(own.contains(&refusal("https_redirect: false")), "{own:#?}");
+    let all = errs("  https_redirect: false\n", &site(""));
+    assert!(
+        all.contains(&refusal("web.https_redirect: false")),
+        "{all:#?}"
+    );
+    for (top, extra) in [
+        ("", ""),
+        ("", ", https_redirect: true"),
+        ("  https_redirect: false\n", ", https_redirect: true"),
+    ] {
+        let found = errs(top, &site(extra));
+        assert!(
+            !found.iter().any(|e| e.contains("would serve this site")),
+            "{top}{extra}: {found:#?}"
+        );
+    }
+    let open = errs(
+        "",
+        &svc(
+            "blog",
+            "{ hosts: [blog.example.com], https_redirect: false }",
+        ),
+    );
+    assert_eq!(open, Vec::<String>::new());
+}
+
+#[test]
 fn a_device_ca_must_be_a_ca_certificate() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("ca.pem"), "not a certificate").unwrap();

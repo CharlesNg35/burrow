@@ -121,24 +121,18 @@ fn on_plain<U: Upstream>(
         let trusted = &table.forwarding.trusted_proxies;
         forwarded::client(conn.peer, req.headers(), trusted, false).https
     };
+    let devices_only = table.client_auth(host).is_some();
+    let served_plain = |redirect: bool| !devices_only && (!redirect || proxied_https());
     match table.kind(host) {
-        Some(Kind::Plain {
-            redirect: false, ..
-        }) => None,
-        Some(Kind::Plain { redirect: true, .. }) if proxied_https() => None,
-        Some(Kind::Plain { redirect: true, .. }) => Some(to_https(host, None, req)),
-        Some(
-            k @ Kind::Http {
-                redirect: false, ..
-            },
-        ) if !k.only_tunnel() => None,
-        Some(k @ Kind::Http { redirect: true, .. }) if !k.only_tunnel() && proxied_https() => None,
-        Some(k @ Kind::Http { redirect: true, .. }) if !k.only_tunnel() => {
-            Some(match shared.certs.state(host) {
-                CertState::Ready => to_https(host, shared.https_port, req),
-                CertState::Pending | CertState::Failing => Page::Pending.response(),
-            })
+        Some(Kind::Plain { redirect, .. }) if served_plain(*redirect) => None,
+        Some(Kind::Plain { .. }) if !devices_only => Some(to_https(host, None, req)),
+        Some(k @ Kind::Http { redirect, .. }) if !k.only_tunnel() && served_plain(*redirect) => {
+            None
         }
+        Some(k @ Kind::Http { .. }) if !k.only_tunnel() => Some(match shared.certs.state(host) {
+            CertState::Ready => to_https(host, shared.https_port, req),
+            CertState::Pending | CertState::Failing => Page::Pending.response(),
+        }),
         _ => Some(Page::NotFound.response()),
     }
 }

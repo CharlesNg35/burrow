@@ -96,7 +96,7 @@ services:
 | `passthrough` | The app does its own HTTPS. burrow only reads the name and passes the encrypted bytes on. |
 | `off` | No HTTPS: the site is plain HTTP on `web.http`. The default without `web.https`. |
 
-`https_redirect` decides what an HTTPS site does on `web.http`. `true`, the default, sends visitors to the same address on `https://` with a permanent redirect (308); `false` answers plain HTTP too. Set it for every site under `web:`, or per site.
+`https_redirect` decides what an HTTPS site does on `web.http`. `true`, the default, sends visitors to the same address on `https://` with a permanent redirect (308); `false` answers plain HTTP too. Set it for every site under `web:`, or per site. A site with device certificates (`client_auth`) always redirects ([Device certificates](web/access.md#device-certificates)).
 
 The names of a site follow these rules:
 

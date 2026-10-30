@@ -59,7 +59,38 @@ pub(super) fn check_access(
         passwords(name, site, served, &at, out);
         super::logins::forward(cfg, name, site, served, &at, out);
         client_auth(name, site, served, tunnel, base_dir, &at, out);
+        if served != Served::Plain {
+            devices_on_port_80(cfg, name, site, &at, out);
+        }
     }
+}
+
+fn devices_on_port_80(
+    cfg: &ServerConfig,
+    name: &str,
+    site: &WebSite,
+    at: &At<'_>,
+    out: &mut Vec<Diagnostic>,
+) {
+    let fallback = cfg.web.as_ref().and_then(|w| w.https_redirect);
+    if site.client_auth.is_none() || site.https_redirect.or(fallback) != Some(false) {
+        return;
+    }
+    let from = if site.https_redirect.is_some() {
+        "https_redirect: false"
+    } else {
+        "web.https_redirect: false"
+    };
+    out.push(
+        Diagnostic::error(
+            "client-auth",
+            format!(
+                "services.{name}.web.client_auth: {from} would serve this site over plain http:// too, where no device certificate can be asked; remove https_redirect: false, or remove client_auth"
+            ),
+        )
+        .at(at.key(&["client_auth"]))
+        .help("device certificates are checked in the HTTPS handshake, so port 80 always sends this site to https://"),
+    );
 }
 
 fn loopback(bind: &Bind) -> bool {

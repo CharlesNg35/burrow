@@ -394,3 +394,80 @@ async fn a_reload_reads_client_auth_files_off_the_async_workers() {
         "a task ran while the file was being read"
     );
 }
+
+async fn on_port_80(sites: Vec<Site>, trusted: bool) -> (burrow_web::Proxy<Fake>, HttpBackend) {
+    let app = http_backend().await;
+    let (up, _) = Fake::new(4);
+    for s in &sites {
+        up.serve(&s.service, app.addr);
+    }
+    let proxy = start_with(
+        |s| {
+            s.sites = sites;
+            if trusted {
+                s.forwarding.trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
+            }
+        },
+        up,
+        fixed(&["*.example.com"]),
+        true,
+    )
+    .await;
+    (proxy, app)
+}
+
+fn plain_get(host: &str, extra: &str) -> String {
+    format!("GET /x HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n")
+}
+
+#[tokio::test]
+async fn a_protected_site_is_never_served_on_port_80_even_with_https_redirect_false() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = files(dir.path(), &device_ca("Devices CA", None), None);
+    let (proxy, app) = on_port_80(
+        vec![
+            Site {
+                https_redirect: false,
+                ..protected("nas", &["nas.example.com"], &key)
+            },
+            Site {
+                https_redirect: false,
+                ..https_site("blog", &["blog.example.com"])
+            },
+        ],
+        false,
+    )
+    .await;
+    let http = proxy.http_addr().unwrap();
+    let https = proxy.https_addr().unwrap().port();
+    let r = over_plain(http, &plain_get("nas.example.com", "")).await;
+    assert!(r.starts_with("HTTP/1.1 308"), "{r}");
+    let want = format!("location: https://nas.example.com:{https}/x\r\n");
+    assert!(r.to_ascii_lowercase().contains(&want), "{r}");
+    assert_eq!(app.connections.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let r = over_plain(http, &plain_get("blog.example.com", "")).await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+}
+
+#[tokio::test]
+async fn a_trusted_proxys_forwarded_https_does_not_open_a_protected_site_on_port_80() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = files(dir.path(), &device_ca("Devices CA", None), None);
+    let (proxy, app) = on_port_80(
+        vec![
+            protected("nas", &["*.nas.example.com"], &key),
+            https_site("blog", &["blog.example.com"]),
+        ],
+        true,
+    )
+    .await;
+    let http = proxy.http_addr().unwrap();
+    let proto = "X-Forwarded-Proto: https\r\n";
+    for host in ["a.nas.example.com", "A.NAS.example.com."] {
+        let r = over_plain(http, &plain_get(host, proto)).await;
+        assert!(r.starts_with("HTTP/1.1 308"), "{host}: {r}");
+    }
+    assert_eq!(app.connections.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let r = over_plain(http, &plain_get("blog.example.com", proto)).await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+}
