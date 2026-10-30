@@ -125,6 +125,14 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
         geo[1] <= geo[0] + 0.5,
         "Remove stays inside its row: {geo:?}"
     );
+    let gap: f64 = c
+        .ui
+        .eval(&format!("(() => {{ const k = document.querySelector(\"{reach} [data-key=home] .font-mono\").getBoundingClientRect(); const b = document.querySelector(\"{reach} [data-key=home] button[aria-label='Remove home']\").getBoundingClientRect(); return b.left - k.right; }})()"))
+        .await;
+    assert!(
+        (0.0..40.0).contains(&gap),
+        "Remove sits right after its key: {gap}"
+    );
     c.ui.shot("reach-only-these").await;
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
