@@ -46,6 +46,17 @@ pub fn visitor_use_short(open: u64, last_seen_secs: Option<u64>) -> String {
     }
 }
 
+pub const NONE_MARK: &str = "—";
+pub const NO_CHECK: &str = "no health check";
+
+pub fn skip_label(aside: Option<bool>) -> &'static str {
+    match aside {
+        None => NONE_MARK,
+        Some(false) => "skipped after failures",
+        Some(true) => "skipped: it refused connections",
+    }
+}
+
 pub fn limit_tag(
     status: Option<&burrow_admin_proto::status::Status>,
     client: &str,

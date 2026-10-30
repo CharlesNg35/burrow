@@ -155,7 +155,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let hs = health.iter().find(|h| h.client == c && h.target == t);
                         let h = hs.map(|h| h.up);
                         let why = hs.and_then(|h| h.reason.clone());
-                        let set = aside.iter().find(|a| a.client == c && a.target == t).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
+                        let set = format::skip_label(aside.iter().find(|a| a.client == c && a.target == t).map(|a| a.refused));
                         let (to, main) = match &t {
                             Some(t) => (format!("→\u{a0}{}", burrow_admin_logic::web::target_shown(t)), false),
                             None => (format!("→\u{a0}{default_target}"), true),
@@ -168,7 +168,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
                                 <td class=burrow_ui_kit::WIDE_ONLY>{match cs.and_then(|y| y.from) {
                                     Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
-                                    None => view! { <span class="text-[13px] text-text-faint">"offline"</span> }.into_any(),
+                                    None => view! { <span class="text-[13px] text-text-faint" aria-label="offline">{format::NONE_MARK}</span> }.into_any(),
                                 }}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
@@ -176,7 +176,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                                         <span class=tag_class(Tone::Danger)>"down"</span>
                                         {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted" data-testid="health-reason">{w}</span> })}
                                     }.into_any(),
-                                    None => view! { <span class="text-text-faint">"not checked"</span> }.into_any(),
+                                    None => view! { <span class="text-text-faint">{format::NO_CHECK}</span> }.into_any(),
                                 }}</td>
                                 <td class=burrow_ui_kit::WIDE_ONLY>{set}</td>
                             </tr>
@@ -205,7 +205,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                 view! {
                     <div class="mb-4">
                         <Card title="Health per client" sub=mode flush=true testid="health">
-                            <Table head=vec!["Client and target", "Open", "~Connected from", "Health", "~Set aside"]>{rows}</Table>
+                            <Table head=vec!["Client and target", "Open", "~Connected from", "Health", "~Skipped"]>{rows}</Table>
                         </Card>
                     </div>
                 }
