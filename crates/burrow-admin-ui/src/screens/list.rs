@@ -54,7 +54,7 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                     </Link>
                     {row.title_tag.clone().map(|(t, tone)| view! { <span class=tag_class(tone)>{t}</span> })}
                 </span>
-                {(!row.line2.is_empty()).then(|| view! { <span class="block truncate text-sm text-text-muted">{row.line2.clone()}</span> })}
+                {(!row.line2.is_empty()).then(|| view! { <span class="line-clamp-2 block text-sm text-text-muted [overflow-wrap:anywhere]">{row.line2.clone()}</span> })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
                 {(!row.tags.is_empty() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
                     <span class="mt-1.5 flex flex-wrap items-center gap-1.5">

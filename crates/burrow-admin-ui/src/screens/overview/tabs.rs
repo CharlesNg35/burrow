@@ -153,7 +153,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
                 {pills}
                 <span class="ml-auto text-xs text-text-muted">{open}</span>
             </div>
-            <div role="tabpanel">{panel}</div>
+            <div class="@container" role="tabpanel">{panel}</div>
         </section>
     }
 }

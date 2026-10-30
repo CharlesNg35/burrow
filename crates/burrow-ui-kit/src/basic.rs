@@ -91,6 +91,9 @@ pub fn chip_class(tone: Tone, mono: bool) -> String {
 }
 
 pub const LINK: &str = "text-accent-ink underline-offset-2 hover:underline";
+pub const WIDE_ONLY: &str = "@max-[640px]:hidden";
+pub const TABLE_VIEW: &str = "@max-[760px]:hidden";
+pub const CARD_VIEW: &str = "@min-[760px]:hidden";
 pub const MONO: &str = "font-mono";
 pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-text-faint";
 
@@ -443,9 +446,9 @@ pub fn Table(
     children: Children,
 ) -> impl IntoView {
     view! {
-        <div class="overflow-x-auto">
+        <div class="@container overflow-x-auto">
             <table
-                class="w-full border-collapse text-left text-base [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
+                class="w-full border-collapse text-left text-base @max-[480px]:[&_td]:px-2.5 @max-[480px]:[&_tbody_th]:px-2.5 @max-[480px]:[&_thead_th]:px-2.5 [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
                 data-testid=(!testid.is_empty()).then_some(testid)
             >
                 <thead>
@@ -464,7 +467,7 @@ pub fn Table(
                                             "border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase {}{}{}",
                                             if right { "text-right" } else { "text-left" },
                                             if shrink { " w-px" } else { "" },
-                                            if wide_only { " max-sm:hidden" } else { "" }
+                                            if wide_only { " @max-[640px]:hidden" } else { "" }
                                         )
                                     >
                                         {text}

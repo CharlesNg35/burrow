@@ -70,7 +70,7 @@ pub(super) fn services_table(s: Store, values: Memo<Value>) -> AnyView {
             crate::screens::entity::service_tr(name, svc, st.as_deref(), Some(rate(name)))
         })
         .collect_view();
-    view! { <div class="max-sm:hidden"><Table head=vec!["Service", "_", "Public", "Target", ">Open", ">In", "_Health"] testid="overview-services">{rows}</Table></div> {footer(ServiceEntry::section(), &names, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Service", "_", "Public", "Target", ">Open", ">In", "_Health"] testid="overview-services">{rows}</Table></div> {footer(ServiceEntry::section(), &names, total)} }.into_any()
 }
 
 pub(super) fn clients_table(s: Store, values: Memo<Value>) -> AnyView {
@@ -125,7 +125,7 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>) -> AnyView {
             }
         })
         .collect_view();
-    view! { <div class="max-sm:hidden"><Table head=vec!["Client", "From", ">Open", ">Idle channels", "Since", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Idle channels", "Since", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
 }
 
 pub(super) fn visitors_table(s: Store, values: Memo<Value>) -> AnyView {
@@ -170,5 +170,5 @@ pub(super) fn visitors_table(s: Store, values: Memo<Value>) -> AnyView {
             }
         })
         .collect_view();
-    view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total", "Last seen"] testid="overview-visitors">{rows}</Table></div> {footer(VisitorEntry::section(), &kept, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total", "Last seen"] testid="overview-visitors">{rows}</Table></div> {footer(VisitorEntry::section(), &kept, total)} }.into_any()
 }

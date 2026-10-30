@@ -157,16 +157,16 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let why = hs.and_then(|h| h.reason.clone());
                         let set = aside.iter().find(|a| a.client == c && a.target == t).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
                         let (to, main) = match &t {
-                            Some(t) => (format!("→ {}", burrow_admin_logic::web::target_shown(t)), false),
-                            None => (format!("→ {default_target}"), true),
+                            Some(t) => (format!("→\u{a0}{}", burrow_admin_logic::web::target_shown(t)), false),
+                            None => (format!("→\u{a0}{default_target}"), true),
                         };
                         let label = c.clone();
                         let open = format::count(en.open);
                         view! {
                             <tr data-row=c.clone()>
-                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
+                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted [overflow-wrap:anywhere]" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
-                                <td class="max-sm:hidden">{match cs.and_then(|y| y.from) {
+                                <td class=burrow_ui_kit::WIDE_ONLY>{match cs.and_then(|y| y.from) {
                                     Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
                                     None => view! { <span class="text-[13px] text-text-faint">"offline"</span> }.into_any(),
                                 }}</td>
@@ -178,7 +178,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                                     }.into_any(),
                                     None => view! { <span class="text-text-faint">"not checked"</span> }.into_any(),
                                 }}</td>
-                                <td class="max-sm:hidden">{set}</td>
+                                <td class=burrow_ui_kit::WIDE_ONLY>{set}</td>
                             </tr>
                         }
                     })
@@ -374,11 +374,13 @@ fn served_services(name: &str) -> impl IntoView + use<> {
         view! {
             <div class="mb-4">
                 <Card title="Services it serves" flush=true testid="served">
-                    <div class="pt-2 pb-1 sm:hidden" data-testid="served-cards">{cards}</div>
-                    <div class="max-sm:hidden">
+                    <div class="@container">
+                    <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid="served-cards">{cards}</div>
+                    <div class=burrow_ui_kit::TABLE_VIEW>
                     <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
                         {rows.iter().map(|(n, v)| super::service_tr(n, v, st.as_deref(), None)).collect_view()}
                     </Table>
+                    </div>
                     </div>
                 </Card>
             </div>

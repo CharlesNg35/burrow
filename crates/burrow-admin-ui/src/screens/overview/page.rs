@@ -107,7 +107,7 @@ pub(super) fn mobile_cards(section: &'static str, kept: &[String]) -> impl IntoV
         .iter()
         .filter_map(|k| all.iter().find(|r| &r.key == k).cloned());
     view! {
-        <div class="pt-2 pb-1 sm:hidden" data-testid=format!("mobile-{section}")>
+        <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid=format!("mobile-{section}")>
             {rows.map(|r| view! { <crate::screens::ListCard row=r selected=false/> }).collect_view()}
         </div>
     }

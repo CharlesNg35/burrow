@@ -266,7 +266,8 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=health] [data-row]", SECS).await;
         let rows = c.ui.text("[data-testid=health]").await;
         assert!(
-            rows.contains("→ 10.0.0.13:8080") && rows.contains("→ 127.0.0.1:8080(main target)"),
+            rows.contains("→\u{a0}10.0.0.13:8080")
+                && rows.contains("→\u{a0}127.0.0.1:8080(main target)"),
             "one row per entry, each with its target: {rows}"
         );
         c.ui.shot("client-entries-health").await;
