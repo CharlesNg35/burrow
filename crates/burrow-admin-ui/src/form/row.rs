@@ -90,8 +90,6 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     };
     let key_hint = if show_keys {
         path.join(".\u{200b}")
-    } else if matches!(inner(&node).sem, SemType::List(_)) {
-        f.key.clone()
     } else {
         String::new()
     };
