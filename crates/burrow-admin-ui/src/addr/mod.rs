@@ -1,4 +1,5 @@
 mod entries;
+mod entry_summary;
 mod entry_target;
 mod parts;
 mod picker;

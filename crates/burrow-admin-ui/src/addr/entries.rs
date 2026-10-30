@@ -2,11 +2,13 @@ use burrow_admin_logic::entries::{Row, rows, to_values};
 use burrow_admin_proto::schema::{Node, RefEntriesC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Mode, ServiceEntry};
-use burrow_ui_kit::{Combobox, TextInput};
+use burrow_ui_kit::{Combobox, Stepper};
 use leptos::prelude::*;
 
+use super::entry_summary::summary;
 use super::entry_target::{Open, focus_soon, input_id, shifted, swapped, target_cell, to_main};
 use crate::app::{MenuItem, row_menu, row_menus};
+use burrow_admin_logic::wording::{MAIN_TARGET, NOT_SET};
 
 type OpenMap = std::collections::BTreeMap<usize, Option<Value>>;
 use crate::domain::{FieldCtx, set_checked};
@@ -82,13 +84,28 @@ struct Look {
     balance: Signal<bool>,
     menus: RwSignal<Option<String>>,
     open: Open,
+    expanded: RwSignal<Option<usize>>,
     last: bool,
     own: bool,
 }
 
+type Follow = fn(Option<usize>, usize) -> Option<usize>;
+
+fn swap_follow(x: Option<usize>, a: usize, b: usize) -> Option<usize> {
+    match x {
+        Some(k) if k == a => Some(b),
+        Some(k) if k == b => Some(a),
+        other => other,
+    }
+}
+
 fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
     let Look {
-        open, last, own, ..
+        open,
+        expanded,
+        last,
+        own,
+        ..
     } = look;
     let act = |f: fn(&mut Vec<Row>, usize)| {
         let place = place.clone();
@@ -111,10 +128,11 @@ fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
     let remove = act(|all, i| {
         all.remove(i);
     });
-    let then = |run: Callback<()>, after: fn(&mut OpenMap, usize)| {
+    let then = |run: Callback<()>, after: fn(&mut OpenMap, usize), follow: Follow| {
         Callback::new(move |_: ()| {
             run.run(());
             open.update(|o| after(o, i));
+            expanded.update(|x| *x = follow(*x, i));
         })
     };
     let mut items = Vec::new();
@@ -128,10 +146,14 @@ fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
         });
     }
     let next = input_id(place, i + 1);
-    let again = then(again, |o, i| {
-        *o = shifted(o, i + 1, 1);
-        o.insert(i + 1, None);
-    });
+    let again = then(
+        again,
+        |o, i| {
+            *o = shifted(o, i + 1, 1);
+            o.insert(i + 1, None);
+        },
+        |_, i| Some(i + 1),
+    );
     items.push(MenuItem {
         label: "Add again with another target",
         testid: "entry-again",
@@ -146,7 +168,11 @@ fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
             label: "Move up",
             testid: "entry-up",
             danger: false,
-            run: then(up, |o, i| *o = swapped(o, i, i - 1)),
+            run: then(
+                up,
+                |o, i| *o = swapped(o, i, i - 1),
+                |x, i| swap_follow(x, i, i - 1),
+            ),
         });
     }
     if !last {
@@ -154,17 +180,29 @@ fn menu_items(place: &Place, i: usize, look: Look) -> Vec<MenuItem> {
             label: "Move down",
             testid: "entry-down",
             danger: false,
-            run: then(down, |o, i| *o = swapped(o, i, i + 1)),
+            run: then(
+                down,
+                |o, i| *o = swapped(o, i, i + 1),
+                |x, i| swap_follow(x, i, i + 1),
+            ),
         });
     }
     items.push(MenuItem {
         label: "Remove",
         testid: "entry-remove",
         danger: true,
-        run: then(remove, |o, i| {
-            o.remove(&i);
-            *o = shifted(o, i + 1, -1);
-        }),
+        run: then(
+            remove,
+            |o, i| {
+                o.remove(&i);
+                *o = shifted(o, i + 1, -1);
+            },
+            |x, i| match x {
+                Some(k) if k == i => None,
+                Some(k) if k > i => Some(k - 1),
+                other => other,
+            },
+        ),
     });
     items
 }
@@ -182,6 +220,7 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
         balance,
         menus,
         open,
+        expanded,
         ..
     } = look;
     let e = store().edit;
@@ -224,6 +263,12 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
         format!("More for entry {}", i + 1),
         menu_items(&place, i, look),
     );
+    let phone_menu = row_menu(
+        menus,
+        format!("{i}-phone"),
+        format!("More for entry {}", i + 1),
+        menu_items(&place, i, look),
+    );
     let mut at = place.fc.path.clone();
     at.push(i.to_string());
     let weight_at = {
@@ -235,34 +280,46 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
         e.plan
             .with(|p| !diags_at(p.as_deref(), &weight_at, true).is_empty())
     });
-    let problem = move || {
+    let problem = Memo::new(move |_| {
         e.plan.with(|p| {
             diags_at(p.as_deref(), &at, true).first().map(|d| {
                 let w = burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects);
                 burrow_admin_logic::wording::capital(&w)
             })
         })
+    });
+    Effect::new(move |_| {
+        if problem.with(Option::is_some) {
+            expanded.set(Some(i));
+        }
+    });
+    let head = summary(&place, i, options, balance, expanded, phone_menu);
+    let body = move || {
+        if expanded.get() == Some(i) {
+            "flex flex-wrap items-center gap-x-3 gap-y-2 max-sm:pb-2"
+        } else {
+            "flex flex-wrap items-center gap-x-3 gap-y-2 max-sm:hidden"
+        }
     };
     let target = target_cell(&place, i, open);
     view! {
         <div class="py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {head}
+            <div class=body>
                 <div class=format!("order-1 min-w-0 flex-1 sm:flex-none {CLIENT_W}")>
                     <Combobox id=format!("{id}-client") options=options selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
                 </div>
-                <div class="order-2 sm:order-4">{menu}</div>
+                <div class="order-2 max-sm:hidden sm:order-4">{menu}</div>
                 <div class=format!("order-3 flex min-h-[38px] basis-full items-center gap-2 sm:order-2 sm:basis-auto {TARGET_W}")>
                     {cell_label("Target")}
                     {target}
                 </div>
                 <div class=format!("order-4 flex basis-full items-center gap-2 sm:order-3 sm:basis-auto {WEIGHT_W}") class:hidden=move || !balance.get() data-weight="">
                     {cell_label("Weight")}
-                    <div class="w-[96px]">
-                        <TextInput id=format!("{id}-weight") value=weight on_input=set_weight numeric=true invalid=weight_bad placeholder="default 1" label="Weight"/>
-                    </div>
+                    <Stepper id=format!("{id}-weight") value=weight on_input=set_weight default=1 min=1 max=burrow_config::WEIGHT_MAX invalid=weight_bad placeholder="default 1" label="Weight" touch_only=true/>
                 </div>
             </div>
-            {move || problem().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
+            {move || problem.get().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
         </div>
     }
     .into_any()
@@ -301,11 +358,13 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     };
     let (create_label, on_create) = super::picker::create_for(&c.entity);
     let touched = fc.touched;
+    let expanded = RwSignal::new(None::<usize>);
     let add = {
         let place = place.clone();
         Callback::new(move |picked: Vec<String>| {
             if let Some(n) = picked.into_iter().next() {
                 place.edit(|all| all.push(Row::named(&n)));
+                expanded.set(Some(count.get_untracked().saturating_sub(1)));
             }
         })
     };
@@ -340,6 +399,7 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
                                 balance,
                                 menus,
                                 open,
+                                expanded,
                                 last: i + 1 == n,
                                 own: own[i],
                             },
@@ -377,12 +437,12 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     .into_any()
 }
 
-pub fn entry_line(row: &Row) -> String {
+pub fn entry_line(row: &Row, main: &str) -> String {
     let target = row
         .target
         .as_ref()
         .map(burrow_admin_logic::web::target_value_shown)
-        .unwrap_or_else(|| "(service target)".into());
+        .unwrap_or_else(|| format!("{main} ({MAIN_TARGET})"));
     match &row.weight {
         Some(w) => format!("→ {target} · weight {}", plain(w)),
         None => format!("→ {target}"),
@@ -391,6 +451,11 @@ pub fn entry_line(row: &Row) -> String {
 
 pub fn entries_view(c: &RefEntriesC, _node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
     let all = rows(Some(v));
+    let main =
+        burrow_admin_proto::value::get(&ctx.doc, &sibling(&ctx.path, ServiceEntry::TARGET.rel()))
+            .map(burrow_admin_logic::web::target_value_shown)
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| NOT_SET.to_string());
     if all.is_empty() {
         return view! { <span class="text-text-muted">"None"</span> }.into_any();
     }
@@ -400,7 +465,7 @@ pub fn entries_view(c: &RefEntriesC, _node: &Node, v: &Value, ctx: &Ctx) -> AnyV
             view! {
                 <li class="flex flex-wrap items-center gap-2" data-entry-line=r.name.clone()>
                     {ref_link(&c.entity, &r.name, &c.reserved, ctx)}
-                    <span class="font-mono text-[13px] text-text-muted">{entry_line(r)}</span>
+                    <span class="font-mono text-[13px] text-text-muted">{entry_line(r, &main)}</span>
                 </li>
             }
         })
@@ -418,8 +483,9 @@ mod tests {
         let all = rows(Some(
             &json!(["a", {"name": "gw", "target": "10.0.0.12:3000", "weight": 2}]),
         ));
-        assert_eq!(entry_line(&all[0]), "→ (service target)");
-        assert_eq!(entry_line(&all[1]), "→ 10.0.0.12:3000 · weight 2");
+        let main = "127.0.0.1:8080";
+        assert_eq!(entry_line(&all[0], main), "→ 127.0.0.1:8080 (main target)");
+        assert_eq!(entry_line(&all[1], main), "→ 10.0.0.12:3000 · weight 2");
         assert_eq!(typed(" 3001 "), Some(json!(3001)));
         assert_eq!(typed("10.0.0.12:80"), Some(json!("10.0.0.12:80")));
         assert_eq!(typed(""), None);

@@ -15,7 +15,7 @@ use crate::store::store;
 
 use super::controls::{locked_box, reset_button};
 use super::{
-    ShowKeys, applies_tag, ctx_now, editing_now, field_id, is_wide, join, locked, locked_hint,
+    Ctx, ShowKeys, applies_tag, ctx_now, editing_now, field_id, is_wide, join, locked, locked_hint,
     object_view, value_view,
 };
 
@@ -337,7 +337,7 @@ fn field_body(
                                 .map(|c| Value::Array(vec![c]))
                         });
                         match ctx_now() {
-                            Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &c),
+                            Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &Ctx { path: path.clone(), ..c }),
                             None => ().into_any(),
                         }
                     }}

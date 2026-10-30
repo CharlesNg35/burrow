@@ -66,6 +66,16 @@ pub(super) fn to_main(place: &Place, i: usize, open: Open) {
     });
 }
 
+pub(super) fn main_shown(place: &Place) -> Signal<Option<String>> {
+    let e = store().edit;
+    let main_path = sibling(&place.fc.path, ServiceEntry::TARGET.rel());
+    Signal::derive(move || {
+        e.value(&main_path)
+            .map(|v| burrow_admin_logic::web::target_value_shown(&v))
+            .filter(|t| !t.is_empty())
+    })
+}
+
 fn change_link(on: impl Fn() + 'static) -> impl IntoView {
     view! {
         <button type="button" class=format!("cursor-pointer text-sm font-semibold {}", burrow_ui_kit::LINK) data-testid="entry-change" on:click=move |_| on()>"Change"</button>
@@ -75,12 +85,7 @@ fn change_link(on: impl Fn() + 'static) -> impl IntoView {
 pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView {
     let e = store().edit;
     let id = input_id(place, i);
-    let main_path = sibling(&place.fc.path, ServiceEntry::TARGET.rel());
-    let main = Signal::derive(move || {
-        e.value(&main_path)
-            .map(|v| burrow_admin_logic::web::target_value_shown(&v))
-            .filter(|t| !t.is_empty())
-    });
+    let main = main_shown(place);
     let stored = {
         let place = place.clone();
         Memo::new(move |_| place.read().get(i).and_then(|r| r.target.clone()))
@@ -165,7 +170,7 @@ pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView 
         } else {
             view! {
                 <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 text-sm" data-main-target="">
-                    <span class="text-text-muted">"main target · "{move || match main.get() {
+                    <span class="text-text-muted">{format!("{} · ", burrow_admin_logic::wording::MAIN_TARGET)}{move || match main.get() {
                         Some(m) => view! { <span class="font-mono text-[13px]">{m}</span> }.into_any(),
                         None => view! { <span class="font-semibold text-warning" data-main-unset="">{burrow_admin_logic::wording::NOT_SET}</span> }.into_any(),
                     }}</span>

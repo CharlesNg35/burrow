@@ -164,7 +164,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let open = format::count(en.open);
                         view! {
                             <tr data-row=c.clone()>
-                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">"(service target)"</span> })}</span></th>
+                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
                                 <td class="max-sm:hidden">{match cs.and_then(|y| y.from) {
                                     Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),

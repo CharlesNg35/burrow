@@ -57,6 +57,7 @@ pub fn locked_hint(n: &Node) -> String {
 #[derive(Clone)]
 pub struct Ctx {
     pub doc: Value,
+    pub path: Vec<String>,
 }
 
 pub fn join(p: &[String]) -> String {
@@ -100,7 +101,10 @@ fn locked(n: &Node) -> Option<String> {
 fn ctx_now() -> Option<Ctx> {
     let s = store();
     s.schema.get_untracked()?;
-    Some(Ctx { doc: s.edit.doc() })
+    Some(Ctx {
+        doc: s.edit.doc(),
+        path: Vec::new(),
+    })
 }
 
 #[derive(Clone, Copy)]

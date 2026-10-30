@@ -88,6 +88,7 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 }
 
 pub const NOT_SET: &str = "not set";
+pub const MAIN_TARGET: &str = "main target";
 
 pub fn capital(text: &str) -> String {
     let mut chars = text.chars();

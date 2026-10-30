@@ -12,6 +12,80 @@ async fn type_then(c: &Ctx, css: &str, text: &str, key: &str) {
     c.ui.press(css, key).await;
 }
 
+async fn shown(c: &Ctx, css: &str) -> bool {
+    c.ui.eval(&format!(
+        "(() => {{ const e = document.querySelector(\"{css}\"); return !!e && e.offsetParent !== null; }})()"
+    ))
+    .await
+}
+
+async fn phone_edit(c: &mut Ctx) {
+    let sum = |i: usize| format!("[data-entry='{i}'] [data-entry-summary]");
+    let weight = |i: usize| format!("#f-services-pool-clients-{i}-weight");
+    c.ui.wait_for(&sum(2), SECS).await;
+    let first = c.ui.text(&sum(0)).await;
+    assert!(
+        first.contains("home") && first.contains("→ 127.0.0.1:8080 · main · weight 3"),
+        "{first}"
+    );
+    let second = c.ui.text(&sum(1)).await;
+    assert!(second.contains("→ 10.0.0.13:8080 · own"), "{second}");
+    for i in 0..3 {
+        assert!(
+            !shown(c, &weight(i)).await,
+            "entries start folded on a phone"
+        );
+    }
+    let overflow: bool =
+        c.ui.eval("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+            .await;
+    assert!(
+        !overflow,
+        "the entries fit a phone without sideways scrolling"
+    );
+    c.ui.shot("client-entries-edit-phone").await;
+    c.ui.click("[data-entry='0'] [data-testid=entry-toggle]")
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "document.querySelector('{}').offsetParent !== null",
+            weight(0)
+        ),
+        "a tap opens the entry",
+        SECS,
+    )
+    .await;
+    c.ui.click("[data-entry='0'] [data-testid=step-up]").await;
+    c.ui.wait_text(&sum(0), "weight 4", SECS).await;
+    c.ui.shot("client-entry-open-phone").await;
+    c.ui.click("[data-entry='1'] [data-testid=entry-toggle]")
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "document.querySelector('{}').offsetParent !== null",
+            weight(1)
+        ),
+        "the other entry opens",
+        SECS,
+    )
+    .await;
+    assert!(!shown(c, &weight(0)).await, "one entry open at a time");
+    click_js(c, "[data-schema='services/*/mode'] input[value=failover]").await;
+    c.ui.wait_for("[data-entry='0'] [data-entry-error]", SECS)
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "document.querySelector('{}').offsetParent !== null",
+            weight(0)
+        ),
+        "an entry with an error opens",
+        SECS,
+    )
+    .await;
+    assert!(!shown(c, &weight(1)).await, "still one open");
+    c.ui.shot("client-entry-error-phone").await;
+}
+
 fn entries(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -186,7 +260,7 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=health] [data-row]", SECS).await;
         let rows = c.ui.text("[data-testid=health]").await;
         assert!(
-            rows.contains("→ 10.0.0.13:8080") && rows.contains("(service target)"),
+            rows.contains("→ 10.0.0.13:8080") && rows.contains("→ 127.0.0.1:8080(main target)"),
             "one row per entry, each with its target: {rows}"
         );
         c.ui.shot("client-entries-health").await;
@@ -195,27 +269,14 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-entry-line]", SECS).await;
         assert_eq!(c.ui.count("[data-entry-line]").await, 3);
         let lines = c.ui.text("[data-schema='services/*/clients']").await;
-        assert!(lines.contains("(service target)"), "{lines}");
+        assert!(lines.contains("→ 127.0.0.1:8080 (main target)"), "{lines}");
         assert!(lines.contains("→ 10.0.0.13:8080"), "{lines}");
         assert!(lines.contains("weight 3"), "{lines}");
         c.ui.shot("client-entries-view").await;
         c.ui.viewport(360, 800).await;
         c.ui.shot("client-entries-view-phone").await;
         edit_mode(c).await;
-        c.ui.wait_for("[data-entry='2'] [data-main-target]", SECS)
-            .await;
-        click_js(c, "[data-entry='2'] [data-testid=entry-change]").await;
-        c.ui.wait_for("[data-entry='2'] [data-own-target]", SECS)
-            .await;
-        let overflow: bool = c
-            .ui
-            .eval("document.documentElement.scrollWidth > document.documentElement.clientWidth")
-            .await;
-        assert!(
-            !overflow,
-            "the entry rows fit a phone without sideways scrolling"
-        );
-        c.ui.shot("client-entries-edit-phone").await;
+        phone_edit(c).await;
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.nav("/clients").await;
         c.ui.nav("/services/pool").await;
