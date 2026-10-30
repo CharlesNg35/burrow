@@ -10,6 +10,7 @@ use burrow_web::{
     TsigAlgorithm,
 };
 
+use super::acme_dns::{self, AcmeDns};
 use super::bind::{self, ADDR, Bind, KEY, KEY_384, KEY_512, SECRET, SECRET_384, SECRET_512};
 use super::cloudflare::{Mock, TOKEN};
 use super::pebble::{DIRECTORY, Pebble};
@@ -209,10 +210,92 @@ async fn keys_of_other_algorithms(p: &Pebble) {
     }
 }
 
-pub async fn all(p: Pebble, _bind: Bind) {
+fn acme_dns_provider(a: &acme_dns::Account, password: &str) -> DnsProvider {
+    DnsProvider::AcmeDns {
+        api: acme_dns::API.into(),
+        username: a.username.clone(),
+        password: Secret::new(password.into()),
+        subdomain: a.subdomain.clone(),
+    }
+}
+
+fn behind_a_resolver(mut e: DnsEntry) -> DnsEntry {
+    e.resolvers = vec![bind::RESOLVER.parse().unwrap()];
+    e
+}
+
+fn reach_acme_dns() -> Reach {
+    let mut r = reach(None);
+    r.redirect.insert(
+        acme_dns::NS_IP.parse().unwrap(),
+        acme_dns::DNS.parse().unwrap(),
+    );
+    r
+}
+
+async fn acme_dns_txt(a: &acme_dns::Account) -> Vec<String> {
+    bind::txt_at(acme_dns::DNS, &a.fulldomain)
+        .await
+        .expect("acme-dns answers")
+}
+
+async fn a_wildcard_and_its_apex_through_a_real_acme_dns(p: &Pebble, adns: &AcmeDns) {
+    let state = tempfile::tempdir().unwrap();
+    let mut ps = ProxySettings::new("127.0.0.1:443".parse().unwrap());
+    ps.sites = vec![site("app", &["app.adns.example.test"])];
+    let provider = acme_dns_provider(&adns.good, &adns.good.password);
+    let dns = vec![behind_a_resolver(entry(
+        &["example.test"],
+        provider,
+        &["*.adns.example.test"],
+    ))];
+    ps.certs.acme = Some(acme(p, state.path(), dns));
+    let names: Vec<String> = cert_names(&ps).into_iter().map(|n| n.name).collect();
+    assert_eq!(names, vec!["*.adns.example.test", "adns.example.test"]);
+    assert!(acme_dns_txt(&adns.good).await.is_empty(), "nothing set yet");
+    let store = run(&ps, reach_acme_dns()).await;
+    let s = until(&store, "*.adns.example.test", |s| s.phase == CertPhase::Ok).await;
+    assert_eq!(s.check, Some(CertCheck::Dns));
+    for n in ["app.adns.example.test", "adns.example.test"] {
+        assert!(store.certificate(n).is_some(), "{n} is served");
+    }
+    let values = acme_dns_txt(&adns.good).await;
+    assert_eq!(values.len(), 2, "both values at once: {values:?}");
+    assert!(values.iter().all(|v| v.len() == 43), "{values:?}");
+    assert_ne!(values[0], values[1]);
+}
+
+async fn a_wrong_acme_dns_key_is_a_status_error_and_nothing_is_set(p: &Pebble, adns: &AcmeDns) {
+    let state = tempfile::tempdir().unwrap();
+    let mut ps = ProxySettings::new("127.0.0.1:443".parse().unwrap());
+    ps.sites = vec![site("bad-adns", &["bad-adns.example.test"])];
+    ps.certs.choices.insert("bad-adns".into(), Challenge::Dns);
+    let wrong = "a".repeat(adns.other.password.len());
+    let provider = acme_dns_provider(&adns.other, &wrong);
+    ps.certs.acme = Some(acme(
+        p,
+        state.path(),
+        vec![behind_a_resolver(entry(&["example.test"], provider, &[]))],
+    ));
+    let store = run(&ps, reach_acme_dns()).await;
+    let s = until(&store, "bad-adns.example.test", |s| {
+        matches!(s.phase, CertPhase::Failing { .. })
+    })
+    .await;
+    let why = s.last_error.unwrap_or_default();
+    assert!(
+        why.contains("acme-dns update: HTTP 401") && why.contains("forbidden"),
+        "{why}"
+    );
+    assert!(acme_dns_txt(&adns.other).await.is_empty());
+}
+
+pub async fn all(p: Pebble, _bind: Bind, adns: AcmeDns) {
     shared_wildcard_over_rfc2136(&p).await;
     cname_into_a_zone_the_entry_writes(&p).await;
     cloudflare_mock(&p).await;
     a_wrong_secret_is_a_status_error_and_nothing_is_set(&p).await;
     keys_of_other_algorithms(&p).await;
+    a_wildcard_and_its_apex_through_a_real_acme_dns(&p, &adns).await;
+    a_wrong_acme_dns_key_is_a_status_error_and_nothing_is_set(&p, &adns).await;
 }

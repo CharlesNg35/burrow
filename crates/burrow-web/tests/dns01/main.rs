@@ -1,3 +1,4 @@
+mod acme_dns;
 mod bind;
 mod cloudflare;
 #[allow(dead_code)]
@@ -14,21 +15,29 @@ async fn pebble_checks_names_over_dns_through_bind_and_cloudflare() {
         return;
     }
     let p = pebble::Pebble::start().await;
-    let b = match bind::Bind::start().await {
-        Ok(b) => b,
+    let started = match acme_dns::AcmeDns::start().await {
+        Ok(a) => bind::Bind::start(&a.records()).await.map(|b| (a, b)),
+        Err(why) => Err(why),
+    };
+    let (a, b) = match started {
+        Ok(both) => both,
         Err(why) => {
-            pebble::remove_containers().await;
-            bind::remove().await;
+            remove_all().await;
             panic!("{why}");
         }
     };
     p.run_pebble_with_dns(&["PEBBLE_AUTHZREUSE=0"], bind::ADDR)
         .await;
-    let run = tokio::spawn(scenarios::all(p, b));
+    let run = tokio::spawn(scenarios::all(p, b, a));
     let outcome = run.await;
-    pebble::remove_containers().await;
-    bind::remove().await;
+    remove_all().await;
     if let Err(e) = outcome {
         std::panic::resume_unwind(e.into_panic());
     }
+}
+
+async fn remove_all() {
+    pebble::remove_containers().await;
+    bind::remove().await;
+    acme_dns::remove().await;
 }

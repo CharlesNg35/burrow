@@ -4,7 +4,11 @@ use std::time::Duration;
 use hickory_proto::op::{Message, Query};
 use hickory_proto::rr::{Name, RData, RecordType};
 
+use super::acme_dns;
+use super::pebble::{docker, docker_logs};
+
 pub const ADDR: &str = "127.0.0.1:5399";
+pub const RESOLVER: &str = "127.0.0.1:5398";
 pub const KEY: &str = "burrow-key";
 pub const SECRET: &str = "DeMe+aO2zaj8MLjzn5TsmuIjSk+5vtEvG3W7kq/1j04=";
 pub const KEY_384: &str = "burrow-key-384";
@@ -19,17 +23,8 @@ pub struct Bind {
     _dir: tempfile::TempDir,
 }
 
-async fn docker(args: &[&str]) -> String {
-    let out = tokio::process::Command::new("docker")
-        .args(args)
-        .output()
-        .await
-        .expect("docker runs");
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
-
 pub async fn remove() {
-    docker(&["rm", "-f", NAME]).await;
+    docker(&["rm", "-f", "-v", NAME]).await;
 }
 
 fn zone(origin: &str, extra: &str) -> String {
@@ -42,7 +37,8 @@ const CONF: &str = r#"options {
   directory "/var/cache/bind";
   listen-on port 5399 { 127.0.0.1; };
   listen-on-v6 { none; };
-  recursion no;
+  recursion yes;
+  allow-recursion { 127.0.0.1; };
   allow-query { any; };
   dnssec-validation no;
 };
@@ -60,8 +56,21 @@ zone "example.test" {
 };
 "#;
 
+const RESOLVER_CONF: &str = r#"options {
+  directory "/var/cache/bind";
+  pid-file "/var/cache/bind/resolver.pid";
+  listen-on port 5398 { 127.0.0.1; };
+  listen-on-v6 { none; };
+  recursion yes;
+  allow-recursion { 127.0.0.1; };
+  dnssec-validation no;
+};
+controls { };
+zone "example.test" { type forward; forward only; forwarders { 127.0.0.1 port 5399; }; };
+"#;
+
 impl Bind {
-    pub async fn start() -> Result<Bind, String> {
+    pub async fn start(records: &str) -> Result<Bind, String> {
         let running = docker(&["ps", "-q", "-f", &format!("name=^{NAME}$")]).await;
         assert!(
             running.is_empty(),
@@ -69,45 +78,43 @@ impl Bind {
         );
         remove().await;
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("named.conf"), CONF).unwrap();
+        let conf = format!("{CONF}{}", acme_dns::forward_zone());
+        std::fs::write(dir.path().join("named.conf"), conf).unwrap();
+        let resolver = format!("{RESOLVER_CONF}{}", acme_dns::forward_zone());
+        std::fs::write(dir.path().join("resolver.conf"), resolver).unwrap();
         std::fs::write(
             dir.path().join("example.test.zone"),
             zone(
                 "example.test",
-                "ns IN A 127.0.0.1\n*.example.test. IN A 127.0.0.1\n_acme-challenge.erp IN CNAME acme-target.example.test.\n",
+                &format!("ns IN A 127.0.0.1\n*.example.test. IN A 127.0.0.1\n_acme-challenge.erp IN CNAME acme-target.example.test.\n{records}"),
             ),
         )
         .unwrap();
         let mount = format!("{}:/conf:ro", dir.path().display());
         docker(&[
             "run", "-d", "--network", "host", "--name", NAME, "-v", &mount, "--entrypoint", "sh", IMAGE, "-c",
-            "cp /conf/*.zone /var/cache/bind/ && chown -R bind /var/cache/bind && exec named -u bind -g -c /conf/named.conf",
+            "cp /conf/*.zone /var/cache/bind/ && chown -R bind /var/cache/bind && named -u bind -c /conf/resolver.conf && exec named -u bind -g -c /conf/named.conf",
         ])
         .await;
         for _ in 0..40 {
-            if txt("example.test").await.is_some() {
+            if txt("example.test").await.is_some()
+                && txt_at(RESOLVER, "example.test").await.is_some()
+            {
                 return Ok(Bind { _dir: dir });
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        let out = tokio::process::Command::new("docker")
-            .args(["logs", NAME])
-            .output()
-            .await
-            .map(|o| {
-                format!(
-                    "{}{}",
-                    String::from_utf8_lossy(&o.stdout),
-                    String::from_utf8_lossy(&o.stderr)
-                )
-            })
-            .unwrap_or_default();
-        Err(format!("BIND did not answer on {ADDR}; its log:\n{out}"))
+        let log = docker_logs(NAME).await;
+        Err(format!("BIND did not answer on {ADDR}; its log:\n{log}"))
     }
 }
 
 pub async fn txt(name: &str) -> Option<Vec<String>> {
-    let addr: SocketAddr = ADDR.parse().unwrap();
+    txt_at(ADDR, name).await
+}
+
+pub async fn txt_at(server: &str, name: &str) -> Option<Vec<String>> {
+    let addr: SocketAddr = server.parse().unwrap();
     let mut q = Message::query();
     let mut n = Name::from_ascii(name).unwrap();
     n.set_fqdn(true);
