@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:9b51d2ebcacb500e",
+  "hash": "b2s:44ebb737f42c6e19",
   "root": {
     "label": "Server",
     "sem": {
@@ -758,7 +758,9 @@
                                                   "inner": {
                                                     "sem": {
                                                       "t": "duration",
-                                                      "unit": "secs"
+                                                      "unit": "secs",
+                                                      "min": 10,
+                                                      "max": 3600
                                                     }
                                                   }
                                                 },

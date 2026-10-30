@@ -111,7 +111,7 @@ fn wait_resolvers_rfc2136_and_the_command_are_checked() {
             &entry("[example.com]", &format!("{CF}\n        wait_secs: 5")),
             ""
         ),
-        ["web.letsencrypt.dns[0].wait_secs must be between 10 and 3600"]
+        ["\"wait_secs\" in \"web.letsencrypt.dns[0]\" must be between 10 and 3600, found 5"]
     );
     assert_eq!(
         errs(

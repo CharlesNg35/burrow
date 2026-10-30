@@ -436,3 +436,96 @@ fn the_reduce_only_fields_are_exactly_what_the_grant_rule_reads() {
     read.sort();
     assert_eq!(marked, read);
 }
+
+fn nodes<'a>(node: &'a Node, prefix: &str, out: &mut Vec<(String, &'a Node)>) {
+    out.push((prefix.to_string(), node));
+    match &node.sem {
+        SemType::Object(o) => {
+            for f in &o.fields {
+                nodes(&f.node, &format!("{prefix}/{}", f.key), out);
+            }
+        }
+        SemType::Map(m) => nodes(&m.value, &format!("{prefix}/*"), out),
+        SemType::RefMap(m) => nodes(&m.value, &format!("{prefix}/*"), out),
+        SemType::List(l) => nodes(&l.item, &format!("{prefix}/[]"), out),
+        SemType::Optional(o) => nodes(&o.inner, prefix, out),
+        SemType::Union(u) => u.branches.iter().for_each(|b| nodes(b, prefix, out)),
+        _ => {}
+    }
+}
+
+fn json_property<'a>(v: &'a serde_json::Value, name: &str, out: &mut Vec<&'a serde_json::Value>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            if let Some(p) = m.get("properties").and_then(|p| p.get(name)) {
+                out.push(p);
+            }
+            m.values().for_each(|x| json_property(x, name, out));
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|x| json_property(x, name, out)),
+        _ => {}
+    }
+}
+
+#[test]
+fn schema_limits_match_the_enforced_constants() {
+    let schema = server_schema();
+    let mut all = Vec::new();
+    nodes(&schema.root, "", &mut all);
+    let at = |path: &str| {
+        all.iter()
+            .filter(|(p, _)| p == path)
+            .map(|(_, n)| *n)
+            .collect::<Vec<_>>()
+    };
+    let binds: Vec<_> = at("/services/*/bind")
+        .into_iter()
+        .filter_map(|n| match &n.sem {
+            SemType::IpPort(c) => Some(c.max_range),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(binds, [Some(burrow_syntax::ports::MAX_RANGE)]);
+    let limit = u32::try_from(crate::wire::noise::MAX_SECRETS_PER_CLIENT).unwrap();
+    let secrets: Vec<u32> = all
+        .iter()
+        .filter_map(|(_, n)| match &n.sem {
+            SemType::SecretRef(c) if !c.reference => Some(c.max),
+            _ => None,
+        })
+        .collect();
+    assert!(!secrets.is_empty());
+    assert!(secrets.iter().all(|m| *m == limit), "{secrets:?}");
+    let wait = at("/web/letsencrypt/dns/[]/wait_secs");
+    let bounds: Vec<_> = wait
+        .iter()
+        .filter_map(|n| match &n.sem {
+            SemType::Duration(d) => Some((d.min, d.max)),
+            _ => None,
+        })
+        .collect();
+    let (lo, hi) = (
+        burrow_syntax::web::DNS_WAIT_MIN_SECS,
+        burrow_syntax::web::DNS_WAIT_MAX_SECS,
+    );
+    assert_eq!(bounds, [(Some(lo), Some(hi))]);
+    let w = burrow_syntax::web::DNS_WAIT_SECS;
+    let labels: Vec<_> = wait.iter().filter_map(|n| n.none_label.clone()).collect();
+    assert_eq!(labels, [format!("{w} seconds")]);
+    let json = crate::config::load::schema_json(crate::config::Role::Server);
+    let mut weights = Vec::new();
+    json_property(&json, "weight", &mut weights);
+    assert!(!weights.is_empty());
+    for wt in weights {
+        assert_eq!(wt["maximum"], burrow_config::WEIGHT_MAX, "{wt}");
+        let text = wt["description"].as_str().unwrap_or_default();
+        assert!(text.contains(&format!("from 1 to {}", burrow_config::WEIGHT_MAX)));
+    }
+    let mut waits = Vec::new();
+    json_property(&json, "wait_secs", &mut waits);
+    assert!(!waits.is_empty());
+    for wt in waits {
+        let text = wt["description"].as_str().unwrap_or_default();
+        assert!(text.contains(&format!("{w} when not set")), "{wt}");
+    }
+}

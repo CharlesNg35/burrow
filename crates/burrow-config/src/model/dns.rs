@@ -67,7 +67,8 @@ pub struct DnsEntry {
     pub wildcards: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Seconds to wait for the zone's nameservers to answer the new record before telling Let's Encrypt; 120 when not set"
+        description = "Seconds to wait for the zone's nameservers to answer the new record before telling Let's Encrypt; 120 when not set",
+        range(min = 10, max = 3600)
     )]
     #[admin(
         label = "Wait for the record",

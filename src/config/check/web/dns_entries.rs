@@ -6,8 +6,6 @@ use crate::config::diagnostics::Diagnostic;
 use burrow_config::{DnsEntry, ServerConfig};
 use burrow_syntax::web::{SingleLabel, dns_entry_for, host_name, is_wildcard};
 
-use burrow_syntax::web::{DNS_WAIT_MAX_SECS, DNS_WAIT_MIN_SECS, DNS_WAIT_SECS};
-
 pub(super) fn check_dns_entries(
     cfg: &ServerConfig,
     base_dir: &Path,
@@ -106,20 +104,6 @@ fn entry(
                     .help("for example domains: [example.com]"),
             );
         }
-    }
-    if let Some(w) = e.wait_secs
-        && !(DNS_WAIT_MIN_SECS..=DNS_WAIT_MAX_SECS).contains(&w)
-    {
-        out.push(
-            Diagnostic::error(
-                "dns-wait",
-                format!(
-                    "{name}.wait_secs must be between {DNS_WAIT_MIN_SECS} and {DNS_WAIT_MAX_SECS}"
-                ),
-            )
-            .at(span(spans, &at(i, &["wait_secs"])))
-            .help(format!("{DNS_WAIT_SECS} when not set, like Caddy")),
-        );
     }
     for (j, r) in e.resolvers.iter().enumerate() {
         if resolver(r).is_none() {
