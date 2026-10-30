@@ -1,3 +1,4 @@
+use burrow_admin_logic::wording::capital;
 use burrow_admin_proto::plan::Refusal;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
@@ -152,14 +153,6 @@ fn Lockout(refusals: Vec<Refusal>) -> impl IntoView {
             </Callout>
         </div>
     }
-}
-
-fn capital(text: &str) -> String {
-    let mut chars = text.chars();
-    chars
-        .next()
-        .map(|c| c.to_uppercase().chain(chars).collect::<String>())
-        .unwrap_or_default()
 }
 
 #[component]

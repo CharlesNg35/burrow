@@ -13,7 +13,7 @@ use crate::fallback::{Render, for_node};
 pub fn check(node: &Node, v: &Value) -> Result<(), String> {
     if v.is_null() {
         return if node.required && node.default.is_none() {
-            Err(format!("{} is required", node.label))
+            Err(crate::wording::required(&node.label))
         } else {
             Ok(())
         };

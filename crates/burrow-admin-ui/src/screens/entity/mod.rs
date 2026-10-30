@@ -7,6 +7,7 @@ mod rows;
 mod summary;
 
 use crate::screens::plural;
+use burrow_admin_logic::wording::capital;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
@@ -23,12 +24,6 @@ use summary::{overview, served, visitor_overview};
 const SERVICES: &str = ServiceEntry::SECTION;
 const CLIENTS: &str = ClientEntry::SECTION;
 const VISITORS: &str = VisitorEntry::SECTION;
-fn capital(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_uppercase().chain(c).collect())
-        .unwrap_or_default()
-}
 
 fn secrets(v: Option<&Value>) -> usize {
     match v {

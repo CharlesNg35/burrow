@@ -87,7 +87,7 @@ pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
     }
     let problem = match &v {
         None if node.required && node.default.is_none() => {
-            Some(format!("{} is required", node.label))
+            Some(burrow_admin_logic::wording::required(&node.label))
         }
         None => None,
         Some(x) => check_in(node, x, &e.doc())

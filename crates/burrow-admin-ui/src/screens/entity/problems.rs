@@ -1,4 +1,6 @@
+use burrow_admin_logic::wording;
 use burrow_admin_proto::Path;
+use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
 use burrow_config::ServiceEntry;
@@ -97,24 +99,72 @@ pub struct Problem {
     pub message: String,
 }
 
+fn field(p: &Path) -> Option<Path> {
+    p.get(..3).map(<[String]>::to_vec)
+}
+
+fn server_problem(entity: &Path, d: &Diag, label: &dyn Fn(&Path) -> String) -> (Path, String) {
+    let mut at = d
+        .path
+        .iter()
+        .chain(d.also.iter())
+        .filter(|x| x.starts_with(entity))
+        .max_by_key(|x| x.len())
+        .cloned()
+        .unwrap_or_else(|| entity.clone());
+    if let Some(key) = wording::missing_field(&d.code, &d.message) {
+        at.push(key.to_string());
+        let message = wording::required(&label(&at));
+        return (at, message);
+    }
+    let message = wording::shown(&d.code, &d.message, &d.subjects);
+    (at, message)
+}
+
+fn merged(mut own: Vec<(Path, String)>, server: Vec<(Path, String)>) -> Vec<(Path, String)> {
+    let flagged: Vec<Path> = own.iter().filter_map(|(p, _)| field(p)).collect();
+    own.extend(
+        server
+            .into_iter()
+            .filter(|(at, _)| field(at).is_none_or(|f| !flagged.contains(&f))),
+    );
+    let mut out: Vec<(Path, String)> = Vec::new();
+    for item in own {
+        if !out.contains(&item) {
+            out.push(item);
+        }
+    }
+    out
+}
+
 pub(super) fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
     let s = store();
     let e = s.edit;
-    let mut raw: Vec<(Path, String)> = e.related.with(|r| {
+    let label = |path: &Path| {
+        let mut at = vec![section.to_string(), "*".to_string()];
+        at.extend(path.iter().skip(2).cloned());
+        s.schema
+            .with(|sc| {
+                sc.as_ref()
+                    .and_then(|sc| sc.root.at(&at).map(|n| n.label.clone()))
+            })
+            .filter(|l| !l.is_empty())
+            .or_else(|| path.last().cloned())
+            .unwrap_or_default()
+    };
+    let mut own: Vec<(Path, String)> = e.related.with(|r| {
         r.iter()
             .filter(|(p, _)| p.starts_with(entity))
             .map(|(p, m)| (p.clone(), m.clone()))
             .collect()
     });
-    raw.extend(e.local.with(|l| {
+    own.extend(e.local.with(|l| {
         l.iter()
             .filter(|(p, _)| p.starts_with(entity))
             .map(|(p, m)| (p.clone(), m.clone()))
             .collect::<Vec<_>>()
     }));
-    let field = |p: &Path| p.get(..3).map(<[String]>::to_vec);
-    let flagged: Vec<Path> = raw.iter().filter_map(|(p, _)| field(p)).collect();
-    raw.extend(e.plan.with(|p| {
+    let server = e.plan.with(|p| {
         p.as_ref()
             .map(|p| {
                 p.diags
@@ -124,54 +174,26 @@ pub(super) fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
                             && d.within(entity)
                             && d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE
                     })
-                    .map(|d| {
-                        let at = d
-                            .path
-                            .iter()
-                            .chain(d.also.iter())
-                            .filter(|x| x.starts_with(entity))
-                            .max_by_key(|x| x.len())
-                            .cloned()
-                            .unwrap_or_else(|| entity.clone());
-                        (
-                            at,
-                            burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
-                        )
-                    })
-                    .filter(|(at, _)| field(at).is_none_or(|f| !flagged.contains(&f)))
+                    .map(|d| server_problem(entity, d, &label))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
-    }));
-    let mut out: Vec<Problem> = Vec::new();
-    for (path, message) in raw {
-        if out.iter().any(|p| p.path == path && p.message == message) {
-            continue;
-        }
-        let key = path.get(2).cloned();
-        let label = key
-            .as_ref()
-            .and_then(|k| {
-                s.schema.with(|sc| {
-                    sc.as_ref().and_then(|sc| {
-                        sc.root
-                            .at(&[section.to_string(), "*".to_string(), k.clone()])
-                            .map(|n| n.label.clone())
-                    })
-                })
-            })
-            .unwrap_or_default();
-        out.push(Problem {
-            tab: key
-                .as_deref()
-                .map(|k| placement::tab_of(section, k))
-                .unwrap_or(placement::SETTINGS),
-            path,
-            label,
-            message,
-        });
-    }
-    out
+    });
+    merged(own, server)
+        .into_iter()
+        .map(|(path, message)| {
+            let key = path.get(2).cloned();
+            Problem {
+                tab: key
+                    .as_deref()
+                    .map(|k| placement::tab_of(section, k))
+                    .unwrap_or(placement::SETTINGS),
+                label: field(&path).map(|f| label(&f)).unwrap_or_default(),
+                path,
+                message,
+            }
+        })
+        .collect()
 }
 
 pub(super) fn apply_notes() -> Option<AnyView> {
@@ -193,12 +215,7 @@ pub(super) fn apply_notes() -> Option<AnyView> {
     if refused.is_empty() && warned.is_empty() {
         return None;
     }
-    let capital = |m: &str| {
-        let mut c = m.chars();
-        c.next()
-            .map(|f| f.to_uppercase().chain(c).collect::<String>())
-            .unwrap_or_default()
-    };
+    let capital = wording::capital;
     Some(
         view! {
             <div class="mb-4 space-y-2" data-testid="apply-notes">
@@ -292,7 +309,7 @@ pub(super) fn problem_list(
                                             tab.set(to);
                                             go_to_field(&path);
                                         }>{here}</button>
-                                        <span>{format!(": {}", p.message)}</span>
+                                        <span>{format!(": {}", wording::beside_label(&p.label, &p.message))}</span>
                                     }.into_any()
                                 }}
                             </li>
@@ -301,5 +318,53 @@ pub(super) fn problem_list(
                 </ul>
             </Callout>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_admin_proto::diag::Severity;
+
+    fn p(x: &[&str]) -> Path {
+        x.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_server_problem_on_a_field_the_form_flags_shows_once_in_the_field_wording() {
+        let entity = p(&["services", "pool"]);
+        let d = Diag {
+            severity: Severity::Error,
+            code: burrow_admin_proto::codes::MISSING_FIELD.into(),
+            message: "missing field \"target\" in service \"pool\"".into(),
+            path: Some(entity.clone()),
+            also: Vec::new(),
+            label: None,
+            help: None,
+            line: None,
+            col: None,
+            before: false,
+            subjects: Vec::new(),
+        };
+        let label = |_: &Path| "Target on the client".to_string();
+        let server = server_problem(&entity, &d, &label);
+        assert_eq!(
+            server,
+            (
+                p(&["services", "pool", "target"]),
+                "Target on the client is required".into()
+            )
+        );
+        let own = vec![(
+            p(&["services", "pool", "target"]),
+            "Target on the client is required".to_string(),
+        )];
+        assert_eq!(merged(own.clone(), vec![server.clone()]), own);
+        let other = (p(&["services", "pool", "bind"]), "taken".to_string());
+        assert_eq!(
+            merged(own.clone(), vec![server, other.clone()]),
+            vec![own[0].clone(), other]
+        );
+        assert_eq!(merged(Vec::new(), vec![own[0].clone()]), own);
     }
 }

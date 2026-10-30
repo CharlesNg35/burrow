@@ -1,8 +1,8 @@
 use burrow_admin_proto::codes::{
-    BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, NO_CERTIFICATE, NO_CHECK,
-    NO_HTTP, PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP,
-    REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, UNUSED_VISITOR, WEB_OFF, WEB_TCP_ONLY,
-    WILDCARD_NEEDS_DNS,
+    BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, MISSING_FIELD,
+    NO_CERTIFICATE, NO_CHECK, NO_HTTP, PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY,
+    REDIRECT_NEEDS_HTTP, REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, UNUSED_VISITOR, WEB_OFF,
+    WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
@@ -87,8 +87,51 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
     (code == NO_HTTP).then(|| ServerConfig::WEB.then(WebConfig::HTTP).path())
 }
 
+pub const NOT_SET: &str = "not set";
+
+pub fn capital(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+pub const WEIGHTS_NEED_BALANCE: &str = "Weights only apply with Balance.";
+
+pub fn required(label: &str) -> String {
+    format!("{label} is required")
+}
+
+pub fn beside_label(label: &str, message: &str) -> String {
+    let rest = message
+        .strip_prefix(label)
+        .filter(|r| r.starts_with(' '))
+        .map(|r| r.trim_start());
+    match rest {
+        Some(r) => r.strip_prefix("is ").unwrap_or(r).to_string(),
+        None => message.to_string(),
+    }
+}
+
+pub fn missing_field<'a>(code: &str, message: &'a str) -> Option<&'a str> {
+    if code != MISSING_FIELD {
+        return None;
+    }
+    message
+        .strip_prefix("missing field \"")?
+        .split('"')
+        .next()
+        .filter(|k| !k.is_empty())
+}
+
 pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     let subject = subjects.first().map_or("", String::as_str);
+    if let Some(key) = missing_field(code, message) {
+        return required(key);
+    }
+    if code == WEIGHT_NOT_BALANCE {
+        return "a weight only applies with Balance; clear it or choose Balance".into();
+    }
     if code == UNUSED_VISITOR {
         return format!("Visitor {subject} can't reach anything");
     }
@@ -171,6 +214,18 @@ pub const NAMED_IN_FILE: &str =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_field_reads_as_required_not_as_the_validate_text() {
+        let raw = "missing field \"target\" in service \"pool\"";
+        assert_eq!(missing_field(MISSING_FIELD, raw), Some("target"));
+        assert_eq!(missing_field("other", raw), None);
+        assert_eq!(shown(MISSING_FIELD, raw, &[]), "target is required");
+        assert_eq!(
+            required("Target on the client"),
+            "Target on the client is required"
+        );
+    }
 
     #[test]
     fn a_read_admin_is_told_once_in_one_wording_why_a_change_is_off() {

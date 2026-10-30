@@ -22,6 +22,7 @@ pub const WEBSOCKET_MOVED: &str = "websocket-moved";
 pub const WEBSOCKET_OFF: &str = "websocket-off";
 pub const WEBSOCKET_HOST: &str = "websocket-host";
 pub const UNREACHABLE_SERVICE: &str = "unreachable-service";
+pub const MISSING_FIELD: &str = "missing-field";
 pub const ADDS_CLIENT: &str = "adds-client";
 pub const PUBLIC_PORT_SKIPS_LOGIN: &str = "public-port-skips-login";
 pub const NO_HTTP: &str = "no-http";

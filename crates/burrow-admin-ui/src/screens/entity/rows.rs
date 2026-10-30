@@ -279,7 +279,10 @@ pub(super) fn service_row(
         line2: format!(
             "{} → {}",
             burrow_admin_logic::web::reached(v),
-            plain(ServiceEntry::TARGET.get(v).unwrap_or(&Value::Null))
+            ServiceEntry::TARGET
+                .get(v)
+                .filter(|t| !t.is_null())
+                .map_or_else(|| burrow_admin_logic::wording::NOT_SET.to_string(), plain)
         ),
         tags,
         group: if problem {
