@@ -404,14 +404,7 @@ pub async fn serve_session(
     loop {
         let idle_left = opts.idle_exit.saturating_sub(idle_since.elapsed());
         tokio::select! {
-            accepted = listener.accept() => {
-                let Ok((stream, _)) = accepted else {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    continue;
-                };
-                let Ok(permit) = open.clone().try_acquire_owned() else {
-                    continue;
-                };
+            (stream, permit) = crate::admin_link::accept_permitted(&listener, &open) => {
                 let shared = shared.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
