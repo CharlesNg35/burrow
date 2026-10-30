@@ -11,28 +11,6 @@ pub struct Request<'a> {
     pub cas: &'a [u8],
 }
 
-pub fn referenced(cfg: &burrow_config::ServerConfig) -> Vec<String> {
-    fn walk(v: &serde_json::Value, out: &mut Vec<String>) {
-        match v {
-            serde_json::Value::Object(m) => {
-                for (k, x) in m {
-                    match x.as_str() {
-                        Some(id) if k.ends_with("upload") => out.push(id.trim().to_string()),
-                        _ => walk(x, out),
-                    }
-                }
-            }
-            serde_json::Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
-            _ => {}
-        }
-    }
-    let mut out = Vec::new();
-    if let Ok(v) = serde_json::to_value(cfg) {
-        walk(&v, &mut out);
-    }
-    out
-}
-
 pub fn prune_unused(
     settings: &crate::config::settings::ServerSettings,
     cfg: &burrow_config::ServerConfig,
@@ -43,7 +21,7 @@ pub fn prune_unused(
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let removed = remove_unreferenced(&state, &referenced(cfg), now);
+    let removed = remove_unreferenced(&state, &burrow_config::uploads::upload_ids(cfg), now);
     if removed > 0 {
         tracing::info!("removed {removed} uploaded files the config no longer uses");
     }
@@ -150,13 +128,16 @@ mod tests {
             "web": {"https": 443, "certificates": [{"hosts": ["a.example.com"], "upload": ids[7]}]}
         }))
         .unwrap();
-        assert_eq!(referenced(&cfg), vec![ids[7].clone()]);
+        assert_eq!(
+            burrow_config::uploads::upload_ids(&cfg),
+            vec![ids[7].clone()]
+        );
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
         assert_eq!(
-            remove_unreferenced(state.path(), &referenced(&cfg), now),
+            remove_unreferenced(state.path(), &burrow_config::uploads::upload_ids(&cfg), now),
             MAX_KEPT - 1
         );
         assert!(

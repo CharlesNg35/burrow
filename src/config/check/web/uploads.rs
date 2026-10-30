@@ -2,7 +2,8 @@ use std::path::Path;
 
 use super::Spans;
 use crate::config::diagnostics::Diagnostic;
-use burrow_config::{ServerConfig, ServiceWeb, SiteTls, TargetTls};
+use burrow_config::ServerConfig;
+use burrow_config::uploads::{Files, Place, upload_slots};
 use burrow_syntax::upload::Kind;
 
 struct Slot<'a> {
@@ -123,57 +124,23 @@ fn one(
     }
 }
 
-fn site(
-    name: &str,
-    s: &mut burrow_config::WebSite,
-    state: Option<&Path>,
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) {
-    let slot = |key: &str| Slot {
-        place: format!("services.{name}.web.{key}"),
-        at: ["services", name, "web", key].map(String::from).to_vec(),
-        state,
-    };
-    if let Some(SiteTls::Files(f)) = &mut s.tls {
-        let upload = f.upload.clone();
-        pair(
-            &slot("tls"),
-            (&mut f.cert, &mut f.key),
-            upload.as_deref(),
-            spans,
-            out,
-        );
-    }
-    if let Some(TargetTls::Ca(c)) = &mut s.target_tls {
-        let upload = c.ca_upload.clone();
-        one(
-            &slot("target_tls"),
-            &mut c.ca,
-            (upload.as_deref(), Kind::Ca),
-            true,
-            spans,
-            out,
-        );
-    }
-    if let Some(c) = &mut s.client_auth {
-        let (ca, crl) = (c.ca_upload.clone(), c.crl_upload.clone());
-        one(
-            &slot("client_auth"),
-            &mut c.ca,
-            (ca.as_deref(), Kind::Ca),
-            true,
-            spans,
-            out,
-        );
-        one(
-            &slot("client_auth"),
-            &mut c.crl,
-            (crl.as_deref(), Kind::Crl),
-            false,
-            spans,
-            out,
-        );
+impl<'a> Slot<'a> {
+    fn at(place: Place<'_>, state: Option<&'a Path>) -> Self {
+        let (place, at) = match place {
+            Place::Site { service, key } => (
+                format!("services.{service}.web.{key}"),
+                vec!["services".into(), service.into(), "web".into(), key.into()],
+            ),
+            Place::Certificate(i) => (
+                format!("web.certificates[{i}]"),
+                vec!["web".into(), "certificates".into(), i.to_string()],
+            ),
+            Place::LetsEncrypt => (
+                "web.letsencrypt.ca".into(),
+                vec!["web".into(), "letsencrypt".into()],
+            ),
+        };
+        Slot { place, at, state }
     }
 }
 
@@ -184,45 +151,14 @@ pub(in crate::config::check) fn resolve(
     out: &mut Vec<Diagnostic>,
 ) -> ServerConfig {
     let mut cfg = cfg.clone();
-    for (name, svc) in cfg.services.iter_mut() {
-        if let Some(ServiceWeb::Site(s)) = &mut svc.web {
-            site(name, s, state, spans, out);
+    for s in upload_slots(&mut cfg) {
+        let slot = Slot::at(s.place, state);
+        match s.files {
+            Files::Pair { cert, key } => pair(&slot, (cert, key), s.upload, spans, out),
+            Files::One { path, required } => {
+                one(&slot, path, (s.upload, s.kind), required, spans, out);
+            }
         }
-    }
-    let Some(web) = cfg.web.as_mut() else {
-        return cfg;
-    };
-    for (i, c) in web.certificates.iter_mut().enumerate() {
-        let n = i.to_string();
-        let slot = Slot {
-            place: format!("web.certificates[{i}]"),
-            at: ["web", "certificates", &n].map(String::from).to_vec(),
-            state,
-        };
-        let upload = c.upload.clone();
-        pair(
-            &slot,
-            (&mut c.cert, &mut c.key),
-            upload.as_deref(),
-            spans,
-            out,
-        );
-    }
-    if let Some(le) = web.letsencrypt.as_mut() {
-        let slot = Slot {
-            place: "web.letsencrypt.ca".into(),
-            at: ["web", "letsencrypt"].map(String::from).to_vec(),
-            state,
-        };
-        let upload = le.ca_upload.clone();
-        one(
-            &slot,
-            &mut le.ca,
-            (upload.as_deref(), Kind::Ca),
-            false,
-            spans,
-            out,
-        );
     }
     cfg
 }
