@@ -279,15 +279,29 @@ fn follow_keeps_refreshing_with_rates() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    std::thread::sleep(Duration::from_millis(1200));
-    child.kill().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (tx, lines) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = std::io::BufReader::new(stdout);
+        for line in std::io::BufRead::lines(reader).map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
     let mut out = String::new();
-    child
-        .stdout
-        .take()
-        .unwrap()
-        .read_to_string(&mut out)
-        .unwrap();
+    while out.matches("CLIENTS").count() < 3 || !out.contains("CONN/S") {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match lines.recv_timeout(left) {
+            Ok(line) => {
+                out.push_str(&line);
+                out.push('\n');
+            }
+            Err(_) => break,
+        }
+    }
+    child.kill().unwrap();
     let _ = child.wait();
     let frames = out.matches("CLIENTS").count();
     assert!(frames >= 3, "{frames} frames:\n{out}");
