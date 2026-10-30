@@ -31,22 +31,33 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.fill(weight, "3").await;
         c.ui.wait_gone(row, SECS).await;
         row_clean(c, field).await;
+        assert_eq!(
+            c.ui.count("[data-entry] [data-own-target]").await,
+            0,
+            "a row has no target box until it asks for one"
+        );
+        click_js(c, "[data-entry='0'] [data-testid=entry-own]").await;
+        c.ui.wait_for("[data-entry='0'] [data-own-target]", SECS)
+            .await;
+        c.ui.fill("#f-services-pool-clients-0-target", "10.0.0.12:3000")
+            .await;
+        c.ui.shot("client-entry-own-target").await;
+        c.ui.click("[data-entry='0'] [data-testid=own-target-clear]")
+            .await;
+        c.ui.wait_gone("[data-entry='0'] [data-own-target]", SECS)
+            .await;
         click_js(c, "[data-entry='1'] [data-testid=entry-again]").await;
-        c.ui.wait_for("[data-entry='2']", SECS).await;
+        c.ui.wait_for("[data-entry='2'] [data-own-target]", SECS)
+            .await;
         c.ui.fill("#f-services-pool-clients-2-target", "10.0.0.13:8080")
             .await;
         click_js(c, "[data-entry='2'] [data-testid=entry-up]").await;
-        let mut moved = String::new();
-        for _ in 0..50 {
-            moved =
-                c.ui.eval("document.getElementById('f-services-pool-clients-1-target').value")
-                    .await;
-            if moved == "10.0.0.13:8080" {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        assert_eq!(moved, "10.0.0.13:8080", "the new entry moved up one row");
+        c.ui.wait_true(
+            "(document.getElementById('f-services-pool-clients-1-target') || {}).value === '10.0.0.13:8080'",
+            "the new entry moved up one row with its own target",
+            SECS,
+        )
+        .await;
         c.ui.shot("client-entries-edit").await;
         wait_checked(c).await;
         c.ui.click("[data-testid=save]").await;
@@ -56,6 +67,10 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         assert!(text.contains("mode: balance"), "{text}");
         assert!(text.contains("{ name: home, weight: 3 }"), "{text}");
         assert!(text.contains("10.0.0.13:8080"), "{text}");
+        assert!(
+            !text.contains("10.0.0.12:3000"),
+            "× went back to the main target: {text}"
+        );
         c.ui.nav("/services/pool").await;
         c.ui.wait_for("[data-testid=health] [data-row]", SECS).await;
         let rows = c.ui.text("[data-testid=health]").await;

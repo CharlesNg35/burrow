@@ -176,8 +176,8 @@ impl Secrets {
     tcp_only(mode, health_check, max_connections, proxy_protocol, web),
     label = "Service",
     groups(
-        who = "Where it runs | Clients that reach the target.",
         exposure = "Target | The protocol, and where connections lead.",
+        who = "Where it runs | Clients that reach the target.",
         reach = "Reached by | The ways in to this service; any mix of them works.",
         website = "Website | How the web proxy reaches it.",
         access = "Who may connect | All ways in: the addresses that may connect, and limits.",

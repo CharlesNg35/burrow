@@ -74,17 +74,130 @@ impl Place {
     }
 }
 
+#[derive(Clone, Copy)]
 struct Look {
     balance: Signal<bool>,
     menus: RwSignal<Option<String>>,
+    opened: RwSignal<std::collections::BTreeSet<usize>>,
     last: bool,
+}
+
+fn shifted(
+    set: &std::collections::BTreeSet<usize>,
+    from: usize,
+    by: isize,
+) -> std::collections::BTreeSet<usize> {
+    set.iter()
+        .filter_map(|&k| match k.cmp(&from) {
+            std::cmp::Ordering::Less => Some(k),
+            _ => k.checked_add_signed(by),
+        })
+        .collect()
+}
+
+fn swapped(
+    set: &std::collections::BTreeSet<usize>,
+    a: usize,
+    b: usize,
+) -> std::collections::BTreeSet<usize> {
+    set.iter()
+        .map(|&k| {
+            if k == a {
+                b
+            } else if k == b {
+                a
+            } else {
+                k
+            }
+        })
+        .collect()
+}
+
+fn menu_items(place: &Place, i: usize, look: Look, own: bool) -> Vec<MenuItem> {
+    let Look { opened, last, .. } = look;
+    let act = |f: fn(&mut Vec<Row>, usize)| {
+        let place = place.clone();
+        Callback::new(move |_: ()| place.edit(|all| f(all, i)))
+    };
+    let up = act(|all, i| {
+        if i > 0 {
+            all.swap(i, i - 1)
+        }
+    });
+    let down = act(|all, i| {
+        if i + 1 < all.len() {
+            all.swap(i, i + 1)
+        }
+    });
+    let again = act(|all, i| {
+        let name = all[i].name.clone();
+        all.insert(i + 1, Row::named(&name));
+    });
+    let remove = act(|all, i| {
+        all.remove(i);
+    });
+    let then = |run: Callback<()>, after: fn(&mut std::collections::BTreeSet<usize>, usize)| {
+        Callback::new(move |_: ()| {
+            run.run(());
+            opened.update(|o| after(o, i));
+        })
+    };
+    let mut items = Vec::new();
+    if !own {
+        items.push(MenuItem {
+            label: "Own target on this client",
+            testid: "entry-own",
+            danger: false,
+            run: Callback::new(move |_: ()| {
+                opened.update(|o| {
+                    o.insert(i);
+                })
+            }),
+        });
+    }
+    items.push(MenuItem {
+        label: "Add again with another target",
+        testid: "entry-again",
+        danger: false,
+        run: then(again, |o, i| {
+            *o = shifted(o, i + 1, 1);
+            o.insert(i + 1);
+        }),
+    });
+    if i > 0 {
+        items.push(MenuItem {
+            label: "Move up",
+            testid: "entry-up",
+            danger: false,
+            run: then(up, |o, i| *o = swapped(o, i, i - 1)),
+        });
+    }
+    if !last {
+        items.push(MenuItem {
+            label: "Move down",
+            testid: "entry-down",
+            danger: false,
+            run: then(down, |o, i| *o = swapped(o, i, i + 1)),
+        });
+    }
+    items.push(MenuItem {
+        label: "Remove",
+        testid: "entry-remove",
+        danger: true,
+        run: then(remove, |o, i| {
+            o.remove(&i);
+            *o = shifted(o, i + 1, -1);
+        }),
+    });
+    items
 }
 
 fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
     let Look {
         balance,
         menus,
-        last,
+        opened,
+        ..
     } = look;
     let e = store().edit;
     let id = format!("{}-{i}", place.fc.id);
@@ -131,62 +244,26 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
     };
     let set_target = on(|all, i, t| all[i].target = typed(&t));
     let set_weight = on(|all, i, t| all[i].weight = typed(&t).filter(|w| w.as_i64() != Some(1)));
-    let act = |f: fn(&mut Vec<Row>, usize)| {
-        let place = place.clone();
-        Callback::new(move |_: ()| place.edit(|all| f(all, i)))
+    let own = {
+        let current = current.clone();
+        Memo::new(move |_| current().target.is_some() || opened.with(|o| o.contains(&i)))
     };
-    let up = act(|all, i| {
-        if i > 0 {
-            all.swap(i, i - 1)
-        }
-    });
-    let down = act(|all, i| {
-        if i + 1 < all.len() {
-            all.swap(i, i + 1)
-        }
-    });
-    let again = act(|all, i| {
-        let name = all[i].name.clone();
-        all.insert(i + 1, Row::named(&name));
-    });
-    let remove = act(|all, i| {
-        all.remove(i);
-    });
-    let mut items = Vec::new();
-    if i > 0 {
-        items.push(MenuItem {
-            label: "Move up",
-            testid: "entry-up",
-            danger: false,
-            run: up,
-        });
-    }
-    if !last {
-        items.push(MenuItem {
-            label: "Move down",
-            testid: "entry-down",
-            danger: false,
-            run: down,
-        });
-    }
-    items.push(MenuItem {
-        label: "Another target",
-        testid: "entry-again",
-        danger: false,
-        run: again,
-    });
-    items.push(MenuItem {
-        label: "Remove",
-        testid: "entry-remove",
-        danger: true,
-        run: remove,
-    });
+    let items = menu_items(&place, i, look, own.get_untracked());
     let menu = row_menu(
         menus,
         i.to_string(),
         format!("More for entry {}", i + 1),
         items,
     );
+    let clear = {
+        let place = place.clone();
+        move |_| {
+            place.edit(|all| all[i].target = None);
+            opened.update(|o| {
+                o.remove(&i);
+            });
+        }
+    };
     let weight_id = format!("{id}-weight");
     let mut at = place.fc.path.clone();
     at.push(i.to_string());
@@ -197,20 +274,30 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
                 .map(|d| burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects))
         })
     };
+    let target_id = format!("{id}-target");
     view! {
         <div class="rounded-input border border-border px-3 py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
             <div class="flex flex-wrap items-end gap-2">
                 <div class="min-w-[160px] flex-1">
                     <Combobox id=format!("{id}-client") options=options selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
                 </div>
-                <div class="min-w-[180px] flex-1">
-                    <TextInput id=format!("{id}-target") value=target on_input=set_target mono=true placeholder=service_target label="Target"/>
-                </div>
                 <div class="w-[140px]" class:hidden=move || !balance.get() data-weight="">
+                    <span class="mb-1 block text-xs font-semibold text-text-muted sm:hidden">"Weight"</span>
                     <TextInput id=weight_id value=weight on_input=set_weight numeric=true placeholder="1" label="Weight"/>
                 </div>
-                <div class="pb-1.5">{menu}</div>
+                <div class="pb-1">{menu}</div>
             </div>
+            {move || own.get().then(|| view! {
+                <div class="mt-2 flex items-center gap-2" data-own-target="">
+                    <span class="shrink-0 text-xs text-text-muted">"own target"</span>
+                    <div class="min-w-0 max-w-[280px] flex-1">
+                        <TextInput id=target_id.clone() value=target on_input=set_target mono=true placeholder=service_target.clone() label="Own target"/>
+                    </div>
+                    <button type="button" class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3 hover:text-text" aria-label="Use the main target" title="Use the main target" data-testid="own-target-clear" on:click=clear.clone()>
+                        <burrow_ui_kit::Icon name="x" small=true/>
+                    </button>
+                </div>
+            })}
             {move || problem().map(|m| view! { <p class="mt-1 text-xs text-danger" data-entry-error="">{m}</p> })}
         </div>
     }
@@ -253,22 +340,27 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
         })
     };
     let menus = row_menus();
+    let opened = RwSignal::new(std::collections::BTreeSet::new());
     let rows = {
         let (place, c) = (place.clone(), c.clone());
         move || {
             let n = count.get();
+            opened.track();
             (0..n)
                 .map(|i| {
-                    row_view(
-                        place.clone(),
-                        c.clone(),
-                        i,
-                        Look {
-                            balance,
-                            menus,
-                            last: i + 1 == n,
-                        },
-                    )
+                    untrack(|| {
+                        row_view(
+                            place.clone(),
+                            c.clone(),
+                            i,
+                            Look {
+                                balance,
+                                menus,
+                                opened,
+                                last: i + 1 == n,
+                            },
+                        )
+                    })
                 })
                 .collect_view()
         }
@@ -277,7 +369,6 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
         (count.get() > 0).then(|| view! {
             <div class="flex gap-2 px-3 text-xs font-semibold text-text-muted max-sm:hidden" data-entries-head="">
                 <span class="min-w-[160px] flex-1">"Client"</span>
-                <span class="min-w-[180px] flex-1">"Target"</span>
                 <span class="w-[140px]" class:hidden=move || !balance.get()>"Weight"</span>
                 <span class="w-7" aria-hidden="true"></span>
             </div>

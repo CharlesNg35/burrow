@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:7fa16c4a27d7f986",
+  "hash": "b2s:f7bdffd2230da8e4",
   "root": {
     "label": "Server",
     "sem": {
@@ -3115,14 +3115,14 @@
                 },
                 "groups": [
                   {
-                    "key": "who",
-                    "label": "Where it runs",
-                    "sub": "Clients that reach the target."
-                  },
-                  {
                     "key": "exposure",
                     "label": "Target",
                     "sub": "The protocol, and where connections lead."
+                  },
+                  {
+                    "key": "who",
+                    "label": "Where it runs",
+                    "sub": "Clients that reach the target."
                   },
                   {
                     "key": "reach",
