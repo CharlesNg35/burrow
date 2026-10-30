@@ -93,13 +93,13 @@ impl Shared {
     }
 
     pub(crate) fn has_clear(&self, service: &str, svc: &Service, index: u16) -> bool {
-        self.hops(service, svc, index).iter().any(|h| {
+        self.hops(svc, index).iter().any(|h| {
             (svc.health.is_none() || self.is_up(service, &h.key))
                 && self.seen(service, h, &h.target) == Seen::Clear
         })
     }
 
-    fn hops(&self, _service: &str, svc: &Service, index: u16) -> Vec<Hop> {
+    fn hops(&self, svc: &Service, index: u16) -> Vec<Hop> {
         let sessions = self.connected(&svc.clients);
         svc.entries()
             .iter()
@@ -123,7 +123,7 @@ impl Shared {
         hold: bool,
     ) -> (Vec<Hop>, Option<Held>) {
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
-        for h in self.hops(service, svc, index) {
+        for h in self.hops(svc, index) {
             let healthy = svc.health.is_none() || self.is_up(service, &h.key);
             match self.seen(service, &h, &h.target) {
                 Seen::Refused => refused.push(h),
@@ -132,7 +132,8 @@ impl Shared {
                 Seen::Clear => aside.push(h),
             }
         }
-        let mut wheels = self.wheels.lock().expect("wheels lock");
+        let mut wheels =
+            (hold && svc.mode != Mode::Failover).then(|| self.wheels.lock().expect("wheels lock"));
         let head = [&mut clear, &mut aside, &mut refused]
             .into_iter()
             .find(|g| !g.is_empty());
@@ -142,12 +143,14 @@ impl Shared {
             match svc.mode {
                 Mode::Failover => {}
                 Mode::Balance => {
-                    let group = head.iter().map(|h| (&h.key, h.weight));
-                    let first = wheels.turn(service, svc.entries_id(), group);
-                    head.rotate_left(first);
+                    if let Some(wheels) = wheels.as_mut() {
+                        let group = head.iter().map(|h| (&h.key, h.weight));
+                        let first = wheels.turn(service, svc.entries_id(), group);
+                        head.rotate_left(first);
+                    }
                 }
                 Mode::LeastConnections => {
-                    head.sort_by_cached_key(|h| self.entry_count(service, h));
+                    head.sort_by_cached_key(|h| self.entry_open(service, &h.key));
                 }
             }
         }
@@ -169,10 +172,6 @@ impl Shared {
 
     pub(super) fn entry_opens(&self, service: &str, hop: &Hop) -> CountGuard {
         self.entry_counts.enter(service, &hop.key)
-    }
-
-    fn entry_count(&self, service: &str, hop: &Hop) -> u64 {
-        self.entry_counts.current(service, &hop.key)
     }
 
     pub(super) fn entry_open(&self, service: &str, key: &EntryKey) -> u64 {
