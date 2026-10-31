@@ -486,3 +486,29 @@ All of burrow's TLS prefers the hybrid key exchange X25519MLKEM768 (ML-KEM-768 w
 - **Risk accepted.** A large C library in every TLS path (memory safety), maintained by AWS, the rustls default and FIPS 140-3 validated with ML-KEM. The fallback, ring with a verified pure-Rust ML-KEM (libcrux-ml-kem) and our own hybrid glue, was not needed, because every target builds.
 
 Sources, checked 2026-10-31: openssl.org release notes for 3.5.0; go.dev release notes for 1.24 and 1.26; caddyserver.com global options (`curves`); Traefik's TLS options source; envoyproxy.io 1.40.0 release notes; haproxy.com post-quantum blog (July 2026); chromestatus X25519Kyber768/ML-KEM; Firefox 132 release notes; rustls 0.23.46 source (`crypto/aws_lc_rs/mod.rs`, `DEFAULT_KX_GROUPS`; Cargo features `aws_lc_rs`, `prefer-post-quantum`) and issue 2763; aws-lc-rs platform support docs; AWS security blog on AWS-LC FIPS 3.0 with ML-KEM; draft-ietf-tls-ecdhe-mlkem.
+
+## D56. The web proxy keeps small, reused buffers per connection, and HTTP/2 answers do not pin the app's read buffers
+
+BENCH-1 found burrow at 1,954 MiB at its peak on the mix (bodies up to 8 MiB), against 209 MiB for nginx. Per connection burrow was already lean on small requests; the gap was buffers that grew and stayed, buffers allocated and zeroed again for every tunnel record, and one HTTP/2 effect that grew without a bound while connections stayed open. Five changes, each measured on its own, with no new setting and no wire change:
+
+- **HTTP/1.1 visitors.** hyper's visitor connection had no `max_buf_size`, so its read buffer could grow to hyper's default of 400 KiB. The connection wrappers did not pass on vectored writes, so hyper copied every body chunk into one write buffer that grew to about 512 KiB and kept that size for the connection's life. The visitor connection now keeps at most 64 KiB each way (`VISITOR_BUF`, above the 32 KiB header limit), and `Watched`, `Prefixed` and `Pipe` pass on `poll_write_vectored`, so hyper queues the chunks it gets instead of copying them.
+- **Tunnel records.** Every record received took a fresh 128 KiB zeroed buffer, even a tiny one, and every pump took and zeroed 64–128 KiB more whenever its source paused for a moment. The buffers now come from a small pool shared by the process (at most 64 buffers of 64 KiB, 4 MiB), and the read buffer holds one record instead of two. An idle reader still holds no big buffer: it reads up to 530 bytes into its own small array, so a small record costs one read call instead of two. Data just over 512 bytes goes as one record instead of two. Records keep their sizes and their format, so v0.1.x peers are unaffected.
+- **The in-memory pipe** between the web proxy and the tunnel holds 32 KiB each way instead of 64 KiB.
+- **HTTP/2 answers carry their own header values.** hyper's HTTP/1.1 client keeps an app's response header values as slices of its read buffer. The HPACK encoder of a visitor's HTTP/2 connection keeps up to 4 KiB of recent header values for the connection's life, and each entry kept a whole 8–64 KiB app read buffer alive with it. On the repro this grew by about 1 KB per request with no bound, up to about 1.4 MiB per connection. An answer to an HTTP/2 visitor now copies its header values into their own small allocations first.
+- **Not done: `self` straight to the app.** D38 sends `self` through the same target code as a remote client, and that stays. The direct path would only be worth it if a clear gap remained, and then only after the target rules are shared by both paths; the numbers below show the gap is small.
+
+Measured on 2026-10-31 on a 10-core VM, with the musl and jemalloc release build. 300 open connections (k6, closed set) to a `client: self` site and to a site behind a remote client over TCP, 4,000 requests a second, 30 s measured. The figures are the mean of two rounds, which agree within a few percent. PSS is the server's average while measured, CPU is µs·core per request.
+
+| workload | before: PSS, CPU, p99 | after: PSS, CPU, p99 |
+|---|---|---|
+| mix, HTTP/1.1, `self` | 534 MiB, 223 µs, 4.4 ms | 223 MiB, 156 µs, 3.7 ms |
+| mix, HTTP/2, `self` | 567 MiB, 288 µs, 4.8 ms | 257 MiB, 201 µs, 3.6 ms |
+| mix, HTTP/2, remote client (server) | 486 MiB, 269 µs, 6.5 ms | 195 MiB, 198 µs, 5.2 ms |
+| mix, HTTP/2, remote client (client CPU) | 102 µs | 73 µs |
+| 100-byte answers, HTTP/1.1, 5,000/s | 45 MiB, 104 µs | 48 MiB, 74 µs |
+
+The mix is 70 % small JSON answers, 15 % downloads (80 % 16 KiB, 15 % 256 KiB, 4 % 1 MiB, 1 % 8 MiB) and 5 % uploads (64 KiB or 1 MiB), each checked by hash. Every request in every run was answered correctly. The pool keeps up to 4 MiB that an idle server does not give back. That is the +3 MiB on small answers, and it is small next to what it saves.
+
+nginx keeps memory lower still by reading answers into a few page-sized buffers and spilling the rest to a temporary file (`proxy_buffering`, `proxy_buffers 8 4k|8k`, `proxy_max_temp_file_size 1024m`), and by reading whole request bodies first (`proxy_request_buffering`). That costs disk writes and latency on large bodies, and BENCH-1 measured nginx's p99 at 47 ms against burrow's 13.7 ms on the mix. burrow keeps streaming, as Caddy and Traefik do with their pooled 32 KiB copy buffers.
+
+Sources, checked 2026-10-31: nginx.org ngx_http_proxy_module, ngx_http_core_module and ngx_http_v2_module; caddyserver.com reverse_proxy docs and Caddy's `modules/caddyhttp/reverseproxy/streaming.go`; hyper 1.12.0 `src/proto/h1/io.rs` (`DEFAULT_MAX_BUFFER_SIZE`, write strategies) and `src/proto/h1/role.rs` (header values as slices); h2 0.4.20 `src/hpack/encoder.rs` and `src/hpack/table.rs`; bytes 1.12.1 `BytesMut::reserve`.
