@@ -60,7 +60,7 @@ burrow service status                  # state, version, account, files, the las
 sudo burrow service logs -f            # follow the log (-n 200 for the last 200 lines)
 sudo burrow service restart            # also: start, stop
 sudo burrow service reload             # apply the config now (it is also applied on save)
-sudo burrow service uninstall          # remove it; --purge also deletes its config folder, saved variables, logs and web state
+sudo burrow service uninstall          # remove it; --purge also deletes its config folder, saved environment variables, log, web access log and web state folder
 sudo burrow status -f                  # live clients and traffic of a server, see monitoring.md
 ```
 

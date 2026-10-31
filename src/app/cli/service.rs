@@ -82,7 +82,10 @@ pub struct ServiceUpdateArgs {
 pub struct ServiceUninstallArgs {
     #[arg(help = "Service name; optional when only one burrow service is installed")]
     pub name: Option<String>,
-    #[arg(long, help = "Also delete the installed config and saved environment")]
+    #[arg(
+        long,
+        help = "Also delete the installed config and its folder, the saved environment variables, the service log, the web access log and the web state folder"
+    )]
     pub purge: bool,
 }
 
