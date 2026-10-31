@@ -354,7 +354,8 @@ mod tests {
                 total: 153,
                 refused: 1,
                 refused_country: 0,
-                countries: None,
+                allowed_countries: Vec::new(),
+                denied_countries: Vec::new(),
                 bytes_in: 1_200_000_000,
                 bytes_out: 8_400_000_000,
                 health: vec![

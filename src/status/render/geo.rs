@@ -28,16 +28,15 @@ pub(super) fn render_geoip(out: &mut String, s: &Status, paint: Paint, now: u64)
             )
         );
     }
-    for svc in s.services.iter().filter(|v| v.countries.is_some()) {
-        let rule = svc.countries.as_deref().unwrap_or_default();
-        let _ = writeln!(
-            out,
-            "{}",
-            paint.dim(&format!(
-                "{}: {rule}; {} refused by country",
-                svc.name, svc.refused_country
-            ))
-        );
+    for line in s.services.iter().filter_map(|v| {
+        burrow_syntax::country::service_line(
+            &v.name,
+            &v.allowed_countries,
+            &v.denied_countries,
+            v.refused_country,
+        )
+    }) {
+        let _ = writeln!(out, "{}", paint.dim(&line));
     }
     if g.credit {
         let _ = writeln!(

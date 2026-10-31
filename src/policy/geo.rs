@@ -36,6 +36,20 @@ impl Countries {
         }
     }
 
+    pub fn allowed(&self) -> Vec<String> {
+        match self {
+            Countries::Allow(c) => c.iter().cloned().collect(),
+            Countries::Deny(_) => Vec::new(),
+        }
+    }
+
+    pub fn denied(&self) -> Vec<String> {
+        match self {
+            Countries::Deny(c) => c.iter().cloned().collect(),
+            Countries::Allow(_) => Vec::new(),
+        }
+    }
+
     pub fn key(&self) -> &'static str {
         match self {
             Countries::Allow(_) => "allow_countries",

@@ -27,7 +27,7 @@ fn country_codes_are_checked_and_only_one_rule_per_service() {
         "{bad}"
     );
     assert!(
-        bad.contains("\"ZZ\" is not a two-letter ISO 3166 country code"),
+        bad.contains("\"ZZ\" is not a country: use a two-letter ISO 3166 code"),
         "{bad}"
     );
     assert!(bad.contains("2 errors"), "lower case is fine: {bad}");

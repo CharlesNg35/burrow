@@ -39,12 +39,7 @@ impl Upstream for Doorway {
             Verdict::In => Admission::In,
             Verdict::Address => Admission::Refused,
             Verdict::Region => Admission::Region {
-                credit: self
-                    .0
-                    .settings()
-                    .geoip
-                    .as_ref()
-                    .is_some_and(crate::config::settings::GeoSource::credits_db_ip),
+                credit: self.0.geo.credits(),
             },
         }
     }

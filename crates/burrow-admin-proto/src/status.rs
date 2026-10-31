@@ -188,8 +188,10 @@ pub struct ServiceStatus {
     pub refused: u64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub refused_country: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub countries: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_countries: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub denied_countries: Vec<String>,
     #[serde(default)]
     pub bytes_in: u64,
     #[serde(default)]

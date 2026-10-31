@@ -1,3 +1,4 @@
+use crate::policy::geo::Countries;
 use std::sync::atomic::Ordering;
 
 use super::Shared;
@@ -123,10 +124,16 @@ impl Shared {
                     proxy_protocol: svc.proxy_protocol.map(|v| v.wire().to_string()),
                     filtered: !svc.sources.is_open() || svc.countries.is_some(),
                     refused_country: stats.refused_country.load(Ordering::Relaxed),
-                    countries: svc.countries.as_ref().map(|c| {
-                        let codes: Vec<&str> = c.codes().iter().map(String::as_str).collect();
-                        format!("{} {}", c.key(), codes.join(", "))
-                    }),
+                    allowed_countries: svc
+                        .countries
+                        .as_ref()
+                        .map(Countries::allowed)
+                        .unwrap_or_default(),
+                    denied_countries: svc
+                        .countries
+                        .as_ref()
+                        .map(Countries::denied)
+                        .unwrap_or_default(),
                     open: self.service_counts.current(name),
                     total: stats.total.load(Ordering::Relaxed),
                     refused: stats.refused.load(Ordering::Relaxed),

@@ -82,7 +82,8 @@ async fn a_website_with_allow_countries_lets_in_only_those_countries() {
     let status = t.server.shared.status();
     let shop = status.services.iter().find(|s| s.name == "shop").unwrap();
     assert_eq!(shop.refused_country, 2);
-    assert_eq!(shop.countries.as_deref(), Some("allow_countries FR"));
+    assert_eq!(shop.allowed_countries, ["FR"]);
+    assert!(shop.denied_countries.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

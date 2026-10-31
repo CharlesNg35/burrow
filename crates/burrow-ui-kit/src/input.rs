@@ -219,7 +219,13 @@ pub fn Segmented(
 }
 
 pub fn split_entries(text: &str) -> Vec<String> {
-    text.split([',', ';', '\n', ' ', '\t'])
+    split_on(text, &[',', ';', '\n', ' ', '\t'])
+}
+
+const NAME_BREAKS: [char; 4] = [',', ';', '\n', '\t'];
+
+fn split_on(text: &str, breaks: &[char]) -> Vec<String> {
+    text.split(breaks)
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
@@ -239,6 +245,11 @@ pub fn ChipInput(
     #[prop(optional)] suggestions: Vec<(String, String)>,
 ) -> impl IntoView {
     let typing = RwSignal::new(String::new());
+    let breaks: &'static [char] = if suggestions.is_empty() {
+        &[',', ';', '\n', ' ', '\t']
+    } else {
+        &NAME_BREAKS
+    };
     let list_id = (!suggestions.is_empty()).then(|| format!("{id}-choices"));
     let choices = list_id.clone().map(|lid| {
         view! {
@@ -254,7 +265,7 @@ pub fn ChipInput(
         let text = typing.get_untracked();
         let mut list = items.get_untracked();
         let mut added = false;
-        for e in split_entries(&text) {
+        for e in split_on(&text, breaks) {
             if !list.contains(&e) {
                 list.push(e);
                 added = true;
@@ -327,7 +338,7 @@ pub fn ChipInput(
                 prop:value=move || typing.get()
                 on:input:target=move |e| {
                     let v = e.target().value();
-                    let split = v.contains([',', ';', '\n', ' ']);
+                    let split = v.contains(|c: char| c != '\t' && breaks.contains(&c));
                     typing.set(v);
                     if split {
                         commit();
@@ -399,5 +410,10 @@ mod tests {
             vec!["10.0.0.0/8", "192.168.1.0/24", "127.0.0.1"]
         );
         assert!(split_entries(" , ").is_empty());
+        assert_eq!(
+            split_on("United Kingdom, fr", &NAME_BREAKS),
+            vec!["United Kingdom", "fr"],
+            "names with spaces stay whole when the list offers names"
+        );
     }
 }

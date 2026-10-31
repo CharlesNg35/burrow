@@ -1,7 +1,9 @@
 use std::io::Write;
 
 use super::db::{Db, previous_month, unpack};
-use super::keep::{reread, store};
+use super::db_ip::store;
+use super::own_file::OwnFile;
+use super::source::{Source, source_for};
 use crate::config::settings::DB_IP_FILE;
 use crate::policy::geo::Place;
 
@@ -106,21 +108,25 @@ fn months_count_back_across_the_year() {
     );
 }
 
-#[test]
-fn an_own_file_is_read_again_when_it_changes_and_a_broken_one_is_ignored() {
+#[tokio::test]
+async fn an_own_file_is_read_again_when_it_changes_and_a_broken_one_is_ignored() {
     let geo = super::Geo::default();
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("own.mmdb");
+    let mut own = OwnFile::new(file.clone());
+    geo.reset(Some(&own));
+    own.start(&geo);
+    assert!(geo.held().is_none());
+    assert_eq!(geo.watch.lock().unwrap().result, "file not found");
     std::fs::write(&file, fixture::world(1_000)).unwrap();
-    let mut stamp = None;
-    reread(&geo, &file, &mut stamp);
+    own.tend(&geo).await;
     assert_eq!(geo.held().unwrap().built, 1_000);
     std::fs::write(
         &file,
         b"broken, and longer than before so the stamp changes for sure",
     )
     .unwrap();
-    reread(&geo, &file, &mut stamp);
+    own.tend(&geo).await;
     assert_eq!(
         geo.held().unwrap().built,
         1_000,
@@ -128,6 +134,24 @@ fn an_own_file_is_read_again_when_it_changes_and_a_broken_one_is_ignored() {
     );
     assert!(geo.watch.lock().unwrap().failed);
     std::fs::write(&file, fixture::world(3_000)).unwrap();
-    reread(&geo, &file, &mut stamp);
+    own.tend(&geo).await;
     assert_eq!(geo.held().unwrap().built, 3_000);
+    assert!(!geo.credits(), "an own file is not DB-IP's");
+}
+
+#[test]
+fn each_source_says_where_its_file_is_and_whom_to_credit() {
+    let db_ip = source_for(&crate::config::settings::GeoSource::DbIp {
+        dir: Some("/state/geoip".into()),
+    });
+    assert_eq!(
+        db_ip.file().unwrap(),
+        std::path::Path::new("/state/geoip").join(DB_IP_FILE)
+    );
+    assert!(db_ip.credits());
+    let own = source_for(&crate::config::settings::GeoSource::File(
+        "/etc/own.mmdb".into(),
+    ));
+    assert_eq!(own.file().unwrap(), std::path::Path::new("/etc/own.mmdb"));
+    assert!(!own.credits());
 }

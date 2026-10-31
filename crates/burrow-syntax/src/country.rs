@@ -266,14 +266,61 @@ pub fn country(text: &str) -> Result<String, String> {
     if name_of(&code).is_some() {
         return Ok(code);
     }
-    let wanted = text.trim().to_lowercase();
-    match COUNTRIES.iter().find(|(_, n)| n.to_lowercase() == wanted) {
-        Some((c, n)) => Err(format!("use the two-letter code {c} for {n}")),
+    match code_of(text) {
+        Some(c) => Err(format!(
+            "use the two-letter code {c} for {}",
+            name_of(c).unwrap_or(c)
+        )),
         None => Err(format!(
-            "\"{}\" is not a two-letter ISO 3166 country code, for example FR, DE or US",
+            "\"{}\" is not a country: use a two-letter ISO 3166 code or a country name, for example FR, DE or Switzerland",
             text.trim()
         )),
     }
+}
+
+pub fn code_of(text: &str) -> Option<&'static str> {
+    let wanted = text.trim().to_lowercase();
+    if wanted.is_empty() {
+        return None;
+    }
+    let by_code = COUNTRIES
+        .iter()
+        .find(|(c, _)| c.eq_ignore_ascii_case(&wanted));
+    let by_name = || COUNTRIES.iter().find(|(_, n)| n.to_lowercase() == wanted);
+    let by_start = || {
+        let mut starting = COUNTRIES
+            .iter()
+            .filter(|(_, n)| n.to_lowercase().starts_with(&wanted));
+        match (starting.next(), starting.next()) {
+            (Some(one), None) if wanted.len() >= 3 => Some(one),
+            _ => None,
+        }
+    };
+    by_code.or_else(by_name).or_else(by_start).map(|(c, _)| *c)
+}
+
+pub fn names(codes: &[String]) -> String {
+    codes
+        .iter()
+        .map(|c| name_of(c).unwrap_or(c))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub fn service_line(
+    service: &str,
+    allowed: &[String],
+    denied: &[String],
+    refused: u64,
+) -> Option<String> {
+    let rule = if !allowed.is_empty() {
+        format!("allowed countries {}", names(allowed))
+    } else if !denied.is_empty() {
+        format!("denied countries {}", names(denied))
+    } else {
+        return None;
+    };
+    Some(format!("{service}: {rule} · {refused} refused"))
 }
 
 #[cfg(test)]
@@ -297,6 +344,18 @@ mod tests {
         assert_eq!(name_of("CH"), Some("Switzerland"));
         assert!(country("France").unwrap_err().contains("FR"));
         assert!(country("ZZ").unwrap_err().contains("ISO 3166"));
+        assert_eq!(code_of("france"), Some("FR"));
+        assert_eq!(code_of("Switzerland"), Some("CH"));
+        assert_eq!(code_of("ch"), Some("CH"));
+        assert_eq!(code_of("united king"), Some("GB"));
+        assert_eq!(code_of("united"), None, "several names start so");
+        assert_eq!(code_of("Atlantis"), None);
+        let both = [String::from("BE"), String::from("FR")];
+        assert_eq!(
+            service_line("shop", &both, &[], 0).unwrap(),
+            "shop: allowed countries Belgium, France · 0 refused"
+        );
+        assert_eq!(service_line("shop", &[], &[], 0), None);
         assert!(country("").unwrap_err().contains("required"));
     }
 }

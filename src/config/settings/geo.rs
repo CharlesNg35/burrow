@@ -15,10 +15,6 @@ pub enum GeoSource {
 }
 
 impl GeoSource {
-    pub fn credits_db_ip(&self) -> bool {
-        matches!(self, GeoSource::DbIp { .. })
-    }
-
     pub fn shown(&self) -> String {
         match self {
             GeoSource::DbIp { .. } => DB_IP.to_string(),

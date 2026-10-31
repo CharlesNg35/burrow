@@ -58,11 +58,13 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     let item3 = item.clone();
     let on_change = move |list: Vec<String>| {
         let v = (!list.is_empty()).then(|| {
-            Value::Array(
-                list.iter()
-                    .filter_map(|t| parse_input(&item3.sem, t))
-                    .collect(),
-            )
+            let mut parsed: Vec<Value> = Vec::new();
+            for v in list.iter().filter_map(|t| parse_input(&item3.sem, t)) {
+                if !parsed.contains(&v) {
+                    parsed.push(v);
+                }
+            }
+            Value::Array(parsed)
         });
         if crate::grants::refuses(&fc2.path, v.as_ref()) {
             store().edit.refuse(&fc2.path, true);

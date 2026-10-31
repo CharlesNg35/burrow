@@ -48,11 +48,11 @@ impl Db {
     }
 
     pub fn open(path: &Path) -> Result<Db, String> {
-        let f = std::fs::File::open(path).map_err(|e| format!("cannot open it: {e}"))?;
+        let f = std::fs::File::open(path).map_err(|e| crate::base::failure::file_reason(&e))?;
         let mut bytes = Vec::new();
         f.take(MAX_UNPACKED + 1)
             .read_to_end(&mut bytes)
-            .map_err(|e| format!("cannot read it: {e}"))?;
+            .map_err(|e| crate::base::failure::file_reason(&e))?;
         if bytes.len() as u64 > MAX_UNPACKED {
             return Err(format!("it is larger than {} MiB", MAX_UNPACKED >> 20));
         }

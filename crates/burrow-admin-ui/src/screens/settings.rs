@@ -267,9 +267,8 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
         Some(view! {
             <div data-tab-panel=now.key()>
                 {web_note}
-                {cards.iter().map(settings_card).collect_view()}
+                {cards.iter().map(|c| settings_card(c, below_card(&c.key))).collect_view()}
                 {(now == Tab::Web && web_on).then(super::local_ca::local_ca_card)}
-                {(now == Tab::Server).then(super::geoip::geoip_card)}
                 {empty}
             </div>
         })
@@ -463,6 +462,14 @@ fn discard_settings(e: Edit) {
         });
     }
     e.stop_edit(&[]);
+}
+
+fn below_card(key: &str) -> AnyView {
+    if key == burrow_config::ServerConfig::GROUP_GEOIP {
+        super::geoip::geoip_status().into_any()
+    } else {
+        ().into_any()
+    }
 }
 
 #[cfg(test)]
