@@ -29,7 +29,10 @@ pub fn host_header(value: &str) -> Option<String> {
     (labels_ok && !name.contains(['[', ']'])).then(|| name.to_ascii_lowercase())
 }
 
-pub fn host_port(headers: &HeaderMap) -> Option<u16> {
+pub fn host_port(uri: &Uri, headers: &HeaderMap) -> Option<u16> {
+    if let Some(a) = uri.authority() {
+        return a.port_u16();
+    }
     let value = headers.get(header::HOST)?.to_str().ok()?;
     value.parse::<Authority>().ok()?.port_u16()
 }
@@ -166,5 +169,20 @@ mod tests {
         );
         assert_eq!(request_host(&origin, &headers(&[]), h2), None);
         assert_eq!(request_host(&authority, &headers(&["a", "a"]), h2), None);
+    }
+
+    #[test]
+    fn the_port_comes_from_the_authority_first_then_the_host_field() {
+        let h2: Uri = "https://site.lan:65443/a".parse().unwrap();
+        let origin: Uri = "/a".parse().unwrap();
+        let host = |v: &str| {
+            let mut m = HeaderMap::new();
+            m.insert(header::HOST, HeaderValue::from_str(v).unwrap());
+            m
+        };
+        assert_eq!(host_port(&h2, &HeaderMap::new()), Some(65443));
+        assert_eq!(host_port(&origin, &host("site.lan:8443")), Some(8443));
+        assert_eq!(host_port(&origin, &host("site.lan")), None);
+        assert_eq!(host_port(&origin, &HeaderMap::new()), None);
     }
 }

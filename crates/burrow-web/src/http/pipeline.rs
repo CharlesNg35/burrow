@@ -67,7 +67,7 @@ pub(crate) async fn handle<U: Upstream>(
         }
         Action::ToName { name, https } => {
             let port = (conn.name.is_some() == *https)
-                .then(|| host_port(req.headers()))
+                .then(|| host_port(req.uri(), req.headers()))
                 .flatten();
             let to = redirect::address(*https, name, port);
             let l = redirect::location(&route.prefix, &to, req.uri().path(), req.uri().query());
