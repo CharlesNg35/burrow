@@ -19,12 +19,12 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - Named login services in `web.forward_auth`, such as Authelia, authentik or oauth2-proxy, picked per site with `forward_auth: <name>`.
   - Device certificates (`client_auth`), with revocation lists.
   - `rate_limit` per visitor address, and the service's `allow_from` and `deny_from`.
-- **Paths, redirects and pages:** `paths` and `app_path` split one name between apps. `redirect_from`, `redirects` and `web.redirect_names` handle redirects. Sites also get request and response headers, `max_body_size`, gzip (`compress`), HSTS, error pages, a maintenance page, HTTPS to the app (`target_tls`), an access log and request ids.
+- **Paths, redirects and pages:** `paths` and `app_path` split one name between apps. `redirect_from`, `redirects` and `web.redirect_names` handle redirects. Sites also get request and response headers, `max_body_size`, gzip (`compress`), HSTS, error pages, a maintenance page, HTTPS to the app (`target_tls`), an access log, request ids and timeouts (`web.request_header_timeout_secs`, `web.idle_timeout_secs`, `response_header_timeout_secs`).
 - **Behind a proxy:** `web.trusted_proxies` reads the visitor's address from `X-Forwarded-For` (Cloudflare, load balancers). `web.proxy_protocol_from` accepts PROXY headers from TCP balancers.
 - **HTTP/2 and gRPC:** HTTP/2 to browsers is on by default, and `target_http2` speaks HTTP/2 to the app for gRPC. burrow sets its own limits against the HTTP/2 attacks of recent years (Rapid Reset, MadeYouReset, CONTINUATION floods, the 2026 HTTP/2 Bomb). Paths are cleaned before routing, so `//admin` or `/%61dmin` cannot walk around a login.
 - **Health checks for websites:** `health_check: { path: /healthz }` asks each client's app for a page and sends visitors only to clients whose app answers.
 - **The tunnel on the web ports:** clients can connect over `wss://` on port 443 (or `ws://` on 80), on a name of their own or a path of a site, with an automatic certificate. `burrow init server --ws --email ADDRESS --server NAME` writes this setup.
-- **Post-quantum TLS:** burrow's HTTPS, the tunnel's `wss://` and HTTPS to the app prefer the hybrid key exchange X25519MLKEM768, as browsers, Go and OpenSSL 3.5 do. A client that does not offer it gets X25519 or P-256 as before.
+- **Post-quantum TLS:** burrow's HTTPS, the tunnel's `wss://` and HTTPS to the app prefer the hybrid key exchange X25519MLKEM768, as browsers, Go and OpenSSL 3.5 do. A client that does not offer it gets X25519, P-256 or P-384 as before.
 - **Load balancing:**
   - `mode: least_connections` joins `failover` and `balance`.
   - With `balance`, a client can take a weight, `{name: home, weight: 3}` (smooth weighted round robin, as in nginx).
@@ -44,21 +44,27 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - **Review and Activity:** Review shows the changed lines of server.yaml and plain-word change titles. Versions are named by the time they were applied, and you can go back to any of them.
   - **Layout:** section cards, a table for client entries, and pages that work on a phone and in dark mode.
 - **Mixed versions:** a v0.2.0 admin works with an older server and leaves out what it cannot do. An older admin can open a v0.2.0 server: Needs attention lists the settings it cannot edit and shows them as text. Editing stays allowed, because the server checks every change.
-- **burrow status and metrics:** `burrow status` lists websites, certificates (source, state, expiry, next renewal, why one fails) and the order queue, and shows why a client's last health check failed. New metrics: `burrow_web_responses_total`, `burrow_certificate_expiry_timestamp_seconds` and `burrow_certificate_failures_total`.
+- **burrow status and metrics:** `burrow status` lists websites, certificates (source, state, expiry, next renewal, why one fails) and the order queue, and shows why a client's last health check failed, the local CA's fingerprint, and a web port that waits for its address. New metrics: `burrow_web_responses_total`, `burrow_certificate_expiry_timestamp_seconds` and `burrow_certificate_failures_total`.
 - **New commands and flags:**
   - `burrow passwd` and `burrow ca export`;
-  - `burrow init server --web NAME --email ADDRESS` (with `--web-target`), and a last question in `init server` about serving websites, no by default;
+  - `burrow init server --web NAME --email ADDRESS` (with `--web-client` and `--web-target`), and a last question in `init server` about serving websites, no by default;
   - `--state-dir` for a server;
   - `service uninstall --purge` also removes the web state folder and access log.
 - **Running as a service:**
   - A server with `web:` gets its private state folder at install.
   - A start that fails only because a web certificate, key or CA file cannot be read exits for a retry.
 - **Docs:** a new docs index by task, a glossary, a page per web topic with recipes (Home Assistant, Nextcloud, Grafana, authentik and more), a full commented example, and admin UI screenshots in the README.
-- **Bursts to a client wait instead of failing:** past `limits.max_pending` (512) connections waiting for a channel, up to three times as many more wait in line for their usual 10 s instead of getting busy at once. One website visitor address gets a fair part of the line. v0.1.x clients get this too.
+- **Under load:**
+  - New connections to the web ports wait for a free handshake slot within their handshake time instead of being dropped, and `limits.max_handshakes` is now 2048 (was 256).
+  - Bursts to a client wait instead of failing: past `limits.max_pending` (512) connections waiting for a channel, up to three times as many more wait in line for their usual 10 s instead of getting busy at once, with a fair part of the line per website visitor address. v0.1.x clients get this too.
+  - When a service's or client's connections run short, one website visitor address gets at most a fair part (an eighth), so one address cannot take a site away from everyone else.
+  - Returning visitors resume their TLS session with session tickets, except on sites with `client_auth`.
+  - The web proxy keeps small, reused buffers per connection, so it uses less than half the memory and about 30 % less CPU per request with large bodies.
+  - The Linux amd64, arm64 and riscv64 builds give freed memory back to the system within seconds of going idle.
 - **Compatibility:**
   - The tunnel protocol is unchanged: v0.1.x clients and visitors work with a v0.2.0 server, and v0.2.0 clients and visitors with a v0.1.x server.
   - The admin protocol adds features that each side uses only when the other lists them.
-  - Nothing in an existing config changes meaning. Everything new is off until written.
+  - Nothing in an existing config changes meaning. Everything new is off until written, except the load handling above and the new `limits.max_handshakes` default.
 
 ## [0.1.2]
 
