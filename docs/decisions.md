@@ -552,3 +552,34 @@ Other clients:
 - RFC 9773 section 5: a server SHOULD reject a `replaces` that fails its checks and MUST answer 409 `alreadyReplaced` for an already replaced certificate (registered in section 7.4). It names no error for the other cases and gives clients no retry rule.
 
 Sources, checked 2026-10-31: RFC 9773 sections 4.1, 5 and 7.4; caddyserver/certmagic `acmeissuer.go`, `async.go`, `config.go`, `maintain.go` (`cfd20205`, v0.25.6; issue #361, PR #394); mholt/acmez `client.go` (v3.1.7, `8c3d90a3`, PR #50); go-acme/lego `acme/api/order.go` (`54679098`; issue #2789); acme.sh `_isARIReplacesRejected` (`37d064f7`; issue #7280); certbot `acme/src/acme/client.py`, `acme/src/acme/messages.py` (`138defe9`); Traefik `pkg/provider/acme/provider.go` (`38d53dd0`); Pebble 2.10.1 `ca/ca.go`, `core/types.go`, `wfe/wfe.go`, issue #550 and PR #556.
+
+## D59. A burst of connections to one client waits in line for a data channel instead of getting busy past `limits.max_pending`
+
+Each forwarded connection needs a data channel from its client. When none is ready, up to `limits.max_pending` (512) connections per client wait for one, for at most 10 s, and the server asks the client to open that many more. Until now the 513th got busy at once (`503` for a website, a closed connection for a TCP port), even though the client could open channels in well under a second. A burst to a remote client over a slow link hit this; the benchmark (client `self`) did not.
+
+What others do by default, checked 2026-10-31:
+
+- **frp** asks the client for a work connection when its pool is empty and waits up to `userConnTimeout` (10 s), then gives up with "timeout trying to get work connection". Nothing caps how many wait.
+- **rathole** puts visitors in a queue of 2048 (`CHAN_SIZE`). When it is full, its accept loop waits, so new visitors queue in the kernel. A visitor has no deadline while it waits for a channel.
+- **chisel** multiplexes over one SSH connection, and a new connection waits up to 35 s (`SSH_WAIT`) for it. Nothing caps how many wait.
+- **cloudflared** multiplexes over QUIC and raised its stream limit to the maximum because 100 was too small under bursts.
+
+None of them refuses a burst at once. The owner's rule (2026-10-31): wait like nginx or Caddy would, with no new setting, and no change on the wire, so v0.1.x clients benefit too.
+
+- **The line.** Behind the `max_pending` places, up to three times as many more connections wait in line, so 2,048 per client by default, a quarter of `limits.max_connections_per_client` (8192). Each one is already an accepted, counted connection, so the line adds no new kind of cost. Waiters are served in order. A connection in line that gets no channel within its usual 10 s gets busy, with the same answer, count and log as an immediate refusal before. A connection inside `max_pending` still ends as before when its 10 s pass. Past the line, a connection gets busy at once, as before.
+- **The client is asked for no more.** The server still asks for at most `max_pending` channels beyond its ready pool. As each waiter is served, one more is asked for, so the line drains at the client's pace, and a v0.1.x client never sees a larger request than before.
+- **Fair share.** One website visitor address gets a fair part of the line, with the D54 rule (an eighth, at least 8, once more than half of the line is used; IPv6 per /64; loopback has no part). As in D54, a service's `bind` port, `burrow visit` and UDP have no part.
+- **Ending.** A client that disconnects or that a reload disconnects, or a server that stops, ends every waiter at once (they all go through the session's `close`). A reload that lowers `max_pending` keeps the waiters it has and takes no new ones past the smaller line. A health check waits for a channel within its own check timeout.
+
+Measured on 2026-10-31 on a 10-core VM with the release build: a server and a client on one machine, with every data channel connect delayed by 50 ms through a relay, `limits` at their defaults and the pool at 4/64. N connections were opened at once to a TCP port, each sending 100 bytes and waiting for the echo. Two rounds each, which agreed to within a few percent:
+
+| N | build | served | busy | all done | server peak RSS |
+|---|---|---|---|---|---|
+| 2,000 | before | 548 | 1,452 | 0.9 s | 21 MB |
+| 2,000 | after | 2,000 | 0 | 3.3 s (p99 3.2 s) | 36 MB |
+| 4,000 | before | 580 | 3,420 | 1.0 s | 22 MB |
+| 4,000 | after | 2,116 | 1,884 | 3.5 s | 37 MB |
+
+The line costs about 10 KB of server memory per waiting connection (14 MB for about 1,500 more waiters). Past the line (N = 4,000), it refuses at once as before. `src/server/session.rs` tests the line, its bound, the deadline answer, the fair part, `close` and a smaller `max_pending` on reload. `tests/integration/connections.rs` sends a burst of 32 connections with `max_pending` 8: all are served, and the build before this change refuses some, over TCP and WebSocket.
+
+Sources, checked 2026-10-31: frp `server/control.go` (`GetWorkConn`) and the gofrp.org server reference (`userConnTimeout`); rathole `src/server.rs` (`CHAN_SIZE`, `run_tcp_connection_pool`); chisel `share/tunnel/tunnel.go` (`getSSH`, `SSH_WAIT`) and `tunnel_in_proxy.go`; cloudflared commit UN-5213 (QUIC `MaxIncomingStreams`).
