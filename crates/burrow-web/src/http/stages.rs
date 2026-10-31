@@ -155,6 +155,7 @@ async fn answer<U: Upstream>(
     let gate = Gate {
         up: shared.up.as_ref(),
         access: &shared.access,
+        logins: &shared.logins,
         table,
         site,
         visitor: &visitor,

@@ -292,7 +292,10 @@ mod tests {
         let at = vec!["web".to_string(), "oidc".to_string(), "g".to_string()];
         assert!(rename_refs(&mut doc, &at, "google").is_empty());
         assert_eq!(doc["services"]["wiki"]["web"]["oidc"], "google");
-        assert_eq!(doc["services"]["dav"]["web"]["oidc"], json!(["w", "google"]));
+        assert_eq!(
+            doc["services"]["dav"]["web"]["oidc"],
+            json!(["w", "google"])
+        );
         assert_eq!(doc["services"]["all"]["web"]["oidc"], true);
     }
 

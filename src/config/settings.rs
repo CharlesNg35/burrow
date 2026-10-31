@@ -20,13 +20,13 @@ mod web;
 
 pub use dns::{DNS_WAIT, DnsProvider, DnsSettings, SecretText};
 pub use site::{
-    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions,
-    TargetTls, WebClientAuth,
+    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOidc,
+    SiteOptions, TargetTls, WebClientAuth,
 };
 
 pub use web::{
-    CertFile, LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, WebSettings, WebSite,
-    WebTls, Written, digest_of,
+    CertFile, LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, OidcSettings, WebSettings,
+    WebSite, WebTls, Written, digest_of,
 };
 
 #[derive(Debug, Clone, PartialEq)]

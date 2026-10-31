@@ -8,11 +8,13 @@ use burrow_config::ServerConfig;
 
 const CODE: &str = "dns-secret";
 
-struct Field<'a> {
-    path: [String; 6],
-    value: &'a str,
-    env: &'static str,
-    inline_ok: bool,
+pub(super) struct Field<'a> {
+    pub path: Vec<String>,
+    pub name: String,
+    pub value: &'a str,
+    pub env: &'static str,
+    pub inline_ok: bool,
+    pub code: &'static str,
 }
 
 pub(super) fn check_dns_secrets(
@@ -26,7 +28,7 @@ pub(super) fn check_dns_secrets(
     };
     for (i, e) in le.dns.iter().enumerate() {
         let at = |provider: &str, key: &str| {
-            [
+            vec![
                 "web".to_string(),
                 "letsencrypt".into(),
                 "dns".into(),
@@ -35,10 +37,13 @@ pub(super) fn check_dns_secrets(
                 key.into(),
             ]
         };
+        let name = |provider: &str, key: &str| format!("web.letsencrypt.dns[{i}].{provider}.{key}");
         let mut fields = Vec::new();
         if let Some(c) = &e.cloudflare {
             fields.push(Field {
                 path: at("cloudflare", "token"),
+                name: name("cloudflare", "token"),
+                code: CODE,
                 value: &c.token,
                 env: "CF_TOKEN",
                 inline_ok: false,
@@ -47,6 +52,8 @@ pub(super) fn check_dns_secrets(
         if let Some(r) = &e.rfc2136 {
             fields.push(Field {
                 path: at("rfc2136", "secret"),
+                name: name("rfc2136", "secret"),
+                code: CODE,
                 value: &r.secret,
                 env: "TSIG_SECRET",
                 inline_ok: false,
@@ -55,12 +62,16 @@ pub(super) fn check_dns_secrets(
         if let Some(a) = &e.acme_dns {
             fields.push(Field {
                 path: at("acme_dns", "username"),
+                name: name("acme_dns", "username"),
+                code: CODE,
                 value: &a.username,
                 env: "ACMEDNS_USER",
                 inline_ok: true,
             });
             fields.push(Field {
                 path: at("acme_dns", "password"),
+                name: name("acme_dns", "password"),
+                code: CODE,
                 value: &a.password,
                 env: "ACMEDNS_KEY",
                 inline_ok: false,
@@ -74,12 +85,9 @@ pub(super) fn check_dns_secrets(
     }
 }
 
-fn check(f: &Field<'_>, base_dir: &Path, spans: &Spans) -> Option<Diagnostic> {
+pub(super) fn check(f: &Field<'_>, base_dir: &Path, spans: &Spans) -> Option<Diagnostic> {
     let path: Vec<&str> = f.path.iter().map(String::as_str).collect();
-    let name = format!(
-        "web.letsencrypt.dns[{}].{}.{}",
-        f.path[3], f.path[4], f.path[5]
-    );
+    let name = &f.name;
     let at = spans.value(&path);
     let env = f.env;
     let (message, help) = match f.value.trim().strip_prefix(FILE_PREFIX) {
@@ -111,5 +119,5 @@ fn check(f: &Field<'_>, base_dir: &Path, spans: &Spans) -> Option<Diagnostic> {
         ),
         None => return None,
     };
-    Some(Diagnostic::error(CODE, message).at(at).help(help))
+    Some(Diagnostic::error(f.code, message).at(at).help(help))
 }

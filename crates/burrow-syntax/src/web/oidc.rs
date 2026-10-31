@@ -75,7 +75,15 @@ mod tests {
     fn an_allow_entry_is_an_email_or_an_at_domain() {
         assert!(allow_entry("alice@gmail.com").is_ok());
         assert!(allow_entry("@mycompany.com").is_ok());
-        for bad in ["alice", "@", "@com", "alice@", "a b@x.com", "@.x.com", "x@y.com."] {
+        for bad in [
+            "alice",
+            "@",
+            "@com",
+            "alice@",
+            "a b@x.com",
+            "@.x.com",
+            "x@y.com.",
+        ] {
             assert!(allow_entry(bad).is_err(), "{bad}");
         }
     }

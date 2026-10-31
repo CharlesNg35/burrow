@@ -13,7 +13,8 @@ pub mod older;
 pub mod refs;
 pub mod uploads;
 
-pub use field::{Entry, Field, Nest, entity_at, entity_of_section, entity_path, logins_path, oidc_path,
+pub use field::{
+    Entry, Field, Nest, entity_at, entity_of_section, entity_path, logins_path, oidc_path,
 };
 pub use labels::label_of;
 pub use model::*;

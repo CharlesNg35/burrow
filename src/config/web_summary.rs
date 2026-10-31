@@ -321,6 +321,13 @@ fn access(s: &ServerSettings, web: &WebSettings, service: &str) -> Vec<String> {
         if o.client_auth.is_some() {
             parts.push("device certificate".into());
         }
+        if let Some(l) = &o.oidc {
+            parts.push(format!(
+                "login with {} for {}",
+                l.providers.join(" or "),
+                l.allow_users.join(", ")
+            ));
+        }
     }
     if let Some(sources) = s.services.get(service).map(|svc| &svc.sources) {
         for (key, list) in [("allow_from", &sources.allow), ("deny_from", &sources.deny)] {

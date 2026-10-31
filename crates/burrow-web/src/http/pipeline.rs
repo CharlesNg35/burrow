@@ -14,7 +14,7 @@ use super::stages::{Asked, to_service};
 use super::{Body, Conn, MAX_HEADERS, full};
 use crate::Upstream;
 use crate::listen::Shared;
-use crate::route::{Action, Kind, Table};
+use crate::route::{Action, Kind, Route, Table};
 use crate::tls::CertState;
 use crate::tunnel::{self, Answer, Handoff};
 
@@ -55,7 +55,11 @@ pub(crate) async fn handle<U: Upstream>(
             return answer;
         }
     }
-    let Some(route) = table.route(&host, req.uri().path()) else {
+    let login = login_route(&table, conn, &host, req.uri().path());
+    let Some(route) = login
+        .as_ref()
+        .or_else(|| table.route(&host, req.uri().path()))
+    else {
         return Page::NotFound.response();
     };
     match &route.action {
@@ -82,6 +86,18 @@ pub(crate) async fn handle<U: Upstream>(
             to_service(shared, conn, &table, asked, req).await
         }
     }
+}
+
+fn login_route(table: &Table, conn: &Conn, host: &str, path: &str) -> Option<Route> {
+    if conn.name.is_none() || !path.starts_with(burrow_syntax::web::oidc::RESERVED) {
+        return None;
+    }
+    let service = table.login_service(host)?;
+    Some(Route {
+        prefix: "/".to_string(),
+        action: Action::Service(service.to_string()),
+        app_path: None,
+    })
 }
 
 fn normalize_target<B>(req: &mut Request<B>) -> bool {
@@ -129,7 +145,7 @@ fn on_plain<U: Upstream>(
         let trusted = &table.forwarding.trusted_proxies;
         forwarded::client(conn.peer, req.headers(), trusted, false).https
     };
-    let devices_only = table.client_auth(host).is_some();
+    let devices_only = table.client_auth(host).is_some() || table.login_service(host).is_some();
     let served_plain = |redirect: bool| !devices_only && (!redirect || proxied_https());
     match table.kind(host) {
         Some(Kind::Plain { redirect, .. }) if served_plain(*redirect) => None,

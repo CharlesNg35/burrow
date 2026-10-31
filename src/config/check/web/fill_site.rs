@@ -3,13 +3,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::config::settings::{
-    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions,
-    TargetTls, WebClientAuth, WebSettings,
+    ForwardAuth, LogFormat, NameRedirect, OidcSettings, PathRedirect, RESPONSE_HEADER_TIMEOUT,
+    SiteOidc, SiteOptions, TargetTls, WebClientAuth, WebSettings,
 };
 use crate::policy::allowlist::Cidr;
 use burrow_config::{
-    AccessLogFormat, LoginPick, RedirectTarget, ServiceWeb, Target, TargetTls as TargetTlsKey,
-    WebConfig,
+    AccessLogFormat, LoginPick, OidcPick, RedirectTarget, ServiceWeb, Target,
+    TargetTls as TargetTlsKey, WebConfig,
 };
 use burrow_syntax::web::{SingleLabel, host_name};
 
@@ -61,6 +61,13 @@ pub(super) fn options(
         Some(LoginPick::Found(_, f)) => Some(forward(f, top)),
         _ => None,
     };
+    o.oidc = match s.oidc.as_ref().map(|l| l.pick(&top.oidc)) {
+        Some(OidcPick::Found(names)) => Some(SiteOidc {
+            providers: names.into_iter().map(str::to_string).collect(),
+            allow_users: s.allow_users.iter().map(|u| u.trim().to_string()).collect(),
+        }),
+        _ => None,
+    };
     o.rate_limit = s.rate_limit.or(top.rate_limit).filter(|r| *r > 0);
     o.client_auth = s.client_auth.as_ref().map(|c| WebClientAuth {
         ca: base_dir.join(c.ca.as_deref().unwrap_or_default().trim()),
@@ -110,6 +117,24 @@ pub(super) fn site_wide(top: &WebConfig, s: &mut WebSettings, base_dir: &Path) {
         (base_dir.join(a.file().trim()), format)
     });
     s.request_id = top.request_id.unwrap_or(false);
+    s.oidc = top
+        .oidc
+        .iter()
+        .map(|(name, o)| OidcSettings {
+            name: name.clone(),
+            issuer: o.issuer.trim().to_string(),
+            client_id: o.client_id.trim().to_string(),
+            client_secret: o
+                .client_secret
+                .as_deref()
+                .and_then(|v| super::fill_dns::secret(v, base_dir)),
+            secret_file: o
+                .client_secret
+                .as_deref()
+                .and_then(|v| v.trim().strip_prefix(super::fill_dns::FILE_PREFIX))
+                .map(|p| base_dir.join(p.trim())),
+        })
+        .collect();
 }
 
 fn name_redirect(name: &str, t: &RedirectTarget) -> Option<NameRedirect> {
