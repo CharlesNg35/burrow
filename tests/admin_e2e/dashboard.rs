@@ -68,6 +68,7 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.click("[data-testid=flow-open]").await;
         c.ui.wait_for("[data-testid=flow] [data-node='port:web']", SECS)
             .await;
+        c.ui.shot("flow-chart-no-tooltip").await;
         let _: bool = c
             .ui
             .eval("(() => { const n = document.querySelector(\"[data-testid=flow] [data-node='port:web']\"); const r = n.getBoundingClientRect(); n.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: r.left + 10, clientY: r.top + 10 })); return true; })()")
