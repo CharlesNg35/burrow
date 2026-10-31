@@ -130,8 +130,9 @@ fn a_site_with_oidc_needs_https_allow_users_and_no_other_login() {
         &site("wiki", &format!("oidc: google, {allow}, tls: off")),
     ));
     assert!(
-        e.iter()
-            .any(|m| m.starts_with("services.wiki.web.oidc: a site with tls: off has no HTTPS")),
+        e.iter().any(|m| m.starts_with(
+            "services.wiki.web.oidc: this site is served as plain HTTP (tls: off, or no web.https)"
+        )),
         "{e:#?}"
     );
     let e = errors(&load(
