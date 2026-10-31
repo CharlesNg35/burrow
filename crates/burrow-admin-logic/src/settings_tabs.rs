@@ -38,7 +38,7 @@ pub fn tab_of(field: &str) -> Tab {
     let is = |k: &str| field == k;
     if is(ServerConfig::WEB.key()) {
         Tab::Web
-    } else if is(ServerConfig::METRICS.key()) {
+    } else if is(ServerConfig::METRICS.key()) || is(ServerConfig::NOTIFY.key()) {
         Tab::Monitoring
     } else if [
         ServerConfig::WEBSOCKET.key(),
@@ -108,6 +108,7 @@ mod tests {
         assert_eq!(tab_of(ServerConfig::LIMITS.key()), Tab::Connections);
         assert_eq!(tab_of(ServerConfig::WEB.key()), Tab::Web);
         assert_eq!(tab_of(ServerConfig::METRICS.key()), Tab::Monitoring);
+        assert_eq!(tab_of(ServerConfig::NOTIFY.key()), Tab::Monitoring);
         for t in Tab::ALL {
             assert_eq!(Tab::parse(t.key()), Some(t));
         }

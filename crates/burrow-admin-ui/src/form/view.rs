@@ -152,7 +152,7 @@ pub(super) fn value_view(
 }
 
 pub(super) fn mono(v: &Value) -> AnyView {
-    view! { <span class="font-mono text-sm">{plain(v)}</span> }.into_any()
+    view! { <span class="font-mono text-sm [overflow-wrap:anywhere]">{plain(v)}</span> }.into_any()
 }
 
 pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
@@ -312,8 +312,12 @@ fn list_view(c: &ListC, v: &Value, ctx: &Ctx) -> AnyView {
         return view! { <span class="text-text-muted">"None"</span> }.into_any();
     }
     let item = (*c.item).clone();
+    let layout = match inner(&item).sem {
+        SemType::Object(_) => "flex flex-col gap-2",
+        _ => "flex flex-wrap gap-1",
+    };
     view! {
-        <span class="flex flex-wrap gap-1">
+        <span class=layout>
             {a.iter().map(|x| value_view(&item, Some(x), None, ctx)).collect_view()}
         </span>
     }
