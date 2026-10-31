@@ -395,3 +395,55 @@ fn search_modal(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 fn the_search_keeps_focus_inside_and_gives_it_back() {
     run("search-modal", Options::default(), false, search_modal);
 }
+
+const TAB_SHOWN: &str = "(() => { const row = document.querySelector('[data-testid=nav-row]'); const on = row && row.querySelector('[aria-current=page]'); if (!on) return 'no current tab'; const r = row.getBoundingClientRect(), t = on.getBoundingClientRect(); return t.left >= r.left - 1 && t.right <= r.right + 1 ? 'shown' : `cut by ${Math.max(r.left - t.left, t.right - r.right)} px`; })()";
+
+const PAGE_STILL: &str = "scrollX === 0 && scrollY === 0";
+
+async fn current_tab_shown(c: &Ctx, path: &str, how: &str) {
+    let now: String = c.ui.eval(TAB_SHOWN).await;
+    assert_eq!(now, "shown", "the current tab after {how} {path} at 360 px");
+    assert!(
+        c.ui.eval::<bool>(PAGE_STILL).await,
+        "bringing the tab into view scrolls only the tab row, never the page ({how} {path})"
+    );
+}
+
+fn phone_nav(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(360, 740).await;
+        for path in ["/activity", "/settings", "/visitors", "/", "/settings"] {
+            c.ui.nav(path).await;
+            current_tab_shown(c, path, "going to").await;
+        }
+        for path in ["/activity", "/settings"] {
+            c.ui.nav(path).await;
+            let href: String = c.ui.eval("location.href").await;
+            c.ui.goto(&href).await;
+            c.ui.wait_for("[data-testid=conn-pill]", SECS).await;
+            c.ui.wait_for("[data-testid=nav-row] [aria-current=page]", SECS)
+                .await;
+            let _: bool = c
+                .ui
+                .eval("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))")
+                .await;
+            current_tab_shown(c, path, "loading").await;
+        }
+        c.ui.nav("/about").await;
+        let href: String = c.ui.eval("location.href").await;
+        c.ui.goto(&href).await;
+        c.ui.wait_for("[data-testid=about]", SECS).await;
+        assert!(
+            c.ui.eval::<bool>(PAGE_STILL).await,
+            "loading /about at 360 px leaves the page at its top"
+        );
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_phone_nav_shows_the_current_tab_without_scrolling_the_page() {
+    run("phone-nav", Options::default(), false, phone_nav);
+}
