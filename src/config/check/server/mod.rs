@@ -199,13 +199,26 @@ fn check_public_address(
     }
 }
 
+fn only_self(cfg: &ServerConfig) -> bool {
+    !cfg.services.is_empty()
+        && cfg.services.values().all(|s| {
+            let mut names = s
+                .client
+                .iter()
+                .map(String::as_str)
+                .chain(s.clients.iter().map(burrow_config::ClientRef::name))
+                .peekable();
+            names.peek().is_some() && names.all(|n| n == burrow_config::SELF)
+        })
+}
+
 fn check_clients(
     cfg: &ServerConfig,
     spans: &Spans,
     seen: &mut Vec<([u8; 32], String)>,
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, ClientAuth> {
-    if cfg.clients.is_empty() {
+    if cfg.clients.is_empty() && !only_self(cfg) {
         out.push(
             Diagnostic::warning(
                 burrow_admin_proto::codes::NO_CLIENTS,
