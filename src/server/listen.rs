@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -85,72 +84,23 @@ impl WsListener {
 
 pub struct Permit {
     _slot: OwnedSemaphorePermit,
-    _source: Option<SourceSlot>,
-}
-
-struct SourceSlot {
-    sources: Sources,
-    key: IpAddr,
-}
-
-impl Drop for SourceSlot {
-    fn drop(&mut self) {
-        let mut sources = self.sources.lock().expect("sources lock");
-        if let Some(n) = sources.get_mut(&self.key) {
-            *n -= 1;
-            if *n == 0 {
-                sources.remove(&self.key);
-            }
-        }
-    }
-}
-
-fn source_key(ip: IpAddr) -> Option<IpAddr> {
-    let ip = ip.to_canonical();
-    if ip.is_loopback() {
-        return None;
-    }
-    Some(match ip {
-        IpAddr::V6(v6) => IpAddr::V6((v6.to_bits() >> 64 << 64).into()),
-        v4 => v4,
-    })
-}
-
-type Sources = Arc<std::sync::Mutex<HashMap<IpAddr, usize>>>;
-
-fn source_slot(
-    sources: &Sources,
-    ip: IpAddr,
-    total: usize,
-    pressed: bool,
-) -> Result<Option<SourceSlot>, ()> {
-    let Some(key) = source_key(ip) else {
-        return Ok(None);
-    };
-    let most = (total / 8).max(8);
-    let mut held = sources.lock().expect("sources lock");
-    let n = held.entry(key).or_insert(0);
-    if pressed && *n >= most {
-        return Err(());
-    }
-    *n += 1;
-    Ok(Some(SourceSlot {
-        sources: sources.clone(),
-        key,
-    }))
+    _source: Option<burrow_syntax::share::Share<IpAddr>>,
 }
 
 pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
     let handshakes = shared.handshakes.read().expect("handshakes lock").clone();
     let total = shared.settings().max_handshakes;
-    let pressed = handshakes.available_permits() < total / 2;
-    let source = match source_slot(&shared.handshake_sources, peer.ip(), total, pressed) {
-        Ok(source) => source,
-        Err(()) => {
-            shared.refused_handshake();
-            debug!(%peer, "too many unauthenticated connections from this address, dropping");
-            return None;
-        }
+    let used = total.saturating_sub(handshakes.available_permits());
+    let source = match burrow_syntax::share::source_key(peer.ip()) {
+        None => None,
+        Some(key) => match shared.handshake_sources.take(key, total, used) {
+            Some(share) => Some(share),
+            None => {
+                shared.refused_handshake();
+                debug!(%peer, "too many unauthenticated connections from this address, dropping");
+                return None;
+            }
+        },
     };
     match handshakes.try_acquire_owned() {
         Ok(p) => Some(Permit {
@@ -370,41 +320,5 @@ async fn authenticate(
             debug!(%peer, "hello does not match the channel kind, closing")
         }
         _ => debug!(%peer, "unsupported protocol version"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn one_address_cannot_take_every_handshake_slot() {
-        let sources = Sources::default();
-        let ip: IpAddr = "203.0.113.7".parse().unwrap();
-        let calm: Vec<_> = (0..64)
-            .map(|_| source_slot(&sources, ip, 256, false).unwrap())
-            .collect();
-        assert!(
-            source_slot(&sources, ip, 256, true).is_err(),
-            "a busy server refuses an address over its share"
-        );
-        assert!(source_slot(&sources, "203.0.113.8".parse().unwrap(), 256, true).is_ok());
-        let v6 = |s: &str| s.parse::<IpAddr>().unwrap();
-        let same_net: Vec<_> = (0..32)
-            .map(|i| source_slot(&sources, v6(&format!("2001:db8::{i:x}")), 256, true).unwrap())
-            .collect();
-        assert!(source_slot(&sources, v6("2001:db8::ffff:1"), 256, true).is_err());
-        assert!(
-            source_slot(&sources, v6("::1"), 256, true)
-                .unwrap()
-                .is_none()
-        );
-        drop(calm);
-        drop(same_net);
-        assert!(
-            sources.lock().unwrap().is_empty(),
-            "every slot is given back"
-        );
-        assert!(source_slot(&sources, ip, 256, true).is_ok());
     }
 }

@@ -1,56 +1,27 @@
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
+use burrow_syntax::share::{Share, Shares};
+pub use burrow_syntax::share::{source_key, subnet_key};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-
-type Sources = Arc<Mutex<HashMap<IpAddr, usize>>>;
 
 pub struct Permits {
     slots: RwLock<(Arc<Semaphore>, usize)>,
-    sources: Sources,
+    sources: Shares<IpAddr>,
     refused: AtomicU64,
 }
 
 pub struct Permit {
     _slot: OwnedSemaphorePermit,
-    _source: Option<SourceSlot>,
-}
-
-struct SourceSlot {
-    sources: Sources,
-    key: IpAddr,
-}
-
-impl Drop for SourceSlot {
-    fn drop(&mut self) {
-        let mut sources = self.sources.lock().expect("sources lock");
-        if let Some(n) = sources.get_mut(&self.key) {
-            *n -= 1;
-            if *n == 0 {
-                sources.remove(&self.key);
-            }
-        }
-    }
-}
-
-pub fn subnet_key(ip: IpAddr) -> IpAddr {
-    match ip.to_canonical() {
-        IpAddr::V6(v6) => IpAddr::V6((v6.to_bits() >> 64 << 64).into()),
-        v4 => v4,
-    }
-}
-
-pub fn source_key(ip: IpAddr) -> Option<IpAddr> {
-    (!ip.to_canonical().is_loopback()).then(|| subnet_key(ip))
+    _source: Option<Share<IpAddr>>,
 }
 
 impl Permits {
     pub fn new(total: usize) -> Permits {
         Permits {
             slots: RwLock::new((Arc::new(Semaphore::new(total)), total)),
-            sources: Sources::default(),
+            sources: Shares::default(),
             refused: AtomicU64::new(0),
         }
     }
@@ -76,13 +47,9 @@ impl Permits {
 
     fn take(&self, key: Option<IpAddr>) -> Option<Permit> {
         let (slots, total) = self.slots.read().expect("slots lock").clone();
-        let pressed = slots.available_permits() < total / 2;
-        let source = match self.source_slot(key, total, pressed) {
-            Ok(s) => s,
-            Err(()) => {
-                self.refused.fetch_add(1, Ordering::Relaxed);
-                return None;
-            }
+        let Ok(source) = self.source_slot(key, total, slots.available_permits()) else {
+            self.refused.fetch_add(1, Ordering::Relaxed);
+            return None;
         };
         match slots.try_acquire_owned() {
             Ok(slot) => Some(Permit {
@@ -98,8 +65,7 @@ impl Permits {
 
     pub fn claim_source(&self, permit: &mut Permit, ip: IpAddr) -> bool {
         let (slots, total) = self.slots.read().expect("slots lock").clone();
-        let pressed = slots.available_permits() < total / 2;
-        match self.source_slot(source_key(ip), total, pressed) {
+        match self.source_slot(source_key(ip), total, slots.available_permits()) {
             Ok(source) => {
                 permit._source = source;
                 true
@@ -115,22 +81,13 @@ impl Permits {
         &self,
         key: Option<IpAddr>,
         total: usize,
-        pressed: bool,
-    ) -> Result<Option<SourceSlot>, ()> {
+        free: usize,
+    ) -> Result<Option<Share<IpAddr>>, ()> {
         let Some(key) = key else {
             return Ok(None);
         };
-        let most = (total / 8).max(8);
-        let mut held = self.sources.lock().expect("sources lock");
-        let n = held.entry(key).or_insert(0);
-        if pressed && *n >= most {
-            return Err(());
-        }
-        *n += 1;
-        Ok(Some(SourceSlot {
-            sources: self.sources.clone(),
-            key,
-        }))
+        let used = total.saturating_sub(free);
+        self.sources.take(key, total, used).map(Some).ok_or(())
     }
 }
 
@@ -159,7 +116,7 @@ mod tests {
         assert_eq!(p.refused(), 2);
         drop(calm);
         drop(net);
-        assert!(p.sources.lock().unwrap().is_empty());
+        assert!(p.sources.is_empty());
     }
 
     #[test]
@@ -180,7 +137,7 @@ mod tests {
         assert!(p.claim_source(&mut other, ip("203.0.113.8")));
         drop(held);
         drop(other);
-        assert!(p.sources.lock().unwrap().is_empty());
+        assert!(p.sources.is_empty());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! The value syntaxes of burrow configs: addresses, ports, targets, rules, rates and durations.
+//! The value syntaxes of burrow configs: addresses, ports, targets, rules, rates and durations, and the fair share of a pool per visitor address.
 //! It must not depend on any other crate.
 
 #![forbid(unsafe_code)]
@@ -18,6 +18,7 @@ pub mod ports;
 pub mod rate;
 pub mod rule;
 pub mod secret_fmt;
+pub mod share;
 pub mod size;
 pub mod target;
 pub mod unix;

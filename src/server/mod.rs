@@ -63,7 +63,7 @@ pub struct Shared {
     drained: Notify,
     rejected: AtomicUsize,
     handshakes: RwLock<Arc<Semaphore>>,
-    handshake_sources: Arc<Mutex<HashMap<std::net::IpAddr, usize>>>,
+    handshake_sources: burrow_syntax::share::Shares<std::net::IpAddr>,
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
     applied: watch::Sender<ApplyReport>,
