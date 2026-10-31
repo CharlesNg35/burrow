@@ -241,7 +241,7 @@ fn websocket_init_writes_only_what_was_asked() {
         text.contains("websocket:\n  listen: 127.0.0.1:7836\n  path: /burrow\n"),
         "{text}"
     );
-    assert!(!text.contains("tls"), "{text}");
+    assert!(!without_secrets(&text).contains("tls"), "{text}");
     let Loaded::Server(settings, _) = load(&path) else {
         panic!()
     };
@@ -316,7 +316,15 @@ fn plain_init_has_no_websocket_section() {
     .unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.starts_with("listen: 0.0.0.0:7835\n"), "{text}");
-    assert!(!text.contains("websocket") && !text.contains("reconnect") && !text.contains("tls"));
+    let keys = without_secrets(&text);
+    assert!(!keys.contains("websocket") && !keys.contains("reconnect") && !keys.contains("tls"));
+}
+
+fn without_secrets(text: &str) -> String {
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with("secret:"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
