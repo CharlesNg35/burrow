@@ -1,6 +1,7 @@
 mod client;
 mod connection;
 mod entries;
+pub mod geo;
 mod local;
 pub mod ports;
 mod server;

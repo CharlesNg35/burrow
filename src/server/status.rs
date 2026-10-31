@@ -121,7 +121,12 @@ impl Shared {
                     bandwidth: svc.bandwidth,
                     visitors: svc.visitors.clone(),
                     proxy_protocol: svc.proxy_protocol.map(|v| v.wire().to_string()),
-                    filtered: !svc.sources.is_open(),
+                    filtered: !svc.sources.is_open() || svc.countries.is_some(),
+                    refused_country: stats.refused_country.load(Ordering::Relaxed),
+                    countries: svc.countries.as_ref().map(|c| {
+                        let codes: Vec<&str> = c.codes().iter().map(String::as_str).collect();
+                        format!("{} {}", c.key(), codes.join(", "))
+                    }),
                     open: self.service_counts.current(name),
                     total: stats.total.load(Ordering::Relaxed),
                     refused: stats.refused.load(Ordering::Relaxed),
@@ -168,6 +173,7 @@ impl Shared {
             acme,
             local_ca: self.local_ca_of(),
             web_waiting: self.web_wait.lock().expect("web wait lock").clone(),
+            geoip: self.geo.status(settings.geoip.as_ref()),
         }
     }
 }

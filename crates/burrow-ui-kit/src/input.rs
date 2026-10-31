@@ -236,8 +236,20 @@ pub fn ChipInput(
     #[prop(optional, into)] placeholder: String,
     #[prop(optional, into)] empty_label: String,
     #[prop(optional, into)] invalid: Signal<bool>,
+    #[prop(optional)] suggestions: Vec<(String, String)>,
 ) -> impl IntoView {
     let typing = RwSignal::new(String::new());
+    let list_id = (!suggestions.is_empty()).then(|| format!("{id}-choices"));
+    let choices = list_id.clone().map(|lid| {
+        view! {
+            <datalist id=lid>
+                {suggestions
+                    .into_iter()
+                    .map(|(value, label)| view! { <option value=value>{label}</option> })
+                    .collect_view()}
+            </datalist>
+        }
+    });
     let commit = move || {
         let text = typing.get_untracked();
         let mut list = items.get_untracked();
@@ -311,6 +323,7 @@ pub fn ChipInput(
                 placeholder=move || if items.with(Vec::is_empty) && !empty_label.is_empty() { empty_label.clone() } else { placeholder.clone() }
                 autocomplete="off"
                 spellcheck="false"
+                list=list_id
                 prop:value=move || typing.get()
                 on:input:target=move |e| {
                     let v = e.target().value();
@@ -337,6 +350,7 @@ pub fn ChipInput(
                     }
                 }
             />
+            {choices}
         </div>
     }
 }

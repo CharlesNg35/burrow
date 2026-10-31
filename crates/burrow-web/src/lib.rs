@@ -192,6 +192,13 @@ pub struct Visitor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admission {
+    In,
+    Refused,
+    Region { credit: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
     NotAllowed,
     Full,
@@ -250,8 +257,8 @@ pub trait Upstream: Send + Sync + 'static {
         from: &Visitor,
     ) -> impl Future<Output = Result<BoxIo, Refused>> + Send;
 
-    fn allowed(&self, _service: &str, _from: &Visitor) -> bool {
-        true
+    fn allowed(&self, _service: &str, _from: &Visitor) -> Admission {
+        Admission::In
     }
 
     fn open_auth(

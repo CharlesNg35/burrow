@@ -629,3 +629,26 @@ Owner request for v0.2.1: log in with Google or a provider of your own without r
 - **Only pages are redirected.** A request without `Accept: text/html`, or with `X-Requested-With: XMLHttpRequest` or a `Sec-Fetch-Mode` other than `navigate`, gets `401`, so scripts are not sent to a login page they cannot use.
 - **Headers.** The app gets `Remote-User` and `Remote-Email`, both the email that `allow_users` matched (Authelia's names, so apps set up for forward auth work unchanged). The visitor's own copies, also with `_`, and burrow's cookies are removed first.
 - **One kind of login per site**, `basic_auth`, `forward_auth` or `oidc`, and an `oidc` site is never served over plain HTTP: validate refuses `tls: off` and `https_redirect: false`, and the plain port redirects its names anyway, like `client_auth` (D49).
+
+## D63. Countries come from DB-IP Lite through the `maxminddb` reader, refreshed in place once a day, and fail closed only for `allow_countries`
+
+`allow_countries` and `deny_countries` filter a service's public port, website and UDP senders by the visitor's country (owner, 2026-10-31). `burrow visit` and clients are not judged by country: they already prove who they are with a secret.
+
+**The data.** DB-IP's IP to Country Lite is free under CC BY 4.0, published monthly as `https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz` (about 8 MB packed, 8.3 MB unpacked, October 2026), and needs no account or key, unlike MaxMind's GeoLite2, which needs a licence key since 2019. The licence asks for a link to DB-IP where results are used, so the website's refusal page, `burrow status`, the admin UI and the docs carry "IP Geolocation by DB-IP". A user's own `.mmdb` (GeoLite2 or a paid database) works through `geoip: <path>` and is never downloaded; its page carries no DB-IP link.
+
+**The reader.** The `maxminddb` crate (0.32, MaxMind's MMDB format, used by DB-IP too) reads the file from memory. Measured on its own in a release build with this repo's profile: +109 KB (301,064 against 410,320 bytes for a lookup program). `ipnetwork` comes with it. `flate2` was already a dependency, for the `.gz`. Tests write small databases with `maxminddb-writer` (a dev-dependency only).
+
+**The refresh** (owner, 2026-10-31: fully automatic, no user action):
+
+- On start and then about once a day (24 h ± 2 h), the server compares the month of the file it holds (its build date) with the current month. When it already holds this month's file it asks nothing, so the same file is never fetched twice. Otherwise it asks for this month's name; `404` means not published yet, and the held file stays. With no file at all it also tries last month's.
+- A download goes through burrow's own HTTPS client (`wire::fetch`, moved from `update`), with redirects only to HTTPS and `HTTPS_PROXY` honoured. It is capped at 64 MiB packed and 256 MiB unpacked, opened, checked (a country or city database, built later than the one held, and it knows a country for 8.8.8.8, 1.1.1.1 or 9.9.9.9), written atomically and then swapped in: lookups read an `Arc` behind a lock, so connections in flight keep the old reader and new ones get the new one, with no restart.
+- A failure keeps the last good file, is shown in status, and is tried again after 10 minutes, doubling to 12 hours. The server warns when the held file is more than 45 days old.
+- An own file is checked every 30 s for a new modification time or size and read again; a broken replacement is ignored and the old one kept.
+
+**The rule.** `deny_from` always wins. Private, loopback, link-local, CGNAT and unique-local addresses are never judged by country, only by `allow_from` and `deny_from`, so a LAN keeps working. Under `allow_countries`, `allow_from` adds addresses (the office abroad); under `deny_countries`, an address in `allow_from` skips the country, and a non-empty `allow_from` still limits everyone else, so adding `deny_countries` never opens a service wider. A public address the database does not know is refused under `allow_countries` and let in under `deny_countries`. Without a database yet, `allow_countries` refuses public visitors (fail closed) and `deny_countries` lets them in; `burrow validate` warns before the first start. Behind `web.trusted_proxies`, the website uses the address from `X-Forwarded-For`, as `allow_from` does.
+
+**Accepted risk.** A country database is an estimate, and a VPN or proxy puts a visitor in any country. Country filters cut noise and meet regional rules, as in Cloudflare and nginx's GeoIP module; they are not a login.
+
+**UDP.** The check runs on each datagram, as `allow_from` already did, and a reload re-checks the known senders. A lookup only runs for services with countries and public addresses.
+
+Sources, checked 2026-10-31: db-ip.com/db/download/ip-to-country-lite (format, URL pattern, monthly updates, CC BY 4.0 and the attribution snippet); docs.rs/maxminddb 0.32.0 (`Reader::from_source`, `lookup`, `decode_path`, `Metadata::build_epoch`); maxmind.github.io/MaxMind-DB (the format); blog.maxmind.com 2019-12 (GeoLite2 needs an account and licence key).

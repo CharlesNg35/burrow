@@ -13,7 +13,7 @@ use crate::form::object_view;
 use crate::store::store;
 
 use super::basic::text_editor;
-use super::{FieldCtx, THIS_SERVER, cidr_size, editor, names_of, set_checked};
+use super::{FieldCtx, THIS_SERVER, cidr_size, country_name, editor, names_of, set_checked};
 
 fn facet(entity: &Entity, name: &str) -> String {
     let s = store();
@@ -78,7 +78,20 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
         }
     };
     let cidr = matches!(item.sem, SemType::Cidr | SemType::CidrRule);
-    let meta = Callback::new(move |t: String| if cidr { cidr_size(&t) } else { String::new() });
+    let countries = matches!(item.sem, SemType::Country(_));
+    let meta = Callback::new(move |t: String| match () {
+        _ if cidr => cidr_size(&t),
+        _ if countries => country_name(&t),
+        _ => String::new(),
+    });
+    let suggestions: Vec<(String, String)> = if countries {
+        burrow_syntax::country::COUNTRIES
+            .iter()
+            .map(|(c, n)| (c.to_string(), n.to_string()))
+            .collect()
+    } else {
+        Vec::new()
+    };
     view! {
         <ChipInput
             id=fc.id.clone()
@@ -88,6 +101,7 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             placeholder="Type and press Enter; paste a list"
             empty_label=fc.node.empty_label.clone().unwrap_or_default()
             meta=meta
+            suggestions=suggestions
         />
     }
     .into_any()

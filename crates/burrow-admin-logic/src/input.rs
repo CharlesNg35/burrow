@@ -37,6 +37,7 @@ pub fn parse_input(sem: &SemType, text: &str) -> Option<Value> {
             "false" | "no" => Value::Bool(false),
             other => Value::String(other.to_string()),
         },
+        SemType::Country(_) if t.len() == 2 => Value::String(t.to_ascii_uppercase()),
         SemType::Optional(o) => return parse_input(&o.inner.sem, text),
         _ => Value::String(t.to_string()),
     })

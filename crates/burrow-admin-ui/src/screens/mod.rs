@@ -4,6 +4,7 @@ pub mod bar;
 pub mod create;
 pub mod entity;
 pub mod flow;
+mod geoip;
 mod list;
 mod local_ca;
 mod overview;

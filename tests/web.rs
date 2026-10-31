@@ -7,6 +7,8 @@ mod by_path;
 #[path = "web/certs.rs"]
 mod certs;
 mod common;
+#[path = "web/countries.rs"]
+mod countries;
 #[path = "web/ends.rs"]
 mod ends;
 #[path = "web/health.rs"]

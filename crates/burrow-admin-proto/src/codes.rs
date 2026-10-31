@@ -74,6 +74,12 @@ pub const READ_ONLY_FS: &str = "read-only-fs";
 pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
 pub const OLDER_ADMIN: &str = "older-admin";
 pub const TLS_UNREADABLE: &str = "tls-unreadable";
+pub const COUNTRIES_BOTH: &str = "countries-both";
+pub const INVALID_COUNTRY: &str = "invalid-country";
+pub const COUNTRIES_UNUSED: &str = "countries-unused";
+pub const GEOIP_UNUSED: &str = "geoip-unused";
+pub const GEOIP_NOT_READY: &str = "geoip-not-ready";
+pub const GEOIP_INVALID: &str = "geoip-invalid";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,

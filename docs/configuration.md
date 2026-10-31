@@ -46,7 +46,7 @@ error: unknown field "trget" in service "web"
    |
  9 |     trget: 127.0.0.1:3000
    |     ^^^^^ unknown field
-   = help: did you mean "target"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
+   = help: did you mean "target"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, allow_countries, deny_countries, proxy_protocol, bandwidth, web
 
 server.yaml: 2 errors, 0 warnings
 ```
@@ -154,6 +154,8 @@ services:
 | `services.<name>.visitors` | none | visitors that may reach this service, TCP or UDP |
 | `services.<name>.allow_from` | everyone | only these source IPs or CIDRs may connect |
 | `services.<name>.deny_from` | nobody | these source IPs or CIDRs may never connect |
+| `services.<name>.allow_countries` | every country | only visitors from these countries (ISO codes like `[FR, BE]`) may connect to the public port, website and UDP. See [By country](services.md#by-country) |
+| `services.<name>.deny_countries` | none | visitors from these countries may never connect; one of the two per service |
 | `services.<name>.proxy_protocol` | off | `v1` or `v2`: send the real client address to the target |
 | `services.<name>.bandwidth` | unlimited | speed limit per direction, for example `40mbit` or `5MB` (per second) |
 | `services.<name>.max_connections` | unlimited | open connections for this TCP service |
@@ -207,6 +209,7 @@ services:
 | `web.oidc` | none | login providers by name, each `{issuer, client_id, client_secret}`; the secret from `${VAR}` or `file:`; `true` and `false` are not names |
 | `web.rate_limit` | off | the default of every site's `rate_limit` |
 | `web.error_pages` | built in | a folder with any of `404.html`, `413.html`, `429.html`, `502.html`, `503.html`, `504.html`, `maintenance.html` |
+| `geoip` | `db-ip` when a service uses countries | where countries come from: `db-ip` (DB-IP Lite, downloaded monthly into the state folder) or the path of your own `.mmdb` file |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |

@@ -337,6 +337,14 @@ fn access(s: &ServerSettings, web: &WebSettings, service: &str) -> Vec<String> {
             }
         }
     }
+    if let Some(c) = s
+        .services
+        .get(service)
+        .and_then(|svc| svc.countries.as_ref())
+    {
+        let codes: Vec<&str> = c.codes().iter().map(String::as_str).collect();
+        parts.push(format!("{} {}", c.key(), codes.join(", ")));
+    }
     parts
 }
 

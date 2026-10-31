@@ -269,6 +269,7 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
                 {web_note}
                 {cards.iter().map(settings_card).collect_view()}
                 {(now == Tab::Web && web_on).then(super::local_ca::local_ca_card)}
+                {(now == Tab::Server).then(super::geoip::geoip_card)}
                 {empty}
             </div>
         })

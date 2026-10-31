@@ -171,6 +171,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         | SemType::Port
         | SemType::Cidr
         | SemType::CidrRule
+        | SemType::Country(_)
         | SemType::Integer(_)
         | SemType::Size(_) => text_editor(fc, Some(sem.clone())),
         SemType::Bool => bool_editor(fc),
@@ -250,6 +251,12 @@ fn without_port(text: &str) -> &str {
         Some((head, _)) if !head.contains(':') => head,
         _ => text,
     }
+}
+
+pub fn country_name(text: &str) -> String {
+    burrow_syntax::country::name_of(&text.trim().to_ascii_uppercase())
+        .unwrap_or_default()
+        .to_string()
 }
 
 pub fn cidr_size(text: &str) -> String {

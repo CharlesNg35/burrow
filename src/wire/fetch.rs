@@ -334,7 +334,7 @@ async fn fetch_once(
 pub async fn get(
     url: &str,
     limit: usize,
-    env: &dyn Fn(&str) -> Option<String>,
+    env: &(dyn Fn(&str) -> Option<String> + Sync),
 ) -> Result<Fetched, FetchError> {
     let mut url = Url::parse(url)?;
     for _ in 0..=MAX_REDIRECTS {

@@ -129,7 +129,7 @@ fn json_multiple_errors() {
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
        |                              ^^^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth, web
+       = help: did you mean "bind"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, allow_countries, deny_countries, proxy_protocol, bandwidth, web
 
     error: unknown protocol "udpp" in service "dns"
       --> server.json:6:83

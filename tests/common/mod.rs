@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod certs;
+pub mod geo;
 pub mod older;
 pub mod output;
 pub mod ports;
@@ -71,6 +72,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         metrics: None,
         self_allow: None,
         web: None,
+        geoip: None,
     }
 }
 

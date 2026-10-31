@@ -210,9 +210,9 @@ impl Shared {
         if !s.clients.iter().any(|c| c == client) {
             return Err(format!("client \"{client}\" no longer serves it"));
         }
-        if !s.sources.permits(from) {
+        if !self.admits(s, from).admitted() {
             return Err(format!(
-                "{from} is no longer allowed by allow_from or deny_from"
+                "{from} is no longer allowed by allow_from, deny_from or the country rules"
             ));
         }
         if index >= s.ports.max(1) {

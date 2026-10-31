@@ -183,6 +183,20 @@ impl Default for HostNameC {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CountryC {
+    #[serde(default = "text_fallback")]
+    pub fallback: Vec<Value>,
+}
+
+impl Default for CountryC {
+    fn default() -> Self {
+        CountryC {
+            fallback: text_fallback(),
+        }
+    }
+}
+
 fn text_fallback() -> Vec<Value> {
     vec![serde_json::json!({"t": "text"})]
 }
@@ -324,6 +338,7 @@ sem_types! {
     ServerAddress "server_address",
     Cidr "cidr",
     CidrRule "cidr_rule",
+    Country "country" (CountryC),
     Duration "duration" (DurationC),
     Size "size" (SizeC),
     Rate "rate",
@@ -425,6 +440,7 @@ impl SemType {
             | SemType::ServerAddress
             | SemType::Cidr
             | SemType::CidrRule
+            | SemType::Country(_)
             | SemType::Duration(_)
             | SemType::Size(_)
             | SemType::Rate

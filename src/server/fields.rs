@@ -29,6 +29,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         metrics,
         self_allow,
         web,
+        geoip,
     } = new;
     use Applied::{Live, Reload, Restart};
     [
@@ -78,6 +79,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*udp_session_timeout != old.udp_session_timeout, "udp", Live),
         (*udp_max_peers != old.udp_max_peers, "udp.max_peers", Live),
         (*metrics != old.metrics, "metrics", Reload),
+        (*geoip != old.geoip, "geoip", Live),
         (*self_allow != old.self_allow, "self.allow", Reload),
         (*web != old.web, "web", Reload),
     ]
@@ -237,6 +239,13 @@ mod tests {
                     s.web = Some(crate::config::settings::WebSettings::new(
                         "[::]:443".parse().unwrap(),
                     ))
+                }),
+            ),
+            (
+                "geoip",
+                Applied::Live,
+                Box::new(|s| {
+                    s.geoip = Some(crate::config::settings::GeoSource::File("/x.mmdb".into()))
                 }),
             ),
             (

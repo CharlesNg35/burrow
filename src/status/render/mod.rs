@@ -1,4 +1,5 @@
 mod certs;
+mod geo;
 mod table;
 
 use std::collections::HashMap;
@@ -123,7 +124,9 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     render_services(&mut out, s, paint, rates);
     render_visitors(&mut out, s, paint);
     render_web(&mut out, s, paint);
-    certs::render_certs(&mut out, s, paint, burrow_syntax::duration::now_secs());
+    let now = burrow_syntax::duration::now_secs();
+    certs::render_certs(&mut out, s, paint, now);
+    geo::render_geoip(&mut out, s, paint, now);
     render_footer(&mut out, s, paint);
     out
 }

@@ -334,6 +334,7 @@ impl Server {
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
             web_wait: Mutex::new(None),
+            geo: super::geo::Geo::default(),
             standing: Mutex::new(standing::Standing::default()),
             wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(

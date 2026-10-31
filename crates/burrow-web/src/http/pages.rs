@@ -12,6 +12,7 @@ pub enum Page {
     BadRequest,
     LoginNeeded,
     Forbidden,
+    Region { credit: bool },
     NotFound,
     Misdirected,
     TooLarge,
@@ -26,6 +27,7 @@ pub enum Page {
 }
 
 pub const RETRY_AFTER_SECS: u32 = 10;
+const CREDIT: &str = "<p style=\"font-size:small;color:#666\"><a href=\"https://db-ip.com\">IP Geolocation by DB-IP</a></p>";
 const RETRY_LATER_SECS: u32 = 60;
 
 impl Page {
@@ -33,7 +35,7 @@ impl Page {
         match self {
             Page::BadRequest => StatusCode::BAD_REQUEST,
             Page::LoginNeeded => StatusCode::UNAUTHORIZED,
-            Page::Forbidden => StatusCode::FORBIDDEN,
+            Page::Forbidden | Page::Region { .. } => StatusCode::FORBIDDEN,
             Page::NotFound => StatusCode::NOT_FOUND,
             Page::Misdirected => StatusCode::MISDIRECTED_REQUEST,
             Page::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
@@ -58,6 +60,7 @@ impl Page {
                 "Not allowed",
                 "This site does not take visitors from your address.",
             ),
+            Page::Region { .. } => ("Not available", "This site isn't available in your region."),
             Page::NotFound => ("Not found", "There is no site at this address."),
             Page::Misdirected => (
                 "Wrong site",
@@ -100,7 +103,13 @@ impl Page {
 
     pub fn html(self) -> String {
         let (title, line) = self.text();
-        html(self.status(), title, line)
+        let page = html(self.status(), title, line);
+        match self {
+            Page::Region { credit: true } => {
+                page.replacen("</body>", &format!("{CREDIT}</body>"), 1)
+            }
+            _ => page,
+        }
     }
 
     pub fn response(self) -> Response<Body> {
@@ -221,6 +230,7 @@ mod tests {
             (Page::Timeout, 504),
             (Page::BadRequest, 400),
             (Page::Forbidden, 403),
+            (Page::Region { credit: true }, 403),
             (Page::Misdirected, 421),
             (Page::HeadersTooLarge, 431),
         ];
@@ -247,6 +257,17 @@ mod tests {
             escape("<a href=\"x\">'&'</a>"),
             "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;"
         );
+    }
+
+    #[test]
+    fn the_region_page_credits_db_ip_only_when_its_data_is_used() {
+        let with = Page::Region { credit: true }.html();
+        assert!(with.contains("isn't available in your region"), "{with}");
+        assert!(
+            with.contains("<a href=\"https://db-ip.com\">IP Geolocation by DB-IP</a>"),
+            "{with}"
+        );
+        assert!(!Page::Region { credit: false }.html().contains("db-ip.com"));
     }
 
     #[test]
