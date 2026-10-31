@@ -583,3 +583,38 @@ Measured on 2026-10-31 on a 10-core VM with the release build: a server and a cl
 The line costs about 10 KB of server memory per waiting connection (14 MB for about 1,500 more waiters). Past the line (N = 4,000), it refuses at once as before. `src/server/session.rs` tests the line, its bound, the deadline answer, the fair part, `close` and a smaller `max_pending` on reload. `tests/integration/connections.rs` sends a burst of 32 connections with `max_pending` 8: all are served, and the build before this change refuses some, over TCP and WebSocket.
 
 Sources, checked 2026-10-31: frp `server/control.go` (`GetWorkConn`) and the gofrp.org server reference (`userConnTimeout`); rathole `src/server.rs` (`CHAN_SIZE`, `run_tcp_connection_pool`); chisel `share/tunnel/tunnel.go` (`getSSH`, `SSH_WAIT`) and `tunnel_in_proxy.go`; cloudflared commit UN-5213 (QUIC `MaxIncomingStreams`).
+
+## D60. The binary is about 20 MB, twice v0.1.2, and the size budget is reset from there
+
+The v0.2.0 plan set a target of 3 MB added over v0.1.2, a target and not a cap: no feature is cut to fit it, and an overrun is reported with its breakdown. The release build went well past it, and the owner raised the budget (2026-10-31).
+
+| x86_64 Linux, musl, stripped | binary | gzip -9 | release archive |
+|---|---|---|---|
+| v0.1.2 | 9,924,536 bytes | 5,026,232 | 5,050,047 (`.tar.gz`) |
+| v0.2.0 (release-v0.2.0 at 5ff69fc8, real admin UI) | 19,946,128 bytes | 9,128,525 | about 9.2 MB |
+
+**Where the 10 MB comes from.** `cargo bloat --crates` of both builds (`.text` only, the code) puts the code at 7.5 MiB in v0.1.2 and 15.2 MiB now:
+
+- **Post-quantum TLS (D55):** AWS-LC (`aws_lc_sys`, 1.3 MiB, and probably most of the 0.4 MiB growth in code that bloat cannot name, since AWS-LC is C), minus 0.17 MiB of ring that left. D55 measured the switch on its own at +2.28 MB of the file, tables included.
+- **The web proxy:** `burrow_web` 0.9 MiB, h2 0.3 MiB, more of hyper 0.15 MiB, hickory-proto for the DNS checks 0.16 MiB, and instant-acme, rcgen, x509-cert and der 0.2 MiB: about 1.7 MiB.
+- **burrow mcp (D50):** rmcp, 0.74 MiB.
+- **Config, schema and JSON for all the new keys:** serde, serde_json and schemars grew by 0.9 MiB, `burrow_config` and `burrow_admin_proto` by 0.37 MiB.
+- **burrow's own code:** 0.9 MiB more (status, certificates, the admin and service work).
+- **std and tokio:** 1.1 MiB more, the generic code of everything above.
+- **Outside the code:** read-only data grew from 1.5 to 2.5 MB (AWS-LC's tables, the admin UI's gzipped WebAssembly from 0.71 to 0.95 MB, strings), and the unwind tables from 0.6 to 1.1 MB.
+
+**The build is already sized.** The release profile has fat LTO, one codegen unit, `panic = "abort"` and `strip = true`, the usual steps for a small Rust binary that cost no speed (Cargo book, profiles; min-sized-rust). The steps left cost speed or stability:
+
+- **`opt-level = "s"` is not used.** Measured on the same commit: the binary drops to 13,651,248 bytes (−6.3 MB, −32 %; 6.8 MB gzipped). Tunnel throughput does not change (iperf3 through a local tunnel, release profile against `s`: one stream 12.7 against 12.8 Gbit/s, four streams 35.4 against 35.3 Gbit/s, three rounds each), but the web proxy pays: on one 10-core VM, with `hey` and 32 connections to a burrow-answered redirect over HTTPS, the server spends 24 % more CPU per new TLS connection (134 against 167 µs, X25519MLKEM768 and ECDSA P-256) and 18 % more per kept-alive request (10.0 against 11.8 µs). Speed per request is the web proxy's goal (BENCH-1, D56), and a download of 9 MB is not a problem for a server, so speed wins.
+- **Not used either:** `build-std` (nightly only) and executable packers like UPX (they unpack into memory at every start and are flagged by some virus scanners).
+
+**Others, checked 2026-10-31** (x86_64 Linux release assets): Caddy 2.11.7 is a 52.0 MB binary (18.1 MB `.tar.gz`) and Traefik 3.7.17 is 182.1 MB (50.9 MB), both Go with a web proxy and ACME built in. nginx 1.24.0 on Ubuntu 24.04 is 1.3 MB installed, but it links OpenSSL (libssl3t64, 6.6 MB installed), PCRE2 and zlib and has no ACME client; the `nginx:alpine` image is 26.3 MB compressed. Among tunnels, frp 0.71.1 ships `frps` at 20.7 MB and `frpc` at 16.9 MB (14.1 MB together as `.tar.gz`), and cloudflared 2026.10.7 is 40.3 MB. One 20 MB file that is server, client, visitor, web proxy with ACME, admin UI and MCP server stays at the small end.
+
+**The new budget and how it is watched:**
+
+- v0.2.0 is the new base: 19.9 MB stripped (x86_64 musl), 9.1 MB gzipped.
+- The target for each later release is at most 1 MB more than the release before it, measured the same way. It stays a target: no feature is cut for it, and an overrun is reported to the owner with a `cargo bloat --crates` breakdown before the tag.
+- A change that adds a dependency or more than 200 KB names its measured size in its commit or decision record. A new large dependency still needs the owner's OK first.
+- `cargo xtask surface --check` against the last release's snapshot flags a release binary that moves more than 1 %, and `cargo xtask size --budget` keeps the admin UI within its own budget in CI.
+
+Sources, checked 2026-10-31: doc.rust-lang.org/cargo/reference/profiles.html; github.com/johnthagen/min-sized-rust; github.com/CharlesNg35/burrow releases v0.1.2; GitHub release assets of caddyserver/caddy v2.11.7, traefik/traefik v3.7.17, fatedier/frp v0.71.1 and cloudflare/cloudflared 2026.10.7; Ubuntu 24.04 package data of nginx 1.24.0-2ubuntu7.19 and libssl3t64 3.0.13; hub.docker.com library/nginx tag `alpine` (amd64, 2026-10-28).
