@@ -17,7 +17,7 @@ pub const FIELD_FREE: &[&str] = &[
     "src/mcp",
 ];
 
-const COMMON_WORDS: &[&str] = &["file", "to", "api", "server", "service", "password"];
+const COMMON_WORDS: &[&str] = &["file", "to", "from", "api", "server", "service", "password"];
 
 pub fn keys() -> BTreeSet<String> {
     fn walk(node: &Node, out: &mut BTreeSet<String>) {

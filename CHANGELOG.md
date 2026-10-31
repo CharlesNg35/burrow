@@ -3,6 +3,7 @@
 ## [0.2.1]
 
 - **Built-in login (OIDC):** `web.oidc` providers like Google or Keycloak, picked per site with `oidc: <name>` and `allow_users`. See docs/web/access.md.
+- **Notifications:** `notify:` sends a message to a webhook, an ntfy topic or an email address when a client goes offline, a certificate fails or a service's health check fails, and once more when it is fixed. Off unless set; see docs/monitoring.md.
 
 ## [0.2.0]
 

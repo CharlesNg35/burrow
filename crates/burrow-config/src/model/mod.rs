@@ -4,6 +4,7 @@ mod client;
 mod client_ref;
 mod dns;
 mod entries;
+mod notify;
 mod oidc;
 mod options;
 mod server;
@@ -25,6 +26,7 @@ pub use entries::{
     Bind, ClientEntry, HealthCheck, HealthCheckSetting, Mode, Protocol, ProxyVersion, Reach,
     Secrets, ServiceEntry, Target, VisitorEntry,
 };
+pub use notify::{EmailNotify, NotifyEntry, NotifyEvent};
 pub use oidc::{OidcConfig, OidcPick, OidcSetting};
 pub use options::{ClientUdpOptions, Heartbeat, Limits, Pool, TcpOptions, UdpOptions};
 pub use server::{

@@ -1,4 +1,5 @@
 mod certs;
+mod notify;
 mod table;
 
 use std::collections::HashMap;
@@ -124,6 +125,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     render_visitors(&mut out, s, paint);
     render_web(&mut out, s, paint);
     certs::render_certs(&mut out, s, paint, burrow_syntax::duration::now_secs());
+    notify::render_notify(&mut out, s, paint);
     render_footer(&mut out, s, paint);
     out
 }

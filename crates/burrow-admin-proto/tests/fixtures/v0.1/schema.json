@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5fb0ea383b34cdf5",
+  "hash": "b2s:b2ef5f746b3a4a45",
   "root": {
     "label": "Server",
     "sem": {
@@ -3573,6 +3573,184 @@
             "applies": "reload",
             "group": "monitoring",
             "none_label": "Off"
+          }
+        },
+        {
+          "key": "notify",
+          "node": {
+            "label": "Notifications",
+            "help": "Where burrow sends a message when a client goes offline, a certificate fails or a service is down, and one more when it is fixed, for example an ntfy topic or an email address",
+            "sem": {
+              "t": "list",
+              "item": {
+                "label": "Notification",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "webhook",
+                      "node": {
+                        "label": "Webhook",
+                        "help": "burrow POSTs each message as JSON to this address, for example https://hooks.example.com/burrow; http:// only to this machine or the LAN",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "none_label": "Not used"
+                      }
+                    },
+                    {
+                      "key": "ntfy",
+                      "node": {
+                        "label": "ntfy topic",
+                        "help": "The full address of an ntfy topic, for example https://ntfy.sh/my-burrow-topic; pick a name nobody can guess",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "none_label": "Not used"
+                      }
+                    },
+                    {
+                      "key": "email",
+                      "node": {
+                        "label": "Email",
+                        "help": "Send each message by email through your mail server",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "label": "Email",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "to",
+                                  "node": {
+                                    "label": "To",
+                                    "help": "Who gets the messages, for example ops@example.com",
+                                    "sem": {
+                                      "t": "text"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "smtp",
+                                  "node": {
+                                    "label": "Mail server",
+                                    "help": "smtp://user@mail.example.com:587 for STARTTLS or smtps://user@mail.example.com:465 for TLS; the password goes in its own field",
+                                    "sem": {
+                                      "t": "text"
+                                    },
+                                    "required": true,
+                                    "locked": true
+                                  }
+                                },
+                                {
+                                  "key": "password",
+                                  "node": {
+                                    "label": "Password",
+                                    "help": "The mail account's password, from an environment variable like ${SMTP_PASS} or a file like file:/etc/burrow/smtp.pass",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "secret_ref",
+                                          "max": 1,
+                                          "reference": true
+                                        }
+                                      }
+                                    },
+                                    "locked": true,
+                                    "none_label": "No login"
+                                  }
+                                },
+                                {
+                                  "key": "from",
+                                  "node": {
+                                    "label": "Sender",
+                                    "help": "The sender address, for example burrow@example.com; most mail servers want the account's own address",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "text"
+                                        }
+                                      }
+                                    },
+                                    "none_label": "The mail server's user name"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "none_label": "Not used"
+                      }
+                    },
+                    {
+                      "key": "events",
+                      "node": {
+                        "label": "Events",
+                        "help": "Which events this destination gets, for example only client_offline and client_back",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "enum",
+                              "options": [
+                                {
+                                  "value": "client_offline",
+                                  "label": "Client offline",
+                                  "help": "A client lost its connection and did not come back within a minute"
+                                },
+                                {
+                                  "value": "client_back",
+                                  "label": "Client back",
+                                  "help": "A client that was reported offline is connected again"
+                                },
+                                {
+                                  "value": "certificate_failing",
+                                  "label": "Certificate failing",
+                                  "help": "A certificate cannot be got or renewed, and later when it works again"
+                                },
+                                {
+                                  "value": "site_down",
+                                  "label": "Service down",
+                                  "help": "A service's health check fails on every client"
+                                },
+                                {
+                                  "value": "site_back",
+                                  "label": "Service back",
+                                  "help": "A service reported down answers its health check again"
+                                },
+                                {
+                                  "value": "geoip_stale",
+                                  "label": "Country database old",
+                                  "help": "The country database could not be updated for a long time, and later when it is fresh again"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "empty_label": "All"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "applies": "live",
+            "group": "monitoring",
+            "empty_label": "None"
           }
         }
       ]

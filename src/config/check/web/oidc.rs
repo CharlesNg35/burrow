@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use super::dns_secrets::{Field, check as check_secret};
 use super::site_keys::At;
 use super::{Served, Spans};
 use crate::base::suggest::closest;
+use crate::config::check::secret_ref::{SecretField as Field, check_secret_ref as check_secret};
 use crate::config::check::{name_error, valid_name};
 use crate::config::diagnostics::Diagnostic;
 use burrow_admin_proto::codes::{

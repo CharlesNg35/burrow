@@ -125,6 +125,7 @@ pub(crate) fn sample() -> Status {
         acme: None,
         local_ca: None,
         web_waiting: None,
+        notify: Vec::new(),
     }
 }
 
