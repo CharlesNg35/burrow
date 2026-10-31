@@ -1,7 +1,7 @@
 use burrow_admin_logic::check::check;
 use burrow_admin_logic::input::{parse_input, to_text};
 use burrow_admin_logic::tree::inner;
-use burrow_admin_proto::schema::{Entity, Node, SemType, UnionC};
+use burrow_admin_proto::schema::{Entity, EnumOption, Node, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::child;
 use burrow_config::ServiceEntry;
@@ -40,6 +40,9 @@ fn facet(entity: &Entity, name: &str) -> String {
 pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     if matches!(inner(&item).sem, SemType::Object(_)) {
         return super::objects::object_list(fc, item);
+    }
+    if let SemType::Enum(c) = &inner(&item).sem {
+        return enum_list_editor(fc, c.options.clone());
     }
     let e = store().edit;
     let path = fc.path.clone();
@@ -93,6 +96,94 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     .into_any()
 }
 
+fn enum_list_editor(fc: FieldCtx, options: Vec<EnumOption>) -> AnyView {
+    let e = store().edit;
+    let path = fc.path.clone();
+    let chosen = Memo::new(move |_| match e.value(&path) {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect(),
+        _ => Vec::<String>::new(),
+    });
+    let opts = StoredValue::new(options);
+    let label_of = move |v: &str| {
+        opts.with_value(|o| {
+            o.iter()
+                .find(|x| x.value == v)
+                .map_or_else(|| v.to_string(), |x| x.label.clone())
+        })
+    };
+    let value_of = move |t: &str| {
+        opts.with_value(|o| {
+            o.iter()
+                .find(|x| x.label.eq_ignore_ascii_case(t.trim()) || x.value == t.trim())
+                .map(|x| x.value.clone())
+        })
+    };
+    let items =
+        Signal::derive(move || chosen.get().iter().map(|v| label_of(v)).collect::<Vec<_>>());
+    let node = fc.node.clone();
+    let fc2 = fc.clone();
+    let save = move |values: Vec<String>| {
+        let v = (!values.is_empty())
+            .then(|| Value::Array(values.into_iter().map(Value::String).collect()));
+        set_checked(&fc2, &node, v);
+    };
+    let save2 = save.clone();
+    let on_change = move |labels: Vec<String>| {
+        save(labels.iter().filter_map(|l| value_of(l)).collect());
+    };
+    let check_one = Callback::new(move |t: String| {
+        value_of(&t).is_none().then(|| {
+            let names = opts.with_value(|o| {
+                o.iter()
+                    .map(|x| x.label.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            });
+            format!("pick one of {names}")
+        })
+    });
+    let left = Signal::derive(move || {
+        let now = chosen.get();
+        let mut o = vec![(
+            String::new(),
+            burrow_admin_logic::wording::ADD_PICK.to_string(),
+        )];
+        opts.with_value(|all| {
+            o.extend(
+                all.iter()
+                    .filter(|x| !now.contains(&x.value))
+                    .map(|x| (x.value.clone(), x.label.clone())),
+            )
+        });
+        o
+    });
+    let add = Callback::new(move |v: String| {
+        if v.is_empty() {
+            return;
+        }
+        let mut now = chosen.get_untracked();
+        now.push(v);
+        save2(now);
+    });
+    view! {
+        <div class="space-y-1.5">
+            <ChipInput
+                id=fc.id.clone()
+                items=items
+                on_change=on_change
+                check=check_one
+                placeholder="Type a name and press Enter"
+                empty_label=fc.node.empty_label.clone().unwrap_or_default()
+            />
+            <Select id=format!("{}-add", fc.id) options=left value=Signal::derive(String::new) on_change=add small=true/>
+        </div>
+    }
+    .into_any()
+}
+
 pub(super) fn map_editor(
     fc: FieldCtx,
     entity: Option<Entity>,
@@ -111,7 +202,10 @@ pub(super) fn map_editor(
     let reserved = fc.node.sem.reserved().to_vec();
     let candidates = Signal::derive(move || {
         let used = keys.get();
-        let mut o = vec![(String::new(), "Add…".to_string())];
+        let mut o = vec![(
+            String::new(),
+            burrow_admin_logic::wording::ADD_PICK.to_string(),
+        )];
         let self_ready = burrow_config::ServerConfig::SELF
             .then(burrow_config::SelfEntry::ALLOW)
             .get(&e.doc())

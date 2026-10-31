@@ -312,6 +312,15 @@ fn list_view(c: &ListC, v: &Value, ctx: &Ctx) -> AnyView {
         return view! { <span class="text-text-muted">"None"</span> }.into_any();
     }
     let item = (*c.item).clone();
+    if let SemType::Enum(_) = &inner(&item).sem {
+        let sem = inner(&item).sem.clone();
+        return view! {
+            <span class="flex flex-wrap gap-1" data-testid="enum-list">
+                {a.iter().map(|x| view! { <Chip text=sem_text(&sem, x)/> }).collect_view()}
+            </span>
+        }
+        .into_any();
+    }
     let layout = match inner(&item).sem {
         SemType::Object(_) => "flex flex-col gap-2",
         _ => "flex flex-wrap gap-1",
