@@ -33,10 +33,12 @@ pub(super) fn object_toggle(
     }
 }
 
+pub(crate) const VALUE_BOX: &str = "group relative flex h-[38px] items-center rounded-input border border-border bg-surface-2 px-2.5 font-mono text-[13px] dark:bg-surface-3";
+
 pub(super) fn locked_box(node: Node, path: Path, id: String) -> AnyView {
     let e = store().edit;
     view! {
-        <div class="group relative flex h-[38px] items-center rounded-input border border-border bg-surface-2 px-2.5 font-mono text-[13px] dark:bg-surface-3" id=id data-locked="">
+        <div class=VALUE_BOX id=id data-locked="">
             <span class="flex-1 truncate select-all">
                 {move || {
                     let v = e.value(&path);

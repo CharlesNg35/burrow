@@ -15,6 +15,9 @@ use super::{Ctx, cap, plain};
 pub const NOT_SET: &str = "Not set";
 
 pub fn scalar_text(node: &Node, v: &Value) -> String {
+    if as_secret(v).is_some() {
+        return burrow_admin_proto::value::display(v);
+    }
     sem_text(&inner(node).sem, v)
 }
 

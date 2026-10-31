@@ -1,4 +1,5 @@
 mod basic;
+mod hidden;
 mod keyed;
 mod lists;
 mod objects;
@@ -114,6 +115,10 @@ fn picks_login(u: &burrow_admin_proto::schema::UnionC) -> bool {
 }
 
 pub fn editor(fc: FieldCtx) -> AnyView {
+    hidden::hidden_or(fc, any_editor)
+}
+
+fn any_editor(fc: FieldCtx) -> AnyView {
     let e = store().edit;
     let current = e.peek(&fc.path);
     let node = fc.node.clone();

@@ -188,7 +188,7 @@ pub(super) fn map_editor(
                             <burrow_ui_kit::IconButton icon="x" label=format!("Remove {k}") testid="remove-key" on_click=move |_| e.remove_pruned(&p)/>
                             {rename}
                         </div>
-                        <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::keyed::string_editor(sub) } else { editor(sub) }}</div>
+                        <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::hidden::hidden_or(sub, super::keyed::string_editor) } else { editor(sub) }}</div>
                     </div>
                 }
             })

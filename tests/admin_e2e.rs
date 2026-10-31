@@ -20,6 +20,8 @@ mod entries;
 mod guards;
 #[path = "admin_e2e/header.rs"]
 mod header;
+#[path = "admin_e2e/hidden.rs"]
+mod hidden;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
 #[path = "admin_e2e/more.rs"]
