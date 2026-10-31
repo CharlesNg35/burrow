@@ -1,6 +1,6 @@
 # Who may visit
 
-A website at home is often meant for you, your family or your team, not the whole internet. burrow can check visitors before a request reaches the app: by address, by rate, with a password, through a single sign-on service like Authelia or authentik, or with a certificate on each device. The app needs no change for any of them.
+A website at home is often meant for you, your family or your team, not the whole internet. burrow can check visitors before a request reaches the app: by address, by rate, with a password, with an account like Google or your own Keycloak, through a single sign-on service like Authelia or authentik, or with a certificate on each device. The app needs no change for any of them.
 
 In [How it works](how-it-works.md): device certificates are checked in the handshake, in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port), and the other checks run for each request, in this order, in [step 2](how-it-works.md#2-a-request-is-answered).
 
@@ -12,11 +12,12 @@ Each key below lets in a kind of visitor, and says what the others get:
 | `rate_limit` | up to so many requests per second per address | `429` |
 | `basic_auth` | visitors with a user name and password | `401` |
 | `forward_auth` | visitors your login service lets in, like Authelia or authentik | the login service's answer, usually its login page |
+| `oidc` with `allow_users` | visitors who log in with an account you list, like Google | browsers go to the login; scripts get `401`; other accounts `403` |
 | `client_auth` | devices with a certificate from your CA | the TLS handshake fails |
 
-A site takes one kind of login: `basic_auth` or `forward_auth`, never both. Every check needs burrow to do the HTTPS (not `tls: passthrough`), and `client_auth` also needs HTTPS (not `tls: off`).
+A site takes one kind of login: `basic_auth`, `forward_auth` or `oidc`, never two. Every check needs burrow to do the HTTPS (not `tls: passthrough`), and `client_auth` and `oidc` also need HTTPS (not `tls: off`).
 
-`burrow validate` shows each site's checks after its service, like `-> service private (password for alice)`, `(login through service authelia)`, `(device certificate)` or `(allow_from 192.168.1.0/24)`.
+`burrow validate` shows each site's checks after its service, like `-> service private (password for alice)`, `(login through service authelia)`, `(login with google for alice@gmail.com)`, `(device certificate)` or `(allow_from 192.168.1.0/24)`.
 
 The logins guard the website only. A service that also has its own `bind` port is reached there without them. So `burrow validate` warns when a site with a login has a public `bind` and no `allow_from`, and its summary line names that port. Remove `bind`, or limit it with `allow_from`, which applies to both. Visitors with `burrow visit` still need their own burrow login.
 
@@ -150,6 +151,44 @@ Authelia answers on `/api/authz/<name>` for each endpoint under its [`server.end
 - It never fails open: a login service that does not answer within `response_header_timeout_secs` gives `504`, and one that is down gives `502` or `503`.
 - burrow asks over HTTP/1.1. A login service set to HTTP/2 only (`target_http2`) would fail every check; validate warns.
 - Over plain HTTP (`tls: off`) the login cookies travel unencrypted; validate warns.
+
+## Log in with Google or your own provider
+
+`oidc` lets visitors log in with an account from an OpenID Connect provider: Google, Microsoft, GitLab, or your own Keycloak, authentik or Authelia. burrow does the login itself, so no login service has to run. This config lets two people and everyone at a company into a wiki with their Google accounts:
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  letsencrypt:
+    email: you@example.com
+  oidc: # login providers, by name; a site picks them with oidc: <name>
+    google:
+      issuer: https://accounts.google.com
+      client_id: 1234.apps.googleusercontent.com
+      client_secret: ${GOOGLE_SECRET} # or file:/etc/burrow/google.secret
+services:
+  wiki:
+    client: home
+    target: 8080
+    web:
+      hosts: [wiki.example.com]
+      oidc: google
+      allow_users: [alice@gmail.com, bob@gmail.com, "@mycompany.com"] # emails, or everyone at a domain
+```
+
+Register burrow with the provider as a web application, with `https://wiki.example.com/.burrow/login/callback` as its redirect URI (one per name of the site, with the port when it is not 443). The provider gives you the client ID and secret. For Google, that is a "Web application" OAuth client in the Google Cloud console.
+
+- `issuer` is the provider's address, where `/.well-known/openid-configuration` is found: `https://accounts.google.com`, `https://login.microsoftonline.com/<tenant>/v2.0`, or `https://sso.example.com/realms/home` for Keycloak. It must match what the provider calls itself exactly.
+- `client_secret` comes from `${VAR}` or `file:`; validate refuses one written in the config. Leave it out for a public client.
+- A site picks a provider with `oidc: <name>`, several with `oidc: [google, work]`, or `oidc: true` when only one is defined. With several, visitors choose on a small page.
+- `allow_users` lists who may in: email addresses, or `"@mycompany.com"` (quoted) for everyone at that domain. It is required, and it is checked again on every request, so removing someone takes effect at the next reload.
+- A browser without a login is sent to the provider and comes back to the page it asked for. A request that is not a page load (no `Accept: text/html`, a `fetch` or `XMLHttpRequest`) gets `401` instead. An account not in `allow_users` gets `403`.
+- The login lasts 12 hours, in a cookie that is encrypted and signed with a key in burrow's state folder (`HttpOnly`, `Secure`, `SameSite=Lax`). It stays valid across restarts; delete `login-session.key` there to log everyone out.
+- `https://wiki.example.com/.burrow/logout` logs out. Paths under `/.burrow/` belong to burrow on a name with an `oidc` site.
+- The app gets `Remote-User` and `Remote-Email`, both the visitor's email. A visitor's own headers of those names, also written with `_`, are always removed, and the login cookie never reaches the app.
+- burrow uses the authorization code flow with PKCE, `state` and `nonce`, and checks the ID token's signature, issuer, audience, expiry and nonce. An email the provider marks as not verified is refused.
+- An `http://` issuer works only on loopback or private addresses, for a provider on your own network; validate warns.
 
 ## Device certificates
 

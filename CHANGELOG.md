@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.1]
+
+- **Built-in login (OIDC):** `web.oidc` providers like Google or Keycloak, picked per site with `oidc: <name>` and `allow_users`. See docs/web/access.md.
+
 ## [0.2.0]
 
 Websites with automatic HTTPS, a reworked admin UI, load balancing with weights, and `burrow mcp` for AI apps. Existing configs work unchanged, and v0.1.x clients and visitors keep working with a v0.2.0 server.

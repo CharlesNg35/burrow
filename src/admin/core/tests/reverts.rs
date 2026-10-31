@@ -174,6 +174,7 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
             p(&["listen"]),
             p(&["websocket", "tls", "cert"]),
             p(&["websocket", "tls", "key"]),
+            p(&["web", "oidc", "*", "client_secret"]),
             p(&["web", "letsencrypt", "ca"]),
             p(&["web", "letsencrypt", "dns", "*", "cloudflare", "token"]),
             p(&["web", "letsencrypt", "dns", "*", "rfc2136", "server"]),

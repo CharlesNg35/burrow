@@ -11,6 +11,7 @@ use super::pages::Page;
 use super::site::{Hop, SiteRun};
 use super::upstream::{Failed, handshake, refusal_page, strip_hop_by_hop};
 use crate::auth::forward::{Asked, copy_granted, strip_visitor_copies, subrequest};
+use crate::auth::oidc::{Ask, Logins};
 use crate::auth::{Access, Verdict, basic, retry_after};
 use crate::route::Table;
 use crate::{ForwardAuth, Upstream, Visitor};
@@ -18,6 +19,7 @@ use crate::{ForwardAuth, Upstream, Visitor};
 pub(crate) struct Gate<'a, U> {
     pub up: &'a U,
     pub access: &'a Access,
+    pub logins: &'a Logins,
     pub table: &'a Table,
     pub site: &'a SiteRun,
     pub visitor: &'a Visitor,
@@ -69,10 +71,17 @@ impl<U: Upstream> Gate<'_, U> {
                 Verdict::Busy => return Some(Page::Busy.response_from(&self.site.pages)),
             }
         }
-        match &self.site.options.forward_auth {
-            Some(fa) => self.forward_auth(fa, req).await,
-            None => None,
+        if let Some(fa) = &self.site.options.forward_auth {
+            return self.forward_auth(fa, req).await;
         }
+        let login = self.site.options.oidc.as_ref()?;
+        let ask = Ask {
+            logins: self.logins,
+            table: self.table,
+            host: &self.visitor.host,
+            login,
+        };
+        ask.check(req).await
     }
 
     async fn forward_auth(

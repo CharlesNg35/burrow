@@ -19,6 +19,7 @@ pub struct SiteOptions {
     pub target_http2: bool,
     pub basic_auth: Vec<BasicUser>,
     pub forward_auth: Option<ForwardAuth>,
+    pub oidc: Option<SiteLogin>,
     pub rate_limit: Option<NonZeroU32>,
     pub client_auth: Option<ClientAuth>,
     pub hsts: bool,
@@ -43,6 +44,7 @@ impl Default for SiteOptions {
             target_http2: false,
             basic_auth: Vec::new(),
             forward_auth: None,
+            oidc: None,
             rate_limit: None,
             client_auth: None,
             hsts: false,
@@ -76,6 +78,20 @@ pub struct ForwardAuth {
     pub path: String,
     pub copy_headers: Vec<HeaderName>,
     pub strip_headers: Vec<HeaderName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteLogin {
+    pub providers: Vec<String>,
+    pub allow_users: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OidcProvider {
+    pub name: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: Option<crate::Secret>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -100,10 +100,7 @@ impl Page {
 
     pub fn html(self) -> String {
         let (title, line) = self.text();
-        format!(
-            "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>{} {title}</title></head>\n<body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\"><h1>{title}</h1><p>{line}</p></body></html>\n",
-            self.status().as_u16()
-        )
+        html(self.status(), title, line)
     }
 
     pub fn response(self) -> Response<Body> {
@@ -118,19 +115,47 @@ impl Page {
     }
 
     fn answer(self, html: Bytes) -> Response<Body> {
-        let mut r = Response::new(full(html));
-        *r.status_mut() = self.status();
-        let h = r.headers_mut();
-        h.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        let mut r = html_response(self.status(), html);
         if let Some(secs) = self.retry_after() {
-            h.insert(header::RETRY_AFTER, HeaderValue::from(secs));
+            r.headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(secs));
         }
         r
     }
+}
+
+pub fn html(status: StatusCode, title: &str, line: &str) -> String {
+    format!(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>{} {title}</title></head>\n<body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\"><h1>{title}</h1><p>{line}</p></body></html>\n",
+        status.as_u16()
+    )
+}
+
+pub fn html_response(status: StatusCode, html: impl Into<Bytes>) -> Response<Body> {
+    let mut r = Response::new(full(html.into()));
+    *r.status_mut() = status;
+    let h = r.headers_mut();
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    r
+}
+
+pub fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 pub const MAX_PAGE: u64 = 1024 * 1024;
@@ -214,6 +239,14 @@ mod tests {
             );
             assert!(html.contains(&format!("<title>{code} ")), "{page:?}");
         }
+    }
+
+    #[test]
+    fn page_text_is_escaped_for_html() {
+        assert_eq!(
+            escape("<a href=\"x\">'&'</a>"),
+            "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;"
+        );
     }
 
     #[test]
