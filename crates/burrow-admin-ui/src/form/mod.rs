@@ -191,9 +191,12 @@ impl Section<'_> {
                 continue;
             }
             let off = off_group::off_of(&f.node, entity.clone());
-            if fs == burrow_config::entity_path(&burrow_admin_proto::schema::Entity::Login) {
+            if let Some(kind) = crate::logins::Kind::of_path(&fs) {
                 let (label, help) = (f.node.label.clone(), f.node.help.clone());
-                rows.push((off, crate::logins::login_services(label, help, fp, fs)));
+                rows.push((
+                    off,
+                    crate::logins::login_services(kind, label, help, fp, fs),
+                ));
                 continue;
             }
             let service = ServiceEntry::is_entry(spath);

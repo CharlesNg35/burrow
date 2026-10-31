@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:3232a8833f3a25ef",
+  "hash": "b2s:5fb0ea383b34cdf5",
   "root": {
     "label": "Server",
     "sem": {
@@ -388,7 +388,7 @@
                                   "key": "client_id",
                                   "node": {
                                     "label": "Client ID",
-                                    "help": "The client ID you got when you registered burrow with the provider",
+                                    "help": "The client ID you got when you registered burrow with the provider, for example 1234.apps.googleusercontent.com",
                                     "sem": {
                                       "t": "text"
                                     },

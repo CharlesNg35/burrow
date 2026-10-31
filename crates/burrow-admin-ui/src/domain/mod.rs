@@ -108,10 +108,12 @@ fn ref_names(node: &Node) -> Vec<String> {
     }
 }
 
-fn picks_login(u: &burrow_admin_proto::schema::UnionC) -> bool {
-    u.branches
-        .iter()
-        .any(|b| matches!(&inner(b).sem, SemType::Ref(r) if r.entity == Entity::Login))
+fn picks_login(u: &burrow_admin_proto::schema::UnionC) -> Option<crate::logins::Kind> {
+    u.branches.iter().find_map(|b| match &inner(b).sem {
+        SemType::Ref(r) if r.entity == Entity::Login => Some(crate::logins::Kind::Forward),
+        SemType::Ref(r) if r.entity == Entity::Oidc => Some(crate::logins::Kind::Oidc),
+        _ => None,
+    })
 }
 
 pub fn editor(fc: FieldCtx) -> AnyView {
@@ -186,8 +188,11 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::Map(m) => map_editor(fc, None, Some((*m.key).clone()), (*m.value).clone()),
         SemType::SecretRef(c) if c.reference => text_editor(fc, Some(sem.clone())),
         SemType::SecretRef(c) => crate::secrets::secret_list(fc.path.clone(), fc.id.clone(), c.max),
-        SemType::Union(u) if picks_login(u) => crate::logins::site_editor(fc),
-        SemType::Union(u) => union_editor(fc, u.clone()),
+        SemType::Union(u) => match picks_login(u) {
+            Some(crate::logins::Kind::Forward) => crate::logins::site_editor(fc),
+            Some(crate::logins::Kind::Oidc) => crate::logins::oidc_site_editor(fc),
+            None => union_editor(fc, u.clone()),
+        },
         SemType::Optional(o) => {
             let inner_node = (*o.inner).clone();
             let fc2 = FieldCtx {

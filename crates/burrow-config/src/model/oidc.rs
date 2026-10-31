@@ -19,7 +19,7 @@ pub struct OidcConfig {
     #[schemars(description = "The client ID the provider gave this server")]
     #[admin(
         label = "Client ID",
-        help = "The client ID you got when you registered burrow with the provider"
+        help = "The client ID you got when you registered burrow with the provider, for example 1234.apps.googleusercontent.com"
     )]
     pub client_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

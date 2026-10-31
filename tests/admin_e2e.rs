@@ -26,6 +26,8 @@ mod hidden;
 mod logins;
 #[path = "admin_e2e/more.rs"]
 mod more;
+#[path = "admin_e2e/oidc.rs"]
+mod oidc;
 #[path = "common/older.rs"]
 mod older;
 #[path = "admin_e2e/passwords.rs"]

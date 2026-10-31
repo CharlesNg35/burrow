@@ -10,9 +10,10 @@ use crate::store::store;
 
 use super::{name_input, name_problem};
 
-fn what(entity: &Entity) -> String {
+pub(crate) fn what(entity: &Entity) -> String {
     match entity {
         Entity::Login => "login service".to_string(),
+        Entity::Oidc => "login provider".to_string(),
         e => e.as_str().to_string(),
     }
 }
@@ -25,27 +26,28 @@ fn note(entity: &Entity) -> &'static str {
         Entity::Visitor => {
             "The visitor.yaml on that machine must use the new name, or the visitor cannot connect."
         }
-        Entity::Login => "Websites that use it are renamed with it.",
+        Entity::Login | Entity::Oidc => "Websites that use it are renamed with it.",
         _ => "Visitors that forward this service by name must use the new name.",
     }
 }
 
 pub(crate) fn problem_of(entity: &Entity, name: &str) -> Option<String> {
-    if *entity != Entity::Login {
-        return name_problem(name, entity.section(), None);
-    }
+    let what = match entity {
+        Entity::Login | Entity::Oidc => what(entity),
+        _ => return name_problem(name, entity.section(), None),
+    };
     if let Err(e) = check_name(name) {
         return Some(e);
     }
     if RESERVED_LOGIN_NAMES.contains(&name) {
         return Some(format!(
-            "{name} means on or off; give the login service another name"
+            "{name} means on or off; give the {what} another name"
         ));
     }
     names_of(entity)
         .iter()
         .any(|t| t == name)
-        .then(|| format!("a login service named {name} already exists"))
+        .then(|| format!("a {what} named {name} already exists"))
 }
 
 #[component]
@@ -69,7 +71,10 @@ pub fn RenameEntity(entity: Entity, name: String, open: RwSignal<bool>) -> impl 
         open.set(false);
         let mut path = entity_path(&ent);
         path.push(old.clone());
-        if n != old && store().edit.rename(&path, &n) && ent != Entity::Login {
+        if n != old
+            && store().edit.rename(&path, &n)
+            && !matches!(ent, Entity::Login | Entity::Oidc)
+        {
             go(Route::Detail(ent.section().to_string(), n));
         }
     });
