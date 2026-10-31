@@ -42,7 +42,7 @@ burrow admin -c ops-laptop.yaml     # opens the browser on http://127.0.0.1:7839
 burrow admin --no-open --print-url  # ./visitor.yaml, or the one installed visitor service
 ```
 
-- The browser opens a private launch file that forwards to the UI with its token. Only you can read the file, and it is deleted when `burrow admin` stops.
+- The browser opens a private launch file that forwards to the UI with its token. It is written to a folder only you can use (`$XDG_RUNTIME_DIR/burrow`, else `burrow-<uid>` in the temp folder; `%TEMP%\burrow` on Windows), and it is deleted when `burrow admin` stops.
 - Without `-c`, it uses `./visitor.yaml`, or else the installed visitor service; `--service NAME` picks one of several.
 - `--no-open` does not open the browser, and `--print-url` prints the link with its token. `--url-file FILE` writes the link to a file only you can read. If the link file or the launch file cannot be written, `burrow admin` says why and exits at once.
 - The UI listens on 127.0.0.1:7839, or on the port of the session it reuses, so an open tab reconnects. If that port is taken, it says so and uses a free one. `--port N` uses exactly N and fails when it is taken; `--port 0` always takes a free one.

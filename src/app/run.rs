@@ -242,7 +242,7 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
             crate::say_errln!("{note}");
         }
         let stop = stop_on_signal(None);
-        let dir = crate::instance::default_dir();
+        let dir = crate::instance::own_dir();
         let launch = std::cell::RefCell::new(None);
         let mut out = std::io::stdout();
         let keep = store.map(|dir| session::Keep { dir, config });

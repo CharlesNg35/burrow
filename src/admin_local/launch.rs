@@ -31,7 +31,7 @@ pub fn page(url: &str) -> String {
 }
 
 pub fn write(dir: &Path, url: &str) -> Result<LaunchFile, Failure> {
-    crate::instance::prepare(dir).map_err(|e| {
+    crate::instance::prepare_own(dir).map_err(|e| {
         Failure::new(format!(
             "cannot use {} for the private launch file: {e}",
             dir.display()
@@ -84,6 +84,15 @@ mod tests {
     fn the_launch_file_is_private_and_removed() {
         let dir = tempfile::tempdir().unwrap();
         let url = "http://127.0.0.1:4000/#token=abc\"<x>";
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let open = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(dir.path(), open).unwrap();
+            assert!(write(dir.path(), url).is_err());
+            let private = std::fs::Permissions::from_mode(0o700);
+            std::fs::set_permissions(dir.path(), private).unwrap();
+        }
         let f = write(dir.path(), url).unwrap();
         let text = std::fs::read_to_string(f.path()).unwrap();
         assert!(text.contains("url=http://127.0.0.1:4000/#token=abc&quot;&lt;x&gt;"));

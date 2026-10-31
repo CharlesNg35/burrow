@@ -1,5 +1,6 @@
 mod lock;
 mod note;
+mod own;
 pub mod publish;
 
 use std::fs::{File, OpenOptions};
@@ -16,6 +17,7 @@ pub use lock::{acquire, acquire_in, held, held_in};
 pub(crate) use note::alive;
 pub use note::{Running, running, running_in};
 use note::{no_follow, single_file};
+pub use own::{own_dir, prepare_own};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Identity {
@@ -200,7 +202,7 @@ pub fn dirs_with(dir: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![dir.to_path_buf()];
     if std::env::var_os("BURROW_INSTANCE_DIR").is_none() && dir == default_dir() {
         dirs.extend(
-            [service_dir(), Some(fallback_dir())]
+            [service_dir(), Some(fallback_dir()), Some(own_dir())]
                 .into_iter()
                 .flatten()
                 .filter(|d| d.is_dir() && d != dir),
@@ -228,7 +230,8 @@ pub fn default_dir() -> PathBuf {
     if let Some(dir) = service_dir().filter(|d| d.is_dir()) {
         return dir;
     }
-    fallback_dir()
+    let shared = fallback_dir();
+    if safe_dir(&shared) { shared } else { own_dir() }
 }
 
 pub fn private_dir(dir: &Path) -> std::io::Result<()> {
@@ -274,8 +277,12 @@ pub fn prepare(dir: &Path) -> std::io::Result<()> {
 
 #[cfg(unix)]
 pub fn safe_dir(dir: &Path) -> bool {
+    safe_dir_as(dir, rustix::process::geteuid().as_raw())
+}
+
+#[cfg(unix)]
+fn safe_dir_as(dir: &Path, me: u32) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let me = rustix::process::geteuid().as_raw();
     let trusted = |uid: u32| uid == 0 || uid == me;
     let Ok(link) = std::fs::symlink_metadata(dir) else {
         return true;
@@ -288,13 +295,7 @@ pub fn safe_dir(dir: &Path) -> bool {
     };
     let sticky = target.mode() & 0o1000 != 0;
     let open_to_all = target.mode() & 0o002 != 0;
-    let owned = trusted(target.uid());
-    target.is_dir()
-        && if sticky {
-            owned || me != 0
-        } else {
-            owned && !open_to_all
-        }
+    target.is_dir() && trusted(target.uid()) && (sticky || !open_to_all)
 }
 
 #[cfg(not(unix))]
@@ -303,6 +304,9 @@ pub fn safe_dir(_dir: &Path) -> bool {
 }
 
 fn prepare_dir(dir: &Path) -> std::io::Result<()> {
+    if dir == own_dir() {
+        return prepare_own(dir);
+    }
     if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
