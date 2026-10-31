@@ -4,12 +4,15 @@ use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::wire::noise::{MAX_PLAINTEXT, MAX_RECORD, Opener, Sealer, TAG_LEN};
+use pool::Big;
+
+mod pool;
 
 pub const SMALL: usize = 512;
 pub const CHUNK: usize = MAX_PLAINTEXT;
 const RAW_CHUNK: usize = 64 * 1024;
 const HEADER: usize = 2;
-const READ_BUF: usize = 2 * (MAX_RECORD + HEADER);
+const FIRST_READ: usize = SMALL + HEADER + TAG_LEN;
 
 async fn now<F: Future>(f: F) -> Option<F::Output> {
     tokio::select! {
@@ -70,13 +73,12 @@ impl RecordWriter {
 
 pub struct RecordReader {
     opener: Opener,
-    buf: Option<Box<[u8]>>,
-    out: Option<Box<[u8]>>,
+    buf: Option<Big>,
+    out: Option<Big>,
     start: usize,
     end: usize,
     small: [u8; SMALL],
-    head: [u8; HEADER],
-    head_len: usize,
+    head: [u8; FIRST_READ],
 }
 
 impl RecordReader {
@@ -88,8 +90,7 @@ impl RecordReader {
             start: 0,
             end: 0,
             small: [0; SMALL],
-            head: [0; HEADER],
-            head_len: 0,
+            head: [0; FIRST_READ],
         }
     }
 
@@ -143,8 +144,7 @@ impl RecordReader {
                 let out: &mut [u8] = if plain_len <= SMALL {
                     &mut self.small
                 } else {
-                    self.out
-                        .get_or_insert_with(|| vec![0u8; MAX_PLAINTEXT].into_boxed_slice())
+                    &mut self.out.get_or_insert_with(Big::take)[..]
                 };
                 let n = self
                     .opener
@@ -170,7 +170,7 @@ impl RecordReader {
             if let Some(buf) = self.buf.as_mut() {
                 self.start = 0;
                 self.end = 0;
-                match now(r.read(buf)).await {
+                match now(r.read(&mut buf[..])).await {
                     Some(n) => {
                         let n = n?;
                         if n == 0 {
@@ -183,25 +183,15 @@ impl RecordReader {
                     None => self.release(),
                 }
             }
-            while self.head_len < HEADER {
-                let n = r.read(&mut self.head[self.head_len..]).await?;
-                if n == 0 && self.head_len == 0 {
-                    return Ok(());
-                }
-                if n == 0 {
-                    return Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "connection closed in the middle of a record",
-                    ));
-                }
-                self.head_len += n;
+            let n = r.read(&mut self.head).await?;
+            if n == 0 {
+                return Ok(());
             }
-            self.head_len = 0;
-            let mut buf = vec![0u8; READ_BUF].into_boxed_slice();
-            buf[..HEADER].copy_from_slice(&self.head);
+            let mut buf = Big::take();
+            buf[..n].copy_from_slice(&self.head[..n]);
             self.buf = Some(buf);
             self.start = 0;
-            self.end = HEADER;
+            self.end = n;
             return Ok(());
         }
         let buf = self.buf.as_mut().expect("non-empty range implies buffer");
@@ -222,7 +212,7 @@ impl RecordReader {
     }
 }
 
-type SealBuffers = (Box<[u8]>, Box<[u8]>);
+type SealBuffers = (Big, Big);
 
 pub async fn seal_pump<R, W>(
     src: &mut R,
@@ -238,13 +228,13 @@ where
     let mut big: Option<SealBuffers> = None;
     loop {
         if let Some((plain, cipher)) = big.as_mut() {
-            match now(src.read(plain)).await {
+            match now(src.read(&mut plain[..chunk])).await {
                 Some(n) => {
                     let n = n?;
                     if n == 0 {
                         break;
                     }
-                    let m = writer.seal_into(&plain[..n], cipher);
+                    let m = writer.seal_into(&plain[..n], &mut cipher[..]);
                     dst.write_all(&cipher[..m]).await?;
                 }
                 None => {
@@ -259,17 +249,18 @@ where
         if n == 0 {
             break;
         }
+        if n == SMALL {
+            let (bufs, ended) = seal_first_big(src, dst, writer, &small, chunk).await?;
+            if ended {
+                break;
+            }
+            big = Some(bufs);
+            continue;
+        }
         let mut out = [0u8; SMALL + HEADER + TAG_LEN];
         let m = writer.seal_into(&small[..n], &mut out);
         dst.write_all(&out[..m]).await?;
-        if n == SMALL {
-            big = Some((
-                vec![0u8; chunk].into_boxed_slice(),
-                vec![0u8; chunk + HEADER + TAG_LEN].into_boxed_slice(),
-            ));
-        } else {
-            dst.flush().await?;
-        }
+        dst.flush().await?;
     }
     let mut out = [0u8; HEADER + TAG_LEN];
     let m = writer.seal_into(&[], &mut out);
@@ -277,15 +268,41 @@ where
     dst.flush().await
 }
 
+async fn seal_first_big<R, W>(
+    src: &mut R,
+    dst: &mut W,
+    writer: &mut RecordWriter,
+    first: &[u8],
+    chunk: usize,
+) -> io::Result<(SealBuffers, bool)>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let (mut plain, mut cipher) = (Big::take(), Big::take());
+    let n = first.len();
+    plain[..n].copy_from_slice(first);
+    let (more, ended) = match now(src.read(&mut plain[n..chunk])).await {
+        Some(r) => {
+            let more = r?;
+            (more, more == 0)
+        }
+        None => (0, false),
+    };
+    let m = writer.seal_into(&plain[..n + more], &mut cipher[..]);
+    dst.write_all(&cipher[..m]).await?;
+    Ok(((plain, cipher), ended))
+}
+
 pub async fn raw_pump<R, W>(src: &mut R, dst: &mut W) -> io::Result<()>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut big: Option<Box<[u8]>> = None;
+    let mut big: Option<Big> = None;
     loop {
         if let Some(buf) = big.as_mut() {
-            match now(src.read(buf)).await {
+            match now(src.read(&mut buf[..RAW_CHUNK])).await {
                 Some(n) => {
                     let n = n?;
                     if n == 0 {
@@ -307,7 +324,7 @@ where
         }
         dst.write_all(&small[..n]).await?;
         if n == SMALL {
-            big = Some(vec![0u8; RAW_CHUNK].into_boxed_slice());
+            big = Some(Big::take());
         } else {
             dst.flush().await?;
         }
@@ -353,7 +370,7 @@ where
     W: AsyncWrite + Unpin,
 {
     let mut small = [0u8; SMALL + HEADER + TAG_LEN];
-    let mut big: Option<Box<[u8]>> = None;
+    let mut big: Option<Big> = None;
     loop {
         let plain = match reader.recv(src).await? {
             Some(p) => p,
@@ -371,7 +388,7 @@ where
         let out: &mut [u8] = if plain.len() <= SMALL {
             &mut small
         } else {
-            big.get_or_insert_with(|| vec![0u8; MAX_RECORD + HEADER].into_boxed_slice())
+            &mut big.get_or_insert_with(Big::take)[..]
         };
         let n = writer.seal_into(plain, out);
         dst.write_all(&out[..n]).await?;
@@ -448,6 +465,79 @@ mod tests {
         writer.await.unwrap();
         assert!(r.recv(&mut b).await.unwrap().is_none());
         assert!(!r.holds_buffers());
+    }
+
+    #[tokio::test]
+    async fn a_one_record_buffer_reads_records_split_anywhere_across_reads() {
+        let ((mut w, _), (_, mut r)) = pair();
+        let sizes = [
+            600usize,
+            MAX_PLAINTEXT,
+            3,
+            MAX_PLAINTEXT,
+            40_000,
+            MAX_PLAINTEXT,
+            0,
+        ];
+        let mut wire = Vec::new();
+        for s in sizes {
+            let data: Vec<u8> = (0..s).map(|i| (i % 251) as u8).collect();
+            w.send(&mut wire, &data).await.unwrap();
+        }
+        let (mut a, mut b) = tokio::io::duplex(1 << 20);
+        let writer = tokio::spawn(async move {
+            for piece in wire.chunks(40_001) {
+                a.write_all(piece).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+        });
+        for s in sizes {
+            let got = r.recv(&mut b).await.unwrap().unwrap().to_vec();
+            assert_eq!(got.len(), s);
+            assert!(got.iter().enumerate().all(|(i, v)| *v == (i % 251) as u8));
+        }
+        writer.await.unwrap();
+    }
+
+    struct Reads<R>(R, usize);
+
+    impl<R: AsyncRead + Unpin> AsyncRead for Reads<R> {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<io::Result<()>> {
+            let r = std::pin::Pin::new(&mut self.0).poll_read(cx, buf);
+            if r.is_ready() {
+                self.1 += 1;
+            }
+            r
+        }
+    }
+
+    #[tokio::test]
+    async fn a_small_record_is_read_with_one_read_call() {
+        let ((mut w, _), (_, mut r)) = pair();
+        let (mut a, b) = tokio::io::duplex(1 << 16);
+        w.send(&mut a, &[7u8; SMALL]).await.unwrap();
+        let mut b = Reads(b, 0);
+        assert_eq!(r.recv(&mut b).await.unwrap(), Some(&[7u8; SMALL][..]));
+        assert_eq!(b.1, 1);
+    }
+
+    #[tokio::test]
+    async fn data_just_over_the_small_size_goes_as_one_record() {
+        let ((mut w, _), (_, mut r)) = pair();
+        let (mut plain_in, mut plain_src) = tokio::io::duplex(1 << 16);
+        let (mut wire_a, mut wire_b) = tokio::io::duplex(1 << 16);
+        let data: Vec<u8> = (0..600u32).map(|i| (i % 251) as u8).collect();
+        plain_in.write_all(&data).await.unwrap();
+        plain_in.shutdown().await.unwrap();
+        seal_pump(&mut plain_src, &mut wire_a, &mut w, CHUNK)
+            .await
+            .unwrap();
+        assert_eq!(r.recv(&mut wire_b).await.unwrap(), Some(&data[..]));
+        assert_eq!(r.recv(&mut wire_b).await.unwrap(), Some(&[][..]));
     }
 
     #[tokio::test]
