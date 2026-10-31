@@ -37,7 +37,7 @@ Then:
 
 1. Point `blog.example.com` at the server in your DNS (an `A` or `AAAA` record).
 2. Open ports 443 and 80 in the server's firewall.
-3. Start the server, or save the config if it runs already.
+3. Start the server with `burrow server -c server.yaml`, or install it as a service ([Running burrow as a service](service.md)), or save the config if it runs already. A `${VAR}` like `${HOME_SECRET}` is read from the environment of the running server: export it in the shell that starts it; `burrow service install` saves it for the service. A reload whose variable is missing is refused, and the log says which.
 
 burrow gets a certificate for `blog.example.com` from Let's Encrypt within a minute or so, and the site is up. Until then, a visitor on `http://` sees a short page saying the certificate is on its way. `burrow validate` shows what will happen:
 

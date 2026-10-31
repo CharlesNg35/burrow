@@ -161,3 +161,26 @@ fn a_plain_site_reads_unencrypted_in_the_websites_table() {
     let text = render(&s, Paint::PLAIN, None);
     assert!(text.contains("plain HTTP, unencrypted"), "{text}");
 }
+
+#[test]
+fn the_local_ca_shows_its_fingerprint_and_where_it_is_kept() {
+    let mut s = sample();
+    s.certificates = vec![cert(
+        "site.lan",
+        CertSourceStatus::LocalCa,
+        CertStateStatus::Ok,
+    )];
+    s.local_ca = Some(crate::metrics::LocalCaStatus {
+        subject: "burrow local CA abc".into(),
+        sha256: "AB:CD:EF".into(),
+        root_path: "/home/u/.local/state/burrow/servers/server-1/ca/root.pem".into(),
+        warning: Some("the local CA expires in 20 days".into()),
+        ..crate::metrics::LocalCaStatus::default()
+    });
+    let text = shown(&s);
+    assert!(
+        text.contains("Local CA burrow local CA abc, SHA-256 AB:CD:EF, kept in /home/u/.local/state/burrow/servers/server-1/ca/root.pem\n"),
+        "{text}"
+    );
+    assert!(text.contains("the local CA expires in 20 days\n"), "{text}");
+}

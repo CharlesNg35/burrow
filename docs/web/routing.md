@@ -33,7 +33,7 @@ services:
 
 - **`app_path`** is what the app sees in place of the matched path: `paths: [/api]` with `app_path: /v1` sends `/api/users` as `/v1/users`, and `app_path: /` removes the prefix. When the path changes, the app gets its public prefix in `X-Forwarded-Prefix: /api`. An app that builds absolute links must read it, or be told its public address, as behind any proxy that rewrites paths.
 - **Routing is not a redirect.** Routing forwards the request, and the address bar stays the same. A redirect sends the browser to another address. `paths` and `app_path` route; `redirect_from`, `redirects` and `web.redirect_names` redirect.
-- **Two services may share a name only by different paths**, and they must choose the same `tls`.
+- **Two services may share a name only by different paths**, and each writes the same `tls`: with `tls: internal` on `site`, write `tls: internal` on `api` too, since a service without `tls` takes `auto`. Validate names each service's value when they differ.
 
 ### How burrow reads a path
 
@@ -73,7 +73,7 @@ services:
         /feed: { to: "https://feeds.example.net/blog", permanent: true }
 ```
 
-- `redirect_from` sends other names to the site's first name, for good (308).
+- `redirect_from` sends other names to the site's first name, for good (308). The visitor's port stays when it is not the default one: `https://www.example.com:8443/a` goes to `https://example.com:8443/a`, as the `http://` to `https://` redirect names `web.https` when it is not 443.
 - `redirects` sends paths of the site elsewhere: temporary (307) unless `permanent: true` (308). They match the public path, before `app_path`, and keep the rest of the path and the query. Browsers remember a permanent redirect, so use it only when you are sure.
 - `web.redirect_names` is for names with no site of their own, or one path of a name another service serves (`example.com/shop` above): a longer path is a route of its own.
 - A target is a full address (`https://...`) or a path on the same name (`/new`).

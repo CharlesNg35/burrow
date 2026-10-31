@@ -98,7 +98,7 @@ name ──> the site's own cert/key? ──yes──> that file
 5. **Let's Encrypt**, a certificate for the name, or for the site's names together ([step 4](#4-lets-encrypt-checks-and-renewal)).
 6. Nothing of these: the name has no certificate. Validate refuses that config.
 
-The tunnel's own name follows the same order, with `websocket.cert` and `websocket.key` as its own file. Names in `redirect_from` and `web.redirect_names` get their certificate the same way. See [Certificates](certificates.md).
+The tunnel's own name follows the same order, with `websocket.tls` (`{cert, key}`) as its own file. Names in `redirect_from` and `web.redirect_names` get their certificate the same way. See [Certificates](certificates.md).
 
 ## 4. Let's Encrypt: checks and renewal
 

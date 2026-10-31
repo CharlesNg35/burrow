@@ -116,4 +116,14 @@ pub(super) fn render_certs(out: &mut String, s: &Status, paint: Paint, now: u64)
         }
         let _ = writeln!(out, "{}", paint.dim(&paint.clip(&line)));
     }
+    if let Some(ca) = &s.local_ca {
+        let line = format!(
+            "Local CA {}, SHA-256 {}, kept in {}",
+            ca.subject, ca.sha256, ca.root_path
+        );
+        let _ = writeln!(out, "{}", paint.dim(&line));
+        if let Some(w) = &ca.warning {
+            let _ = writeln!(out, "{}", paint.tone(&paint.clip(w), Tone::Warn));
+        }
+    }
 }
