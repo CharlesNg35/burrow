@@ -23,9 +23,11 @@ fn portal() -> String {
 }
 
 fn notes(o: &crate::config::Outcome) -> Vec<String> {
-    warnings(o)
-        .into_iter()
-        .filter(|w| !w.contains("CAP_NET_BIND_SERVICE"))
+    o.report
+        .diagnostics
+        .iter()
+        .filter(|d| !d.is_error() && d.code != "low-port")
+        .map(|d| d.message.clone())
         .collect()
 }
 
