@@ -109,10 +109,12 @@ If the home machine has no copy of the server's files, run `./burrow init client
 ./burrow client-config office --server myserver.example.com -o office.yaml  # the config for client "office" of server.yaml
 ./burrow visitor-config laptop --server myserver.example.com -o laptop.yaml # the config for visitor "laptop" of server.yaml
 ./burrow gensecret                            # print a new random secret
+./burrow passwd alice                         # print alice's password hash for a website's basic_auth, see docs/web/access.md
 ./burrow edit                                 # open a config in your editor; it is checked, saved and applied
 ./burrow status                               # clients, services and traffic of the servers running here (-f to follow)
 ./burrow admin -c ops.yaml                    # the web admin, see docs/admin.md
 ./burrow mcp -c ops.yaml --print-config claude # let an AI app read the server over MCP, see docs/mcp.md
+./burrow ca export --out burrow-local-ca.crt  # the local CA's certificate (tls: internal), to trust on your devices
 ./burrow service install                      # run as a system service, see docs/service.md
 ./burrow update                               # install the latest release
 ./burrow schema server > server.schema.json   # JSON Schema, for completion in your editor
