@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::accessibility::GetFullAxTreeParams;
 use chromiumoxide::cdp::browser_protocol::emulation::{
-    ClearDeviceMetricsOverrideParams, MediaFeature, SetDeviceMetricsOverrideParams,
+    MediaFeature, SetDeviceMetricsOverrideParams,
 };
 use chromiumoxide::cdp::browser_protocol::log::EventEntryAdded;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
@@ -460,7 +460,6 @@ impl Ui {
     }
 
     pub async fn png(&self) -> Vec<u8> {
-        let toast = self.count("[data-testid=toast]").await > 0;
         let size = self
             .page
             .layout_metrics()
@@ -476,9 +475,7 @@ impl Ui {
             ))
             .await
             .expect("the full page viewport");
-        if toast {
-            self.settle().await;
-        }
+        self.settle().await;
         let png = self
             .page
             .screenshot(
@@ -495,10 +492,6 @@ impl Ui {
             )
             .await
             .expect("screenshot");
-        self.page
-            .execute(ClearDeviceMetricsOverrideParams::default())
-            .await
-            .expect("clear the full page viewport");
         let (w, h) = *self.size.lock().expect("lock");
         self.page
             .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
