@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+#[cfg(feature = "web")]
 use super::checks::misfits_of;
 use super::systemd::Systemd;
 use super::*;
@@ -24,6 +25,7 @@ fn manifest(web_state: Option<&str>) -> Manifest {
     }
 }
 
+#[cfg(feature = "web")]
 fn load(rest: &str) -> crate::config::Loaded {
     let secret = crate::wire::secret::Secret::generate().encode();
     let text = format!(
@@ -59,6 +61,7 @@ fn a_service_with_lets_encrypt_gets_a_private_state_folder_from_systemd() {
     );
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn lets_encrypt_without_the_folder_and_the_plain_web_port_are_named_for_a_reinstall() {
     let le = load("listen: 7835\nweb: { https: 8443, letsencrypt: { email: ops@example.com } }\n");
@@ -87,6 +90,7 @@ fn lets_encrypt_without_the_folder_and_the_plain_web_port_are_named_for_a_reinst
     );
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn the_tunnel_sharing_the_web_port_counts_as_one_low_port() {
     let shared = load(
@@ -252,6 +256,7 @@ fn every_server_with_web_gets_the_state_folder_so_the_admin_can_add_uploads_late
     assert!(!super::web_files::needs_state(&cfg(serde_json::json!({}))));
 }
 
+#[cfg(feature = "web")]
 #[cfg(unix)]
 #[test]
 fn purge_finds_the_access_log_in_the_services_own_log_folder_only() {
@@ -301,6 +306,7 @@ fn purge_finds_the_access_log_in_the_services_own_log_folder_only() {
     );
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn purge_spares_every_file_another_installed_service_owns() {
     let dir = tempfile::tempdir().unwrap();

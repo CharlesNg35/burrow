@@ -128,6 +128,7 @@ fn a_target_ca_set_with_the_whole_target_tls_is_refused() {
     }
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn a_dns_entrys_domains_wildcards_and_wait_stay_editable() {
     let d = dns_world();

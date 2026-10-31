@@ -1,4 +1,8 @@
-use burrow_admin_proto::msg::{AdminLevel, ErrorCode, Upload, Uploaded, req};
+#![cfg(test)]
+
+#[cfg(feature = "web")]
+use burrow_admin_proto::msg::Uploaded;
+use burrow_admin_proto::msg::{AdminLevel, ErrorCode, Upload, req};
 use burrow_syntax::upload::Kind;
 use serde_json::json;
 
@@ -25,6 +29,7 @@ fn body(kind: &str, pem: &str, hosts: &[&str]) -> serde_json::Value {
     .unwrap()
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn a_write_admin_uploads_a_pair_and_gets_its_id_and_facts_never_the_key() {
     let w = world();
@@ -124,6 +129,7 @@ fn ids(from: usize) -> Vec<String> {
         .collect()
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn uploads_the_config_or_a_kept_version_names_do_not_count_against_the_cap() {
     let w = world();

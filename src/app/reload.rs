@@ -562,6 +562,7 @@ fn watch_files(
 mod tests {
     use super::*;
 
+    #[cfg(feature = "web")]
     #[test]
     fn a_server_watches_its_web_certificate_files() {
         let dir = tempfile::tempdir().unwrap();

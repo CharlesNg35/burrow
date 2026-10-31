@@ -1,6 +1,8 @@
 #![cfg(test)]
 
-use burrow_admin_proto::codes::{PORT_IN_USE, WEBSOCKET_HOST, WEBSOCKET_MOVED, WEBSOCKET_OFF};
+#[cfg(feature = "web")]
+use burrow_admin_proto::codes::WEBSOCKET_HOST;
+use burrow_admin_proto::codes::{PORT_IN_USE, WEBSOCKET_MOVED, WEBSOCKET_OFF};
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::Plan;
@@ -150,6 +152,7 @@ fn turning_websocket_on_tests_its_port_first() {
     assert!(plan.valid, "{:?}", plan.diags);
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn a_new_tunnel_name_names_the_clients_that_use_it() {
     let w = with_ws("");
@@ -174,6 +177,7 @@ fn a_new_tunnel_name_names_the_clients_that_use_it() {
     );
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn an_admin_over_a_shared_tunnel_cannot_change_the_name_it_comes_in_by() {
     let w = with_ws("");

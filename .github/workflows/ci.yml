@@ -49,8 +49,8 @@ jobs:
       - run: cargo test --locked
       - name: Test the web proxy crate
         run: cargo test --locked -p burrow-web
-      - name: Test validate in the build without the web proxy
-        run: cargo test --locked -p burrow --no-default-features --lib config::check::web
+      - name: Test the library in the build without the web proxy
+        run: cargo test --locked -p burrow --no-default-features --lib
       - name: Integration tests over WebSocket
         env:
           BURROW_TEST_TRANSPORT: ws

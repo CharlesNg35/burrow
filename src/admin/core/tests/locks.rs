@@ -1,13 +1,17 @@
 #![cfg(test)]
 
-use burrow_admin_proto::msg::{AdminLevel, ErrorCode, HistoryRequest};
+#[cfg(feature = "web")]
+use burrow_admin_proto::msg::HistoryRequest;
+use burrow_admin_proto::msg::{AdminLevel, ErrorCode};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
 
 use crate::admin::core::plan;
 use crate::admin::core::*;
 
-use super::{World, apply_now, core_for, p, session, world};
+#[cfg(feature = "web")]
+use super::apply_now;
+use super::{World, core_for, p, session, world};
 
 const BEFORE_P2: [&[&str]; 7] = [
     &["listen"],
@@ -151,6 +155,7 @@ fn a_sites_own_certificate_files_are_refused_on_every_admin_path() {
     }
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn edits_that_keep_the_files_are_allowed() {
     let site = site();
@@ -181,6 +186,7 @@ fn edits_that_keep_the_files_are_allowed() {
     }
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
     let site = site();
@@ -255,6 +261,7 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
     );
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn the_web_proxy_and_its_ports_are_open_to_edits_except_its_files() {
     let site = site();
@@ -304,6 +311,7 @@ fn the_web_proxy_and_its_ports_are_open_to_edits_except_its_files() {
     }
 }
 
+#[cfg(feature = "web")]
 fn two_entries() -> (Site, String, serde_json::Value) {
     let site = site();
     let key = rcgen::KeyPair::generate().unwrap();
@@ -328,6 +336,7 @@ fn two_entries() -> (Site, String, serde_json::Value) {
     (site, text, list)
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn certificate_entries_are_compared_by_their_own_files_not_by_place() {
     let (site, text, list) = two_entries();
@@ -379,6 +388,7 @@ fn certificate_entries_are_compared_by_their_own_files_not_by_place() {
     );
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
     let (site, text, list) = two_entries();
@@ -418,6 +428,7 @@ fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
     assert_eq!(doc["web"]["certificates"], list, "{}", reverted.new_text);
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn a_short_web_form_cannot_be_turned_into_one_with_files() {
     let site = site();
@@ -449,6 +460,7 @@ fn a_short_web_form_cannot_be_turned_into_one_with_files() {
     assert!(c.is_ok(), "{:?}", c.err().map(|e| e.message));
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn a_certificate_list_added_from_nothing_is_refused_and_removing_it_passes() {
     let (site, text, list) = two_entries();

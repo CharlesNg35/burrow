@@ -1,13 +1,17 @@
 #![cfg(test)]
 
-use burrow_admin_proto::msg::{AdminLevel, ErrorCode, HistoryRequest};
+#[cfg(feature = "web")]
+use burrow_admin_proto::msg::HistoryRequest;
+use burrow_admin_proto::msg::{AdminLevel, ErrorCode};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
 
 use crate::admin::core::plan;
 use crate::admin::core::*;
 
-use super::{World, apply_now, core_with_env, p, session, world};
+#[cfg(feature = "web")]
+use super::apply_now;
+use super::{World, core_with_env, p, session, world};
 
 const VARS: &[(&str, &str)] = &[("OLD", "old-value"), ("HOME", "home-secret")];
 
@@ -91,6 +95,7 @@ fn an_admin_plan_never_adds_an_environment_or_file_reference() {
     }
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn an_admin_plan_keeps_or_removes_the_references_already_written() {
     let (w, running) = refs_world();
@@ -120,6 +125,7 @@ fn an_admin_plan_keeps_or_removes_the_references_already_written() {
     }
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn a_revert_brings_a_reference_back_only_where_the_file_still_has_it() {
     let (w, running) = refs_world();

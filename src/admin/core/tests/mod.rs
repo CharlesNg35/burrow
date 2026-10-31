@@ -1,10 +1,15 @@
+#![cfg(test)]
+
 mod files;
+#[cfg(feature = "web")]
 mod headers;
 mod locks;
 mod locks_web;
 mod older;
+#[cfg(feature = "web")]
 mod passwords;
 mod plans;
+#[cfg(feature = "web")]
 mod reach;
 mod refs;
 mod requests;
@@ -12,8 +17,10 @@ mod reverts;
 mod snippets;
 mod status;
 mod uploads;
+#[cfg(feature = "web")]
 mod web_ports;
 mod websocket;
+#[cfg(feature = "web")]
 mod wording;
 
 use std::collections::BTreeMap;

@@ -581,6 +581,7 @@ fn addresses(s: &crate::config::settings::ServerSettings) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "web")]
 mod agree;
 #[cfg(test)]
 pub(crate) mod tests;
