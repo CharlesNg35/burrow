@@ -56,11 +56,18 @@ async fn many_sites_keep_answering_while_the_config_reloads() {
             }
         }));
     }
-    for round in 1..=30 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let mut round = 0;
+    loop {
+        round += 1;
         let mut next = ProxySettings::new(addr);
         next.sites = sites(round);
         proxy.apply(&next).await;
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let enough = round >= 30 && ok.load(Ordering::Relaxed) > 40;
+        if round % 3 == 0 && (enough || std::time::Instant::now() > deadline) {
+            break;
+        }
     }
     stop.store(true, Ordering::Relaxed);
     for a in askers {
