@@ -141,7 +141,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
     }
 }
 
-pub const PIPE_BUFFER: usize = 64 * 1024;
+pub const PIPE_BUFFER: usize = 32 * 1024;
 
 const RESET: u8 = 1;
 const DROPPED: u8 = 2;
