@@ -378,3 +378,40 @@ fn a_site_with_its_own_port_says_where_else_it_is_reached() {
         "{lines:#?}"
     );
 }
+
+#[test]
+fn a_redirect_name_shows_the_certificate_its_site_serves_it_with() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(
+        dir.path(),
+        "listen: 7835\nweb: { https: 443, http: 80 }\nservices:\n  site:\n    client: self\n    target: 8080\n    web: { hosts: [site.lan], redirect_from: [www.site.lan], tls: internal }\n  wiki:\n    client: self\n    target: 8081\n    web: { hosts: [wiki.lan], redirect_from: [old-wiki.lan], tls: off }\n",
+    );
+    let lines = summary(&s).unwrap().lines();
+    let want = [
+        "www.site.lan: local CA, 12-hour certificates (tls: internal)",
+        "  /           -> redirect https://site.lan (permanent)",
+        "old-wiki.lan: plain HTTP on [::]:80 only, unencrypted (tls: off)",
+        "  /           -> redirect http://wiki.lan (permanent)",
+    ];
+    for w in want {
+        assert!(lines.iter().any(|l| l == w), "{w}: {lines:#?}");
+    }
+}
+
+#[test]
+fn each_site_line_shows_its_password_login_device_certificates_and_allow_from() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(
+        dir.path(),
+        "listen: 7835\nweb:\n  https: 443\n  http: 80\n  forward_auth:\n    sso: { service: auth, path: /api/verify }\nservices:\n  auth:\n    client: self\n    target: 9091\n    web: { hosts: [auth.lan], tls: internal }\n  private:\n    client: self\n    target: 8080\n    web:\n      hosts: [private.lan]\n      tls: internal\n      basic_auth: { alice: \"$argon2id$v=19$m=19456,t=2,p=1$qC3JBfs9oZKV5+jYiBSTCg$O3iCGhC3wME3EgEvcVa+rpSbUHDLUJySkmj8/Zt/ePs\" }\n  wiki:\n    client: self\n    target: 8081\n    web: { hosts: [wiki.lan], paths: [/w], tls: internal, forward_auth: sso }\n  dashboard:\n    client: self\n    target: 8082\n    allow_from: [192.168.1.0/24, 127.0.0.0/8]\n    deny_from: [192.168.1.9/32]\n    web: { hosts: [dash.lan], tls: off }\n",
+    );
+    let lines = summary(&s).unwrap().lines();
+    let want = [
+        "private.lan: local CA, 12-hour certificates (tls: internal) -> service private (password for alice)",
+        "  /w          -> service wiki (login through service auth)",
+        "dash.lan: plain HTTP on [::]:80 only, unencrypted (tls: off) -> service dashboard (allow_from 192.168.1.0/24, 127.0.0.0/8; deny_from 192.168.1.9/32)",
+    ];
+    for w in want {
+        assert!(lines.iter().any(|l| l == w), "{w}: {lines:#?}");
+    }
+}

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use super::{HostLine, automatic, host};
 use crate::config::settings::{TargetTls, WebSettings, WebSite, WebTls};
 use burrow_admin_proto::web::{NOT_FOUND, RouteLine};
+use burrow_syntax::address::url_host;
 
 fn kind(permanent: bool) -> &'static str {
     if permanent { "permanent" } else { "temporary" }
@@ -98,14 +99,15 @@ pub(super) fn hosts(web: &WebSettings) -> Vec<HostLine> {
             continue;
         };
         for name in &site.options.redirect_from {
-            let mut line = host(web, service, site, name);
-            if !matches!(site.tls, WebTls::Off) {
-                line.certificate = automatic(web, name, site.challenge).0;
-                line.check = automatic(web, name, site.challenge).1;
-            }
+            let line = host(web, service, site, name);
+            let scheme = if site.tls == WebTls::Off {
+                "http"
+            } else {
+                "https"
+            };
             let route = RouteLine {
                 path: "/".into(),
-                to: format!("redirect https://{first} (permanent)"),
+                to: format!("redirect {scheme}://{} (permanent)", url_host(first)),
                 service: String::new(),
             };
             lines.insert(name.clone(), (line, vec![route], 2));

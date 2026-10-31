@@ -16,6 +16,8 @@ Each key below lets in a kind of visitor, and says what the others get:
 
 A site takes one kind of login: `basic_auth` or `forward_auth`, never both. Every check needs burrow to do the HTTPS (not `tls: passthrough`), and `client_auth` also needs HTTPS (not `tls: off`).
 
+`burrow validate` shows each site's checks after its service, like `-> service private (password for alice)`, `(login through service authelia)`, `(device certificate)` or `(allow_from 192.168.1.0/24)`.
+
 The logins guard the website only. A service that also has its own `bind` port is reached there without them. So `burrow validate` warns when a site with a login has a public `bind` and no `allow_from`, and its summary line names that port. Remove `bind`, or limit it with `allow_from`, which applies to both. Visitors with `burrow visit` still need their own burrow login.
 
 ## Addresses

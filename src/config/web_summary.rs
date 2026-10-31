@@ -308,13 +308,45 @@ fn also(s: &ServerSettings, service: &str) -> String {
     }
 }
 
-fn with_ports(s: &ServerSettings, mut hosts: Vec<HostLine>) -> Vec<HostLine> {
+fn access(s: &ServerSettings, web: &WebSettings, service: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    if let Some(o) = web.sites.get(service).map(|site| &site.options) {
+        if !o.basic_auth.is_empty() {
+            let users: Vec<&str> = o.basic_auth.iter().map(|(u, _)| u.as_str()).collect();
+            parts.push(format!("password for {}", users.join(", ")));
+        }
+        if let Some(f) = &o.forward_auth {
+            parts.push(format!("login through service {}", f.service));
+        }
+        if o.client_auth.is_some() {
+            parts.push("device certificate".into());
+        }
+    }
+    if let Some(sources) = s.services.get(service).map(|svc| &svc.sources) {
+        for (key, list) in [("allow_from", &sources.allow), ("deny_from", &sources.deny)] {
+            if !list.is_empty() {
+                let list: Vec<String> = list.iter().map(ToString::to_string).collect();
+                parts.push(format!("{key} {}", list.join(", ")));
+            }
+        }
+    }
+    parts
+}
+
+fn after_service(s: &ServerSettings, web: &WebSettings, service: &str) -> String {
+    let mut parts = access(s, web, service);
+    parts.push(also(s, service));
+    parts.retain(|p| !p.is_empty());
+    parts.join("; ")
+}
+
+fn with_ports(s: &ServerSettings, web: &WebSettings, mut hosts: Vec<HostLine>) -> Vec<HostLine> {
     for h in &mut hosts {
         if !h.service.is_empty() {
-            h.also = also(s, &h.service);
+            h.also = after_service(s, web, &h.service);
         }
         for r in &mut h.routes {
-            let a = also(s, &r.service);
+            let a = after_service(s, web, &r.service);
             if !r.service.is_empty() && !a.is_empty() {
                 r.to.push_str(&format!(" ({a})"));
             }
@@ -327,7 +359,7 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
     let web = s.web.as_ref().filter(|_| cfg!(feature = "web"))?;
     let tunnel = tunnel_line(s, web);
     let shares = s.websocket.as_ref().map_or(Shares::Nothing, |w| w.shares);
-    let hosts = with_ports(s, routes::hosts(web));
+    let hosts = with_ports(s, web, routes::hosts(web));
     let (https, addresses) = shown(web.https);
     let (http, http_addresses) = shown(web.http);
     Some(WebSummary {
