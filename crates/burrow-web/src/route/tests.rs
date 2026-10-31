@@ -254,7 +254,10 @@ fn redirects_redirect_from_and_redirect_names_become_routes() {
     );
     assert_eq!(
         served(&t, "www.example.com", "/any/path"),
-        redirect("https://example.com", true)
+        Some(Action::ToName {
+            name: "example.com".into(),
+            https: true
+        })
     );
     assert!(matches!(
         t.kind("www.example.com"),

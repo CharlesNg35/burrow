@@ -7,7 +7,7 @@ use http_body_util::BodyExt;
 use hyper::body::Incoming;
 
 use super::forwarded;
-use super::host::request_host;
+use super::host::{host_port, request_host};
 use super::pages::Page;
 use super::redirect;
 use super::stages::{Asked, to_service};
@@ -64,6 +64,14 @@ pub(crate) async fn handle<U: Upstream>(
         Action::Redirect { to, permanent } => {
             let l = redirect::location(&route.prefix, to, req.uri().path(), req.uri().query());
             redirect::response(&l, *permanent)
+        }
+        Action::ToName { name, https } => {
+            let port = (conn.name.is_some() == *https)
+                .then(|| host_port(req.headers()))
+                .flatten();
+            let to = redirect::address(*https, name, port);
+            let l = redirect::location(&route.prefix, &to, req.uri().path(), req.uri().query());
+            redirect::response(&l, true)
         }
         Action::Service(service) => {
             let asked = Asked {
@@ -138,11 +146,7 @@ fn on_plain<U: Upstream>(
 }
 
 pub fn https_location(host: &str, port: Option<u16>, path_and_query: &str) -> String {
-    let host = burrow_syntax::address::url_host(host);
-    match port {
-        Some(p) if p != 443 => format!("https://{host}:{p}{path_and_query}"),
-        _ => format!("https://{host}{path_and_query}"),
-    }
+    format!("{}{path_and_query}", redirect::address(true, host, port))
 }
 
 fn to_https(host: &str, port: Option<u16>, req: &Request<Incoming>) -> Response<Body> {

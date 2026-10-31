@@ -140,6 +140,19 @@ async fn redirects_keep_the_rest_and_are_matched_before_app_path() {
     .await;
     assert!(r.starts_with("HTTP/1.1 308"), "{r}");
     assert!(r.contains("location: https://example.com/a?b\r\n"), "{r}");
+    for (port, want) in [(":65443", ":65443"), (":443", ""), (":8443", ":8443")] {
+        let r = over_tls(
+            t.proxy.https_addr().unwrap(),
+            "www.example.com",
+            &format!(
+                "GET /a?b=1 HTTP/1.1\r\nHost: www.example.com{port}\r\nConnection: close\r\n\r\n"
+            ),
+        )
+        .await;
+        assert!(r.starts_with("HTTP/1.1 308"), "{r}");
+        let want = format!("location: https://example.com{want}/a?b=1\r\n");
+        assert!(r.contains(&want), "{r}");
+    }
     let r = get(&t.proxy, "/caf\u{e9}-x", "").await;
     assert!(r.starts_with("HTTP/1.1 404"), "{r}");
 }

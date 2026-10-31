@@ -3,7 +3,6 @@ use std::collections::hash_map::Entry;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use burrow_syntax::address::url_host;
 pub use burrow_syntax::url_path::{on_prefix, path_matches};
 use burrow_syntax::web::wildcard_of;
 
@@ -38,6 +37,7 @@ pub enum Action {
     Tunnel,
     Service(String),
     Redirect { to: String, permanent: bool },
+    ToName { name: String, https: bool },
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -117,14 +117,12 @@ fn merge(hosts: &mut HashMap<String, Kind>, host: &str, kind: &Kind, routes: &[R
     }
 }
 
-fn origin(site: &Site) -> Option<String> {
+fn to_first_name(site: &Site) -> Option<Action> {
     let first = site.hosts.first()?;
-    let scheme = if matches!(site.tls, SiteTls::Plain) {
-        "http"
-    } else {
-        "https"
-    };
-    Some(format!("{scheme}://{}", url_host(first)))
+    Some(Action::ToName {
+        name: first.clone(),
+        https: !matches!(site.tls, SiteTls::Plain),
+    })
 }
 
 fn add_site(hosts: &mut HashMap<String, Kind>, site: &Site) {
@@ -133,15 +131,8 @@ fn add_site(hosts: &mut HashMap<String, Kind>, site: &Site) {
     for host in &site.hosts {
         merge(hosts, host, &kind, &routes);
     }
-    if let Some(to) = origin(site).filter(|_| !site.options.redirect_from.is_empty()) {
-        let away = [route(
-            "/",
-            Action::Redirect {
-                to,
-                permanent: true,
-            },
-            None,
-        )];
+    if let Some(to) = to_first_name(site).filter(|_| !site.options.redirect_from.is_empty()) {
+        let away = [route("/", to, None)];
         for name in &site.options.redirect_from {
             merge(hosts, name, &kind, &away);
         }

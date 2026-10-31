@@ -21,9 +21,13 @@ async fn setup() -> Setup {
     let proxy = start_with(
         |s| {
             s.sites = vec![
-                plain_site("wiki", &["wiki.lan.example.com", "nas"]),
+                burrow_web::Site {
+                    options: moved_from("old-wiki"),
+                    ..plain_site("wiki", &["wiki.lan.example.com", "nas"])
+                },
                 burrow_web::Site {
                     https_redirect: false,
+                    options: moved_from("www.blog.example.com"),
                     ..https_site("blog", &["blog.example.com"])
                 },
                 https_site("shop", &["shop.example.com", "*.shop.example.com"]),
@@ -42,6 +46,13 @@ async fn setup() -> Setup {
     )
     .await;
     Setup { proxy, certs, app }
+}
+
+fn moved_from(name: &str) -> burrow_web::SiteOptions {
+    burrow_web::SiteOptions {
+        redirect_from: vec![name.into()],
+        ..burrow_web::SiteOptions::default()
+    }
 }
 
 fn get(host: &str, target: &str) -> String {
@@ -80,6 +91,26 @@ async fn other_https_names_are_sent_to_https_with_a_308() {
         s.app.connections.load(std::sync::atomic::Ordering::SeqCst),
         0
     );
+}
+
+#[tokio::test]
+async fn redirect_from_keeps_the_port_the_visitor_used_only_on_the_same_scheme() {
+    let s = setup().await;
+    let http = s.proxy.http_addr().unwrap();
+    for (host, want) in [
+        ("old-wiki:8080", "http://wiki.lan.example.com:8080/a?b=1"),
+        ("old-wiki:80", "http://wiki.lan.example.com/a?b=1"),
+        ("old-wiki", "http://wiki.lan.example.com/a?b=1"),
+        (
+            "www.blog.example.com:8080",
+            "https://blog.example.com/a?b=1",
+        ),
+    ] {
+        let r = over_plain(http, &get(host, "/a?b=1")).await;
+        assert!(r.starts_with("HTTP/1.1 308"), "{host}: {r}");
+        let want = format!("location: {want}\r\n");
+        assert!(r.to_ascii_lowercase().contains(&want), "{host}: {r}");
+    }
 }
 
 #[tokio::test]

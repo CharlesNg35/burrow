@@ -29,6 +29,11 @@ pub fn host_header(value: &str) -> Option<String> {
     (labels_ok && !name.contains(['[', ']'])).then(|| name.to_ascii_lowercase())
 }
 
+pub fn host_port(headers: &HeaderMap) -> Option<u16> {
+    let value = headers.get(header::HOST)?.to_str().ok()?;
+    value.parse::<Authority>().ok()?.port_u16()
+}
+
 pub fn request_host(uri: &Uri, headers: &HeaderMap, version: Version) -> Option<String> {
     let mut given = headers.get_all(header::HOST).iter();
     let first = given.next();

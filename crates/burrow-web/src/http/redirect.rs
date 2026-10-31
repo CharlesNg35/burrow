@@ -57,6 +57,15 @@ pub fn location(prefix: &str, to: &str, path: &str, query: Option<&str>) -> Stri
     l
 }
 
+pub fn address(https: bool, host: &str, port: Option<u16>) -> String {
+    let (scheme, default) = if https { ("https", 443) } else { ("http", 80) };
+    let host = burrow_syntax::address::url_host(host);
+    match port {
+        Some(p) if p != default => format!("{scheme}://{host}:{p}"),
+        _ => format!("{scheme}://{host}"),
+    }
+}
+
 pub fn response(location: &str, permanent: bool) -> Response<Body> {
     let mut r = Response::new(full(Bytes::new()));
     *r.status_mut() = if permanent {
@@ -114,6 +123,30 @@ mod tests {
             "https://example.com/new/x"
         );
         assert_eq!(location("/old", "/", "/old", None), "/");
+    }
+
+    #[test]
+    fn an_address_names_the_port_only_when_it_is_not_the_schemes_own() {
+        assert_eq!(address(true, "site.lan", Some(443)), "https://site.lan");
+        assert_eq!(address(true, "site.lan", None), "https://site.lan");
+        assert_eq!(
+            address(true, "site.lan", Some(65443)),
+            "https://site.lan:65443"
+        );
+        assert_eq!(address(true, "site.lan", Some(80)), "https://site.lan:80");
+        assert_eq!(address(false, "site.lan", Some(80)), "http://site.lan");
+        assert_eq!(
+            address(false, "site.lan", Some(8080)),
+            "http://site.lan:8080"
+        );
+        assert_eq!(
+            address(true, "2001:db8::1", Some(8443)),
+            "https://[2001:db8::1]:8443"
+        );
+        assert_eq!(
+            address(true, "2001:db8::1", Some(443)),
+            "https://[2001:db8::1]"
+        );
     }
 
     #[test]
