@@ -16,6 +16,7 @@ pub const HEADER_TABLE: u32 = 4096;
 pub const PING_EVERY: Duration = Duration::from_secs(30);
 pub const PING_ANSWER: Duration = Duration::from_secs(20);
 pub const APP_READ_BUF: usize = 32 * 1024;
+pub const VISITOR_BUF: usize = 64 * 1024;
 
 pub(crate) fn server() -> hyper::server::conn::http2::Builder<TokioExecutor> {
     let mut b = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
@@ -52,6 +53,17 @@ pub(crate) fn client() -> hyper::client::conn::http2::Builder<TokioExecutor> {
         .max_send_buf_size(SEND_BUF)
         .keep_alive_interval(None)
         .keep_alive_while_idle(false);
+    b
+}
+
+pub(crate) fn visitor_http1() -> hyper::server::conn::http1::Builder {
+    let mut b = hyper::server::conn::http1::Builder::new();
+    b.timer(TokioTimer::new())
+        .max_buf_size(VISITOR_BUF)
+        .max_header_size(MAX_HEAD)
+        .max_headers(MAX_HEADERS)
+        .keep_alive(true)
+        .half_close(false);
     b
 }
 

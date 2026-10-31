@@ -7,15 +7,14 @@ use std::time::Duration;
 use http::{Request, Response};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
-use hyper::server::conn::http1;
-use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::rt::TokioIo;
 use tracing::debug;
 
 use super::idle::{Activity, Busy, Held, Watched};
 use super::stall::Stalls;
 use super::upstream::Upstreams;
 use super::upstream::to_h2::StreamReset;
-use super::{Body, MAX_HEAD, MAX_HEADERS, pipeline};
+use super::{Body, pipeline};
 use crate::Upstream;
 use crate::io::BoxIo;
 use crate::listen::Shared;
@@ -103,13 +102,8 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
     let io = TokioIo::new(Box::new(Watched::new(io, activity, proto == Proto::H1)) as BoxIo);
     match proto {
         Proto::H1 => {
-            let served = http1::Builder::new()
-                .timer(TokioTimer::new())
+            let served = super::h2::visitor_http1()
                 .header_read_timeout(shared.timeouts().request_header.max(LEAST))
-                .max_header_size(MAX_HEAD)
-                .max_headers(MAX_HEADERS)
-                .keep_alive(true)
-                .half_close(false)
                 .serve_connection(io, service(&shared, &conn, held))
                 .with_upgrades();
             let served = std::pin::pin!(served);

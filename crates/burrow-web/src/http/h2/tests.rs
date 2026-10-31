@@ -23,6 +23,7 @@ fn the_decided_limits_keep_their_values() {
     assert_eq!(PING_EVERY, Duration::from_secs(30));
     assert_eq!(PING_ANSWER, Duration::from_secs(20));
     assert_eq!(APP_READ_BUF, 32_768);
+    assert_eq!(VISITOR_BUF, 65_536);
     assert_eq!(MAX_HEAD, 32_768);
     assert_eq!(MAX_HEADERS, 100);
 }
@@ -45,6 +46,20 @@ fn the_visitor_server_builder_carries_every_limit() {
             "keep_alive_interval: Some(30s)",
             "keep_alive_timeout: 20s",
             "enable_connect_protocol: false",
+        ],
+    );
+}
+
+#[test]
+fn the_visitor_http1_builder_bounds_its_buffers() {
+    carries(
+        &format!("{:?}", visitor_http1()),
+        &[
+            "h1_max_headers: Some(100)",
+            "h1_max_header_size: Some(32768)",
+            "max_buf_size: Some(65536)",
+            "h1_keep_alive: true",
+            "h1_half_close: false",
         ],
     );
 }

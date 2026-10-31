@@ -120,6 +120,18 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
         Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
     }
 
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_flush(cx)
     }
@@ -224,6 +236,22 @@ impl AsyncWrite for Pipe {
         Pin::new(&mut me.inner).poll_write(cx, buf)
     }
 
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let me = self.get_mut();
+        if me.peer_reset() {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionReset.into()));
+        }
+        Pin::new(&mut me.inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_flush(cx)
     }
@@ -250,6 +278,31 @@ mod tests {
             got.push(one[0]);
         }
         assert_eq!(got, b"hello world");
+    }
+
+    #[tokio::test]
+    async fn vectored_writes_pass_through_a_prefixed_pipe_so_hyper_queues_instead_of_copying() {
+        let (a, mut b) = pipe();
+        assert!(a.is_write_vectored());
+        let mut p = Prefixed::new(Vec::new(), a);
+        assert!(p.is_write_vectored());
+        let bufs = [io::IoSlice::new(b"head "), io::IoSlice::new(b"body")];
+        let n = p.write_vectored(&bufs).await.unwrap();
+        assert_eq!(n, 9);
+        let mut got = [0u8; 9];
+        b.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"head body");
+    }
+
+    #[tokio::test]
+    async fn a_vectored_write_to_a_reset_peer_fails_like_a_plain_one() {
+        let (a, b) = pipe();
+        b.set_reset(true);
+        drop(b);
+        let mut a = a;
+        let bufs = [io::IoSlice::new(b"x")];
+        let e = a.write_vectored(&bufs).await.unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::ConnectionReset);
     }
 
     #[tokio::test]

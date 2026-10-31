@@ -174,6 +174,23 @@ impl AsyncWrite for Watched {
         r
     }
 
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let me = self.get_mut();
+        let r = Pin::new(&mut me.inner).poll_write_vectored(cx, bufs);
+        if me.bytes && matches!(r, Poll::Ready(Ok(n)) if n > 0) {
+            me.activity.touch();
+        }
+        r
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_flush(cx)
     }
@@ -243,5 +260,21 @@ mod tests {
             limit,
             "only requests and open streams count"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_watched_connection_keeps_vectored_writes_and_counts_them_as_activity() {
+        let activity = Activity::new();
+        let (a, mut b) = crate::pipe();
+        let mut w = Watched::new(Box::new(a), activity.clone(), true);
+        assert!(w.is_write_vectored());
+        let before = activity.quiet_since();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let bufs = [io::IoSlice::new(b"ab"), io::IoSlice::new(b"cd")];
+        assert_eq!(w.write_vectored(&bufs).await.unwrap(), 4);
+        let mut got = [0u8; 4];
+        b.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"abcd");
+        assert!(activity.quiet_since() > before);
     }
 }
