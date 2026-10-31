@@ -21,6 +21,7 @@ fn child<'a>(node: Option<&'a Node>, key: &str) -> Option<&'a Node> {
         SemType::Map(m) => Some(&m.value),
         SemType::RefMap(m) => Some(&m.value),
         SemType::Optional(o) => child(Some(&o.inner), key),
+        SemType::Union(u) => u.branches.iter().find_map(|b| child(Some(b), key)),
         _ => None,
     }
 }
@@ -29,6 +30,22 @@ fn is_secret(node: Option<&Node>) -> bool {
     match node.map(|n| &n.sem) {
         Some(SemType::SecretRef(_)) => true,
         Some(SemType::Optional(o)) => is_secret(Some(&o.inner)),
+        _ => false,
+    }
+}
+
+fn is_reference(node: Option<&Node>) -> bool {
+    match node.map(|n| &n.sem) {
+        Some(SemType::SecretRef(c)) => c.reference,
+        Some(SemType::Optional(o)) => is_reference(Some(&o.inner)),
+        _ => false,
+    }
+}
+
+fn is_hash(node: Option<&Node>) -> bool {
+    match node.map(|n| &n.sem) {
+        Some(SemType::PasswordHash(_)) => true,
+        Some(SemType::Optional(o)) => is_hash(Some(&o.inner)),
         _ => false,
     }
 }
@@ -90,6 +107,15 @@ fn present_at(
     is_name: bool,
     env: &dyn EnvSource,
 ) -> Value {
+    if is_reference(node)
+        && let Value::String(s) = v
+        && burrow_syntax::env::is_reference(s)
+    {
+        return v.clone();
+    }
+    if is_hash(node) && v.is_string() {
+        return value::hash();
+    }
     if is_secret(node) || (!is_name && secretish(key) && !is_path(node)) {
         return present_secret(v, env);
     }
@@ -125,6 +151,53 @@ fn present_at(
     }
 }
 
+pub const HASH_SHOWN: &str = "«password hash»";
+
+pub fn hashes(v: &Value, node: Option<&Node>, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) if is_hash(node) => out.push(s.clone()),
+        Value::Object(m) => m.iter().for_each(|(k, x)| hashes(x, child(node, k), out)),
+        Value::Array(items) => {
+            let item = match node.map(|n| &n.sem) {
+                Some(SemType::List(l)) => Some(&*l.item),
+                _ => None,
+            };
+            items.iter().for_each(|i| hashes(i, item, out));
+        }
+        _ => {}
+    }
+}
+
+pub fn hashes_in(texts: &[&str], root: &Node) -> Vec<String> {
+    let mut out = Vec::new();
+    for t in texts {
+        let (_, _, src) = crate::config::patch::split_text(t);
+        if let Ok(tree) = crate::config::tree::parse(&src) {
+            hashes(&tree.to_json(), Some(root), &mut out);
+        }
+    }
+    out
+}
+
+pub fn veil(text: &str, hashes: &[String]) -> String {
+    hashes
+        .iter()
+        .fold(text.to_string(), |t, h| t.replace(h.as_str(), HASH_SHOWN))
+}
+
+pub fn veil_value(v: &Value, hashes: &[String]) -> Value {
+    match v {
+        Value::String(s) if hashes.contains(s) => Value::String(HASH_SHOWN.into()),
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .map(|(k, x)| (k.clone(), veil_value(x, hashes)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(|x| veil_value(x, hashes)).collect()),
+        other => other.clone(),
+    }
+}
+
 pub fn raw_of(v: &Value) -> Value {
     if let Some(e) = value::as_env(v) {
         return Value::String(e.raw);
@@ -137,7 +210,7 @@ pub fn raw_of(v: &Value) -> Value {
 }
 
 pub fn has_secret_marker(v: &Value) -> bool {
-    if value::as_secret(v).is_some() {
+    if value::as_secret(v).is_some() || value::is_hash(v) {
         return true;
     }
     match v {
@@ -151,6 +224,26 @@ pub fn has_secret_marker(v: &Value) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_dns_secret_travels_as_its_reference_and_an_inline_one_stays_masked() {
+        let schema = crate::config::admin_schema::server_schema();
+        let env = |k: &str| (k == "CF_TOKEN").then(|| "cf-secret-value".to_string());
+        let raw = json!({"web": {"letsencrypt": {"email": "a@b.c", "dns": [
+            {"domains": ["example.com"], "cloudflare": {"token": "${CF_TOKEN}"}},
+            {"domains": ["example.net"], "cloudflare": {"token": "pasted-inline"}},
+            {"domains": ["example.org"], "rfc2136": {"server": "ns:53", "key_name": "k", "secret": "file:tsig.secret"}}
+        ]}}});
+        let out = present(&raw, Some(&schema.root), "", &env);
+        let dns = &out["web"]["letsencrypt"]["dns"];
+        assert_eq!(dns[0]["cloudflare"]["token"], "${CF_TOKEN}");
+        assert_eq!(dns[2]["rfc2136"]["secret"], "file:tsig.secret");
+        let text = out.to_string();
+        assert!(
+            !text.contains("pasted-inline") && !text.contains("cf-secret-value"),
+            "{text}"
+        );
+    }
 
     #[test]
     fn secrets_and_variables_never_travel_as_text() {

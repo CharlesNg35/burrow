@@ -14,7 +14,9 @@ fn clean(s: &str) -> String {
 
 pub fn allow_note(client: &str, allow: &Option<Vec<String>>) -> String {
     let note = match allow.as_deref() {
-        Some([one]) if one == "any" => format!("client {client} allows any target"),
+        Some([one]) if one == burrow_syntax::rule::ANY => {
+            format!("client {client} allows any target")
+        }
         Some([]) => format!("client {client} allows nothing yet"),
         Some(rules) => format!("client {client} allows {}", rules.join(", ")),
         None => format!("client {client} is offline; what it allows is unknown"),

@@ -16,6 +16,12 @@ pub const TOKEN_LEN: usize = 16;
 pub const KEEPALIVE_RECORD: u8 = 0x00;
 pub const STALE_RECORD: u8 = 0x01;
 
+pub const MISSED_HEARTBEATS: u32 = 3;
+
+pub fn peer_timeout(heartbeat: std::time::Duration) -> std::time::Duration {
+    heartbeat * MISSED_HEARTBEATS
+}
+
 pub const FLAG_AES_GCM: u8 = 0b01;
 pub const FLAG_PLAINTEXT: u8 = 0b10;
 

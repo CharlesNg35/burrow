@@ -18,7 +18,7 @@ fn fits(sem: &SemType, v: Option<&Value>) -> bool {
     match sem {
         SemType::Object(_) | SemType::Map(_) | SemType::RefMap(_) => v.is_object(),
         SemType::List(_) => v.is_array(),
-        SemType::RefList(_) | SemType::SecretRef(_) => {
+        SemType::RefList(_) | SemType::RefEntries(_) | SemType::SecretRef(_) => {
             v.is_array() || v.is_string() || v.is_object()
         }
         SemType::Bool => v.is_boolean(),
@@ -80,6 +80,25 @@ mod tests {
 
     fn unknown(raw: Value) -> SemType {
         serde_json::from_value(raw).expect("parses")
+    }
+
+    #[test]
+    fn a_ui_that_does_not_know_client_entries_edits_them_as_raw_yaml() {
+        let sent = serde_json::to_value(SemType::RefEntries(
+            burrow_admin_proto::schema::RefEntriesC::new(
+                burrow_admin_proto::schema::Entity::Client,
+                Vec::new(),
+            ),
+        ))
+        .unwrap();
+        let older = SemType::Unknown(UnknownType {
+            t: sent["t"].as_str().unwrap().to_string(),
+            fallback: Vec::new(),
+            raw: sent,
+        });
+        let entries = json!(["a", {"name": "gw", "target": "10.0.0.12:3000", "weight": 2}]);
+        assert_eq!(render_value(&older, Some(&entries)), Render::Raw);
+        assert_eq!(render_value(&older, None), Render::Raw);
     }
 
     #[test]

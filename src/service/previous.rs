@@ -93,15 +93,6 @@ pub(super) fn give_old_files(files: &[PathBuf], account: &str, keep: &[PathBuf])
     }
 }
 
-pub(super) fn own_logs(log: &Path) -> Vec<PathBuf> {
-    std::iter::once(log.to_path_buf())
-        .chain(
-            (1..=crate::base::logfile::KEEP)
-                .map(|n| PathBuf::from(format!("{}.{n}", log.display()))),
-        )
-        .collect()
-}
-
 pub(super) fn start_installed(
     backend: &dyn Backend,
     manifest: &Manifest,

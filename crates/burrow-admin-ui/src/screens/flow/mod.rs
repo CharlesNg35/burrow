@@ -192,13 +192,14 @@ mod tests {
             "public first, then private, each by name"
         );
         let internet = c.nodes.iter().find(|n| n.key == "internet").unwrap();
-        assert_eq!(internet.sub, "1 public · 1 loopback\n0 refused");
+        assert_eq!(internet.sub, "1 public · 0 refused");
+        assert_eq!(internet.right, "1 local");
         let db = c.nodes.iter().find(|n| n.key == "target:db").unwrap();
         assert_eq!(db.health, Health::Down);
         assert_eq!(db.sub, "no client online");
         let b = c.nodes.iter().find(|n| n.key == "client:b").unwrap();
         assert!(b.dashed && b.problem);
-        assert_eq!(b.badge.as_deref(), Some("away"));
+        assert_eq!(b.badge.as_deref(), Some("offline"));
         let web = c.nodes.iter().find(|n| n.key == "port:web").unwrap();
         assert!(web.right.is_empty(), "the bind sits on line 2");
         assert!(web.sub.starts_with(":443 · "), "{}", web.sub);

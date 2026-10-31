@@ -40,21 +40,30 @@ impl RecordWriter {
     }
 
     pub async fn send<W: AsyncWrite + Unpin>(&mut self, w: &mut W, plain: &[u8]) -> io::Result<()> {
+        if plain.len() > SMALL {
+            return self.send_with(w, plain, &mut Vec::new()).await;
+        }
+        let mut out = [0u8; SMALL + HEADER + TAG_LEN];
+        let n = self.seal_into(plain, &mut out);
+        w.write_all(&out[..n]).await?;
+        w.flush().await
+    }
+
+    pub async fn send_with<W: AsyncWrite + Unpin>(
+        &mut self,
+        w: &mut W,
+        plain: &[u8],
+        scratch: &mut Vec<u8>,
+    ) -> io::Result<()> {
         if plain.len() > MAX_PLAINTEXT {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "record too large",
             ));
         }
-        if plain.len() <= SMALL {
-            let mut out = [0u8; SMALL + HEADER + TAG_LEN];
-            let n = self.seal_into(plain, &mut out);
-            w.write_all(&out[..n]).await?;
-        } else {
-            let mut out = vec![0u8; plain.len() + HEADER + TAG_LEN];
-            let n = self.seal_into(plain, &mut out);
-            w.write_all(&out[..n]).await?;
-        }
+        scratch.resize(plain.len() + HEADER + TAG_LEN, 0);
+        let n = self.seal_into(plain, scratch);
+        w.write_all(&scratch[..n]).await?;
         w.flush().await
     }
 }
@@ -439,6 +448,32 @@ mod tests {
         writer.await.unwrap();
         assert!(r.recv(&mut b).await.unwrap().is_none());
         assert!(!r.holds_buffers());
+    }
+
+    #[tokio::test]
+    async fn send_with_seals_every_size_into_one_reused_scratch() {
+        let ((mut w, _), (_, mut r)) = pair();
+        let (mut a, mut b) = tokio::io::duplex(1 << 20);
+        let sizes = [MAX_PLAINTEXT, 0, 1, 512, 513, 1400];
+        let writer = tokio::spawn(async move {
+            let mut scratch = Vec::new();
+            for s in sizes {
+                let data: Vec<u8> = (0..s).map(|i| (i % 251) as u8).collect();
+                w.send_with(&mut a, &data, &mut scratch).await.unwrap();
+            }
+            let room = scratch.capacity();
+            let too_big = vec![0u8; MAX_PLAINTEXT + 1];
+            let refused = w.send_with(&mut a, &too_big, &mut scratch).await;
+            assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(scratch.capacity(), room);
+        });
+        for s in sizes {
+            let got = r.recv(&mut b).await.unwrap().unwrap().to_vec();
+            assert_eq!(got.len(), s);
+            assert!(got.iter().enumerate().all(|(i, v)| *v == (i % 251) as u8));
+        }
+        writer.await.unwrap();
+        assert!(r.recv(&mut b).await.unwrap().is_none());
     }
 
     #[tokio::test]

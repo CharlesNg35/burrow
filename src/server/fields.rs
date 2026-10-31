@@ -28,6 +28,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         udp_max_peers,
         metrics,
         self_allow,
+        web,
     } = new;
     use Applied::{Live, Reload, Restart};
     [
@@ -78,6 +79,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*udp_max_peers != old.udp_max_peers, "udp.max_peers", Live),
         (*metrics != old.metrics, "metrics", Reload),
         (*self_allow != old.self_allow, "self.allow", Reload),
+        (*web != old.web, "web", Reload),
     ]
     .into_iter()
     .filter_map(|(changed, name, how)| changed.then_some((name, how)))
@@ -110,12 +112,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_field_has_a_way_to_apply() {
-        let old = settings();
-        assert!(changed(&old, &old).is_empty());
-        type Edit = Box<dyn Fn(&mut ServerSettings)>;
-        let edits: Vec<(&str, Applied, Edit)> = vec![
+    type Edit = Box<dyn Fn(&mut ServerSettings)>;
+
+    fn edits() -> Vec<(&'static str, Applied, Edit)> {
+        vec![
             (
                 "listen",
                 Applied::Restart,
@@ -165,6 +165,8 @@ mod tests {
                         path: "/burrow".into(),
                         tls: None,
                         keepalive: Duration::from_secs(25),
+                        host: None,
+                        shares: crate::config::settings::Shares::Nothing,
                     })
                 }),
             ),
@@ -229,13 +231,29 @@ mod tests {
                 Box::new(|s| s.metrics = Some("127.0.0.1:9100".parse().unwrap())),
             ),
             (
+                "web",
+                Applied::Reload,
+                Box::new(|s| {
+                    s.web = Some(crate::config::settings::WebSettings::new(
+                        "[::]:443".parse().unwrap(),
+                    ))
+                }),
+            ),
+            (
                 "self.allow",
                 Applied::Reload,
                 Box::new(|s| {
                     s.self_allow = Some(crate::policy::allowlist::AllowList::Rules(Vec::new()))
                 }),
             ),
-        ];
+        ]
+    }
+
+    #[test]
+    fn every_field_has_a_way_to_apply() {
+        let old = settings();
+        assert!(changed(&old, &old).is_empty());
+        let edits = edits();
         let schema = crate::config::admin_schema::server_schema();
         let mut covered = Vec::new();
         for (name, how, edit) in edits {

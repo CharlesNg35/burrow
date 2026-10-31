@@ -1,6 +1,10 @@
 mod basic;
+mod keyed;
 mod lists;
+mod objects;
+mod target_tls;
 mod units;
+pub(crate) mod website;
 
 use burrow_admin_logic::check::{check_in, refs_exist};
 use burrow_admin_logic::fallback::{Render, for_node};
@@ -15,6 +19,7 @@ use leptos::prelude::*;
 use crate::form::object_view;
 use crate::store::store;
 
+pub(crate) use basic::choice;
 use basic::{bool_editor, enum_editor, text_editor, yaml_editor};
 use lists::{list_editor, map_editor, union_editor};
 use units::{duration_editor, rate_editor};
@@ -33,6 +38,33 @@ pub struct FieldCtx {
 
 pub const THIS_SERVER: &str = "This server";
 
+pub(super) struct Choice {
+    pub options: Vec<(String, String, bool)>,
+    pub mode: Signal<String>,
+    pub on_change: Callback<String>,
+}
+
+pub(super) fn choice_box(
+    fc: &FieldCtx,
+    testid: Option<&'static str>,
+    choice: Choice,
+    below: impl IntoView + 'static,
+) -> AnyView {
+    view! {
+        <div id=fc.id.clone() data-testid=testid>
+            <burrow_ui_kit::Segmented
+                name=format!("{}-choice", fc.id)
+                options=choice.options
+                value=choice.mode
+                label=fc.node.label.clone()
+                on_change=choice.on_change
+            />
+            {below}
+        </div>
+    }
+    .into_any()
+}
+
 pub fn reserved_clients() -> Vec<String> {
     store().schema.with(|s| {
         s.as_ref()
@@ -44,7 +76,7 @@ pub fn reserved_clients() -> Vec<String> {
 
 pub fn names_of(entity: &Entity) -> Vec<String> {
     let doc = store().edit.doc();
-    names(&doc, &[entity.section().to_string()])
+    names(&doc, &burrow_config::entity_path(entity))
 }
 
 pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
@@ -55,7 +87,7 @@ pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
     }
     let problem = match &v {
         None if node.required && node.default.is_none() => {
-            Some(format!("{} is required", node.label))
+            Some(burrow_admin_logic::wording::required(&node.label))
         }
         None => None,
         Some(x) => check_in(node, x, &e.doc())
@@ -70,8 +102,15 @@ fn ref_names(node: &Node) -> Vec<String> {
     match &inner(node).sem {
         SemType::Ref(r) => names_of(&r.entity),
         SemType::RefList(r) => names_of(&r.entity),
+        SemType::RefEntries(r) => names_of(&r.entity),
         _ => Vec::new(),
     }
+}
+
+fn picks_login(u: &burrow_admin_proto::schema::UnionC) -> bool {
+    u.branches
+        .iter()
+        .any(|b| matches!(&inner(b).sem, SemType::Ref(r) if r.entity == Entity::Login))
 }
 
 pub fn editor(fc: FieldCtx) -> AnyView {
@@ -113,8 +152,11 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             },
         ),
         SemType::ServerAddress => crate::addr::server_editor(fc),
+        SemType::Upload(c) => crate::uploads::upload_editor(fc, c.kind.clone()),
+        SemType::PasswordHash(_) => text_editor(fc, Some(sem.clone())),
         SemType::Text(_)
         | SemType::Host
+        | SemType::HostName(_)
         | SemType::Path(_)
         | SemType::UrlPath
         | SemType::Name(_)
@@ -130,10 +172,16 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::Rate => rate_editor(fc),
         SemType::Ref(r) => crate::addr::picker(fc, r.entity.clone(), false),
         SemType::RefList(r) => crate::addr::picker(fc, r.entity.clone(), true),
+        SemType::RefEntries(r) => crate::addr::entries(fc, r.clone()),
         SemType::List(l) => list_editor(fc, (*l.item).clone()),
-        SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), (*m.value).clone()),
-        SemType::Map(m) => map_editor(fc, None, (*m.value).clone()),
+        SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), None, (*m.value).clone()),
+        SemType::Map(m) if matches!(inner(&m.value).sem, SemType::PasswordHash(_)) => {
+            crate::passwords::passwords_editor(fc)
+        }
+        SemType::Map(m) => map_editor(fc, None, Some((*m.key).clone()), (*m.value).clone()),
+        SemType::SecretRef(c) if c.reference => text_editor(fc, Some(sem.clone())),
         SemType::SecretRef(c) => crate::secrets::secret_list(fc.path.clone(), fc.id.clone(), c.max),
+        SemType::Union(u) if picks_login(u) => crate::logins::site_editor(fc),
         SemType::Union(u) => union_editor(fc, u.clone()),
         SemType::Optional(o) => {
             let inner_node = (*o.inner).clone();
@@ -206,8 +254,8 @@ pub fn cidr_size(text: &str) -> String {
     let v6 = addr.contains(':');
     let max = if v6 { 128 } else { 32 };
     match bits {
-        None if addr.parse::<std::net::IpAddr>().is_ok() => "single address".into(),
-        Some(b) if b == max => "single address".into(),
+        None if addr.parse::<std::net::IpAddr>().is_ok() => String::new(),
+        Some(b) if b == max => String::new(),
         Some(b) if b < max && !v6 => {
             let n = 1u64 << (max - b);
             if n >= 1_000_000 {
@@ -272,8 +320,8 @@ mod tests {
         assert_eq!(cidr_size("10.0.0.0/8"), "16.8 M addresses");
         assert_eq!(cidr_size("10.0.0.0/8:22"), "16.8 M addresses");
         assert_eq!(cidr_size("192.168.1.0/24:8000-8010"), "256 addresses");
-        assert_eq!(cidr_size("192.168.1.10:22"), "single address");
-        assert_eq!(cidr_size("192.168.1.10"), "single address");
+        assert_eq!(cidr_size("192.168.1.10:22"), "");
+        assert_eq!(cidr_size("192.168.1.10"), "");
         assert_eq!(cidr_size("[fd00::/64]:443"), "/64 network");
         assert_eq!(cidr_size("fd00::/64"), "/64 network");
         assert_eq!(cidr_size("unix:/run/app.sock"), "");

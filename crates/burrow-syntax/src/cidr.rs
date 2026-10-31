@@ -27,7 +27,7 @@ impl Cidr {
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {
-        let ip = canonical(ip);
+        let ip = ip.to_canonical();
         match (self.addr, ip) {
             (IpAddr::V4(net), IpAddr::V4(ip)) => {
                 let mask = u32::MAX
@@ -143,13 +143,6 @@ pub fn within(new: &[Cidr], old: &[Cidr]) -> bool {
         return spans.covers_everything();
     }
     new.iter().all(|c| spans.covers(c))
-}
-
-pub fn canonical(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-        v4 => v4,
-    }
 }
 
 impl fmt::Display for Cidr {

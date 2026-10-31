@@ -54,14 +54,6 @@ fn xml(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn read_env(m: &Manifest) -> BTreeMap<String, String> {
-    m.env_file
-        .as_ref()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
-}
-
 fn plist(m: &Manifest) -> String {
     let mut args = vec![
         m.binary.display().to_string(),
@@ -74,6 +66,10 @@ fn plist(m: &Manifest) -> String {
     if let Some(env) = &m.env_file {
         args.push("--env-file".into());
         args.push(env.display().to_string());
+    }
+    if let Some(dir) = &m.web_state {
+        args.push("--state-dir".into());
+        args.push(dir.display().to_string());
     }
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n",
@@ -211,7 +207,7 @@ impl Backend for Launchd {
     }
 
     fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {
-        read_env(m)
+        super::read_json_env(m)
     }
 
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
@@ -238,12 +234,7 @@ impl Backend for Launchd {
                     Failure::new(format!("cannot give {} to root: {e}", dir.display()))
                 })?;
             }
-            let mut kept = vec![m.log_file.clone()];
-            kept.extend((1..=crate::base::logfile::KEEP).map(|n| {
-                let mut name = m.log_file.as_os_str().to_owned();
-                name.push(format!(".{n}"));
-                std::path::PathBuf::from(name)
-            }));
+            let kept = crate::base::logfile::all_files(&m.log_file);
             for f in kept.iter().filter(|f| f.symlink_metadata().is_ok()) {
                 if f.symlink_metadata()
                     .is_ok_and(|m| m.file_type().is_symlink())
@@ -285,12 +276,7 @@ impl Backend for Launchd {
     }
 
     fn start(&self, m: &Manifest) -> Result<(), Failure> {
-        let hint = |f: Failure| {
-            f.hint(format!(
-                "see why with: {}",
-                crate::base::failure::admin(&format!("service logs {}", m.name))
-            ))
-        };
+        let hint = |f: Failure| f.hint(super::logs_hint(&m.name));
         if loaded(m) {
             return run("launchctl", &["kickstart", &target(m)])
                 .map(drop)
@@ -367,12 +353,7 @@ impl Backend for Launchd {
         let state = field("state");
         let code = field("last exit code");
         let detail = match code.as_str() {
-            "3" => {
-                format!(
-                    "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                    crate::base::failure::admin(&format!("service start {}", m.name))
-                )
-            }
+            c if super::is_config_exit(c) => super::config_exit_detail(&m.name),
             c if !c.is_empty() && c != "0" && !c.starts_with('(') => {
                 format!("{state} (last exit code {c})")
             }
@@ -414,7 +395,7 @@ mod tests {
     fn plist_runs_the_service_account_and_escapes_values() {
         let m = Manifest {
             name: "burrow-home".into(),
-            role: "client".into(),
+            role: crate::install::Role::Client,
             config: "/etc/burrow/home/server.yaml".into(),
             source_config: "/Users/me/home.yaml".into(),
             env_file: None,
@@ -427,6 +408,7 @@ mod tests {
             files: vec![],
             version: "0.1.0".into(),
             admin_writable: false,
+            web_state: None,
         };
         let p = plist(&Manifest {
             env_file: Some("/etc/burrow/home.env".into()),
@@ -443,12 +425,20 @@ mod tests {
         );
         assert!(p.contains("<string>/usr/local/bin/burrow</string>\n    <string>client</string>"));
         let visitor = Manifest {
-            role: "visitor".into(),
+            role: crate::install::Role::Visitor,
             ..m
         };
         assert!(
             plist(&visitor)
                 .contains("<string>/usr/local/bin/burrow</string>\n    <string>visit</string>")
         );
+        assert!(!p.contains("--state-dir"));
+        let web = plist(&Manifest {
+            web_state: Some("/Library/Application Support/burrow/home".into()),
+            ..visitor
+        });
+        assert!(web.contains(
+            "<string>--state-dir</string>\n    <string>/Library/Application Support/burrow/home</string>"
+        ));
     }
 }

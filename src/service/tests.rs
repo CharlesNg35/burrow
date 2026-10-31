@@ -1,15 +1,15 @@
 #[cfg(target_os = "linux")]
 use super::checks::misfits_of;
 use super::checks::needs_low_ports;
-use super::control::{interrupts, source_note};
+use super::control::{interrupts, logs_again, source_note};
 use super::install::{burrows_account, name_arg};
 #[cfg(unix)]
-use super::install::{installs_from, place_binary, recorded_source, service_binary_for};
+use super::install::{installs_from, place_binary, recorded_source};
 use super::previous::{StartAgain, Undo, given_note, start_installed, take_over};
 use super::uninstall::differs;
 use super::uninstall::{Kept, keep_admin_copy};
 use super::*;
-use crate::install::{in_service_folder, trustworthy, writable_hint};
+use crate::install::{Role, in_service_folder, trustworthy, writable_hint};
 use std::net::SocketAddr;
 
 #[test]
@@ -59,7 +59,7 @@ fn a_config_the_account_swapped_for_a_link_is_never_read_into_the_history() {
     std::fs::remove_file(&config).unwrap();
     std::fs::hard_link(&private, &config).unwrap();
     assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::NotPlain);
-    let history = crate::admin::adapters::history_dir_of(&config);
+    let history = crate::config::save::history_dir_of(&config);
     let kept: Vec<String> = std::fs::read_dir(&history)
         .map(|d| {
             d.flatten()
@@ -200,9 +200,8 @@ fn a_trusted_binary_elsewhere_is_never_used_in_place() {
         "/usr/bin/true is root-only here"
     );
     let p = Platform::current();
-    let (binary, copied) = service_binary_for(trusted, p);
-    assert_eq!(binary, p.service_binary());
-    assert!(copied);
+    let binary = p.service_binary();
+    assert_ne!(binary, trusted);
     #[cfg(target_os = "linux")]
     {
         let unit = systemd::Systemd.render(&Manifest {
@@ -219,10 +218,10 @@ fn a_trusted_binary_elsewhere_is_never_used_in_place() {
 
 #[test]
 fn commands_that_interrupt_a_service_go_to_the_background() {
-    assert!(interrupts("restart"));
-    assert!(!interrupts("start"));
-    assert!(!interrupts("stop"));
-    assert_eq!(interrupts("reload"), cfg!(windows));
+    assert!(interrupts(Action::Restart));
+    assert!(!interrupts(Action::Start));
+    assert!(!interrupts(Action::Stop));
+    assert_eq!(interrupts(Action::Reload), cfg!(windows));
 }
 
 struct Recorder(std::cell::RefCell<Vec<String>>, bool);
@@ -528,7 +527,7 @@ fn a_put_back_that_does_not_run_either_says_so() {
 fn record(p: Platform) -> Manifest {
     Manifest {
         name: "burrow-server".into(),
-        role: "server".into(),
+        role: Role::Server,
         config: p.config_dir().join("server").join("server.yaml"),
         source_config: PathBuf::from("server.yaml"),
         env_file: Some(p.config_dir().join("server.env")),
@@ -541,6 +540,7 @@ fn record(p: Platform) -> Manifest {
         files: Vec::new(),
         version: "0.1.0".into(),
         admin_writable: false,
+        web_state: None,
     }
 }
 
@@ -591,6 +591,16 @@ fn an_edit_the_installed_unit_cannot_run_is_named_with_the_way_out() {
         ..m.clone()
     };
     assert!(misfits_of(&backend, &allowed, &server("443")).is_empty());
+    let web = load(format!(
+        "listen: 7835\nclients:\n  home: {{ secret: {secret} }}\nweb: {{ https: 443 }}\nservices:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n"
+    ));
+    let stateful = Manifest {
+        web_state: Some(PathBuf::from("/var/lib/burrow/edge")),
+        ..m.clone()
+    };
+    let low = misfits_of(&backend, &stateful, &web);
+    assert_eq!(low.len(), 1, "web.https counts as a low port");
+    assert!(low[0].message.contains("port 443"), "{}", low[0].message);
     let home = backend.cannot_use(&m, Path::new("/home/someone/ca.pem"));
     assert!(home.unwrap().contains("home folder"));
     assert!(
@@ -673,7 +683,7 @@ fn the_install_command_for_a_service_is_its_installed_config() {
     );
     let client = Manifest {
         name: "burrow-home".into(),
-        role: "client".into(),
+        role: Role::Client,
         config: p.config_dir().join("home").join("client.yaml"),
         ..record(p)
     };
@@ -715,7 +725,7 @@ fn installing_from_an_installed_config_reinstalls_its_own_service() {
     let p = Platform::current();
     let home = Manifest {
         name: "burrow-home".into(),
-        role: "client".into(),
+        role: Role::Client,
         config: p.config_dir().join("home").join("client.yaml"),
         ..record(p)
     };
@@ -815,7 +825,6 @@ fn a_record_whose_bin_folder_users_can_now_change_is_managed_but_its_binary_neve
             "{}",
             recorded_version(&installed)
         );
-        assert_eq!(service_binary_for(&usual, p).0, p.service_binary());
     });
 }
 
@@ -902,4 +911,55 @@ fn versions_follow_semver_strictly() {
     assert!(v("1.0.0-1") < v("1.0.0-2"));
     assert!(v("1.0.0-1") < v("1.0.0-a"));
     assert_eq!(parse_version("1.0.0-"), None);
+}
+
+#[test]
+fn the_config_exit_code_reads_the_same_on_every_backend() {
+    assert!(is_config_exit("3"));
+    assert!(!is_config_exit("203"));
+    assert!(!is_config_exit(""));
+    let detail = config_exit_detail("burrow-server");
+    assert!(detail.contains("(exit 3)"), "{detail}");
+    assert!(detail.contains("service start burrow-server"), "{detail}");
+    assert!(logs_hint("burrow-server").contains("service logs burrow-server"));
+}
+
+#[test]
+fn a_json_env_file_is_read_and_a_missing_or_damaged_one_is_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = dir.path().join("home.env");
+    std::fs::write(&env, r#"{"SECRET":"y"}"#).unwrap();
+    let mut m = Manifest {
+        env_file: Some(env.clone()),
+        ..record(Platform::MacOs)
+    };
+    assert_eq!(read_json_env(&m)["SECRET"], "y");
+    std::fs::write(&env, "SECRET=y").unwrap();
+    assert!(read_json_env(&m).is_empty());
+    m.env_file = None;
+    assert!(read_json_env(&m).is_empty());
+}
+
+#[test]
+fn a_manifest_with_an_unknown_role_is_damaged() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("burrow-server.json");
+    let mut json = serde_json::to_value(record(Platform::Linux)).unwrap();
+    assert_eq!(json["role"], "server");
+    json["role"] = "sever".into();
+    std::fs::write(&path, json.to_string()).unwrap();
+    let read = crate::install::read_manifest(&path).unwrap_err();
+    assert!(read.starts_with("damaged: "), "{read}");
+}
+
+#[test]
+fn the_logs_retry_hint_leaves_out_the_default_line_count() {
+    assert_eq!(
+        logs_again("burrow-home", 50, false),
+        "service logs burrow-home"
+    );
+    assert_eq!(
+        logs_again("burrow-home", 200, true),
+        "service logs burrow-home -n 200 -f"
+    );
 }

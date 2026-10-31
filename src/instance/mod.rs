@@ -64,7 +64,17 @@ pub struct InstanceLock {
 const REFRESH: std::time::Duration = std::time::Duration::from_secs(3600);
 
 pub struct Fresh {
-    _stop: std::sync::mpsc::Sender<()>,
+    stop: Option<std::sync::mpsc::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Fresh {
+    fn drop(&mut self) {
+        self.stop.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 pub fn keep_fresh(paths: Vec<PathBuf>) -> Fresh {
@@ -73,7 +83,7 @@ pub fn keep_fresh(paths: Vec<PathBuf>) -> Fresh {
 
 fn keep_fresh_every(paths: Vec<PathBuf>, every: std::time::Duration) -> Fresh {
     let (stop, stopped) = std::sync::mpsc::channel::<()>();
-    let _ = std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("burrow-fresh".into())
         .spawn(move || {
             while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(every)
@@ -82,8 +92,12 @@ fn keep_fresh_every(paths: Vec<PathBuf>, every: std::time::Duration) -> Fresh {
                     touch(path);
                 }
             }
-        });
-    Fresh { _stop: stop }
+        })
+        .ok();
+    Fresh {
+        stop: Some(stop),
+        thread,
+    }
 }
 
 fn touch(path: &Path) {
@@ -100,7 +114,7 @@ fn touch(path: &Path) {
 impl Drop for InstanceLock {
     fn drop(&mut self) {
         if self.noted {
-            let _ = std::fs::remove_file(self.path.with_extension("info"));
+            let _ = std::fs::remove_file(self.path.with_extension(NOTE_EXTENSION));
         }
     }
 }
@@ -111,13 +125,15 @@ impl InstanceLock {
     }
 }
 
+pub const LOCK_EXTENSION: &str = "lock";
+pub const NOTE_EXTENSION: &str = "info";
+pub const STATUS_EXTENSION: &str = "status";
+
 pub fn service_dir() -> Option<PathBuf> {
     if cfg!(target_os = "linux") {
-        Some(PathBuf::from("/run/burrow-instances"))
+        crate::install::Platform::Linux.instances_dir()
     } else if cfg!(target_os = "macos") {
-        Some(PathBuf::from(
-            "/Library/Application Support/burrow/instances",
-        ))
+        crate::install::Platform::MacOs.instances_dir()
     } else {
         None
     }
@@ -141,7 +157,7 @@ pub fn remove_unused(dir: &Path) {
     };
     for path in listing.flatten().map(|e| e.path()) {
         match path.extension().and_then(|x| x.to_str()) {
-            Some("lock") => {
+            Some(LOCK_EXTENSION) => {
                 let mut opts = OpenOptions::new();
                 opts.read(true).write(true);
                 let held = no_follow(&mut opts)
@@ -150,15 +166,15 @@ pub fn remove_unused(dir: &Path) {
                     .ok()
                     .filter(|f| f.try_lock().is_ok());
                 if let Some(lock) = held {
-                    let _ = std::fs::remove_file(path.with_extension("info"));
+                    let _ = std::fs::remove_file(path.with_extension(NOTE_EXTENSION));
                     let _ = std::fs::remove_file(&path);
                     drop(lock);
                 }
             }
-            Some("status") if stale_status(&path) => {
+            Some(STATUS_EXTENSION) if stale_status(&path) => {
                 let _ = std::fs::remove_file(&path);
             }
-            Some("new") if left_behind(&path) => {
+            Some(crate::base::fs::TEMP_EXTENSION) if left_behind(&path) => {
                 let _ = std::fs::remove_file(&path);
             }
             _ => {}
@@ -230,21 +246,11 @@ pub fn private_dir(dir: &Path) -> std::io::Result<()> {
     }
     #[cfg(windows)]
     {
-        let icacls = |args: &[&str]| {
-            std::process::Command::new("icacls")
-                .arg(dir)
-                .args(args)
-                .output()
-                .is_ok_and(|o| o.status.success())
-        };
-        let done = icacls(&["/setowner", "*S-1-5-32-544"])
-            && icacls(&["/reset"])
-            && icacls(&[
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:(OI)(CI)F",
-                "*S-1-5-32-544:(OI)(CI)F",
-            ]);
+        use crate::base::windows::{ADMINS, SYSTEM, icacls};
+        let (system, admins) = (format!("{SYSTEM}:(OI)(CI)F"), format!("{ADMINS}:(OI)(CI)F"));
+        let done = icacls(dir, &["/setowner", ADMINS]).is_ok()
+            && icacls(dir, &["/reset"]).is_ok()
+            && icacls(dir, &["/inheritance:r", "/grant:r", &system, &admins]).is_ok();
         if !done {
             return Err(std::io::Error::other(format!(
                 "cannot restrict {} to administrators",

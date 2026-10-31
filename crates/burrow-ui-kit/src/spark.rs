@@ -75,27 +75,6 @@ fn area_of(seg: &[(f64, f64)], height: f64) -> String {
     )
 }
 
-#[component]
-pub fn Sparkline(
-    #[prop(into)] points: Signal<Vec<f64>>,
-    #[prop(into)] second: Signal<Vec<f64>>,
-    #[prop(into)] label: String,
-    #[prop(optional)] testid: &'static str,
-) -> impl IntoView {
-    let (w, h) = (300.0, 60.0);
-    let line = move |first: bool| {
-        let (a, b) = (points.get(), second.get());
-        let max = spark_max(&[&a, &b]);
-        spark_path(if first { &a } else { &b }, max, w, h)
-    };
-    view! {
-        <svg class="h-16 w-full" viewBox=format!("0 0 {w} {h}") preserveAspectRatio="none" role="img" aria-label=label data-testid=(!testid.is_empty()).then_some(testid)>
-            <path class="fill-none stroke-accent stroke-2 [vector-effect:non-scaling-stroke]" d=move || line(true)></path>
-            <path class="fill-none stroke-udp stroke-2 [vector-effect:non-scaling-stroke]" d=move || line(false)></path>
-        </svg>
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ChartData {
     pub a: Vec<Option<f64>>,
@@ -149,7 +128,7 @@ pub fn LineChart(
                     }}
                 </svg>
                 {move || data.get().empty_note.map(|t| view! {
-                    <div class="pointer-events-none absolute inset-0 flex items-center justify-center pl-10 text-sm text-text-muted" data-testid="chart-note">{t}</div>
+                    <div class="pointer-events-none absolute inset-0 flex items-center justify-center pl-10 text-center text-sm text-text-muted tabular-nums" data-testid="chart-note">{t}</div>
                 })}
             </div>
             <div class="flex justify-between pt-1.5 pl-10 font-mono text-2xs text-text-faint">

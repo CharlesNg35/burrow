@@ -104,6 +104,14 @@ pub fn Combobox(
         new_name,
         create_error,
     };
+    let nav = Nav {
+        open,
+        active,
+        query,
+        visible,
+        selected,
+        multi,
+    };
     let lid = list_id.clone();
     let act_id = {
         let id = id.clone();
@@ -145,7 +153,7 @@ pub fn Combobox(
                     autocomplete="off"
                     spellcheck="false"
                     class="h-[26px] min-w-24 flex-1 bg-transparent px-1.5 text-sm outline-none placeholder:text-text-faint"
-                    placeholder=placeholder
+                    placeholder=move || if multi || selected.with(|s| s.iter().all(String::is_empty)) { placeholder.clone() } else { String::new() }
                     aria-label=(!label.is_empty()).then_some(label)
                     aria-expanded=move || open.get().to_string()
                     aria-controls=lid.clone()
@@ -160,39 +168,9 @@ pub fn Combobox(
                         active.set(0);
                         open.set(true);
                     }
-                    on:keydown=move |e| match e.key().as_str() {
-                        "ArrowDown" => {
-                            e.prevent_default();
-                            open.set(true);
-                            let n = visible.with(Vec::len);
-                            if n > 0 {
-                                active.update(|a| *a = (*a + 1).min(n - 1));
-                            }
-                        }
-                        "ArrowUp" => {
-                            e.prevent_default();
-                            active.update(|a| *a = a.saturating_sub(1));
-                        }
-                        "Enter" => {
-                            e.prevent_default();
-                            if let Some(o) = visible.with(|v| v.get(active.get_untracked()).cloned()) {
-                                pick(o.value);
-                            }
-                        }
-                        "Escape" => {
-                            if open.get_untracked() {
-                                e.stop_propagation();
-                                open.set(false);
-                            }
-                        }
-                        "Backspace" if multi && query.with_untracked(String::is_empty) => {
-                            if let Some(last) = selected.get_untracked().last().cloned() {
-                                remove(last);
-                            }
-                        }
-                        _ => {}
-                    }
+                    on:keydown=move |e| on_key(&e, nav, &pick, &remove)
                 />
+                {(!multi).then(|| view! { <span class="pointer-events-none mr-1.5 ml-auto text-text-muted" aria-hidden="true" data-single=""><Icon name="chevron-down" small=true/></span> })}
             </div>
             <Show when=move || open.get()>
                 <div class=move || format!("absolute left-0 z-30 w-[min(470px,100%)] min-w-64 rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
@@ -204,6 +182,51 @@ pub fn Combobox(
                 </div>
             </Show>
         </div>
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Nav {
+    open: RwSignal<bool>,
+    active: RwSignal<usize>,
+    query: RwSignal<String>,
+    visible: Memo<Vec<ComboOption>>,
+    selected: Signal<Vec<String>>,
+    multi: bool,
+}
+
+fn on_key(e: &web_sys::KeyboardEvent, n: Nav, pick: &dyn Fn(String), remove: &dyn Fn(String)) {
+    match e.key().as_str() {
+        "ArrowDown" => {
+            e.prevent_default();
+            n.open.set(true);
+            let len = n.visible.with(Vec::len);
+            if len > 0 {
+                n.active.update(|a| *a = (*a + 1).min(len - 1));
+            }
+        }
+        "ArrowUp" => {
+            e.prevent_default();
+            n.active.update(|a| *a = a.saturating_sub(1));
+        }
+        "Enter" => {
+            e.prevent_default();
+            if let Some(o) = n.visible.with(|v| v.get(n.active.get_untracked()).cloned()) {
+                pick(o.value);
+            }
+        }
+        "Escape" => {
+            if n.open.get_untracked() {
+                e.stop_propagation();
+                n.open.set(false);
+            }
+        }
+        "Backspace" if n.multi && n.query.with_untracked(String::is_empty) => {
+            if let Some(last) = n.selected.get_untracked().last().cloned() {
+                remove(last);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -242,8 +265,13 @@ fn chips(
             };
             let v2 = v.clone();
             let removable = multi || clearable;
+            let look = match (missing, multi) {
+                (true, _) => "bg-danger-weak text-danger",
+                (false, true) => "bg-surface-3 ring-1 ring-border ring-inset dark:ring-0",
+                (false, false) => "",
+            };
             view! {
-                <span class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {}", if missing { "bg-danger-weak text-danger" } else { "bg-surface-3 ring-1 ring-border ring-inset dark:ring-0" }) data-chip=v.clone()>
+                <span class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {look}") data-chip=v.clone()>
                     <span class=format!("size-2 rounded-full {}", dot_class(dot)) aria-hidden="true"></span>
                     {text.clone()}
                     {removable.then(|| view! {
@@ -339,18 +367,7 @@ fn place_popover(id: String, open: RwSignal<bool>, up: RwSignal<bool>) {
         let Some(field) = document().get_element_by_id(&id) else {
             return;
         };
-        let h = window()
-            .inner_height()
-            .ok()
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let floor = document()
-            .query_selector("[data-sticky-bar]")
-            .ok()
-            .flatten()
-            .map(|b| b.get_bounding_client_rect().top())
-            .filter(|t| *t > 0.0 && *t < h)
-            .unwrap_or(h);
+        let floor = crate::bar::bar_top().unwrap_or_else(crate::bar::view_height);
         let r = field.get_bounding_client_rect();
         let below = floor - r.bottom();
         let above = r.top() - 72.0;

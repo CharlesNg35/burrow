@@ -1,12 +1,17 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::system::{all_paths_under, private_file, write_private};
+use super::system::{any_path_under, private_file, write_private};
 use super::{Backend, Manifest, Status};
 use crate::base::failure::Failure;
 use crate::base::process::{run, run_ok};
 
-pub const INSTANCE_DIR: &str = "/run/burrow-instances";
+fn instance_dir() -> PathBuf {
+    crate::install::Platform::Linux
+        .instances_dir()
+        .unwrap_or_default()
+}
+
 const TMPFILES: &str = "/etc/tmpfiles.d/burrow.conf";
 
 pub struct Systemd;
@@ -44,8 +49,12 @@ impl Systemd {
     }
 }
 
+fn quote_exec(p: &Path) -> String {
+    quote(p).replace('$', "$$")
+}
+
 fn quote(p: &Path) -> String {
-    let s = p.display().to_string();
+    let s = p.display().to_string().replace('%', "%%");
     if s.contains([' ', '"', '\\']) {
         format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
@@ -96,6 +105,8 @@ fn parse_env(text: &str) -> BTreeMap<String, String> {
     out
 }
 
+const HOMES: [&str; 3] = ["/home", "/root", "/run/user"];
+
 impl Backend for Systemd {
     fn kind(&self) -> &'static str {
         "systemd"
@@ -108,7 +119,7 @@ impl Backend for Systemd {
         } else {
             ""
         };
-        let home_files = all_paths_under(&m.files, &["/home", "/root", "/run/user"]);
+        let home_files = any_path_under(&m.files, &HOMES);
         let mut s = String::new();
         s.push_str(&format!(
             "[Unit]\nDescription=burrow {} \"{}\"\nDocumentation=https://github.com/charlesng35/burrow\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\n",
@@ -119,18 +130,25 @@ impl Backend for Systemd {
             s.push_str(&format!("User={}\n", m.account));
         }
         s.push_str(&format!(
-            "ExecStart={} {} -c {} --log-file {}\n",
-            quote(&m.binary),
+            "ExecStart={} {} -c {} --log-file {}{}\n",
+            quote_exec(&m.binary),
             m.command(),
-            quote(&m.config),
-            quote(&m.log_file)
+            quote_exec(&m.config),
+            quote_exec(&m.log_file),
+            m.web_state
+                .as_ref()
+                .map_or_else(String::new, |d| format!(" --state-dir {}", quote_exec(d)))
         ));
         s.push_str("ExecReload=/bin/kill -HUP $MAINPID\n");
         if let Some(env) = &m.env_file {
             s.push_str(&format!("EnvironmentFile={}\n", quote(env)));
         }
-        s.push_str("Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\n");
-        s.push_str(&format!("ReadWritePaths={INSTANCE_DIR}\n"));
+        s.push_str(&format!(
+            "Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus={} {}\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\n",
+            crate::base::failure::EXIT_USAGE,
+            crate::base::failure::EXIT_CONFIG
+        ));
+        s.push_str(&format!("ReadWritePaths={}\n", instance_dir().display()));
         if m.admin_writable {
             s.push_str(&format!("ReadWritePaths={}\n", quote(m.folder())));
         }
@@ -138,6 +156,12 @@ impl Backend for Systemd {
             "LogsDirectory=burrow/{}\nLogsDirectoryMode=0750\n",
             m.short()
         ));
+        if m.web_state.is_some() {
+            s.push_str(&format!(
+                "StateDirectory=burrow/{}\nStateDirectoryMode=0700\n",
+                m.short()
+            ));
+        }
         s.push_str("NoNewPrivileges=yes\nProtectSystem=strict\n");
         s.push_str(if home_files {
             "ProtectHome=read-only\n"
@@ -203,6 +227,10 @@ impl Backend for Systemd {
         m.low_ports || m.account == "root"
     }
 
+    fn state_folder(&self, _m: &Manifest) -> Result<Vec<PathBuf>, Failure> {
+        Ok(Vec::new())
+    }
+
     fn hidden(&self, file: &Path) -> Option<String> {
         ["/tmp", "/var/tmp"]
             .iter()
@@ -211,14 +239,11 @@ impl Backend for Systemd {
     }
 
     fn cannot_use(&self, m: &Manifest, file: &Path) -> Option<String> {
-        let homes = ["/home", "/root", "/run/user"];
         if file.is_relative() {
             Some("a service needs an absolute path".into())
         } else if let Some(why) = self.hidden(file) {
             Some(why)
-        } else if all_paths_under(&[file.to_path_buf()], &homes)
-            && !all_paths_under(&m.files, &homes)
-        {
+        } else if HOMES.iter().any(|h| file.starts_with(h)) && !any_path_under(&m.files, &HOMES) {
             Some("it is in a home folder, which the service was installed without access to".into())
         } else if !self.can_read(&m.account, file) {
             Some(format!("its account {} cannot read it", m.account))
@@ -245,7 +270,7 @@ impl Backend for Systemd {
         }
         super::system::write_file(
             Path::new(TMPFILES),
-            format!("d {INSTANCE_DIR} 1777 root root -\n").as_bytes(),
+            format!("d {} 1777 root root -\n", instance_dir().display()).as_bytes(),
         )?;
         run("systemd-tmpfiles", &["--create", TMPFILES])?;
         Ok(())
@@ -298,12 +323,7 @@ impl Backend for Systemd {
     fn start(&self, m: &Manifest) -> Result<(), Failure> {
         run("systemctl", &["start", &m.name])
             .map(drop)
-            .map_err(|f| {
-                f.hint(format!(
-                    "see why with: {}",
-                    crate::base::failure::admin(&format!("service logs {}", m.name))
-                ))
-            })
+            .map_err(|f| f.hint(super::logs_hint(&m.name)))
     }
 
     fn stop(&self, m: &Manifest) -> Result<(), Failure> {
@@ -360,10 +380,7 @@ impl Backend for Systemd {
         };
         let pid = get("MainPID").parse::<u32>().ok().filter(|p| *p > 0);
         let detail = match get("ExecMainStatus").as_str() {
-            "3" => format!(
-                "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                crate::base::failure::admin(&format!("service start {}", m.name))
-            ),
+            code if super::is_config_exit(code) => super::config_exit_detail(&m.name),
             "203" => format!(
                 "{} {}: systemd could not run {} as {} (203/EXEC); the account may not reach the binary",
                 get("ActiveState"),
@@ -441,7 +458,7 @@ mod tests {
         ] {
             let m = Manifest {
                 name: "burrow-home".into(),
-                role: role.into(),
+                role: crate::install::Role::parse(role).unwrap(),
                 config: "/etc/burrow/home/server.yaml".into(),
                 source_config: "/home/me/home.yaml".into(),
                 env_file: None,
@@ -454,6 +471,7 @@ mod tests {
                 files: vec![],
                 version: "0.1.0".into(),
                 admin_writable: false,
+                web_state: None,
             };
             let unit = Systemd.render(&m);
             assert!(
@@ -473,7 +491,7 @@ mod tests {
     fn server_manifest() -> Manifest {
         Manifest {
             name: "burrow-home".into(),
-            role: "server".into(),
+            role: crate::install::Role::Server,
             config: "/etc/burrow/home/server.yaml".into(),
             source_config: "/home/me/home.yaml".into(),
             env_file: Some("/etc/burrow/home.env".into()),
@@ -486,6 +504,7 @@ mod tests {
             files: vec![],
             version: "0.1.0".into(),
             admin_writable: false,
+            web_state: None,
         }
     }
 
@@ -493,6 +512,11 @@ mod tests {
     fn the_server_unit_is_unchanged_byte_for_byte() {
         let unit = Systemd.render(&server_manifest());
         assert_eq!(unit, GOLDEN_UNIT);
+        assert!(unit.contains(&format!(
+            "RestartPreventExitStatus={} {}\n",
+            crate::base::failure::EXIT_USAGE,
+            crate::base::failure::EXIT_CONFIG
+        )));
     }
 
     #[test]
@@ -507,6 +531,33 @@ mod tests {
             "ReadWritePaths=/run/burrow-instances\nReadWritePaths=/etc/burrow/home\n",
         );
         assert_eq!(unit, expected);
+    }
+
+    #[test]
+    fn percent_and_dollar_in_paths_reach_the_program_unchanged() {
+        let m = Manifest {
+            config: "/etc/burrow/a%b$c d.yaml".into(),
+            env_file: Some("/etc/burrow/100%.env".into()),
+            admin_writable: true,
+            ..server_manifest()
+        };
+        let unit = Systemd.render(&m);
+        assert!(
+            unit.contains("server -c \"/etc/burrow/a%%b$$c d.yaml\" --log-file"),
+            "{unit}"
+        );
+        assert!(
+            unit.contains("EnvironmentFile=/etc/burrow/100%%.env\n"),
+            "{unit}"
+        );
+        let m = Manifest {
+            config: "/srv/$x/server.yaml".into(),
+            admin_writable: true,
+            ..server_manifest()
+        };
+        let unit = Systemd.render(&m);
+        assert!(unit.contains("-c /srv/$$x/server.yaml "), "{unit}");
+        assert!(unit.contains("ReadWritePaths=/srv/$x\n"), "{unit}");
     }
 
     const GOLDEN_UNIT: &str = "[Unit]\nDescription=burrow server \"home\"\nDocumentation=https://github.com/charlesng35/burrow\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=burrow-home\nExecStart=/usr/local/bin/burrow server -c /etc/burrow/home/server.yaml --log-file /var/log/burrow/home/home.log\nExecReload=/bin/kill -HUP $MAINPID\nEnvironmentFile=/etc/burrow/home.env\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\nReadWritePaths=/run/burrow-instances\nLogsDirectory=burrow/home\nLogsDirectoryMode=0750\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nDevicePolicy=closed\nPrivateUsers=yes\nProtectClock=yes\nProtectHostname=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectKernelLogs=yes\nProtectControlGroups=yes\nProtectProc=invisible\nProcSubset=pid\nRestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nRemoveIPC=yes\nSystemCallArchitectures=native\nSystemCallFilter=@system-service\nSystemCallFilter=~@privileged @resources\nSystemCallErrorNumber=EPERM\nCapabilityBoundingSet=\nAmbientCapabilities=\n\n[Install]\nWantedBy=multi-user.target\n";

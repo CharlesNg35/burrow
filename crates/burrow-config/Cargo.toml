@@ -1,6 +1,6 @@
 [package]
 name = "burrow-config"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "The burrow config model, shared by the server and the admin UI"
 license = "MIT"
@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 burrow-admin-derive = { path = "../burrow-admin-derive" }
 burrow-admin-proto = { path = "../burrow-admin-proto" }
+burrow-syntax = { path = "../burrow-syntax" }
 schemars = { version = "1.2.3", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 

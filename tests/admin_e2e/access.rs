@@ -433,8 +433,82 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             "an ended session does not retry"
         );
         c.ui.shot("admin-session-ended").await;
+        let live: bool = c
+            .ui
+            .eval("!document.querySelector('[data-testid=search-open]').disabled || !document.querySelector('[data-testid=server-switcher]').disabled || !document.querySelector('nav[aria-label=Sections]').inert")
+            .await;
+        assert!(
+            !live,
+            "after the session ends the header's controls do nothing and say so"
+        );
         c.ui.take_errors();
     })
+}
+
+const COUNT_SOCKETS: &str = "(() => { const W = window.WebSocket; window.__sockets = []; const Counted = function (...a) { const s = new W(...a); window.__sockets.push(s); return s; }; Counted.prototype = W.prototype; Object.assign(Counted, W); window.WebSocket = Counted; })()";
+const LIVE_SOCKETS: &str = "window.__sockets.filter(s => s.readyState <= 1).length";
+
+fn retry_now(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        let port = world::free_port();
+        let url = c.world.open_admin_on("ops", port);
+        c.ui.init_script(COUNT_SOCKETS).await;
+        c.ui.goto(&url).await;
+        c.ui.wait_text("[data-testid=conn-pill]", "Connected to", SECS)
+            .await;
+        c.world.stop("admin-ops");
+        for _ in 0..2 {
+            c.ui.wait_for("[data-testid=banner-reconnecting]", Duration::from_secs(20))
+                .await;
+            let _: bool = c
+                .ui
+                .eval("([...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Retry now')?.click(), true)")
+                .await;
+        }
+        let _ = std::fs::remove_file(c.world.file("url-ops"));
+        c.world.open_admin_on("ops", port);
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected to",
+            Duration::from_secs(20),
+        )
+        .await;
+        c.ui.wait_true(
+            &format!("{LIVE_SOCKETS} === 1"),
+            "one socket after the retries",
+            SECS,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(11)).await;
+        let live: u64 = c.ui.eval(LIVE_SOCKETS).await;
+        assert_eq!(
+            live, 1,
+            "no older retry chain opens a second socket within the longest delay"
+        );
+        let refused = |l: &String| {
+            (l.starts_with("log: WebSocket connection to 'ws://")
+                && l.ends_with(
+                    "failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED ",
+                ))
+                || (l.starts_with(
+                    "log: Failed to load resource: net::ERR_CONNECTION_REFUSED http://",
+                ) && l.ends_with("/api"))
+        };
+        let logged: Vec<String> =
+            c.ui.take_errors()
+                .into_iter()
+                .filter(|l| !refused(l))
+                .collect();
+        assert!(
+            logged.is_empty(),
+            "only the refused connections of the outage are logged: {logged:?}"
+        );
+    })
+}
+
+#[test]
+fn retry_now_while_reconnecting_keeps_one_socket() {
+    run("retry-now", Options::default(), false, retry_now);
 }
 
 #[test]

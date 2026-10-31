@@ -1,6 +1,5 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::time::Duration;
 
 use super::checks::ax_names;
 use super::world;
@@ -14,7 +13,10 @@ fn fallback(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.nav("/services/capped?tab=settings").await;
         let bw = "[data-schema='services/*/bandwidth']";
         let text = c.ui.wait_text(bw, "40mbit", SECS).await;
-        assert!(text.contains("Checked by the server"), "{text}");
+        assert!(
+            text.contains("The server checks this value when you apply"),
+            "{text}"
+        );
         assert_eq!(c.ui.count(&format!("{bw} [data-render=fallback]")).await, 1);
         c.ui.shot("bandwidth-shown-by-its-fallback").await;
         let region = "[data-schema='services/*/region'] [data-testid=raw-node]";
@@ -92,7 +94,12 @@ fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=entity-list] [data-row=svc29]", SECS)
             .await;
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        c.ui.wait_true(
+            "(() => { const a = document.querySelector('[data-testid=entity-list]').getBoundingClientRect(); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); return Math.abs(a.top - h.height) < 1.5 && Math.abs(a.height - (window.innerHeight - h.height)) < 1.5; })()",
+            "the list pane sits under the header and fills the rest of the viewport",
+            SECS,
+        )
+        .await;
         let geo: Vec<f64> = c
             .ui
             .eval("(() => { const a = document.querySelector('[data-testid=entity-list]').getBoundingClientRect(); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); return [a.top, a.height, h.height, window.innerHeight]; })()")
@@ -142,20 +149,20 @@ fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             c.ui.eval("(() => { window.scrollTo(0, 0); return true; })()")
                 .await;
         c.ui.nav("/services/svc29").await;
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let visible: bool = c
-            .ui
-            .eval("(() => { const l = document.querySelector('[data-testid=entity-list] [data-testid=list]').getBoundingClientRect(); const r = document.querySelector('[data-row=svc29]').getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; })()")
-            .await;
-        assert!(visible, "the selected row scrolls into view");
+        c.ui.wait_true(
+            "(() => { const l = document.querySelector('[data-testid=entity-list] [data-testid=list]').getBoundingClientRect(); const r = document.querySelector('[data-row=svc29]').getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; })()",
+            "the selected row scrolls into view",
+            SECS,
+        )
+        .await;
         c.ui.viewport(390, 844).await;
         c.ui.nav("/services").await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        let stacked: f64 = c
-            .ui
-            .eval("(() => { window.scrollTo(0, 400); return document.scrollingElement.scrollTop; })()")
-            .await;
-        assert!(stacked > 0.0, "on a phone the list scrolls with the page");
+        c.ui.wait_true(
+            "(() => { window.scrollTo(0, 400); return document.scrollingElement.scrollTop > 0; })()",
+            "on a phone the list scrolls with the page",
+            SECS,
+        )
+        .await;
         let switcher = c.ui.text("[data-testid=server-switcher]").await;
         assert!(
             !switcher.contains(" up "),
@@ -363,13 +370,17 @@ fn schema_walk(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         let mut seen: Vec<String> = Vec::new();
         let mut unset: Vec<String> = Vec::new();
         for (path, tabs) in [
-            ("/settings", &[][..]),
+            (
+                "/settings",
+                &["server", "connections", "proxy", "monitoring"][..],
+            ),
             ("/clients/office", &["settings", "secrets"][..]),
             ("/visitors/ops", &["access", "secrets"][..]),
             ("/visitors/laptop", &["access"][..]),
             ("/services/web", &["settings"][..]),
             ("/services/game", &["settings"][..]),
             ("/services/dns", &["settings"][..]),
+            ("/services/nas", &["settings"][..]),
         ] {
             c.ui.nav(path).await;
             let steps: Vec<Option<&str>> = if tabs.is_empty() {
@@ -418,11 +429,15 @@ fn every_server_config_field_is_shown_somewhere() {
     let opts = Options {
         clients: Some(vec!["home", "office"]),
         extra_services: format!(
-            "  game:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    bind: 127.0.0.1:{p}\n    target: 7000\n    max_connections: 9\n    allow_from: [127.0.0.1/32]\n    deny_from: [10.0.0.0/8]\n    proxy_protocol: v1\n    bandwidth: 5MB\n  dns:\n    client: office\n    protocol: udp\n    bind: 127.0.0.1:{q}\n    target: 53\n",
+            "  game:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    bind: 127.0.0.1:{p}\n    target: 7000\n    max_connections: 9\n    allow_from: [127.0.0.1/32]\n    deny_from: [10.0.0.0/8]\n    proxy_protocol: v1\n    bandwidth: 5MB\n  dns:\n    client: office\n    protocol: udp\n    bind: 127.0.0.1:{q}\n    target: 53\n  nas:\n    client: home\n    target: 8443\n    web: {{ hosts: [nas.example.com], tls: passthrough }}\n",
             p = world::free_port(),
             q = world::free_port()
         ),
         ..Options::default()
+    };
+    let opts = Options {
+        extra_top: "web:\n  https: 127.0.0.1:HTTPS_PORT\n".into(),
+        ..opts
     };
     run("schema-walk", opts, false, schema_walk);
 }

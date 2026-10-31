@@ -103,6 +103,25 @@ const TEXT: &[(&str, &str)] = &[
     ("hdr-on", "hdr"),
     ("hdr-on", "tab-on"),
     ("tip-text", "tip"),
+    ("text-faint", "surface-3"),
+    ("text-muted", "accent-weak"),
+    ("text-faint", "accent-weak"),
+    ("hdr-muted", "hdr-raised"),
+    ("hdr-muted", "hdr-raised-2"),
+    ("success", "success-weak"),
+    ("warning", "warning-weak"),
+];
+
+const ON_PAGE: &[(&str, &str)] = &[
+    ("success@bg", "success-weak@bg"),
+    ("warning@bg", "warning-weak@bg"),
+    ("danger@bg", "danger-weak@bg"),
+    ("accent-ink@bg", "accent-weak@bg"),
+    ("udp@bg", "udp-weak@bg"),
+    ("udp@surface", "udp-weak@surface"),
+    ("success@surface-2", "success-weak@surface-2"),
+    ("danger@surface-2", "danger-weak@surface-2"),
+    ("accent-ink@surface-2", "accent-weak@surface-2"),
 ];
 
 const UI: &[(&str, &str)] = &[
@@ -110,6 +129,8 @@ const UI: &[(&str, &str)] = &[
     ("border-strong", "input"),
     ("accent", "surface"),
     ("accent", "bg"),
+    ("border-strong", "bg"),
+    ("border-strong", "surface-2"),
 ];
 
 fn rgba(v: &str) -> Option<([f64; 3], f64)> {
@@ -127,11 +148,12 @@ fn rgba(v: &str) -> Option<([f64; 3], f64)> {
 }
 
 fn color(t: &BTreeMap<String, String>, name: &str, mode: &str) -> [f64; 3] {
+    let (name, base) = name.split_once('@').unwrap_or((name, "surface"));
     let (token, hover) = match name.split_once(':') {
         Some((n, _)) => (n, true),
         None => (name, false),
     };
-    let under = rgba(&t["surface"]).expect("surface is a color").0;
+    let under = rgba(&t[base]).expect("the base is a color").0;
     let (c, a) = t
         .get(token)
         .and_then(|v| rgba(v))
@@ -169,6 +191,12 @@ fn every_text_pair_meets_aa_in_both_themes() {
 }
 
 #[test]
+fn tags_and_tints_on_the_grey_page_meet_aa_in_both_themes() {
+    let bad = failures(ON_PAGE, 4.5);
+    assert!(bad.is_empty(), "below 4.5:1: {bad:#?}");
+}
+
+#[test]
 fn borders_and_the_accent_meet_three_to_one_in_both_themes() {
     let bad = failures(UI, 3.0);
     assert!(bad.is_empty(), "below 3:1: {bad:#?}");
@@ -192,4 +220,12 @@ fn the_dark_theme_is_the_same_for_the_class_and_the_system_setting() {
 fn the_ratio_matches_known_values() {
     assert!((ratio([0.0; 3], [255.0; 3]) - 21.0).abs() < 1e-9);
     assert!((ratio([255.0; 3], [255.0; 3]) - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn the_one_tooltip_uses_the_tip_colours_in_both_themes() {
+    let kit = include_str!("../../burrow-ui-kit/src/overlay.rs");
+    assert!(kit.contains("bg-tip") && kit.contains("text-tip-text"));
+    let flow = include_str!("screens/flow/view.rs");
+    assert!(flow.contains("<Tooltip") && !flow.contains("bg-tip"));
 }

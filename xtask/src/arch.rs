@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 
 const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
@@ -24,6 +23,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-ui-kit",
             "burrow-admin-logic",
             "burrow-admin-ui",
+            "burrow-web",
         ],
     ),
     (
@@ -34,12 +34,17 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-syntax",
             "semver",
         ],
-        &[],
+        &["burrow-web"],
     ),
     (
         "burrow-ui-kit",
         &["leptos", "wasm-bindgen", "web-sys", "js-sys"],
-        &["burrow-admin-proto", "burrow-syntax", "burrow-admin-logic"],
+        &[
+            "burrow-admin-proto",
+            "burrow-syntax",
+            "burrow-admin-logic",
+            "burrow-web",
+        ],
     ),
     (
         "burrow-admin-ui",
@@ -56,7 +61,53 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-syntax",
             "console_error_panic_hook",
         ],
-        &["serde_json"],
+        &["serde_json", "burrow-web"],
+    ),
+    (
+        "burrow-web",
+        &[
+            "argon2",
+            "async-compression",
+            "base64",
+            "bcrypt",
+            "burrow-syntax",
+            "bytes",
+            "governor",
+            "h2",
+            "hickory-proto",
+            "http",
+            "http-body-util",
+            "httpdate",
+            "hyper",
+            "hyper-util",
+            "instant-acme",
+            "ipconfig",
+            "ppp",
+            "rcgen",
+            "resolv-conf",
+            "ring",
+            "rustls-webpki",
+            "serde",
+            "serde_json",
+            "socket2",
+            "time",
+            "tokio",
+            "tokio-rustls",
+            "tokio-util",
+            "tracing",
+            "webpki-roots",
+            "x509-cert",
+            "zeroize",
+        ],
+        &[
+            "burrow",
+            "burrow-config",
+            "burrow-admin-proto",
+            "burrow-admin-derive",
+            "burrow-admin-logic",
+            "burrow-admin-ui",
+            "burrow-ui-kit",
+        ],
     ),
 ];
 
@@ -80,7 +131,7 @@ pub fn run(root: &Path) -> Result<(), String> {
 }
 
 fn check_deps(root: &Path) -> Result<Vec<String>, String> {
-    let out = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+    let out = crate::cargo()
         .args([
             "metadata",
             "--format-version",
@@ -169,5 +220,28 @@ mod tests {
         );
         assert_eq!(dep_problems("burrow-config", &["serde", "tokio"]).len(), 1);
         assert_eq!(dep_problems("burrow-config", &["burrow"]).len(), 1);
+        assert!(dep_problems("burrow-web", &["tokio", "hyper", "burrow-syntax"]).is_empty());
+        for never in [
+            "burrow",
+            "burrow-config",
+            "burrow-admin-proto",
+            "burrow-ui-kit",
+        ] {
+            assert_eq!(
+                dep_problems("burrow-web", &[never]),
+                [format!("crate burrow-web must not depend on {never}")]
+            );
+        }
+        for ui in [
+            "burrow-config",
+            "burrow-admin-logic",
+            "burrow-ui-kit",
+            "burrow-admin-ui",
+        ] {
+            assert_eq!(
+                dep_problems(ui, &["burrow-web"]),
+                [format!("crate {ui} must not depend on burrow-web")]
+            );
+        }
     }
 }

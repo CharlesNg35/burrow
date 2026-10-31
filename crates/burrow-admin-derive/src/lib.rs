@@ -148,6 +148,9 @@ fn redundant(terms: &[Term], label: &str, derived: &str, errors: &mut Errors) {
 }
 
 pub(crate) fn humanize(name: &str) -> String {
+    let name = name
+        .strip_prefix("max_")
+        .map_or_else(|| name.to_string(), |rest| format!("maximum_{rest}"));
     let words = name.replace('_', " ");
     let mut c = words.chars();
     match c.next() {

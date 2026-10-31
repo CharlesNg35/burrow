@@ -34,14 +34,6 @@ async fn recording_target() -> (SocketAddr, Arc<Mutex<Vec<Vec<u8>>>>) {
     (addr, seen)
 }
 
-fn quick() -> Option<Health> {
-    Some(Health {
-        interval: Duration::from_millis(200),
-        timeout: Duration::from_secs(1),
-        failures: 1,
-    })
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn health_probes_send_no_bytes_to_the_target_in_plaintext_mode() {
     let (target, seen) = recording_target().await;
@@ -49,7 +41,7 @@ async fn health_probes_send_no_bytes_to_the_target_in_plaintext_mode() {
     let mut s = server_settings(vec![secret.clone()]);
     s.insecure_plaintext = true;
     let checked = Service {
-        health: quick(),
+        health: Some(quick_health()),
         ..service(target, Protocol::Tcp)
     };
     let _t = tunnel_with(
@@ -104,8 +96,7 @@ async fn adding_a_backup_client_keeps_open_visits() {
     let mut web = private_service(echo, &["laptop"]);
     web.clients.push("spare".into());
     next.services.insert("web".into(), web);
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    t.server.reload_applied(next).await;
     conn.write_all(b"ping").await.unwrap();
     let mut buf = [0u8; 4];
     let r = tokio::time::timeout(Duration::from_secs(3), conn.read_exact(&mut buf)).await;
@@ -266,6 +257,7 @@ async fn many_probes_leave_no_open_connections_or_drained_pool() {
             interval: Duration::from_millis(1),
             timeout: Duration::from_secs(1),
             failures: 1,
+            http: None,
         }),
         ..service(target, Protocol::Tcp)
     };
@@ -297,7 +289,7 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
     let mut settings = server_settings(vec![secret.clone()]);
     settings.metrics = Some("127.0.0.1:0".parse().unwrap());
     let checked = Service {
-        health: quick(),
+        health: Some(quick_health()),
         ..service(echo, Protocol::Tcp)
     };
     let t = tunnel_with(
@@ -328,8 +320,12 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn balance_stays_even_while_one_client_is_down() {
-    let ea = tcp_tag_echo(b'A').await;
-    let eb = tcp_tag_echo(b'B').await;
+    let ea = super::tagged_echo_on("127.0.0.1:0".parse().unwrap(), b'A')
+        .await
+        .0;
+    let eb = super::tagged_echo_on("127.0.0.1:0".parse().unwrap(), b'B')
+        .await
+        .0;
     let (_held, dead) = refusing();
     let names = [
         ("a", Secret::generate(), ea),
@@ -351,7 +347,7 @@ async fn balance_stays_even_while_one_client_is_down() {
         clients: vec!["a".into(), "b".into(), "c".into()],
         mode: burrow_config::Mode::Balance,
         target: "app.test:80".into(),
-        health: quick(),
+        health: Some(quick_health()),
         ..service(ea, Protocol::Tcp)
     };
     settings.services.insert("web".into(), web);
@@ -379,24 +375,6 @@ async fn balance_stays_even_while_one_client_is_down() {
     drop(running);
 }
 
-async fn tcp_tag_echo(tag: u8) -> SocketAddr {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut s, _)) = l.accept().await else {
-                return;
-            };
-            tokio::spawn(async move {
-                let _ = s.write_all(&[tag]).await;
-                let mut sink = Vec::new();
-                let _ = s.read_to_end(&mut sink).await;
-            });
-        }
-    });
-    addr
-}
-
 async fn first_byte(addr: SocketAddr) -> Option<u8> {
     let mut s = TcpStream::connect(addr).await.ok()?;
     let mut b = [0u8; 1];
@@ -411,7 +389,9 @@ async fn first_byte(addr: SocketAddr) -> Option<u8> {
 async fn a_reconnecting_client_with_a_dead_target_does_not_take_traffic_back() {
     logs();
     let (_held, dead) = refusing();
-    let eb = tcp_tag_echo(b'B').await;
+    let eb = super::tagged_echo_on("127.0.0.1:0".parse().unwrap(), b'B')
+        .await
+        .0;
     let (sa, sb) = (Secret::generate(), Secret::generate());
     let mut settings = server_settings(vec![]);
     settings.clients.clear();
@@ -431,6 +411,7 @@ async fn a_reconnecting_client_with_a_dead_target_does_not_take_traffic_back() {
             interval: Duration::from_millis(500),
             timeout: Duration::from_secs(1),
             failures: 2,
+            http: None,
         }),
         ..service(eb, Protocol::Tcp)
     };

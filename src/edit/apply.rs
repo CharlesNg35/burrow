@@ -2,6 +2,7 @@ use std::io::Write;
 
 use super::found::{Found, Origin};
 use crate::base::failure::{Failure, admin};
+use crate::base::output::say;
 use crate::config::Role;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -30,10 +31,6 @@ pub fn after(f: &Found) -> After {
         } => After::NextStart(name.clone()),
         Origin::Folder => After::Nothing,
     }
-}
-
-fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
-    writeln!(out, "{}", line.as_ref()).map_err(|e| Failure::new(format!("cannot write: {e}")))
 }
 
 pub fn apply(after: After, out: &mut dyn Write) -> Result<(), Failure> {

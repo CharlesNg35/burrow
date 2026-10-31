@@ -10,31 +10,7 @@ use crate::form::plain;
 pub(crate) use service::service;
 
 pub fn clients_of(svc: &Value) -> Vec<String> {
-    match (
-        ServiceEntry::CLIENT.get(svc),
-        ServiceEntry::CLIENTS.get(svc),
-    ) {
-        (Some(Value::String(c)), _) => vec![c.clone()],
-        (_, Some(Value::Array(a))) => a.iter().map(plain).collect(),
-        (_, Some(Value::String(c))) => vec![c.clone()],
-        _ => Vec::new(),
-    }
-}
-
-pub fn port_count(v: Option<&Value>) -> u32 {
-    let Some(v) = v else { return 0 };
-    let s = plain(v);
-    if s.starts_with("unix:") {
-        return 1;
-    }
-    let port = s.rsplit_once(':').map_or(s.as_str(), |(_, p)| p);
-    match port.split_once('-') {
-        Some((a, b)) => match (a.trim().parse::<u32>(), b.trim().parse::<u32>()) {
-            (Ok(a), Ok(b)) if b >= a => b - a + 1,
-            _ => 1,
-        },
-        None => 1,
-    }
+    ServiceEntry::client_names(svc)
 }
 
 pub fn online(status: Option<&Status>, client: &str) -> bool {
@@ -57,14 +33,18 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
             m.iter()
                 .filter(|(_, v)| clients_of(v).iter().any(|x| x == name))
                 .map(|(n, v)| {
-                    let at = ServiceEntry::BIND.get(v).filter(|b| !b.is_null()).map(|b| {
-                        let t = plain(b);
-                        match t.rsplit_once(':') {
-                            Some((_, p)) => format!(":{p}"),
-                            None => format!(":{t}"),
-                        }
-                    });
-                    (n.clone(), at.unwrap_or_else(|| "private".into()))
+                    let at = ServiceEntry::BIND
+                        .get(v)
+                        .filter(|b| !b.is_null())
+                        .map(|b| {
+                            let t = plain(b);
+                            match t.rsplit_once(':') {
+                                Some((_, p)) => format!(":{p}"),
+                                None => format!(":{t}"),
+                            }
+                        })
+                        .unwrap_or_else(|| burrow_admin_logic::web::reached(v));
+                    (n.clone(), at)
                 })
                 .collect()
         })
@@ -127,7 +107,11 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
         ],
         summary: format!(
             "Client {name} is {} and serves {} services",
-            if on { "online" } else { "offline" },
+            if on {
+                burrow_admin_logic::wording::ONLINE
+            } else {
+                burrow_admin_logic::wording::OFFLINE
+            },
             served.len()
         ),
     }
@@ -293,10 +277,11 @@ pub fn udp(svc: &Value) -> bool {
         == Some(Protocol::Udp)
 }
 
-pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
+pub const PICK_VISITORS: &str =
+    "Turn on a way in: Public port, Website, or Visitors with at least one visitor";
 
 pub fn add_blocker(svc: &Value) -> Option<&'static str> {
-    let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
+    let public = burrow_admin_logic::web::is_public(svc);
     let picked = ServiceEntry::VISITORS
         .get(svc)
         .and_then(Value::as_array)
@@ -347,6 +332,11 @@ mod tests {
             None
         );
         assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 443, "web": "nas.example.com"})),
+            None,
+            "a website is reached by its name"
+        );
+        assert_eq!(
             add_blocker(&json!({"client": "a", "target": 53, "protocol": "udp"})),
             Some(PICK_VISITORS)
         );
@@ -381,7 +371,7 @@ mod tests {
         assert_eq!(p.hops[0].state, HopState::Bad);
         assert_eq!(p.hops[1].unit, "11 ports · TCP");
         assert_eq!(p.hops[2].value, "a · b");
-        assert_eq!(p.edges[1].above, "balance");
+        assert_eq!(p.edges[1].above, "Balance");
         assert_eq!(p.edges[2].state, EdgeState::Error);
         assert_eq!(p.hops[3].badge.as_ref().unwrap().0, "6 ≠ 11 ports");
         assert!(
@@ -401,10 +391,8 @@ mod tests {
             false,
             &[],
         );
-        assert_eq!(p.hops[1].value, "private");
+        assert_eq!(p.hops[1].value, burrow_admin_logic::web::VISITORS_ONLY);
         assert_eq!(p.hops[1].unit, "TCP");
-        assert_eq!(port_count(Some(&json!("unix:/run/x.sock"))), 1);
-        assert_eq!(port_count(Some(&json!(7840))), 1);
     }
 
     #[test]
@@ -419,7 +407,7 @@ mod tests {
         let p = service("dns", &dns, None, &none, false, &[]);
         assert_eq!(p.hops[0].head, "Visitors");
         assert_eq!(p.hops[0].value, "lap · ops");
-        assert_eq!(p.hops[1].value, "private");
+        assert_eq!(p.hops[1].value, burrow_admin_logic::web::VISITORS_ONLY);
         assert_eq!(p.hops[1].unit, "UDP");
     }
 

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use burrow::client::State;
-use burrow::config::settings::{Health, ServerSettings, Service};
+use burrow::config::settings::{ServerSettings, Service};
 use burrow::policy::allowlist::{AllowList, Rule};
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
@@ -32,37 +32,6 @@ fn self_settings(services: Vec<(&str, Service)>) -> ServerSettings {
         s.services.insert(name.to_string(), svc);
     }
     s
-}
-
-use common::free_range;
-
-async fn tagged_targets(count: u16) -> u16 {
-    let base = free_range(count);
-    for i in 0..count {
-        let l = TcpListener::bind(("127.0.0.1", base + i)).await.unwrap();
-        tokio::spawn(async move {
-            loop {
-                let Ok((mut s, _)) = l.accept().await else {
-                    return;
-                };
-                let port = s.local_addr().unwrap().port();
-                tokio::spawn(async move {
-                    let _ = s.write_all(&port.to_be_bytes()).await;
-                });
-            }
-        });
-    }
-    base
-}
-
-async fn lands_on(addr: SocketAddr) -> u16 {
-    let mut s = TcpStream::connect(addr).await.unwrap();
-    let mut port = [0u8; 2];
-    tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut port))
-        .await
-        .expect("the target answers in time")
-        .unwrap();
-    u16::from_be_bytes(port)
 }
 
 fn client_open(server: &RunningServer, name: &str) -> u64 {
@@ -212,7 +181,7 @@ async fn udp_on_self_reaches_a_target_on_the_port_of_burrows_tcp_listener() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn each_port_of_a_self_range_leads_to_its_own_target() {
     logs();
-    let targets = tagged_targets(3).await;
+    let targets = tagged_tcp_targets(3).await;
     let binds = free_range(3);
     let svc = Service {
         bind: Some(SocketAddr::from(([127, 0, 0, 1], binds))),
@@ -223,7 +192,10 @@ async fn each_port_of_a_self_range_leads_to_its_own_target() {
     let _srv = start_server(self_settings(vec![("range", svc)])).await;
     for i in 0..3 {
         let at = SocketAddr::from(([127, 0, 0, 1], binds + i));
-        assert_eq!(lands_on(at).await, targets + i);
+        assert_eq!(
+            tcp_lands_on(at).await.expect("the target answers in time"),
+            targets + i
+        );
     }
 }
 
@@ -238,11 +210,7 @@ async fn failover_moves_between_self_and_a_remote_client() {
         "web".into(),
         Service {
             clients: vec!["self".into(), "home".into()],
-            health: Some(Health {
-                interval: Duration::from_millis(200),
-                timeout: Duration::from_secs(1),
-                failures: 1,
-            }),
+            health: Some(quick_health()),
             ..service(echo, Protocol::Tcp)
         },
     );
@@ -280,11 +248,7 @@ async fn self_takes_over_when_the_remote_client_cannot_reach_the_target() {
         "web",
         Service {
             clients: vec!["home".into(), "self".into()],
-            health: Some(Health {
-                interval: Duration::from_millis(200),
-                timeout: Duration::from_secs(1),
-                failures: 1,
-            }),
+            health: Some(quick_health()),
             ..service(echo, Protocol::Tcp)
         },
     )]);

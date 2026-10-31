@@ -93,11 +93,7 @@ pub fn join(p: &Parts) -> Option<Value> {
             Err(_) => Value::String(port),
         });
     }
-    let host = if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    };
+    let host = burrow_syntax::address::url_host(host).into_owned();
     Some(Value::String(if port.is_empty() {
         host
     } else {
@@ -139,7 +135,7 @@ pub fn split_server(v: Option<&Value>) -> Server {
         }
     }
     Server {
-        scheme: "host",
+        scheme: "name",
         rest: t.to_string(),
     }
 }
@@ -150,7 +146,7 @@ pub fn join_server(s: &Server) -> Option<Value> {
         return None;
     }
     Some(Value::String(match s.scheme {
-        "host" => rest.to_string(),
+        "name" => rest.to_string(),
         scheme => format!("{scheme}://{rest}"),
     }))
 }

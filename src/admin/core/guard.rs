@@ -1,17 +1,24 @@
 mod effects;
 mod grants;
+mod reach;
+mod web_ports;
+mod websocket;
 
 use std::net::SocketAddr;
 use std::path::Path;
 
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::plan::Refusal;
+use burrow_syntax::grant::{
+    LAST_WRITER, SELF_DEMOTED, SELF_REMOVED, SELF_SECRET, SELF_SOURCE, SELF_TRANSPORT,
+};
 
 use crate::config::patch::Rename;
-use crate::config::settings::ServerSettings;
+use crate::config::settings::{ServerSettings, Shares};
 use crate::wire::secret::Secret;
 
 pub use effects::impacts;
+pub use web_ports::{busy as busy_web_ports, refusals as shared_web_port};
 
 pub struct Who<'a> {
     pub visitor: &'a str,
@@ -49,19 +56,19 @@ pub fn refusals(who: &Who, change: &Change) -> Vec<Refusal> {
     let me = who.visitor;
     match new.visitors.get(me) {
         None => out.push(refusal(
-            "self-removed",
+            SELF_REMOVED,
             format!("this change removes visitor \"{me}\", which you are signed in as; you would lose access"),
         )),
         Some(v) => {
             if v.admin != Some(AdminLevel::Write) {
                 out.push(refusal(
-                    "self-demoted",
+                    SELF_DEMOTED,
                     format!("this change takes write access away from visitor \"{me}\", which you are signed in as"),
                 ));
             }
             if !v.secrets.contains(who.secret) {
                 out.push(refusal(
-                    "self-secret",
+                    SELF_SECRET,
                     format!(
                         "this change removes secret {}, which this session signed in with",
                         who.secret.fingerprint()
@@ -70,7 +77,7 @@ pub fn refusals(who: &Who, change: &Change) -> Vec<Refusal> {
             }
             if v.admin.is_some() && !v.admits_admin(who.peer.ip()) {
                 out.push(refusal(
-                    "self-source",
+                    SELF_SOURCE,
                     format!(
                         "admin_from of visitor \"{me}\" would no longer admit your address {}",
                         who.peer.ip()
@@ -85,25 +92,27 @@ pub fn refusals(who: &Who, change: &Change) -> Vec<Refusal> {
         .any(|v| v.admin == Some(AdminLevel::Write))
         && out
             .iter()
-            .all(|r| r.code != "self-removed" && r.code != "self-demoted")
+            .all(|r| r.code != SELF_REMOVED && r.code != SELF_DEMOTED)
     {
         out.push(refusal(
-            "last-writer",
+            LAST_WRITER,
             "no visitor would keep write access, so nobody could change the config from burrow admin".into(),
         ));
     }
     if who.via_websocket {
-        let kept =
-            matches!((&old.websocket, &new.websocket), (Some(a), Some(b)) if a.path == b.path);
+        let kept = matches!((&old.websocket, &new.websocket), (Some(a), Some(b))
+            if a.path == b.path
+                && a.listen == b.listen
+                && (a.shares == Shares::Nothing || a.host == b.host));
         if !kept {
             out.push(refusal(
-                "self-transport",
-                "this session comes through the WebSocket listener, and this change removes it or changes its path".into(),
+                SELF_TRANSPORT,
+                "this session comes through the WebSocket listener, and this change turns it off or changes its address, path or name; make that change in the config file on the server".into(),
             ));
         }
     } else if new.listen.is_none() && old.listen.is_some() {
         out.push(refusal(
-            "self-transport",
+            SELF_TRANSPORT,
             "this session comes through the TCP listener, which this change removes".into(),
         ));
     }

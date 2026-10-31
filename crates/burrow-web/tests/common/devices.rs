@@ -1,0 +1,172 @@
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use rcgen::{CertificateParams, DistinguishedName, DnType, Issuer, KeyPair, SerialNumber};
+use tokio::net::TcpStream;
+use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
+use tokio_rustls::rustls::client::{ClientSessionMemoryCache, ClientSessionStore, Resumption};
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use tokio_rustls::rustls::{self, ClientConfig, HandshakeKind, NamedGroup};
+
+#[allow(unused_imports)]
+pub use super::pki::{DeviceCa, crl, device_ca, next_week, write};
+use super::provider;
+
+pub struct Device {
+    pub chain: Vec<CertificateDer<'static>>,
+    pub key: Arc<KeyPair>,
+}
+
+pub fn device(ca: &DeviceCa, serial: u64, chain_extra: &[&DeviceCa]) -> Device {
+    let key = KeyPair::generate().unwrap();
+    let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+    let mut dn = DistinguishedName::new();
+    dn.push(DnType::CommonName, format!("device {serial}"));
+    params.distinguished_name = dn;
+    params.serial_number = Some(SerialNumber::from(serial));
+    let cert = params
+        .signed_by(&key, &Issuer::from_params(&ca.params, &ca.key))
+        .unwrap();
+    let mut chain = vec![CertificateDer::from(cert.der().to_vec())];
+    for c in chain_extra {
+        let der = rustls::pki_types::pem::PemObject::from_pem_slice(c.pem.as_bytes()).unwrap();
+        chain.push(der);
+    }
+    Device {
+        chain,
+        key: Arc::new(key),
+    }
+}
+
+#[derive(Debug)]
+pub struct NameBlind(ClientSessionMemoryCache);
+
+fn one() -> ServerName<'static> {
+    ServerName::try_from("any.invalid").unwrap()
+}
+
+impl ClientSessionStore for NameBlind {
+    fn set_kx_hint(&self, _: ServerName<'static>, group: NamedGroup) {
+        self.0.set_kx_hint(one(), group);
+    }
+
+    fn kx_hint(&self, _: &ServerName<'_>) -> Option<NamedGroup> {
+        self.0.kx_hint(&one())
+    }
+
+    fn set_tls12_session(
+        &self,
+        _: ServerName<'static>,
+        v: rustls::client::Tls12ClientSessionValue,
+    ) {
+        self.0.set_tls12_session(one(), v);
+    }
+
+    fn tls12_session(&self, _: &ServerName<'_>) -> Option<rustls::client::Tls12ClientSessionValue> {
+        self.0.tls12_session(&one())
+    }
+
+    fn remove_tls12_session(&self, _: &ServerName<'static>) {
+        self.0.remove_tls12_session(&one());
+    }
+
+    fn insert_tls13_ticket(
+        &self,
+        _: ServerName<'static>,
+        v: rustls::client::Tls13ClientSessionValue,
+    ) {
+        self.0.insert_tls13_ticket(one(), v);
+    }
+
+    fn take_tls13_ticket(
+        &self,
+        _: &ServerName<'static>,
+    ) -> Option<rustls::client::Tls13ClientSessionValue> {
+        self.0.take_tls13_ticket(&one())
+    }
+}
+
+pub fn name_blind() -> Arc<NameBlind> {
+    Arc::new(NameBlind(ClientSessionMemoryCache::new(32)))
+}
+
+pub fn client(device: Option<&Device>, store: Option<Arc<NameBlind>>) -> TlsConnector {
+    client_alpn(device, store, &[b"http/1.1"])
+}
+
+pub fn client_alpn(
+    device: Option<&Device>,
+    store: Option<Arc<NameBlind>>,
+    alpn: &[&[u8]],
+) -> TlsConnector {
+    let b =
+        ClientConfig::builder_with_provider(provider())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(
+                burrow_web::http::upstream::target_tls::any_certificate(),
+            );
+    let mut config = match device {
+        Some(d) => {
+            let key = PrivateKeyDer::try_from(d.key.serialize_der()).unwrap();
+            b.with_client_auth_cert(d.chain.clone(), key).unwrap()
+        }
+        None => b.with_no_client_auth(),
+    };
+    config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
+    if let Some(s) = store {
+        config.resumption = Resumption::store(s);
+    }
+    TlsConnector::from(Arc::new(config))
+}
+
+pub type Shake = std::io::Result<TlsStream<TcpStream>>;
+
+pub async fn shake(addr: SocketAddr, name: &str, c: &TlsConnector) -> Shake {
+    let tcp = TcpStream::connect(addr).await?;
+    let name = ServerName::try_from(name.to_string()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), c.connect(name, tcp))
+        .await
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))?
+}
+
+pub async fn get(addr: SocketAddr, name: &str, host: &str, c: &TlsConnector) -> Option<String> {
+    let mut t = shake(addr, name, c).await.ok()?;
+    let req = format!("GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    let text = super::exchange(&mut t, req.as_bytes()).await;
+    (!text.is_empty()).then_some(text)
+}
+
+pub async fn get_h2(addr: SocketAddr, name: &str, host: &str, c: &TlsConnector) -> Option<u16> {
+    let t = shake(addr, name, c).await.ok()?;
+    assert_eq!(
+        t.get_ref().1.alpn_protocol(),
+        Some(&b"h2"[..]),
+        "the connector offered h2 and the server agreed"
+    );
+    let (send, conn) = h2::client::handshake(t).await.ok()?;
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    let mut send = send.ready().await.ok()?;
+    let req = http::Request::get(format!("https://{host}/"))
+        .body(())
+        .unwrap();
+    let (resp, _) = send.send_request(req, true).ok()?;
+    let resp = tokio::time::timeout(Duration::from_secs(5), resp)
+        .await
+        .ok()?
+        .ok()?;
+    Some(resp.status().as_u16())
+}
+
+pub async fn kind(addr: SocketAddr, name: &str, c: &TlsConnector) -> Option<HandshakeKind> {
+    let mut t = shake(addr, name, c).await.ok()?;
+    let k = t.get_ref().1.handshake_kind();
+    let req = format!("GET / HTTP/1.1\r\nHost: {name}\r\nConnection: close\r\n\r\n");
+    let text = super::exchange(&mut t, req.as_bytes()).await;
+    text.starts_with("HTTP/1.1").then_some(k).flatten()
+}

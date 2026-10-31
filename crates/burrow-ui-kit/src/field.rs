@@ -16,15 +16,24 @@ pub struct FieldState {
 pub fn tag_class(tone: Tone) -> String {
     format!(
         "inline-flex h-[18px] items-center gap-1 rounded-xs px-1.5 text-[10px] font-bold tracking-wide whitespace-nowrap {}",
-        match tone {
-            Tone::Warning => "border border-warning/40 text-warning",
-            Tone::Success => "bg-success-weak text-success",
-            Tone::Accent | Tone::Info => "bg-accent-weak text-accent-ink",
-            Tone::Danger => "bg-danger-weak text-danger",
-            Tone::Violet => "bg-udp-weak text-udp",
-            Tone::Neutral => "border border-border bg-surface-3 text-text-muted",
-        }
+        tone.tag()
     )
+}
+
+pub fn field_message(tone: Tone, m: impl IntoView + 'static) -> AnyView {
+    let (icon, class) = match tone {
+        Tone::Danger => ("alert-circle", "text-danger"),
+        Tone::Warning => ("alert", "text-warning"),
+        Tone::Info | Tone::Accent => ("info", "text-accent-ink"),
+        _ => ("info", "text-text-muted"),
+    };
+    view! {
+        <p class=format!("mt-1.5 flex items-start gap-1.5 text-xs {class}") data-tone=tone.name()>
+            <Icon name=icon small=true/>
+            <span>{m}</span>
+        </p>
+    }
+    .into_any()
 }
 
 #[component]
@@ -41,6 +50,7 @@ pub fn FieldRow(
     #[prop(optional)] table: bool,
     #[prop(optional, into)] aside: Vec<(String, Tone)>,
     #[prop(optional, into)] state: Signal<FieldState>,
+    #[prop(optional)] quiet: bool,
     children: Children,
 ) -> impl IntoView {
     let help_id = format!("{id}-help");
@@ -66,25 +76,18 @@ pub fn FieldRow(
     };
     let help_line = move || {
         let s = state.get();
-        let line = |icon: &'static str, class: &'static str, m: String| {
-            view! {
-                <p class=format!("mt-1.5 flex items-start gap-1.5 text-xs {class}")>
-                    <Icon name=icon small=true/>
-                    <span>{m}</span>
-                </p>
-            }
-            .into_any()
-        };
         s.error
-            .map(|m| line("alert-circle", "text-danger", m))
-            .or(s
-                .disabled_reason
-                .map(|m| line("info", "text-text-muted", m)))
-            .or(s.warning.map(|m| line("alert", "text-warning", m)))
-            .or(s.info.map(|m| line("info", "text-accent-ink", m)))
+            .map(|m| field_message(Tone::Danger, m))
+            .or(s.disabled_reason.map(|m| field_message(Tone::Neutral, m)))
+            .or(s.warning.map(|m| field_message(Tone::Warning, m)))
+            .or(s.info.map(|m| field_message(Tone::Info, m)))
     };
     let help_text = move || {
-        (has_help && !hide_help.get() && state.with(|s| s.error.is_none())).then(|| {
+        (has_help
+            && !quiet
+            && !hide_help.get()
+            && state.with(|s| s.error.is_none() && s.disabled_reason.is_none()))
+        .then(|| {
             let help = help.clone();
             let id = help_id.clone();
             view! { <p class="mt-1.5 text-xs text-text-muted" id=id>{help}</p> }
@@ -98,7 +101,7 @@ pub fn FieldRow(
             data-disabled=move || state.get().disabled_reason.is_some().then_some("true")
             data-modified=move || state.get().modified.then_some("true")
         >
-            <div class=if table { "flex min-w-0 flex-col items-start gap-1 pt-2" } else { "mb-1.5 flex flex-wrap items-center gap-2" }>
+            <div class=if quiet { "sr-only" } else if table { "flex min-w-0 flex-col items-start gap-1 pt-2" } else { "mb-1.5 flex flex-wrap items-center gap-2" }>
                 <label class="text-sm font-semibold" for=id.clone() id=format!("{id}-label")>
                     {label}
                 </label>
@@ -124,5 +127,29 @@ pub fn FieldRow(
                 </div>
             })}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tag_and_a_chip_of_one_tone_share_its_colours() {
+        for tone in [
+            Tone::Neutral,
+            Tone::Accent,
+            Tone::Success,
+            Tone::Warning,
+            Tone::Danger,
+            Tone::Info,
+            Tone::Violet,
+        ] {
+            assert!(tag_class(tone).ends_with(tone.tag()), "{tone:?}");
+            assert!(
+                crate::chip_class(tone, false).contains(tone.tag()),
+                "{tone:?}"
+            );
+        }
     }
 }

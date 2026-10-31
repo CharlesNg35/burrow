@@ -96,7 +96,7 @@ pub fn publish_in(
         port,
         token: token.clone(),
     };
-    let path = dir.join(format!("{}.status", entry.pid));
+    let path = dir.join(format!("{}.{}", entry.pid, super::STATUS_EXTENSION));
     let text = serde_json::to_string(&entry).expect("entry serializes");
     if let Err(e) =
         crate::instance::prepare(dir).and_then(|()| crate::base::fs::write_private(&path, &text))

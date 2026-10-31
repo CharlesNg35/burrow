@@ -98,20 +98,19 @@ fn scalar_text(src: &str, old: &Node, v: &Value) -> String {
     }
 }
 
-fn flow_text(v: &Value) -> String {
-    match v {
-        Value::Object(m) if !m.is_empty() => {
-            let parts: Vec<String> = m
-                .iter()
-                .map(|(k, v)| format!("{}: {}", scalar_str(k), flow_text(v)))
-                .collect();
-            format!("{{ {} }}", parts.join(", "))
-        }
-        Value::Array(a) if !a.is_empty() => {
-            let parts: Vec<String> = a.iter().map(flow_text).collect();
-            format!("[{}]", parts.join(", "))
-        }
-        other => inline(other),
+const INLINE_WIDTH: usize = 100;
+
+fn trailing_comment(src: &str, key_line: usize, end: usize) -> Option<String> {
+    let line = src[key_line..line_end(src, end)].trim_end_matches('\n');
+    comment_at(line)
+        .filter(|at| key_line + at >= end)
+        .map(|at| line[at..].to_string())
+}
+
+fn block_head(comment: Option<String>) -> String {
+    match comment {
+        Some(c) => format!(" {c}\n"),
+        None => "\n".to_string(),
     }
 }
 
@@ -174,16 +173,10 @@ fn diff_value(
             let Some(end) = value_end(edits) else {
                 return;
             };
-            let flow = flow_text(want);
-            let comment = {
-                let le = line_end(src, end);
-                let line = src[key_line..le].trim_end_matches('\n');
-                comment_at(line)
-                    .filter(|at| key_line + at >= end)
-                    .map(|at| line[at..].to_string())
-            };
+            let flow = crate::config::emit::flow(want);
+            let comment = trailing_comment(src, key_line, end);
             if old.span.start.line == old.span.end.line
-                && key_indent + entry.key.len() + 2 + flow.len() <= 100
+                && key_indent + entry.key.len() + 2 + flow.len() <= INLINE_WIDTH
                 && (scalar_old || is_flow(src, old))
             {
                 let (from, with) = inline_from(src, entry, flow);
@@ -195,10 +188,7 @@ fn diff_value(
                 .map(|l| format!("{child_indent}{l}\n"))
                 .collect();
             let tail_end = line_end(src, end);
-            let head = match comment {
-                Some(c) => format!(" {c}\n"),
-                None => "\n".to_string(),
-            };
+            let head = block_head(comment);
             edits.push(after_colon(), tail_end, format!("{head}{body}"));
         }
         Value::Array(a) if !a.is_empty() => {
@@ -216,28 +206,19 @@ fn diff_value(
                 edits.push(old.span.start.offset, end, text);
                 return;
             }
-            let flow = flow_text(want);
+            let flow = crate::config::emit::flow(want);
             let single = old.span.start.line == old.span.end.line || scalar_old;
-            if single && key_indent + entry.key.len() + 2 + flow.len() <= 100 {
+            if single && key_indent + entry.key.len() + 2 + flow.len() <= INLINE_WIDTH {
                 let (from, with) = inline_from(src, entry, flow);
                 edits.push(from, end, with);
                 return;
             }
-            let comment = {
-                let le = line_end(src, end);
-                let line = src[key_line..le].trim_end_matches('\n');
-                comment_at(line)
-                    .filter(|at| key_line + at >= end)
-                    .map(|at| line[at..].to_string())
-            };
+            let comment = trailing_comment(src, key_line, end);
             let body: String = a
                 .iter()
-                .map(|v| format!("{child_indent}- {}\n", flow_text(v)))
+                .map(|v| format!("{child_indent}- {}\n", crate::config::emit::flow(v)))
                 .collect();
-            let head = match comment {
-                Some(c) => format!(" {c}\n"),
-                None => "\n".to_string(),
-            };
+            let head = block_head(comment);
             edits.push(after_colon(), line_end(src, end), format!("{head}{body}"));
         }
         scalar => {
@@ -310,7 +291,7 @@ fn replace_block_seq(src: &str, old: &Node, items: &[Value], path: &[String], ed
             None => {
                 text.push_str(item_indent);
                 text.push_str("- ");
-                text.push_str(&flow_text(v));
+                text.push_str(&crate::config::emit::flow(v));
                 text.push('\n');
             }
         }

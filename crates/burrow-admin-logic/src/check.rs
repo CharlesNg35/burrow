@@ -10,15 +10,18 @@ use burrow_syntax::{hostport, ip, name, ports, rate, rule, target};
 use crate::changeset::as_new_secret;
 use crate::fallback::{Render, for_node};
 
+const GROUP: &str = "This needs several settings, not a single value";
+
 pub fn check(node: &Node, v: &Value) -> Result<(), String> {
     if v.is_null() {
         return if node.required && node.default.is_none() {
-            Err(format!("{} is required", node.label))
+            Err(crate::wording::required(&node.label))
         } else {
             Ok(())
         };
     }
-    if is_special(v) || as_new_secret(v).is_some() {
+    if is_special(v) || as_new_secret(v).is_some() || crate::changeset::as_new_password(v).is_some()
+    {
         return Ok(());
     }
     match for_node(node, Some(v)) {
@@ -86,14 +89,18 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::Bool => v
             .is_boolean()
             .then_some(())
-            .ok_or_else(|| "expected yes or no".to_string()),
+            .ok_or_else(|| "Pick Yes or No".to_string()),
         SemType::Enum(c) => {
             let s = want_text(v)?;
             if c.options.iter().any(|o| o.value == s) {
                 Ok(())
             } else {
-                let names: Vec<&str> = c.options.iter().map(|o| o.value.as_str()).collect();
-                Err(format!("pick one of {}", names.join(", ")))
+                let names: Vec<String> = c
+                    .options
+                    .iter()
+                    .map(|o| if o.label.is_empty() { o.value.clone() } else { o.label.clone() })
+                    .collect();
+                Err(format!("Pick one: {}", names.join(", ")))
             }
         }
         SemType::Ip(c) => check_ip(c, v),
@@ -105,6 +112,10 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::PortRange(c) => check_port_range(c, v),
         SemType::Target(c) => check_target(c, v),
         SemType::Host => hostport::check_host(&want_text(v)?),
+        SemType::HostName(_) => {
+            burrow_syntax::web::host_name(&want_text(v)?, burrow_syntax::web::SingleLabel::Refused)
+                .map(|_| ())
+        }
         SemType::ServerAddress => burrow_syntax::endpoint::check_public_address(&want_text(v)?),
         SemType::Cidr => want_text(v)?
             .parse::<burrow_syntax::cidr::Cidr>()
@@ -130,12 +141,20 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                 .ok_or_else(|| "pick one".to_string())
         }
         SemType::RefList(c) => check_ref_list(c, v),
+        SemType::RefEntries(c) => crate::entries::check(c, v),
         SemType::Path(_) => {
             let s = want_text(v)?;
             (!s.trim().is_empty())
                 .then_some(())
                 .ok_or_else(|| "a path is required".to_string())
         }
+        SemType::Upload(c) => {
+            let s = want_str(v)?;
+            (burrow_syntax::upload::kind_of(s.trim()).is_some_and(|k| k.prefix() == c.kind))
+                .then_some(())
+                .ok_or_else(|| "upload the file again".to_string())
+        }
+        SemType::PasswordHash(_) => want_text(v).map(|_| ()),
         SemType::UrlPath => {
             let s = want_text(v)?;
             s.starts_with('/')
@@ -154,11 +173,17 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::Object(o) => check_object(o, v),
         SemType::Map(c) => match v {
             Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
-            _ => Err("expected a group of settings".into()),
+            _ => Err(GROUP.into()),
         },
         SemType::RefMap(c) => match v {
             Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
-            _ => Err("expected a group of settings".into()),
+            _ => Err(GROUP.into()),
+        },
+        SemType::SecretRef(c) if c.reference => match v {
+            Value::String(s) if !burrow_syntax::env::is_reference(s) => Err(
+                "write an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/token, never the secret itself".into(),
+            ),
+            _ => Ok(()),
         },
         SemType::SecretRef(_) | SemType::Unknown(_) => Ok(()),
     }
@@ -258,26 +283,45 @@ fn check_ref_list(c: &RefListC, v: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn shape_fits(b: &Node, v: &Value) -> bool {
+    match (&crate::tree::inner(b).sem, v) {
+        (SemType::Object(_), Value::Object(_)) | (SemType::List(_), Value::Array(_)) => true,
+        (SemType::Object(_) | SemType::List(_), _) => false,
+        (_, Value::Object(_) | Value::Array(_)) => false,
+        _ => true,
+    }
+}
+
 fn check_union(u: &UnionC, v: &Value) -> Result<(), String> {
     if u.branches.is_empty() || u.branches.iter().any(|b| check(b, v).is_ok()) {
-        Ok(())
-    } else {
-        u.branches
-            .iter()
-            .map(|b| check(b, v))
-            .find_map(Result::err)
-            .map_or(Ok(()), Err)
+        return Ok(());
     }
+    let fitting = u.branches.iter().find(|b| shape_fits(b, v));
+    fitting
+        .into_iter()
+        .chain(u.branches.iter())
+        .map(|b| check(b, v))
+        .find_map(Result::err)
+        .map_or(Ok(()), Err)
 }
 
 fn check_object(o: &ObjectC, v: &Value) -> Result<(), String> {
     let Value::Object(m) = v else {
-        return Err("expected a group of settings".into());
+        return Err(GROUP.into());
     };
     m.iter()
         .try_for_each(|(k, x)| match o.fields.iter().find(|f| f.key == *k) {
-            Some(f) => check(&f.node, x).map_err(|e| format!("{k}: {e}")),
-            None => Err(format!("{k} is not a setting here")),
+            Some(f) => check(&f.node, x).map_err(|e| {
+                let name = if f.node.label.is_empty() {
+                    k.as_str()
+                } else {
+                    f.node.label.as_str()
+                };
+                format!("{name}: {e}")
+            }),
+            None => Err(format!(
+                "{k} is not a setting burrow knows here; remove it in server.yaml"
+            )),
         })
 }
 
@@ -361,6 +405,12 @@ pub fn refs_exist(node: &Node, v: &Value, names: &[String]) -> Result<(), String
             .find_map(missing)
             .map_or(Ok(()), Err),
         (SemType::RefList(_), Value::String(s)) => missing(s).map_or(Ok(()), Err),
+        (SemType::RefEntries(_), Value::Array(a)) => a
+            .iter()
+            .filter_map(burrow_config::ref_name)
+            .find_map(missing)
+            .map_or(Ok(()), Err),
+        (SemType::RefEntries(_), Value::String(s)) => missing(s).map_or(Ok(()), Err),
         (SemType::Optional(o), _) => refs_exist(&o.inner, v, names),
         _ => Ok(()),
     }
@@ -387,6 +437,24 @@ mod tests {
 
     fn bad(sem: SemType, v: Value) -> String {
         check(&node(sem.clone()), &v).expect_err(&format!("{sem:?} accepted {v}"))
+    }
+
+    #[test]
+    fn a_reference_secret_takes_a_variable_or_a_file_only() {
+        use burrow_admin_proto::schema::SecretRefC;
+        let node = Node::new(SemType::SecretRef(SecretRefC {
+            max: 1,
+            reference: true,
+        }));
+        assert!(check(&node, &json!("${CF_TOKEN}")).is_ok());
+        assert!(check(&node, &json!("file:/etc/burrow/cf.token")).is_ok());
+        let e = check(&node, &json!("pasted-token")).unwrap_err();
+        assert!(e.contains("never the secret itself"), "{e}");
+        let tunnel = Node::new(SemType::SecretRef(SecretRefC {
+            max: 4,
+            reference: false,
+        }));
+        assert!(check(&tunnel, &json!("anything")).is_ok());
     }
 
     #[test]
@@ -425,6 +493,44 @@ mod tests {
         bad(SemType::ServerAddress, json!("x:99999"));
         bad(SemType::ServerAddress, json!("wss://"));
         bad(SemType::ServerAddress, json!("https://x"));
+    }
+
+    #[test]
+    fn a_union_names_the_problem_of_the_branch_the_value_looks_like() {
+        let names = SemType::Union(burrow_admin_proto::schema::UnionC {
+            branches: vec![
+                Node::new(SemType::HostName(Default::default())),
+                Node::new(SemType::List(burrow_admin_proto::schema::ListC {
+                    item: Box::new(Node::new(SemType::HostName(Default::default()))),
+                    max_items: None,
+                })),
+            ],
+        });
+        assert!(
+            bad(
+                names.clone(),
+                json!(["ok.example.com", "https://x.example.com"])
+            )
+            .contains("the name alone")
+        );
+        assert!(bad(names, json!("*.com")).contains("too wide"));
+    }
+
+    #[test]
+    fn host_names_take_names_wildcards_and_addresses_like_validate() {
+        let h = || SemType::HostName(burrow_admin_proto::schema::HostNameC::default());
+        for v in [
+            "blog.example.com",
+            "*.apps.example.com",
+            "203.0.113.10",
+            "2001:db8::1",
+        ] {
+            ok(h(), json!(v));
+        }
+        assert!(bad(h(), json!("https://blog.example.com")).contains("the name alone"));
+        assert!(bad(h(), json!("*.com")).contains("too wide"));
+        bad(h(), json!("nas"));
+        bad(h(), json!(7));
     }
 
     #[test]
@@ -478,20 +584,20 @@ mod tests {
             options: vec![
                 EnumOption {
                     value: "tcp".into(),
-                    label: "tcp".into(),
+                    label: "TCP".into(),
                     help: String::new(),
                     danger: false,
                 },
                 EnumOption {
                     value: "udp".into(),
-                    label: "udp".into(),
+                    label: "UDP".into(),
                     help: String::new(),
                     danger: false,
                 },
             ],
         });
         ok(e.clone(), json!("udp"));
-        assert_eq!(bad(e, json!("sctp")), "pick one of tcp, udp");
+        assert_eq!(bad(e, json!("sctp")), "Pick one: TCP, UDP");
         ok(SemType::Cidr, json!("10.0.0.0/8"));
         bad(SemType::Cidr, json!("10.0.0.0/99"));
         ok(SemType::Cidr, json!("[2001:db8::1]"));

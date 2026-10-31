@@ -1,10 +1,8 @@
 pub mod assets;
 pub mod bridge;
-pub mod find;
 pub mod http;
 pub mod launch;
 pub mod session;
-pub mod token;
 
 use std::io::Write;
 use std::net::SocketAddr;
@@ -13,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use burrow_admin_proto::local::TOKEN_FRAGMENT;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
@@ -21,11 +20,11 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, watch};
 use tracing::debug;
 
+use crate::admin_link::token::Token;
 use crate::base::failure::Failure;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::Dialer;
 use http::Decision;
-use token::Token;
 
 pub const MAX_OPEN: usize = 32;
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
@@ -65,29 +64,6 @@ impl Drop for Connected {
     fn drop(&mut self) {
         self.0.connected.fetch_sub(1, Ordering::AcqRel);
         self.0.changed.send_modify(|n| *n += 1);
-    }
-}
-
-pub async fn check_access(settings: &VisitorSettings) -> Result<(), Failure> {
-    let dialer = Dialer::visitor(settings);
-    match dialer.open_admin(&bridge::open_message()).await {
-        Ok((_, tx, _)) => {
-            tx.close().await;
-            Ok(())
-        }
-        Err(e) => {
-            let (reason, message) = bridge::explain(&e, &settings.name, &settings.server);
-            let f = Failure::new(message);
-            Err(match reason {
-                "forbidden" => f.hint(format!(
-                    "add \"admin: write\" (or \"admin: read\") to visitors.{} in server.yaml on the server",
-                    settings.name
-                )),
-                "rejected" => f.hint("check name and secret against visitors in the server config"),
-                "no-admin" => f.hint("update burrow on the server"),
-                _ => f,
-            })
-        }
     }
 }
 
@@ -300,7 +276,7 @@ pub async fn listen_near(
     link: bool,
 ) -> Result<(TcpListener, Option<String>), Failure> {
     if let Some(p) = port {
-        return Ok((bind(p).await?, None));
+        return Ok((crate::admin_link::bind(p).await?, None));
     }
     let local = |p: u16| SocketAddr::from(([127, 0, 0, 1], p));
     let mut moved = None;
@@ -312,7 +288,7 @@ pub async fn listen_near(
     }
     let (l, failed) = match TcpListener::bind(local(default)).await {
         Ok(l) => (l, None),
-        Err(e) => (bind(0).await?, Some((default, e))),
+        Err(e) => (crate::admin_link::bind(0).await?, Some((default, e))),
     };
     let note = match (moved.or(failed), l.local_addr()) {
         (Some((p, e)), Ok(a)) => {
@@ -333,15 +309,6 @@ pub async fn listen_near(
         _ => None,
     };
     Ok((l, note))
-}
-
-pub async fn bind(port: u16) -> Result<TcpListener, Failure> {
-    TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))
-        .await
-        .map_err(|e| {
-            Failure::new(format!("cannot listen on 127.0.0.1:{port}: {e}"))
-                .hint("pick another --port, or 0 for a free one")
-        })
 }
 
 pub async fn serve(
@@ -386,7 +353,9 @@ pub async fn serve_session(
         let k = keep.as_ref()?;
         let (dir, config, s, port) = (k.dir.clone(), k.config.clone(), s.clone(), addr.port());
         Some(tokio::task::spawn_blocking(move || {
-            if let Err(e) = session::save(&dir, &config, &s, port, session::now()) {
+            if let Err(e) =
+                session::save(&dir, &config, &s, port, burrow_syntax::duration::now_secs())
+            {
                 debug!("cannot keep the admin session in {}: {e}", dir.display());
             }
         }))
@@ -401,7 +370,7 @@ pub async fn serve_session(
     };
     touch(&session);
     let url = format!(
-        "http://127.0.0.1:{}{}/#token={}",
+        "http://127.0.0.1:{}{}/{TOKEN_FRAGMENT}{}",
         addr.port(),
         session.prefix,
         session.token.as_str()
@@ -435,14 +404,7 @@ pub async fn serve_session(
     loop {
         let idle_left = opts.idle_exit.saturating_sub(idle_since.elapsed());
         tokio::select! {
-            accepted = listener.accept() => {
-                let Ok((stream, _)) = accepted else {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    continue;
-                };
-                let Ok(permit) = open.clone().try_acquire_owned() else {
-                    continue;
-                };
+            (stream, permit) = crate::admin_link::accept_permitted(&listener, &open) => {
                 let shared = shared.clone();
                 tokio::spawn(async move {
                     let _permit = permit;

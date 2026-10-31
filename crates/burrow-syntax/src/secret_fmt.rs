@@ -2,6 +2,7 @@ pub const SECRET_WORD: &str = "secret";
 pub const SECRET_LIKE: [&str; 6] = ["key", "psk", "token", "password", "pass", "passwd"];
 
 pub const SECRET_LEN: usize = 32;
+pub const MAX_SECRETS: usize = 4;
 
 pub fn looks_like_secret(text: &str) -> bool {
     let t = text.trim();

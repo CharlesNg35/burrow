@@ -1,24 +1,72 @@
 mod new;
+mod rename;
+mod website;
 
 use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value, json};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
-use burrow_syntax::name::check_name;
-use burrow_ui_kit::{Button, Dialog, Edge, EdgeState, Hop, HopState, PathData, TextInput, Tone};
+use burrow_syntax::name::{MAX_NAME_LEN, check_name};
+use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, TextInput, Tone};
 use leptos::prelude::*;
 
 use crate::api;
-use crate::route::{Route, go};
 use crate::store::store;
 
 pub(crate) use new::NewEntity;
+pub(crate) use rename::{RenameEntity, problem_of};
+pub(crate) use website::NewWebsite;
 
 pub fn singular(section: &str) -> &'static str {
     match entity_of_section(section) {
         Some(Entity::Client) => ClientEntry::ENTITY,
         Some(Entity::Visitor) => VisitorEntry::ENTITY,
         _ => ServiceEntry::ENTITY,
+    }
+}
+
+pub(crate) fn name_example(entity: Option<&burrow_admin_proto::schema::Entity>) -> &'static str {
+    use burrow_admin_proto::schema::Entity;
+    match entity {
+        Some(Entity::Client) => "home or office",
+        Some(Entity::Visitor) => "laptop or phone",
+        Some(Entity::Login) => "authelia or sso",
+        _ => "nas or home-ssh",
+    }
+}
+
+pub(crate) fn name_input(
+    id: &'static str,
+    label: &'static str,
+    name: RwSignal<String>,
+    problem: Signal<Option<String>>,
+    available: bool,
+    example: &'static str,
+) -> impl IntoView {
+    let msg = format!("{id}-msg");
+    let ok = move || available && !name.get().is_empty() && problem.get().is_none();
+    view! {
+    <div>
+        <label class="mb-1.5 block text-sm font-semibold" for=id>{label}</label>
+        <div class="relative">
+            <TextInput
+                id=id
+                value=name
+                on_input=move |t: String| name.set(t)
+                invalid=Signal::derive(move || problem.get().is_some())
+                described_by=msg.clone()
+                mono=true
+            />
+            {move || ok().then(|| view! {
+                <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 text-xs font-semibold text-success"><burrow_ui_kit::Icon name="check" small=true/>"available"</span>
+            })}
+        </div>
+        <p id=msg class="mt-1.5 text-xs text-danger">{move || problem.get()}</p>
+        <p class="text-xs text-text-muted">
+            {move || ok().then(|| view! { <span class="sr-only" data-testid="name-available">"available"</span> })}
+            {format!("For example {example}. Letters, digits, dot, dash, underscore; up to {MAX_NAME_LEN} characters.")}
+        </p>
+    </div>
     }
 }
 
@@ -84,26 +132,14 @@ pub fn create_with(
             continue;
         };
         if section == ClientEntry::section() {
-            let mut names: Vec<String> =
-                match (ServiceEntry::CLIENT.get(v), ServiceEntry::CLIENTS.get(v)) {
-                    (Some(Value::String(c)), _) => vec![c.clone()],
-                    (_, Some(Value::Array(a))) => a
-                        .iter()
-                        .filter_map(|x| x.as_str().map(str::to_string))
-                        .collect(),
-                    _ => Vec::new(),
-                };
-            names.push(name.to_string());
+            let mut entries = ServiceEntry::with_client(v, name);
             let client = ServiceEntry::CLIENT.of(svc);
             let clients = ServiceEntry::CLIENTS.of(svc);
-            if names.len() == 1 {
-                e.set(&client, Some(Value::String(names.remove(0))));
+            if entries.len() == 1 {
+                e.set(&client, Some(entries.remove(0)));
             } else {
                 e.set(&client, None);
-                e.set(
-                    &clients,
-                    Some(Value::Array(names.into_iter().map(Value::String).collect())),
-                );
+                e.set(&clients, Some(Value::Array(entries)));
             }
         } else {
             let visitors = ServiceEntry::VISITORS.of(svc);
@@ -154,11 +190,7 @@ fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
                     burrow_ui_kit::ComboOption {
                         value: n.clone(),
                         label: n.clone(),
-                        facet: ServiceEntry::BIND
-                            .get(v)
-                            .filter(|b| !b.is_null())
-                            .map(crate::form::plain)
-                            .unwrap_or_else(|| "private".into()),
+                        facet: burrow_admin_logic::web::reached(v),
                         dot: up.map(|u| {
                             if u {
                                 burrow_ui_kit::Tone::Success
@@ -171,69 +203,6 @@ fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-#[component]
-pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl IntoView {
-    let what = singular(&section);
-    let to = RwSignal::new(name.clone());
-    let same = {
-        let old = name.clone();
-        Signal::derive(move || to.with(|t| t.trim() == old))
-    };
-    let (sec, old) = (section.clone(), name.clone());
-    let problem = Signal::derive(move || {
-        let n = to.get();
-        if n == old {
-            None
-        } else {
-            name_problem(&n, &sec, None)
-        }
-    });
-    let note = match entity_of_section(&section) {
-        Some(Entity::Client) => {
-            "The client.yaml on that machine must use the new name, or the client cannot connect."
-        }
-        Some(Entity::Visitor) => {
-            "The visitor.yaml on that machine must use the new name, or the visitor cannot connect."
-        }
-        _ => "Visitors that forward this service by name must use the new name.",
-    };
-    let target = StoredValue::new((section.clone(), name.clone()));
-    let rename_now = Callback::new(move |_: ()| {
-        let (sec2, old2) = target.get_value();
-        let n = to.get_untracked();
-        open.set(false);
-        if n != old2 && store().edit.rename(&[sec2.clone(), old2.clone()], &n) {
-            go(Route::Detail(sec2, n));
-        }
-    });
-    view! {
-        <Dialog open=open title=format!("Rename {what} {name}") testid="rename-entity">
-            <label class="mb-1 block font-medium" for="rename-to">"New name"</label>
-            <TextInput
-                id="rename-to"
-                value=to
-                on_input=move |t: String| to.set(t)
-                invalid=Signal::derive(move || problem.get().is_some())
-                described_by="rename-msg"
-                mono=true
-            />
-            <p id="rename-msg" class="mt-1 min-h-5 text-sm text-danger">{move || problem.get()}</p>
-            <p class=move || if same.get() { "mb-3 text-sm text-text-muted" } else { "mb-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
-            <div class="flex justify-end gap-2">
-                <Button label="Cancel" on_click=move |_| open.set(false)/>
-                <Button
-                    label="Rename"
-                    variant="primary"
-                    testid="rename"
-                    disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty() || same.get())
-                    reason=Signal::derive(move || if same.get() || to.get().is_empty() { "Type a new name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
-                    on_click=move |_| rename_now.run(())
-                />
-            </div>
-        </Dialog>
-    }
 }
 
 pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathData {
@@ -269,8 +238,8 @@ pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathDat
                     state: HopState::Current,
                     badge: None,
                 },
-                pending("monitor", "Client", "not set"),
-                pending("fork", "Target", "not set"),
+                pending("monitor", "Client", burrow_admin_logic::wording::NOT_SET),
+                pending("fork", "Target", burrow_admin_logic::wording::NOT_SET),
             ],
             edges: vec![added(""), added(""), added("")],
             summary:
@@ -350,8 +319,14 @@ mod tests {
             [
                 ("Who connects".to_string(), "public or visitors".to_string()),
                 ("Server".to_string(), "new service".to_string()),
-                ("Client".to_string(), "not set".to_string()),
-                ("Target".to_string(), "not set".to_string()),
+                (
+                    "Client".to_string(),
+                    burrow_admin_logic::wording::NOT_SET.to_string()
+                ),
+                (
+                    "Target".to_string(),
+                    burrow_admin_logic::wording::NOT_SET.to_string()
+                ),
             ]
         );
         assert_eq!(d.edges.len(), 3);

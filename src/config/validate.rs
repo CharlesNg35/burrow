@@ -70,10 +70,28 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
     }
 }
 
+fn web_summary(outcome: &Outcome) -> Option<crate::config::web_summary::WebSummary> {
+    match &outcome.loaded {
+        #[cfg(feature = "web")]
+        Some(Loaded::Server(s, _)) => {
+            crate::config::web_summary::summary(s).map(|w| crate::config::web_summary::WebSummary {
+                account: crate::config::web_summary::account_url(s),
+                ..w
+            })
+        }
+        #[cfg(not(feature = "web"))]
+        Some(Loaded::Server(s, _)) => crate::config::web_summary::summary(s),
+        _ => None,
+    }
+}
+
 pub fn render_text(outcome: &Outcome, strict: bool, style: Style) -> String {
     let mut s = outcome.report.render_text(style);
     s.push_str(&summary_line(outcome, strict));
     s.push('\n');
+    if let Some(web) = web_summary(outcome) {
+        s.push_str(&crate::config::web_summary::text(&web));
+    }
     s
 }
 
@@ -83,6 +101,9 @@ pub fn render_json(outcome: &Outcome, strict: bool) -> String {
     v["strict"] = strict.into();
     v["valid"] =
         (!outcome.report.has_errors() && !(strict && outcome.report.warning_count() > 0)).into();
+    if let Some(web) = web_summary(outcome) {
+        v["web"] = serde_json::to_value(web).expect("json serializes");
+    }
     let mut s = serde_json::to_string_pretty(&v).expect("json serializes");
     s.push('\n');
     s

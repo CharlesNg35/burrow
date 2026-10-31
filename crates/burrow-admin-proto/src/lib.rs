@@ -3,15 +3,21 @@
 
 #![forbid(unsafe_code)]
 
+pub mod codes;
+pub mod date;
 pub mod diag;
 pub mod frame;
+pub mod local;
 pub mod msg;
+pub mod older;
 pub mod ops;
 pub mod plan;
 pub mod schema;
 pub mod status;
 pub mod value;
+pub mod web;
 
+pub use serde;
 pub use serde_json;
 
 pub type Path = Vec<String>;
@@ -19,6 +25,7 @@ pub type Path = Vec<String>;
 pub const PROTOCOL_MIN: u8 = 1;
 pub const PROTOCOL_MAX: u8 = 1;
 pub const SCHEMA_VERSION: u32 = 1;
+pub const REV_PREFIX: &str = "b2s:";
 
 pub mod features {
     pub const STATUS_STREAM: &str = "status.stream";
@@ -30,6 +37,11 @@ pub mod features {
     pub const REVERT: &str = "revert";
     pub const OPS_RENAME: &str = "ops.rename";
     pub const SET_TEXT: &str = "ops.set-text";
+    pub const UPLOAD: &str = "upload";
+    pub const PASSWORDS: &str = "passwords";
+    pub const HISTORY_IDS: &str = "history.ids";
+    pub const LOCAL_CA: &str = "local-ca";
+    pub const CLIENT_ALLOW: &str = "client.allow";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -41,5 +53,10 @@ pub mod features {
         REVERT,
         OPS_RENAME,
         SET_TEXT,
+        UPLOAD,
+        PASSWORDS,
+        HISTORY_IDS,
+        LOCAL_CA,
+        CLIENT_ALLOW,
     ];
 }

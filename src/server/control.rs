@@ -109,7 +109,7 @@ pub(super) async fn control_session(
         interval,
     ));
 
-    let timeout = interval * 3;
+    let timeout = crate::wire::protocol::peer_timeout(interval);
     let reason = loop {
         tokio::select! {
             r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {
@@ -221,9 +221,34 @@ fn on_off(b: bool) -> &'static str {
     if b { "on" } else { "off" }
 }
 
+fn refused_targets(
+    settings: &crate::config::settings::ServerSettings,
+    client: &str,
+    allow: &crate::policy::allowlist::AllowList,
+) -> Vec<String> {
+    let refuses = |t: &str| match crate::config::check::unix::path_of(t) {
+        Some(path) => !allow.permits_socket(path),
+        None => t
+            .parse::<SocketAddr>()
+            .is_ok_and(|addr| !allow.permits(addr)),
+    };
+    let mut out: Vec<String> = Vec::new();
+    for (name, svc) in &settings.services {
+        for e in svc.entries().iter().filter(|e| e.client == client) {
+            let last = svc.ports.max(1) - 1;
+            let ends = [svc.entry_target_at(e, 0), svc.entry_target_at(e, last)];
+            let line = format!("\"{name}\" ({})", svc.target_of(e));
+            if ends.iter().any(|t| refuses(t)) && !out.contains(&line) {
+                out.push(line);
+            }
+        }
+    }
+    out
+}
+
 fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
     use crate::policy::allowlist::{AllowList, Rule};
-    let allow = if rules == ["any"] {
+    let allow = if rules == [burrow_syntax::rule::ANY] {
         AllowList::All
     } else {
         let parsed: Option<Vec<Rule>> = rules.iter().map(|r| r.parse().ok()).collect();
@@ -232,23 +257,7 @@ fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
         };
         AllowList::Rules(parsed)
     };
-    let settings = shared.settings();
-    let refused: Vec<String> = settings
-        .services
-        .iter()
-        .filter(|(_, svc)| svc.clients.iter().any(|c| c == client))
-        .filter(|(_, svc)| {
-            let ends = [svc.target_at(0), svc.target_at(svc.ports.max(1) - 1)];
-            ends.iter()
-                .any(|t| match crate::config::check::unix::path_of(t) {
-                    Some(path) => !allow.permits_socket(path),
-                    None => t
-                        .parse::<SocketAddr>()
-                        .is_ok_and(|addr| !allow.permits(addr)),
-                })
-        })
-        .map(|(name, svc)| format!("\"{name}\" ({})", svc.target))
-        .collect();
+    let refused = refused_targets(&shared.settings(), client, &allow);
     if refused.is_empty() {
         return;
     }
@@ -258,5 +267,50 @@ fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
             "client \"{client}\" does not allow the target of service {}, so it will refuse those connections; add the target to \"allow\" in the config of client \"{client}\"{more}",
             refused.join(", ")
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::policy::allowlist::{AllowList, Rule};
+
+    fn settings() -> crate::config::settings::ServerSettings {
+        let secret = || crate::wire::secret::Secret::generate().encode();
+        let yaml = format!(
+            "listen: 127.0.0.1:7835\nclients:\n  gw:\n    secret: {}\n  home:\n    secret: {}\nservices:\n  app:\n    clients: [home, {{name: gw, target: \"10.0.0.5:80\"}}]\n    bind: 4000\n    target: \"10.0.0.1:80\"\n",
+            secret(),
+            secret()
+        );
+        let o = crate::config::load_str(
+            "server.yaml",
+            &yaml,
+            crate::config::Format::Yaml,
+            Some(crate::config::Role::Server),
+            &|_: &str| None,
+        );
+        match o.loaded {
+            Some(crate::config::Loaded::Server(s, _)) => *s,
+            _ => panic!("{:#?}", o.report.diagnostics),
+        }
+    }
+
+    fn only(rule: &str) -> AllowList {
+        AllowList::Rules(vec![rule.parse::<Rule>().unwrap()])
+    }
+
+    #[test]
+    fn refused_targets_follow_each_entrys_own_target() {
+        let s = settings();
+        assert!(refused_targets(&s, "gw", &only("10.0.0.5/32")).is_empty());
+        assert_eq!(
+            refused_targets(&s, "gw", &only("10.0.0.1/32")),
+            ["\"app\" (10.0.0.5:80)"]
+        );
+        assert_eq!(
+            refused_targets(&s, "home", &only("10.0.0.5/32")),
+            ["\"app\" (10.0.0.1:80)"]
+        );
+        assert!(refused_targets(&s, "home", &only("10.0.0.1/32")).is_empty());
     }
 }

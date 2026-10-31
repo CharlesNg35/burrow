@@ -1,5 +1,7 @@
 # burrow wire protocol, version 1
 
+This page describes the bytes burrow's server, clients and visitors exchange: how a connection is opened and authenticated, and how records, control messages, data, visit and admin channels work. It is for contributors and security reviewers; using burrow needs none of it. The plain-words summary is in [security.md](security.md).
+
 All integers are big-endian. "Record" means one Noise transport message with a 2-byte length prefix.
 
 ## 1. Channels
@@ -20,7 +22,11 @@ Every channel, control or data, does its own full Noise handshake.
 The byte stream below can be carried in two ways. Both carry exactly the same bytes.
 
 - **TCP** (`listen`): the stream is the TCP connection.
-- **WebSocket** (`websocket`, opt-in): the client sends an HTTP/1.1 `GET <path>` upgrade request (RFC 6455), optionally over TLS (`wss://`), with any extra `headers` from its config. Before upgrading, the server reads at most 8 KiB of request head and answers `404` for any other path, `426` for a non-upgrade request on the path, and `400` or `431` for malformed or oversized heads. After the upgrade, the stream is the concatenation of the payloads of binary messages, in order. The sender batches records into messages of up to 128 KiB, and larger messages are rejected. Text, ping and pong messages carry no stream data, more than 100 of them within 10 s end the connection, as do more than 100 pings in a row while the peer reads none of the pongs, and a close message ends the stream. Authentication is still the Noise handshake below: the URL, path and headers are not secrets.
+- **WebSocket** (`websocket`, opt-in): the client sends an HTTP/1.1 `GET <path>` upgrade request (RFC 6455), optionally over TLS (`wss://`), with any extra `headers` from its config.
+  - Before upgrading, the server reads at most 8 KiB of request head. It answers `404` for any other path, `426` for a non-upgrade request on the path, and `400` or `431` for malformed or oversized heads.
+  - After the upgrade, the stream is the concatenation of the payloads of binary messages, in order. The sender batches records into messages of up to 128 KiB, and larger messages are rejected.
+  - Text, ping and pong messages carry no stream data. More than 100 of them within 10 s end the connection, as do more than 100 pings in a row while the peer reads none of the pongs. A close message ends the stream.
+  - Authentication is still the Noise handshake below: the URL, path and headers are not secrets.
 
 On a WebSocket carrier, data channels always use encrypted records, even with `insecure_plaintext`, because WebSocket has no half-close for the raw-stream mode in section 8.
 
@@ -125,7 +131,7 @@ The client resolves `target`, keeps only the addresses permitted by its allow li
 
 ```
 Status = 0 ok | 1 denied by allow list or reach rules | 2 unreachable | 3 unresolved | 4 invalid
-         | 5 forbidden | 6 offline | 7 busy      (5-6 only from the server to a visitor; 7 also from a client at its connection limit: 16384 by default, the client's max_connections, or less where the open file limit is lower)
+         | 5 forbidden | 6 offline | 7 busy      (5 only from the server to a visitor; 6 also from a client whose connect found its local port in use, which says nothing about the target; 7 also from a client at its connection limit: 16384 by default, the client's max_connections, or less where the open file limit is lower)
 ```
 
 The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, or none arrives within 3 Ã— the heartbeat interval, the server logs the reason; for a service with several clients it moves the connection to the next one (after a timeout, only if the connection has sent nothing yet), sending again the PROXY header and up to 64 KiB of bytes it had already sent, and otherwise closes the connection.
@@ -225,6 +231,16 @@ event    {"ev": "<event>", "body": {...}}                              server â†
 ```
 
 Requests: `welcome` (always first; returns the server version, the negotiated protocol, who the caller is, the feature list, limits and the schema hash), `schema`, `state`, `subscribe`, `validate`, `apply`, `generate_secret`, `connect_info`, `suggest`, `history`, `revert` and `ping`. `validate`, `apply`, `generate_secret` and `revert` need `admin: write`. Events: `status` (the same snapshot as `burrow status --json`, at the subscribed interval, skipped rather than queued when the caller is slow), `config` (the file changed: by an admin, by hand, or a reload was rejected), `revoked` (the caller lost its admin right, its secret, its visitor or its source, or its admin level changed; end-of-stream follows) and `bye` (the server stops).
+
+Additions since v0.1.2, each behind its feature string:
+
+| Feature | Adds |
+|---|---|
+| `upload` | the `upload` request (a certificate, CA or revocation list kept on the server) |
+| `passwords` | the `hash_password` request and the `password_set` operation |
+| `local-ca` | the `local_ca` request (the local CA's certificate) |
+| `history.ids` | `id` on each history entry and `history {entry: id}`; without it a caller asks `history {diff: rev}`, which still means the newest entry with that revision |
+| `client.allow` | `allow` on each connected client in the `status` event: the Allow list (`0x82`) of its session, `["any"]` for `allow_all`, left out until the client sent one; without the feature a caller shows the list as unknown |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 

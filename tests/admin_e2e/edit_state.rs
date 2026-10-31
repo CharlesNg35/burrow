@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::edits::{Flow, clear_of_bar, click_js};
+use super::open_more;
 use super::world::Options;
 use super::{Ctx, SECS, edit_mode, open, run, wait_checked};
 
@@ -24,12 +25,17 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
             "  plain:\n    reach: { home: [127.0.0.1/32] }\n",
         )
     });
-    c.ui.wait_text(
-        "[data-testid=entity-list] [data-row=plain]",
-        "reach: home",
-        SECS,
-    )
-    .await;
+    c.ui.fill("#list-search", "home").await;
+    c.ui.wait_for("[data-testid=entity-list] [data-row=plain]", SECS)
+        .await;
+    let line =
+        c.ui.text("[data-testid=entity-list] [data-row=plain]")
+            .await;
+    assert!(
+        !line.contains("reach") && !line.contains("services"),
+        "the sidebar finds a visitor by its reach but shows only its name and status: {line}"
+    );
+    c.ui.fill("#list-search", "").await;
     assert_eq!(
         c.ui.count("[data-testid=banner-changed]").await,
         0,
@@ -50,6 +56,7 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
     );
     c.ui.shot("visitor-access-view").await;
     edit_mode(c).await;
+    open_more(c, "visitors/*/max_connections").await;
     c.ui.fill("#f-visitors-laptop-max-connections", "abc").await;
     wait_checked(c).await;
     c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
@@ -118,10 +125,19 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
         geo[1] <= geo[0] + 0.5,
         "Remove stays inside its row: {geo:?}"
     );
+    let gap: f64 = c
+        .ui
+        .eval(&format!("(() => {{ const k = document.querySelector(\"{reach} [data-key=home] .font-mono\").getBoundingClientRect(); const b = document.querySelector(\"{reach} [data-key=home] button[aria-label='Remove home']\").getBoundingClientRect(); return b.left - k.right; }})()"))
+        .await;
+    assert!(
+        (0.0..40.0).contains(&gap),
+        "Remove sits right after its key: {gap}"
+    );
     c.ui.shot("reach-only-these").await;
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
     edit_mode(c).await;
+    open_more(c, "visitors/*/max_connections").await;
     c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
     wait_checked(c).await;
     assert_eq!(
@@ -134,6 +150,7 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
     c.ui.wait_text("[data-testid=review-count]", "1", SECS)
         .await;
     edit_mode(c).await;
+    open_more(c, "visitors/*/max_connections").await;
     c.ui.fill("#f-visitors-laptop-max-connections", "60").await;
     wait_checked(c).await;
     c.ui.click("[data-testid=review-open]").await;
@@ -163,7 +180,7 @@ async fn navigation_keeps_the_edit(c: &mut Ctx) {
     c.ui.nav("/visitors").await;
     c.ui.wait_text(
         "[data-testid=entity-list] [data-row=laptop]",
-        "unsaved",
+        "not added",
         SECS,
     )
     .await;
@@ -246,32 +263,30 @@ async fn service_problems_show_in_the_form(c: &mut Ctx) {
         "a default reads as a plain value: {protocol}"
     );
     edit_mode(c).await;
-    c.ui.choose("f-services-web-bind-visibility", "private")
+    click_js(c, "#f-services-web-reach-bind").await;
+    c.ui.wait_for("#f-services-web-reach-bind:not(:checked)", SECS)
         .await;
-    c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
     wait_checked(c).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(
         c.ui.count("[data-testid=form-problems]").await,
         0,
-        "the hint asks for visitors; no red error while they are being picked"
+        "no red error while a way in is being picked"
     );
     assert!(
         !c.ui.enabled("[data-testid=save]").await,
-        "a private service without visitors cannot be added"
+        "a service with no way in cannot be added"
     );
     assert_eq!(
         c.ui.text("[data-testid=fields-changed]").await,
-        "Pick at least one visitor or switch back to Public port"
+        "Turn on a way in: Public port, Website, or Visitors with at least one visitor"
     );
     c.ui.shot("private-needs-visitors").await;
-    c.ui.click("[data-testid=pick-visitors] button").await;
-    c.ui.wait_for(
-        "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
-        SECS,
-    )
-    .await;
+    click_js(c, "#f-services-web-reach-visitors").await;
+    c.ui.wait_for("[data-way=visitors] #f-services-web-visitors", SECS)
+        .await;
     clear_of_bar(c, "services/*/visitors").await;
+    open_more(c, "services/*/max_connections").await;
     c.ui.fill("#f-services-web-max-connections", "abc").await;
     c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
         .await;
@@ -290,13 +305,19 @@ async fn service_problems_show_in_the_form(c: &mut Ctx) {
 async fn toast_sits_above_the_bar(c: &mut Ctx) {
     c.ui.nav("/clients/home?tab=settings").await;
     edit_mode(c).await;
+    open_more(c, "clients/*/max_connections").await;
     c.ui.fill("#f-clients-home-max-connections", "7").await;
     wait_checked(c).await;
     c.ui.click("[data-testid=save]").await;
     c.ui.wait_for("[data-testid=toast]", SECS).await;
     c.ui.click("[data-testid=review-open]").await;
     c.ui.wait_for("[data-testid=apply]", SECS).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    c.ui.wait_true(
+        "(() => { const t = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]'); return !!b && b.getBoundingClientRect().top - t.bottom >= 0; })()",
+        "the toast settles above the review's action bar",
+        SECS,
+    )
+    .await;
     let gap: f64 = c
         .ui
         .eval("(() => { const t = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return b.top - t.bottom; })()")
@@ -311,6 +332,7 @@ async fn toast_sits_above_the_bar(c: &mut Ctx) {
 async fn private_udp_needs_visitors(c: &mut Ctx) {
     c.ui.nav("/services/web?tab=settings").await;
     edit_mode(c).await;
+    open_more(c, "services/*/max_connections").await;
     c.ui.fill("#f-services-web-max-connections", "9").await;
     wait_checked(c).await;
     c.ui.choose("f-services-web-protocol", "udp").await;
@@ -326,9 +348,9 @@ async fn private_udp_needs_visitors(c: &mut Ctx) {
     c.ui.wait_gone(clear, SECS).await;
     wait_checked(c).await;
     assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
-    c.ui.choose("f-services-web-bind-visibility", "private")
+    click_js(c, "#f-services-web-reach-bind").await;
+    c.ui.wait_for("#f-services-web-reach-bind:not(:checked)", SECS)
         .await;
-    c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
     wait_checked(c).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(
@@ -338,15 +360,12 @@ async fn private_udp_needs_visitors(c: &mut Ctx) {
     );
     assert_eq!(
         c.ui.text("[data-testid=fields-changed]").await,
-        "Pick at least one visitor or switch back to Public port"
+        "Turn on a way in: Public port, Website, or Visitors with at least one visitor"
     );
     c.ui.shot("private-udp-needs-visitors").await;
-    c.ui.click("[data-testid=pick-visitors] button").await;
-    c.ui.wait_for(
-        "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
-        SECS,
-    )
-    .await;
+    click_js(c, "#f-services-web-reach-visitors").await;
+    c.ui.wait_for("[data-way=visitors] #f-services-web-visitors", SECS)
+        .await;
     clear_of_bar(c, "services/*/visitors").await;
     let _: bool = c
         .ui
@@ -384,7 +403,12 @@ async fn narrow_window(c: &mut Ctx) {
         .eval("(() => { const e = document.getElementById('new-links'); e.focus(); e.click(); return true; })()")
         .await;
     c.ui.wait_for("[role=listbox]", SECS).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    c.ui.wait_true(
+        "(() => { const l = document.querySelector('[role=listbox]').parentElement.getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return l.top >= 0 && l.bottom <= b.top + 0.5; })()",
+        "the open list settles between the top and the save bar",
+        SECS,
+    )
+    .await;
     let seen: Vec<f64> = c
         .ui
         .eval("(() => { const l = document.querySelector('[role=listbox]').parentElement.getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return [l.top, l.bottom, b.top, scrollY]; })()")

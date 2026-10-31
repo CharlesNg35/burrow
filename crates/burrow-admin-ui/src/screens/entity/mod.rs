@@ -6,36 +6,24 @@ mod problems;
 mod rows;
 mod summary;
 
-use burrow_admin_proto::schema::Entity;
+use crate::screens::plural;
+use burrow_admin_logic::wording::capital;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Tone, tag_class};
 
 use detail::Detail;
-pub(crate) use list::{Entities, rows_for};
+pub(crate) use list::{Entities, row_for};
 pub(crate) use problems::go_to_field;
 use problems::{apply_notes, problem_list, problems_for, problems_of};
+pub(crate) use rows::{protocol_view, service_tr};
 pub(crate) use summary::health_tag;
 use summary::{overview, served, visitor_overview};
 
 const SERVICES: &str = ServiceEntry::SECTION;
 const CLIENTS: &str = ClientEntry::SECTION;
 const VISITORS: &str = VisitorEntry::SECTION;
-fn capital(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_uppercase().chain(c).collect())
-        .unwrap_or_default()
-}
-
-fn plural(section: &str) -> &'static str {
-    match entity_of_section(section) {
-        Some(Entity::Client) => "Clients",
-        Some(Entity::Visitor) => "Visitors",
-        _ => "Services",
-    }
-}
 
 fn secrets(v: Option<&Value>) -> usize {
     match v {

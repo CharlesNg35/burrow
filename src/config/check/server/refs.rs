@@ -23,10 +23,10 @@ fn unknown_ref(kind: &str, name: &str, known: &[&str], by: String, span: Span) -
         Some(s) => format!("did you mean \"{s}\"? {defined}"),
         None => format!("add it under \"{section}:\"; {defined}"),
     };
-    let code = if kind == "client" {
-        "unknown-client"
-    } else {
-        "unknown-visitor"
+    let code = match kind {
+        "client" => "unknown-client",
+        "service" => "unknown-service",
+        _ => "unknown-visitor",
     };
     Diagnostic::error(
         code,
@@ -37,9 +37,29 @@ fn unknown_ref(kind: &str, name: &str, known: &[&str], by: String, span: Span) -
     .help(help)
 }
 
+fn login_service(node: Option<&Node>, by: String, services: &[&str], out: &mut Vec<Diagnostic>) {
+    if let Some(service) = node.and_then(|f| f.get("service"))
+        && let Some(name) = service.as_str()
+        && !services.contains(&name)
+    {
+        out.push(unknown_ref("service", name, services, by, service.span));
+    }
+}
+
 pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
     let clients = declared(root, "clients");
     let visitors = declared(root, "visitors");
+    let services = declared(root, "services");
+    if let Some(Value::Map(logins)) = root
+        .get("web")
+        .and_then(|w| w.get("forward_auth"))
+        .map(|l| &l.value)
+    {
+        for login in logins {
+            let by = format!("web.forward_auth.{}.service", login.key);
+            login_service(Some(&login.value), by, &services, out);
+        }
+    }
     if let Some(Value::Map(services)) = root.get("services").map(|s| &s.value) {
         for svc in services {
             let by = || format!("service \"{}\"", svc.key);
@@ -52,6 +72,9 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             }
             if let Some(Value::Seq(items)) = svc.value.get("clients").map(|v| &v.value) {
                 for item in items {
+                    let item = item
+                        .get(burrow_config::ServiceClient::NAME.key())
+                        .unwrap_or(item);
                     if let Some(name) = item.as_str()
                         && name != SELF
                         && !clients.contains(&name)
@@ -105,7 +128,7 @@ pub(super) fn check_reach(
     };
     if let [one] = entries
         && !many
-        && one.trim() == "any"
+        && one.trim() == burrow_syntax::rule::ANY
     {
         return Some(AllowList::All);
     }
@@ -155,7 +178,7 @@ pub(super) fn check_reach(
     let mut rules = Vec::new();
     let mut ok = true;
     for (i, entry) in entries.iter().enumerate() {
-        if entry.trim() == "any" {
+        if entry.trim() == burrow_syntax::rule::ANY {
             out.push(
                 Diagnostic::error(
                     "invalid-reach",

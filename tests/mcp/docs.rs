@@ -1,0 +1,267 @@
+use std::ffi::OsStr;
+use std::process::Stdio;
+
+use clap::Parser;
+use rmcp::ServiceExt;
+use rmcp::transport::TokioChildProcess;
+use serde_json::Value;
+
+use super::common::admin::world;
+use super::http::{list_with, start_on};
+use super::{Visitor, visitor};
+
+const MCP_MD: &str = include_str!("../../docs/mcp.md");
+
+async fn printed(v: &Visitor, args: &[&str]) -> (String, String) {
+    let empty = tempfile::tempdir().unwrap();
+    printed_with_path(v, args, empty.path().as_os_str()).await
+}
+
+async fn printed_with_path(v: &Visitor, args: &[&str], path: &OsStr) -> (String, String) {
+    let out = v
+        .command(args)
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+fn blocks(lang: &str) -> Vec<String> {
+    let fence = format!("```{lang}\n");
+    MCP_MD
+        .replace("\r\n", "\n")
+        .split(&fence)
+        .skip(1)
+        .map(|b| b.split("```").next().unwrap().to_string())
+        .collect()
+}
+
+fn command_in(printed: &str) -> Vec<String> {
+    let (comment, command) = printed
+        .trim()
+        .split_once('\n')
+        .expect("a comment line first");
+    assert!(comment.starts_with("# Claude Code"), "{printed}");
+    shlex::split(command).unwrap()
+}
+
+fn burrow_args(words: &[String]) -> Vec<String> {
+    let at = words
+        .iter()
+        .position(|w| w == "--")
+        .expect("a -- before the command");
+    words[at + 1..].to_vec()
+}
+
+fn strings(v: &toml::Value) -> Vec<String> {
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn tool_count(v: &Visitor, program: &str, args: &[String]) -> usize {
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args)
+        .env("BURROW_ADMIN_SESSION_DIR", v.sessions())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let client = ().serve(TokioChildProcess::new(cmd).unwrap()).await.unwrap();
+    let count = client.list_all_tools().await.unwrap().len();
+    let _ = client.cancel().await;
+    count
+}
+
+#[tokio::test]
+async fn the_printed_stdio_setup_starts_a_working_server() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let this = dunce::canonicalize(env!("CARGO_BIN_EXE_burrow")).unwrap();
+    let this = this.to_str().unwrap();
+    let (codex, _) = printed(&v, &["--print-config", "codex"]).await;
+    assert!(codex.starts_with("# ~/.codex/config.toml\n"), "{codex}");
+    let t: toml::Value = toml::from_str(&codex).unwrap();
+    let entry = &t["mcp_servers"]["burrow"];
+    assert_eq!(entry["command"].as_str(), Some(this), "{codex}");
+    let args = strings(&entry["args"]);
+    assert!(std::path::Path::new(&args[2]).is_absolute(), "{args:?}");
+    assert_eq!(tool_count(&v, this, &args).await, 4);
+    let (cursor, header) = printed(&v, &["--print-config", "cursor"]).await;
+    assert_eq!(
+        header.lines().last(),
+        Some("// ~/.cursor/mcp.json"),
+        "{header}"
+    );
+    let c: Value = serde_json::from_str(&cursor).unwrap();
+    let entry = &c["mcpServers"]["burrow"];
+    assert_eq!(entry["command"].as_str(), Some(this), "{cursor}");
+    let json_args: Vec<String> = serde_json::from_value(entry["args"].clone()).unwrap();
+    assert_eq!(json_args, args);
+    let (claude, _) = printed(&v, &["--print-config", "claude"]).await;
+    if cfg!(windows) {
+        assert!(
+            claude.contains(&format!("-- {this} mcp -c "))
+                || claude.contains(&format!("-- \"{this}\" mcp -c ")),
+            "{claude}"
+        );
+    } else {
+        let words = burrow_args(&command_in(&claude));
+        assert_eq!(words[0], this, "{claude}");
+        assert_eq!(tool_count(&v, &words[0], &words[1..]).await, 4);
+    }
+    let _ = w.stop.send(true);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_burrow_linked_on_path_is_printed_by_its_link() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let bin = tempfile::tempdir().unwrap();
+    let link = bin.path().join("burrow");
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_burrow"), &link).unwrap();
+    let link = link.to_str().unwrap();
+    let path = bin.path().as_os_str();
+    let (codex, _) = printed_with_path(&v, &["--print-config", "codex"], path).await;
+    let t: toml::Value = toml::from_str(&codex).unwrap();
+    let entry = &t["mcp_servers"]["burrow"];
+    assert_eq!(entry["command"].as_str(), Some(link), "{codex}");
+    assert_eq!(tool_count(&v, link, &strings(&entry["args"])).await, 4);
+    let (claude, _) = printed_with_path(&v, &["--print-config", "claude"], path).await;
+    assert_eq!(burrow_args(&command_in(&claude))[0], link, "{claude}");
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn the_printed_http_setups_connect_with_their_url_and_token() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let port = super::common::free_port();
+    let p = port.to_string();
+    let h = start_on(&v, &p, &[]).await;
+    let (cursor, _) = printed(&v, &["--http", "--port", &p, "--print-config", "cursor"]).await;
+    let c: Value = serde_json::from_str(&cursor).unwrap();
+    let entry = &c["mcpServers"]["burrow"];
+    let auth = entry["headers"]["Authorization"].as_str().unwrap();
+    assert_eq!(
+        entry["url"].as_str(),
+        Some(format!("http://127.0.0.1:{port}/mcp").as_str())
+    );
+    assert_eq!(list_with(port, auth).await, 200);
+    let (claude, _) = printed(&v, &["--http", "--port", &p, "--print-config", "claude"]).await;
+    let words = command_in(&claude);
+    let header = &words[words.iter().position(|x| x == "--header").unwrap() + 1];
+    let auth = header.strip_prefix("Authorization: ").unwrap();
+    assert!(
+        words.contains(&format!("http://127.0.0.1:{port}/mcp")),
+        "{claude}"
+    );
+    assert_eq!(list_with(port, auth).await, 200);
+    let (codex, after) = printed(&v, &["--http", "--port", &p, "--print-config", "codex"]).await;
+    let t: toml::Value = toml::from_str(&codex).unwrap();
+    assert_eq!(
+        t["mcp_servers"]["burrow"]["bearer_token_env_var"].as_str(),
+        Some("BURROW_MCP_TOKEN")
+    );
+    let token = after
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("export BURROW_MCP_TOKEN="))
+        .or_else(|| cfg!(windows).then_some(""))
+        .unwrap();
+    if !cfg!(windows) {
+        assert_eq!(token, h.token);
+        assert_eq!(list_with(port, &format!("Bearer {token}")).await, 200);
+    }
+    let _ = w.stop.send(true);
+}
+
+#[test]
+fn an_unknown_app_lists_the_three() {
+    let e = burrow::app::cli::Cli::try_parse_from(["burrow", "mcp", "--print-config", "vim"])
+        .unwrap_err()
+        .to_string();
+    for app in ["claude", "codex", "cursor"] {
+        assert!(e.contains(app), "{e}");
+    }
+}
+
+fn names_burrow_by_its_path(program: &str) -> bool {
+    program.starts_with('/') && program.ends_with("/bin/burrow")
+}
+
+#[test]
+fn every_setup_in_mcp_md_is_valid() {
+    let json = blocks("json");
+    assert!(json.len() >= 3, "{json:?}");
+    let md = MCP_MD.replace("\r\n", "\n");
+    for before in md.split("```json\n").take(json.len()) {
+        let said = before.trim_end().lines().last().unwrap_or_default();
+        assert!(
+            said.contains(" `") && said.ends_with("`:"),
+            "a JSON block is not named in the line above it: {said}"
+        );
+    }
+    for b in &json {
+        assert!(
+            b.starts_with('{'),
+            "a JSON block is pure JSON, with no comment line: {b}"
+        );
+        let v: Value = serde_json::from_str(b).unwrap_or_else(|e| panic!("{e}: {b}"));
+        let entry = &v["mcpServers"]["burrow"];
+        if let Some(args) = entry["args"].as_array() {
+            let program = entry["command"].as_str().unwrap();
+            assert!(names_burrow_by_its_path(program), "{b}");
+            let mut line = vec!["burrow".to_string()];
+            line.extend(args.iter().map(|a| a.as_str().unwrap().to_string()));
+            burrow::app::cli::Cli::try_parse_from(&line).unwrap_or_else(|e| panic!("{e}: {b}"));
+        } else {
+            assert!(entry["url"].as_str().unwrap().ends_with(":7838/mcp"), "{b}");
+        }
+    }
+    let toml_blocks = blocks("toml");
+    assert!(toml_blocks.len() >= 2, "{toml_blocks:?}");
+    for b in &toml_blocks {
+        assert!(b.starts_with("# "), "{b}");
+        let v: toml::Value = toml::from_str(b).unwrap_or_else(|e| panic!("{e}: {b}"));
+        let entry = &v["mcp_servers"]["burrow"];
+        assert!(entry.is_table(), "{b}");
+        if let Some(program) = entry.get("command") {
+            assert!(names_burrow_by_its_path(program.as_str().unwrap()), "{b}");
+        }
+    }
+    let mut commands = 0;
+    for b in blocks("sh") {
+        assert!(b.starts_with("# "), "{b}");
+        for line in b
+            .lines()
+            .filter(|l| l.starts_with("claude mcp add") || l.starts_with("burrow mcp"))
+        {
+            let words = shlex::split(line.split("  #").next().unwrap()).unwrap();
+            let args = if words[0] == "claude" {
+                if !words.contains(&"--".to_string()) {
+                    continue;
+                }
+                let args = burrow_args(&words);
+                assert!(names_burrow_by_its_path(&args[0]), "{line}");
+                args
+            } else {
+                words
+            };
+            burrow::app::cli::Cli::try_parse_from(&args).unwrap_or_else(|e| panic!("{e}: {line}"));
+            commands += 1;
+        }
+    }
+    assert!(commands >= 3, "{commands}");
+}

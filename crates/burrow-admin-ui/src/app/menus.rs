@@ -1,5 +1,3 @@
-use burrow_admin_proto::schema::Entity;
-use burrow_config::entity_of_section;
 use burrow_ui_kit::{Button, Icon, Tone, copy_text};
 use leptos::prelude::*;
 
@@ -23,7 +21,7 @@ pub(super) fn conn_state(s: Store, retry_open: RwSignal<bool>) -> impl Fn() -> A
                             {format!("Reconnecting in {left} s")}
                         </button>
                         <Show when=move || retry_open.get()>
-                            <div class="absolute top-8 right-0 z-40 w-56 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay outline-none dark:bg-surface-2" id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">
+                            <div class=burrow_ui_kit::menu_class("top-8 right-0 w-56", true) id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">
                                 <p class="mb-2 text-text-muted">"The connection to burrow admin dropped. It retries on its own."</p>
                                 <Button label="Retry now" small=true testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
                             </div>
@@ -55,21 +53,13 @@ pub(super) fn facts(s: Store) -> impl IntoView + Copy + use<> {
 pub(super) fn mobile_back(s: Store) -> impl IntoView + use<> {
     move || match s.route.get() {
         Route::Detail(sec, name) => {
-            let label = match entity_of_section(&sec) {
-                Some(Entity::Client) => "Clients",
-                Some(Entity::Visitor) => "Visitors",
-                _ => "Services",
-            };
+            let label = crate::screens::plural(&sec);
             Some(view! {
-                <div class="flex min-w-0 items-center gap-2 sm:hidden" data-testid="mobile-back">
+                <div class="flex shrink-0 items-center sm:hidden" data-testid="mobile-back" data-entity=name>
                     <Link to=Route::List(sec.clone()) class="flex size-8 items-center justify-center rounded-md text-accent-ink no-underline">
                         <Icon name="chevron-left"/>
                         <span class="sr-only">{format!("Back to {label}")}</span>
                     </Link>
-                    <span class="flex min-w-0 flex-col">
-                        <span class="truncate font-semibold text-hdr-on">{name}</span>
-                        <span class="truncate text-[11px] text-hdr-muted">{move || if s.editing.get() { format!("{label} · editing") } else { label.to_string() }}</span>
-                    </span>
                 </div>
             })
         }
@@ -93,7 +83,7 @@ pub(super) fn review_or_read_only(
                         "Read-only"
                     </button>
                     <Show when=move || why_open.get()>
-                        <div class="absolute top-8 right-0 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay outline-none dark:bg-surface-2" id="read-only-why" tabindex="-1" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">
+                        <div class=burrow_ui_kit::menu_class("top-8 right-0 w-80", true) id="read-only-why" tabindex="-1" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">
                             {move || {
                                 let (title, hint) = read_only_reason(s);
                                 view! {
@@ -141,7 +131,7 @@ pub(super) fn avatar_menu(
         other => other.label().to_string(),
     };
     view! {
-    <div class="absolute top-10 right-0 z-40 w-64 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay outline-none dark:bg-surface-2" id="avatar-menu" tabindex="-1" data-testid="avatar-menu">
+    <div class=burrow_ui_kit::menu_class("top-10 right-0 w-64", false) id="avatar-menu" tabindex="-1" data-testid="avatar-menu">
         <div class="px-2.5 pt-2 pb-2 text-sm" data-testid="avatar-who">
             <span class="font-semibold">{move || you.get().map(|y| y.0).unwrap_or_default()}</span>
             <span class="text-text-muted">{move || you.get().map(|y| format!(" · admin {}", y.1)).unwrap_or_default()}</span>

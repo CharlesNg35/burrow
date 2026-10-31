@@ -171,6 +171,11 @@ mod tests {
             clients: vec![],
             services: vec![],
             visitors: vec![],
+            web: None,
+            certificates: Vec::new(),
+            acme: None,
+            local_ca: None,
+            web_waiting: None,
         }
     }
 

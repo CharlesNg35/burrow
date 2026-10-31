@@ -1,11 +1,16 @@
 mod client;
 mod connection;
+mod entries;
 mod local;
 pub mod ports;
 mod server;
 mod service;
 pub mod unix;
 mod visitor;
+mod web;
+
+#[cfg(test)]
+mod tests_codes;
 
 pub use client::check_client;
 pub use server::{check_refs, check_server};
@@ -19,6 +24,7 @@ use super::tree::{Node, Span, Value};
 use crate::config::diagnostics::Diagnostic;
 use crate::wire::secret::SecretError;
 use crate::wire::transport::tcp::SocketTuning;
+use burrow_config::field::Field;
 use burrow_config::{Bind, TcpOptions};
 
 pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
@@ -29,6 +35,8 @@ pub(crate) use burrow_syntax::ports::binds_conflict;
 pub struct Spans {
     map: HashMap<Vec<String>, (Span, Span)>,
     nulls: HashSet<Vec<String>>,
+    env: HashSet<Vec<String>>,
+    written: Vec<(Vec<String>, String, String)>,
     root: Span,
 }
 
@@ -37,6 +45,8 @@ impl Spans {
         let mut spans = Spans {
             map: HashMap::new(),
             nulls: HashSet::new(),
+            env: HashSet::new(),
+            written: Vec::new(),
             root: Span::point(root.span.start),
         };
         fn walk(n: &Node, path: &mut Vec<String>, spans: &mut Spans) {
@@ -47,6 +57,12 @@ impl Spans {
                         spans.map.insert(path.clone(), (e.key_span, e.value.span));
                         if e.value.value == Value::Null {
                             spans.nulls.insert(path.clone());
+                        }
+                        if e.value.env != super::tree::FromEnv::No {
+                            spans.env.insert(path.clone());
+                        }
+                        if let (Some(raw), Value::Str(now)) = (&e.value.raw, &e.value.value) {
+                            spans.written.push((path.clone(), now.clone(), raw.clone()));
                         }
                         walk(&e.value, path, spans);
                         path.pop();
@@ -92,14 +108,41 @@ impl Spans {
         self.nulls.contains(&key)
     }
 
+    pub fn written(&self) -> &[(Vec<String>, String, String)] {
+        &self.written
+    }
+
+    pub fn from_env(&self, path: &[&str]) -> bool {
+        let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+        self.env.contains(&key)
+    }
+
     pub fn has(&self, path: &[&str]) -> bool {
         self.get(path).is_some()
+    }
+
+    pub fn at<P, T>(&self, prefix: &[&str], f: Field<P, T>) -> Span {
+        self.value(&joined(prefix, &f))
+    }
+
+    pub fn key_at<P, T>(&self, prefix: &[&str], f: Field<P, T>) -> Span {
+        self.key(&joined(prefix, &f))
+    }
+
+    pub fn has_at<P, T>(&self, prefix: &[&str], f: Field<P, T>) -> bool {
+        self.has(&joined(prefix, &f))
     }
 
     pub fn has_value(&self, path: &[&str]) -> bool {
         let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
         self.has(path) && !self.nulls.contains(&key)
     }
+}
+
+fn joined<'a, P, T>(prefix: &[&'a str], f: &Field<P, T>) -> Vec<&'a str> {
+    let mut path = prefix.to_vec();
+    path.extend(f.segments());
+    path
 }
 
 pub fn secretish(key: &str) -> bool {
@@ -146,6 +189,24 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             .for_each(|f| collect(&f.value, out)),
         _ => collect(n, out),
     };
+    let dns = root
+        .get("web")
+        .and_then(|w| w.get("letsencrypt"))
+        .and_then(|l| l.get("dns"));
+    if let Some(Node {
+        value: Value::Seq(entries),
+        ..
+    }) = dns
+    {
+        for e in entries {
+            if let Value::Map(providers) = &e.value {
+                providers
+                    .iter()
+                    .filter(|p| matches!(p.value.value, Value::Map(_)))
+                    .for_each(|p| fields(&p.value, &mut out));
+            }
+        }
+    }
     for section in ["clients", "visitors"] {
         match root.get(section).map(|c| &c.value) {
             Some(Value::Map(sections)) => sections.iter().for_each(|c| fields(&c.value, &mut out)),
@@ -191,6 +252,39 @@ fn tuning(t: &TcpOptions) -> SocketTuning {
 
 fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
     parse_addr(bind, [0, 0, 0, 0], "bind")
+}
+
+pub fn source_list(
+    owner: &str,
+    field: &str,
+    list: &[String],
+    path: &[&str],
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<crate::policy::allowlist::Cidr> {
+    let mut nets = Vec::new();
+    for (i, text) in list.iter().enumerate() {
+        match text.parse::<crate::policy::allowlist::Cidr>() {
+            Ok(net) => nets.push(net),
+            Err(e) => {
+                let n = i.to_string();
+                let mut at = path.to_vec();
+                at.push(&n);
+                out.push(
+                    Diagnostic::error(
+                        "invalid-source",
+                        format!("invalid {field} entry for {owner}: {}", e.describe()),
+                    )
+                    .at(spans.value(&at))
+                    .label("expected an IP or CIDR")
+                    .help(
+                        "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
+                    ),
+                );
+            }
+        }
+    }
+    nets
 }
 
 pub fn parse_local(local: &Bind) -> Result<(SocketAddr, u16), String> {

@@ -81,7 +81,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
         .report
         .diagnostics
         .iter()
-        .find(|d| d.code == "wrong-role")
+        .find(|d| d.code == burrow_admin_proto::codes::WRONG_ROLE)
     {
         let f = Failure::usage(d.message.clone());
         return Err(match &d.help {
@@ -109,7 +109,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
             .diagnostics
             .iter()
             .filter(|d| d.is_error())
-            .all(|d| d.code == "tls-unreadable");
+            .all(|d| d.code == burrow_admin_proto::codes::TLS_UNREADABLE);
         return Err(if only_files {
             failure
         } else {
@@ -188,24 +188,46 @@ fn stop_on_signal(external: Option<watch::Receiver<bool>>) -> watch::Receiver<bo
     rx
 }
 
-pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
-    let loaded = load(path, Role::Visitor, &env, &["no-forwards"])?;
+fn visitor(path: &Path, env: &Env) -> Result<crate::config::settings::VisitorSettings, Failure> {
+    let loaded = load(
+        path,
+        Role::Visitor,
+        env,
+        &[burrow_admin_proto::codes::NO_FORWARDS],
+    )?;
     let Loaded::Visitor(settings, _) = loaded else {
         return Err(Failure::new(format!(
             "{} is not a visitor config",
             path.display()
         )));
     };
+    Ok(*settings)
+}
+
+pub fn mcp(path: &Path, env: Env, opts: crate::mcp::Options) -> Result<u8, Failure> {
+    let settings = visitor(path, &env)?;
+    if !crate::mcp::before_start(path, &opts)? {
+        return Ok(0);
+    }
     drive(async move {
-        crate::admin_local::check_access(&settings).await?;
+        crate::mcp::serve(settings, path, opts, stop_on_signal(None)).await?;
+        Ok(0)
+    })
+}
+
+pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
+    let settings = visitor(path, &env)?;
+    drive(async move {
+        crate::admin_link::open::check_access(&settings, burrow_admin_proto::local::UI_CLIENT)
+            .await?;
         use crate::admin_local::session;
         use std::io::Write;
-        let store = session::dir();
+        let store = crate::admin_link::store::dir();
         let config = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let sess = match &store {
             Some(d) => {
-                session::sweep(d, session::now());
-                session::load(d, &config, session::now())
+                session::sweep(d, burrow_syntax::duration::now_secs());
+                session::load(d, &config, burrow_syntax::duration::now_secs())
             }
             None => session::Session::fresh(),
         };
@@ -373,6 +395,8 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     };
     let _instance = instance::acquire(&Identity::server(path), path)?;
     init_logging(&logging)?;
+    crate::server::uploads::prune_unused(settings.web.as_ref());
+    state_folder_note(path, &settings);
     drive(async move {
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
@@ -388,12 +412,36 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             path.to_path_buf(),
             *settings,
             env,
-            crate::app::reload::accept(),
+            noting_state_folder(path.to_path_buf()),
             reload_tx,
             nudges,
         ));
         server.run(reload_rx, stop).await;
         Ok(0)
+    })
+}
+
+fn needs_state_folder(web: &crate::config::settings::WebSettings) -> bool {
+    use crate::config::settings::WebTls;
+    web.letsencrypt.is_some()
+        || !web.uploads.is_empty()
+        || web.sites.values().any(|s| s.tls == WebTls::Internal)
+}
+
+fn state_folder_note(path: &Path, s: &crate::config::settings::ServerSettings) {
+    if s.web.as_ref().is_some_and(needs_state_folder)
+        && let Some(why) = crate::install::missing_state_folder(path)
+    {
+        tracing::warn!("{why}");
+    }
+}
+
+fn noting_state_folder(
+    path: PathBuf,
+) -> crate::app::reload::Check<crate::config::settings::ServerSettings> {
+    Box::new(move |s| {
+        state_folder_note(&path, &s);
+        Ok(s)
     })
 }
 
@@ -441,7 +489,7 @@ fn run_visitor(
     hold_hangup();
     let (stop, env) = split(hosted);
     let quiet: &[&str] = match pick {
-        Pick::Adhoc { .. } => &["no-forwards"],
+        Pick::Adhoc { .. } => &[burrow_admin_proto::codes::NO_FORWARDS],
         _ => &[],
     };
     let Loaded::Visitor(mut settings, _) = load(path, Role::Visitor, &env, quiet)? else {
@@ -491,6 +539,21 @@ fn same_tunnel_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_lets_encrypt_the_local_ca_and_uploads_need_the_state_folder() {
+        use crate::config::settings::{WebSettings, WebSite, WebTls};
+        let mut web = WebSettings::new("127.0.0.1:443".parse().unwrap());
+        let mut site = WebSite::passthrough(vec!["nas.example.com".into()]);
+        web.sites.insert("nas".into(), site.clone());
+        assert!(!needs_state_folder(&web));
+        site.tls = WebTls::Internal;
+        web.sites.insert("nas".into(), site);
+        assert!(needs_state_folder(&web));
+        web.sites.clear();
+        web.uploads = vec!["pair-1".into()];
+        assert!(needs_state_folder(&web));
+    }
 
     #[test]
     fn a_stop_does_not_wait_for_a_stuck_blocking_lookup() {

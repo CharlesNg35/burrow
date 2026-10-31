@@ -7,7 +7,7 @@ use crate::base::failure::Failure;
 use crate::install::{Manifest, Platform, all_manifests, manifest_path};
 
 pub(super) fn admin_history(config: &Path) -> PathBuf {
-    crate::admin::adapters::history_dir_of(config)
+    crate::config::save::history_dir_of(config)
 }
 
 #[cfg(unix)]
@@ -32,6 +32,23 @@ pub(super) fn give_history(config: &Path, uid: u32, gid: u32) {
         }
         let _ = std::os::unix::fs::fchown(&history, Some(uid), Some(gid));
     }
+}
+
+pub(super) fn say_skipped(
+    linked: &[PathBuf],
+    owner: &str,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    for p in linked {
+        say(
+            out,
+            format!(
+                "warning: {} has more than one hard link, so it was not given to {owner}; burrow never makes hard links, so check who made it",
+                p.display()
+            ),
+        )?;
+    }
+    Ok(())
 }
 
 pub(super) fn is_source(config: &Path, sources: &[&Path]) -> bool {
@@ -64,21 +81,20 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     resolve(name)?;
     let operation = system::operation(out)?;
     let m = resolve(name)?;
+    let env = backend.read_env(&m);
     let _ = backend.stop(&m);
     backend.uninstall(&m)?;
     let _ = std::fs::remove_file(manifest_path(&m.name));
     say(out, format!("removed service {}", m.name))?;
     let others = all_manifests();
     let strays = stray::strays();
-    let mut logs = vec![m.log_file.clone()];
-    logs.extend(
-        (1..=crate::base::logfile::KEEP)
-            .map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
-    );
+    let owned = others_files(&others, |o| backend.read_env(o));
+    let logs = own_logs(&m, &env, &owned);
     let mut kept = Vec::new();
     let mut kept_folder = None;
+    let state = m.web_state.clone().filter(|d| real_dir(d));
     if purge {
-        purge_files(&m, &logs, out)?;
+        purge_files(&m, &logs, &owned, out)?;
     } else {
         kept.extend(
             [Some(&m.config), m.env_file.as_ref()]
@@ -86,6 +102,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .flatten()
                 .chain(logs.iter())
                 .filter(|f| std::fs::symlink_metadata(f).is_ok_and(|m| m.file_type().is_file()))
+                .filter(|f| !theirs(f, &owned))
                 .cloned(),
         );
         let _ = std::fs::remove_dir(m.folder());
@@ -110,6 +127,10 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         heir.created_account = true;
         save_manifest(&heir)?;
     }
+    #[cfg(unix)]
+    if let Some(d) = state.as_deref().filter(|_| !purge) {
+        say_skipped(&super::hand_over::own_tree(d, 0, 0), "root", out)?;
+    }
     let mut account_left = None;
     let last_account_user = m.created_account && !others.iter().any(|o| o.account == m.account);
     if let Some(note) = stray::keeps(&strays, format!("service account {}", m.account))
@@ -130,6 +151,16 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             ),
         )?;
     }
+    if let Some(d) = state.as_deref().filter(|_| !purge) {
+        say(
+            out,
+            format!(
+                "kept {}, the web state: certificates, their keys, the local CA's key and uploads, for a later reinstall; --purge deletes it, and so does:\n  {}",
+                d.display(),
+                delete_hint(&[], Some(d))
+            ),
+        )?;
+    }
     if others.is_empty() {
         remove_burrow_folders(operation, purge);
     }
@@ -143,18 +174,76 @@ fn real_dir(p: &Path) -> bool {
     std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
 }
 
-fn purge_files(m: &Manifest, logs: &[PathBuf], out: &mut dyn Write) -> Result<(), Failure> {
-    if let Some(f) = &m.env_file
+pub(super) fn access_logs(
+    m: &Manifest,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Vec<PathBuf> {
+    let lookup = |k: &str| env.get(k).cloned();
+    let Ok(outcome) =
+        crate::config::load_file(&m.config, Some(crate::config::Role::Server), &lookup)
+    else {
+        return Vec::new();
+    };
+    let Some(crate::config::Loaded::Server(_, cfg)) = outcome.loaded else {
+        return Vec::new();
+    };
+    super::web_files::access_log(&cfg)
+        .filter(|l| super::web_files::log_folder_refusal(l, &m.log_file, cfg!(windows)).is_none())
+        .map(|l| crate::base::logfile::all_files(&l))
+        .unwrap_or_default()
+}
+
+pub(super) fn others_files(
+    others: &[Manifest],
+    env_of: impl Fn(&Manifest) -> std::collections::BTreeMap<String, String>,
+) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for o in others {
+        out.extend(crate::base::logfile::all_files(&o.log_file));
+        out.extend(access_logs(o, &env_of(o)));
+        out.push(o.config.clone());
+        out.extend(o.env_file.clone());
+        out.extend(o.web_state.clone());
+    }
+    out.iter()
+        .map(|p| crate::base::fs::canonical_or_same(p))
+        .collect()
+}
+
+pub(super) fn own_logs(
+    m: &Manifest,
+    env: &std::collections::BTreeMap<String, String>,
+    owned: &[PathBuf],
+) -> Vec<PathBuf> {
+    let mut logs = crate::base::logfile::all_files(&m.log_file);
+    logs.extend(access_logs(m, env));
+    logs.retain(|f| !theirs(f, owned));
+    logs
+}
+
+fn theirs(path: &Path, owned: &[PathBuf]) -> bool {
+    let path = crate::base::fs::canonical_or_same(path);
+    owned.iter().any(|o| o.starts_with(&path))
+}
+
+pub(super) fn purge_files(
+    m: &Manifest,
+    logs: &[PathBuf],
+    owned: &[PathBuf],
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    if let Some(f) = m.env_file.as_deref().filter(|f| !theirs(f, owned))
         && std::fs::remove_file(f).is_ok()
     {
         say(out, format!("removed {}", f.display()))?;
     }
-    if real_dir(m.folder()) && std::fs::remove_dir_all(m.folder()).is_ok() {
+    let folder = m.folder();
+    if real_dir(folder) && !theirs(folder, owned) && std::fs::remove_dir_all(folder).is_ok() {
         say(
             out,
-            format!("removed {} and the files in it", m.folder().display()),
+            format!("removed {} and the files in it", folder.display()),
         )?;
-    } else if std::fs::remove_file(&m.config).is_ok() {
+    } else if !theirs(&m.config, owned) && std::fs::remove_file(&m.config).is_ok() {
         say(out, format!("removed {}", m.config.display()))?;
     }
     if logs
@@ -167,6 +256,35 @@ fn purge_files(m: &Manifest, logs: &[PathBuf], out: &mut dyn Write) -> Result<()
     }
     if let Some(dir) = m.log_file.parent().filter(|d| *d != p_log_dir()) {
         let _ = std::fs::remove_dir(dir);
+    }
+    if let Some(d) = m
+        .web_state
+        .as_deref()
+        .filter(|d| real_dir(d) && !theirs(d, owned))
+        && std::fs::remove_dir_all(d).is_ok()
+    {
+        say(
+            out,
+            format!(
+                "removed {}, the web state: certificates, their keys, the local CA's key and uploads",
+                d.display()
+            ),
+        )?;
+    }
+    let shared: Vec<String> = [m.env_file.as_deref(), Some(folder), m.web_state.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|p| std::fs::symlink_metadata(p).is_ok() && theirs(p, owned))
+        .map(|p| p.display().to_string())
+        .collect();
+    if !shared.is_empty() {
+        say(
+            out,
+            format!(
+                "kept {}, which another installed service also uses",
+                shared.join(", ")
+            ),
+        )?;
     }
     Ok(())
 }

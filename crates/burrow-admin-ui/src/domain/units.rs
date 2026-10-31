@@ -7,7 +7,25 @@ use leptos::prelude::*;
 
 use crate::store::store;
 
-use super::{FieldCtx, placeholder, set_checked};
+use super::{FieldCtx, set_checked};
+
+fn default_number(fc: &FieldCtx, stored: TimeUnit, unit: TimeUnit) -> String {
+    fc.inherited
+        .as_ref()
+        .or(fc.node.default.as_ref())
+        .and_then(|d| d.as_u64())
+        .map(|v| format!("Default: {}", v.saturating_mul(stored.ms()) / unit.ms()))
+        .or_else(|| {
+            let label = fc.node.none_label.clone()?;
+            let n: String = label.chars().take_while(char::is_ascii_digit).collect();
+            Some(if n.is_empty() {
+                label
+            } else {
+                format!("Default: {n}")
+            })
+        })
+        .unwrap_or_default()
+}
 
 pub(super) fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) -> AnyView {
     let e = store().edit;
@@ -50,6 +68,7 @@ pub(super) fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) 
     let shown = move || {
         e.value(&p2)
             .and_then(|v| v.as_u64())
+            .filter(|v| v.saturating_mul(stored.ms()) % unit.get().ms() != 0)
             .map(|v| format!("= {}", human(v, stored)))
     };
     let touched = fc.touched;
@@ -66,7 +85,7 @@ pub(super) fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) 
                     numeric=true
                     invalid=invalid
                     described_by=fc.msg_id.clone()
-                    placeholder=placeholder(&fc)
+                    placeholder=default_number(&fc, stored, unit.get_untracked())
                     on_input=move |t: String| {
                         number.set(t);
                         commit();
@@ -121,9 +140,13 @@ pub(super) fn rate_editor(fc: FieldCtx) -> AnyView {
         e.value(&p2)
             .and_then(|v| v.as_str().map(str::to_string))
             .and_then(|t| {
-                burrow_syntax::rate::parse_rate(&t)
-                    .ok()
-                    .map(|b| format!("≈ {} · stored as {t}", burrow_syntax::rate::equivalent(b)))
+                burrow_syntax::rate::parse_rate(&t).ok().map(|b| {
+                    format!(
+                        "≈ {} · {} {t}",
+                        burrow_syntax::rate::equivalent(b),
+                        burrow_admin_logic::wording::WRITTEN_AS.to_lowercase()
+                    )
+                })
             })
             .unwrap_or_default()
     };

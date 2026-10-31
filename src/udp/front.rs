@@ -102,6 +102,7 @@ pub async fn run<C: PeerCount, M: Meter, H: Hooks>(
     let mut sweep = tokio::time::interval(SWEEP);
     let mut buf = vec![0u8; 65536];
     let mut rec = Vec::with_capacity(65536);
+    let mut sealed = Vec::new();
     let stall = front.stall;
     loop {
         tokio::select! {
@@ -139,7 +140,7 @@ pub async fn run<C: PeerCount, M: Meter, H: Hooks>(
                 };
                 encode_datagram(id, &buf[..n], &mut rec);
                 let sent = tokio::select! {
-                    r = tokio::time::timeout(stall, writer.send(&mut wr, &rec)) => r,
+                    r = tokio::time::timeout(stall, writer.send_with(&mut wr, &rec, &mut sealed)) => r,
                     _ = hooks.lost() => break Ending::Broken,
                 };
                 match sent {

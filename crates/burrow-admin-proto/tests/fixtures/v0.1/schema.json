@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:fadfc66cb326946c",
+  "hash": "b2s:d8bab077aa5c8466",
   "root": {
     "label": "Server",
     "sem": {
@@ -48,7 +48,7 @@
         {
           "key": "websocket",
           "node": {
-            "label": "WebSocket listener",
+            "label": "WebSocket",
             "help": "Accept clients over WebSocket, for servers reachable only through HTTP(S)",
             "sem": {
               "t": "optional",
@@ -82,6 +82,27 @@
                       }
                     },
                     {
+                      "key": "host",
+                      "node": {
+                        "label": "Name on the HTTPS port",
+                        "help": "The name that leads to burrow's WebSocket listener when it shares the web proxy's HTTPS port, for example tunnel.example.com",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "host_name",
+                              "fallback": [
+                                {
+                                  "t": "text"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "none_label": "Not shared"
+                      }
+                    },
+                    {
                       "key": "tls",
                       "node": {
                         "label": "TLS",
@@ -103,7 +124,8 @@
                                       "must_exist": true,
                                       "relative_to": "config"
                                     },
-                                    "required": true
+                                    "required": true,
+                                    "locked": true
                                   }
                                 },
                                 {
@@ -116,7 +138,8 @@
                                       "must_exist": true,
                                       "relative_to": "config"
                                     },
-                                    "required": true
+                                    "required": true,
+                                    "locked": true
                                   }
                                 }
                               ]
@@ -140,6 +163,40 @@
                         "default": 25,
                         "advanced": true
                       }
+                    },
+                    {
+                      "key": "challenge",
+                      "node": {
+                        "label": "Let's Encrypt check",
+                        "help": "How Let's Encrypt checks that name, for example http behind a proxy that does the HTTPS",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "enum",
+                              "options": [
+                                {
+                                  "value": "tls",
+                                  "label": "TLS",
+                                  "help": "Let's Encrypt connects to the HTTPS port; needs web.https on 443"
+                                },
+                                {
+                                  "value": "http",
+                                  "label": "HTTP",
+                                  "help": "Let's Encrypt fetches a file over plain HTTP; needs web.http on 80"
+                                },
+                                {
+                                  "value": "dns",
+                                  "label": "DNS",
+                                  "help": "Let's Encrypt reads a DNS record that burrow sets through web.letsencrypt.dns; no open port needed"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Automatic"
+                      }
                     }
                   ]
                 }
@@ -147,7 +204,1072 @@
             },
             "applies": "reload",
             "group": "websocket",
-            "locked": true,
+            "none_label": "Off"
+          }
+        },
+        {
+          "key": "web",
+          "node": {
+            "label": "Web proxy",
+            "help": "The web proxy: one HTTPS port for websites and TLS services by name; off unless set",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "label": "Web proxy",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "https",
+                      "node": {
+                        "label": "HTTPS port",
+                        "help": "The port where websites are reached by name, including those whose app does its own HTTPS, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "ip_port",
+                              "ranges": false,
+                              "default_ip": "::"
+                            }
+                          }
+                        },
+                        "none_label": "No HTTPS port"
+                      }
+                    },
+                    {
+                      "key": "http",
+                      "node": {
+                        "label": "HTTP port",
+                        "help": "The port for plain HTTP, for example 80: sites with HTTPS off, the step from http:// to https:// and Let's Encrypt's check; a port alone listens on IPv4 and IPv6",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "ip_port",
+                              "ranges": false,
+                              "default_ip": "::"
+                            }
+                          }
+                        },
+                        "none_label": "No HTTP port"
+                      }
+                    },
+                    {
+                      "key": "https_redirect",
+                      "node": {
+                        "label": "Send http:// to https://",
+                        "help": "For every HTTPS website: send a visitor who types http://example.com to https://example.com, or answer plain HTTP too; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Yes"
+                      }
+                    },
+                    {
+                      "key": "http2",
+                      "node": {
+                        "label": "HTTP/2",
+                        "help": "Let browsers use HTTP/2 on the HTTPS port, faster for pages with many parts; turn it off only for a client that breaks with it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "On"
+                      }
+                    },
+                    {
+                      "key": "forward_auth",
+                      "node": {
+                        "label": "Login services",
+                        "help": "Single sign-on services like Authelia or authentik, each with a name that websites pick to check their visitors",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "name",
+                              "entity": "login",
+                              "max_len": 64
+                            }
+                          },
+                          "value": {
+                            "label": "Login service",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "service",
+                                  "node": {
+                                    "label": "Service",
+                                    "help": "The service of the login portal that checks each visitor, for example authelia",
+                                    "sem": {
+                                      "t": "ref",
+                                      "entity": "service"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "path",
+                                  "node": {
+                                    "label": "Path",
+                                    "help": "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/caddy for authentik",
+                                    "sem": {
+                                      "t": "url_path"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "copy_headers",
+                                  "node": {
+                                    "label": "Headers to the app",
+                                    "help": "Headers from the login service's answer that the app receives, for example Remote-User; a visitor's own copies are always removed",
+                                    "sem": {
+                                      "t": "list",
+                                      "item": {
+                                        "sem": {
+                                          "t": "text"
+                                        }
+                                      }
+                                    },
+                                    "empty_label": "None"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "rate_limit",
+                      "node": {
+                        "label": "Rate limit",
+                        "help": "For every website: how many requests per second one visitor may send, for example 20; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "integer",
+                              "min": 1,
+                              "max": 4294967295,
+                              "unit": "requests per second"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "letsencrypt",
+                      "node": {
+                        "label": "Let's Encrypt",
+                        "help": "Automatic certificates for every website name no file covers; turning it on accepts Let's Encrypt's terms, for example with the email ops@example.com",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "label": "Let's Encrypt settings",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "email",
+                                  "node": {
+                                    "label": "Email",
+                                    "help": "Let's Encrypt's contact for this server, for example ops@example.com; giving it accepts Let's Encrypt's terms",
+                                    "sem": {
+                                      "t": "text"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "directory",
+                                  "node": {
+                                    "label": "Certificate authority",
+                                    "help": "Where certificates come from: Let's Encrypt, its test servers for trying things out, or another certificate authority by its ACME address, for example https://ca.internal/acme/directory",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "union",
+                                          "branches": [
+                                            {
+                                              "sem": {
+                                                "t": "enum",
+                                                "options": [
+                                                  {
+                                                    "value": "production",
+                                                    "label": "Production",
+                                                    "help": "Real certificates that browsers trust"
+                                                  },
+                                                  {
+                                                    "value": "staging",
+                                                    "label": "Staging",
+                                                    "help": "Let's Encrypt's test servers: higher limits, certificates browsers do not trust"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "none_label": "Let's Encrypt"
+                                  }
+                                },
+                                {
+                                  "key": "ca",
+                                  "node": {
+                                    "label": "Trusted CA file",
+                                    "help": "The CA certificate to trust for another ACME server, for example certs/internal-ca.pem",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "path",
+                                          "must_exist": true,
+                                          "relative_to": "config"
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "locked": true,
+                                    "none_label": "The public CAs"
+                                  }
+                                },
+                                {
+                                  "key": "ca_upload",
+                                  "node": {
+                                    "label": "Uploaded trusted CA",
+                                    "help": "The CA certificate to trust for another ACME server, uploaded here",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "upload",
+                                          "kind": "ca",
+                                          "fallback": [
+                                            {
+                                              "t": "text"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "none_label": "None"
+                                  }
+                                },
+                                {
+                                  "key": "profile",
+                                  "node": {
+                                    "label": "Certificate profile",
+                                    "help": "The kind of certificate to ask for, for example shortlived for 6-day certificates; IP addresses always use it",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "text"
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "none_label": "The authority's default profile"
+                                  }
+                                },
+                                {
+                                  "key": "dns",
+                                  "node": {
+                                    "label": "DNS checks",
+                                    "help": "How burrow sets DNS records for Let's Encrypt's DNS check, needed for wildcards and names not reachable from the internet; each provider lists the domains it manages, for example example.com through Cloudflare",
+                                    "sem": {
+                                      "t": "list",
+                                      "item": {
+                                        "label": "DNS provider",
+                                        "sem": {
+                                          "t": "object",
+                                          "fields": [
+                                            {
+                                              "key": "domains",
+                                              "node": {
+                                                "label": "Domains",
+                                                "help": "The domains whose DNS records this provider can set, for example example.com; it covers every name under it, like wiki.example.com and *.apps.example.com",
+                                                "sem": {
+                                                  "t": "list",
+                                                  "item": {
+                                                    "sem": {
+                                                      "t": "host_name",
+                                                      "fallback": [
+                                                        {
+                                                          "t": "text"
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "key": "cloudflare",
+                                              "node": {
+                                                "label": "Cloudflare",
+                                                "help": "Cloudflare sets the records, with an API token allowed Zone:Read and DNS:Edit on these zones only",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "label": "Cloudflare",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "token",
+                                                          "node": {
+                                                            "label": "API token",
+                                                            "help": "An API token allowed Zone:Read and DNS:Edit on these zones only, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1,
+                                                              "reference": true
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "rfc2136",
+                                              "node": {
+                                                "label": "RFC 2136 (BIND, Knot, PowerDNS)",
+                                                "help": "Your own DNS server sets the records by dynamic update signed with a TSIG key",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "label": "RFC 2136",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "server",
+                                                          "node": {
+                                                            "label": "Server",
+                                                            "help": "The zone's primary nameserver with its port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "key_name",
+                                                          "node": {
+                                                            "label": "Key name",
+                                                            "help": "The TSIG key's name, as in the server's key file, for example burrow-key",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "secret",
+                                                          "node": {
+                                                            "label": "Key secret",
+                                                            "help": "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1,
+                                                              "reference": true
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "algorithm",
+                                                          "node": {
+                                                            "label": "Algorithm",
+                                                            "help": "The TSIG key's algorithm, as in the server's key file, for example hmac-sha512",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "text"
+                                                                }
+                                                              }
+                                                            },
+                                                            "advanced": true,
+                                                            "locked": true,
+                                                            "none_label": "hmac-sha256"
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "acme_dns",
+                                              "node": {
+                                                "label": "acme-dns",
+                                                "help": "An acme-dns server sets the records; each name's _acme-challenge is a CNAME to it",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "label": "acme-dns",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "api",
+                                                          "node": {
+                                                            "label": "Server address",
+                                                            "help": "The acme-dns server's address, for example https://auth.example.org",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "username",
+                                                          "node": {
+                                                            "label": "User name",
+                                                            "help": "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1,
+                                                              "reference": true
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "password",
+                                                          "node": {
+                                                            "label": "Password",
+                                                            "help": "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1,
+                                                              "reference": true
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "subdomain",
+                                                          "node": {
+                                                            "label": "Subdomain",
+                                                            "help": "The account's subdomain, which each name's _acme-challenge CNAME points to, for example d420c923-bbd7-4056-ab64-c3ca54c9b3cf",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "command",
+                                              "node": {
+                                                "label": "Command",
+                                                "help": "A program that sets the records with any provider, called with present or cleanup, the record's name and its value, for example /usr/local/bin/burrow-dns",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "sem": {
+                                                      "t": "path",
+                                                      "must_exist": true,
+                                                      "relative_to": "config"
+                                                    }
+                                                  }
+                                                },
+                                                "locked": true,
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "wildcards",
+                                              "node": {
+                                                "label": "Shared wildcards",
+                                                "help": "One certificate each for every site one label under it and its parent name, for example *.example.com",
+                                                "sem": {
+                                                  "t": "list",
+                                                  "item": {
+                                                    "sem": {
+                                                      "t": "host_name",
+                                                      "fallback": [
+                                                        {
+                                                          "t": "text"
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "empty_label": "None"
+                                              }
+                                            },
+                                            {
+                                              "key": "wait_secs",
+                                              "node": {
+                                                "label": "Wait for the record",
+                                                "help": "How long burrow waits for every nameserver of the zone to answer the new record, for example 120 seconds",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "sem": {
+                                                      "t": "duration",
+                                                      "unit": "secs",
+                                                      "min": 10,
+                                                      "max": 3600
+                                                    }
+                                                  }
+                                                },
+                                                "advanced": true,
+                                                "none_label": "120 seconds"
+                                              }
+                                            },
+                                            {
+                                              "key": "resolvers",
+                                              "node": {
+                                                "label": "Resolvers",
+                                                "help": "Only used to find the zone's public nameservers, which burrow then asks directly, for example 1.1.1.1; they must give the public view",
+                                                "sem": {
+                                                  "t": "list",
+                                                  "item": {
+                                                    "sem": {
+                                                      "t": "ip",
+                                                      "v4": true,
+                                                      "v6": true,
+                                                      "unspecified_ok": true
+                                                    }
+                                                  }
+                                                },
+                                                "advanced": true,
+                                                "empty_label": "The system's"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "empty_label": "None"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "certificates",
+                      "node": {
+                        "label": "Certificate files",
+                        "help": "Your own certificate files, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "label": "Certificate file",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "hosts",
+                                  "node": {
+                                    "label": "Host names",
+                                    "help": "The names this file is used for, for example *.example.com and example.com; the certificate must cover each",
+                                    "sem": {
+                                      "t": "list",
+                                      "item": {
+                                        "sem": {
+                                          "t": "host_name",
+                                          "fallback": [
+                                            {
+                                              "t": "text"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "cert",
+                                  "node": {
+                                    "label": "Certificate file",
+                                    "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "path",
+                                          "must_exist": true,
+                                          "relative_to": "config"
+                                        }
+                                      }
+                                    },
+                                    "locked": true,
+                                    "none_label": "Not set"
+                                  }
+                                },
+                                {
+                                  "key": "key",
+                                  "node": {
+                                    "label": "Private key file",
+                                    "help": "Private key PEM file, relative to the config file, for example certs/privkey.pem",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "path",
+                                          "must_exist": true,
+                                          "relative_to": "config"
+                                        }
+                                      }
+                                    },
+                                    "locked": true,
+                                    "none_label": "Not set"
+                                  }
+                                },
+                                {
+                                  "key": "upload",
+                                  "node": {
+                                    "label": "Uploaded certificate",
+                                    "help": "A certificate with its private key, uploaded here and kept in burrow's state folder",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "upload",
+                                          "kind": "pair",
+                                          "fallback": [
+                                            {
+                                              "t": "text"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "none_label": "None"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "request_header_timeout_secs",
+                      "node": {
+                        "label": "Request header timeout",
+                        "help": "How long a visitor may take to send a request's headers, and how long an idle kept-alive connection stays open, for example 10 seconds",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "duration",
+                              "unit": "secs",
+                              "min": 1
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "10 seconds"
+                      }
+                    },
+                    {
+                      "key": "idle_timeout_secs",
+                      "node": {
+                        "label": "Idle timeout",
+                        "help": "A connection that moves no data for this long is closed, for example 60 seconds; WebSockets stay open",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "duration",
+                              "unit": "secs",
+                              "min": 1
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "60 seconds"
+                      }
+                    },
+                    {
+                      "key": "redirect_names",
+                      "node": {
+                        "label": "Names that only redirect",
+                        "help": "A name with no site of its own that sends visitors elsewhere, path and query kept, for example old.example.com to https://example.com, or example.com/shop to https://shop.example.net/",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          },
+                          "value": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "text"
+                                  }
+                                },
+                                {
+                                  "label": "Redirect",
+                                  "sem": {
+                                    "t": "object",
+                                    "fields": [
+                                      {
+                                        "key": "to",
+                                        "node": {
+                                          "label": "Send to",
+                                          "help": "A full address or a path on the same name, for example https://example.com/new or /new; the rest of the path and the query are kept",
+                                          "sem": {
+                                            "t": "text"
+                                          },
+                                          "required": true
+                                        }
+                                      },
+                                      {
+                                        "key": "permanent",
+                                        "node": {
+                                          "label": "Permanent",
+                                          "help": "Browsers remember a permanent redirect, so use it only when you are sure",
+                                          "sem": {
+                                            "t": "bool"
+                                          },
+                                          "default": false
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "trusted_proxies",
+                      "node": {
+                        "label": "Trusted proxies",
+                        "help": "HTTP proxies in front of burrow, like Cloudflare, whose X-Forwarded-For tells the visitor's address, for example 173.245.48.0/20; behind cloudflared, its own address like 127.0.0.1/32",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "proxy_protocol_from",
+                      "node": {
+                        "label": "Accept PROXY protocol from",
+                        "help": "Load balancers in front of burrow that send a PROXY header with the visitor's address, for example 10.0.0.5/32; they must send it, and nobody else may",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "locked": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "access_log",
+                      "node": {
+                        "label": "Access log",
+                        "help": "One line per request, written to a file, for example logs/access.log, in the common format or as JSON",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "path",
+                                    "must_exist": false,
+                                    "relative_to": "config"
+                                  }
+                                },
+                                {
+                                  "label": "Access log",
+                                  "sem": {
+                                    "t": "object",
+                                    "fields": [
+                                      {
+                                        "key": "file",
+                                        "node": {
+                                          "label": "File",
+                                          "help": "Where each request is written, one line each, for example logs/access.log",
+                                          "sem": {
+                                            "t": "path",
+                                            "must_exist": false,
+                                            "relative_to": "config"
+                                          },
+                                          "required": true
+                                        }
+                                      },
+                                      {
+                                        "key": "format",
+                                        "node": {
+                                          "label": "Format",
+                                          "help": "Common is one line per request, as nginx and Apache write; JSON suits log tools",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "enum",
+                                                "options": [
+                                                  {
+                                                    "value": "common",
+                                                    "label": "Common",
+                                                    "help": "One line per request, like nginx and Apache"
+                                                  },
+                                                  {
+                                                    "value": "json",
+                                                    "label": "JSON",
+                                                    "help": "One JSON object per line, for log tools"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "none_label": "Common (like nginx)"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "locked": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "request_id",
+                      "node": {
+                        "label": "Request ID header",
+                        "help": "Give each request an X-Request-Id that the app, the visitor and the access log all see; one from a trusted proxy is kept",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "hsts",
+                      "node": {
+                        "label": "Tell browsers to use HTTPS only (HSTS)",
+                        "help": "For every HTTPS website: tell browsers to use only HTTPS for a year; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "compress",
+                      "node": {
+                        "label": "Compress",
+                        "help": "For every website: gzip text answers like HTML, CSS and JSON when the browser accepts it; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "max_body_size",
+                      "node": {
+                        "label": "Biggest upload",
+                        "help": "For every website: the biggest request body, for example 100MB; bigger uploads get 413; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Unlimited"
+                      }
+                    },
+                    {
+                      "key": "response_header_timeout_secs",
+                      "node": {
+                        "label": "App answer timeout",
+                        "help": "For every website: how long the app may take to start its answer before the visitor gets 504, for example 60 seconds; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "duration",
+                              "unit": "secs",
+                              "min": 1
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "60 seconds"
+                      }
+                    },
+                    {
+                      "key": "request_headers",
+                      "node": {
+                        "label": "Request headers",
+                        "help": "For every website: headers set on requests to the app, for example X-Frame-Options: DENY; an empty value removes one",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          },
+                          "value": {
+                            "help": "The header's value, for example DENY; empty removes the header",
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "response_headers",
+                      "node": {
+                        "label": "Answer headers",
+                        "help": "For every website: headers set on answers, for example X-Content-Type-Options: nosniff; an empty value like Server: \"\" removes one",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          },
+                          "value": {
+                            "help": "The header's value, for example DENY; empty removes the header",
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "error_pages",
+                      "node": {
+                        "label": "Error pages",
+                        "help": "For every website: a folder with your own pages, for example pages/, holding any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "path",
+                              "must_exist": true,
+                              "relative_to": "config"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "locked": true,
+                        "none_label": "Built in"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "applies": "reload",
+            "group": "web",
             "none_label": "Off"
           }
         },
@@ -185,8 +1307,8 @@
                     {
                       "key": "max_connections",
                       "node": {
-                        "label": "Max connections on this server",
-                        "help": "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
+                        "label": "Maximum connections on this server",
+                        "help": "Connections this server forwards to the client at once. The client has its own limit too, Maximum connections in client.yaml on that machine",
                         "sem": {
                           "t": "optional",
                           "inner": {
@@ -301,8 +1423,8 @@
                     {
                       "key": "max_connections",
                       "node": {
-                        "label": "Max connections",
-                        "help": "Maximum concurrent connections for this visitor",
+                        "label": "Maximum connections",
+                        "help": "Open connections this visitor may have at once, for example 20; empty is unlimited",
                         "sem": {
                           "t": "optional",
                           "inner": {
@@ -322,7 +1444,7 @@
                     {
                       "key": "admin",
                       "node": {
-                        "label": "Admin access",
+                        "label": "Level",
                         "help": "Let this visitor administer the server with burrow admin: read shows the dashboard and the config, write may also change it",
                         "sem": {
                           "t": "optional",
@@ -366,14 +1488,16 @@
                           }
                         },
                         "group": "admin",
+                        "advanced": true,
                         "reduce_only": true,
                         "empty_label": "Any address",
                         "relations": [
                           {
-                            "r": "visible_if",
+                            "r": "enabled_if",
                             "cond": {
                               "set": "admin"
-                            }
+                            },
+                            "reason": "This applies only to a visitor with admin access"
                           }
                         ]
                       }
@@ -388,8 +1512,8 @@
                   },
                   {
                     "key": "access",
-                    "label": "Access",
-                    "sub": "Private services and direct reach."
+                    "label": "Direct access",
+                    "sub": "Clients this visitor may reach directly, with burrow visit."
                   },
                   {
                     "key": "traffic",
@@ -419,7 +1543,7 @@
                     {
                       "key": "allow",
                       "node": {
-                        "label": "Allowed targets",
+                        "label": "May reach on this server",
                         "help": "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one",
                         "sem": {
                           "t": "list",
@@ -491,15 +1615,22 @@
                       "key": "clients",
                       "node": {
                         "label": "Clients",
-                        "help": "Clients that can each reach the target; with two or more, Mode appears to choose how one is picked",
+                        "help": "Clients that can each reach the target, each at the main target or another one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked",
                         "sem": {
-                          "t": "ref_list",
+                          "t": "ref_entries",
                           "entity": "client",
-                          "ordered": true,
-                          "unique": true,
                           "reserved": [
                             "self"
-                          ]
+                          ],
+                          "target": {
+                            "ranges": true,
+                            "unix": true
+                          },
+                          "weight": {
+                            "min": 1,
+                            "max": 1000,
+                            "unit": "shares"
+                          }
                         },
                         "group": "who",
                         "relations": [
@@ -514,7 +1645,7 @@
                       "key": "mode",
                       "node": {
                         "label": "Mode",
-                        "help": "With several clients: failover uses the first one that is up, balance spreads new connections over all of them",
+                        "help": "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones",
                         "sem": {
                           "t": "enum",
                           "options": [
@@ -526,21 +1657,28 @@
                             {
                               "value": "balance",
                               "label": "Balance",
-                              "help": "Spread new connections over all clients"
+                              "help": "Spread new connections over all clients that are up, by their weight"
+                            },
+                            {
+                              "value": "least_connections",
+                              "label": "Least connections",
+                              "help": "Send each new connection to the client that is up with the fewest open connections"
                             }
                           ]
                         },
                         "default": "failover",
                         "group": "who",
+                        "wide": true,
                         "relations": [
                           {
-                            "r": "visible_if",
+                            "r": "enabled_if",
                             "cond": {
                               "len_ge": [
                                 "clients",
                                 2
                               ]
-                            }
+                            },
+                            "reason": "This applies only with two or more clients"
                           },
                           {
                             "r": "enabled_if",
@@ -617,6 +1755,22 @@
                                           },
                                           "default": 2
                                         }
+                                      },
+                                      {
+                                        "key": "path",
+                                        "node": {
+                                          "label": "Path to check",
+                                          "help": "For a website: ask the app for this path through each client, for example /healthz; an answer of 2xx or 3xx counts as up, and the path must not need a login",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            }
+                                          },
+                                          "none_label": "Only open a connection"
+                                        }
                                       }
                                     ]
                                   }
@@ -658,8 +1812,8 @@
                             }
                           }
                         },
-                        "group": "exposure",
-                        "none_label": "Private: no public port",
+                        "group": "reach",
+                        "none_label": "No public port",
                         "relations": [
                           {
                             "r": "cross",
@@ -674,8 +1828,8 @@
                     {
                       "key": "target",
                       "node": {
-                        "label": "Target on the client",
-                        "help": "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself",
+                        "label": "Main target",
+                        "help": "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself; a client row can use another target",
                         "sem": {
                           "t": "target",
                           "ranges": true,
@@ -723,7 +1877,7 @@
                     {
                       "key": "max_connections",
                       "node": {
-                        "label": "Max connections",
+                        "label": "Maximum connections",
                         "help": "Maximum concurrent connections for this service",
                         "sem": {
                           "t": "optional",
@@ -736,7 +1890,8 @@
                             }
                           }
                         },
-                        "group": "traffic",
+                        "group": "access",
+                        "advanced": true,
                         "none_label": "Unlimited",
                         "relations": [
                           {
@@ -763,7 +1918,7 @@
                           "ordered": false,
                           "unique": true
                         },
-                        "group": "access",
+                        "group": "reach",
                         "wide": false,
                         "empty_label": "No visitors",
                         "relations": [
@@ -865,33 +2020,1132 @@
                             }
                           }
                         },
-                        "group": "traffic",
+                        "group": "access",
+                        "advanced": true,
                         "wide": true,
                         "none_label": "Unlimited"
+                      }
+                    },
+                    {
+                      "key": "web",
+                      "node": {
+                        "label": "Names",
+                        "help": "Names that lead to this service on the web proxy's HTTPS port, for example nas.example.com",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "host_name",
+                                    "fallback": [
+                                      {
+                                        "t": "text"
+                                      }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "sem": {
+                                    "t": "list",
+                                    "item": {
+                                      "sem": {
+                                        "t": "host_name",
+                                        "fallback": [
+                                          {
+                                            "t": "text"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "label": "Website settings",
+                                  "sem": {
+                                    "t": "object",
+                                    "fields": [
+                                      {
+                                        "key": "hosts",
+                                        "node": {
+                                          "label": "Names",
+                                          "help": "Names that lead to this service, for example nas.example.com, *.apps.example.com or 203.0.113.10",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "host_name",
+                                                "fallback": [
+                                                  {
+                                                    "t": "text"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "required": true
+                                        }
+                                      },
+                                      {
+                                        "key": "paths",
+                                        "node": {
+                                          "label": "Paths",
+                                          "help": "Only these paths on the names lead here, each with everything below it, for example /api for /api and /api/users but not /apix; the longest match wins",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            }
+                                          },
+                                          "empty_label": "All paths",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "tls",
+                                        "node": {
+                                          "label": "HTTPS",
+                                          "help": "Who does HTTPS for this website: burrow with an automatic certificate, the app itself (burrow only reads the name), nobody (plain HTTP), burrow with its local CA for names on your network, or burrow with your own certificate",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "enum",
+                                                      "options": [
+                                                        {
+                                                          "value": "auto",
+                                                          "label": "Automatic",
+                                                          "help": "burrow does HTTPS with a certificate for every name"
+                                                        },
+                                                        {
+                                                          "value": "passthrough",
+                                                          "label": "The app does its own HTTPS",
+                                                          "help": "The app keeps its own certificate; burrow only reads the name"
+                                                        },
+                                                        {
+                                                          "value": "off",
+                                                          "label": "Off: plain HTTP",
+                                                          "help": "No HTTPS: the website is served as plain HTTP"
+                                                        },
+                                                        {
+                                                          "value": "internal",
+                                                          "label": "Local CA, for names on your network",
+                                                          "help": "burrow's own certificate authority signs certificates for names like nas.lan; install its certificate on your devices once"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "My own certificate",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "cert",
+                                                          "node": {
+                                                            "label": "Certificate file",
+                                                            "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem; with key, or upload instead",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "path",
+                                                                  "must_exist": true,
+                                                                  "relative_to": "config"
+                                                                }
+                                                              }
+                                                            },
+                                                            "locked": true,
+                                                            "none_label": "Not set"
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "key",
+                                                          "node": {
+                                                            "label": "Private key file",
+                                                            "help": "Private key PEM file, relative to the config file, for example certs/privkey.pem",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "path",
+                                                                  "must_exist": true,
+                                                                  "relative_to": "config"
+                                                                }
+                                                              }
+                                                            },
+                                                            "locked": true,
+                                                            "none_label": "Not set"
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "upload",
+                                                          "node": {
+                                                            "label": "Uploaded certificate",
+                                                            "help": "A certificate with its private key, uploaded here and kept in burrow's state folder",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "upload",
+                                                                  "kind": "pair",
+                                                                  "fallback": [
+                                                                    {
+                                                                      "t": "text"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "none_label": "None"
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "none_label": "Automatic"
+                                        }
+                                      },
+                                      {
+                                        "key": "https_redirect",
+                                        "node": {
+                                          "label": "Send http:// to https://",
+                                          "help": "Send a visitor who types http://nas.example.com to https://nas.example.com, or answer plain HTTP too",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "bool"
+                                              }
+                                            }
+                                          },
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "any": [
+                                                      {
+                                                        "ne": [
+                                                          "tls",
+                                                          "off"
+                                                        ]
+                                                      },
+                                                      {
+                                                        "set": "/web/trusted_proxies"
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS, or Trusted proxies for a plain HTTP site"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "challenge",
+                                        "node": {
+                                          "label": "Let's Encrypt check",
+                                          "help": "How Let's Encrypt checks that the names are yours: over HTTP for a site behind Cloudflare's proxy, for example; automatic tries TLS on port 443 first, then HTTP on port 80",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "enum",
+                                                "options": [
+                                                  {
+                                                    "value": "tls",
+                                                    "label": "TLS",
+                                                    "help": "Let's Encrypt connects to the HTTPS port; needs web.https on 443"
+                                                  },
+                                                  {
+                                                    "value": "http",
+                                                    "label": "HTTP",
+                                                    "help": "Let's Encrypt fetches a file over plain HTTP; needs web.http on 80"
+                                                  },
+                                                  {
+                                                    "value": "dns",
+                                                    "label": "DNS",
+                                                    "help": "Let's Encrypt reads a DNS record that burrow sets through web.letsencrypt.dns; no open port needed"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "Automatic",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "off"
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "app_path",
+                                        "node": {
+                                          "label": "Path on the app",
+                                          "help": "What the app sees in place of the matched path, for example /v1 sends /api/users as /v1/users, and / removes /api",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "The same path",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "len_ge": [
+                                                      "paths",
+                                                      1
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS and at least one path"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "redirect_from",
+                                        "node": {
+                                          "label": "Redirect from",
+                                          "help": "Names that send visitors to the first host name for good, path kept, for example www.example.com",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "host_name",
+                                                "fallback": [
+                                                  {
+                                                    "t": "text"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "None",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "redirects",
+                                        "node": {
+                                          "label": "Redirects",
+                                          "help": "Paths that send visitors elsewhere, the rest of the path and the query kept, for example /old to /new or to https://example.net/new",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            },
+                                            "value": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "text"
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "Redirect",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "to",
+                                                          "node": {
+                                                            "label": "Send to",
+                                                            "help": "A full address or a path on the same name, for example https://example.com/new or /new; the rest of the path and the query are kept",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "permanent",
+                                                          "node": {
+                                                            "label": "Permanent",
+                                                            "help": "Browsers remember a permanent redirect, so use it only when you are sure",
+                                                            "sem": {
+                                                              "t": "bool"
+                                                            },
+                                                            "default": false
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "None",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "maintenance",
+                                        "node": {
+                                          "label": "Maintenance",
+                                          "help": "Answer every visitor with the maintenance page instead of the app",
+                                          "sem": {
+                                            "t": "bool"
+                                          },
+                                          "default": false,
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "target_tls",
+                                        "node": {
+                                          "label": "HTTPS to the app",
+                                          "help": "For an app that speaks HTTPS itself: check its certificate against the public CAs or your own CA, or not at all for a self-made one like Proxmox's",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "bool"
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "The app's CA",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "ca",
+                                                          "node": {
+                                                            "label": "CA file",
+                                                            "help": "The CA that signed the app's certificate, for example certs/corp-ca.pem",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "path",
+                                                                  "must_exist": true,
+                                                                  "relative_to": "config"
+                                                                }
+                                                              }
+                                                            },
+                                                            "locked": true,
+                                                            "none_label": "Not set"
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "ca_upload",
+                                                          "node": {
+                                                            "label": "Uploaded CA",
+                                                            "help": "The CA that signed the app's certificate, uploaded here",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "upload",
+                                                                  "kind": "ca",
+                                                                  "fallback": [
+                                                                    {
+                                                                      "t": "text"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "none_label": "None"
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "Unchecked HTTPS",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "insecure_skip_verify",
+                                                          "node": {
+                                                            "label": "Skip the certificate check",
+                                                            "help": "For apps with a self-made certificate, like Proxmox, UniFi or DSM",
+                                                            "sem": {
+                                                              "t": "bool"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "Off: plain HTTP to the app",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "target_http2",
+                                        "node": {
+                                          "label": "HTTP/2 to the app",
+                                          "help": "Speak HTTP/2 to the app; needed for gRPC apps",
+                                          "sem": {
+                                            "t": "bool"
+                                          },
+                                          "default": false,
+                                          "advanced": true,
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "basic_auth",
+                                        "node": {
+                                          "label": "Passwords",
+                                          "help": "Visitors sign in with a user name and password; the password is stored only as a hash",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            },
+                                            "value": {
+                                              "help": "The password hash, for example the line burrow passwd alice prints",
+                                              "sem": {
+                                                "t": "password_hash",
+                                                "fallback": [
+                                                  {
+                                                    "t": "text"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "empty_label": "None",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "forward_auth",
+                                        "node": {
+                                          "label": "Login service",
+                                          "help": "Visitors log in at a single sign-on service like Authelia or authentik before they reach the app",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "bool"
+                                                    }
+                                                  },
+                                                  {
+                                                    "sem": {
+                                                      "t": "ref",
+                                                      "entity": "login"
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "none_label": "Off",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "rate_limit",
+                                        "node": {
+                                          "label": "Rate limit",
+                                          "help": "How many requests per second one visitor may send, for example 20; more get 429",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "integer",
+                                                "min": 1,
+                                                "max": 4294967295,
+                                                "unit": "requests per second"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "client_auth",
+                                        "node": {
+                                          "label": "Device certificates",
+                                          "help": "Only devices with a certificate from your own CA may open the site, for example company laptops",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "label": "Device certificates",
+                                              "sem": {
+                                                "t": "object",
+                                                "fields": [
+                                                  {
+                                                    "key": "ca",
+                                                    "node": {
+                                                      "label": "CA file",
+                                                      "help": "The CA that signs your devices' certificates, with its intermediates, for example certs/devices-ca.pem",
+                                                      "sem": {
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "path",
+                                                            "must_exist": true,
+                                                            "relative_to": "config"
+                                                          }
+                                                        }
+                                                      },
+                                                      "locked": true,
+                                                      "none_label": "Not set"
+                                                    }
+                                                  },
+                                                  {
+                                                    "key": "ca_upload",
+                                                    "node": {
+                                                      "label": "Uploaded CA",
+                                                      "help": "The CA that signs your devices' certificates, with its intermediates, uploaded here",
+                                                      "sem": {
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "upload",
+                                                            "kind": "ca",
+                                                            "fallback": [
+                                                              {
+                                                                "t": "text"
+                                                              }
+                                                            ]
+                                                          }
+                                                        }
+                                                      },
+                                                      "none_label": "None"
+                                                    }
+                                                  },
+                                                  {
+                                                    "key": "crl",
+                                                    "node": {
+                                                      "label": "Revocation list",
+                                                      "help": "Devices you revoked, as the CA publishes them, for example certs/devices.crl; re-read when the file changes",
+                                                      "sem": {
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "path",
+                                                            "must_exist": true,
+                                                            "relative_to": "config"
+                                                          }
+                                                        }
+                                                      },
+                                                      "locked": true,
+                                                      "none_label": "None"
+                                                    }
+                                                  },
+                                                  {
+                                                    "key": "crl_upload",
+                                                    "node": {
+                                                      "label": "Uploaded revocation list",
+                                                      "help": "Devices you revoked, as the CA publishes them, uploaded here; upload a new list to replace it",
+                                                      "sem": {
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "upload",
+                                                            "kind": "crl",
+                                                            "fallback": [
+                                                              {
+                                                                "t": "text"
+                                                              }
+                                                            ]
+                                                          }
+                                                        }
+                                                      },
+                                                      "none_label": "None"
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "Off",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "off"
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "hsts",
+                                        "node": {
+                                          "label": "Tell browsers to use HTTPS only (HSTS)",
+                                          "help": "Tell browsers to use only HTTPS for this site for a year",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "bool"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "off"
+                                                    ]
+                                                  }
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "compress",
+                                        "node": {
+                                          "label": "Compress",
+                                          "help": "Gzip text answers like HTML, CSS and JSON when the browser accepts it",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "bool"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "max_body_size",
+                                        "node": {
+                                          "label": "Biggest upload",
+                                          "help": "The biggest request body, for example 8GB for ISO uploads; bigger uploads get 413",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "response_header_timeout_secs",
+                                        "node": {
+                                          "label": "App answer timeout",
+                                          "help": "How long the app may take to start its answer before the visitor gets 504, for example 300 seconds for slow reports",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "duration",
+                                                "unit": "secs",
+                                                "min": 1
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "request_headers",
+                                        "node": {
+                                          "label": "Request headers",
+                                          "help": "Headers set on requests to the app, for example Host: app.internal for an app that wants its own name; an empty value removes one",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            },
+                                            "value": {
+                                              "help": "The header's value, for example DENY; empty removes the header",
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "response_headers",
+                                        "node": {
+                                          "label": "Answer headers",
+                                          "help": "Headers set on answers, for example Access-Control-Allow-Origin: https://example.com for CORS; an empty value removes one",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            },
+                                            "value": {
+                                              "help": "The header's value, for example DENY; empty removes the header",
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "error_pages",
+                                        "node": {
+                                          "label": "Error pages",
+                                          "help": "A folder with this site's own pages, for example pages/shop/, holding any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "path",
+                                                "must_exist": true,
+                                                "relative_to": "config"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "locked": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "website",
+                        "none_label": "Not a website",
+                        "relations": [
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
+                          }
+                        ]
                       }
                     }
                   ]
                 },
                 "groups": [
                   {
+                    "key": "exposure",
+                    "label": "Target",
+                    "sub": "The protocol, and where connections lead."
+                  },
+                  {
                     "key": "who",
                     "label": "Where it runs",
                     "sub": "Clients that reach the target."
                   },
                   {
-                    "key": "exposure",
-                    "label": "Exposure",
-                    "sub": "What opens on the server, and where it leads."
+                    "key": "reach",
+                    "label": "Reached by",
+                    "sub": "The ways in to this service; any mix of them works."
+                  },
+                  {
+                    "key": "website",
+                    "label": "Website",
+                    "sub": "How the web proxy reaches it."
                   },
                   {
                     "key": "access",
-                    "label": "Access",
-                    "sub": "Who may connect."
+                    "label": "Who may connect",
+                    "sub": "All ways in: the addresses that may connect, and limits."
                   },
                   {
                     "key": "traffic",
-                    "label": "Traffic",
-                    "sub": "Limits and what the target sees."
+                    "label": "What the target sees",
+                    "sub": "Whether the target learns the visitor's address."
                   }
                 ],
                 "entity": "service"
@@ -912,6 +3166,7 @@
             "default": false,
             "applies": "live",
             "group": "security",
+            "advanced": true,
             "danger_when_set": true,
             "locked": true
           }
@@ -941,7 +3196,8 @@
               ]
             },
             "applies": "live",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {
@@ -954,8 +3210,8 @@
                 {
                   "key": "handshake_timeout_secs",
                   "node": {
-                    "label": "Handshake timeout",
-                    "help": "Time a new connection has to authenticate",
+                    "label": "Connection setup timeout",
+                    "help": "How long a new client or visitor connection may take to show its key before it is closed",
                     "sem": {
                       "t": "duration",
                       "unit": "secs",
@@ -970,8 +3226,8 @@
                 {
                   "key": "max_handshakes",
                   "node": {
-                    "label": "Max handshakes",
-                    "help": "Concurrent connections that have not finished authenticating",
+                    "label": "Maximum connections setting up",
+                    "help": "New client and visitor connections that may show their key at the same time; more wait",
                     "sem": {
                       "t": "integer",
                       "min": 1,
@@ -986,8 +3242,8 @@
                 {
                   "key": "max_connections_per_client",
                   "node": {
-                    "label": "Max connections per client",
-                    "help": "Connections this server forwards to one client at once, unless that client has its own Max connections on this server",
+                    "label": "Maximum connections per client",
+                    "help": "Connections this server forwards to one client at once, unless that client has its own Maximum connections on this server",
                     "sem": {
                       "t": "integer",
                       "min": 1,
@@ -1001,7 +3257,7 @@
                 {
                   "key": "max_pending",
                   "node": {
-                    "label": "Max waiting connections",
+                    "label": "Maximum waiting connections",
                     "help": "Connections waiting for a data channel, per client",
                     "sem": {
                       "t": "integer",
@@ -1015,26 +3271,27 @@
                 }
               ]
             },
-            "group": "limits"
+            "group": "limits",
+            "advanced": true
           }
         },
         {
           "key": "pool",
           "node": {
-            "label": "Pool of idle channels",
+            "label": "Ready connections to clients",
             "sem": {
               "t": "object",
               "fields": [
                 {
                   "key": "min_idle",
                   "node": {
-                    "label": "Idle channels kept ready",
-                    "help": "Data channels each client keeps open in advance, so a new connection starts without a round trip",
+                    "label": "Kept ready",
+                    "help": "Spare connections each client keeps open, so a new visitor connection starts without waiting",
                     "sem": {
                       "t": "integer",
                       "min": 0,
                       "max": 1024,
-                      "unit": "channels"
+                      "unit": "connections"
                     },
                     "default": 4
                   }
@@ -1042,13 +3299,13 @@
                 {
                   "key": "max_idle",
                   "node": {
-                    "label": "Max idle channels",
-                    "help": "Most data channels each client keeps ready; the pool grows toward it when busy and shrinks when idle",
+                    "label": "Maximum kept ready",
+                    "help": "Most spare connections each client keeps; more are added when busy and dropped when idle",
                     "sem": {
                       "t": "integer",
                       "min": 1,
                       "max": 4096,
-                      "unit": "channels"
+                      "unit": "connections"
                     },
                     "default": 64
                   }
@@ -1056,7 +3313,8 @@
               ]
             },
             "applies": "reload",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {
@@ -1069,7 +3327,7 @@
                 {
                   "key": "nodelay",
                   "node": {
-                    "label": "No delay",
+                    "label": "Send small packets at once",
                     "help": "Send small writes at once instead of batching them (TCP_NODELAY)",
                     "sem": {
                       "t": "bool"
@@ -1080,8 +3338,8 @@
                 {
                   "key": "keepalive_secs",
                   "node": {
-                    "label": "Keepalive",
-                    "help": "Idle time before keepalive probes start; 0 turns them off",
+                    "label": "Check idle connections",
+                    "help": "Idle time before burrow checks that a quiet connection is still there (TCP keepalive); 0 turns the checks off",
                     "sem": {
                       "t": "duration",
                       "unit": "secs",
@@ -1093,7 +3351,8 @@
               ]
             },
             "applies": "live",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {
@@ -1107,7 +3366,7 @@
                   "key": "session_timeout_secs",
                   "node": {
                     "label": "Session timeout",
-                    "help": "A UDP peer that sends nothing for this long is forgotten",
+                    "help": "A UDP sender that sends nothing for this long is forgotten",
                     "sem": {
                       "t": "duration",
                       "unit": "secs",
@@ -1119,13 +3378,13 @@
                 {
                   "key": "max_peers",
                   "node": {
-                    "label": "Max UDP peers per port",
-                    "help": "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped. For example 20000; the default is 4096",
+                    "label": "Maximum UDP senders per port",
+                    "help": "Most UDP senders one service port keeps at once; a datagram from a new sender beyond it is dropped. For example 20000; the default is 4096",
                     "sem": {
                       "t": "integer",
                       "min": 1,
                       "max": 1000000,
-                      "unit": "peers"
+                      "unit": "senders"
                     },
                     "default": 4096,
                     "applies": "live"
@@ -1134,7 +3393,8 @@
               ]
             },
             "applies": "live",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {
@@ -1181,6 +3441,11 @@
       {
         "key": "websocket",
         "label": "WebSocket"
+      },
+      {
+        "key": "web",
+        "label": "Web proxy",
+        "sub": "One HTTPS port for websites and TLS services, told apart by name."
       },
       {
         "key": "entities",
@@ -1245,6 +3510,16 @@
         "protocol",
         "public"
       ]
+    },
+    {
+      "entity": "login",
+      "path": [
+        "web",
+        "forward_auth"
+      ],
+      "label": "Login service",
+      "plural": "Login services",
+      "facets": []
     }
   ]
 }

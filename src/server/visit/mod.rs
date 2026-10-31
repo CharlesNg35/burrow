@@ -124,7 +124,7 @@ pub(super) async fn serve(
             peer,
             grant: &grant,
             label: &label,
-            several: service.is_some_and(|(_, svc)| svc.clients.len() > 1),
+            several: service.is_some_and(|(_, svc)| svc.several()),
         };
         let (outcome, forbidden) =
             super::visit_udp::serve(&shared, &mut channel, visit, clients).await;
@@ -139,13 +139,11 @@ pub(super) async fn serve(
         }
     };
     let _tracked = shared.track();
-    let first = connect_frame(&grant);
     let prefix = proxy_prefix(
         service.and_then(|(_, svc)| svc.proxy_protocol),
         &channel,
         peer,
     );
-    let opening = opening_for(&first, &prefix, &settings);
     let limit = grant.service.as_ref().map(|name| shared.limit(name));
     let meter = Meter {
         limit: limit.as_deref(),
@@ -153,10 +151,9 @@ pub(super) async fn serve(
     };
     let way = Way {
         service: grant.service.as_deref(),
-        target: &grant.target,
         label: &label,
         peer,
-        several: service.is_some_and(|(_, svc)| svc.clients.len() > 1),
+        several: service.is_some_and(|(_, svc)| svc.several()),
     };
     let attempt = Attempt {
         visitor: &visitor,
@@ -165,7 +162,8 @@ pub(super) async fn serve(
         peer,
         grant: &grant,
         label: &label,
-        opening: &opening,
+        prefix: &prefix,
+        settings: &settings,
         meter,
         way: &way,
     };
@@ -251,15 +249,15 @@ fn opening_for<'a>(
         first,
         prefix,
         plaintext: settings.insecure_plaintext,
-        reply_timeout: settings.heartbeat_interval * 3,
+        reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
     }
 }
 
-fn connect_frame(grant: &Grant) -> Vec<u8> {
+fn connect_frame(grant: &Grant, target: &str) -> Vec<u8> {
     Connect {
         protocol: Protocol::Tcp,
         service: grant.service.clone().unwrap_or_default(),
-        target: grant.target.clone(),
+        target: target.to_string(),
         only: grant.only.clone(),
     }
     .encode()
@@ -272,7 +270,8 @@ struct Attempt<'a> {
     peer: SocketAddr,
     grant: &'a Grant,
     label: &'a str,
-    opening: &'a Opening<'a>,
+    prefix: &'a [u8],
+    settings: &'a crate::config::settings::ServerSettings,
     meter: Meter<'a>,
     way: &'a Way<'a>,
 }
@@ -281,7 +280,7 @@ async fn forward_tcp(
     shared: &Arc<Shared>,
     channel: &mut crate::wire::transport::Channel,
     a: Attempt<'_>,
-    clients: Vec<super::via::Via>,
+    clients: super::pick::Picked,
 ) -> (Outcome, bool) {
     let Attempt {
         visitor,
@@ -290,7 +289,8 @@ async fn forward_tcp(
         peer,
         grant,
         label,
-        opening,
+        prefix,
+        settings,
         meter,
         way,
     } = a;
@@ -311,8 +311,10 @@ async fn forward_tcp(
                 forbidden = true;
                 break 'attempt Opened::Gone(None);
             }
-            let forward = relay(&mut *channel, ch, opening, meter, tries.early(), || {
-                way.accepted(shared, client)
+            let first = connect_frame(grant, &session.target);
+            let opening = opening_for(&first, prefix, settings);
+            let forward = relay(&mut *channel, ch, &opening, meter, tries.early(), || {
+                way.accepted(shared, &session)
             });
             tokio::pin!(forward);
             loop {
@@ -352,20 +354,24 @@ async fn answer(
         } => debug!(%peer, "{label}: connection ended: {e}"),
         Outcome::Done {
             client,
+            target,
             result: Err(error),
-        } => log_refusal(label, &client, &grant.target, &error),
-        Outcome::Refused { client, error } => {
+        } => log_refusal(label, &client, &target, &error),
+        Outcome::Refused {
+            client,
+            target,
+            error,
+        } => {
             match (&error, grant.only.is_some()) {
                 (ForwardError::Status(Status::Denied), true) => {
                     static OUTSIDE: Throttle = Throttle::new();
                     if let Some(more) = OUTSIDE.allow() {
                         warn!(
-                            "{label}: client \"{client}\" refused {}: it is outside the reach of this visitor or the allow list of the client{more}",
-                            grant.target
+                            "{label}: client \"{client}\" refused {target}: it is outside the reach of this visitor or the allow list of the client{more}"
                         );
                     }
                 }
-                _ => log_refusal(label, &client, &grant.target, &error),
+                _ => log_refusal(label, &client, &target, &error),
             }
             let status = match error {
                 ForwardError::Status(st) => st,

@@ -42,6 +42,7 @@ The `burrow` crate is built in layers, from the bottom up:
 - Every commit compiles on its own.
 - Commit messages are a single line that says what is true now, for example "A visitor's UDP forward forgets its peers after the server closes the visit". No trailers.
 - Stage files by name; never `git add -A`.
+- When `rust-toolchain.toml` moves to a newer Rust, check D52 in `docs/decisions.md` (64-bit time on the 32-bit ARM builds).
 
 ## Design
 

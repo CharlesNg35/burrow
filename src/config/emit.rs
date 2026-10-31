@@ -46,7 +46,7 @@ fn yaml(value: &Value, indent: usize, out: &mut String) {
             for item in items {
                 out.push_str(&pad);
                 out.push_str("- ");
-                out.push_str(&inline(item));
+                out.push_str(&flow(item));
                 out.push('\n');
             }
         }
@@ -55,6 +55,23 @@ fn yaml(value: &Value, indent: usize, out: &mut String) {
             out.push_str(&inline(other));
             out.push('\n');
         }
+    }
+}
+
+pub(crate) fn flow(v: &Value) -> String {
+    match v {
+        Value::Object(m) if !m.is_empty() => {
+            let parts: Vec<String> = m
+                .iter()
+                .map(|(k, v)| format!("{}: {}", scalar_str(k), flow(v)))
+                .collect();
+            format!("{{ {} }}", parts.join(", "))
+        }
+        Value::Array(a) if !a.is_empty() => {
+            let parts: Vec<String> = a.iter().map(flow).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        other => inline(other),
     }
 }
 
@@ -76,7 +93,7 @@ pub(crate) fn scalar_str(s: &str) -> String {
             .next()
             .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '+'))
         && s.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '+' | '=' | '-' | ':')
+            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '+' | '=' | '-' | ':' | '@')
         })
         && !s.ends_with(':')
         && !matches!(
@@ -108,6 +125,21 @@ pub(crate) fn scalar_str(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_entry_in_a_list_is_a_yaml_flow_map() {
+        let v = serde_json::json!({"clients": ["home", {"name": "gw", "target": "10.0.0.12:3000", "weight": 2}]});
+        assert_eq!(
+            render(&v, Format::Yaml),
+            "clients:\n  - home\n  - { name: gw, target: 10.0.0.12:3000, weight: 2 }\n"
+        );
+    }
+
+    #[test]
+    fn an_email_is_written_plain_and_a_leading_at_sign_is_quoted() {
+        assert_eq!(scalar_str("ops@example.com"), "ops@example.com");
+        assert_eq!(scalar_str("@home"), "\"@home\"");
+    }
     use crate::config::tree;
 
     #[test]

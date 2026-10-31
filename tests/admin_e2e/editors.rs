@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::edits::{Flow, clear_of_bar, click_js, focus, row_clean, row_error, stored_as};
+use super::open_more;
 use super::world::{Options, free_range};
 use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
 
@@ -19,12 +20,12 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.fill("#f-services-web-bind", &format!("127.0.0.1:{public}"))
             .await;
         row_clean(c, bind).await;
-        c.ui.wait_text(
-            "[data-schema='services/*/bind'] [data-testid=port-count]",
-            "1 port",
-            SECS,
-        )
-        .await;
+        assert_eq!(
+            c.ui.count("[data-schema='services/*/bind'] [data-testid=port-count]")
+                .await,
+            0,
+            "one port needs no count beside it"
+        );
         c.ui.select("#f-services-web-bind-host", "\u{1}specific")
             .await;
         c.ui.fill("#f-services-web-bind-host-ip", "999.1.1.1").await;
@@ -49,6 +50,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             .await;
         row_clean(c, target).await;
 
+        open_more(c, "services/*/health_check").await;
         click_js(
             c,
             "[data-schema='services/*/health_check'] input[value=custom]",
@@ -66,7 +68,12 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("health-check-custom").await;
 
         let client = "[data-schema='services/*/clients']";
-        c.ui.click(&format!("{client} [data-remove]")).await;
+        c.ui.click(&format!("{client} [data-entry='0'] [data-testid=row-more]"))
+            .await;
+        c.ui.click(&format!(
+            "{client} [data-entry='0'] [data-testid=entry-remove]"
+        ))
+        .await;
         c.ui.wait_for("[data-testid=form-problems]", SECS).await;
         c.ui.shot("no-client-is-a-problem").await;
         c.ui.fill("#f-services-web-clients", "off").await;
@@ -93,10 +100,11 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         );
         assert!(text.contains("interval_secs: 5"), "{text}");
 
-        c.ui.nav("/settings").await;
+        c.ui.nav("/settings?tab=connections").await;
         edit_mode(c).await;
         c.ui.wait_for("[data-schema='pool/min_idle'] [data-editor]", SECS)
             .await;
+        open_more(c, "pool/min_idle").await;
         let _: bool = c
             .ui
             .eval("(() => { const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); const r = document.querySelector(\"[data-schema='pool/min_idle']\").getBoundingClientRect(); scrollBy(0, r.bottom - b.top - 10); document.getElementById('f-pool-min-idle').focus(); return true; })()")
@@ -112,9 +120,10 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.nav("/settings?tab=server").await;
         edit_mode(c).await;
         c.ui.wait_for("[data-server-address]", SECS).await;
-        click_js(c, "[data-server-address] input[value=host]").await;
+        click_js(c, "[data-server-address] input[value=name]").await;
         c.ui.fill("#f-public-address", "bad host").await;
         let err = row_error(c, "public_address").await;
         assert!(!err.is_empty(), "a host with a space is refused inline");
@@ -128,7 +137,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             "a wss:// address is refused inline on a server without WebSocket, as validate refuses it: {err}"
         );
         c.ui.shot("server-address-wss").await;
-        click_js(c, "[data-server-address] input[value=host]").await;
+        click_js(c, "[data-server-address] input[value=name]").await;
         c.ui.fill("#f-public-address", "tunnel.example.net").await;
         row_clean(c, "public_address").await;
         open_review(c, "review-of-the-server-address").await;
@@ -139,9 +148,12 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             "{text}"
         );
 
-        c.ui.nav("/settings").await;
+        c.ui.nav("/settings?tab=connections").await;
         let peers = "[data-schema='udp/max_peers']";
-        let help = c.ui.wait_text(peers, "Max UDP peers per port", SECS).await;
+        open_more(c, "udp/max_peers").await;
+        let help =
+            c.ui.wait_text(peers, "Maximum UDP senders per port", SECS)
+                .await;
         assert!(
             help.contains("For example 20000; the default is 4096"),
             "{help}"
@@ -181,7 +193,8 @@ fn fallback_edit(c: &mut Ctx) -> Flow<'_> {
         c.ui.nav("/services/capped").await;
         edit_mode(c).await;
         let row = "[data-schema='services/*/bandwidth']";
-        c.ui.wait_text(row, "Checked by the server", SECS).await;
+        c.ui.wait_text(row, "The server checks this value when you apply", SECS)
+            .await;
         c.ui.fill("#f-services-capped-bandwidth", "abc").await;
         wait_checked(c).await;
         c.ui.wait_text(&format!("{row} [aria-live]"), "abc", SECS)
@@ -206,55 +219,62 @@ fn e8_a_field_of_a_newer_type_is_edited_as_text_and_checked_by_the_server() {
     run("e8-fallback-edit", opts, true, fallback_edit);
 }
 
+async fn read_only_in_view(c: &mut Ctx, field: &str) {
+    let row = format!("[data-schema='{field}']");
+    open_more(c, field).await;
+    assert_eq!(
+        c.ui.count(&format!("{row} [data-editor]")).await,
+        0,
+        "{field} has no edit control"
+    );
+    assert_eq!(
+        c.ui.count(&format!("{row} input, {row} select")).await,
+        0,
+        "{field} has no input"
+    );
+    assert_eq!(
+        c.ui.count(&format!("{row} [data-locked]")).await,
+        0,
+        "{field} reads as a plain value in view mode, not a box"
+    );
+    let text =
+        c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
+            .await;
+    assert_eq!(
+        text.contains("then restart"),
+        field == "listen",
+        "{field}: only listen needs a restart: {text}"
+    );
+    assert_eq!(
+        text.matches("Change this").count(),
+        1,
+        "{field} says it once"
+    );
+}
+
 fn locked_fields(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
+        for (tab, fields) in [
+            ("server", &["listen", "insecure_plaintext"][..]),
+            (
+                "connections",
+                &[
+                    "heartbeat/interval_secs",
+                    "limits/handshake_timeout_secs",
+                    "limits/max_handshakes",
+                ][..],
+            ),
+        ] {
+            c.ui.nav(&format!("/settings?tab={tab}")).await;
+            c.ui.wait_for("[data-testid=settings] [data-card]", SECS)
+                .await;
+            for field in fields {
+                read_only_in_view(c, field).await;
+            }
+        }
         c.ui.nav("/settings").await;
         c.ui.wait_for("[data-schema=listen]", SECS).await;
-        for field in [
-            "listen",
-            "insecure_plaintext",
-            "heartbeat/interval_secs",
-            "limits/handshake_timeout_secs",
-            "limits/max_handshakes",
-        ] {
-            let row = format!("[data-schema='{field}']");
-            assert_eq!(
-                c.ui.count(&format!("{row} [data-editor]")).await,
-                0,
-                "{field} has no edit control"
-            );
-            assert_eq!(
-                c.ui.count(&format!("{row} input, {row} select")).await,
-                0,
-                "{field} has no input"
-            );
-            assert_eq!(
-                c.ui.count(&format!("{row} [data-locked]")).await,
-                0,
-                "{field} reads as a plain value in view mode, not a box"
-            );
-            let text =
-                c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
-                    .await;
-            assert_eq!(
-                text.contains("then restart"),
-                field == "listen",
-                "{field}: only listen needs a restart: {text}"
-            );
-            assert_eq!(
-                text.matches("Change this").count(),
-                1,
-                "{field} says it once"
-            );
-        }
-        assert_eq!(
-            c.ui.count("[data-schema=websocket] input").await,
-            0,
-            "the websocket block has no controls"
-        );
-        c.ui.wait_for("[data-schema=websocket] [data-testid=locked-hint]", SECS)
-            .await;
         assert_eq!(
             c.ui.count("[data-schema=public_address] input").await,
             0,
@@ -277,6 +297,14 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             public.contains("when WebSocket is on; connect commands made here use it"),
             "the public address keeps its whole help while editing: {public}"
         );
+        c.ui.click("[data-testid=settings-tabs] [data-tab=connections]")
+            .await;
+        c.ui.wait_for("[data-card=websocket]", SECS).await;
+        assert!(
+            c.ui.count("[data-card=websocket] #f-websocket").await > 0,
+            "WebSocket is turned on here (owner 0y)"
+        );
+        open_more(c, "limits/max_pending").await;
         assert!(
             c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
             "the rest of limits stays editable"
@@ -343,6 +371,9 @@ fn picker_create(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         c.ui.nav("/services/web?tab=settings").await;
         edit_mode(c).await;
+        click_js(c, "#f-services-web-reach-visitors").await;
+        c.ui.wait_for("[data-way=visitors] #f-services-web-visitors", SECS)
+            .await;
         create_in_picker(c, "f-services-web-visitors", "tablet", false).await;
         create_in_picker(c, "f-services-web-clients", "edge", true).await;
         c.ui.click("#f-services-web-visitors").await;

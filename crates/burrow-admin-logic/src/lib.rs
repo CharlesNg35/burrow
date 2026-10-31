@@ -4,15 +4,28 @@
 #![forbid(unsafe_code)]
 
 pub mod addr;
+pub mod allow;
+pub mod certs;
 pub mod changeset;
 pub mod check;
+mod diag_words;
+pub mod entries;
 pub mod fallback;
 pub mod grant;
+pub mod history;
 pub mod input;
+pub mod logins;
+pub mod more;
+pub mod off;
 pub mod rates;
 pub mod relations;
+pub mod settings_tabs;
+pub mod shorthand;
+pub mod top;
 pub mod tree;
 pub mod version;
+pub mod web;
+pub mod wording;
 
 #[cfg(test)]
 mod testing;

@@ -1,9 +1,11 @@
 mod about;
 pub mod activity;
+pub mod bar;
 pub mod create;
 pub mod entity;
 pub mod flow;
 mod list;
+mod local_ca;
 mod overview;
 pub mod paths;
 pub mod placement;
@@ -15,7 +17,41 @@ use leptos::prelude::*;
 use crate::route::{Link, Route};
 use crate::store::store;
 
-pub(crate) use list::{ListCard, ListPane};
+pub(crate) use list::{ListCard, ListPane, NewChoice, filter_chips, search_box};
+
+pub fn crumbs(
+    to: Route,
+    parent: String,
+    here: String,
+    hide: Signal<bool>,
+    tail: Option<AnyView>,
+) -> impl IntoView {
+    view! {
+        <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" class:max-sm:hidden=move || hide.get() aria-label="Breadcrumb">
+            <Link to=to class="text-text-muted no-underline hover:text-text">{parent}</Link>
+            <span aria-hidden="true">"/"</span>
+            <span class="font-semibold text-text">{here}</span>
+            {tail}
+        </nav>
+    }
+}
+
+pub fn entity_of(section: &str) -> burrow_admin_proto::schema::Entity {
+    burrow_config::entity_of_section(section).unwrap_or(burrow_admin_proto::schema::Entity::Service)
+}
+
+pub fn plural(section: &str) -> &'static str {
+    entity_of(section).plural()
+}
+
+pub fn entity_icon(section: &str) -> &'static str {
+    use burrow_admin_proto::schema::Entity;
+    match entity_of(section) {
+        Entity::Client => "monitor",
+        Entity::Visitor => "person",
+        Entity::Service | Entity::Login | Entity::Unknown(_) => "stack",
+    }
+}
 
 pub fn screen(route: Route) -> AnyView {
     let _ = store();
@@ -64,14 +100,26 @@ pub struct Row {
     pub line3: String,
     pub aside: String,
     pub title_tag: Option<(String, Tone)>,
+    pub terms: String,
 }
 
+pub const NEW_ROW: &str = "__new";
+pub const ONLINE_FILTER: &str = "online";
+pub const OFFLINE_FILTER: &str = "offline";
+
 impl Row {
-    fn matches(&self, q: &str) -> bool {
-        q.is_empty()
-            || self.title.to_lowercase().contains(q)
-            || self.line2.to_lowercase().contains(q)
-            || self.meta.to_lowercase().contains(q)
+    fn haystack(&self) -> String {
+        [&self.title, &self.line2, &self.meta, &self.terms]
+            .map(|t| t.to_lowercase())
+            .join("\n")
+    }
+
+    pub(crate) fn matches(&self, q: &str) -> bool {
+        q.is_empty() || self.haystack().contains(q)
+    }
+
+    pub fn is_placeholder(&self) -> bool {
+        self.key == NEW_ROW
     }
 }
 
@@ -108,12 +156,11 @@ pub fn clear_of_bar() {
         let _ = root.style().remove_property("scroll-padding-bottom");
         return;
     };
-    let h = window()
-        .inner_height()
-        .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
-    let top = bar.get_bounding_client_rect().top();
+    let h = burrow_ui_kit::view_height();
+    let Some(top) = burrow_ui_kit::bar_top() else {
+        let _ = root.style().remove_property("scroll-padding-bottom");
+        return;
+    };
     let room = (h - top + 16.0).clamp(16.0, h / 2.0);
     let _ = root
         .style()
@@ -185,7 +232,7 @@ pub fn no_token() -> impl IntoView {
                         <pre class="overflow-x-auto whitespace-pre-wrap break-all">
                             <span class="text-code-text/55">"$ "</span>"burrow admin -c visitor.yaml --print-url\n"
                             <span class="text-code-text/55">{format!("burrow admin for … listens on http://127.0.0.1:{port}\nopen: ")}</span>
-                            <span class="text-[#7cb7ff] underline">{format!("http://127.0.0.1:{port}/#token=…")}</span>
+                            <span class="text-[#7cb7ff] underline">{format!("http://127.0.0.1:{port}/{}…", burrow_admin_proto::local::TOKEN_FRAGMENT)}</span>
                             <span class="text-code-text/55">"\nstop it with Ctrl-C"</span>
                         </pre>
                     </div>

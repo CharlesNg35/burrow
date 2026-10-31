@@ -1,8 +1,16 @@
 #![allow(dead_code)]
 
+pub mod admin;
+pub mod certs;
+pub mod older;
+pub mod output;
 pub mod ports;
 pub mod socks;
 
+#[allow(unused_imports)]
+pub use certs::{Cert, ca_flagged, cert};
+#[allow(unused_imports)]
+pub use output::{read_until, text};
 #[allow(unused_imports)]
 pub use ports::{free_port, free_range};
 
@@ -62,6 +70,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         udp_max_peers: 4096,
         metrics: None,
         self_allow: None,
+        web: None,
     }
 }
 
@@ -107,6 +116,7 @@ pub struct RunningServer {
     pub addr: SocketAddr,
     pub metrics: Option<SocketAddr>,
     pub ws_addr: Option<SocketAddr>,
+    pub web_addr: Option<SocketAddr>,
     pub services: BTreeMap<String, SocketAddr>,
     pub reload_tx: mpsc::Sender<ServerSettings>,
     pub ws_settings: Option<burrow::config::settings::WebSocketSettings>,
@@ -130,6 +140,8 @@ fn as_websocket(mut settings: ServerSettings) -> ServerSettings {
             path: "/burrow".into(),
             tls: None,
             keepalive: Duration::from_secs(25),
+            host: None,
+            shares: burrow::config::settings::Shares::Nothing,
         });
     }
     settings
@@ -152,11 +164,14 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         }
     };
     let ws_addr = server.websocket_addr();
+    let web_addr = server.web_addr();
     let metrics = server.metrics_addr();
     let ws_settings = settings_ws;
     let addr = server
         .local_addr()
         .or(ws_addr)
+        .or(web_addr)
+        .or(server.web_http_addr())
         .expect("server has a listener");
     let services = names
         .iter()
@@ -170,6 +185,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         addr,
         metrics,
         ws_addr,
+        web_addr,
         ws_settings,
         services,
         reload_tx,
@@ -186,6 +202,17 @@ impl RunningServer {
             next.websocket = self.ws_settings.clone();
         }
         self.reload_tx.send(next).await.unwrap();
+    }
+
+    pub async fn reload_applied(&self, next: ServerSettings) -> burrow::server::ApplyReport {
+        let mut applies = self.shared.applies();
+        let seq = applies.borrow().seq;
+        self.reload(next).await;
+        tokio::time::timeout(Duration::from_secs(10), applies.wait_for(|r| r.seq > seq))
+            .await
+            .expect("the server applies the reload within 10 s")
+            .expect("the server is running")
+            .clone()
     }
 }
 
@@ -236,7 +263,11 @@ pub async fn wait_for<F: FnMut() -> bool>(mut f: F) {
 }
 
 pub async fn echo_server() -> SocketAddr {
-    let l = burrow::wire::transport::tcp::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+    echo_on("127.0.0.1:0".parse().unwrap()).await
+}
+
+pub async fn echo_on(addr: SocketAddr) -> SocketAddr {
+    let l = burrow::wire::transport::tcp::bind_tcp(addr).unwrap();
     let addr = l.local_addr().unwrap();
     tokio::spawn(async move {
         loop {
@@ -251,6 +282,67 @@ pub async fn echo_server() -> SocketAddr {
         }
     });
     addr
+}
+
+pub async fn tagged_tcp_targets(count: u16) -> u16 {
+    let base = free_range(count);
+    for i in 0..count {
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", base + i))
+            .await
+            .unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut s, _)) = l.accept().await else {
+                    return;
+                };
+                let port = s.local_addr().unwrap().port();
+                tokio::spawn(async move {
+                    s.write_all(&port.to_be_bytes()).await.unwrap();
+                    let (mut r, mut w) = s.split();
+                    let _ = tokio::io::copy(&mut r, &mut w).await;
+                    let _ = w.shutdown().await;
+                });
+            }
+        });
+    }
+    base
+}
+
+pub async fn tcp_lands_on(addr: SocketAddr) -> Option<u16> {
+    let mut s = tokio::net::TcpStream::connect(addr).await.ok()?;
+    let mut port = [0u8; 2];
+    tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut port))
+        .await
+        .ok()?
+        .ok()?;
+    s.write_all(b"hello").await.ok()?;
+    let mut back = [0u8; 5];
+    s.read_exact(&mut back).await.ok()?;
+    assert_eq!(&back, b"hello");
+    Some(u16::from_be_bytes(port))
+}
+
+pub fn quick_health() -> burrow::config::settings::Health {
+    burrow::config::settings::Health {
+        interval: Duration::from_millis(200),
+        timeout: Duration::from_secs(1),
+        failures: 1,
+        http: None,
+    }
+}
+
+pub async fn within_tries<F, Fut>(tries: u32, mut f: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    for _ in 0..tries {
+        if f().await {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
 }
 
 pub async fn udp_bind() -> UdpSocket {
@@ -380,27 +472,35 @@ pub async fn tunnel_with(
     }
 }
 
+pub fn free_addr() -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], free_port()))
+}
+
 pub fn refusing() -> (tokio::net::TcpSocket, SocketAddr) {
     let socket = tokio::net::TcpSocket::new_v4().unwrap();
-    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-    let addr = socket.local_addr().unwrap();
+    let addr = free_addr();
     if cfg!(any(target_os = "macos", windows)) {
-        drop(socket);
-        return (tokio::net::TcpSocket::new_v4().unwrap(), addr);
+        return (socket, addr);
     }
+    socket.bind(addr).unwrap();
     (socket, addr)
 }
 
-pub fn scrape(addr: SocketAddr) -> Result<String, String> {
+pub fn http_get(addr: SocketAddr, path: &str) -> Result<String, String> {
     use std::io::{Read, Write};
     let timeout = Duration::from_secs(5);
     let mut s = std::net::TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
     s.set_read_timeout(Some(timeout))
         .map_err(|e| e.to_string())?;
-    s.write_all(b"GET /metrics HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    s.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n").as_bytes())
         .map_err(|e| e.to_string())?;
     let mut raw = String::new();
     s.read_to_string(&mut raw).map_err(|e| e.to_string())?;
+    Ok(raw)
+}
+
+pub fn scrape(addr: SocketAddr) -> Result<String, String> {
+    let raw = http_get(addr, "/metrics")?;
     match raw.split_once("\r\n\r\n") {
         Some((head, body)) if head.starts_with("HTTP/1.1 200") => Ok(body.to_string()),
         _ => Err(format!("the metrics endpoint answered: {raw:.80}")),

@@ -32,18 +32,6 @@ pub struct FileStore {
     problem: Mutex<Option<String>>,
 }
 
-pub fn history_dir_of(config: &Path) -> PathBuf {
-    let name = config
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "config".into());
-    config
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-        .join(format!(".{name}.history"))
-}
-
 impl FileStore {
     pub fn new(path: &Path) -> FileStore {
         FileStore {
@@ -55,7 +43,7 @@ impl FileStore {
     }
 
     fn dir(&self) -> PathBuf {
-        history_dir_of(&self.path)
+        crate::config::save::history_dir_of(&self.path)
     }
 
     fn folder(&self) -> PathBuf {
@@ -86,7 +74,7 @@ impl FileStore {
             .extension()
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_else(|| "yaml".into());
-        let hex = rev.trim_start_matches("b2s:");
+        let hex = text::rev_hex(rev).unwrap_or(rev);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
@@ -206,20 +194,23 @@ fn parse_kept(name: &str) -> Option<(u128, Version)> {
     let (at, rest) = name.split_once('-')?;
     let hex = rest.split('.').next()?;
     let nanos: u128 = at.parse().ok()?;
-    (hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
-        (
-            nanos,
-            Version {
-                rev: format!("b2s:{hex}"),
-                at: (nanos / 1_000_000_000) as u64,
-            },
-        )
-    })
+    let rev = text::rev_from_hex(hex)?;
+    Some((
+        nanos,
+        Version {
+            rev,
+            at: (nanos / 1_000_000_000) as u64,
+        },
+    ))
 }
 
 impl Store for FileStore {
     fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn state_dir(&self) -> PathBuf {
+        crate::install::state_dir_for(&self.path)
     }
 
     fn format(&self) -> Format {
@@ -260,7 +251,7 @@ impl Store for FileStore {
                     return Ok(());
                 }
                 Err(WhyNot {
-                    code: "file-not-writable".into(),
+                    code: burrow_admin_proto::codes::FILE_NOT_WRITABLE.into(),
                     message: format!("the server cannot write {}", self.path.display()),
                     hint: format!(
                         "give the account the server runs as write access to {}",
@@ -268,38 +259,7 @@ impl Store for FileStore {
                     ),
                 })
             }
-            Err(e) => {
-                let ro = e.raw_os_error() == Some(30);
-                let installed = std::env::var_os("INVOCATION_ID").is_some()
-                    || crate::install::in_service_folder(&self.path);
-                Err(WhyNot {
-                    code: if ro {
-                        "read-only-fs".into()
-                    } else {
-                        "folder-not-writable".into()
-                    },
-                    message: if ro && installed {
-                        format!(
-                            "the service sandbox keeps {} read-only for the server",
-                            folder.display()
-                        )
-                    } else {
-                        format!(
-                            "the server cannot create files in {} ({})",
-                            folder.display(),
-                            crate::base::failure::file_reason(&e)
-                        )
-                    },
-                    hint: if installed || ro {
-                        crate::install::writable_hint(&self.path)
-                    } else {
-                        format!(
-                            "give the account the server runs as write access to {}",
-                            folder.display()
-                        )
-                    },
-                })
-            }
+            Err(e) => Err(folder_why_not(&self.path, &folder, &e)),
         }
     }
 
@@ -317,7 +277,7 @@ impl Store for FileStore {
                 (
                     Version {
                         rev: rev.to_string(),
-                        at: text::now_unix(),
+                        at: burrow_syntax::duration::now_secs(),
                     },
                     body.to_string(),
                 ),
@@ -361,6 +321,10 @@ impl Store for FileStore {
     }
 }
 
+fn probe_bind(addr: SocketAddr) -> std::io::Result<()> {
+    crate::wire::transport::tcp::bind_tcp(addr).map(drop)
+}
+
 pub struct ServerLive(pub Arc<Shared>);
 
 impl Live for ServerLive {
@@ -376,10 +340,11 @@ impl Live for ServerLive {
         self.0
             .client_sessions()
             .into_iter()
-            .map(|(client, secret_fp, from, _)| LiveSession {
-                client,
-                secret_fp,
-                from,
+            .map(|s| LiveSession {
+                client: s.name,
+                secret_fp: s.secret_fp,
+                from: s.from,
+                over_websocket: s.over_websocket,
             })
             .collect()
     }
@@ -388,8 +353,12 @@ impl Live for ServerLive {
         self.0
             .client_sessions()
             .into_iter()
-            .filter_map(|(c, _, _, allow)| allow.map(|a| (c, a)))
+            .filter_map(|s| s.allow.map(|a| (s.name, a)))
             .collect()
+    }
+
+    fn bind_probe(&self, addr: SocketAddr) -> std::io::Result<()> {
+        probe_bind(addr)
     }
 
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16> {
@@ -451,22 +420,11 @@ struct SettingsAccess {
 impl Access for SettingsAccess {
     fn revoked(&self) -> Option<String> {
         let settings = self.shared.current_settings();
-        let Some(v) = settings.visitors.get(&self.visitor) else {
-            return Some("visitor removed".into());
-        };
-        if !v.secrets.contains(&self.secret) {
-            return Some("secret removed".into());
+        match settings.admin_access(&self.visitor, &self.secret, self.peer.ip()) {
+            Err(why) => Some(why.into()),
+            Ok(level) if level != self.level => Some("admin level changed".into()),
+            Ok(_) => None,
         }
-        if v.admin.is_none() {
-            return Some("admin removed".into());
-        }
-        if v.admin != Some(self.level) {
-            return Some("admin level changed".into());
-        }
-        if !v.admits_admin(self.peer.ip()) {
-            return Some("source not allowed".into());
-        }
-        None
     }
 }
 
@@ -497,12 +455,7 @@ async fn serve(
         via_websocket,
     } = opened;
     let settings = shared.current_settings();
-    let level = settings
-        .visitors
-        .get(&visitor)
-        .filter(|v| v.secrets.contains(&secret) && v.admits_admin(peer.ip()))
-        .and_then(|v| v.admin);
-    let Some(level) = level else {
+    let Ok(level) = settings.admin_access(&visitor, &secret, peer.ip()) else {
         if let Some(more) = REFUSED.allow() {
             warn!(
                 "visitor \"{visitor}\" from {} asked for admin access, which it does not have{more}",
@@ -576,8 +529,52 @@ async fn serve(
     .await;
 }
 
+fn folder_why_not(path: &Path, folder: &Path, e: &std::io::Error) -> WhyNot {
+    let ro = e.kind() == std::io::ErrorKind::ReadOnlyFilesystem;
+    let installed =
+        std::env::var_os("INVOCATION_ID").is_some() || crate::install::in_service_folder(path);
+    WhyNot {
+        code: if ro {
+            burrow_admin_proto::codes::READ_ONLY_FS.into()
+        } else {
+            burrow_admin_proto::codes::FOLDER_NOT_WRITABLE.into()
+        },
+        message: if ro && installed {
+            format!(
+                "the service sandbox keeps {} read-only for the server",
+                folder.display()
+            )
+        } else {
+            format!(
+                "the server cannot create files in {} ({})",
+                folder.display(),
+                crate::base::failure::file_reason(e)
+            )
+        },
+        hint: if installed || ro {
+            crate::install::writable_hint(path)
+        } else {
+            format!(
+                "give the account the server runs as write access to {}",
+                folder.display()
+            )
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn the_web_port_probe_never_keeps_the_port() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = held.local_addr().unwrap();
+        let busy = super::probe_bind(addr).unwrap_err();
+        assert_eq!(busy.kind(), std::io::ErrorKind::AddrInUse);
+        drop(held);
+        super::probe_bind(addr).unwrap();
+        std::net::TcpListener::bind(addr).expect("free again right after the probe");
+    }
+
     use super::*;
 
     #[cfg(unix)]
@@ -708,6 +705,20 @@ mod tests {
         assert_eq!(store.read().unwrap(), "listen: 3\n");
     }
 
+    #[test]
+    fn a_read_only_filesystem_is_told_apart_from_a_folder_without_rights() {
+        let (path, folder) = (Path::new("/srv/server.yaml"), Path::new("/srv"));
+        let why = |kind: std::io::ErrorKind| folder_why_not(path, folder, &kind.into()).code;
+        assert_eq!(
+            why(std::io::ErrorKind::ReadOnlyFilesystem),
+            burrow_admin_proto::codes::READ_ONLY_FS
+        );
+        assert_eq!(
+            why(std::io::ErrorKind::PermissionDenied),
+            burrow_admin_proto::codes::FOLDER_NOT_WRITABLE
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_folder_the_server_cannot_write_is_reported_before_any_change() {
@@ -728,7 +739,7 @@ mod tests {
         let kept = store.version(&text::rev("listen: 1\n"));
         std::fs::set_permissions(&inner, std::fs::Permissions::from_mode(0o700)).unwrap();
         let why = why.expect("not writable");
-        assert_eq!(why.code, "folder-not-writable");
+        assert_eq!(why.code, burrow_admin_proto::codes::FOLDER_NOT_WRITABLE);
         assert!(problem.unwrap().contains("in memory only"));
         assert_eq!(
             kept.as_deref(),

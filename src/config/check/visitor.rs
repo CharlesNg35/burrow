@@ -54,7 +54,7 @@ pub fn check_visitor(
         }
     };
     if cfg.forwards.is_empty() && !spans.has(&["forwards"]) {
-        let d = Diagnostic::warning("no-forwards", "no forwards are defined")
+        let d = Diagnostic::warning(burrow_admin_proto::codes::NO_FORWARDS, "no forwards are defined")
             .help(format!(
                 "add one, for example:\n         forwards:\n           db: {{ service: db, local: 5432 }}\n       or name the target when you run it: {}",
                 crate::base::failure::cmd("visit --service NAME --local PORT")
@@ -76,7 +76,7 @@ pub fn check_visitor(
             {
                 out.push(
                     Diagnostic::error(
-                        "duplicate-bind",
+                        burrow_admin_proto::codes::DUPLICATE_BIND,
                         format!(
                             "forward \"{name}\" listens on {}, already used by forward \"{other}\"",
                             show_addr(l, n)

@@ -28,6 +28,8 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.nav("/services").await;
         c.ui.shot("services-list").await;
         c.ui.click("[data-testid=new]").await;
+        c.ui.click("[data-testid=new-menu] [data-new=service]")
+            .await;
         c.ui.wait_for("[data-testid=new-entity]", SECS).await;
         c.ui.shot("new-service-dialog").await;
         c.ui.fill("#new-name", "has space").await;
@@ -44,6 +46,11 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.wait_for("[data-testid=save-bar]", SECS).await;
         c.ui.shot("new-service-form").await;
+        c.ui.wait_for(
+            "[data-testid=reached-by] [data-testid=no-way-in] [data-tone=info]",
+            SECS,
+        )
+        .await;
 
         assert_eq!(
             c.ui.count("[data-schema='services/*/client'][data-path]")
@@ -54,25 +61,29 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-schema='services/*/clients'] [data-chip=home]", SECS)
             .await;
         c.ui.click("#f-services-game-clients").await;
-        assert_eq!(
-            c.ui.count("[data-schema='services/*/mode']").await,
-            0,
-            "mode needs two clients"
+        let mode = c.ui.text("[data-schema='services/*/mode']").await;
+        assert!(
+            mode.contains("two or more clients"),
+            "mode shows why it needs two clients: {mode}"
         );
-        c.ui.click("[data-schema='services/*/clients'] [data-option=office] input")
+        assert_eq!(
+            c.ui.count("[data-schema='services/*/mode'] [data-editor]")
+                .await,
+            0
+        );
+        c.ui.click("[data-schema='services/*/clients'] [data-option=office]")
             .await;
-        c.ui.wait_for("[data-schema='services/*/mode']", SECS).await;
+        c.ui.wait_for("[data-schema='services/*/mode'] [data-editor]", SECS)
+            .await;
         c.ui.shot("two-clients-show-mode").await;
         assert_eq!(
-            c.ui.count("#f-services-game-bind").await,
+            c.ui.count("#f-services-game-reach-bind:checked").await,
             0,
-            "a new service starts private"
+            "a new service starts with no public port"
         );
-        click_js(
-            c,
-            "[data-schema='services/*/visibility'] input[value=public]",
-        )
-        .await;
+        click_js(c, "#f-services-game-reach-bind").await;
+        c.ui.wait_for("[data-way=bind] #f-services-game-bind", SECS)
+            .await;
 
         c.ui.fill(
             "#f-services-game-bind",
@@ -109,7 +120,7 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.wait_text(
             "[data-schema='services/*/target']",
-            "2 ports here, but bind has 3",
+            "Public address has 3 ports; this needs 3 too, not 2",
             SECS,
         )
         .await;
@@ -216,6 +227,8 @@ fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         c.ui.nav("/services").await;
         c.ui.click("[data-testid=new]").await;
+        c.ui.click("[data-testid=new-menu] [data-new=service]")
+            .await;
         c.ui.wait_for("[data-testid=new-entity]", SECS).await;
         c.ui.fill("#new-name", "local").await;
         c.ui.wait_for("[data-testid=name-available]", SECS).await;
@@ -223,22 +236,24 @@ fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=detail][data-name=local]", SECS)
             .await;
         let clients = "[data-schema='services/*/clients']";
-        c.ui.click(&format!("{clients} [data-remove]")).await;
+        c.ui.click(&format!(
+            "{clients} [data-entry='0'] [data-testid=row-more]"
+        ))
+        .await;
+        c.ui.click(&format!(
+            "{clients} [data-entry='0'] [data-testid=entry-remove]"
+        ))
+        .await;
         c.ui.click("#f-services-local-clients").await;
         c.ui.wait_for(&format!("{clients} [data-option=self]"), SECS)
             .await;
         let offered = c.ui.text(&format!("{clients} [data-option=self]")).await;
         assert!(offered.contains("This server"), "{offered}");
         c.ui.shot("this-server-in-the-picker").await;
-        c.ui.click(&format!("{clients} [data-option=self] input"))
-            .await;
+        c.ui.click(&format!("{clients} [data-option=self]")).await;
         c.ui.wait_for(&format!("{clients} [data-chip=self]"), SECS)
             .await;
-        click_js(
-            c,
-            "[data-schema='services/*/visibility'] input[value=public]",
-        )
-        .await;
+        click_js(c, "#f-services-local-reach-bind").await;
         c.ui.fill("#f-services-local-bind", &format!("127.0.0.1:{public}"))
             .await;
         c.ui.fill("#f-services-local-target", &format!("127.0.0.1:{echo}"))
@@ -285,7 +300,14 @@ pub(super) async fn row_error(c: &Ctx, schema: &str) -> String {
 }
 
 pub(super) async fn clear_of_bar(c: &Ctx, schema: &str) {
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    c.ui.wait_true(
+        &format!(
+            "(() => {{ const b = document.querySelector('[data-sticky-bar]'); const r = document.querySelector(\"[data-schema='{schema}']\"); return b.getBoundingClientRect().top >= r.getBoundingClientRect().bottom; }})()"
+        ),
+        &format!("the save bar leaves {schema} clear"),
+        SECS,
+    )
+    .await;
     let gap: f64 = c
         .ui
         .eval(&format!(

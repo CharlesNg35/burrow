@@ -15,6 +15,7 @@ use burrow_config::Protocol;
 pub(in crate::server) struct Grant {
     pub clients: Vec<String>,
     pub target: String,
+    pub index: u16,
     pub service: Option<String>,
     pub only: Option<Vec<String>>,
 }
@@ -85,6 +86,7 @@ impl Shared {
                 Ok(Grant {
                     clients: svc.clients.clone(),
                     target: svc.target_at(*index),
+                    index: *index,
                     service: Some(name.clone()),
                     only: None,
                 })
@@ -131,6 +133,7 @@ impl Shared {
                 Ok(Grant {
                     clients: vec![client.clone()],
                     target: target.clone(),
+                    index: 0,
                     service: None,
                     only: rules.rules(),
                 })
@@ -243,19 +246,21 @@ pub(super) fn usable(
     }
 }
 
-pub(super) fn clients_for(shared: &Shared, grant: &Grant) -> Vec<crate::server::via::Via> {
+pub(super) fn clients_for(shared: &Shared, grant: &Grant) -> crate::server::pick::Picked {
     match &grant.service {
         Some(name) => shared
             .settings()
             .services
             .get(name)
-            .map(|svc| shared.route(name, svc, &grant.target))
-            .unwrap_or_default(),
+            .map(|svc| shared.route(name, svc, grant.index))
+            .unwrap_or_else(|| crate::server::pick::Picked::from(Vec::new())),
         None => grant
             .clients
             .first()
             .and_then(|c| shared.via(c))
+            .map(|via| crate::server::pick::Hop::direct(via, &grant.target))
             .into_iter()
-            .collect(),
+            .collect::<Vec<_>>()
+            .into(),
     }
 }

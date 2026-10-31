@@ -7,37 +7,9 @@ use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
 use crate::config::diagnostics::{Diagnostic, Report};
 use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
-pub use parse::load_str_in;
+pub use parse::{load_str_at, load_str_in};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Role {
-    Server,
-    Client,
-    Visitor,
-}
-
-impl Role {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Role::Server => "server",
-            Role::Client => "client",
-            Role::Visitor => "visitor",
-        }
-    }
-
-    pub fn parse(word: &str) -> Option<Role> {
-        [Role::Server, Role::Client, Role::Visitor]
-            .into_iter()
-            .find(|r| r.as_str() == word)
-    }
-
-    pub fn command(self) -> &'static str {
-        match self {
-            Role::Visitor => "visit",
-            r => r.as_str(),
-        }
-    }
-}
+pub use crate::install::Role;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
@@ -141,7 +113,20 @@ pub fn load_file(
         .and_then(|s| s.to_str())
         .is_some_and(|s| s.to_ascii_lowercase().ends_with("visitor"));
     let role = role.or_else(|| named.then(|| visitor_by_name(&src)).flatten());
-    let mut outcome = load_str_in(base, &path.display().to_string(), &src, format, role, env);
+    let state = crate::install::state_dir_for(path);
+    let mut outcome = load_str_at(
+        (base, Some(&state)),
+        &path.display().to_string(),
+        &src,
+        format,
+        role,
+        env,
+    );
+    if let Some(Loaded::Server(s, _)) = outcome.loaded.as_mut()
+        && let Some(w) = s.web.as_mut()
+    {
+        w.history = Some(crate::config::save::history_dir_of(path));
+    }
     if let Some(w) = permission_warning(path) {
         outcome.report.push(w);
         outcome.report.sort();
@@ -150,7 +135,7 @@ pub fn load_file(
         .report
         .diagnostics
         .iter()
-        .any(|d| d.code == "syntax")
+        .any(|d| d.code == burrow_admin_proto::codes::SYNTAX)
         && let Some(spare) = crate::config::save::spare_next_to(path)
     {
         outcome.report.push(
@@ -216,17 +201,18 @@ pub fn detect_role(root: &Node) -> Option<Role> {
     let server = entries
         .iter()
         .filter(|e| {
-            matches!(
-                e.key.as_str(),
-                "listen"
-                    | "websocket"
-                    | "clients"
-                    | "visitors"
-                    | "services"
-                    | "limits"
-                    | "pool"
-                    | "heartbeat"
-            )
+            use burrow_config::ServerConfig as S;
+            [
+                S::LISTEN.key(),
+                S::WEBSOCKET.key(),
+                S::CLIENTS.key(),
+                S::VISITORS.key(),
+                S::SERVICES.key(),
+                S::LIMITS.key(),
+                S::POOL.key(),
+                S::HEARTBEAT.key(),
+            ]
+            .contains(&e.key.as_str())
         })
         .count();
     let client = entries
@@ -276,10 +262,13 @@ fn json_syntax(src: &str) -> Option<Diagnostic> {
     let msg = err.to_string();
     let msg = msg.split(" at line ").next().unwrap_or(&msg).to_string();
     Some(
-        Diagnostic::error("syntax", format!("invalid JSON: {msg}"))
-            .at(Span::point(pos))
-            .label("here")
-            .help("check for a missing comma, quote or bracket just before this point"),
+        Diagnostic::error(
+            burrow_admin_proto::codes::SYNTAX,
+            format!("invalid JSON: {msg}"),
+        )
+        .at(Span::point(pos))
+        .label("here")
+        .help("check for a missing comma, quote or bracket just before this point"),
     )
 }
 
@@ -291,11 +280,17 @@ fn hide_secret_lines(report: &mut Report) {
                 .get(s.start.line.saturating_sub(1))
                 .copied()
                 .unwrap_or("");
-            if line.contains("secret") {
+            if secret_line(line) {
                 d.snippet = false;
             }
         }
     }
+}
+
+fn secret_line(line: &str) -> bool {
+    let key = line.split(':').next().unwrap_or("");
+    let key = key.trim_matches(|c: char| c.is_whitespace() || "-\"'{[,".contains(c));
+    crate::config::check::secretish(key) || line.contains(burrow_syntax::secret_fmt::SECRET_WORD)
 }
 
 pub fn load_str(
@@ -326,7 +321,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let before = load_file(&config, Some(Role::Server), &nothing).unwrap();
-        assert!(codes(&before).contains(&"syntax"));
+        assert!(codes(&before).contains(&burrow_admin_proto::codes::SYNTAX));
         assert!(!codes(&before).contains(&"edit-spare"));
         let spare = dir.path().join(".server.yaml.burrow-edit-9");
         std::fs::write(&spare, "listen: 7835\n").unwrap();
@@ -345,5 +340,29 @@ mod tests {
         std::fs::write(&config, "listen: 7835\n").unwrap();
         let fine = load_file(&config, Some(Role::Server), &nothing).unwrap();
         assert!(!codes(&fine).contains(&"edit-spare"));
+    }
+
+    #[test]
+    fn a_syntax_error_on_a_secret_line_shows_no_snippet() {
+        let nothing = |_: &str| None;
+        for (src, value) in [
+            ("listen: 7835\npassword: hunter2: x\n", "hunter2"),
+            ("token: short1: ]\n", "short1"),
+            ("listen: 7835\npsk: \"abc1 [\n", "abc1"),
+            ("clients:\n  - key: k3y: v\n", "k3y"),
+        ] {
+            let o = load_str("c.yaml", src, Format::Yaml, Some(Role::Server), &nothing);
+            assert!(
+                o.report
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code == burrow_admin_proto::codes::SYNTAX),
+                "{src}"
+            );
+            let shown = o
+                .report
+                .render_text(crate::base::style::Style { color: false });
+            assert!(!shown.contains(value), "{shown}");
+        }
     }
 }

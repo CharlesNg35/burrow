@@ -79,7 +79,7 @@ fn a_config_of_another_role_is_one_clear_error() {
             .filter(|d| d.is_error())
             .collect();
         assert_eq!(errors.len(), 1, "{errors:?}");
-        assert_eq!(errors[0].code, "wrong-role");
+        assert_eq!(errors[0].code, burrow_admin_proto::codes::WRONG_ROLE);
         assert!(
             errors[0].message.contains("is a server config, not a"),
             "{}",
@@ -102,7 +102,12 @@ fn a_config_of_another_role_is_one_clear_error() {
         Some(Role::Server),
         &env,
     );
-    assert!(o.report.diagnostics.iter().any(|d| d.code == "wrong-role"));
+    assert!(
+        o.report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == burrow_admin_proto::codes::WRONG_ROLE)
+    );
     let o = load_str(
         "visitor.yaml",
         &client.replace("allow: [127.0.0.0/8]\n", ""),
@@ -111,7 +116,10 @@ fn a_config_of_another_role_is_one_clear_error() {
         &env,
     );
     assert!(
-        !o.report.diagnostics.iter().any(|d| d.code == "wrong-role"),
+        !o.report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == burrow_admin_proto::codes::WRONG_ROLE),
         "a visitor without forwards looks like a client and is not refused"
     );
     let visitor = format!(
@@ -124,7 +132,12 @@ fn a_config_of_another_role_is_one_clear_error() {
         Some(Role::Client),
         &env,
     );
-    assert!(o.report.diagnostics.iter().any(|d| d.code == "wrong-role"));
+    assert!(
+        o.report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == burrow_admin_proto::codes::WRONG_ROLE)
+    );
 }
 
 #[test]
@@ -211,7 +224,7 @@ fn variables_fill_number_and_boolean_fields() {
         .collect();
     assert_eq!(
         errors,
-        ["env-unset", "env-unset", "env-unset"],
+        [burrow_admin_proto::codes::ENV_UNSET; 3],
         "one error per unset variable"
     );
     let name = load_str(
@@ -240,7 +253,7 @@ fn variables_fill_number_and_boolean_fields() {
             .report
             .diagnostics
             .iter()
-            .any(|d| d.code == "env-unset")
+            .any(|d| d.code == burrow_admin_proto::codes::ENV_UNSET)
     );
 }
 
@@ -278,7 +291,10 @@ fn invalid_forwards_are_not_called_missing() {
             Some(Role::Visitor),
             &env,
         );
-        o.report.diagnostics.iter().any(|d| d.code == "no-forwards")
+        o.report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == burrow_admin_proto::codes::NO_FORWARDS)
     };
     assert!(warned(""));
     assert!(!warned("forwards: {}\n"));

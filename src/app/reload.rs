@@ -35,6 +35,9 @@ impl Watched for ServerSettings {
             files.push(tls.cert_path.clone());
             files.push(tls.key_path.clone());
         }
+        if let Some(web) = &self.web {
+            files.extend(web.cert_files());
+        }
         files
     }
 }
@@ -558,6 +561,31 @@ fn watch_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_server_watches_its_web_certificate_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(
+            &config,
+            "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nweb:\n  https: 443\nservices:\n  nas: { client: home, target: 443, web: { hosts: [nas.example.com], tls: passthrough } }\n",
+        )
+        .unwrap();
+        let loaded = load_file(&config, Some(Role::Server), &Env::default())
+            .unwrap()
+            .loaded
+            .unwrap();
+        let mut s = ServerSettings::from_loaded(loaded).unwrap();
+        let web = s.web.as_mut().unwrap();
+        web.certificates.push(crate::config::settings::CertFile {
+            hosts: vec!["*.example.com".into()],
+            cert: dir.path().join("w.pem"),
+            key: dir.path().join("w.key"),
+        });
+        let watched = s.files(&config);
+        assert!(watched.contains(&dir.path().join("w.pem")));
+        assert!(watched.contains(&dir.path().join("w.key")));
+    }
 
     #[cfg(unix)]
     #[tokio::test]

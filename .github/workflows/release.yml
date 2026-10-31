@@ -22,6 +22,7 @@ env:
 jobs:
   version:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Tag matches Cargo.toml
@@ -35,6 +36,7 @@ jobs:
 
   ui:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup target add wasm32-unknown-unknown
@@ -49,6 +51,7 @@ jobs:
           name: admin-ui-dist
           path: crates/burrow-admin-ui/dist
           if-no-files-found: error
+          retention-days: 1
 
   binaries:
     needs: [version, ui]
@@ -68,6 +71,7 @@ jobs:
           - { asset: linux-riscv64, target: riscv64gc-unknown-linux-musl, os: ubuntu-latest, zig: true }
           - { asset: freebsd-amd64, target: x86_64-unknown-freebsd, os: ubuntu-latest, zig: true }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup target add ${{ matrix.target }}
@@ -171,10 +175,12 @@ jobs:
           name: dist-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
+          retention-days: 1
 
   publish:
     needs: binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
@@ -217,6 +223,7 @@ jobs:
   image:
     needs: [publish, ui]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: write
@@ -273,3 +280,17 @@ jobs:
           subject-name: ghcr.io/${{ env.OWNER }}/burrow
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  cleanup:
+    name: delete this run's artifacts
+    needs: [version, ui, binaries, publish, image]
+    if: ${{ success() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: "*"
+          failOnError: false

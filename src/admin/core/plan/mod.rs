@@ -1,4 +1,6 @@
 mod apply;
+mod locks;
+mod refs;
 mod steps;
 
 use std::collections::BTreeSet;
@@ -11,13 +13,15 @@ use burrow_admin_proto::schema::{Applies, SemType};
 use serde_json::Value;
 
 use crate::config::settings::ServerSettings;
-use crate::config::{Loaded, Role, load::load_str_in, patch, tree};
+use crate::config::{Loaded, Role, load::load_str_at, patch, tree};
 
 use super::diags::Mapper;
 use super::ops::{self, Fresh};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
-use steps::{Draft, assemble, conflict, judge, new_document, parse_current, refuse_locked};
+use locks::{refuse_changed_locks, refuse_locked};
+use refs::refuse_new_references;
+use steps::{Draft, assemble, conflict, judge, new_document, parse_current};
 
 pub struct Checked {
     pub raw: Option<Value>,
@@ -35,8 +39,9 @@ pub fn check_text(core: &Core, text: &str) -> Checked {
         .filter(|d| !d.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."))
         .to_path_buf();
-    let outcome = load_str_in(
-        &dir,
+    let state = core.store.state_dir();
+    let outcome = load_str_at(
+        (&dir, Some(&state)),
         &core.store.path().display().to_string(),
         text,
         core.store.format(),
@@ -81,6 +86,7 @@ pub struct Computed {
     pub old_text: String,
     pub new_text: String,
     pub fresh: Vec<Fresh>,
+    pub passwords: Vec<String>,
     pub reverts: Option<String>,
 }
 
@@ -92,6 +98,9 @@ struct Cx<'a> {
 impl ops::Context for Cx<'_> {
     fn secret(&self, handle: &str) -> Option<(String, String)> {
         self.session.pending_secret(handle)
+    }
+    fn password(&self, handle: &str) -> Option<String> {
+        self.session.pending_password(handle)
     }
     fn history(&self, rev: &str) -> Option<String> {
         self.core.store.version(rev)
@@ -174,6 +183,7 @@ pub fn compute(
     let (_, _, src) = patch::split_text(&old_text);
     let raw = parse_current(&src)?;
     refuse_locked(core, ops_list)?;
+    locks::refuse_misplaced_passwords(core, ops_list)?;
     let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
         .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
     let (new_text, reformat, kept) = new_document(core, &raw, &old_text, &applied)?;
@@ -181,6 +191,8 @@ pub fn compute(
     let new_raw = tree::parse(&patch::split_text(&new_text).2)
         .map(|n| n.to_json())
         .unwrap_or(Value::Null);
+    refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
+    refuse_new_references((&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
     let file = check_text(core, &old_text);
     let d = Draft {
@@ -198,6 +210,7 @@ pub fn compute(
         old_text,
         new_text,
         fresh: applied.fresh,
+        passwords: applied.passwords,
         reverts: ops_list.iter().find_map(|o| match o {
             Op::ReplaceDocument { from_history } => Some(from_history.clone()),
             _ => None,

@@ -32,13 +32,11 @@ pub struct Sources {
 pub fn all() -> Vec<Found> {
     let services = crate::service::installed()
         .into_iter()
-        .filter_map(|i| {
-            Some(Service {
-                role: Role::parse(&i.manifest.role)?,
-                name: i.manifest.name,
-                config: i.manifest.config,
-                running: i.running,
-            })
+        .map(|i| Service {
+            role: i.manifest.role,
+            name: i.manifest.name,
+            config: i.manifest.config,
+            running: i.running,
         })
         .collect();
     let running = crate::instance::running()

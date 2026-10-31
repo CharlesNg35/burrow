@@ -40,8 +40,9 @@ pub(super) fn service_nodes(
             s.bind
                 .as_deref()
                 .map(short_bind)
-                .unwrap_or_else(|| "private".into()),
-            s.protocol,
+                .or_else(|| (!s.web.is_empty()).then(|| s.web.join(", ")))
+                .unwrap_or_else(|| s.reached.clone()),
+            s.protocol.to_uppercase(),
             s.open
         ),
         badge: None,

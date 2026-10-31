@@ -539,3 +539,16 @@ fn decode_rejects_truncated_and_trailing() {
     );
     assert!(decode_datagram(&[0, 0]).is_err());
 }
+
+#[test]
+fn a_peer_times_out_after_the_missed_heartbeats_the_docs_name() {
+    let heartbeat = std::time::Duration::from_secs(10);
+    assert_eq!(peer_timeout(heartbeat), std::time::Duration::from_secs(30));
+    let docs = include_str!("../../../docs/configuration.md");
+    assert!(
+        docs.contains(&format!(
+            "a peer times out after {MISSED_HEARTBEATS} missed pings"
+        )),
+        "docs/configuration.md must name {MISSED_HEARTBEATS} missed pings"
+    );
+}

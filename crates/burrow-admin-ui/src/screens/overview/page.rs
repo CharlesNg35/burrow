@@ -1,18 +1,17 @@
 use std::collections::VecDeque;
 
 use burrow_admin_logic::rates::human_bits;
-use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
-use burrow_ui_kit::{Icon, Kbd, Kpi, LineChart, PillTabs, Segmented, Select, button_class};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+use burrow_ui_kit::{Icon, Kbd, Kpi, LineChart, Segmented, Select, button_class};
 use leptos::prelude::*;
 
 use crate::format;
-use crate::route::{self, Link, Route};
+use crate::route::{Link, Route};
 use crate::store::{Store, store};
 
 use super::attention::Attention;
-use super::tables::{clients_table, services_table, visitors_table};
+use super::tabs::tab_box;
 use super::{Problem, chart, healthy_detail, names, service_problems};
 
 #[component]
@@ -102,11 +101,23 @@ fn Traffic() -> impl IntoView {
     }
 }
 
-pub(super) fn mobile_cards(section: &'static str) -> impl IntoView {
-    let rows = crate::screens::entity::rows_for(section);
+pub(super) fn mobile_cards(section: &'static str, kept: &[String]) -> impl IntoView {
+    let cards = kept
+        .iter()
+        .filter_map(|k| {
+            let row = untrack(|| crate::screens::entity::row_for(section, k))?;
+            let key = k.clone();
+            let live = Signal::derive(move || {
+                crate::screens::entity::row_for(section, &key)
+                    .map(|r| (r.meta, r.line2))
+                    .unwrap_or_default()
+            });
+            Some(view! { <crate::screens::ListCard row=row selected=false live=live/> })
+        })
+        .collect_view();
     view! {
-        <div class="pt-2 pb-1 sm:hidden" data-testid=format!("mobile-{section}")>
-            {rows.into_iter().map(|r| view! { <crate::screens::ListCard row=r selected=false/> }).collect_view()}
+        <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid=format!("mobile-{section}")>
+            {cards}
         </div>
     }
 }
@@ -164,19 +175,12 @@ pub fn Overview() -> impl IntoView {
         if let Some(st) = &st {
             parts.push(format!("up {}", format::span(st.uptime_secs)));
         }
-        let rev = s.short_rev();
-        if !rev.is_empty() {
-            parts.push(format!("rev {rev}"));
+        let version = s.current_version();
+        if !version.is_empty() {
+            parts.push(version);
         }
         parts.join(" · ")
     };
-    let tab = RwSignal::new(
-        match route::query("tab").as_deref().and_then(entity_of_section) {
-            Some(Entity::Client) => ClientEntry::section(),
-            Some(Entity::Visitor) => VisitorEntry::section(),
-            _ => ServiceEntry::section(),
-        },
-    );
     view! {
         <div class="px-8 pt-7 pb-12 max-sm:px-4" data-testid="overview">
             <header class="mb-[22px] flex flex-wrap items-start gap-3">
@@ -196,33 +200,7 @@ pub fn Overview() -> impl IntoView {
                     <Traffic/>
                     <Attention/>
                 </div>
-                <section class="col-span-2 rounded-card border border-border bg-surface md:col-span-6 xl:col-span-12" data-testid="overview-tabs">
-                    <div class="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2.5">
-                        <PillTabs
-                            tabs=vec![(ServiceEntry::section(), "Services".into()), (ClientEntry::section(), "Clients".into()), (VisitorEntry::section(), "Visitors".into())]
-                            active=tab
-                            counts=counts
-                            on_change=Callback::new(move |t: &'static str| {
-                                tab.set(t);
-                                route::set_query("tab", t);
-                            })
-                        />
-                        <span class="ml-auto text-xs text-text-muted">
-                            "current rates · "
-                            {move || {
-                                let t = tab.get();
-                                view! { <Link to=Route::List(t.to_string()) class="font-semibold text-accent-ink no-underline hover:underline">{format!("Open {t} →")}</Link> }
-                            }}
-                        </span>
-                    </div>
-                    <div role="tabpanel">
-                        {move || match entity_of_section(tab.get()) {
-                            Some(Entity::Client) => clients_table(s, values).into_any(),
-                            Some(Entity::Visitor) => visitors_table(s, values).into_any(),
-                            _ => services_table(s, values).into_any(),
-                        }}
-                    </div>
-                </section>
+                {tab_box(values, counts)}
             </div>
         </div>
     }
@@ -262,7 +240,7 @@ fn kpis(
             icon="monitor"
             value=Signal::derive(move || clients_now.get().0.to_string())
             unit=Signal::derive(move || format!("/ {}", clients_now.get().1))
-            detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} away", n - u) } })
+            detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} {}", n - u, burrow_admin_logic::wording::OFFLINE) } })
             testid="kpi-clients"
         />
     </Link>
@@ -311,16 +289,16 @@ fn kpis(
             testid="kpi-visitors"
         />
     </div>
-    <div class="md:col-span-2">
+    <div class="md:col-span-2" title=burrow_admin_logic::wording::REFUSED_HELP>
         <Kpi
-            label="Refused handshakes"
+            label=burrow_admin_logic::wording::REFUSED_CONNECTIONS
             icon="shield"
             value=Signal::derive(move || refused_log.with(|l| match (l.front(), l.back()) {
                 (Some(a), Some(b)) => b.1.saturating_sub(a.1).to_string(),
                 _ => "0".into(),
             }))
             unit="/min"
-            detail=Signal::derive(move || s.status.with(|st| format!("{} since start", format::count(st.as_ref().map(|st| st.handshakes_refused).unwrap_or(0)))))
+            detail=Signal::derive(move || s.status.with(|st| format!("{} · {} since start", burrow_admin_logic::wording::REFUSED_WHY, format::count(st.as_ref().map(|st| st.handshakes_refused).unwrap_or(0)))))
             testid="kpi-refused"
         />
     </div>

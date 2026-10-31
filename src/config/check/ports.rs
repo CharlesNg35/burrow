@@ -11,11 +11,7 @@ pub fn parse_ranged(
     default_ip: [u8; 4],
     what: &str,
 ) -> Result<(SocketAddr, u16), String> {
-    match bind {
-        Bind::Port(0) => Err("port 0 is not allowed".into()),
-        Bind::Port(p) => Ok((SocketAddr::from((default_ip, *p)), 1)),
-        Bind::Addr(s) => burrow_syntax::ports::parse_ranged_text(s, default_ip, what),
-    }
+    bind.ranged(default_ip, what)
 }
 
 #[cfg(test)]

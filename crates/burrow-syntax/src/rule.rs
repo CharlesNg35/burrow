@@ -2,7 +2,9 @@ use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
-use crate::cidr::{Cidr, canonical};
+use crate::cidr::Cidr;
+
+pub const ANY: &str = "any";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NetRule {
@@ -172,7 +174,7 @@ impl FromStr for NetRule {
         let raw: IpAddr = addr
             .parse()
             .map_err(|_| RuleError::Address(addr.to_string()))?;
-        let ip = canonical(raw);
+        let ip = raw.to_canonical();
         let mapped = raw != ip;
         let cidr = match prefix {
             None => Cidr::host(ip),

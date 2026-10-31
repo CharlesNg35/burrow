@@ -7,6 +7,9 @@ mod live;
 mod processes;
 #[path = "reload/signals.rs"]
 mod signals;
+#[cfg(feature = "web")]
+#[path = "reload/uploads.rs"]
+mod uploads;
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -34,13 +37,10 @@ async fn echoes(conn: &mut TcpStream) -> bool {
 }
 
 async fn eventually(addr: SocketAddr) -> bool {
-    for _ in 0..50 {
-        if try_roundtrip(addr, b"hello").await.as_deref() == Some(b"hello") {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    false
+    within_tries(50, || async move {
+        try_roundtrip(addr, b"hello").await.as_deref() == Some(b"hello")
+    })
+    .await
 }
 
 struct Live {

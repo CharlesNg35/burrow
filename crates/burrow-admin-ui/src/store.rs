@@ -58,6 +58,7 @@ pub struct Store {
     pub recorded_from: RwSignal<f64>,
     pub toasts: RwSignal<Vec<Toast>>,
     pub toast_hold: RwSignal<bool>,
+    pub next_toast: StoredValue<u64>,
     pub flow_open: RwSignal<bool>,
     pub search_open: RwSignal<bool>,
     pub creating: RwSignal<Option<String>>,
@@ -70,12 +71,17 @@ pub struct Store {
     pub changed: RwSignal<Option<ConfigEvent>>,
     pub changed_from: RwSignal<(String, f64)>,
     pub added_at: RwSignal<std::collections::BTreeMap<String, f64>>,
+    pub rev_at: RwSignal<std::collections::BTreeMap<String, f64>>,
+    pub raw_error: RwSignal<Option<String>>,
     pub route: RwSignal<Route>,
+    pub query_seen: RwSignal<u64>,
     pub prev: RwSignal<Route>,
     pub server_addr: RwSignal<String>,
     pub error: RwSignal<Option<String>>,
     pub edit: Edit,
 }
+
+pub const REVIEW: &str = "Review";
 
 impl Store {
     pub fn new(route: Route) -> Self {
@@ -91,6 +97,7 @@ impl Store {
             recorded_from: RwSignal::new(0.0),
             toasts: RwSignal::new(Vec::new()),
             toast_hold: RwSignal::new(false),
+            next_toast: StoredValue::new(0),
             flow_open: RwSignal::new(false),
             search_open: RwSignal::new(false),
             creating: RwSignal::new(None),
@@ -103,9 +110,12 @@ impl Store {
             changed: RwSignal::new(None),
             changed_from: RwSignal::new((String::new(), 0.0)),
             added_at: RwSignal::new(std::collections::BTreeMap::new()),
+            rev_at: RwSignal::new(std::collections::BTreeMap::new()),
+            raw_error: RwSignal::new(None),
             prev: RwSignal::new(Route::Overview),
             server_addr: RwSignal::new(String::new()),
             route: RwSignal::new(route),
+            query_seen: RwSignal::new(0),
             error: RwSignal::new(None),
             edit: Edit::new(),
         }
@@ -119,7 +129,7 @@ impl Store {
             let r = rates(&prev, &next, secs);
             let missed = ((now_ms - prev_at) / 1000.0).round() as i64 - 1;
             self.recorder.update(|h| {
-                for _ in 0..missed.clamp(0, 900) {
+                for _ in 0..missed.clamp(0, burrow_admin_logic::rates::RECORD_SECONDS as i64) {
                     h.gap();
                 }
                 h.record(&r);
@@ -150,19 +160,25 @@ impl Store {
 
 impl Store {
     pub fn toast(&self, tone: Tone, text: impl Into<String>, action: Option<&str>) {
-        let id = js_sys::Date::now() as u64 ^ self.toasts.with_untracked(|t| t.len() as u64);
+        let id = self.next_toast.get_value() + 1;
+        self.next_toast.set_value(id);
         self.toasts.update(|t| {
-            t.push(Toast {
-                id,
-                tone,
-                text: text.into(),
-                action: action.map(str::to_string),
-            });
-            let excess = t.len().saturating_sub(3);
-            t.drain(..excess);
+            burrow_ui_kit::push_toast(
+                t,
+                Toast {
+                    id,
+                    tone,
+                    text: text.into(),
+                    action: action.map(str::to_string),
+                },
+            );
         });
         let me = *self;
         set_timeout(move || me.drop_toast(id), std::time::Duration::from_secs(5));
+    }
+
+    pub fn added_to_changes(&self) {
+        self.toast(Tone::Success, "Added to changes", Some(REVIEW));
     }
 
     fn drop_toast(&self, id: u64) {
@@ -246,14 +262,50 @@ impl Store {
         v.open > 0 || self.me().as_deref() == Some(v.name.as_str())
     }
 
-    pub fn short_rev(&self) -> String {
-        self.state
-            .with(|s| s.as_ref().map(|s| short_rev(&s.rev)).unwrap_or_default())
+    pub fn version(&self, rev: &str) -> String {
+        let at = self
+            .history
+            .with(|h| {
+                h.as_ref()
+                    .and_then(|h| h.iter().find(|e| e.rev == rev))
+                    .map(|e| e.at as f64 * 1000.0)
+            })
+            .or_else(|| self.rev_at.with(|m| m.get(rev).copied()))
+            .or_else(|| self.started_with(rev));
+        burrow_admin_logic::wording::version_name(at.map(crate::format::stamp).as_deref())
+    }
+
+    pub fn protocol_problem(&self, what: &str, e: impl std::fmt::Display) -> String {
+        self.raw_error.set(Some(format!("{what}: {e}")));
+        burrow_admin_logic::wording::PROTOCOL_ERROR.to_string()
+    }
+
+    fn started_with(&self, rev: &str) -> Option<f64> {
+        let running = self
+            .state
+            .with(|s| s.as_ref().is_some_and(|s| s.running.rev == rev));
+        let up = self.status.with(|s| s.as_ref().map(|s| s.uptime_secs))?;
+        running.then(|| self.status_at.get() - up as f64 * 1000.0)
+    }
+
+    pub fn note_rev(&self, rev: &str) {
+        let now = js_sys::Date::now();
+        self.rev_at.update(|m| {
+            m.entry(rev.to_string()).or_insert(now);
+        });
+    }
+
+    pub fn current_version(&self) -> String {
+        let rev = self.state.with(|s| s.as_ref().map(|s| s.rev.clone()));
+        rev.map(|r| self.version(&r)).unwrap_or_default()
     }
 }
 
 pub fn short_rev(rev: &str) -> String {
-    rev.trim_start_matches("b2s:").chars().take(8).collect()
+    rev.trim_start_matches(burrow_admin_proto::REV_PREFIX)
+        .chars()
+        .take(8)
+        .collect()
 }
 
 pub fn store() -> Store {

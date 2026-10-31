@@ -1,6 +1,8 @@
 use std::time::Duration;
 
+use burrow::admin_link::open::check_access;
 use burrow::wire::secret::Secret;
+use burrow_admin_proto::local::UI_CLIENT;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
@@ -18,7 +20,7 @@ struct Local {
 async fn local(w: &World, name: &str, secret: &Secret) -> Local {
     let mut s = common::visitor_settings(w.addr, secret.clone(), Vec::new());
     s.name = name.to_string();
-    let listener = burrow::admin_local::bind(0).await.unwrap();
+    let listener = burrow::admin_link::bind(0).await.unwrap();
     let opts = burrow::admin_local::Options {
         port: Some(0),
         open: false,
@@ -418,7 +420,7 @@ async fn a_visitor_without_admin_rights_is_told_before_anything_opens() {
     let w = world().await;
     let mut s = common::visitor_settings(w.addr, w.plain.clone(), Vec::new());
     s.name = "plain".into();
-    let e = burrow::admin_local::check_access(&s).await.unwrap_err();
+    let e = check_access(&s, UI_CLIENT).await.unwrap_err();
     assert_eq!(
         e.message,
         format!("visitor \"plain\" has no admin rights on {}", s.server)
@@ -432,7 +434,7 @@ async fn a_visitor_without_admin_rights_is_told_before_anything_opens() {
     assert_eq!(e.exit, 1);
     let mut s = common::visitor_settings(w.addr, w.viewer.clone(), Vec::new());
     s.name = "viewer".into();
-    burrow::admin_local::check_access(&s).await.unwrap();
+    check_access(&s, UI_CLIENT).await.unwrap();
     let l = local(&w, "plain", &w.plain).await;
     let origin = format!("http://127.0.0.1:{}", l.port);
     let mut tab = ws(l.port, &l.run, &origin).await.unwrap();

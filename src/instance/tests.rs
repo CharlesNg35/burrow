@@ -32,7 +32,6 @@ fn files_of_a_running_instance_stay_fresh_for_tmp_cleaners() {
     }
     assert_ne!(age(&file), old);
     drop(fresh);
-    std::thread::sleep(std::time::Duration::from_millis(50));
     set_old();
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert_eq!(age(&file), old, "a dropped guard kept touching");
@@ -225,9 +224,13 @@ fn only_entries_of_another_user_count_as_planted() {
 #[test]
 fn only_old_drafts_are_cleaned_up() {
     let dir = tempfile::tempdir().unwrap();
-    let fresh = dir.path().join("1.new");
+    let fresh = dir
+        .path()
+        .join(format!(".1.status.1-0.{}", crate::base::fs::TEMP_EXTENSION));
     std::fs::write(&fresh, "x").unwrap();
-    let old = dir.path().join("2.new");
+    let old = dir
+        .path()
+        .join(format!(".2.status.1-1.{}", crate::base::fs::TEMP_EXTENSION));
     std::fs::write(&old, "x").unwrap();
     let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
     std::fs::File::options()
@@ -420,4 +423,43 @@ fn server_identity_follows_the_real_file() {
     let direct = Identity::server(&cfg);
     let via_dot = Identity::server(&dir.path().join(".").join("server.yaml"));
     assert_eq!(direct, via_dot);
+}
+
+#[test]
+fn a_lock_whose_file_keeps_being_replaced_is_given_up_not_kept() {
+    use super::lock::{Locked, after_lock};
+    assert_eq!(after_lock(1, true), Locked::Keep);
+    assert_eq!(after_lock(1, false), Locked::Again);
+    assert_eq!(after_lock(4, false), Locked::Again);
+    assert_eq!(after_lock(5, false), Locked::Moved);
+    assert_eq!(after_lock(5, true), Locked::Keep);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_planted_at_a_lock_path_is_skipped_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("server.yaml");
+    std::fs::write(&cfg, "x").unwrap();
+    let id = Identity::server(&cfg);
+    let fifo = dir
+        .path()
+        .join(format!("{}.{}", id.key(), super::LOCK_EXTENSION));
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    let folder = dir.path().to_path_buf();
+    std::thread::spawn(move || {
+        let _ = tx.send(held_elsewhere(&folder, &id).is_none());
+    });
+    let skipped = rx.recv_timeout(std::time::Duration::from_secs(5));
+    if skipped.is_err() {
+        let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+    }
+    assert_eq!(skipped, Ok(true), "opening the fifo blocked");
 }

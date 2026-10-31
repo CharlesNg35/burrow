@@ -1,23 +1,31 @@
 pub mod diags;
 pub mod diff;
+mod dispatch;
 pub mod guard;
+mod older;
 pub mod ops;
+pub mod passwords;
 pub mod plan;
 pub mod ports;
 pub mod snippets;
+mod status;
 pub mod summary;
 pub mod text;
+pub mod uploads;
 pub mod values;
 
-use std::collections::{BTreeMap, VecDeque};
+pub use dispatch::{dispatch, ok, parse};
+
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use burrow_admin_proto::msg::{
-    self, AdminLevel, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
+    AdminLevel, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
     HistoryRequest, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest,
-    Suggestions, Welcome, WhyNot as WireWhyNot, You,
+    Suggestions, Welcome, WhyNot, You,
 };
 use burrow_admin_proto::schema::{Entity, Schema};
 use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry};
@@ -28,6 +36,7 @@ use crate::wire::secret::Secret;
 use ports::{Env, Live, Store};
 
 pub const MAX_PENDING_SECRETS: usize = 16;
+pub const SECRET_PREFIX: &str = "s";
 pub const PENDING_SECRET_TTL: Duration = Duration::from_secs(30 * 60);
 const AUDIT_RING: usize = 200;
 
@@ -77,8 +86,9 @@ pub struct Session {
     pub secret: Secret,
     pub via_websocket: bool,
     pub client: String,
+    ui_version: Mutex<Option<String>>,
     pending: Mutex<Vec<Pending>>,
-    next_handle: Mutex<u64>,
+    next_handle: AtomicU64,
 }
 
 impl Session {
@@ -97,8 +107,9 @@ impl Session {
             secret,
             via_websocket,
             client,
+            ui_version: Mutex::new(None),
             pending: Mutex::new(Vec::new()),
-            next_handle: Mutex::new(0),
+            next_handle: AtomicU64::new(0),
         }
     }
 
@@ -107,14 +118,56 @@ impl Session {
         p.retain(|s| s.at.elapsed() < PENDING_SECRET_TTL);
     }
 
+    fn full(pending: &[Pending]) -> Result<(), ApiError> {
+        if pending.len() < MAX_PENDING_SECRETS {
+            return Ok(());
+        }
+        Err(ApiError::new(
+            ErrorCode::Busy,
+            format!(
+                "at most {MAX_PENDING_SECRETS} unused secrets and passwords per session; apply or reload the page"
+            ),
+        ))
+    }
+
+    fn has_room(&self) -> Result<(), ApiError> {
+        self.prune();
+        Session::full(&self.pending.lock().expect("pending lock"))
+    }
+
+    fn hold(&self, prefix: &str, value: Zeroizing<String>, fp: String) -> Result<String, ApiError> {
+        self.prune();
+        let mut pending = self.pending.lock().expect("pending lock");
+        Session::full(&pending)?;
+        let n = self.next_handle.fetch_add(1, Ordering::Relaxed) + 1;
+        let handle = format!("{prefix}{n}");
+        pending.push(Pending {
+            handle: handle.clone(),
+            value,
+            fp,
+            at: Instant::now(),
+        });
+        Ok(handle)
+    }
+
     pub fn pending_secret(&self, handle: &str) -> Option<(String, String)> {
         self.prune();
         self.pending
             .lock()
             .expect("pending lock")
             .iter()
-            .find(|p| p.handle == handle)
+            .find(|p| p.handle == handle && !p.handle.starts_with(passwords::PREFIX))
             .map(|p| (p.value.to_string(), p.fp.clone()))
+    }
+
+    pub fn pending_password(&self, handle: &str) -> Option<String> {
+        self.prune();
+        self.pending
+            .lock()
+            .expect("pending lock")
+            .iter()
+            .find(|p| p.handle == handle && p.handle.starts_with(passwords::PREFIX))
+            .map(|p| p.value.to_string())
     }
 
     pub fn consume(&self, handles: &[String]) {
@@ -126,6 +179,16 @@ impl Session {
 
     pub fn writes(&self) -> bool {
         self.level == AdminLevel::Write
+    }
+
+    pub fn hello(&self, burrow: Option<String>) {
+        *self.ui_version.lock().expect("ui version lock") = burrow;
+    }
+
+    pub fn older_ui(&self) -> bool {
+        let ui = burrow_admin_proto::local::UI_CLIENT;
+        let is_ui = self.client == ui || self.client.starts_with(&format!("{ui}/"));
+        is_ui && self.ui_version.lock().expect("ui version lock").is_none()
     }
 }
 
@@ -143,28 +206,19 @@ pub struct Core {
 const SEEN: usize = 8;
 
 pub fn features() -> Vec<String> {
-    use burrow_admin_proto::features::*;
-    [
-        STATUS_STREAM,
-        CONFIG_EVENTS,
-        SECRET_GENERATE,
-        CONNECT_SNIPPETS,
-        SUGGEST_FREE_PORT,
-        HISTORY,
-        REVERT,
-        OPS_RENAME,
-        SET_TEXT,
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    burrow_admin_proto::features::ALL
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 impl Core {
     pub fn new(store: Box<dyn Store>, live: Box<dyn Live>, env: Box<dyn Env>) -> Self {
         let mut audit = VecDeque::new();
-        for v in store.versions().into_iter().take(AUDIT_RING) {
-            audit.push_back(AuditEntry {
+        for v in store.versions().into_iter().take(AUDIT_RING).rev() {
+            let id = next_id(audit.front(), v.at);
+            audit.push_front(AuditEntry {
+                id,
                 at: v.at,
                 visitor: String::new(),
                 from: String::new(),
@@ -258,13 +312,9 @@ impl Core {
             },
             writable: writable.is_ok() && s.writes(),
             why_not: match (&writable, s.writes()) {
-                (Err(w), _) => Some(WireWhyNot {
-                    code: w.code.clone(),
-                    message: w.message.clone(),
-                    hint: w.hint.clone(),
-                }),
-                (Ok(()), false) => Some(WireWhyNot {
-                    code: "read-level".into(),
+                (Err(w), _) => Some(w.clone()),
+                (Ok(()), false) => Some(WhyNot {
+                    code: burrow_admin_proto::codes::READ_LEVEL.into(),
                     message: format!("visitor \"{}\" has read access only", s.visitor),
                     hint: format!(
                         "to change the config from here, set \"admin: write\" for visitor \"{}\" in the server config",
@@ -335,8 +385,10 @@ impl Core {
                 )
             })
             .collect();
-        let (errors, warnings): (Vec<_>, Vec<_>) =
+        let notice = older::notice(self, s, checked.raw.as_ref());
+        let (errors, mut warnings): (Vec<_>, Vec<_>) =
             checked.diags.into_iter().partition(|d| d.is_error());
+        warnings.extend(notice);
         Ok(State {
             rev: rev.clone(),
             file: self.file_info(s),
@@ -369,33 +421,15 @@ impl Core {
                 "read access cannot generate secrets",
             ));
         }
-        s.prune();
-        let mut pending = s.pending.lock().expect("pending lock");
-        if pending.len() >= MAX_PENDING_SECRETS {
-            return Err(ApiError::new(
-                ErrorCode::Busy,
-                format!(
-                    "at most {MAX_PENDING_SECRETS} unused generated secrets per session; apply or reload the page"
-                ),
-            ));
-        }
-        let mut n = s.next_handle.lock().expect("handle lock");
-        *n += 1;
         let secret = Secret::generate();
-        let handle = format!("s{n}");
         let fp = secret.fingerprint();
-        pending.push(Pending {
-            handle: handle.clone(),
-            value: Zeroizing::new(secret.encode()),
-            fp: fp.clone(),
-            at: Instant::now(),
-        });
+        let handle = s.hold(SECRET_PREFIX, Zeroizing::new(secret.encode()), fp.clone())?;
         Ok(GeneratedSecret { handle, fp })
     }
 
     pub fn suggest(&self, req: &Suggest) -> Result<Suggestions, ApiError> {
         match req.what.as_str() {
-            "free-port" => {
+            burrow_admin_proto::msg::suggest::FREE_PORT => {
                 let near = req
                     .near
                     .unwrap_or(burrow_syntax::ports::FIRST_SERVICE_PORT.into())
@@ -418,7 +452,7 @@ impl Core {
                 }
                 Ok(Suggestions { values: Vec::new() })
             }
-            "name" => {
+            burrow_admin_proto::msg::suggest::NAME => {
                 let text = self.read()?;
                 let checked = plan::check_text(self, &text);
                 let section = match req.entity.as_deref().map(Entity::parse) {
@@ -446,43 +480,57 @@ impl Core {
         }
     }
 
-    pub fn record(&self, entry: AuditEntry) {
+    pub fn record(&self, mut entry: AuditEntry) {
         let mut a = self.audit.lock().expect("audit lock");
+        entry.id = next_id(a.front(), entry.at);
         a.push_front(entry);
         a.truncate(AUDIT_RING);
     }
 
     pub fn history(&self, req: &HistoryRequest) -> Result<HistoryReply, ApiError> {
         let limit = req.limit.unwrap_or(50).clamp(1, AUDIT_RING as u32) as usize;
-        let entries: Vec<AuditEntry> = self
+        let mut entries: Vec<AuditEntry> = self
             .audit
             .lock()
             .expect("audit lock")
             .iter()
             .take(limit)
             .cloned()
-            .map(|mut e| {
-                e.revertible = self.store.version(&e.rev).is_some();
-                e
-            })
             .collect();
-        let diff = match &req.diff {
-            Some(rev) => {
+        let mut kept: HashMap<String, bool> = HashMap::new();
+        for e in &mut entries {
+            e.revertible = *kept
+                .entry(e.rev.clone())
+                .or_insert_with(|| self.store.version(&e.rev).is_some());
+        }
+        let missing = match (req.entry, &req.diff) {
+            (Some(id), _) => Some(format!("no history entry {id}")),
+            (None, Some(rev)) => Some(format!("no history entry for {rev}")),
+            (None, None) => None,
+        };
+        let wanted = |e: &AuditEntry| match (req.entry, &req.diff) {
+            (Some(id), _) => e.id == id,
+            (None, Some(rev)) => e.rev == *rev,
+            (None, None) => false,
+        };
+        let diff = match missing {
+            Some(missing) => {
                 let entry = self
                     .audit
                     .lock()
                     .expect("audit lock")
                     .iter()
-                    .find(|e| &e.rev == rev)
+                    .find(|e| wanted(e))
                     .cloned()
-                    .ok_or_else(|| {
-                        ApiError::new(ErrorCode::BadRequest, format!("no history entry {rev}"))
-                    })?;
+                    .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, missing))?;
                 let after = self.store.version(&entry.rev);
                 let before = self.store.version(&entry.base);
                 match (before, after) {
                     (Some(b), Some(a)) => {
-                        Some(diff::unified(&b, &a, &|l| text::mask_secrets(l, &[])))
+                        let hashes = values::hashes_in(&[&b, &a], &self.schema().root);
+                        Some(diff::unified(&b, &a, &|l| {
+                            text::mask_secrets(&values::veil(l, &hashes), &[])
+                        }))
                     }
                     _ => None,
                 }
@@ -491,6 +539,11 @@ impl Core {
         };
         Ok(HistoryReply { entries, diff })
     }
+}
+
+fn next_id(newest: Option<&AuditEntry>, at: u64) -> u64 {
+    let after = newest.map_or(0, |e| e.id).saturating_add(1);
+    after.max(at.saturating_mul(1000))
 }
 
 fn addresses(s: &crate::config::settings::ServerSettings) -> Vec<String> {
@@ -524,70 +577,6 @@ fn addresses(s: &crate::config::settings::ServerSettings) -> Vec<String> {
         add(ip);
     }
     out
-}
-
-pub fn ok<T: serde::Serialize>(v: T) -> Reply {
-    serde_json::to_value(v).map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))
-}
-
-pub fn parse<T: serde::de::DeserializeOwned>(body: &Value) -> Result<T, ApiError> {
-    let body = if body.is_null() {
-        Value::Object(Default::default())
-    } else {
-        body.clone()
-    };
-    serde_json::from_value(body)
-        .map_err(|e| ApiError::new(ErrorCode::BadRequest, format!("bad request body: {e}")))
-}
-
-pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
-    match t {
-        msg::req::WELCOME => ok(core.welcome(s)),
-        msg::req::SCHEMA => {
-            let r: msg::SchemaRequest = parse(body)?;
-            ok(core.schema_reply(&r.have))
-        }
-        msg::req::STATE => ok(core.state(s)?),
-        msg::req::VALIDATE => {
-            let r: msg::Validate = parse(body)?;
-            if !s.writes() {
-                return Err(ApiError::new(
-                    ErrorCode::Forbidden,
-                    "read access cannot validate changes",
-                ));
-            }
-            ok(plan::compute(core, s, &r.base, &r.ops)?.plan)
-        }
-        msg::req::GENERATE_SECRET => ok(core.generate_secret(s)?),
-        msg::req::SUGGEST => {
-            let r: Suggest = parse(body)?;
-            ok(core.suggest(&r)?)
-        }
-        msg::req::HISTORY => {
-            let r: HistoryRequest = parse(body)?;
-            ok(core.history(&r)?)
-        }
-        msg::req::REVERT => {
-            let r: msg::Revert = parse(body)?;
-            if !s.writes() {
-                return Err(ApiError::new(
-                    ErrorCode::Forbidden,
-                    "read access cannot revert",
-                ));
-            }
-            let ops = [burrow_admin_proto::ops::Op::ReplaceDocument { from_history: r.to }];
-            ok(plan::compute(core, s, &r.base, &ops)?.plan)
-        }
-        msg::req::CONNECT_INFO => {
-            let r: msg::ConnectInfo = parse(body)?;
-            ok(snippets::connect_info(core, s, &r)?)
-        }
-        msg::req::PING => ok(serde_json::json!({})),
-        other => Err(ApiError::new(
-            ErrorCode::UnknownRequest,
-            format!("unknown request \"{other}\""),
-        )),
-    }
 }
 
 #[cfg(test)]

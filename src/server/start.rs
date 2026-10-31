@@ -27,7 +27,7 @@ pub(super) enum Bound {
 
 pub(super) struct ServiceTask {
     pub(super) service: Service,
-    pub(super) config: watch::Sender<Service>,
+    pub(super) config: watch::Sender<Arc<Service>>,
     pub(super) tasks: Vec<JoinHandle<()>>,
     pub(super) addr: Option<SocketAddr>,
 }
@@ -47,6 +47,8 @@ impl ServiceTask {
 pub(super) struct Wanted {
     pub(super) websocket: Option<WebSocketSettings>,
     pub(super) metrics: Option<SocketAddr>,
+    #[cfg(feature = "web")]
+    pub(super) web: Option<crate::config::settings::WebSettings>,
 }
 
 pub(super) struct MetricsTask {
@@ -204,15 +206,7 @@ pub(super) async fn bind_ws_with_retry(
     ws: &crate::config::settings::WebSocketSettings,
     tries: usize,
 ) -> Result<WsListener, Failure> {
-    let mut last = None;
-    for _ in 0..tries {
-        match WsListener::bind(ws) {
-            Ok(l) => return Ok(l),
-            Err(f) => last = Some(f),
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(last.expect("at least one attempt"))
+    crate::base::ports::retry(tries, || async { WsListener::bind(ws) }).await
 }
 
 pub(super) const FREED_TRIES: usize = 20;
@@ -224,15 +218,7 @@ pub(super) async fn bind_with_retry(
     svc: &Service,
     tries: usize,
 ) -> Result<Vec<(u16, Bound)>, Failure> {
-    let mut last = None;
-    for _ in 0..tries {
-        match bind_service(name, svc).await {
-            Ok(b) => return Ok(b),
-            Err(f) => last = Some(f),
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(last.expect("at least one attempt"))
+    crate::base::ports::retry(tries, || bind_service(name, svc)).await
 }
 
 pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
@@ -261,6 +247,7 @@ pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
             match svc.mode {
                 burrow_config::Mode::Failover => "failover",
                 burrow_config::Mode::Balance => "balance",
+                burrow_config::Mode::LeastConnections => "least connections",
             }
         ),
     };
@@ -285,7 +272,7 @@ pub(super) fn spawn_service(
     svc: &Service,
     bound: Vec<(u16, Bound)>,
 ) -> ServiceTask {
-    let (config, rx) = watch::channel(svc.clone());
+    let (config, rx) = watch::channel(Arc::new(svc.clone()));
     let mut addr = None;
     let mut tasks = Vec::with_capacity(bound.len());
     for (index, b) in bound {
@@ -320,7 +307,7 @@ impl Server {
             ),
             None => None,
         };
-        let ws_listener = match &settings.websocket {
+        let ws_listener = match settings.websocket.as_ref().filter(|w| w.host.is_none()) {
             Some(ws) => Some(WsListener::bind(ws)?),
             None => None,
         };
@@ -342,16 +329,20 @@ impl Server {
             service_counts: Counts::default(),
             visitor_counts: Counts::default(),
             client_counts: Counts::default(),
+            entry_counts: Default::default(),
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
+            web_wait: Mutex::new(None),
             standing: Mutex::new(standing::Standing::default()),
-            turns: Mutex::new(HashMap::new()),
+            wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(
                 &settings,
                 Vec::new(),
                 crate::wire::transport::resolve::system(),
             )),
             metrics: crate::metrics::Metrics::default(),
+            #[cfg(feature = "web")]
+            certs: certificate_store(),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
@@ -362,6 +353,7 @@ impl Server {
             services.insert(name.clone(), spawn_service(&shared, name, svc, bound));
         }
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
+        let web = super::web::WebTask::bind(&shared, &settings).await?;
         let health = tokio::spawn(health::run(shared.clone()));
         let metrics = metrics_listener.map(|l| MetricsTask::start(&shared, l));
         let server = Server {
@@ -370,6 +362,7 @@ impl Server {
             shared,
             listener,
             websocket,
+            web,
             services,
             shutdown_tx,
             wanted: Wanted::default(),
@@ -383,6 +376,8 @@ impl Server {
             self.local_addr(),
             self.websocket_addr(),
             self.metrics_addr(),
+            self.web_addr(),
+            self.web_http_addr(),
         ]
         .into_iter()
         .flatten()
@@ -394,4 +389,15 @@ impl Server {
             .local
             .reconfigure(&self.shared.settings(), self.own_addrs());
     }
+}
+
+#[cfg(feature = "web")]
+pub(crate) fn private_write(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    crate::base::fs::write_atomic(path, bytes, 0o600)
+}
+
+#[cfg(feature = "web")]
+fn certificate_store() -> Arc<burrow_web::tls::Store> {
+    burrow_web::tls::acme::storage::use_private_writer(Arc::new(private_write));
+    burrow_web::tls::Store::new()
 }

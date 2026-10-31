@@ -1,6 +1,9 @@
 mod attention;
+mod certs;
 mod page;
 mod tables;
+mod tabs;
+mod web;
 
 use burrow_admin_logic::rates::{axis_max, mbit};
 use burrow_admin_proto::diag::Severity;
@@ -23,6 +26,7 @@ pub struct Item {
     pub title: String,
     pub detail: String,
     pub to: Option<Route>,
+    pub field: Option<Vec<String>>,
 }
 
 fn rank(t: Tone) -> u8 {
@@ -50,7 +54,12 @@ fn link_of(path: &[String]) -> Option<Route> {
     }
 }
 
-pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>) -> Vec<Item> {
+pub fn attention(
+    values: &Value,
+    state: Option<&State>,
+    status: Option<&Status>,
+    now: u64,
+) -> Vec<Item> {
     let mut out = Vec::new();
     if let Some(st) = state {
         state_items(st, &mut out);
@@ -61,9 +70,23 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
             out.push(client_item(c, down, partial, status));
         }
         out.extend(own);
+        out.extend(status.web_waiting.as_ref().map(web_wait_item));
+        out.extend(certs::items(status, now));
     }
     out.sort_by_key(|i| rank(i.tone));
     out
+}
+
+fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
+    let field: Vec<String> = w.key.split('.').map(str::to_string).collect();
+    Item {
+        key: format!("web-wait:{}", w.key),
+        tone: Tone::Warning,
+        title: w.line(),
+        detail: "Free the port, or pick another one in Settings.".into(),
+        to: Some(Route::Settings),
+        field: Some(field),
+    }
 }
 
 fn state_items(st: &State, out: &mut Vec<Item>) {
@@ -75,6 +98,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             detail: "The server keeps running the last good version until the file is fixed."
                 .into(),
             to: Some(Route::About),
+            field: None,
         });
     }
     for p in &st.runtime.restart_pending {
@@ -86,6 +110,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 "Applied to the file; the running server keeps the old value until it restarts."
                     .into(),
             to: Some(Route::Settings),
+            field: None,
         });
     }
     for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
@@ -96,13 +121,11 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
             ),
             tone: Tone::Warning,
-            title: d.message.clone(),
-            detail: d
-                .help
-                .clone()
-                .map(|h| format!("{} · {h}", d.code))
-                .unwrap_or_else(|| d.code.clone()),
+            title: burrow_admin_logic::wording::diag_text(d),
+            detail: burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
+                .unwrap_or_default(),
             to: d.path.as_deref().and_then(link_of),
+            field: burrow_admin_logic::wording::field_for(&d.code),
         });
     }
 }
@@ -150,6 +173,7 @@ fn service_items(
                         )
                     },
                     to,
+                    field: None,
                 });
                 continue;
             }
@@ -169,6 +193,7 @@ fn service_items(
                     title: format!("Service {name}: health check failing"),
                     detail: format!("Failing on {}.", failing.join(", ")),
                     to,
+                    field: None,
                 });
             } else if let [c] = off.as_slice() {
                 by_client.entry((*c).clone()).or_default().1.push((
@@ -193,6 +218,7 @@ fn service_items(
                             .join(", ")
                     ),
                     to,
+                    field: None,
                 });
             }
         }
@@ -245,9 +271,10 @@ fn client_item(
         } else {
             Tone::Danger
         },
-        title: format!("Client {c} is offline"),
+        title: format!("Client {c} is {}", burrow_admin_logic::wording::OFFLINE),
         detail: format!("{} · {when}", parts.join("; ")),
         to: Some(Route::Detail(ClientEntry::section().into(), c)),
+        field: None,
     }
 }
 
@@ -351,6 +378,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
                     }
                 ),
                 to: Some(Route::Detail(ClientEntry::section().into(), c)),
+                field: None,
             })
         })
         .collect()
@@ -433,6 +461,7 @@ pub fn old_server_item(server: &str, ui: &str) -> Option<Item> {
         title: format!("This server runs burrow v{server}, older than this burrow admin (v{ui})"),
         detail: "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand.".into(),
         to: Some(Route::About),
+        field: None,
     })
 }
 
@@ -498,7 +527,7 @@ mod tests {
             }
         });
         let st = status(&["a"], &["b", "c", "d"]);
-        let items = attention(&v, None, Some(&st));
+        let items = attention(&v, None, Some(&st), 0);
         let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
         assert_eq!(titles, ["Client b is offline", "Service both is down"]);
         assert_eq!(
@@ -514,7 +543,7 @@ mod tests {
             "every offline client is listed in Clients away"
         );
         assert!(a[1].detail.starts_with("serves both · "), "{}", a[1].detail);
-        assert!(attention(&v, None, None).is_empty());
+        assert!(attention(&v, None, None, 0).is_empty());
     }
 
     #[test]
@@ -559,5 +588,28 @@ mod tests {
         let d = chart(&full, &full, 900);
         assert_eq!(d.a.len(), 900);
         assert!(d.empty_note.is_none());
+    }
+
+    #[test]
+    fn a_web_port_that_waits_needs_attention_and_links_to_its_field() {
+        let mut st = status(&[], &[]);
+        st.web_waiting = Some(burrow_admin_proto::status::PortWait {
+            key: "web.https".into(),
+            addr: "[::]:443".into(),
+            reason: "in use by another program".into(),
+            stays: String::new(),
+            retry_secs: 30,
+        });
+        let items = attention(&json!({}), None, Some(&st), 0);
+        let w = items
+            .iter()
+            .find(|i| i.key == "web-wait:web.https")
+            .expect("the wait is listed");
+        assert_eq!(w.title, st.web_waiting.as_ref().unwrap().line());
+        assert_eq!(
+            w.field.as_deref(),
+            Some(&["web".to_string(), "https".to_string()][..])
+        );
+        assert_eq!(w.tone, Tone::Warning);
     }
 }

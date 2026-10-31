@@ -237,11 +237,12 @@ async fn handshake_flood_is_capped_and_legit_client_gets_in() {
     for _ in 0..200 {
         flood.push(TcpStream::connect(srv.addr).await.unwrap());
     }
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.status().handshakes_refused >= 180).await;
     let mut closed_fast = 0;
     for s in &mut flood {
         let mut b = [0u8; 1];
-        if let Ok(Ok(0)) = tokio::time::timeout(Duration::from_millis(5), s.read(&mut b)).await {
+        if let Ok(Ok(0)) = tokio::time::timeout(Duration::from_secs(1), s.read(&mut b)).await {
             closed_fast += 1;
         }
     }

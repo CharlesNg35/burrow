@@ -1,7 +1,7 @@
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::admin_schema::AdminEnum;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::Icon;
+use burrow_ui_kit::{Icon, ScrollRow};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -10,6 +10,8 @@ use crate::store::{Conn, Store, store};
 
 use super::menus::{avatar_menu, conn_state, facts, mobile_back, review_or_read_only};
 use super::{THEME_KEY, apply_theme, saved_theme};
+
+const CURRENT: &str = "[aria-current=page]";
 
 fn initials(name: &str) -> String {
     let mut parts = name
@@ -42,8 +44,12 @@ pub(super) fn Header() -> impl IntoView {
         }
     });
     let check_state = check_state(s);
-    keep_current_tab_visible(s);
+    let current_tab = Signal::derive(move || {
+        s.route.track();
+        CURRENT.to_string()
+    });
     let read_only = Memo::new(move |_| s.conn.get() == Conn::Open && !s.can_write());
+    let ended = Memo::new(move |_| s.conn.with(Conn::is_final));
     let why_open = RwSignal::new(false);
     let retry_open = RwSignal::new(false);
     popover(menu_open, "server-switcher", "server-menu");
@@ -82,17 +88,17 @@ pub(super) fn Header() -> impl IntoView {
     let facts = facts(s);
     view! {
         <header class="sticky top-0 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 border-b border-hdr-line bg-hdr px-5 text-hdr-text max-xl:grid-cols-[minmax(0,1fr)_auto] max-xl:pt-3 max-sm:gap-x-2 max-sm:px-3 max-sm:pt-2 xl:h-16" data-testid="header">
-            {mobile_back(s)}
-            <div class=move || format!("relative flex min-w-0 items-center gap-2.5{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" })>
-                <span class="flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white" aria-hidden="true"><Icon name="logo" large=true/></span>
-                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
+            <div class="relative flex min-w-0 items-center gap-2.5">
+                {mobile_back(s)}
+                <span class=move || format!("flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" }) aria-hidden="true"><Icon name="logo" large=true/></span>
+                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised disabled:cursor-default disabled:hover:bg-transparent" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" disabled=move || ended.get() title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>
                     </span>
                     <Icon name="chevron-down" small=true/>
                 </button>
                 <Show when=move || menu_open.get()>
-                    <div class="absolute top-11 left-10 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay outline-none dark:bg-surface-2" id="server-menu" tabindex="-1" data-testid="server-menu" on:click=move |_| menu_open.set(false)>
+                    <div class=burrow_ui_kit::menu_class("top-11 left-10 w-80", false) id="server-menu" tabindex="-1" data-testid="server-menu" on:click=move |_| menu_open.set(false)>
                         {facts}
                         <div class="border-t border-border p-1">
                             <Link to=Route::About class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm no-underline hover:bg-surface-3">"About this server"</Link>
@@ -100,11 +106,11 @@ pub(super) fn Header() -> impl IntoView {
                     </div>
                 </Show>
             </div>
-            <nav aria-label="Sections" class="flex gap-0.5 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:pr-8 max-sm:[scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] dark:border-hdr-raised-2">
-                {nav}
+            <nav aria-label="Sections" inert=move || ended.get().then_some("") class:opacity-50=move || ended.get() class="min-w-0 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 dark:border-hdr-raised-2">
+                <ScrollRow active=current_tab class="gap-0.5" testid="nav-row">{nav}</ScrollRow>
             </nav>
             <div class="flex items-center justify-end gap-3" data-testid="header-right">
-                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
+                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised disabled:cursor-not-allowed disabled:opacity-50" aria-label="Search (/)" title="Search (/)" data-testid="search-open" disabled=move || ended.get() on:click=move |_| s.search_open.set(true)>
                     <Icon name="search"/>
                 </button>
                 <button
@@ -148,24 +154,20 @@ pub(super) fn set_theme(theme: RwSignal<String>, t: &'static str) {
     }
 }
 
+fn section_tab(section: &'static str) -> (Route, &'static str, &'static str) {
+    (
+        Route::List(section.into()),
+        crate::screens::plural(section),
+        crate::screens::entity_icon(section),
+    )
+}
+
 fn nav_links(s: Store) -> impl IntoView + use<> {
     let tabs: [(Route, &str, &str); 6] = [
         (Route::Overview, "Overview", "overview"),
-        (
-            Route::List(ServiceEntry::section().into()),
-            "Services",
-            "stack",
-        ),
-        (
-            Route::List(ClientEntry::section().into()),
-            "Clients",
-            "monitor",
-        ),
-        (
-            Route::List(VisitorEntry::section().into()),
-            "Visitors",
-            "person",
-        ),
+        section_tab(ServiceEntry::section()),
+        section_tab(ClientEntry::section()),
+        section_tab(VisitorEntry::section()),
         (Route::Settings, "Settings", "settings"),
         (Route::Activity(None), "Activity", "activity"),
     ];
@@ -202,28 +204,6 @@ fn check_state(s: Store) -> Signal<String> {
             "ok".to_string()
         }
     })
-}
-
-fn keep_current_tab_visible(s: Store) {
-    Effect::new(move |_| {
-        s.route.track();
-        request_animation_frame(|| {
-            let overflows = document()
-                .query_selector("nav[aria-label=Sections]")
-                .ok()
-                .flatten()
-                .is_some_and(|n| n.scroll_width() > n.client_width());
-            if overflows
-                && let Ok(Some(el)) =
-                    document().query_selector("nav[aria-label=Sections] [aria-current=page]")
-            {
-                let opts = web_sys::ScrollIntoViewOptions::new();
-                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
-                opts.set_inline(web_sys::ScrollLogicalPosition::Center);
-                el.scroll_into_view_with_scroll_into_view_options(&opts);
-            }
-        });
-    });
 }
 
 fn html_by_id(id: &str) -> Option<web_sys::HtmlElement> {

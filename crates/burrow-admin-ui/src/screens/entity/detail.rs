@@ -2,7 +2,7 @@ use burrow_admin_logic::changeset::ops_between;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
-use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::PathData;
 use burrow_ui_kit::{Icon, Tone, tag_class};
 use leptos::context::Provider;
@@ -10,7 +10,7 @@ use leptos::prelude::*;
 
 use crate::form::{EditMode, plain};
 use crate::format;
-use crate::route::{self, Link, Route};
+use crate::route::{self, Route};
 use crate::screens::DetailPane;
 use crate::screens::create::{RenameEntity, singular};
 use crate::screens::paths;
@@ -112,25 +112,26 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     let save_bar = save_bar(&parts, changed, blocker);
     let title_dot = title_dot(&section, &name);
     let crumb = Route::List(section.clone());
-    let (sec_r, name_r) = (section.clone(), name.clone());
+    let (ent_r, name_r) = (crate::screens::entity_of(&section), name.clone());
     let (sec_d, name_d, plural_s) = (section.clone(), name.clone(), plural(&section));
     view! {
         <Provider value=mode>
         <DetailPane back=crumb.clone()>
-            <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" class:max-sm:hidden=move || editing.get() aria-label="Breadcrumb">
-                <Link to=crumb class="text-text-muted no-underline hover:text-text">{plural_s}</Link>
-                <span aria-hidden="true">"/"</span>
-                <span class="font-semibold text-text">{name.clone()}</span>
-                {move || editing.get().then(|| view! { <span aria-hidden="true">"/"</span><span class="font-semibold text-text">"Edit"</span> })}
-            </nav>
-            <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
-                <div class="min-w-0 flex-1">
-                    <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
-
-                </div>
-                <div class="flex items-center gap-2">{head_actions}</div>
-            </header>
-            <RenameEntity section=sec_r name=name_r open=renaming/>
+            {crate::screens::crumbs(
+                crumb,
+                plural_s.to_string(),
+                name.clone(),
+                Signal::derive(move || !editing.get()),
+                Some(view! { {move || editing.get().then(|| view! { <span aria-hidden="true">"/"</span><span class="font-semibold text-text">"Edit"</span> })} }.into_any()),
+            )}
+            <burrow_ui_kit::PageHeader
+                phone_hidden=Signal::derive(move || editing.get())
+                hidden=Signal::derive(move || !exists.get())
+                actions={view! { {head_actions} }.into_any()}
+            >
+                {title_dot}{name.clone()}{protocol_tag}
+            </burrow_ui_kit::PageHeader>
+            <RenameEntity entity=ent_r name=name_r open=renaming/>
             <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
             {move || exists.get().then(save_bar.clone())}
         </DetailPane>
@@ -211,7 +212,7 @@ fn tab_signal(
     fresh: bool,
 ) -> RwSignal<&'static str> {
     let (section, name) = (section.to_string(), name.to_string());
-    let asked = route::query("tab");
+    let asked = route::query(route::TAB_QUERY);
     let known = tab_list.with_untracked(|t| {
         t.iter()
             .map(|(k, _)| *k)
@@ -240,7 +241,7 @@ fn tab_signal(
     Effect::new(move |first: Option<()>| {
         let t = tab.get();
         if first.is_some() {
-            route::set_query("tab", t);
+            route::set_query(route::TAB_QUERY, t);
         }
     });
     tab
@@ -251,7 +252,6 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Signal<PathData>
     let e = s.edit;
     let (sec, nm) = (section.to_string(), name.to_string());
     Signal::derive(move || {
-        let doc = e.doc();
         let status = s.status.get();
         match sec.as_str() {
             CLIENTS => {
@@ -259,32 +259,31 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Signal<PathData>
                     .as_ref()
                     .and_then(|st| st.listening.first().map(|l| format::listen_addr(l)))
                     .unwrap_or_default();
-                paths::client(&nm, &doc, status.as_deref(), &listen)
+                e.draft
+                    .with(|d| paths::client(&nm, d.draft(), status.as_deref(), &listen))
             }
             VISITORS => {
                 let me = s.welcome.with(|w| {
                     w.as_ref()
                         .map(|w| (w.you.visitor.clone(), w.you.from.clone()))
                 });
-                paths::visitor(
-                    &nm,
-                    &doc,
-                    status.as_deref(),
-                    me.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
-                )
+                e.draft.with(|d| {
+                    paths::visitor(
+                        &nm,
+                        d.draft(),
+                        status.as_deref(),
+                        me.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
+                    )
+                })
             }
             _ => {
-                let svc = get(&doc, &[sec.clone(), nm.clone()])
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                paths::service(
-                    &nm,
-                    &svc,
-                    status.as_deref(),
-                    &problems_for(&vec![sec.clone(), nm.clone()]),
-                    editing.get(),
-                    &crate::domain::reserved_clients(),
-                )
+                let problems = problems_for(&vec![sec.clone(), nm.clone()]);
+                let editing = editing.get();
+                let reserved = crate::domain::reserved_clients();
+                e.draft.with(|d| {
+                    let svc = get(d.draft(), &[sec.clone(), nm.clone()]).unwrap_or(&Value::Null);
+                    paths::service(&nm, svc, status.as_deref(), &problems, editing, &reserved)
+                })
             }
         }
     })
@@ -297,16 +296,8 @@ fn protocol_tag(section: &str, name: &str) -> impl Fn() -> AnyView + Clone + use
     move || {
         match sec.as_str() {
         SERVICES => {
-            let p = ServiceEntry::PROTOCOL
-                .at(&e.doc(), &nm)
-                .map(plain)
-                .unwrap_or_else(|| Protocol::default().wire().into());
-            let tone = if p == Protocol::Udp.wire() {
-                Tone::Violet
-            } else {
-                Tone::Accent
-            };
-            view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
+            let svc = ServiceEntry::entry(&e.doc(), &nm).cloned().unwrap_or_default();
+            super::protocol_view(&svc).into_any()
         }
         VISITORS => {
             let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);
@@ -371,7 +362,7 @@ fn title_dot(section: &str, name: &str) -> impl IntoView + use<> {
     move || {
         (sec == CLIENTS).then(|| {
             let on = s.status.with(|st| st.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == nm)).is_some_and(|c| c.connected));
-            view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { "online" } else { "offline" }></span> }
+            view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { burrow_admin_logic::wording::ONLINE } else { burrow_admin_logic::wording::OFFLINE }></span> }
         })
     }
 }

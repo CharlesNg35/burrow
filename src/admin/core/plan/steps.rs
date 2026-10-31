@@ -1,6 +1,5 @@
 use burrow_admin_proto::diag::Diag;
-use burrow_admin_proto::msg::{ErrorCode, LockedField};
-use burrow_admin_proto::ops::Op;
+use burrow_admin_proto::msg::ErrorCode;
 use burrow_admin_proto::plan::{Conflict, Plan, Reformat};
 use burrow_admin_proto::schema::Applies;
 use burrow_config::ServerConfig;
@@ -11,6 +10,7 @@ use crate::admin::core::{ApiError, Core, Session, guard, summary, text};
 use crate::config::settings::ServerSettings;
 use crate::config::{patch, tree};
 
+use super::locks::keep_locked;
 use super::{Checked, applies, impact_key};
 
 pub(super) fn conflict(core: &Core, base: &str, old_text: &str, current: String) -> ApiError {
@@ -51,24 +51,6 @@ pub(super) fn parse_current(src: &str) -> Result<Value, ApiError> {
             )
         })
         .map(|t| t.to_json())
-}
-
-pub(super) fn refuse_locked(core: &Core, ops_list: &[Op]) -> Result<(), ApiError> {
-    if let Some(locked) = ops_list
-        .iter()
-        .filter_map(|o| o.path())
-        .find_map(|p| core.schema.locked_at(p))
-    {
-        return Err(ApiError::new(
-            ErrorCode::LockedField,
-            format!(
-                "{} is locked: change it in server.yaml on the server, then restart",
-                locked.join(".")
-            ),
-        )
-        .with(serde_json::to_value(LockedField { path: locked }).unwrap_or_default()));
-    }
-    Ok(())
 }
 
 pub(super) fn new_document(
@@ -135,6 +117,7 @@ pub(super) fn judge(
 ) -> Verdict {
     let (raw, new_raw, applied) = (d.raw, d.new_raw, d.applied);
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
+    let shared = guard::shared_web_port(running, (raw, new_raw));
     if let Some(next) = &checked.settings {
         let who = guard::Who {
             visitor: &s.visitor,
@@ -162,6 +145,11 @@ pub(super) fn judge(
         if let Some(c) = running.listen_clash(next) {
             clash.push(listen_clash(c));
         }
+        clash.extend(guard::busy_web_ports(
+            &|a| core.live.bind_probe(a),
+            running,
+            next,
+        ));
         let how = applies(core, raw, &applied.target);
         let restart: Vec<String> = how
             .iter()
@@ -177,6 +165,7 @@ pub(super) fn judge(
             &applied.renames,
         );
     }
+    refusals.extend(shared);
     Verdict {
         refusals,
         impacts,
@@ -187,7 +176,7 @@ pub(super) fn judge(
 fn listen_clash(c: crate::config::settings::ListenClash) -> Diag {
     Diag {
         severity: burrow_admin_proto::diag::Severity::Error,
-        code: "listen-clash".into(),
+        code: burrow_admin_proto::codes::LISTEN_CLASH.into(),
         message: format!(
             "{} uses {}, which this server keeps listening on until it restarts",
             c.what, c.kept
@@ -199,6 +188,7 @@ fn listen_clash(c: crate::config::settings::ListenClash) -> Diag {
         line: None,
         col: None,
         before: false,
+        subjects: Vec::new(),
     }
 }
 
@@ -223,9 +213,19 @@ pub(super) fn assemble(
         .iter()
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
-    let mask = |l: &str| text::mask_secrets(l, &fresh_pairs);
+    let root = &core.schema().root;
+    let mut hashes = Vec::new();
+    for v in [raw, new_raw] {
+        crate::admin::core::values::hashes(v, Some(root), &mut hashes);
+    }
+    let mask =
+        |l: &str| text::mask_secrets(&crate::admin::core::values::veil(l, &hashes), &fresh_pairs);
     let diff = crate::admin::core::diff::unified(old_text, new_text, &mask);
-    let changes = summary::changes(raw, new_raw, &applied.renames);
+    let changes = summary::changes(
+        &crate::admin::core::values::veil_value(raw, &hashes),
+        &crate::admin::core::values::veil_value(new_raw, &hashes),
+        &applied.renames,
+    );
     let impacts_json =
         serde_json::to_vec(&impacts.iter().map(impact_key).collect::<Vec<_>>()).unwrap_or_default();
     let refusals_json = serde_json::to_vec(&refusals).unwrap_or_default();
@@ -265,42 +265,4 @@ pub(super) fn assemble(
         }),
         secrets_in_diff: "masked".into(),
     }
-}
-
-fn shown(v: Option<&Value>) -> String {
-    match v {
-        None | Some(Value::Null) => "not set".into(),
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => other.to_string(),
-    }
-}
-
-fn keep_locked(
-    schema: &burrow_admin_proto::schema::Schema,
-    current: &Value,
-    target: &Value,
-) -> (Value, Vec<burrow_admin_proto::plan::Impact>) {
-    let mut out = target.clone();
-    let mut notes = Vec::new();
-    for path in schema.locked_paths() {
-        let now = burrow_admin_proto::value::get(current, &path).cloned();
-        let then = burrow_admin_proto::value::get(target, &path).cloned();
-        if now == then {
-            continue;
-        }
-        if !burrow_admin_proto::value::put(&mut out, &path, now.clone()) {
-            continue;
-        }
-        notes.push(burrow_admin_proto::plan::Impact {
-            level: burrow_admin_proto::plan::Level::Info,
-            code: "locked-kept".into(),
-            message: format!(
-                "{} kept at {} (locked)",
-                path.join("."),
-                shown(now.as_ref())
-            ),
-            confirm: None,
-        });
-    }
-    (out, notes)
 }

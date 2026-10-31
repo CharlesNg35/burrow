@@ -90,7 +90,10 @@ async fn read_access_cannot_change_anything() {
     let mut v = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
     let state = v.state().await;
     assert_eq!(state["file"]["writable"], false);
-    assert_eq!(state["file"]["why_not"]["code"], "read-level");
+    assert_eq!(
+        state["file"]["why_not"]["code"],
+        burrow_admin_proto::codes::READ_LEVEL
+    );
     let e = v.plan(json!([])).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Forbidden);
     let e = v.call("generate_secret", json!({})).await.unwrap_err();
@@ -205,7 +208,7 @@ async fn a_hand_edit_in_between_is_a_conflict() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|i| i["code"] == "adds-client");
+            .any(|i| i["code"] == burrow_admin_proto::codes::ADDS_CLIENT);
         if live {
             break plan;
         }
@@ -234,7 +237,7 @@ async fn a_crafted_change_of_a_locked_field_is_refused_and_nothing_is_written() 
     for ops in [
         json!([{"op": "set", "path": ["listen"], "value": 7999}]),
         json!([{"op": "set", "path": ["insecure_plaintext"], "value": true}]),
-        json!([{"op": "add", "path": ["websocket"], "value": {"listen": 7998}}]),
+        json!([{"op": "set", "path": ["websocket", "tls"], "value": {"cert": "a.pem", "key": "a.key"}}]),
     ] {
         let e = a.plan(ops.clone()).await.unwrap_err();
         assert_eq!(e.code, ErrorCode::LockedField, "{ops}");

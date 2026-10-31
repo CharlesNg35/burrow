@@ -50,12 +50,13 @@ pub fn init_client(
     } = ask_login(Role::Client, &path, opts, prompt)?;
     let value = client_value(&server, &name, &secret_text, &["127.0.0.0/8".to_string()]);
     write_new(&path, &render(&value, format), opts.force)?;
-    writeln!(
+    crate::base::output::say(
         out,
-        "wrote {} (allows 127.0.0.0/8; edit \"allow\" to expose other networks)",
-        path.display()
-    )
-    .map_err(|e| Failure::new(format!("cannot write output: {e}")))?;
+        format!(
+            "wrote {} (allows 127.0.0.0/8; edit \"allow\" to expose other networks)",
+            path.display()
+        ),
+    )?;
     Ok(path)
 }
 
@@ -81,45 +82,16 @@ pub fn client_config(
     })
 }
 
-pub fn client_document(
-    settings: &crate::config::settings::ServerSettings,
-    name: &str,
-    server: &str,
-    secret_text: &str,
+pub(super) fn allow_list<'a>(
+    targets: impl IntoIterator<Item = (&'a str, &'a str, u16)>,
     notes: &mut Vec<String>,
-) -> Value {
-    let mut allow = Vec::new();
-    let served = settings
-        .services
-        .iter()
-        .filter(|(_, s)| s.clients.iter().any(|c| c == name));
-    for (svc_name, svc) in served {
-        if crate::config::check::unix::path_of(&svc.target).is_some() {
-            if !allow.contains(&svc.target) {
-                allow.push(svc.target.clone());
-            }
-            continue;
-        }
-        let Ok((host, first)) = parse_host_port(&svc.target) else {
-            continue;
-        };
-        let port = crate::config::check::ports::show(first, svc.ports);
-        let host_ip = host.parse::<IpAddr>().map(|ip| match ip {
-            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-            v4 => v4,
-        });
-        let entries: Vec<String> = match host_ip {
-            Ok(IpAddr::V4(ip)) => vec![format!("{ip}/32:{port}")],
-            Ok(IpAddr::V6(ip)) => vec![format!("[{ip}/128]:{port}")],
-            Err(_) if host.eq_ignore_ascii_case("localhost") => {
-                vec![format!("127.0.0.1/32:{port}"), format!("[::1/128]:{port}")]
-            }
-            Err(_) => {
-                notes.push(format!(
-                    "service \"{svc_name}\" targets host name {host}; add its IP address to \"allow\" on the client"
-                ));
-                Vec::new()
-            }
+) -> Vec<String> {
+    let mut allow: Vec<String> = Vec::new();
+    for (service, target, count) in targets {
+        let entries = if crate::config::check::unix::path_of(target).is_some() {
+            vec![target.to_string()]
+        } else {
+            allow_entries(service, target, count, notes)
         };
         for e in entries {
             if !allow.contains(&e) {
@@ -131,6 +103,46 @@ pub fn client_document(
     if allow.is_empty() {
         notes.push("no IP targets found for this client; edit \"allow\" before starting it".into());
     }
+    allow
+}
+
+fn allow_entries(service: &str, target: &str, count: u16, notes: &mut Vec<String>) -> Vec<String> {
+    let Ok((host, first)) = parse_host_port(target) else {
+        return Vec::new();
+    };
+    let port = crate::config::check::ports::show(first, count);
+    let host_ip = host.parse::<IpAddr>().map(|ip| match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    });
+    match host_ip {
+        Ok(IpAddr::V4(ip)) => vec![format!("{ip}/32:{port}")],
+        Ok(IpAddr::V6(ip)) => vec![format!("[{ip}/128]:{port}")],
+        Err(_) if burrow_syntax::address::is_localhost(&host) => {
+            vec![format!("127.0.0.1/32:{port}"), format!("[::1/128]:{port}")]
+        }
+        Err(_) => {
+            notes.push(format!(
+                "service \"{service}\" targets host name {host}; add its IP address to \"allow\" on the client"
+            ));
+            Vec::new()
+        }
+    }
+}
+
+pub fn client_document(
+    settings: &crate::config::settings::ServerSettings,
+    name: &str,
+    server: &str,
+    secret_text: &str,
+    notes: &mut Vec<String>,
+) -> Value {
+    let served = settings
+        .services
+        .iter()
+        .filter(|(_, s)| s.clients.iter().any(|c| c == name))
+        .map(|(n, s)| (n.as_str(), s.target.as_str(), s.ports));
+    let allow = allow_list(served, notes);
     let mut value = client_value(server, name, secret_text, &allow);
     if settings.insecure_plaintext {
         value["insecure_plaintext"] = Value::Bool(true);

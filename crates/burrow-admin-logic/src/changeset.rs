@@ -18,8 +18,19 @@ pub fn as_new_secret(v: &Value) -> Option<(String, String)> {
     ))
 }
 
+pub const NEW_PASSWORD: &str = "$new_password";
+
+pub fn new_password(handle: &str) -> Value {
+    json!({ NEW_PASSWORD: { "handle": handle } })
+}
+
+pub fn as_new_password(v: &Value) -> Option<String> {
+    let o = v.as_object()?.get(NEW_PASSWORD)?;
+    Some(o.get("handle")?.as_str()?.to_string())
+}
+
 fn special(v: &Value) -> bool {
-    value::is_special(v) || as_new_secret(v).is_some()
+    value::is_special(v) || as_new_secret(v).is_some() || as_new_password(v).is_some()
 }
 
 fn secret_items(v: &Value) -> Option<Vec<&Value>> {
@@ -34,6 +45,13 @@ fn secret_items(v: &Value) -> Option<Vec<&Value>> {
 }
 
 fn strip_new(v: &Value, path: &[String], adds: &mut Vec<Op>) -> Value {
+    if let Some(handle) = as_new_password(v) {
+        adds.push(Op::PasswordSet {
+            path: path.to_vec(),
+            handle,
+        });
+        return Value::Null;
+    }
     if let Some(items) = secret_items(v)
         && items.iter().any(|i| as_new_secret(i).is_some())
     {
@@ -64,6 +82,13 @@ fn strip_new(v: &Value, path: &[String], adds: &mut Vec<Op>) -> Value {
 
 fn diff(base: &Value, draft: &Value, path: &[String], out: &mut Vec<Op>, tail: &mut Vec<Op>) {
     if base == draft {
+        return;
+    }
+    if let Some(handle) = as_new_password(draft) {
+        tail.push(Op::PasswordSet {
+            path: path.to_vec(),
+            handle,
+        });
         return;
     }
     if let (Some(old), Some(new)) = (secret_items(base), secret_items(draft)) {
@@ -97,10 +122,12 @@ fn diff(base: &Value, draft: &Value, path: &[String], out: &mut Vec<Op>, tail: &
                     None => {
                         let mut adds = Vec::new();
                         let cleaned = strip_new(dv, &p, &mut adds);
-                        out.push(Op::Add {
-                            path: p,
-                            value: cleaned,
-                        });
+                        if !cleaned.is_null() || dv.is_null() {
+                            out.push(Op::Add {
+                                path: p,
+                                value: cleaned,
+                            });
+                        }
                         tail.extend(adds);
                     }
                     Some(bv) => diff(bv, dv, &p, out, tail),
@@ -167,6 +194,15 @@ pub fn rename_key(root: &mut Value, path: &[String], to: &str) -> bool {
     true
 }
 
+pub fn rename_under(snapshot: &mut Value, at: &[String], path: &[String], to: &str) {
+    let Some(rel) = path.strip_prefix(at) else {
+        return;
+    };
+    if rename_key(snapshot, rel, to) && at.is_empty() {
+        burrow_config::refs::rename_refs(snapshot, path, to);
+    }
+}
+
 pub fn apply(root: &Value, ops: &[Op]) -> Value {
     let mut v = root.clone();
     for op in ops {
@@ -186,8 +222,8 @@ pub fn apply(root: &Value, ops: &[Op]) -> Value {
                 }
             }
             Op::Rename { path, to, refs } => {
-                if rename_key(&mut v, path, to) && *refs && path.len() == 2 {
-                    burrow_config::refs::rename_refs(&mut v, &path[0], &path[1], to);
+                if rename_key(&mut v, path, to) && *refs {
+                    burrow_config::refs::rename_refs(&mut v, path, to);
                 }
             }
             Op::SecretAdd { path, handle } => {
@@ -221,6 +257,13 @@ pub fn apply(root: &Value, ops: &[Op]) -> Value {
                     } else {
                         Value::Array(rest)
                     };
+                }
+            }
+            Op::PasswordSet { path, handle } => {
+                if let Some((last, parents)) = path.split_last()
+                    && let Some(m) = parent_mut(&mut v, parents)
+                {
+                    m.insert(last.clone(), new_password(handle));
                 }
             }
             Op::ReplaceDocument { .. } | Op::SetText { .. } => {}
@@ -280,10 +323,13 @@ impl Changeset {
     }
 
     pub fn rename(&mut self, path: &[String], to: &str) -> bool {
-        if path.len() != 2 || !rename_key(&mut self.draft, path, to) {
+        let entity = path
+            .split_last()
+            .and_then(|(_, parent)| burrow_config::entity_at(parent));
+        if entity.is_none() || !rename_key(&mut self.draft, path, to) {
             return false;
         }
-        burrow_config::refs::rename_refs(&mut self.draft, &path[0], &path[1], to);
+        burrow_config::refs::rename_refs(&mut self.draft, path, to);
         self.renames.push((path.to_vec(), to.to_string()));
         true
     }
@@ -300,6 +346,10 @@ impl Changeset {
         };
         self.set(path, next);
         self.fresh.push((handle.to_string(), fp.to_string()));
+    }
+
+    pub fn set_password(&mut self, path: &[String], handle: &str) {
+        self.set(path, new_password(handle));
     }
 
     pub fn remove_secret(&mut self, path: &[String], fp: &str) {
@@ -330,7 +380,7 @@ impl Changeset {
         let mut out = Vec::new();
         for (path, to) in &self.renames {
             if rename_key(&mut renamed, path, to) {
-                burrow_config::refs::rename_refs(&mut renamed, &path[0], &path[1], to);
+                burrow_config::refs::rename_refs(&mut renamed, path, to);
                 out.push(Op::Rename {
                     path: path.clone(),
                     to: to.clone(),
@@ -377,7 +427,8 @@ impl Changeset {
         self.renames
             .iter()
             .find(|(from, _)| {
-                from.first().map(String::as_str) == Some(section)
+                from.len() == 2
+                    && from.first().map(String::as_str) == Some(section)
                     && from.get(1).map(String::as_str) == Some(name)
             })
             .map(|(_, to)| to.clone())
@@ -386,7 +437,9 @@ impl Changeset {
     pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
         self.renames
             .iter()
-            .find(|(from, to)| from.first().map(String::as_str) == Some(section) && to == name)
+            .find(|(from, to)| {
+                from.len() == 2 && from.first().map(String::as_str) == Some(section) && to == name
+            })
             .and_then(|(from, _)| from.get(1).cloned())
     }
 

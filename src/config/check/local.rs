@@ -99,35 +99,62 @@ pub(super) fn check_services(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
-    for (name, svc) in services
-        .iter()
-        .filter(|(_, s)| s.clients.iter().any(|c| c == SELF))
-    {
-        let at = spans.value(&["services", name, "target"]);
-        if let Some(path) = unix::path_of(&svc.target) {
-            if allow.is_some_and(|a| !a.permits_socket(path)) {
-                out.push(outside(name, &svc.target, &svc.target, at));
+    for (name, svc) in services {
+        let mut targets: Vec<(String, crate::config::tree::Span)> = Vec::new();
+        for e in svc.entries().iter().filter(|e| e.client == SELF) {
+            let at = match e.target {
+                Some(_) => spans.value(&["services", name, "clients"]),
+                None => spans.value(&["services", name, "target"]),
+            };
+            let t = svc.target_of(e);
+            if !targets.iter().any(|(x, _)| x == t) {
+                targets.push((t.to_string(), at));
             }
-            continue;
         }
-        let mut mine: Vec<(Protocol, SocketAddr, &str)> = own
-            .iter()
-            .map(|(a, what)| (Protocol::Tcp, *a, *what))
-            .collect();
-        mine.extend(
-            svc.binds()
-                .into_iter()
-                .map(|(_, a)| (svc.protocol, a, "bind of this service")),
-        );
-        let gate = Gate::this_server(allow, mine.iter().map(|(p, a, _)| (*p, *a)).collect());
-        let what = |addr: SocketAddr| {
-            mine.iter()
-                .find(|(p, a, _)| *p == svc.protocol && *a == addr)
-                .map_or("address", |(_, _, what)| *what)
-        };
-        let refused = (0..svc.ports.max(1))
-            .find_map(|i| refusal_of(&gate, svc.protocol, &literal_addrs(&svc.target_at(i))));
-        match refused {
+        for (target, at) in targets {
+            check_self_target(name, svc, &target, at, allow, own, out);
+        }
+    }
+}
+
+fn check_self_target(
+    name: &str,
+    svc: &Service,
+    target: &str,
+    at: crate::config::tree::Span,
+    allow: Option<&AllowList>,
+    own: &[(SocketAddr, &str)],
+    out: &mut Vec<Diagnostic>,
+) {
+    if let Some(path) = unix::path_of(target) {
+        if allow.is_some_and(|a| !a.permits_socket(path)) {
+            out.push(outside(name, target, target, at));
+        }
+        return;
+    }
+    let mut mine: Vec<(Protocol, SocketAddr, &str)> = own
+        .iter()
+        .map(|(a, what)| (Protocol::Tcp, *a, *what))
+        .collect();
+    mine.extend(
+        svc.binds()
+            .into_iter()
+            .map(|(_, a)| (svc.protocol, a, "bind of this service")),
+    );
+    let gate = Gate::this_server(allow, mine.iter().map(|(p, a, _)| (*p, *a)).collect());
+    let what = |addr: SocketAddr| {
+        mine.iter()
+            .find(|(p, a, _)| *p == svc.protocol && *a == addr)
+            .map_or("address", |(_, _, what)| *what)
+    };
+    let refused = (0..svc.ports.max(1)).find_map(|i| {
+        refusal_of(
+            &gate,
+            svc.protocol,
+            &literal_addrs(&super::ports::port_at(target, i)),
+        )
+    });
+    match refused {
             Some((addr, Refusal::Burrow(own))) => out.push(
                 Diagnostic::error(
                     "target-is-burrow",
@@ -160,7 +187,6 @@ pub(super) fn check_services(
             )),
             None => {}
         }
-    }
 }
 
 fn outside(name: &str, target: &str, rule: &str, at: crate::config::tree::Span) -> Diagnostic {
@@ -201,7 +227,7 @@ fn literal_addrs(target: &str) -> Vec<SocketAddr> {
     let Ok((host, port)) = parse_host_port(target) else {
         return Vec::new();
     };
-    if host.eq_ignore_ascii_case("localhost") {
+    if burrow_syntax::address::is_localhost(&host) {
         return vec![
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
             SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port),

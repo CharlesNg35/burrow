@@ -25,11 +25,17 @@ impl PeerCount for Arc<Shared> {
     }
 }
 
+const NO_CLIENT_PAUSE: Duration = Duration::from_millis(500);
+const TAKE_FAILED_PAUSE: Duration = Duration::from_millis(500);
+const RETRY_SOON: Duration = Duration::from_millis(200);
+const REFUSED_PAUSE: Duration = Duration::from_secs(5);
+const REPICK: Duration = Duration::from_secs(1);
+
 pub async fn udp_service(
     shared: Arc<Shared>,
     name: String,
     socket: UdpSocket,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
     index: u16,
 ) {
     let socket = Arc::new(socket);
@@ -39,24 +45,25 @@ pub async fn udp_service(
             return;
         }
         let svc = config.borrow().clone();
-        let target = svc.target_at(index);
-        let Some(session) = shared.pick(&name, &svc, &target) else {
+        let Some(hop) = shared.pick(&name, &svc, index) else {
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
+                _ = tokio::time::sleep(NO_CLIENT_PAUSE) => continue,
                 _ = stop.changed() => return,
             }
         };
-        let ch = match tokio::time::timeout(Duration::from_secs(10), session.take()).await {
+        let target = hop.target.clone();
+        let session = &hop.via;
+        let ch = match tokio::time::timeout(super::TAKE_TIMEOUT, session.take()).await {
             Ok(Ok(ch)) => ch,
             Ok(Err(TakeError::TooManyPending)) | Ok(Err(TakeError::Closed)) => {
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(TAKE_FAILED_PAUSE).await;
                 continue;
             }
             Err(_) => {
-                if svc.clients.len() > 1 {
-                    shared.troubled(&name, &session, &target, &crate::forward::no_reply());
+                if svc.several() {
+                    shared.troubled(&name, session, &target, &crate::forward::no_reply());
                 }
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                tokio::time::sleep(TAKE_FAILED_PAUSE).await;
                 continue;
             }
         };
@@ -68,8 +75,9 @@ pub async fn udp_service(
             name: &name,
             svc: &svc,
             target: &target,
+            index,
         };
-        match relay(&shared, port, &session, socket.clone(), ch, config.clone()).await {
+        match relay(&shared, port, session, socket.clone(), ch, config.clone()).await {
             Ok(()) => {}
             Err(Some(status)) => {
                 if status == Status::Busy {
@@ -81,17 +89,17 @@ pub async fn udp_service(
                     &target,
                     status,
                 );
-                if svc.clients.len() > 1 {
-                    shared.troubled(&name, &session, &target, &ForwardError::Status(status));
+                if svc.several() {
+                    shared.troubled(&name, session, &target, &ForwardError::Status(status));
                 }
-                let pause = if svc.clients.len() > 1 && shared.has_clear(&name, &svc, &target) {
-                    Duration::from_millis(200)
+                let pause = if svc.several() && shared.has_clear(&name, &svc, index) {
+                    RETRY_SOON
                 } else {
-                    Duration::from_secs(5)
+                    REFUSED_PAUSE
                 };
                 tokio::time::sleep(pause).await;
             }
-            Err(None) => tokio::time::sleep(Duration::from_millis(200)).await,
+            Err(None) => tokio::time::sleep(RETRY_SOON).await,
         }
     }
 }
@@ -100,6 +108,7 @@ struct Port<'a> {
     name: &'a str,
     svc: &'a Service,
     target: &'a str,
+    index: u16,
 }
 
 async fn relay(
@@ -108,16 +117,21 @@ async fn relay(
     session: &super::via::Via,
     socket: Arc<UdpSocket>,
     ch: crate::wire::transport::Channel,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
 ) -> Result<(), Option<Status>> {
-    let Port { name, svc, target } = port;
+    let Port {
+        name,
+        svc,
+        target,
+        index,
+    } = port;
     let connect = Connect {
         protocol: Protocol::Udp,
         service: name.to_string(),
         target: target.to_string(),
         only: None,
     };
-    let wait = shared.settings().heartbeat_interval * 3;
+    let wait = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
     let link = match open_udp(ch, &connect.encode(), wait).await {
         Ok(link) => link,
         Err(Opening::Lost) => return Err(None),
@@ -132,13 +146,13 @@ async fn relay(
                     wait.as_secs()
                 );
             }
-            if svc.clients.len() > 1 {
+            if svc.several() {
                 shared.troubled(name, session, target, &crate::forward::no_reply());
             }
             return Err(None);
         }
     };
-    if svc.clients.len() > 1 {
+    if svc.several() {
         shared.accepted(name, session.name(), target);
     }
     info!(
@@ -150,20 +164,18 @@ async fn relay(
         socket,
         peers: Arc::new(Mutex::new(PeerTable::default())),
         gauge: PeerGauge::new(shared.clone()),
-        meter: Arc::new(ServiceMeter {
-            limit: shared.limit(name),
-            stats: shared.metrics.service(name),
-        }),
-        stall: shared.settings().heartbeat_interval * 3,
+        meter: Arc::new(ServiceMeter::of(shared, name)),
+        stall: crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval),
     };
     let mut hooks = PublicPort {
         shared,
         name,
         svc,
         target,
+        index,
         session,
         config,
-        repick: tokio::time::interval(Duration::from_secs(1)),
+        repick: tokio::time::interval(REPICK),
         stop: shared.shutdown.clone(),
     };
     match front::run(&mut front, link, &mut hooks).await {
@@ -172,36 +184,45 @@ async fn relay(
     }
 }
 
-struct ServiceMeter {
-    limit: Arc<Limit>,
-    stats: Arc<ServiceStats>,
+pub(super) struct ServiceMeter {
+    pub(super) limit: Option<Arc<Limit>>,
+    pub(super) stats: Option<Arc<ServiceStats>>,
+}
+
+impl ServiceMeter {
+    pub(super) fn of(shared: &Shared, service: &str) -> ServiceMeter {
+        ServiceMeter {
+            limit: Some(shared.limit(service)),
+            stats: Some(shared.metrics.service(service)),
+        }
+    }
 }
 
 impl Meter for ServiceMeter {
     fn take_in(&self, n: usize) -> bool {
-        self.limit.inbound.try_take(n)
+        self.limit.as_ref().is_none_or(|l| l.inbound.try_take(n))
     }
 
     fn count_in(&self, n: usize) {
-        self.stats
-            .traffic
-            .inbound
-            .fetch_add(n as u64, Ordering::Relaxed);
+        if let Some(s) = &self.stats {
+            s.traffic.inbound.fetch_add(n as u64, Ordering::Relaxed);
+        }
     }
 
     fn new_peer(&self) {
-        self.stats.total.fetch_add(1, Ordering::Relaxed);
+        if let Some(s) = &self.stats {
+            s.total.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     fn take_out(&self, n: usize) -> bool {
-        self.limit.outbound.try_take(n)
+        self.limit.as_ref().is_none_or(|l| l.outbound.try_take(n))
     }
 
     fn count_out(&self, n: usize) {
-        self.stats
-            .traffic
-            .outbound
-            .fetch_add(n as u64, Ordering::Relaxed);
+        if let Some(s) = &self.stats {
+            s.traffic.outbound.fetch_add(n as u64, Ordering::Relaxed);
+        }
     }
 }
 
@@ -210,8 +231,9 @@ struct PublicPort<'a> {
     name: &'a str,
     svc: &'a Service,
     target: &'a str,
+    index: u16,
     session: &'a super::via::Via,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
     repick: tokio::time::Interval,
     stop: watch::Receiver<bool>,
 }
@@ -251,7 +273,7 @@ impl Hooks for PublicPort<'_> {
                 stall.as_secs()
             );
         }
-        if self.svc.clients.len() > 1 {
+        if self.svc.several() {
             self.shared.troubled(
                 self.name,
                 self.session,
@@ -274,10 +296,10 @@ impl Hooks for PublicPort<'_> {
             tokio::select! {
                 _ = self.repick.tick() => {
                     let current = self.config.borrow().clone();
-                    if let Some(preferred) = self
+                    if let Some((preferred, _)) = self
                         .shared
-                        .preferred(self.name, &current, self.target)
-                        .filter(|p| p != self.session.name())
+                        .preferred(self.name, &current, self.index)
+                        .filter(|(c, t)| c != self.session.name() || t != self.target)
                     {
                         debug!(
                             "service \"{}\": moving the UDP relay to client \"{preferred}\"",
@@ -290,13 +312,14 @@ impl Hooks for PublicPort<'_> {
                     let moved = {
                         let next = self.config.borrow();
                         next.target != self.svc.target
+                            || next.entries != self.svc.entries
                             || !next.clients.iter().any(|c| c == self.session.name())
                     };
                     if r.is_err() || moved {
                         return Interrupt::End(Ending::Done);
                     }
-                    let sources = self.config.borrow().sources.clone();
-                    return Interrupt::Retain(Box::new(move |addr| sources.permits(addr.ip())));
+                    let svc = self.config.borrow().clone();
+                    return Interrupt::Retain(Box::new(move |addr| svc.sources.permits(addr.ip())));
                 }
                 _ = self.session.closed() => return Interrupt::End(Ending::Done),
                 _ = self.stop.changed() => return Interrupt::End(Ending::Done),

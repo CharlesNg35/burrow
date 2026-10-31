@@ -2,11 +2,11 @@ use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
-use burrow_ui_kit::{Icon, Kbd};
+use burrow_ui_kit::{Icon, Kbd, Modal};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
-use crate::store::{Store, short_rev, store};
+use crate::store::{Store, store};
 
 #[derive(Clone, PartialEq)]
 struct Hit {
@@ -104,7 +104,10 @@ fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
     }
     let n = s.edit.pending();
     if n > 0 {
-        let label = format!("Review {n} change{}", if n == 1 { "" } else { "s" });
+        let label = format!(
+            "Review {}",
+            burrow_admin_logic::wording::count_of(n, "change")
+        );
         if hit(needle, &label) {
             out.push(Hit {
                 section: "Actions",
@@ -119,11 +122,15 @@ fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
 }
 
 fn entity_hits(doc: &Value, status: Option<&Status>, needle: &str, out: &mut Vec<Hit>) {
-    for (sec, title, icon) in [
-        (ServiceEntry::section(), "Services", "stack"),
-        (ClientEntry::section(), "Clients", "monitor"),
-        (VisitorEntry::section(), "Visitors", "person"),
+    for sec in [
+        ServiceEntry::section(),
+        ClientEntry::section(),
+        VisitorEntry::section(),
     ] {
+        let (title, icon) = (
+            crate::screens::plural(sec),
+            crate::screens::entity_icon(sec),
+        );
         for n in names(doc, sec) {
             if !hit(needle, &n) {
                 continue;
@@ -160,25 +167,22 @@ fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> Strin
             };
             match c {
                 Some(c) if c.connected => format!(
-                    "{} · {secrets} secret{}",
+                    "{} · {}",
                     c.from
                         .unwrap_or_default()
                         .rsplit_once(':')
                         .map(|(h, _)| h.to_string())
                         .unwrap_or_default(),
-                    if secrets == 1 { "" } else { "s" }
+                    burrow_admin_logic::wording::count_of(secrets, ClientEntry::SECRET.key())
                 ),
                 _ => format!(
-                    "offline · {secrets} secret{}",
-                    if secrets == 1 { "" } else { "s" }
+                    "{} · {}",
+                    burrow_admin_logic::wording::OFFLINE,
+                    burrow_admin_logic::wording::count_of(secrets, ClientEntry::SECRET.key())
                 ),
             }
         }
-        Some(Entity::Service) => ServiceEntry::BIND
-            .get(v)
-            .filter(|b| !b.is_null())
-            .map(crate::form::plain)
-            .unwrap_or_else(|| "private".into()),
+        Some(Entity::Service) => burrow_admin_logic::web::reached(v),
         _ => VisitorEntry::ADMIN
             .get(v)
             .map(|a| format!("admin · {}", crate::form::plain(a)))
@@ -188,23 +192,30 @@ fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> Strin
 
 fn setting_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
     if let Some(schema) = s.schema.get_untracked() {
-        let skip: Vec<String> = schema
-            .entities
-            .iter()
-            .filter_map(|e| e.path.first().cloned())
-            .collect();
+        let skip = burrow_admin_logic::tree::entity_sections(&schema);
+        let skipped: Vec<&str> = skip.iter().map(String::as_str).collect();
+        let cards = crate::form::settings_cards(&schema.root, &skipped);
         for f in burrow_admin_logic::tree::fields(&schema.root)
             .iter()
             .filter(|f| !skip.contains(&f.key))
         {
-            if !needle.is_empty() && (hit(needle, &f.node.label) || hit(needle, &f.key)) {
+            let label = cards
+                .iter()
+                .find(|c| c.object && c.fields.iter().any(|g| g.key == f.key))
+                .map_or_else(|| f.node.label.clone(), |c| c.title.clone());
+            if !needle.is_empty()
+                && (hit(needle, &label) || hit(needle, &f.node.label) || hit(needle, &f.key))
+            {
                 out.push(Hit {
                     section: "Settings",
                     icon: "settings",
-                    label: f.node.label.clone(),
+                    label,
                     facet: f.key.clone(),
                     go: Route::Settings,
-                    query: None,
+                    query: Some((
+                        "tab",
+                        burrow_admin_logic::settings_tabs::tab_of(&f.key).key(),
+                    )),
                 });
             }
         }
@@ -223,9 +234,9 @@ fn history_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
                 out.push(Hit {
                     section: "Activity",
                     icon: "history",
-                    label: format!("rev {} · {summary}", short_rev(&e.rev)),
+                    label: format!("{} · {summary}", s.version(&e.rev)),
                     facet: crate::format::relative(e.at),
-                    go: Route::Activity(Some(e.rev.clone())),
+                    go: Route::Activity(Some(e.id.to_string())),
                     query: None,
                 });
             }
@@ -243,9 +254,6 @@ pub(super) fn SearchPopover() -> impl IntoView {
         if s.search_open.get() {
             q.set(String::new());
             active.set(0);
-            if let Some(i) = input.get() {
-                let _ = i.focus();
-            }
         }
     });
     let hits = Memo::new(move |_| {
@@ -295,37 +303,36 @@ pub(super) fn SearchPopover() -> impl IntoView {
             })
             .collect_view()
     };
+    let keys = Callback::new(move |e: web_sys::KeyboardEvent| match e.key().as_str() {
+        "ArrowDown" => {
+            e.prevent_default();
+            let n = hits.with(Vec::len);
+            if n > 0 {
+                active.update(|a| *a = (*a + 1).min(n - 1));
+            }
+        }
+        "ArrowUp" => {
+            e.prevent_default();
+            active.update(|a| *a = a.saturating_sub(1));
+        }
+        "Enter" => {
+            e.prevent_default();
+            if let Some(h) = hits.with(|l| l.get(active.get_untracked()).cloned()) {
+                run(h);
+            }
+        }
+        _ => {}
+    });
+    let close = Callback::new(move |_: ()| s.search_open.set(false));
     view! {
-        <Show when=move || s.search_open.get()>
-            <div class="fixed inset-0 z-40 bg-scrim" on:click=move |_| s.search_open.set(false)></div>
-            <div
-                class="fixed top-[84px] left-1/2 z-50 w-[min(640px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-dialog border border-border-strong bg-surface shadow-overlay dark:bg-surface-2"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Search"
-                data-testid="search"
-                on:keydown=move |e| match e.key().as_str() {
-                    "Escape" => s.search_open.set(false),
-                    "ArrowDown" => {
-                        e.prevent_default();
-                        let n = hits.with(Vec::len);
-                        if n > 0 {
-                            active.update(|a| *a = (*a + 1).min(n - 1));
-                        }
-                    }
-                    "ArrowUp" => {
-                        e.prevent_default();
-                        active.update(|a| *a = a.saturating_sub(1));
-                    }
-                    "Enter" => {
-                        e.prevent_default();
-                        if let Some(h) = hits.with(|l| l.get(active.get_untracked()).cloned()) {
-                            run(h);
-                        }
-                    }
-                    _ => {}
-                }
-            >
+        <Modal
+            open=s.search_open
+            on_close=close
+            label="Search".to_string()
+            class="fixed top-[84px] left-1/2 z-50 w-[min(640px,calc(100vw-32px))] -translate-x-1/2 overflow-hidden rounded-dialog border border-border-strong bg-surface shadow-overlay dark:bg-surface-2"
+            testid="search"
+            on_key=keys
+        >
                 <div class="flex items-center gap-2.5 border-b border-border px-4">
                     <Icon name="search"/>
                     <input
@@ -350,7 +357,6 @@ pub(super) fn SearchPopover() -> impl IntoView {
                     <span>"↵ run"</span>
                     <span class="ml-auto">"Searches services, clients, visitors, settings and history"</span>
                 </div>
-            </div>
-        </Show>
+        </Modal>
     }
 }

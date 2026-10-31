@@ -19,13 +19,13 @@ pub fn About() -> impl IntoView {
         let schema = s.schema.get()?;
         let level = w.you.level.wire();
         let writable = if st.file.writable {
-            "yes".to_string()
+            "Yes".to_string()
         } else {
             st.file
                 .why_not
                 .as_ref()
-                .map(|w| format!("no: {}", w.message))
-                .unwrap_or_else(|| "no".into())
+                .map(|w| format!("No: {}", w.message))
+                .unwrap_or_else(|| "No".into())
         };
         let facts: Vec<(&str, String)> = vec![
             (
@@ -39,7 +39,7 @@ pub fn About() -> impl IntoView {
                     w.server.version.clone()
                 },
             ),
-            ("Server target", w.server.target.clone()),
+            ("Built for", w.server.target.clone()),
             (
                 "Uptime",
                 format::span(
@@ -50,24 +50,29 @@ pub fn About() -> impl IntoView {
             ),
             ("burrow admin UI", UI_VERSION.to_string()),
             (
-                "Admin protocol",
+                "Admin protocol, for support",
                 format!("{} (this UI speaks up to {PROTOCOL_MAX})", w.protocol),
             ),
             (
-                "Schema",
+                "Schema, for support",
                 format!(
                     "version {} · {}",
                     schema.schema_version,
-                    schema.hash.trim_start_matches("b2s:")
+                    schema
+                        .hash
+                        .trim_start_matches(burrow_admin_proto::REV_PREFIX)
                 ),
             ),
-            ("This UI's schema version", SCHEMA_VERSION.to_string()),
+            (
+                "This UI's schema version, for support",
+                SCHEMA_VERSION.to_string(),
+            ),
             (
                 "Signed in as",
                 format!("{} · admin {level} · from {}", w.you.visitor, w.you.from),
             ),
             ("Config file", st.file.path.clone()),
-            ("Format", st.file.format.clone()),
+            ("Format", st.file.format.to_uppercase()),
             ("Writable", writable),
             (
                 "History",
@@ -90,9 +95,10 @@ pub fn About() -> impl IntoView {
     };
     view! {
         <div class="max-w-[1120px] px-8 pt-7 pb-12 max-sm:px-4" data-testid="about-page">
-        <PageHeader title="About" subtitle="Versions and where the config lives"/>
+        <PageHeader sub="Versions and where the config lives">"About"</PageHeader>
         <Card>
             {rows}
+            <div class="mt-4">
             <Button
                 label=Signal::derive(move || if copied.get() { "Copied".to_string() } else { "Copy diagnostics".to_string() })
                 testid="copy-diagnostics"
@@ -101,6 +107,7 @@ pub fn About() -> impl IntoView {
                     copied.set(true);
                 }
             />
+            </div>
         </Card>
         </div>
     }

@@ -10,10 +10,11 @@ use windows_service::service::{
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 use windows_service::service_dispatcher;
 
-use super::{read_env, scm_error};
+use super::scm_error;
 use crate::app::run::{Hosted, Logging};
 use crate::base::failure::Failure;
 use crate::config::env::Env;
+use crate::install::Role;
 
 static NAME: OnceLock<String> = OnceLock::new();
 static EXIT: AtomicU8 = AtomicU8::new(0);
@@ -76,6 +77,9 @@ pub(super) fn service_main(_args: Vec<OsString>) {
 fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Failure> {
     let m = crate::service::load_manifest(name)?;
     crate::instance::running_as_service();
+    if let Some(dir) = &m.web_state {
+        crate::install::choose_state_dir(dir.clone());
+    }
     let logging = Logging {
         level: tracing::Level::INFO,
         json: false,
@@ -83,11 +87,11 @@ fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Fai
     };
     let hosted = Hosted {
         stop: Some(stop),
-        env: Env::with(read_env(m.env_file.as_ref())),
+        env: Env::with(crate::service::read_json_env(&m)),
     };
-    match m.role.as_str() {
-        "server" => crate::app::run::server_until(&m.config, logging, Some(hosted)),
-        "visitor" => crate::app::run::visit_until(&m.config, logging, Some(hosted)),
-        _ => crate::app::run::client_until(&m.config, logging, Some(hosted)),
+    match m.role {
+        Role::Server => crate::app::run::server_until(&m.config, logging, Some(hosted)),
+        Role::Visitor => crate::app::run::visit_until(&m.config, logging, Some(hosted)),
+        Role::Client => crate::app::run::client_until(&m.config, logging, Some(hosted)),
     }
 }

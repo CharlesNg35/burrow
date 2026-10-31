@@ -64,6 +64,8 @@ fn tri(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> Option<bool> {
     }
 }
 
+pub const PICK_ONE: &str = "pick at least one";
+
 pub fn holds(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> bool {
     tri(c, get).unwrap_or(true)
 }
@@ -117,6 +119,14 @@ fn set_in(v: &Value, key: &str) -> bool {
 }
 
 pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
+    let label = |k: &str| {
+        fields(entity)
+            .iter()
+            .find(|f| f.key == k)
+            .map(|f| f.node.label.clone())
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| k.to_string())
+    };
     let mut out = Vec::new();
     let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for f in fields(entity) {
@@ -127,14 +137,17 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
                     None => groups.push((group.clone(), vec![f.key.clone()])),
                 },
                 Relation::SameLen(other) => {
-                    let count = |k: &str| value.get(k).and_then(port_count);
+                    let count = |k: &str| value.get(k).and_then(|v| port_count(k, v));
                     if let (Some(a), Some(b)) = (count(&f.key), count(other))
                         && a != b
-                        && a != 1
                     {
                         out.push((
                             f.key.clone(),
-                            format!("{a} ports here, but {other} has {b}"),
+                            format!(
+                                "{} has {b} {}; this needs {b} too, not {a}",
+                                label(other),
+                                if b == 1 { "port" } else { "ports" }
+                            ),
                         ));
                     }
                 }
@@ -144,13 +157,17 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
     }
     for (_, keys) in groups {
         let set: Vec<&String> = keys.iter().filter(|k| set_in(value, k)).collect();
-        let names = keys.join(" or ");
+        let names = keys
+            .iter()
+            .map(|k| label(k))
+            .collect::<Vec<_>>()
+            .join(" or ");
         match set.len() {
-            0 => out.push((keys[0].clone(), format!("set {names}"))),
+            0 => out.push((keys[keys.len() - 1].clone(), PICK_ONE.into())),
             1 => {}
             _ => {
                 for k in set {
-                    out.push((k.clone(), format!("set only one of {names}")));
+                    out.push((k.clone(), format!("Set only one of {names}")));
                 }
             }
         }
@@ -158,22 +175,24 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
     out
 }
 
-fn port_count(v: &Value) -> Option<u32> {
-    let s = match v {
-        Value::Number(_) => return Some(1),
-        Value::String(s) => s,
-        _ => return None,
-    };
-    if burrow_syntax::unix::path_of(s).is_some() {
-        return Some(1);
-    }
-    let port = s.rsplit_once(':').map_or(s.as_str(), |(_, p)| p);
-    match port.split_once('-') {
-        Some((a, b)) => {
-            let (a, b) = (a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?);
-            (b >= a).then(|| b - a + 1)
-        }
-        None => port.trim().parse::<u32>().ok().map(|_| 1),
+pub fn bind_ports(v: &Value) -> Option<u16> {
+    let bind: burrow_config::Bind = burrow_admin_proto::serde_json::from_value(v.clone()).ok()?;
+    bind.ranged([0, 0, 0, 0], burrow_config::ServiceEntry::BIND.key())
+        .ok()
+        .map(|(_, n)| n)
+}
+
+pub fn target_ports(v: &Value) -> Option<u16> {
+    let target: burrow_config::Target =
+        burrow_admin_proto::serde_json::from_value(v.clone()).ok()?;
+    target.ports().ok()
+}
+
+fn port_count(key: &str, v: &Value) -> Option<u16> {
+    if key == burrow_config::ServiceEntry::TARGET.key() {
+        target_ports(v)
+    } else {
+        bind_ports(v)
     }
 }
 
@@ -248,8 +267,13 @@ mod tests {
             Some("UDP services do not support this")
         );
         let mode = &svc.field("mode").expect("field").node;
-        assert!(!field_state(mode, &s.root, &d, &p(&["services", "web"])).visible);
-        assert!(field_state(mode, &s.root, &d, &p(&["services", "both"])).visible);
+        let one = field_state(mode, &s.root, &d, &p(&["services", "web"]));
+        assert!(one.visible && !one.enabled, "shown, with its reason");
+        assert_eq!(
+            one.disabled_reason.as_deref(),
+            Some("This applies only with two or more clients")
+        );
+        assert!(field_state(mode, &s.root, &d, &p(&["services", "both"])).enabled);
         let vis = &s
             .root
             .at(&p(&["visitors", "x"]))
@@ -257,7 +281,8 @@ mod tests {
             .field("admin_from")
             .expect("f")
             .node;
-        assert!(!field_state(vis, &s.root, &d, &p(&["visitors", "laptop"])).visible);
+        let laptop = field_state(vis, &s.root, &d, &p(&["visitors", "laptop"]));
+        assert!(laptop.visible && !laptop.enabled);
     }
 
     #[test]
@@ -284,26 +309,30 @@ mod tests {
             &json!({"client": "a", "clients": ["a", "b"], "target": 2}),
         );
         assert_eq!(both.len(), 2, "{both:?}");
-        assert!(both[0].1.contains("only one of client or clients"));
+        assert_eq!(both[0].1, "Set only one of Client or Clients");
         let none = entity_problems(svc, &json!({"target": 2}));
-        assert_eq!(
-            none,
-            vec![("client".into(), "set client or clients".into())]
-        );
+        assert_eq!(none, vec![("clients".into(), PICK_ONE.into())]);
         let ranges = entity_problems(
             svc,
             &json!({"client": "a", "bind": "7000-7002", "target": "3000-3001"}),
         );
         assert_eq!(
             ranges,
-            vec![("target".into(), "2 ports here, but bind has 3".into())]
+            vec![(
+                "target".into(),
+                "Public address has 3 ports; this needs 3 too, not 2".into()
+            )]
         );
-        assert!(
+        assert_eq!(
             entity_problems(
                 svc,
                 &json!({"client": "a", "bind": "7000-7002", "target": 3000})
-            )
-            .is_empty()
+            ),
+            vec![(
+                "target".into(),
+                "Public address has 3 ports; this needs 3 too, not 1".into()
+            )],
+            "validate refuses it too (range-mismatch)"
         );
     }
 }

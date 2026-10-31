@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_rustls::TlsAcceptor;
@@ -149,11 +147,7 @@ pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
     let source = match source_slot(&shared.handshake_sources, peer.ip(), total, pressed) {
         Ok(source) => source,
         Err(()) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            shared.refused_handshake();
             debug!(%peer, "too many unauthenticated connections from this address, dropping");
             return None;
         }
@@ -164,11 +158,7 @@ pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
             _source: source,
         }),
         Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            shared.refused_handshake();
             debug!(%peer, "too many unauthenticated connections, dropping");
             None
         }
@@ -240,27 +230,82 @@ async fn handle_ws(
             debug!(%peer, "websocket upgrade refused: {e:?}");
         })
     };
-    match tokio::time::timeout_at(deadline.into(), upgrade).await {
+    let upgraded = tokio::time::timeout_at(deadline.into(), upgrade).await;
+    upgraded_ws(
+        shared,
+        upgraded,
+        ws.settings.keepalive,
+        peer,
+        permit,
+        deadline,
+    )
+    .await;
+}
+
+async fn upgraded_ws(
+    shared: Arc<Shared>,
+    upgraded: Result<Result<ws::WsConn, ()>, tokio::time::error::Elapsed>,
+    keepalive: std::time::Duration,
+    peer: SocketAddr,
+    permit: Permit,
+    deadline: Instant,
+) {
+    match upgraded {
         Ok(Ok(mut conn)) => {
-            conn.keep_alive(ws.settings.keepalive);
+            conn.keep_alive(keepalive);
             authenticate(shared, Conn::from(conn), peer, permit, deadline).await
         }
-        Ok(Err(())) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-        }
+        Ok(Err(())) => shared.refused_handshake(),
         Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            shared.refused_handshake();
             debug!(%peer, "websocket upgrade timed out");
         }
     }
+}
+
+#[cfg(feature = "web")]
+pub async fn handle_web_tunnel(shared: Arc<Shared>, conn: burrow_web::TunnelConn<Permit>) {
+    let burrow_web::TunnelConn {
+        io,
+        upgraded,
+        path,
+        peer,
+        local,
+        deadline,
+        permit,
+    } = conn;
+    let Some(ws) = shared
+        .settings()
+        .websocket
+        .clone()
+        .filter(|w| w.host.is_some())
+    else {
+        return;
+    };
+    let carrier = Carrier::Accepted(Box::new(ws::Accepted {
+        io: Box::new(io),
+        local,
+    }));
+    let upgrade = async {
+        if upgraded {
+            return (path == ws.path)
+                .then(|| ws::serve_upgraded(carrier))
+                .ok_or(());
+        }
+        ws::accept(carrier, &ws.path).await.map_err(|e| {
+            debug!(%peer, "websocket upgrade on the web proxy port refused: {e:?}");
+        })
+    };
+    let upgraded = tokio::time::timeout_at(deadline, upgrade).await;
+    upgraded_ws(
+        shared,
+        upgraded,
+        ws.keepalive,
+        peer,
+        permit,
+        deadline.into_std(),
+    )
+    .await;
 }
 
 fn secrets_for(shared: &Shared, kind: ChannelKind, name: &str) -> Vec<Secret> {
@@ -287,31 +332,15 @@ async fn authenticate(
     .await;
     let acc = match result {
         Ok(Ok(a)) => a,
-        Ok(Err(AcceptError::Rejected)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake rejected (wrong secret or unknown client name)");
-            return;
-        }
-        Ok(Err(e)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake failed: {e:?}");
-            return;
-        }
-        Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake timed out");
+        failed => {
+            shared.refused_handshake();
+            match failed {
+                Ok(Err(AcceptError::Rejected)) => {
+                    debug!(%peer, "handshake rejected (wrong secret or unknown client name)")
+                }
+                Ok(Err(e)) => debug!(%peer, "handshake failed: {e:?}"),
+                _ => debug!(%peer, "handshake timed out"),
+            }
             return;
         }
     };
@@ -329,13 +358,8 @@ async fn authenticate(
                 Some(s) if s.token == token => s.offer(acc.channel),
                 _ => {
                     debug!(%peer, "data channel for an unknown session, closing");
-                    let mut ch = acc.channel;
-                    let _ = ch
-                        .writer
-                        .send(&mut ch.stream, &[crate::wire::protocol::STALE_RECORD])
-                        .await;
-                    let _ = ch.stream.flush().await;
-                    let _ = ch.stream.finish().await;
+                    let stale = [crate::wire::protocol::STALE_RECORD];
+                    crate::forward::send_and_finish(acc.channel, &stale).await;
                 }
             }
         }

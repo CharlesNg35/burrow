@@ -19,6 +19,32 @@ pub mod req {
     pub const HISTORY: &str = "history";
     pub const REVERT: &str = "revert";
     pub const PING: &str = "ping";
+    pub const UPLOAD: &str = "upload";
+    pub const LOCAL_CA: &str = "local_ca";
+    pub const HASH_PASSWORD: &str = "hash_password";
+
+    pub const ALL: &[&str] = &[
+        WELCOME,
+        SCHEMA,
+        STATE,
+        SUBSCRIBE,
+        VALIDATE,
+        APPLY,
+        GENERATE_SECRET,
+        CONNECT_INFO,
+        SUGGEST,
+        HISTORY,
+        REVERT,
+        PING,
+        UPLOAD,
+        LOCAL_CA,
+        HASH_PASSWORD,
+    ];
+}
+
+pub mod suggest {
+    pub const FREE_PORT: &str = "free-port";
+    pub const NAME: &str = "name";
 }
 
 pub mod ev {
@@ -144,6 +170,8 @@ pub struct UiDiagnostics {
     pub schema_hash: Option<String>,
     pub schema_version: Option<u32>,
     pub file: Option<FileDiagnostics>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -166,6 +194,12 @@ pub enum AdminLevel {
     Write,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct WelcomeRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burrow: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Welcome {
     pub server: ServerInfo,
@@ -180,6 +214,34 @@ pub struct Welcome {
 impl Welcome {
     pub fn has(&self, feature: &str) -> bool {
         self.features.iter().any(|f| f == feature)
+    }
+
+    pub fn offers(&self, request: &str) -> bool {
+        needed_for(request).is_none_or(|f| self.has(f))
+    }
+}
+
+pub fn needed_for(request: &str) -> Option<&'static str> {
+    use crate::features as f;
+    match request {
+        req::GENERATE_SECRET => Some(f::SECRET_GENERATE),
+        req::CONNECT_INFO => Some(f::CONNECT_SNIPPETS),
+        req::HISTORY => Some(f::HISTORY),
+        req::REVERT => Some(f::REVERT),
+        req::UPLOAD => Some(f::UPLOAD),
+        req::HASH_PASSWORD => Some(f::PASSWORDS),
+        req::LOCAL_CA => Some(f::LOCAL_CA),
+        _ => None,
+    }
+}
+
+pub fn older_server(request: &str) -> ErrorBody {
+    ErrorBody {
+        code: ErrorCode::UnknownRequest,
+        message: format!(
+            "the server runs an older burrow that does not offer \"{request}\"; update burrow on the server"
+        ),
+        body: Value::Null,
     }
 }
 
@@ -289,6 +351,9 @@ pub struct SessionInfo {
     pub from: String,
 }
 
+pub const MIN_STATUS_MS: u64 = 500;
+pub const MAX_STATUS_MS: u64 = 60_000;
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Subscribe {
     #[serde(default)]
@@ -318,6 +383,58 @@ pub struct Apply {
 pub struct GeneratedSecret {
     pub handle: String,
     pub fp: String,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct HashPassword {
+    pub password: String,
+}
+
+impl std::fmt::Debug for HashPassword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HashPassword { .. }")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HashedPassword {
+    pub handle: String,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct Upload {
+    pub kind: String,
+    pub pem: String,
+    #[serde(default)]
+    pub hosts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_of: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_upload: Option<String>,
+}
+
+impl std::fmt::Debug for Upload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Upload")
+            .field("kind", &self.kind)
+            .field("pem", &format_args!("{} bytes", self.pem.len()))
+            .field("hosts", &self.hosts)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Uploaded {
+    pub id: String,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub names: Vec<String>,
+    #[serde(default)]
+    pub issuer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_after: Option<u64>,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -352,8 +469,10 @@ pub struct Suggestions {
 pub struct HistoryRequest {
     #[serde(default)]
     pub limit: Option<u32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -365,6 +484,8 @@ pub struct HistoryReply {
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AuditEntry {
+    #[serde(default)]
+    pub id: u64,
     pub at: u64,
     pub visitor: String,
     #[serde(default)]
@@ -410,6 +531,11 @@ pub struct InvalidBody {
     pub diags: Vec<Diag>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfirmBody {
+    pub confirm: Vec<String>,
+}
+
 pub fn path(parts: &[&str]) -> Path {
     parts.iter().map(|s| s.to_string()).collect()
 }
@@ -418,6 +544,15 @@ pub fn path(parts: &[&str]) -> Path {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn every_feature_a_request_needs_is_one_the_server_can_offer() {
+        for t in req::ALL {
+            if let Some(f) = needed_for(t) {
+                assert!(crate::features::ALL.contains(&f), "{t} needs {f}");
+            }
+        }
+    }
 
     #[test]
     fn envelopes() {
@@ -444,6 +579,34 @@ mod tests {
             json!("locked-out")
         );
         assert_eq!(ErrorCode::NotWritable.as_str(), "not-writable");
+    }
+
+    #[test]
+    fn a_request_is_offered_only_when_its_feature_is_listed() {
+        let mut w: Welcome = serde_json::from_value(json!({
+            "server": {"version": "0.1.2"}, "protocol": 1,
+            "you": {"visitor": "ops", "level": "write"},
+            "features": ["history", "revert", "secret.generate", "connect.snippets"],
+            "limits": {"max_message": 1, "max_inflight": 1}, "schema_hash": "h"
+        }))
+        .unwrap();
+        for t in [
+            req::STATE,
+            req::VALIDATE,
+            req::APPLY,
+            req::HISTORY,
+            req::REVERT,
+        ] {
+            assert!(w.offers(t), "{t}");
+        }
+        for t in [req::LOCAL_CA, req::UPLOAD, req::HASH_PASSWORD] {
+            assert!(!w.offers(t), "a v0.1.2 server has no {t}");
+        }
+        w.features = crate::features::ALL.iter().map(|s| s.to_string()).collect();
+        for t in [req::LOCAL_CA, req::UPLOAD, req::HASH_PASSWORD, req::HISTORY] {
+            assert!(w.offers(t), "{t}");
+        }
+        assert_eq!(older_server(req::LOCAL_CA).code, ErrorCode::UnknownRequest);
     }
 
     #[test]

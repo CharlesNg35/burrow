@@ -69,7 +69,6 @@ impl Drop for Queued {
     }
 }
 const PEER: u32 = 1;
-const SWEEP: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,7 +166,7 @@ pub(super) async fn associate(a: Association) {
     let Ok(local) = stream.local_addr() else {
         return;
     };
-    let near = canonical(local.ip());
+    let near = local.ip().to_canonical();
     let relay = match bind_udp_now(SocketAddr::new(near, 0)) {
         Ok(s) => Arc::new(s),
         Err(e) => {
@@ -186,7 +185,7 @@ pub(super) async fn associate(a: Association) {
         return;
     }
     debug!(%peer, "forward \"{name}\": UDP ASSOCIATE relay on {bound}");
-    if let Some(named) = hint.ip.filter(|ip| canonical(*ip) != canonical(peer.ip())) {
+    if let Some(named) = hint.ip.filter(|ip| !same_ip(*ip, peer.ip())) {
         debug!(%peer, "forward \"{name}\": the SOCKS app named {named} as its UDP source; only its own address {} is admitted", peer.ip());
     }
     let expected = Source::new(hint, peer.ip());
@@ -194,7 +193,7 @@ pub(super) async fn associate(a: Association) {
     let mut destinations: HashMap<String, Destination> = HashMap::new();
     let budget = Arc::new(Budget::new(QUEUED_BYTES));
     let mut control = [0u8; 512];
-    let mut sweep = tokio::time::interval(SWEEP);
+    let mut sweep = tokio::time::interval(crate::udp::front::SWEEP);
     let mut last = tokio::time::Instant::now();
     loop {
         tokio::select! {
@@ -224,8 +223,8 @@ pub(super) async fn associate(a: Association) {
                     continue;
                 }
                 locked = Some(from);
-                let header = match parse(&datagram) {
-                    Ok(h) => h,
+                let (target, head_len) = match parse(&datagram) {
+                    Ok(h) => (h.target, h.head.len()),
                     Err(e) => {
                         static BAD: Throttle = Throttle::new();
                         if let Some(more) = BAD.allow() {
@@ -236,11 +235,11 @@ pub(super) async fn associate(a: Association) {
                 };
                 last = tokio::time::Instant::now();
                 let now = last;
-                let open = destinations.get(&header.target).is_some_and(|d| {
+                let open = destinations.get(&target).is_some_and(|d| {
                     !d.done.load(Ordering::Acquire) || d.ended.is_some_and(|t| now.duration_since(t) < RETRY)
                 });
                 if !open {
-                    destinations.remove(&header.target);
+                    destinations.remove(&target);
                     if destinations.len() >= MAX_DESTINATIONS {
                         static FULL: Throttle = Throttle::new();
                         if let Some(more) = FULL.allow() {
@@ -254,16 +253,16 @@ pub(super) async fn associate(a: Association) {
                         name: name.clone(),
                         to: VisitTarget::Client {
                             client: client.clone(),
-                            target: header.target.clone(),
+                            target: target.clone(),
                         },
-                        head: header.head.to_vec(),
+                        head: datagram[..head_len].to_vec(),
                         rx,
                         relay: relay.clone(),
                         app: from,
                         live: live.clone(),
                         done: done.clone(),
                     }));
-                    destinations.insert(header.target.clone(), Destination {
+                    destinations.insert(target.clone(), Destination {
                         tx,
                         done,
                         seen: now,
@@ -271,9 +270,11 @@ pub(super) async fn associate(a: Association) {
                         _task: AbortOnDrop(task),
                     });
                 }
-                if let Some(d) = destinations.get_mut(&header.target) {
+                if let Some(d) = destinations.get_mut(&target) {
                     d.seen = now;
-                    match Queued::new(header.data.to_vec(), &budget) {
+                    let mut data = datagram;
+                    data.drain(..head_len);
+                    match Queued::new(data, &budget) {
                         Some(q) => {
                             let _ = d.tx.try_send(q);
                         }
@@ -313,24 +314,21 @@ struct Source {
 impl Source {
     fn new(hint: Hint, peer: IpAddr) -> Source {
         Source {
-            ip: canonical(peer),
+            ip: peer.to_canonical(),
             port: (hint.port != 0).then_some(hint.port),
         }
     }
 
     fn admits(&self, from: SocketAddr, locked: Option<SocketAddr>) -> bool {
         if let Some(l) = locked {
-            return canonical(l.ip()) == canonical(from.ip()) && l.port() == from.port();
+            return same_ip(l.ip(), from.ip()) && l.port() == from.port();
         }
-        canonical(from.ip()) == self.ip && self.port.is_none_or(|p| p == from.port())
+        from.ip().to_canonical() == self.ip && self.port.is_none_or(|p| p == from.port())
     }
 }
 
-fn canonical(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-        v4 => v4,
-    }
+fn same_ip(a: IpAddr, b: IpAddr) -> bool {
+    a.to_canonical() == b.to_canonical()
 }
 
 impl BadHeader {
@@ -433,10 +431,11 @@ async fn run_destination(
     let stall = crate::forward::VISIT_REPLY;
     let up = async {
         let mut rec = Vec::new();
+        let mut sealed = Vec::new();
         while let Some(queued) = rx.recv().await {
             encode_datagram(PEER, &queued.data, &mut rec);
             drop(queued);
-            match tokio::time::timeout(stall, writer.send(&mut wr, &rec)).await {
+            match tokio::time::timeout(stall, writer.send_with(&mut wr, &rec, &mut sealed)).await {
                 Ok(Ok(())) => {}
                 _ => return,
             }

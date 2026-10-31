@@ -190,7 +190,7 @@ fn launch(id: &str, args: &[OsString]) -> Result<Worker, Failure> {
     let exe = this_binary()?;
     #[cfg(target_os = "linux")]
     {
-        let unit = format!("burrow-{id}");
+        let unit = format!("{}{id}", crate::install::SERVICE_PREFIX);
         let started = Command::new("systemd-run")
             .args(["--quiet", "--collect", "--unit", &unit])
             .arg(format!("--description=burrow {id}"))

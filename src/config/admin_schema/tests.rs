@@ -27,7 +27,7 @@ fn json_paths(
     out: &mut BTreeSet<String>,
     depth: usize,
 ) {
-    if depth > 12 {
+    if depth > 16 {
         return;
     }
     if let Some(r) = v.get("$ref").and_then(|r| r.as_str()) {
@@ -193,6 +193,7 @@ fn relations_agree_with_validation() {
         "max_connections" => "    max_connections: 5\n    client: home\n",
         "visitors" => "    visitors: [laptop]\n    client: home\n",
         "proxy_protocol" => "    proxy_protocol: v1\n    client: home\n",
+        "web" => "    web: { hosts: [nas.example.com], tls: passthrough }\n    client: home\n",
         other => panic!("no sample for tcp-only field {other}"),
     };
     let mut checked = 0;
@@ -254,6 +255,15 @@ fn refs_agree_with_check_refs() {
             diag_paths(&yaml)
         );
     }
+    let login = base("    client: home\n    bind: 7840\n    target: 3000\n").replace(
+        "\nservices:\n",
+        "\nweb:\n  https: 8443\n  forward_auth: { sso: { service: nobody, path: /auth } }\nservices:\n",
+    );
+    assert!(
+        reported_on(&login, &["web", "forward_auth", "sso", "service"]),
+        "{:?}",
+        diag_paths(&login)
+    );
     let yaml = base("    client: home\n    bind: 7840\n    target: 3000\n")
         .replace("reach: { home: any }", "reach: { nobody: any }");
     assert!(
@@ -273,7 +283,7 @@ fn refs_agree_with_check_refs() {
             };
             matches!(
                 sem,
-                SemType::Ref(_) | SemType::RefList(_) | SemType::RefMap(_)
+                SemType::Ref(_) | SemType::RefList(_) | SemType::RefEntries(_) | SemType::RefMap(_)
             )
         })
         .map(|(p, _)| p.join("."))
@@ -281,6 +291,7 @@ fn refs_agree_with_check_refs() {
     assert_eq!(
         refs,
         [
+            "web.forward_auth.*.service",
             "visitors.*.reach",
             "services.*.client",
             "services.*.clients",
@@ -311,7 +322,7 @@ fn admin_rights_are_checked() {
     assert!(
         !found
             .iter()
-            .any(|(c, _)| c == "unused-visitor" || c == "admin-shared"),
+            .any(|(c, _)| c == burrow_admin_proto::codes::UNUSED_VISITOR || c == "admin-shared"),
         "{found:?}"
     );
     let bad = lone.replace("10.0.0.0/8", "10.0.0.1/8");
@@ -348,6 +359,7 @@ fn carriers_cover_semtypes() {
             SemType::PortRange(_) => assert_carrier::<String, sem::PortRange>(),
             SemType::Target(_) => assert_carrier::<Target, sem::Target>(),
             SemType::Host => assert_carrier::<String, sem::Host>(),
+            SemType::HostName(_) => assert_carrier::<String, sem::HostName>(),
             SemType::ServerAddress => assert_carrier::<String, sem::ServerAddress>(),
             SemType::Cidr => assert_carrier::<String, sem::Cidr>(),
             SemType::CidrRule => assert_carrier::<String, sem::CidrRule>(),
@@ -356,10 +368,15 @@ fn carriers_cover_semtypes() {
             SemType::Rate => assert_carrier::<String, sem::Rate>(),
             SemType::Ref(_) => assert_carrier::<String, sem::Ref>(),
             SemType::RefList(_) => assert_carrier::<Vec<String>, sem::RefList>(),
+            SemType::RefEntries(_) => {
+                assert_carrier::<Vec<burrow_config::ClientRef>, sem::RefEntries>()
+            }
             SemType::RefMap(_) => assert_carrier::<BTreeMap<String, Reach>, sem::RefMap>(),
             SemType::Name(_) => assert_carrier::<String, sem::Name>(),
             SemType::SecretRef(_) => assert_carrier::<Secrets, sem::SecretRef>(),
             SemType::Path(_) => assert_carrier::<String, sem::Path>(),
+            SemType::Upload(_) => assert_carrier::<String, sem::Upload>(),
+            SemType::PasswordHash(_) => assert_carrier::<String, sem::PasswordHash>(),
             SemType::UrlPath => assert_carrier::<String, sem::UrlPath>(),
             SemType::Object(_) => assert_carrier::<ServerConfig, sem::Object>(),
             SemType::Map(_) => assert_carrier::<BTreeMap<String, ClientEntry>, sem::Map>(),
@@ -418,4 +435,97 @@ fn the_reduce_only_fields_are_exactly_what_the_grant_rule_reads() {
     let mut read: Vec<Vec<String>> = burrow_admin_logic::grant::fields().to_vec();
     read.sort();
     assert_eq!(marked, read);
+}
+
+fn nodes<'a>(node: &'a Node, prefix: &str, out: &mut Vec<(String, &'a Node)>) {
+    out.push((prefix.to_string(), node));
+    match &node.sem {
+        SemType::Object(o) => {
+            for f in &o.fields {
+                nodes(&f.node, &format!("{prefix}/{}", f.key), out);
+            }
+        }
+        SemType::Map(m) => nodes(&m.value, &format!("{prefix}/*"), out),
+        SemType::RefMap(m) => nodes(&m.value, &format!("{prefix}/*"), out),
+        SemType::List(l) => nodes(&l.item, &format!("{prefix}/[]"), out),
+        SemType::Optional(o) => nodes(&o.inner, prefix, out),
+        SemType::Union(u) => u.branches.iter().for_each(|b| nodes(b, prefix, out)),
+        _ => {}
+    }
+}
+
+fn json_property<'a>(v: &'a serde_json::Value, name: &str, out: &mut Vec<&'a serde_json::Value>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            if let Some(p) = m.get("properties").and_then(|p| p.get(name)) {
+                out.push(p);
+            }
+            m.values().for_each(|x| json_property(x, name, out));
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|x| json_property(x, name, out)),
+        _ => {}
+    }
+}
+
+#[test]
+fn schema_limits_match_the_enforced_constants() {
+    let schema = server_schema();
+    let mut all = Vec::new();
+    nodes(&schema.root, "", &mut all);
+    let at = |path: &str| {
+        all.iter()
+            .filter(|(p, _)| p == path)
+            .map(|(_, n)| *n)
+            .collect::<Vec<_>>()
+    };
+    let binds: Vec<_> = at("/services/*/bind")
+        .into_iter()
+        .filter_map(|n| match &n.sem {
+            SemType::IpPort(c) => Some(c.max_range),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(binds, [Some(burrow_syntax::ports::MAX_RANGE)]);
+    let limit = u32::try_from(crate::wire::noise::MAX_SECRETS_PER_CLIENT).unwrap();
+    let secrets: Vec<u32> = all
+        .iter()
+        .filter_map(|(_, n)| match &n.sem {
+            SemType::SecretRef(c) if !c.reference => Some(c.max),
+            _ => None,
+        })
+        .collect();
+    assert!(!secrets.is_empty());
+    assert!(secrets.iter().all(|m| *m == limit), "{secrets:?}");
+    let wait = at("/web/letsencrypt/dns/[]/wait_secs");
+    let bounds: Vec<_> = wait
+        .iter()
+        .filter_map(|n| match &n.sem {
+            SemType::Duration(d) => Some((d.min, d.max)),
+            _ => None,
+        })
+        .collect();
+    let (lo, hi) = (
+        burrow_syntax::web::DNS_WAIT_MIN_SECS,
+        burrow_syntax::web::DNS_WAIT_MAX_SECS,
+    );
+    assert_eq!(bounds, [(Some(lo), Some(hi))]);
+    let w = burrow_syntax::web::DNS_WAIT_SECS;
+    let labels: Vec<_> = wait.iter().filter_map(|n| n.none_label.clone()).collect();
+    assert_eq!(labels, [format!("{w} seconds")]);
+    let json = crate::config::load::schema_json(crate::config::Role::Server);
+    let mut weights = Vec::new();
+    json_property(&json, "weight", &mut weights);
+    assert!(!weights.is_empty());
+    for wt in weights {
+        assert_eq!(wt["maximum"], burrow_config::WEIGHT_MAX, "{wt}");
+        let text = wt["description"].as_str().unwrap_or_default();
+        assert!(text.contains(&format!("from 1 to {}", burrow_config::WEIGHT_MAX)));
+    }
+    let mut waits = Vec::new();
+    json_property(&json, "wait_secs", &mut waits);
+    assert!(!waits.is_empty());
+    for wt in waits {
+        let text = wt["description"].as_str().unwrap_or_default();
+        assert!(text.contains(&format!("{w} when not set")), "{wt}");
+    }
 }

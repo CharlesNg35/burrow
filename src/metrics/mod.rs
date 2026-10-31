@@ -22,6 +22,18 @@ pub struct ServiceStats {
     pub total: AtomicU64,
     pub refused: AtomicU64,
     pub traffic: Traffic,
+    pub http: [AtomicU64; 5],
+}
+
+impl ServiceStats {
+    pub fn answered(&self, status: u16) {
+        let class = usize::from(status / 100).clamp(1, 5) - 1;
+        self.http[class].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn http_counts(&self) -> [u64; 5] {
+        std::array::from_fn(|i| self.http[i].load(Ordering::Relaxed))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -84,21 +96,13 @@ impl Default for Metrics {
 
 impl Metrics {
     pub fn service(&self, name: &str) -> Arc<ServiceStats> {
-        self.services
-            .lock()
-            .expect("metrics lock")
-            .entry(name.to_string())
-            .or_default()
-            .clone()
+        let mut all = self.services.lock().expect("metrics lock");
+        crate::base::slots::shared_slot(&mut all, name, Arc::default)
     }
 
     pub fn visitor(&self, name: &str) -> Arc<VisitorStats> {
-        self.visitors
-            .lock()
-            .expect("metrics lock")
-            .entry(name.to_string())
-            .or_default()
-            .clone()
+        let mut all = self.visitors.lock().expect("metrics lock");
+        crate::base::slots::shared_slot(&mut all, name, Arc::default)
     }
 
     pub fn refuse(&self, service: &str) {
@@ -116,8 +120,12 @@ impl Metrics {
 
     pub fn client_busy(&self, name: &str) {
         let mut busy = self.busy.lock().expect("metrics lock");
-        let entry = busy.entry(name.to_string()).or_insert((0, Instant::now()));
-        *entry = (entry.0 + 1, Instant::now());
+        match busy.get_mut(name) {
+            Some(entry) => *entry = (entry.0 + 1, Instant::now()),
+            None => {
+                busy.insert(name.to_string(), (1, Instant::now()));
+            }
+        }
     }
 
     pub fn busy(&self, name: &str) -> (u64, bool) {
@@ -128,6 +136,30 @@ impl Metrics {
             .map_or((0, false), |(total, last)| {
                 (*total, last.elapsed() < AT_LIMIT_FOR)
             })
+    }
+
+    pub fn retain<S, V, C>(
+        &self,
+        services: &std::collections::BTreeMap<String, S>,
+        visitors: &std::collections::BTreeMap<String, V>,
+        clients: &std::collections::BTreeMap<String, C>,
+    ) {
+        self.services
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, s| Arc::strong_count(s) > 1 || services.contains_key(n));
+        self.visitors
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, s| Arc::strong_count(s) > 1 || visitors.contains_key(n));
+        self.left
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, _| n == burrow_config::SELF || clients.contains_key(n));
+        self.busy
+            .lock()
+            .expect("metrics lock")
+            .retain(|n, _| n == burrow_config::SELF || clients.contains_key(n));
     }
 
     pub fn uptime_secs(&self) -> u64 {
@@ -145,5 +177,50 @@ impl Metrics {
 }
 
 pub use burrow_admin_proto::status::{
-    ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus,
+    AcmeStatus, CertSourceStatus, CertStateStatus, CertStatus, ClientStatus, HealthStatus,
+    LocalCaStatus, ServiceStatus, SetAside, Status, VisitorStatus,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_no_longer_configured_are_forgotten_unless_in_use() {
+        let m = Metrics::default();
+        let held = m.service("old");
+        m.service("gone").total.fetch_add(1, Ordering::Relaxed);
+        m.visitor("ops");
+        m.visitor("former");
+        m.client_left("home");
+        m.client_left("before");
+        m.client_busy("before");
+        m.client_busy(burrow_config::SELF);
+        let named = |names: &[&str]| -> std::collections::BTreeMap<String, ()> {
+            names.iter().map(|n| (n.to_string(), ())).collect()
+        };
+        m.retain(&named(&[]), &named(&["ops"]), &named(&["home"]));
+        let services = m.services.lock().unwrap();
+        assert!(services.contains_key("old") && !services.contains_key("gone"));
+        drop(services);
+        let visitors = m.visitors.lock().unwrap();
+        assert!(visitors.contains_key("ops") && !visitors.contains_key("former"));
+        drop(visitors);
+        assert!(m.left_secs_ago("home").is_some());
+        assert_eq!(m.left_secs_ago("before"), None);
+        assert_eq!(m.busy("before"), (0, false));
+        assert_eq!(m.busy(burrow_config::SELF).0, 1);
+        drop(held);
+        m.retain(&named(&[]), &named(&["ops"]), &named(&["home"]));
+        assert!(m.services.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn web_responses_are_counted_by_status_class() {
+        let s = ServiceStats::default();
+        for status in [200, 204, 308, 404, 404, 503, 101, 999] {
+            s.answered(status);
+        }
+        assert_eq!(s.http_counts(), [1, 2, 1, 2, 2]);
+    }
+}

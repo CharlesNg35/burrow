@@ -67,6 +67,7 @@ fn set_aside(farm: &Farm) -> Vec<SetAside> {
 pub(super) fn aside(client: &str, refused: bool) -> SetAside {
     SetAside {
         client: client.into(),
+        target: None,
         refused,
     }
 }
@@ -118,6 +119,7 @@ async fn a_client_that_refuses_the_target_is_skipped_until_it_reconnects() {
         let want = match mode {
             Mode::Failover => BTreeMap::from([('A', 10)]),
             Mode::Balance => BTreeMap::from([('A', 5), ('B', 5)]),
+            Mode::LeastConnections => unreachable!("not one of the modes above"),
         };
         assert_eq!(seen, want, "{mode:?}");
     }

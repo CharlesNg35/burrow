@@ -76,14 +76,6 @@ fn burrow(s: &Setup, args: &[&str], editor: &str) -> Output {
     command(s, args, editor).output().unwrap()
 }
 
-fn text(o: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    )
-}
-
 fn client_yaml(name: &str) -> String {
     format!(
         "server: example.com\nname: {name}\nsecret: {}\nallow: [127.0.0.0/8]\n",
@@ -240,7 +232,7 @@ fn a_file_you_cannot_change_is_refused_before_the_editor_opens() {
     std::fs::set_permissions(&path, perms).unwrap();
 }
 
-use common::free_port;
+use common::{free_port, text};
 
 #[test]
 fn a_running_server_is_found_and_picks_up_the_edit() {

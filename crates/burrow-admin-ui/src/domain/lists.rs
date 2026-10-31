@@ -5,6 +5,7 @@ use burrow_admin_proto::schema::{Entity, Node, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::child;
 use burrow_config::ServiceEntry;
+use burrow_syntax::rule::ANY;
 use burrow_ui_kit::{ChipInput, Segmented, Select, button_class};
 use leptos::prelude::*;
 
@@ -23,13 +24,23 @@ fn facet(entity: &Entity, name: &str) -> String {
                     .and_then(|st| st.clients.iter().find(|c| c.name == name))
                     .is_some_and(|c| c.connected)
             });
-            format!("{name} · {}", if on { "online" } else { "offline" })
+            format!(
+                "{name} · {}",
+                if on {
+                    burrow_admin_logic::wording::ONLINE
+                } else {
+                    burrow_admin_logic::wording::OFFLINE
+                }
+            )
         }
         _ => name.to_string(),
     }
 }
 
 pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
+    if matches!(inner(&item).sem, SemType::Object(_)) {
+        return super::objects::object_list(fc, item);
+    }
     let e = store().edit;
     let path = fc.path.clone();
     let items = Signal::derive(move || match e.value(&path) {
@@ -82,7 +93,12 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     .into_any()
 }
 
-pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView {
+pub(super) fn map_editor(
+    fc: FieldCtx,
+    entity: Option<Entity>,
+    key: Option<Node>,
+    value_node: Node,
+) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
     let keys = Memo::new(move |_| match e.value(&path) {
@@ -119,8 +135,10 @@ pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node)
         o
     });
     let p_add = fc.path.clone();
+    let free = key.is_some() && entity.is_none();
     let add_default = match &inner(&value_node).sem {
-        SemType::Union(_) | SemType::Text(_) | SemType::Enum(_) => Value::String("any".into()),
+        _ if free => Value::String(String::new()),
+        SemType::Union(_) | SemType::Text(_) | SemType::Enum(_) => Value::String(ANY.into()),
         SemType::List(_) => Value::Array(Vec::new()),
         _ => Value::Object(Default::default()),
     };
@@ -133,6 +151,14 @@ pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node)
         e.set(&p, Some(add_default.clone()));
         adding.set(String::new());
     };
+    let renames = key
+        .as_ref()
+        .and_then(|k| match &inner(k).sem {
+            SemType::Name(c) => Some(c.entity.clone()),
+            _ => None,
+        })
+        .filter(|e| burrow_config::entity_path(e) == fc.path);
+    let add_label = burrow_admin_logic::wording::add_label(&fc.node.label, &value_node.label);
     let rows = move || {
         keys.get()
             .into_iter()
@@ -154,18 +180,15 @@ pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node)
                     inherited: None,
                 };
                 let label = k.clone();
+                let rename = renames.clone().map(|entity| rename_button(entity, &k));
                 view! {
-                    <div class="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-start gap-2 py-1" data-key=k.clone()>
-                        <span class="truncate pt-2 font-mono text-sm">{label}</span>
-                        <div class="min-w-0">{editor(sub)}</div>
-                        <button
-                            type="button"
-                            class=button_class("ghost", true)
-                            aria-label=format!("Remove {k}")
-                            on:click=move |_| e.remove_pruned(&p)
-                        >
-                            "Remove"
-                        </button>
+                    <div class="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-start gap-2 py-1" data-key=k.clone()>
+                        <div class="flex min-w-0 items-center gap-0.5 pt-1.5">
+                            <span class="truncate font-mono text-sm">{label}</span>
+                            <burrow_ui_kit::IconButton icon="x" label=format!("Remove {k}") testid="remove-key" on_click=move |_| e.remove_pruned(&p)/>
+                            {rename}
+                        </div>
+                        <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::keyed::string_editor(sub) } else { editor(sub) }}</div>
                     </div>
                 }
             })
@@ -174,11 +197,12 @@ pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node)
     view! {
         <div class="space-y-1" id=fc.id.clone()>
             {rows}
+            {key.filter(|_| entity.is_none()).map(|key| super::keyed::key_adder(fc.id.clone(), fc.node.label.clone(), key, keys, add.clone()))}
             {entity.is_some().then(|| view! {
                 <div class="w-60">
                     <Select
                         id=format!("{}-add", fc.id)
-                        label=format!("Add to {}", fc.node.label)
+                        label=add_label.clone()
                         options=candidates
                         value=adding
                         on_change=add.clone()
@@ -200,8 +224,6 @@ fn any_or_rules(u: &UnionC) -> Option<Node> {
     });
     list.filter(|_| any)
 }
-
-const ANY: &str = "any";
 
 fn any_or_rules_editor(fc: FieldCtx, item: Node) -> AnyView {
     let e = store().edit;
@@ -254,6 +276,21 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     if let Some(item) = any_or_rules(&u) {
         return any_or_rules_editor(fc, item);
     }
+    if super::website::is_site_tls(&fc) {
+        return super::website::tls_editor(fc);
+    }
+    if super::target_tls::is_target_tls(&fc) {
+        return super::target_tls::target_tls_editor(fc);
+    }
+    if super::website::host_item(&u).is_some() {
+        return super::website::website_editor(fc);
+    }
+    if let Some(sh) = burrow_admin_logic::shorthand::of(&u) {
+        return super::keyed::shorthand_editor(fc, sh);
+    }
+    if let Some(branch) = named_or_on(&u) {
+        return named_editor(fc, branch);
+    }
     let e = store().edit;
     let bool_branch = u
         .branches
@@ -287,30 +324,81 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
                 .then(|| object_view(&obj, path.clone(), spath.clone(), entity.clone()))
         }
     };
+    let on_change = Callback::new(move |m: String| {
+        let v = match m.as_str() {
+            "on" => Some(Value::Bool(true)),
+            "custom" => Some(Value::Object(Default::default())),
+            _ => None,
+        };
+        e.set(&p2, v);
+    });
+    let below = (!split).then(|| view! {
+        {move || (mode.get() == "custom").then(|| view! {
+            <div class="mt-3 rounded-[10px] border border-border bg-surface px-3.5 py-3 md:[&_section]:grid-cols-3 dark:bg-surface-2" data-testid="custom-box">
+                {custom.clone()}
+            </div>
+        })}
+    });
+    let choice = super::Choice {
+        options,
+        mode: mode.into(),
+        on_change,
+    };
+    super::choice_box(&fc, None, choice, below)
+}
+
+fn named_or_on(u: &UnionC) -> Option<Node> {
+    let on = u
+        .branches
+        .iter()
+        .any(|b| matches!(inner(b).sem, SemType::Bool));
+    let named = u
+        .branches
+        .iter()
+        .find(|b| matches!(inner(b).sem, SemType::Ref(_)))?;
+    on.then(|| named.clone())
+}
+
+fn named_editor(fc: FieldCtx, branch: Node) -> AnyView {
+    let SemType::Ref(r) = inner(&branch).sem.clone() else {
+        return text_editor(fc, None);
+    };
+    let node = Node {
+        label: fc.node.label.clone(),
+        help: fc.node.help.clone(),
+        required: fc.node.required,
+        ..branch
+    };
+    let entity = r.entity.clone();
+    let hint = move || {
+        (entity == Entity::Login && names_of(&entity).is_empty()).then(|| {
+            view! { <p class="mt-1 text-sm text-text-muted" data-testid="no-login-services">"Add a login service under Settings → Web first"</p> }
+        })
+    };
     view! {
-        <div id=fc.id.clone()>
-            <Segmented
-                name=fc.id.clone()
-                options=options
-                value=mode
-                label=fc.node.label.clone()
-                on_change=move |m: String| {
-                    let v = match m.as_str() {
-                        "on" => Some(Value::Bool(true)),
-                        "custom" => Some(Value::Object(Default::default())),
-                        _ => None,
-                    };
-                    e.set(&p2, v);
-                }
-            />
-            {(!split).then(|| view! {
-                {move || (mode.get() == "custom").then(|| view! {
-                    <div class="mt-3 rounded-[10px] border border-border bg-surface px-3.5 py-3 md:[&_section]:grid-cols-3 dark:bg-surface-2" data-testid="custom-box">
-                        {custom.clone()}
-                    </div>
-                })}
-            })}
+        <div>
+            {crate::addr::picker(FieldCtx { node, ..fc }, r.entity, false)}
+            {hint}
         </div>
+    }
+    .into_any()
+}
+
+fn rename_button(entity: Entity, name: &str) -> AnyView {
+    let open = RwSignal::new(false);
+    let can = store().can_write_now();
+    view! {
+        <button
+            type="button"
+            class=button_class("ghost", true)
+            aria-label=format!("Rename {name}")
+            data-testid="rename-key"
+            disabled=!can
+            on:click=move |_| open.set(true)
+        >
+            "Rename"
+        </button>
+        <crate::screens::create::RenameEntity entity=entity name=name.to_string() open=open/>
     }
     .into_any()
 }

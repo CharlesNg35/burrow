@@ -5,42 +5,64 @@ use super::{background, install_args, logview, recorded_version, resolve, say, s
 use crate::base::failure::Failure;
 use crate::install::{Manifest, all_manifests};
 
-pub(super) fn interrupts(action: &str) -> bool {
-    action == "restart" || (action == "reload" && cfg!(windows))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Start,
+    Stop,
+    Restart,
+    Reload,
 }
 
-pub fn control(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {
+impl Action {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Action::Start => "start",
+            Action::Stop => "stop",
+            Action::Restart => "restart",
+            Action::Reload => "reload",
+        }
+    }
+}
+
+pub(super) fn interrupts(action: Action) -> bool {
+    action == Action::Restart || (action == Action::Reload && cfg!(windows))
+}
+
+pub fn control(action: Action, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {
     system::backend()?;
     system::require_admin()?;
     let m = resolve(name)?;
     if !interrupts(action) {
         return control_now(action, Some(&m.name), out);
     }
-    background::Run::new(action)?.start(
+    background::Run::new(action.as_str())?.start(
         &format!("restarting {}", m.name),
-        vec!["service".into(), action.into(), m.name.clone().into()],
+        vec![
+            "service".into(),
+            action.as_str().into(),
+            m.name.clone().into(),
+        ],
         None,
         out,
     )
 }
 
-pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {
+pub fn control_now(action: Action, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
     let m = resolve(name)?;
     match action {
-        "start" => backend.start(&m)?,
-        "stop" => backend.stop(&m)?,
-        "restart" => {
+        Action::Start => backend.start(&m)?,
+        Action::Stop => backend.stop(&m)?,
+        Action::Restart => {
             let _ = backend.stop(&m);
             backend.start(&m)?;
         }
-        "reload" => backend.reload(&m)?,
-        _ => unreachable!("known actions"),
+        Action::Reload => backend.reload(&m)?,
     }
     let mut st = backend.status(&m);
     for _ in 0..15 {
-        if st.running || action == "stop" {
+        if st.running || action == Action::Stop {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -166,17 +188,24 @@ pub fn list(out: &mut dyn Write) -> Result<(), Failure> {
     Ok(())
 }
 
-pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failure> {
-    let m = resolve(name)?;
-    let journal = system::backend().ok().and_then(|b| b.journal_hint(&m));
-    let mut out = std::io::stdout().lock();
-    let mut retry = format!("service logs {}", m.name);
-    if lines != 50 {
+pub const DEFAULT_LOG_LINES: usize = 50;
+
+pub(super) fn logs_again(name: &str, lines: usize, follow: bool) -> String {
+    let mut retry = format!("service logs {name}");
+    if lines != DEFAULT_LOG_LINES {
         retry.push_str(&format!(" -n {lines}"));
     }
     if follow {
         retry.push_str(" -f");
     }
+    retry
+}
+
+pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failure> {
+    let m = resolve(name)?;
+    let journal = system::backend().ok().and_then(|b| b.journal_hint(&m));
+    let mut out = std::io::stdout().lock();
+    let retry = logs_again(&m.name, lines, follow);
     logview::show(
         &m.log_file,
         lines,

@@ -6,7 +6,7 @@ use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::schema::{Field, Node, SemType};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_env;
-use burrow_ui_kit::{FieldRow, FieldState, Toggle, Tone};
+use burrow_ui_kit::{FieldRow, FieldState, Tone};
 use leptos::prelude::*;
 
 use crate::domain::{self, FieldCtx};
@@ -15,9 +15,12 @@ use crate::store::store;
 
 use super::controls::{locked_box, reset_button};
 use super::{
-    ShowKeys, UNREACHABLE, applies_tag, ctx_now, editing_now, field_id, is_wide, join, locked,
-    locked_hint, object_view, value_view,
+    Ctx, ShowKeys, applies_tag, ctx_now, editing_now, field_id, is_wide, join, locked, locked_hint,
+    object_view, value_view,
 };
+
+#[derive(Clone, Copy)]
+pub(crate) struct QuietLabel;
 
 pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     let s = store();
@@ -67,31 +70,36 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         }
     }
     if e.peek(&path).as_ref().and_then(as_env).is_some() {
-        badges.push(("from environment".into(), Tone::Info));
+        badges.push((burrow_admin_logic::wording::FROM_ENV.into(), Tone::Info));
     }
     let touched = RwSignal::new(false);
     let id = field_id(&path);
     let msg_id = format!("{id}-msg");
-    let items = matches!(
-        inner(&node).sem,
-        SemType::List(_) | SemType::RefList(_) | SemType::Map(_) | SemType::RefMap(_)
-    );
+    let items = match &inner(&node).sem {
+        SemType::List(_) | SemType::RefList(_) | SemType::Map(_) | SemType::RefMap(_) => true,
+        SemType::Union(u) => u
+            .branches
+            .iter()
+            .any(|b| matches!(inner(b).sem, SemType::HostName(_))),
+        _ => false,
+    };
     let state = field_state_of(&parts, touched, items);
     let body = field_body(&parts, &id, &msg_id, touched);
     let label = node.label.clone();
     let help = if lock_here {
         format!("{}.", locked_hint(&node))
+    } else if crate::domain::website::radio_field(&spath) {
+        crate::domain::website::short_help(&node.help)
     } else {
         node.help.clone()
     };
     let key_hint = if show_keys {
-        spath.join(".\u{200b}")
-    } else if matches!(inner(&node).sem, SemType::List(_)) {
-        f.key.clone()
+        path.join(".\u{200b}")
     } else {
         String::new()
     };
     let wide = node.wide.unwrap_or_else(|| is_wide(&node));
+    let quiet = use_context::<QuietLabel>().is_some();
     let saved_line = matches!(
         inner(&node).sem,
         SemType::IpPort(_) | SemType::PortRange(_) | SemType::Target(_)
@@ -114,6 +122,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     aside=aside.clone()
                     table=show_keys
                     wide=wide
+                    quiet=quiet
                     state=state
                 >
                     {body}
@@ -153,53 +162,40 @@ fn object_row(p: &Parts, n: Node, lock_here: bool, hint: String) -> AnyView {
     let help = node.help.clone();
     let p2 = path.clone();
     let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
-    let (p3, tid) = (path.clone(), field_id(&path));
-    let toggle = move || {
-        (optional && can && editing.try_get().unwrap_or(false)).then(|| {
-            let p3 = p3.clone();
-            let id = tid.clone();
-            view! {
-                <Toggle
-                    id=id
-                    checked=is_set
-                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
-                    on_change=move |on: bool| {
-                        e.set(&p3, on.then(|| Value::Object(Default::default())));
-                    }
-                />
-            }
-        })
-    };
+    let toggle = super::controls::object_toggle(path.clone(), is_set, optional && can, editing);
     let none_label = node.none_label.clone().unwrap_or_else(|| "Not set".into());
     let (p4, sp4, en4) = (path.clone(), spath.clone(), entity.clone());
     let body = move || {
         if !optional || is_set.get() {
-            object_view(&n, p4.clone(), sp4.clone(), en4.clone())
+            let inside = object_view(&n, p4.clone(), sp4.clone(), en4.clone());
+            view! { <div class="mt-2 rounded-[10px] border border-border bg-surface px-3.5 py-3 dark:bg-surface-2">{inside}</div> }.into_any()
+        } else if optional && can && editing.try_get().unwrap_or(false) {
+            view! { <span hidden data-testid="not-set"></span> }.into_any()
         } else {
-            view! { <p class="text-sm text-text-muted" data-testid="not-set">{none_label.clone()}</p> }
+            view! { <p class="mt-1 text-sm text-text-muted" data-testid="not-set">{none_label.clone()}</p> }
                 .into_any()
         }
     };
     let visible = Memo::new(move |_| st.with(|s| s.visible));
     let (jp, js) = (join(&path), join(&spath));
+    let show_keys = use_context::<ShowKeys>().map(|k| k.0).unwrap_or(false);
+    let key_hint = if show_keys {
+        path.join(".\u{200b}")
+    } else {
+        String::new()
+    };
+    let id = field_id(&path);
     (move || {
         visible.get().then(|| {
-            let (toggle, body) = (toggle.clone(), body.clone());
+            let (toggle, body, hint) = (toggle.clone(), body.clone(), hint.clone());
             view! {
-                <fieldset class="rounded-[10px] border border-border bg-surface px-3.5 py-3 md:col-span-2 dark:bg-surface-2" data-path=jp.clone() data-schema=js.clone()>
-                    <legend class="px-1 text-sm font-semibold">{label.clone()}</legend>
-                    <div class="mb-3 flex flex-wrap items-center gap-3">
-                        <p class="flex-1 text-xs text-text-muted">{help.clone()}</p>
-                        {lock_here.then(|| view! {
-                            <p class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
-                                <burrow_ui_kit::Icon name="lock" small=true/>
-                                {hint.clone()}
-                            </p>
-                        })}
+                <FieldRow id=format!("{id}-block") label=label.clone() help=help.clone() path=jp.clone() schema_path=js.clone() key_hint=key_hint.clone() table=show_keys wide=true>
+                    <div class="flex flex-wrap items-center gap-3">
+                        {lock_here.then(|| view! { <burrow_ui_kit::LockLine text=hint.clone() testid="locked-hint"/> })}
                         {toggle}
                     </div>
                     {body}
-                </fieldset>
+                </FieldRow>
             }
         })
     })
@@ -212,16 +208,26 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
     let (path, node) = (&p.path, &p.node);
     let path = path.clone();
     let node = node.clone();
+    let site = matches!(&inner(&node).sem, SemType::Union(u) if u.branches.iter().any(|b| matches!(inner(b).sem, SemType::HostName(_))));
+    let rows = matches!(&inner(&node).sem, SemType::RefEntries(_));
     Signal::derive(move || {
         let s = st.get();
         let picked = touched.get();
         let server = e.plan.with(|p| {
             diags_at(p.as_deref(), &path, items)
                 .into_iter()
-                .filter(|d| picked || d.code != UNREACHABLE)
-                .map(|d| (d.severity, d.message.clone()))
+                .filter(|d| picked || d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE)
+                .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))
+                .filter(|d| !rows || d.path.as_ref().is_none_or(|x| x.len() <= path.len()))
+                .map(|d| (d.severity, burrow_admin_logic::wording::diag_text(d)))
                 .collect::<Vec<_>>()
         });
+        let row_speaks = rows
+            && e.plan.with(|p| {
+                diags_at(p.as_deref(), &path, true)
+                    .iter()
+                    .any(|d| d.path.as_ref().is_some_and(|x| x.len() > path.len()))
+            });
         let server_error = server
             .iter()
             .find(|(sev, _)| *sev == Severity::Error)
@@ -235,7 +241,8 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             .get()
             .then(|| e.local.with(|l| l.get(&path).cloned()))
             .flatten()
-            .or(related);
+            .or(related)
+            .filter(|_| !row_speaks);
         FieldState {
             error: local.or(server_error),
             warning: server_warning.or(s.warnings.first().cloned()),
@@ -249,6 +256,12 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             modified: e.draft.with(|d| d.modified(&path)),
         }
     })
+}
+
+fn in_own_row(at: Option<&[String]>, site: &[String]) -> bool {
+    at.and_then(|p| p.strip_prefix(site))
+        .and_then(<[String]>::first)
+        .is_some_and(|k| k != burrow_config::WebSite::HOSTS.key() && k.parse::<usize>().is_err())
 }
 
 fn field_body(
@@ -328,7 +341,7 @@ fn field_body(
                                 .map(|c| Value::Array(vec![c]))
                         });
                         match ctx_now() {
-                            Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &c),
+                            Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &Ctx { path: path.clone(), ..c }),
                             None => ().into_any(),
                         }
                     }}

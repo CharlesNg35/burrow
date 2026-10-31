@@ -119,11 +119,7 @@ fn has_port(authority: &str) -> bool {
 }
 
 pub fn join_host_port(host: &str, port: u16) -> String {
-    if host.contains(':') {
-        format!("[{host}]:{port}")
-    } else {
-        format!("{host}:{port}")
-    }
+    format!("{}:{port}", crate::address::url_host(host))
 }
 
 impl fmt::Display for Endpoint {
@@ -138,11 +134,7 @@ impl fmt::Display for Endpoint {
             } => {
                 let scheme = if *tls { "wss" } else { "ws" };
                 let default = if *tls { 443 } else { 80 };
-                let host = if host.contains(':') {
-                    format!("[{host}]")
-                } else {
-                    host.clone()
-                };
+                let host = crate::address::url_host(host);
                 if *port == default {
                     write!(f, "{scheme}://{host}{path}")
                 } else {

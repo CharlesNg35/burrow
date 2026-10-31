@@ -17,6 +17,12 @@ pub enum Route {
     NotFound(String),
 }
 
+pub const FILTER_QUERY: &str = "filter";
+pub const WEBSITES_FILTER: &str = "websites";
+pub const PUBLIC_FILTER: &str = "public";
+pub const CARD_QUERY: &str = "card";
+pub const TAB_QUERY: &str = "tab";
+
 pub const SECTIONS: [&str; 3] = [
     ServiceEntry::SECTION,
     ClientEntry::SECTION,
@@ -78,11 +84,14 @@ impl Route {
 }
 
 fn split_run(path: &str) -> (&str, &str) {
-    let Some(rest) = path.strip_prefix("/r-") else {
+    let Some(rest) = path.strip_prefix(burrow_admin_proto::local::RUN_PREFIX) else {
         return ("", path);
     };
     match rest.find('/') {
-        Some(i) => (&path[..i + 3], &path[i + 3..]),
+        Some(i) => {
+            let at = i + burrow_admin_proto::local::RUN_PREFIX.len();
+            (&path[..at], &path[at..])
+        }
         None => (path, "/"),
     }
 }
@@ -103,8 +112,13 @@ pub fn current() -> Route {
 
 pub fn replace(route: Route) {
     let s = store();
+    let search = window().location().search().unwrap_or_default();
     if let Ok(h) = window().history() {
-        let _ = h.replace_state_with_url(&JsValue::NULL, "", Some(&href(&route)));
+        let _ = h.replace_state_with_url(
+            &JsValue::NULL,
+            "",
+            Some(&format!("{}{search}", href(&route))),
+        );
     }
     if s.route.get_untracked() != route {
         s.route.set(route);
@@ -136,18 +150,36 @@ pub fn go(route: Route) {
     go_in(store(), route);
 }
 
+pub type Query = Option<(&'static str, &'static str)>;
+
+fn href_with(route: &Route, query: Query) -> String {
+    match query {
+        Some((k, v)) => format!("{}?{k}={}", href(route), encode(v)),
+        None => href(route),
+    }
+}
+
+pub fn go_query(route: Route, query: Query) {
+    go_with(store(), route, query);
+}
+
 pub fn go_in(s: crate::store::Store, route: Route) {
-    if s.route.get_untracked() == route {
+    go_with(s, route, None);
+}
+
+fn go_with(s: crate::store::Store, route: Route, query: Query) {
+    if s.route.get_untracked() == route && query.is_none() {
         return;
     }
     if let Ok(h) = window().history() {
-        let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&href(&route)));
+        let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&href_with(&route, query)));
     }
     let was = s.route.get_untracked();
     if was != Route::Review {
         s.prev.set(was);
     }
     s.route.set(route);
+    s.query_seen.update(|n| *n += 1);
     window().scroll_to_with_x_and_y(0.0, 0.0);
 }
 
@@ -158,9 +190,10 @@ pub fn Link(
     #[prop(optional)] testid: &'static str,
     #[prop(optional, into)] current: Option<Signal<bool>>,
     #[prop(optional, into)] state: Option<Signal<String>>,
+    #[prop(optional)] query: Query,
     children: Children,
 ) -> impl IntoView {
-    let href = href(&to);
+    let href = href_with(&to, query);
     view! {
         <a
             href=href
@@ -173,7 +206,7 @@ pub fn Link(
                     return;
                 }
                 e.prevent_default();
-                go(to.clone());
+                go_with(store(), to.clone(), query);
             }
         >
             {children()}

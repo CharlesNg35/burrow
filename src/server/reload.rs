@@ -11,8 +11,9 @@ use super::{
     bind_with_retry, bind_ws_with_retry, fields, listen, log_service, spawn_service,
 };
 use crate::config::settings::ServerSettings;
-use crate::config::settings::WebSocketSettings;
+use crate::config::settings::{Shares, WebSocketSettings};
 use crate::wire::protocol::{ByeReason, ServerMsg};
+use burrow_admin_proto::status::PortWait;
 use burrow_config::Protocol;
 
 impl Server {
@@ -24,8 +25,10 @@ impl Server {
         let mut next = next;
         next.listen = current.listen;
         self.wanted = Wanted {
-            websocket: next.websocket.clone(),
+            websocket: own_listener(&next),
             metrics: next.metrics,
+            #[cfg(feature = "web")]
+            web: next.web.clone(),
         };
         let changed = fields::changed(&current, &next);
         for (name, _) in changed
@@ -43,12 +46,17 @@ impl Server {
         self.shared.prune_standing(&next);
         self.shared.reloaded.send_modify(|n| *n += 1);
 
-        self.apply_endpoints(&current, &mut next).await;
         let mut released = self.stop_moving_services(&next).await;
+        let web_wait = self
+            .apply_endpoints(&current, &mut next, &tcp_ports(&released))
+            .await;
         let unbound = self.bind_services(&current, &next, &mut released).await;
         log_former_private_services(&current, &next);
         self.update_sessions(&current, &next);
-        self.report_reload(&changed, &next, unbound);
+        self.report_reload(&changed, &next, unbound, web_wait);
+        let web = next.web.clone();
+        let _ =
+            tokio::task::spawn_blocking(move || super::uploads::prune_unused(web.as_ref())).await;
     }
 
     fn listen_change_refused(&self, current: &ServerSettings, next: &ServerSettings) -> bool {
@@ -59,7 +67,8 @@ impl Server {
                     "{what} uses {kept}, which this server keeps listening on until it restarts"
                 );
                 error!("reload rejected: {why}; keeping the current config");
-                self.shared.report_apply(Some(why), Vec::new(), Vec::new());
+                self.shared
+                    .report_apply(Some(why), Vec::new(), Vec::new(), Vec::new());
                 return true;
             }
             let show =
@@ -74,26 +83,38 @@ impl Server {
         false
     }
 
-    async fn apply_endpoints(&mut self, current: &ServerSettings, next: &mut ServerSettings) {
-        if next.websocket != current.websocket {
-            let before = (
-                self.websocket_addr(),
-                current.websocket.as_ref().map(|w| w.path.clone()),
-            );
-            let kept = self
-                .apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
-                .await;
-            if kept != next.websocket {
-                next.websocket = kept;
-                *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+    async fn apply_endpoints(
+        &mut self,
+        current: &ServerSettings,
+        next: &mut ServerSettings,
+        freed: &[SocketAddr],
+    ) -> Option<PortWait> {
+        let before = self.tunnel_at(current);
+        let mut web_wait = None;
+        let mut released = freed.to_vec();
+        let ws_first = next.web.as_ref().is_some_and(|w| {
+            self.websocket_addr().is_some_and(|a| {
+                w.https
+                    .into_iter()
+                    .chain(w.http)
+                    .any(|h| crate::config::check::binds_conflict(a, h))
+            })
+        });
+        if ws_first {
+            Box::pin(self.apply_own_websocket(current, next, &mut released)).await;
+        }
+        if next.web.is_some() || self.web.is_some() {
+            if next.web.is_none() {
+                released.extend(self.web_addr().into_iter().chain(self.web_http_addr()));
             }
-            let after = (
-                self.websocket_addr(),
-                next.websocket.as_ref().map(|w| w.path.clone()),
-            );
-            if before != after {
-                self.shared.close_websocket_clients();
-            }
+            web_wait = Box::pin(self.apply_web(next, &released)).await;
+            *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+        }
+        if !ws_first {
+            Box::pin(self.apply_own_websocket(current, next, &mut released)).await;
+        }
+        if before != self.tunnel_at(next) {
+            self.shared.close_websocket_clients();
         }
         if next.metrics != current.metrics {
             let kept = self.apply_metrics(current.metrics, next.metrics).await;
@@ -102,6 +123,47 @@ impl Server {
                 *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
             }
         }
+        web_wait
+    }
+
+    fn tunnel_at(
+        &self,
+        s: &ServerSettings,
+    ) -> (Option<SocketAddr>, Option<String>, Option<String>) {
+        let ws = s.websocket.as_ref();
+        let addr = match ws.map(|w| w.shares) {
+            Some(Shares::Https) => self.web_addr(),
+            Some(Shares::Http) => self.web_http_addr(),
+            Some(Shares::Nothing) | None => self.websocket_addr(),
+        };
+        (
+            addr,
+            ws.map(|w| w.path.clone()),
+            ws.and_then(|w| w.host.clone()),
+        )
+    }
+
+    async fn apply_own_websocket(
+        &mut self,
+        current: &ServerSettings,
+        next: &mut ServerSettings,
+        released: &mut Vec<SocketAddr>,
+    ) {
+        let (now, wanted) = (own_listener(current), own_listener(next));
+        if now == wanted {
+            return;
+        }
+        if let Some(a) = self.websocket_addr() {
+            released.push(a);
+        }
+        let kept = self
+            .apply_websocket(now.as_ref(), wanted.as_ref(), released)
+            .await;
+        if next.websocket.as_ref().is_some_and(|w| w.host.is_some()) || kept == next.websocket {
+            return;
+        }
+        next.websocket = kept;
+        *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
     }
 
     async fn stop_moving_services(
@@ -171,7 +233,7 @@ impl Server {
                 let t = self.services.get_mut(name).expect("checked above");
                 if t.service != *svc {
                     t.service = svc.clone();
-                    let _ = t.config.send(svc.clone());
+                    let _ = t.config.send(Arc::new(svc.clone()));
                     info!("service \"{name}\" updated");
                     log_service(name, svc, t.addr);
                 }
@@ -260,6 +322,7 @@ impl Server {
         changed: &[(&'static str, fields::Applied)],
         next: &ServerSettings,
         unbound: Vec<String>,
+        web_wait: Option<PortWait>,
     ) {
         let (c, v) = (next.clients.len(), next.services.len());
         let names: Vec<&str> = changed.iter().map(|(name, _)| *name).collect();
@@ -279,7 +342,21 @@ impl Server {
             .map(|(name, _)| *name)
             .collect();
         self.refresh_self();
-        self.shared.report_apply(None, unbound.clone(), restart);
+        let mut lines: Vec<String> = unbound
+            .iter()
+            .map(|name| {
+                format!(
+                    "service {name} could not listen; it tries again every {}s",
+                    BIND_RETRY.as_secs()
+                )
+            })
+            .collect();
+        let mut names = unbound.clone();
+        if let Some(w) = &web_wait {
+            names.push(w.key.clone());
+            lines.push(w.line());
+        }
+        self.shared.report_apply(None, names, restart, lines);
         if unbound.is_empty() {
             info!("{summary}");
         } else {
@@ -295,6 +372,7 @@ impl Server {
         &mut self,
         current: Option<&WebSocketSettings>,
         next: Option<&WebSocketSettings>,
+        released: &[SocketAddr],
     ) -> Option<WebSocketSettings> {
         let same_socket = self.websocket.is_some()
             && matches!((current, next), (Some(c), Some(n)) if c.listen == n.listen);
@@ -320,9 +398,10 @@ impl Server {
             },
             (Some(n), false) => {
                 let conflicts = |a| crate::config::check::binds_conflict(a, n.listen);
-                let freed = self.websocket.is_some()
+                let freed = (self.websocket.is_some()
                     && (current.is_some_and(|c| conflicts(c.listen))
-                        || self.websocket_addr().is_some_and(conflicts));
+                        || self.websocket_addr().is_some_and(conflicts)))
+                    || released.iter().any(|a| conflicts(*a));
                 if freed {
                     self.stop_websocket().await;
                 }
@@ -436,6 +515,20 @@ impl Server {
         }
         self.metrics.as_ref().and(current)
     }
+}
+
+fn tcp_ports(released: &[(Protocol, SocketAddr, u16)]) -> Vec<SocketAddr> {
+    released
+        .iter()
+        .filter(|(p, _, _)| *p == Protocol::Tcp)
+        .flat_map(|(_, a, n)| {
+            (0..*n).filter_map(move |i| a.port().checked_add(i).map(|p| SocketAddr::new(a.ip(), p)))
+        })
+        .collect()
+}
+
+pub(super) fn own_listener(s: &ServerSettings) -> Option<WebSocketSettings> {
+    s.websocket.clone().filter(|w| w.host.is_none())
 }
 
 fn log_former_private_services(current: &ServerSettings, next: &ServerSettings) {

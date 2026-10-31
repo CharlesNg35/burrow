@@ -46,6 +46,17 @@ pub fn visitor_use_short(open: u64, last_seen_secs: Option<u64>) -> String {
     }
 }
 
+pub const NONE_MARK: &str = "—";
+pub const NO_CHECK: &str = "no health check";
+
+pub fn skip_label(aside: Option<bool>) -> &'static str {
+    match aside {
+        None => NONE_MARK,
+        Some(false) => "skipped after failures",
+        Some(true) => "skipped: it refused connections",
+    }
+}
+
 pub fn limit_tag(
     status: Option<&burrow_admin_proto::status::Status>,
     client: &str,
@@ -55,14 +66,14 @@ pub fn limit_tag(
         .iter()
         .any(|c| c.name == client && c.at_limit)
         .then_some((
-            "at limit · max_connections in client.yaml",
-            "In the last minute this client refused new connections because it reached its max_connections. Raise max_connections in its client.yaml.",
+            "At its limit",
+            "In the last minute this client refused new connections because it reached its own limit, Maximum connections in client.yaml on that machine.",
         ))
 }
 
 pub fn away_badge(left_secs_ago: Option<u64>) -> &'static str {
     if left_secs_ago.is_some() {
-        "away"
+        burrow_admin_logic::wording::OFFLINE
     } else {
         "not seen"
     }
@@ -123,6 +134,24 @@ pub fn relative(unix: u64) -> String {
     }
 }
 
+pub fn stamp(ms: f64) -> String {
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms));
+    let now = js_sys::Date::new_0();
+    let time = clock(ms);
+    if (d.get_full_year(), d.get_month(), d.get_date())
+        == (now.get_full_year(), now.get_month(), now.get_date())
+    {
+        time
+    } else {
+        format!("{} {time}", day((ms / 1000.0) as u64))
+    }
+}
+
+pub fn day(unix: u64) -> String {
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(unix as f64 * 1000.0));
+    String::from(d.to_iso_string()).chars().take(10).collect()
+}
+
 pub fn clock(ms: f64) -> String {
     if ms <= 0.0 {
         return "--:--:--".into();
@@ -159,7 +188,7 @@ mod tests {
         });
         assert_eq!(
             limit_tag(Some(&st), "home").map(|t| t.0),
-            Some("at limit · max_connections in client.yaml")
+            Some("At its limit")
         );
         assert_eq!(limit_tag(Some(&st), "office"), None);
         assert_eq!(limit_tag(Some(&st), "lab"), None);

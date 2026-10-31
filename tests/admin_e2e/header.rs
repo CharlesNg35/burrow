@@ -194,6 +194,41 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     })
 }
 
+fn phone_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(390, 900).await;
+        c.ui.nav("/services/web").await;
+        c.ui.wait_for("[data-testid=mobile-back]", SECS).await;
+        let line = c.ui.text("[data-testid=server-line]").await;
+        assert!(
+            line.contains("127.0.0.1"),
+            "the phone header names the server: {line}"
+        );
+        let back = c.ui.text("[data-testid=mobile-back]").await;
+        assert!(
+            !back.contains("web"),
+            "the header names the server, not the page: {back}"
+        );
+        let crumb_hidden: bool = c
+            .ui
+            .eval("[...document.querySelectorAll('nav[aria-label=Breadcrumb]')].every(n => n.offsetParent === null)")
+            .await;
+        assert!(
+            crumb_hidden,
+            "the name shows once, as the title, not again in a breadcrumb"
+        );
+        c.ui.shot("phone-detail-header").await;
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_phone_header_names_the_server_on_every_page() {
+    run("phone-header", Options::default(), false, phone_header);
+}
+
 #[test]
 fn the_header_is_calm_in_every_state() {
     run("header", Options::default(), false, calm_header);
@@ -263,4 +298,152 @@ fn read_only(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 #[test]
 fn a_read_only_admin_sees_everything_and_is_told_why_it_cannot_change_it() {
     run("read-only", Options::default(), false, read_only);
+}
+
+const HEADER_MEASURED: &str = "Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hdr-h')) - document.querySelector('[data-testid=header]').getBoundingClientRect().height) < 0.5";
+
+fn header_height(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        for width in [1100, 390, 1440] {
+            c.ui.viewport(width, 900).await;
+            c.ui.wait_true(
+                HEADER_MEASURED,
+                "--hdr-h follows the header's height on a normal load",
+                SECS,
+            )
+            .await;
+        }
+        c.ui.viewport(1100, 900).await;
+        c.ui.wait_true(HEADER_MEASURED, "--hdr-h at 1100 px", SECS)
+            .await;
+        c.ui.wait_true(
+            "Math.abs(parseFloat(getComputedStyle(document.querySelector('[data-testid=list]').closest('aside')).top) - document.querySelector('[data-testid=header]').getBoundingClientRect().height) < 0.5",
+            "the sticky list's offset is the header's real height between lg and xl",
+            SECS,
+        )
+        .await;
+        c.ui.wait_true(
+            "document.documentElement.scrollHeight <= innerHeight",
+            "a short page fits under the real header, so the list never slides beneath it",
+            SECS,
+        )
+        .await;
+        c.ui.click("[role=tablist] [data-tab=settings]").await;
+        c.ui.wait_for("[data-schema='services/*/target']", SECS)
+            .await;
+        let tall: bool =
+            c.ui.eval("document.documentElement.scrollHeight > innerHeight + 300")
+                .await;
+        assert!(
+            tall,
+            "the settings page is taller than the window, so the page scrolls"
+        );
+        let _: bool = c.ui.eval("(window.scrollTo(0, 600), true)").await;
+        c.ui.wait_true(
+            "document.querySelector('[data-testid=list]').closest('aside').getBoundingClientRect().top >= document.querySelector('[data-testid=header]').getBoundingClientRect().bottom - 1",
+            "the sticky list sits below the header between lg and xl",
+            SECS,
+        )
+        .await;
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_header_height_is_measured_from_the_start_at_every_width() {
+    run("header-height", Options::default(), false, header_height);
+}
+
+fn search_modal(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        let _: bool = c
+            .ui
+            .eval("(document.querySelector('[data-testid=search-open]').focus(), document.querySelector('[data-testid=search-open]').click(), true)")
+            .await;
+        c.ui.wait_for("[data-testid=search] input", SECS).await;
+        c.ui.wait_true(
+            "document.activeElement && document.activeElement.closest('[data-testid=search]') !== null",
+            "the search opens with focus inside it",
+            SECS,
+        )
+        .await;
+        for _ in 0..30 {
+            c.ui.press("[data-testid=search]", "Tab").await;
+        }
+        let inside: bool = c
+            .ui
+            .eval("document.activeElement && document.activeElement.closest('[data-testid=search]') !== null")
+            .await;
+        assert!(inside, "Tab stays inside the search");
+        c.ui.press("[data-testid=search]", "Escape").await;
+        c.ui.wait_gone("[data-testid=search]", SECS).await;
+        c.ui.wait_true(
+            "document.activeElement && document.activeElement.dataset.testid === 'search-open'",
+            "closing the search gives focus back to what opened it",
+            SECS,
+        )
+        .await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_search_keeps_focus_inside_and_gives_it_back() {
+    run("search-modal", Options::default(), false, search_modal);
+}
+
+const TAB_SHOWN: &str = "(() => { const row = document.querySelector('[data-testid=nav-row]'); const on = row && row.querySelector('[aria-current=page]'); if (!on) return 'no current tab'; const r = row.getBoundingClientRect(), t = on.getBoundingClientRect(); const end = row.scrollLeft + row.clientWidth >= row.scrollWidth - 1; const right = end ? r.right : r.right - 28; return t.left >= r.left - 1 && t.right <= right + 1 ? 'shown' : `cut or faded by ${Math.max(r.left - t.left, t.right - right)} px`; })()";
+
+const PAGE_STILL: &str = "scrollX === 0 && scrollY === 0";
+
+async fn current_tab_shown(c: &Ctx, path: &str, how: &str) {
+    let now: String = c.ui.eval(TAB_SHOWN).await;
+    assert_eq!(now, "shown", "the current tab after {how} {path} at 360 px");
+    assert!(
+        c.ui.eval::<bool>(PAGE_STILL).await,
+        "bringing the tab into view scrolls only the tab row, never the page ({how} {path})"
+    );
+}
+
+fn phone_nav(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(360, 740).await;
+        for path in ["/activity", "/settings", "/visitors", "/", "/settings"] {
+            c.ui.nav(path).await;
+            current_tab_shown(c, path, "going to").await;
+        }
+        for path in ["/activity", "/settings"] {
+            c.ui.nav(path).await;
+            let href: String = c.ui.eval("location.href").await;
+            c.ui.goto(&href).await;
+            c.ui.wait_for("[data-testid=conn-pill]", SECS).await;
+            c.ui.wait_for("[data-testid=nav-row] [aria-current=page]", SECS)
+                .await;
+            let _: bool = c
+                .ui
+                .eval("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))")
+                .await;
+            current_tab_shown(c, path, "loading").await;
+        }
+        c.ui.nav("/about").await;
+        let href: String = c.ui.eval("location.href").await;
+        c.ui.goto(&href).await;
+        c.ui.wait_for("[data-testid=about]", SECS).await;
+        assert!(
+            c.ui.eval::<bool>(PAGE_STILL).await,
+            "loading /about at 360 px leaves the page at its top"
+        );
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_phone_nav_shows_the_current_tab_without_scrolling_the_page() {
+    run("phone-nav", Options::default(), false, phone_nav);
 }

@@ -43,7 +43,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(sha2::Sha256::digest(bytes))
 }
 
-fn fetch(url: &str, to: &Path, sha256: &str) -> Result<(), String> {
+pub fn fetch(url: &str, to: &Path, sha256: &str) -> Result<(), String> {
     let status = Command::new("curl")
         .args(["-fsSL", "--retry", "3", "-o"])
         .arg(to)
