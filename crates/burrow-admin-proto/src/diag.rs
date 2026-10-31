@@ -40,6 +40,8 @@ pub struct Diag {
     pub col: Option<u32>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub before: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subjects: Vec<String>,
 }
 
 impl Diag {

@@ -4,7 +4,7 @@ use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use serde_json::Value;
 
 use super::plan::{Computed, check_text};
-use super::{ApiError, Core, Session};
+use super::{ApiError, Core};
 use crate::config::Format;
 use crate::config::emit::render;
 use crate::config::settings::ServerSettings;
@@ -161,7 +161,7 @@ pub fn build(
     })
 }
 
-pub fn connect_info(core: &Core, _s: &Session, req: &ConnectInfo) -> Result<Snippets, ApiError> {
+pub fn connect_info(core: &Core, req: &ConnectInfo) -> Result<Snippets, ApiError> {
     let text = core.read()?;
     let checked = check_text(core, &text);
     let Some(settings) = checked.settings else {

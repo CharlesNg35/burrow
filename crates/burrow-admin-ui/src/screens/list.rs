@@ -1,5 +1,5 @@
-use burrow_config::Protocol;
-use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, Tone, tag_class};
+use burrow_admin_logic::wording::{WriteAction, needs_write_admin};
+use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, ScrollRow, Tone, active_item, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Link};
@@ -24,7 +24,11 @@ pub fn TocRow(row: Row, selected: bool) -> impl IntoView {
 }
 
 #[component]
-pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
+pub fn ListCard(
+    row: Row,
+    selected: bool,
+    #[prop(optional, into)] live: Option<Signal<(String, String)>>,
+) -> impl IntoView {
     let class = if selected {
         "border-accent-line ring-3 ring-accent-weak"
     } else {
@@ -54,7 +58,10 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                     </Link>
                     {row.title_tag.clone().map(|(t, tone)| view! { <span class=tag_class(tone)>{t}</span> })}
                 </span>
-                {(!row.line2.is_empty()).then(|| view! { <span class="block truncate text-sm text-text-muted">{row.line2.clone()}</span> })}
+                {(!row.line2.is_empty()).then(|| {
+                    let line2 = row.line2.clone();
+                    view! { <span class="line-clamp-2 block text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
+                })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
                 {(!row.tags.is_empty() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
                     <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -77,7 +84,7 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                     </span>
                 })}
             </span>
-            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{row.meta.clone()}</span>
+            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{move || live.map_or_else(|| row.meta.clone(), |l| l.get().0)}</span>
         </div>
     }
 }
@@ -101,16 +108,32 @@ pub fn ListPane(
     #[prop(optional)] default_filter: Option<&'static str>,
     #[prop(optional)] compact: bool,
     #[prop(optional)] empty_icon: Option<&'static str>,
+    #[prop(optional)] query: Option<RwSignal<String>>,
+    #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
 ) -> impl IntoView {
-    let q = RwSignal::new(String::new());
-    let filter = RwSignal::new(default_filter.unwrap_or("all"));
+    let q = query.unwrap_or_else(|| RwSignal::new(String::new()));
+    let asked = route::query(route::FILTER_QUERY);
+    let first = filters
+        .iter()
+        .map(|(k, _)| *k)
+        .find(|k| asked.as_deref() == Some(*k));
+    let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
+    let hay = Memo::new(move |_| rows.with(|r| r.iter().map(Row::haystack).collect::<Vec<_>>()));
     let visible = Memo::new(move |_| {
         let needle = q.get().to_lowercase();
         let f = filter.get();
-        rows.get()
-            .into_iter()
-            .filter(|r| r.matches(&needle) && (f == "all" || r.filters.contains(&f)))
-            .collect::<Vec<_>>()
+        hay.with(|h| {
+            rows.with(|r| {
+                r.iter()
+                    .zip(h)
+                    .filter(|(r, h)| {
+                        (needle.is_empty() || h.contains(&needle))
+                            && (f == "all" || r.filters.contains(&f))
+                    })
+                    .map(|(r, _)| r.clone())
+                    .collect::<Vec<_>>()
+            })
+        })
     });
     let move_sel = move |delta: i32| {
         let list = visible.get_untracked();
@@ -125,15 +148,21 @@ pub fn ListPane(
         let next = (at + delta).clamp(0, list.len() as i32 - 1) as usize;
         route::go(list[next].to.clone());
     };
-    let new_button = new_button(on_new, new_label, new_disabled);
-    let chips = filter_chips(filters, filter, rows, no_counts);
+    let new_button = match new_menu {
+        Some(menu) => {
+            Some(new_menu_button(menu, new_label.unwrap_or_default(), new_disabled).into_any())
+        }
+        None => new_button(on_new, new_label, new_disabled).map(IntoAny::into_any),
+    };
+    let nothing = Signal::derive(move || rows.with(|r| r.iter().all(Row::is_placeholder)));
+    let chips = filter_chips(filters, filter, rows, no_counts, nothing);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     keep_selected_in_view(list_ref, selected, visible);
     let look = Look { no_counts, compact };
     let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
     view! {
         <aside
-            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
+            class=move || format!("flex flex-col border-r border-border bg-surface max-lg:min-h-[calc(100vh-var(--hdr-h,64px))] lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
             aria-label=title.clone()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
@@ -143,20 +172,8 @@ pub fn ListPane(
                     <span class="text-sm text-text-muted" data-testid="list-count">{move || count.get()}</span>
                     {new_button}
                 </div>
-                <div class="relative mb-2.5">
-                    <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-faint"><Icon name="search" small=true/></span>
-                    <input
-                        id="list-search"
-                        type="text"
-                        class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak"
-                        placeholder=search_label.clone()
-                        aria-label=search_label
-                        prop:value=move || q.get()
-                        on:input:target=move |e| q.set(e.target().value())
-                    />
-                    <span class="absolute top-1/2 right-2 -translate-y-1/2"><Kbd text="/"/></span>
-                </div>
-                <div class="flex flex-wrap gap-1.5">{chips}</div>
+                <div class="mb-2.5">{search_box(q, search_label, nothing)}</div>
+                {chips}
             </div>
             <div
                 tabindex="0"
@@ -210,6 +227,70 @@ struct Look {
     compact: bool,
 }
 
+#[derive(Clone)]
+pub struct NewChoice {
+    pub key: &'static str,
+    pub label: String,
+    pub sub: String,
+    pub on_pick: Callback<()>,
+}
+
+fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl IntoView {
+    let open = RwSignal::new(false);
+    crate::app::popover(open, "new-menu-button", "new-menu");
+    let items = menu
+        .into_iter()
+        .map(|c| {
+            let pick = c.on_pick;
+            view! {
+                <li role="none">
+                    <button
+                        type="button"
+                        role="menuitem"
+                        class="flex w-full cursor-pointer flex-col items-start rounded-md px-3 py-2 text-left hover:bg-surface-3 focus-visible:bg-surface-3 focus-visible:outline-none"
+                        data-new=c.key
+                        on:click=move |_| {
+                            open.set(false);
+                            pick.run(());
+                        }
+                    >
+                        <span class="text-sm font-semibold">{c.label}</span>
+                        <span class="text-xs text-text-muted">{c.sub}</span>
+                    </button>
+                </li>
+            }
+        })
+        .collect_view();
+    view! {
+        <span class="relative ml-auto">
+            <button
+                type="button"
+                id="new-menu-button"
+                class="flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
+                aria-label=label
+                aria-haspopup="menu"
+                aria-expanded=move || open.get().to_string()
+                disabled=disabled
+                title=disabled.then(|| needs_write_admin(WriteAction::Add, None))
+                data-testid="new"
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                <Icon name="plus"/>
+            </button>
+            <ul
+                role="menu"
+                id="new-menu"
+                tabindex="-1"
+                class=burrow_ui_kit::menu_class("top-[36px] right-0 w-64", false)
+                hidden=move || !open.get()
+                data-testid="new-menu"
+            >
+                {items}
+            </ul>
+        </span>
+    }
+}
+
 fn new_button(
     on_new: Option<Callback<()>>,
     new_label: Option<String>,
@@ -222,7 +303,7 @@ fn new_button(
                 class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
                 aria-label=label
                 disabled=new_disabled
-                title=new_disabled.then_some("Adding needs write admin.")
+                title=new_disabled.then(|| needs_write_admin(WriteAction::Add, None))
                 data-testid="new"
                 on:click=move |_| cb.run(())
             >
@@ -232,19 +313,49 @@ fn new_button(
     })
 }
 
-fn filter_chips(
+const NOTHING_YET: &str = "Nothing to search yet";
+
+pub(crate) fn search_box(
+    q: RwSignal<String>,
+    label: String,
+    nothing: Signal<bool>,
+) -> impl IntoView {
+    view! {
+        <div class="relative">
+            <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-faint"><Icon name="search" small=true/></span>
+            <input
+                id="list-search"
+                type="text"
+                class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:cursor-not-allowed disabled:opacity-55"
+                disabled=move || nothing.get()
+                title=move || nothing.get().then_some(NOTHING_YET)
+                placeholder=label.clone()
+                aria-label=label
+                prop:value=move || q.get()
+                on:input:target=move |e| q.set(e.target().value())
+            />
+            <span class="absolute top-1/2 right-2 -translate-y-1/2"><Kbd text="/"/></span>
+        </div>
+    }
+}
+
+pub(crate) fn filter_chips(
     filters: Vec<(&'static str, String)>,
     filter: RwSignal<&'static str>,
     rows: Signal<Vec<Row>>,
     no_counts: bool,
+    nothing: Signal<bool>,
 ) -> impl IntoView {
-    filters
+    let active = active_item("data-filter", filter.into());
+    let chips = filters
         .into_iter()
         .map(|(key, label)| {
             view! {
                 <button
                     type="button"
-                    class="h-6 cursor-pointer rounded-full border px-2.5 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink"
+                    class="h-6 shrink-0 cursor-pointer rounded-full border px-2 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink disabled:cursor-not-allowed disabled:opacity-55"
+                    disabled=move || nothing.get()
+                    title=move || nothing.get().then_some(NOTHING_YET)
                     class:border-border=move || filter.get() != key
                     class:text-text-muted=move || filter.get() != key
                     aria-pressed=move || (filter.get() == key).to_string()
@@ -253,13 +364,17 @@ fn filter_chips(
                 >
                     {label}
                     {move || {
-                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && (key == "all" || x.filters.contains(&key))).count());
-                        (!no_counts && key != "all" && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
+                        if no_counts || key == "all" {
+                            return None;
+                        }
+                        let n = rows.with(|r| r.iter().filter(|x| !x.is_placeholder() && x.filters.contains(&key)).count());
+                        Some(view! { <span class=if n == 0 { "ml-1 text-text-faint" } else { "ml-1" } data-count=n.to_string()>{n}</span> })
                     }}
                 </button>
             }
         })
-        .collect_view()
+        .collect_view();
+    view! { <ScrollRow active=active class="w-0 min-w-full gap-1.5" testid="filter-chips">{chips}</ScrollRow> }
 }
 
 fn keep_selected_in_view(
@@ -267,9 +382,11 @@ fn keep_selected_in_view(
     selected: Signal<Option<String>>,
     visible: Memo<Vec<Row>>,
 ) {
+    let keys =
+        Memo::new(move |_| visible.with(|v| v.iter().map(|r| r.key.clone()).collect::<Vec<_>>()));
     Effect::new(move |_| {
         selected.track();
-        visible.track();
+        keys.track();
         request_animation_frame(move || {
             use wasm_bindgen::JsCast;
             let Some(list) = list_ref.try_get_untracked().flatten() else {
@@ -295,6 +412,18 @@ fn keep_selected_in_view(
     });
 }
 
+fn still(r: &Row) -> Row {
+    Row {
+        meta: String::new(),
+        line2: if r.line2.is_empty() {
+            String::new()
+        } else {
+            " ".into()
+        },
+        ..r.clone()
+    }
+}
+
 fn list_body(
     visible: Memo<Vec<Row>>,
     rows: Signal<Vec<Row>>,
@@ -305,8 +434,19 @@ fn list_body(
     look: Look,
 ) -> impl Fn() -> AnyView {
     let Look { no_counts, compact } = look;
+    let shape = Memo::new(move |_| visible.with(|v| v.iter().map(still).collect::<Vec<_>>()));
+    let live_of = move |key: String| {
+        Signal::derive(move || {
+            visible.with(|v| {
+                v.iter()
+                    .find(|r| r.key == key)
+                    .map(|r| (r.meta.clone(), r.line2.clone()))
+                    .unwrap_or_default()
+            })
+        })
+    };
     move || {
-        let list = visible.get();
+        let list = shape.get();
         if list.is_empty() {
             return match &empty {
                 Some((t, _)) if t.is_empty() => ().into_any(),
@@ -325,9 +465,10 @@ fn list_body(
             .iter()
             .filter(|g| list.iter().any(|r| &r.group == *g))
             .count();
+        let live = untrack(|| visible.get());
         gs.into_iter()
             .filter_map(|g| {
-                let in_group: Vec<Row> = list.iter().filter(|r| r.group == g).cloned().collect();
+                let in_group: Vec<Row> = live.iter().filter(|r| r.group == g).cloned().collect();
                 (!in_group.is_empty()).then(|| {
                     let n = in_group.len();
                     view! {
@@ -342,7 +483,8 @@ fn list_body(
                             if compact {
                                 view! { <TocRow row=r selected=on/> }.into_any()
                             } else {
-                                view! { <ListCard row=r selected=on/> }.into_any()
+                                let live = live_of(r.key.clone());
+                                view! { <ListCard row=r selected=on live=live/> }.into_any()
                             }
                         }).collect_view()}
                     }

@@ -354,3 +354,17 @@ fn localhost_targets_need_one_of_their_addresses_in_self_allow() {
     server.yaml: 1 error, 0 warnings
     "#);
 }
+
+#[test]
+fn a_server_whose_services_all_run_on_self_needs_no_clients() {
+    let only_self = "listen: 0.0.0.0:7835\nmetrics:\n  listen: 127.0.0.1:9100\nservices:\n  web: { client: self, bind: 8080, target: localhost:3000 }\n  db: { clients: [self], bind: 8081, target: localhost:5432 }\n";
+    let text = render("server.yaml", only_self, None);
+    assert!(!text.contains("no clients are defined"), "{text}");
+    let none = "listen: 0.0.0.0:7835\nmetrics:\n  listen: 127.0.0.1:9100\n";
+    let text = render("server.yaml", none, None);
+    assert!(text.contains("no clients are defined"), "{text}");
+    let some =
+        format!("{only_self}  nas: {{ clients: [self, home], bind: 8082, target: 10.0.0.2:80 }}\n");
+    let text = render("server.yaml", &some, None);
+    assert!(text.contains("no clients are defined"), "{text}");
+}

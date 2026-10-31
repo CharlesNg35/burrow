@@ -13,7 +13,7 @@ use leptos::prelude::*;
 use crate::edit::{Outcome, missing_confirms, severity_tone};
 use crate::route::{self, Link, Route};
 use crate::screens::activity::diff_lines;
-use crate::store::{short_rev, store};
+use crate::store::store;
 
 use super::guard::{Guard, Refused, footer_text, guard, lockout_fixes};
 use super::{change_groups, diff_counts, impact_icon, nothing_to_apply, place_of, service_paths};
@@ -68,8 +68,8 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             "This change is refused.".to_string()
         } else if !can {
             format!(
-                "{errors} error{} to fix first",
-                if errors == 1 { "" } else { "s" }
+                "{} to fix first",
+                burrow_admin_logic::wording::count_of(errors, "error")
             )
         } else if !missing.get().is_empty() {
             format!("Type {} to confirm", missing.get().join(", "))
@@ -77,11 +77,12 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             String::new()
         }
     });
-    let applies = if restart.is_empty() {
-        "applies on reload"
+    let applies = burrow_admin_logic::wording::applies_label(if restart.is_empty() {
+        &burrow_admin_proto::schema::Applies::Reload
     } else {
-        "needs a restart"
-    };
+        &burrow_admin_proto::schema::Applies::Restart
+    })
+    .unwrap_or_default();
     let warnings = new_diags.iter().filter(|d| !d.is_error()).count();
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     let facts = Facts {
@@ -103,11 +104,15 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             {refused.then(|| view! { <Refused refusals=plan.refusals.clone()/> })}
             {paths.into_iter().map(|(name, p)| view! { <div data-review-path=name><PathDiagram data=p/></div> }).collect_view()}
             {plan.reformat.clone().map(|r| {
-                let place = if r.scope.is_empty() { "The whole file".to_string() } else { r.scope.join(".") };
+                let place = if r.scope.is_empty() {
+                    "the whole file".to_string()
+                } else {
+                    burrow_config::label_of(&r.scope).unwrap_or_else(|| r.scope.join(" › "))
+                };
                 view! {
                     <div class="mb-6" data-testid="reformat">
                         <Callout tone=Tone::Warning title="Part of server.yaml is written fresh">
-                            <p>{format!("{place} is rewritten: {}. Comments and layout there are not kept.", r.reason)}</p>
+                            <p>{burrow_admin_logic::wording::rewritten(&place, &r.reason)}</p>
                         </Callout>
                     </div>
                 }
@@ -119,14 +124,14 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             })}
             {(old_problems > 0).then(|| view! {
                 <p class="-mt-3 mb-6 text-[12.5px] text-text-muted" data-testid="old-problems">
-                    {format!("{old_problems} problem{} the config already had {} not shown here; ", if old_problems == 1 { "" } else { "s" }, if old_problems == 1 { "is" } else { "are" })}
+                    {format!("{} the config already had {} not shown here; ", burrow_admin_logic::wording::count_of(old_problems, "problem"), if old_problems == 1 { "is" } else { "are" })}
                     <Link to=Route::Overview class="text-accent-ink">"see the overview"</Link>
                     "."
                 </p>
             })}
             {(!empty).then(|| diff_section(&plan, lines, added, removed, split))}
             {destructive.then(|| view! {
-                <div class="mb-6 rounded-[10px] border border-l-[3px] border-border border-l-danger bg-danger-weak/50 p-3.5 dark:bg-surface" data-testid="confirms">
+                <div class=format!("mb-6 rounded-[10px] p-3.5 {}", burrow_ui_kit::DANGER_CARD) data-testid="confirms">
                     <p class="flex items-center gap-2 text-sm font-semibold text-danger"><Icon name="alert"/>"Destructive change"</p>
                     {confirms}
                 </div>
@@ -154,7 +159,7 @@ fn impacts_view(plan: &Plan) -> impl IntoView + use<> {
     plan
         .impacts
         .iter()
-        .filter(|i| i.code != "adds-client")
+        .filter(|i| i.code != burrow_admin_proto::codes::ADDS_CLIENT)
         .map(|i| {
             let (icon, tone) = impact_icon(i.level);
             let (head, tail) = match i.message.split_once(" · ") {
@@ -216,7 +221,7 @@ fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
                 .unwrap_or_default();
             view! {
                 <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
-                    <strong>{where_}</strong>" "{d.message.clone()}
+                    <strong>{where_}</strong>" "{burrow_admin_logic::wording::diag_text(d)}
                 </li>
             }
         })
@@ -236,7 +241,7 @@ fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl Into
     view! {
     <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
         <div class="min-w-0 flex-1">
-            <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {n} change{}", if n == 1 { "" } else { "s" }) }}</h1>
+            <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {}", burrow_admin_logic::wording::count_of(n, "change")) }}</h1>
             <p class="mt-1 text-base text-text-muted" class:hidden=empty>
                 {if refused {
                     format!(
@@ -251,9 +256,9 @@ fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl Into
         {if refused || empty {
             ().into_any()
         } else if errors > 0 {
-            view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{errors} error{} · {warnings} warning{}", if errors == 1 { "" } else { "s" }, if warnings == 1 { "" } else { "s" })}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{} · {}", burrow_admin_logic::wording::count_of(errors, "error"), burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
         } else {
-            view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {warnings} warning{}", if warnings == 1 { "" } else { "s" })}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {}", burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
         }}
     </header>
     }
@@ -266,7 +271,7 @@ fn impact_section<V: IntoView + 'static>(
     label: &'static str,
 ) -> impl IntoView + use<V> {
     let restart = restart.to_vec();
-    (plan.impacts.iter().any(|i| i.code != "adds-client") || !restart.is_empty()).then(|| view! {
+    (plan.impacts.iter().any(|i| i.code != burrow_admin_proto::codes::ADDS_CLIENT) || !restart.is_empty()).then(|| view! {
         <h3 class=label>"Impact"</h3>
         <div class="mb-6 grid gap-3 md:grid-cols-2" data-testid="impacts">
             {impacts}
@@ -293,13 +298,13 @@ fn diff_section(
     let secrets_in_diff = plan.secrets_in_diff.is_empty();
     view! {
     <div class="mb-2 flex items-center gap-2">
-        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">"server.yaml"</h3>
-        <span class="text-xs text-text-muted">{format!("+{added} −{removed}{}", if secrets_in_diff { "" } else { " · secrets masked" })}</span>
+        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{burrow_admin_logic::wording::CHANGED_LINES}</h3>
+        <span class="text-xs text-text-muted">{burrow_admin_logic::wording::diff_head(added, removed, !secrets_in_diff)}</span>
         <span class="ml-auto"></span>
         <Segmented
             name="diff-mode"
-            label="Diff layout"
-            options=vec![("unified".to_string(), "Unified".to_string(), false), ("split".to_string(), "Split".to_string(), false)]
+            label="Show the changed lines"
+            options=vec![("unified".to_string(), "One column".to_string(), false), ("split".to_string(), "Side by side".to_string(), false)]
             value=Signal::derive(move || if split.get() { "split".to_string() } else { "unified".to_string() })
             on_change=Callback::new(move |v: String| split.set(v == "split"))
         />
@@ -331,7 +336,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
     let back = move || route::go(s.prev.get_untracked());
     let base = plan.base.clone();
     view! {
-    <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap" data-sticky-bar="">
+    <burrow_ui_kit::StickyBar flush=true class="max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap">
         <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted" data-testid="review-footer">{if empty {
             if revert {
                 "The file already matches that version.".to_string()
@@ -343,7 +348,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         } else if refused {
             format!("{IN_THE_FILE}.")
         } else {
-            format!("rev {} is kept in history; you can revert it from Activity.", short_rev(&base))
+            format!("The {} stays in Activity; you can go back to it.", store().version(&base))
         }}</span>
         <span class="sr-only" data-testid="apply-reason">{move || reason.get()}</span>
         {guard_view.clone().map(lockout_fixes)}
@@ -389,7 +394,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         } else {
             view! {
                 <Button
-                    label=if revert { "Apply the revert".to_string() } else { format!("Apply {n} change{}", if n == 1 { "" } else { "s" }) }
+                    label=if revert { "Apply the revert".to_string() } else { format!("Apply {}", burrow_admin_logic::wording::count_of(n, "change")) }
                     variant=if destructive { "danger" } else { "primary" }
                     testid="apply"
                     busy=e.applying
@@ -399,7 +404,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
                 />
             }.into_any()
         }}
-    </div>
+    </burrow_ui_kit::StickyBar>
     }
 }
 

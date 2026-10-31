@@ -22,10 +22,48 @@ pub enum Carrier {
     Plain(TcpStream),
     ClientTls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
     ServerTls(Box<tokio_rustls::server::TlsStream<TcpStream>>),
+    Accepted(Box<Accepted>),
 }
 
-delegate_read!(Carrier, Plain, ClientTls, ServerTls);
-delegate_write!(Carrier, Plain, ClientTls, ServerTls);
+delegate_read!(Carrier, Plain, ClientTls, ServerTls, Accepted);
+delegate_write!(Carrier, Plain, ClientTls, ServerTls, Accepted);
+
+pub trait ByteStream: AsyncRead + AsyncWrite + Unpin + Send {}
+
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> ByteStream for T {}
+
+pub struct Accepted {
+    pub io: Box<dyn ByteStream>,
+    pub local: std::net::SocketAddr,
+}
+
+impl AsyncRead for Accepted {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().io).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Accepted {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.get_mut().io).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().io).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().io).poll_shutdown(cx)
+    }
+}
 
 pub struct Rewind {
     prefix: Bytes,
@@ -138,6 +176,7 @@ impl WsConn {
             Carrier::Plain(s) => s.local_addr(),
             Carrier::ClientTls(s) => s.get_ref().0.local_addr(),
             Carrier::ServerTls(s) => s.get_ref().0.local_addr(),
+            Carrier::Accepted(a) => Ok(a.local),
         }
     }
 
@@ -391,6 +430,16 @@ pub async fn accept(mut carrier: Carrier, path: &str) -> Result<WsConn, AcceptEr
         .await
         .map_err(|e| AcceptError::Upgrade(e.to_string()))?;
     Ok(WsConn::new(ws))
+}
+
+pub fn serve_upgraded(carrier: Carrier) -> WsConn {
+    let stream = Rewind {
+        prefix: Bytes::new(),
+        inner: carrier,
+        written: 0,
+        read_cap: None,
+    };
+    WsConn::new(ServerBuilder::new().limits(limits()).serve(stream))
 }
 
 async fn refuse(carrier: &mut Carrier, r: Refused) {

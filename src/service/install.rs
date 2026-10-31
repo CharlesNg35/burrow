@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 
 use super::checks::{
     Checked, check_config, check_files_readable, check_ports_free, refuse_another_source,
-    refuse_low_ports, refuse_running_outside,
+    refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
-    StartAgain, Takeover, Undo, give_old_files, given_note, own_logs, release_previous,
-    start_installed, take_over,
+    StartAgain, Takeover, Undo, give_old_files, given_note, release_previous, start_installed,
+    take_over,
 };
 use super::uninstall::{Kept, keep_admin_copy};
 use super::{Backend, background, name_for, save_manifest, say, stray, system};
@@ -58,7 +58,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("yaml");
-    let short = name.strip_prefix("burrow-").unwrap_or(&name).to_string();
+    let short = crate::install::short_name(&name).to_string();
     let folder = platform.config_dir().join(&short);
     let writable =
         checked.role == Role::Server && (opts.admin_writable || !checked.admins.is_empty());
@@ -67,25 +67,27 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = crate::base::fs::canonical(&current).unwrap_or(current);
-    let (binary, copy_binary) = service_binary_for(&current, platform);
+    let binary = platform.service_binary();
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
         name: name.clone(),
-        role: checked.role.as_str().to_string(),
+        role: checked.role,
         config: config.clone(),
         source_config: recorded_source(load_manifest(&name).ok().as_ref(), &source),
         env_file: env_file.clone(),
         log_file: platform.log_file(&short),
         binary: binary.clone(),
-        copied_binary: copy_binary,
+        copied_binary: true,
         account: account.clone(),
         created_account: false,
         low_ports,
         files: checked.files.iter().map(|(_, p)| p.clone()).collect(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         admin_writable: writable,
+        web_state: (checked.needs_state && checked.role == Role::Server)
+            .then(|| crate::install::service_state_dir(&short)),
     };
-    refuse_low_ports(&*backend, &checked, &manifest)?;
+    refuse_unfit(&*backend, &checked, &manifest)?;
 
     if opts.print {
         return print_unit(&*backend, &name, &manifest, out);
@@ -141,9 +143,10 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     check_files_readable(&*backend, &checked, &account)?;
 
     backend.prepare_dirs(&account)?;
-    let kept_binary = keep_previous_binary(again.manifest, &binary, copy_binary, &current);
+    super::uninstall::say_skipped(&backend.state_folder(&manifest)?, &account, out)?;
+    let kept_binary = keep_previous_binary(again.manifest, &binary, &current);
     let _leftover = Leftover(kept_binary.clone());
-    if copy_binary && !system::same_content(&current, &binary) {
+    if !system::same_content(&current, &binary) {
         copy_service_binary(&current, &binary, platform, &name, out)?;
     }
     let undo = again.manifest.map(|p| Undo {
@@ -226,11 +229,9 @@ fn print_unit(
 fn keep_previous_binary(
     previous: Option<&Manifest>,
     binary: &Path,
-    copy_binary: bool,
     current: &Path,
 ) -> Option<PathBuf> {
     (previous.is_some_and(|p| p.binary == binary)
-        && copy_binary
         && binary.exists()
         && !system::same_content(current, binary))
     .then(|| binary.with_extension("reinstall"))
@@ -273,7 +274,7 @@ fn say_installed(
             manifest.role
         ),
     )?;
-    let mut own = own_logs(&manifest.log_file);
+    let mut own = crate::base::logfile::all_files(&manifest.log_file);
     own.push(config.to_path_buf());
     own.extend(manifest.env_file.clone());
     let given = give_old_files(old_files, account, &own);
@@ -482,8 +483,4 @@ pub(super) fn place_binary(current: &Path, binary: &Path, usual: &Path) -> Resul
     #[cfg(not(unix))]
     let _ = usual;
     system::copy_file(current, binary, true)
-}
-
-pub(super) fn service_binary_for(_current: &Path, platform: Platform) -> (PathBuf, bool) {
-    (platform.service_binary(), true)
 }

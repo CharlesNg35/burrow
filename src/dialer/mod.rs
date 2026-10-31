@@ -95,43 +95,34 @@ fn connector(endpoint: &Endpoint, ca_pem: Option<&[u8]>) -> Option<TlsConnector>
     }
 }
 
-impl Dialer {
-    pub fn client(s: &ClientSettings) -> Dialer {
+macro_rules! dialer_from {
+    ($s:expr, $plaintext:expr, $role:expr) => {
         Dialer {
-            server: s.server.clone(),
-            name: s.name.clone(),
+            server: $s.server.clone(),
+            name: $s.name.clone(),
             resolver: resolve::system(),
-            tls: connector(&s.endpoint, s.ca_pem.as_deref()),
-            endpoint: s.endpoint.clone(),
-            headers: s.headers.clone(),
-            proxy: s.proxy.clone(),
-            connect_timeout: s.connect_timeout,
-            tcp: s.tcp.clone(),
-            cipher: s.cipher,
-            secret: s.secret.clone(),
-            plaintext: s.insecure_plaintext,
-            role: "client",
+            tls: connector(&$s.endpoint, $s.ca_pem.as_deref()),
+            endpoint: $s.endpoint.clone(),
+            headers: $s.headers.clone(),
+            proxy: $s.proxy.clone(),
+            connect_timeout: $s.connect_timeout,
+            tcp: $s.tcp.clone(),
+            cipher: $s.cipher,
+            secret: $s.secret.clone(),
+            plaintext: $plaintext,
+            role: $role,
             recent: Default::default(),
         }
+    };
+}
+
+impl Dialer {
+    pub fn client(s: &ClientSettings) -> Dialer {
+        dialer_from!(s, s.insecure_plaintext, "client")
     }
 
     pub fn visitor(s: &VisitorSettings) -> Dialer {
-        Dialer {
-            server: s.server.clone(),
-            name: s.name.clone(),
-            resolver: resolve::system(),
-            tls: connector(&s.endpoint, s.ca_pem.as_deref()),
-            endpoint: s.endpoint.clone(),
-            headers: s.headers.clone(),
-            proxy: s.proxy.clone(),
-            connect_timeout: s.connect_timeout,
-            tcp: s.tcp.clone(),
-            cipher: s.cipher,
-            secret: s.secret.clone(),
-            plaintext: false,
-            role: "visitor",
-            recent: Default::default(),
-        }
+        dialer_from!(s, false, "visitor")
     }
 
     pub fn is_websocket(&self) -> bool {

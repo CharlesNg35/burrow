@@ -84,6 +84,26 @@ pub trait Entry: Sized {
     }
 }
 
+pub fn logins_path() -> Path {
+    use crate::model::WebConfig;
+    ServerConfig::WEB.then(WebConfig::FORWARD_AUTH).path()
+}
+
+pub fn entity_path(entity: &Entity) -> Path {
+    match entity {
+        Entity::Login => logins_path(),
+        e => vec![e.section().to_string()],
+    }
+}
+
+pub fn entity_at(parent: &[String]) -> Option<Entity> {
+    match parent {
+        [s] => entity_of_section(s),
+        p if p == logins_path().as_slice() => Some(Entity::Login),
+        _ => None,
+    }
+}
+
 pub fn entity_of_section(section: &str) -> Option<Entity> {
     use crate::model::{ClientEntry, ServiceEntry, VisitorEntry};
     [
@@ -286,6 +306,13 @@ mod tests {
             Some(Entity::Service)
         );
         assert_eq!(entity_of_section(ServerConfig::LIMITS.key()), None);
+        assert_eq!(entity_of_section(ServerConfig::WEB.key()), None);
+        assert_eq!(Entity::Login.section(), ServerConfig::WEB.key());
+        assert_eq!(entity_path(&Entity::Login), p(&["web", "forward_auth"]));
+        assert_eq!(entity_path(&Entity::Client), p(&["clients"]));
+        assert_eq!(entity_at(&p(&["web", "forward_auth"])), Some(Entity::Login));
+        assert_eq!(entity_at(&p(&["visitors"])), Some(Entity::Visitor));
+        assert_eq!(entity_at(&p(&["web"])), None);
         assert_eq!(VisitorEntry::path("ops"), p(&["visitors", "ops"]));
         assert!(VisitorEntry::is_entry(&p(&["visitors", "ops"])));
         assert!(!VisitorEntry::is_entry(&p(&["services", "ops"])));

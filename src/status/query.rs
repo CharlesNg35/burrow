@@ -134,6 +134,11 @@ fn clean_status(s: &mut Status) {
         }
     };
     s.version = clean(&s.version);
+    if let Some(w) = &mut s.web_waiting {
+        for f in [&mut w.key, &mut w.addr, &mut w.reason, &mut w.stays] {
+            *f = clean(f);
+        }
+    }
     all(&mut s.listening);
     for c in &mut s.clients {
         c.name = clean(&c.name);
@@ -150,6 +155,7 @@ fn clean_status(s: &mut Status) {
         all(&mut v.visitors);
         for h in &mut v.health {
             h.client = clean(&h.client);
+            opt(&mut h.reason);
         }
         for a in &mut v.set_aside {
             a.client = clean(&a.client);
@@ -248,7 +254,7 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
         Pick::Config(p) => Some(canonical(p)),
         Pick::Service(name) => {
             let m = crate::service::resolve(Some(name))?;
-            if m.role != "server" {
+            if m.role != crate::install::Role::Server {
                 return Err(Failure::usage(format!(
                     "{} is a {} service, and burrow status shows servers only",
                     m.name, m.role
@@ -270,7 +276,10 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
         .filter(|d| crate::instance::safe_dir(d))
         .filter_map(|d| std::fs::read_dir(d).ok())
         .flat_map(|listing| listing.flatten().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "status"))
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|x| x == crate::instance::STATUS_EXTENSION)
+        })
         .collect();
     paths.sort();
     let mut entries = Vec::new();

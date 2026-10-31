@@ -90,7 +90,7 @@ pub fn read_units(
         .filter_map(|entry| {
             let file = entry.file_name().to_str()?.to_string();
             let name = file.strip_prefix(prefix)?.strip_suffix(suffix)?;
-            if name != "burrow" && !name.starts_with("burrow-") {
+            if !crate::install::is_service_name(name) {
                 return None;
             }
             if !entry.path().is_file() {
@@ -110,7 +110,7 @@ pub fn read_units(
 pub fn bare(name: &str) -> Manifest {
     Manifest {
         name: name.to_string(),
-        role: String::new(),
+        role: crate::install::Role::Client,
         config: PathBuf::new(),
         source_config: PathBuf::new(),
         env_file: None,
@@ -123,6 +123,7 @@ pub fn bare(name: &str) -> Manifest {
         files: Vec::new(),
         version: String::new(),
         admin_writable: false,
+        web_state: None,
     }
 }
 
@@ -147,8 +148,7 @@ fn merge(
         }
     }
     found.retain(|u| {
-        (u.name == "burrow" || u.name.starts_with("burrow-"))
-            && !known.iter().any(|m| m.name == u.name)
+        crate::install::is_service_name(&u.name) && !known.iter().any(|m| m.name == u.name)
     });
     found.sort_by(|a, b| a.name.cmp(&b.name));
     found
@@ -257,10 +257,7 @@ impl Stray {
         let name = if named {
             String::new()
         } else {
-            format!(
-                " --name {}",
-                self.name.strip_prefix("burrow-").unwrap_or(&self.name)
-            )
+            format!(" --name {}", crate::install::short_name(&self.name))
         };
         crate::base::failure::admin(&format!("service install -c {config}{name}"))
     }

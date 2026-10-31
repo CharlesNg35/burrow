@@ -1,3 +1,6 @@
+mod entries;
+mod entry_summary;
+mod entry_target;
 mod parts;
 mod picker;
 
@@ -10,6 +13,7 @@ use leptos::prelude::*;
 use crate::domain::{FieldCtx, set_checked};
 use crate::store::store;
 
+pub(crate) use entries::{entries, entries_view};
 use parts::{host_control, mode_switch, network, unix_input};
 pub(crate) use picker::{merged_partner, picker};
 
@@ -152,15 +156,17 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
     );
     let unix = unix_input(id.clone(), a, commit.clone());
     let mode = unix_ok.then(|| mode_switch(fc.id.clone(), unix_mode, parts, commit.clone()));
+    let none = fc.node.none_label.clone();
     view! {
         <div data-addr="">
             {mode}
             {move || if unix_mode.get() { unix().into_any() } else { network().into_any() }}
-            <p class="mt-1.5 text-xs text-text-muted" data-testid="stored-as" data-stored=stored>
-                "Saved as "
+            <p class="mt-1.5 text-xs text-text-muted" class:hidden=move || stored.with(String::is_empty) data-testid="stored-as" data-stored=stored>
+                {format!("{} ", burrow_admin_logic::wording::WRITTEN_AS)}
                 <code class="font-mono">{stored}</code>
                 {(ranges && max.is_some()).then(|| max.map(|m| format!(" · up to {m} ports")))}
             </p>
+            {none.map(|n| view! { <p class="mt-1.5 text-xs text-text-muted" class:hidden=move || !stored.with(String::is_empty) data-testid="stored-none">{n}</p> })}
         </div>
     }
     .into_any()
@@ -229,14 +235,14 @@ pub fn server_editor(fc: FieldCtx) -> AnyView {
             <Segmented
                 name=format!("{}-scheme", fc.id)
                 label="Address kind"
-                options=vec![("host".to_string(), "host".to_string(), false), ("ws".to_string(), "ws://".to_string(), false), ("wss".to_string(), "wss://".to_string(), false)]
+                options=vec![("name".to_string(), "host name".to_string(), false), ("ws".to_string(), "ws://".to_string(), false), ("wss".to_string(), "wss://".to_string(), false)]
                 value=Signal::derive(move || server.with(|s| s.scheme.to_string()))
                 on_change=Callback::new(move |v: String| {
                     server.update(|s| {
                         s.scheme = match v.as_str() {
                             "ws" => "ws",
                             "wss" => "wss",
-                            _ => "host",
+                            _ => "name",
                         }
                     });
                     c2();
@@ -260,4 +266,27 @@ pub fn server_editor(fc: FieldCtx) -> AnyView {
         </div>
     }
     .into_any()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_main_target_has_one_name_in_the_schema_and_the_client_rows() {
+        use burrow_config::admin_schema::AdminSchema;
+        let schema =
+            burrow_admin_proto::serde_json::to_string(&burrow_config::ServerConfig::node())
+                .unwrap()
+                .to_lowercase();
+        let rows = [
+            include_str!("entries.rs"),
+            include_str!("entry_target.rs"),
+            include_str!("entry_summary.rs"),
+        ]
+        .concat()
+        .to_lowercase();
+        for old in ["service target", "own target"] {
+            assert!(!schema.contains(old), "the schema still says {old}");
+            assert!(!rows.contains(old), "the client rows still say {old}");
+        }
+    }
 }

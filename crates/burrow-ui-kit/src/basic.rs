@@ -32,7 +32,7 @@ impl Tone {
             Tone::Neutral => "border border-border bg-surface-3 text-text-muted",
             Tone::Accent | Tone::Info => "bg-accent-weak text-accent-ink",
             Tone::Success => "bg-success-weak text-success",
-            Tone::Warning => "bg-warning-weak text-warning",
+            Tone::Warning => "border border-warning/40 text-warning",
             Tone::Danger => "bg-danger-weak text-danger",
             Tone::Violet => "bg-udp-weak text-udp",
         }
@@ -91,7 +91,9 @@ pub fn chip_class(tone: Tone, mono: bool) -> String {
 }
 
 pub const LINK: &str = "text-accent-ink underline-offset-2 hover:underline";
-pub const MONO: &str = "font-mono";
+pub const WIDE_ONLY: &str = "@max-[640px]:hidden";
+pub const TABLE_VIEW: &str = "@max-[760px]:hidden";
+pub const CARD_VIEW: &str = "@min-[760px]:hidden";
 pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-text-faint";
 
 pub fn button_class(variant: &str, small: bool) -> String {
@@ -163,24 +165,34 @@ pub fn SpinDot() -> impl IntoView {
 }
 
 #[component]
-pub fn Badge(
+pub fn IconButton(
+    icon: &'static str,
+    #[prop(into)] label: String,
+    #[prop(optional)] testid: &'static str,
+    #[prop(into)] on_click: Callback<()>,
+) -> impl IntoView {
+    view! {
+        <button
+            type="button"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3 hover:text-text"
+            aria-label=label.clone()
+            title=label
+            data-testid=(!testid.is_empty()).then_some(testid)
+            on:click=move |_| on_click.run(())
+        >
+            <Icon name=icon small=true/>
+        </button>
+    }
+}
+
+#[component]
+pub fn Tag(
     #[prop(into)] text: Signal<String>,
     #[prop(optional)] tone: Tone,
-    #[prop(optional)] icon: &'static str,
-    #[prop(optional)] mono: bool,
     #[prop(optional, into)] title: Option<String>,
 ) -> impl IntoView {
     view! {
-        <span
-            class=format!(
-                "inline-flex h-5 items-center gap-1 rounded-[5px] px-[7px] text-[11px] font-semibold whitespace-nowrap {}{}",
-                tone.tag(),
-                if mono { " font-mono" } else { "" }
-            )
-            title=title
-            data-tone=tone.name()
-        >
-            {(!icon.is_empty()).then(|| view! { <Icon name=icon small=true/> })}
+        <span class=crate::tag_class(tone) title=title data-tone=tone.name()>
             {move || text.get()}
         </span>
     }
@@ -245,6 +257,27 @@ pub fn Kpi(
     }
 }
 
+pub const MENU_ITEM: &str =
+    "block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3";
+
+pub fn menu_class(place: &str, roomy: bool) -> String {
+    let inside = if roomy { "p-3 text-sm" } else { "p-1" };
+    format!(
+        "absolute z-40 rounded-[10px] border border-border-strong bg-surface text-text shadow-overlay outline-none dark:bg-surface-2 {inside} {place}"
+    )
+}
+
+pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView {
+    view! {
+        <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+            <h2 class="text-[13.5px] font-bold">{title}</h2>
+            {sub.map(|s| view! { <span class="text-xs text-text-muted">{s}</span> })}
+            <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{right}</div>
+        </div>
+    }
+    .into_any()
+}
+
 #[component]
 pub fn Card(
     #[prop(optional, into)] title: Option<String>,
@@ -257,13 +290,11 @@ pub fn Card(
 ) -> impl IntoView {
     let has_head = title.is_some() || head.is_some();
     let top = has_head.then(|| {
-        view! {
-            <div class="flex min-h-12 items-center gap-3 border-b border-border px-4 py-3">
-                <h2 class="text-[13.5px] font-bold">{title.clone()}</h2>
-                {sub.clone().map(|s| view! { <span class="text-xs text-text-muted">{s}</span> })}
-                <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{head.as_ref().map(|h| h())}</div>
-            </div>
-        }
+        card_head(
+            title.clone().unwrap_or_default(),
+            sub.clone(),
+            head.as_ref().map(|h| h()).unwrap_or_else(|| ().into_any()),
+        )
     });
     view! {
         <section
@@ -278,18 +309,36 @@ pub fn Card(
 
 #[component]
 pub fn PageHeader(
-    #[prop(into)] title: Signal<String>,
-    #[prop(optional, into)] subtitle: Signal<String>,
-    #[prop(optional)] children: Option<Children>,
+    #[prop(optional, into)] kicker: Option<String>,
+    #[prop(optional, into)] sub: Option<String>,
+    #[prop(optional, into)] hidden: Signal<bool>,
+    #[prop(optional, into)] phone_hidden: Signal<bool>,
+    #[prop(optional)] actions: Option<AnyView>,
+    #[prop(optional, into)] class: String,
+    children: Children,
 ) -> impl IntoView {
     view! {
-        <header class="mb-[22px] flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0">
-                <h1 class="text-2xl font-bold tracking-[-0.015em]">{move || title.get()}</h1>
-                <p class="mt-1 text-sm text-text-muted">{move || subtitle.get()}</p>
+        <header class=format!("mb-[22px] flex flex-wrap items-start gap-3.5 {class}") class:hidden=move || hidden.get() class:max-sm:hidden=move || phone_hidden.get()>
+            <div class="min-w-0 flex-1">
+                {kicker.map(|k| view! { <p class="mb-1.5 text-[12.5px] font-semibold">{k}</p> })}
+                <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
+                {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted">{s}</p> })}
             </div>
-            <div class="flex items-center gap-2">{children.map(|c| c())}</div>
+            {actions.map(|a| view! { <div class="flex items-center gap-2">{a}</div> })}
         </header>
+    }
+}
+
+#[component]
+pub fn SectionHead(
+    #[prop(into)] title: String,
+    #[prop(optional, into)] sub: String,
+) -> impl IntoView {
+    view! {
+        <div class="flex flex-col gap-0.5 border-b border-border pb-2.5 sm:flex-row sm:items-baseline sm:gap-2.5 md:col-span-2">
+            <h3 class="shrink-0 text-[14px] font-bold">{title}</h3>
+            {(!sub.is_empty()).then(|| view! { <span class="text-[12.5px] text-text-muted">{sub}</span> })}
+        </div>
     }
 }
 
@@ -300,8 +349,9 @@ pub fn Tabs(
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
     #[prop(optional, into)] errors: Option<Signal<Vec<usize>>>,
 ) -> impl IntoView {
+    let selector = crate::active_item("data-tab", active.into());
     view! {
-        <div class="mb-4 flex gap-1 border-b border-border" role="tablist">
+        <crate::ScrollRow active=selector class="mb-4 gap-1 border-b border-border" role="tablist">
             {tabs
                 .into_iter()
                 .enumerate()
@@ -310,13 +360,13 @@ pub fn Tabs(
                         <button
                             type="button"
                             role="tab"
-                            class="-mb-px flex items-center gap-1 border-b-2 border-transparent px-3 py-2.5 text-[13px] font-semibold text-text-muted hover:text-text aria-selected:border-accent aria-selected:text-text"
+                            class="-mb-px flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-[13px] font-semibold whitespace-nowrap text-text-muted hover:text-text aria-selected:border-accent aria-selected:text-text"
                             aria-selected=move || (active.get() == key).to_string()
                             data-tab=key
                             on:click=move |_| active.set(key)
                         >
                             {label}
-                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.with(|v| v.get(i).cloned().unwrap_or_default())}</span> })}
                             {errors.map(|e| move || {
                                 let n = e.get().get(i).copied().unwrap_or(0);
                                 (n > 0).then(|| view! {
@@ -330,7 +380,26 @@ pub fn Tabs(
                     }
                 })
                 .collect_view()}
-        </div>
+        </crate::ScrollRow>
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TabMark {
+    pub key: &'static str,
+    pub n: usize,
+    pub icon: Option<&'static str>,
+    pub dot: Option<Tone>,
+    pub title: String,
+}
+
+fn tab_mark(m: TabMark) -> impl IntoView {
+    view! {
+        <span class="inline-flex items-center gap-1 rounded-full bg-surface-3 px-1.5 text-[11px] leading-[18px] font-semibold text-text-muted tabular-nums dark:bg-surface-2" title=m.title.clone() aria-label=m.title data-tab-mark=m.key>
+            {m.icon.map(|i| view! { <Icon name=i small=true/> })}
+            {m.dot.map(|t| view! { <span class=format!("size-1.5 rounded-full {}", t.dot()) aria-hidden="true"></span> })}
+            {m.n}
+        </span>
     }
 }
 
@@ -340,9 +409,11 @@ pub fn PillTabs(
     #[prop(into)] active: Signal<&'static str>,
     #[prop(into)] on_change: Callback<&'static str>,
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
+    #[prop(optional)] marks: Option<Signal<Vec<Vec<TabMark>>>>,
 ) -> impl IntoView {
+    let selector = crate::active_item("data-tab", active);
     view! {
-        <div class="flex gap-1" role="tablist">
+        <crate::ScrollRow active=selector class="gap-1" role="tablist">
             {tabs
                 .into_iter()
                 .enumerate()
@@ -351,18 +422,19 @@ pub fn PillTabs(
                         <button
                             type="button"
                             role="tab"
-                            class="flex h-[30px] items-center gap-1.5 rounded-md px-3 text-[13px] font-semibold text-text-muted aria-selected:bg-surface aria-selected:text-text aria-selected:shadow-sm aria-selected:ring-1 aria-selected:ring-border aria-selected:ring-inset dark:aria-selected:bg-surface-3"
+                            class="flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-semibold whitespace-nowrap text-text-muted aria-selected:bg-surface aria-selected:text-text aria-selected:shadow-sm aria-selected:ring-1 aria-selected:ring-border aria-selected:ring-inset dark:aria-selected:bg-surface-3"
                             aria-selected=move || (active.get() == key).to_string()
                             data-tab=key
                             on:click=move |_| on_change.run(key)
                         >
                             {label}
-                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint tabular-nums">{move || c.with(|v| v.get(i).cloned().unwrap_or_default())}</span> })}
+                            {marks.map(|m| move || m.with(|v| v.get(i).cloned().unwrap_or_default()).into_iter().map(tab_mark).collect_view())}
                         </button>
                     }
                 })
                 .collect_view()}
-        </div>
+        </crate::ScrollRow>
     }
 }
 
@@ -373,9 +445,9 @@ pub fn Table(
     children: Children,
 ) -> impl IntoView {
     view! {
-        <div class="overflow-x-auto">
+        <div class="@container overflow-x-auto">
             <table
-                class="w-full border-collapse text-left text-base [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
+                class="w-full border-collapse text-left text-base @max-[480px]:[&_td]:px-2.5 @max-[480px]:[&_tbody_th]:px-2.5 @max-[480px]:[&_thead_th]:px-2.5 [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
                 data-testid=(!testid.is_empty()).then_some(testid)
             >
                 <thead>
@@ -394,7 +466,7 @@ pub fn Table(
                                             "border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase {}{}{}",
                                             if right { "text-right" } else { "text-left" },
                                             if shrink { " w-px" } else { "" },
-                                            if wide_only { " max-sm:hidden" } else { "" }
+                                            if wide_only { " @max-[640px]:hidden" } else { "" }
                                         )
                                     >
                                         {text}
@@ -469,16 +541,23 @@ pub fn Stat(
 }
 
 #[component]
-pub fn Muted(#[prop(optional)] testid: &'static str, children: Children) -> impl IntoView {
-    view! { <span class="text-text-muted" data-testid=(!testid.is_empty()).then_some(testid)>{children()}</span> }
-}
-
-#[component]
-pub fn Mono(children: Children) -> impl IntoView {
-    view! { <span class="font-mono">{children()}</span> }
-}
-
-#[component]
 pub fn Kbd(#[prop(into)] text: String) -> impl IntoView {
     view! { <kbd class="rounded-xs border border-border-strong px-1 font-mono text-2xs leading-4 text-text-muted">{text}</kbd> }
+}
+
+#[component]
+pub fn LockLine(
+    #[prop(into)] text: String,
+    #[prop(optional)] testid: &'static str,
+    #[prop(optional, into)] class: String,
+) -> impl IntoView {
+    view! {
+        <p
+            class=format!("flex items-center gap-1.5 text-xs text-text-muted {class}")
+            data-testid=(!testid.is_empty()).then_some(testid)
+        >
+            <Icon name="lock" small=true/>
+            {text}
+        </p>
+    }
 }

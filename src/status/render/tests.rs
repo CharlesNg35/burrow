@@ -68,9 +68,14 @@ pub(crate) fn sample() -> Status {
                 bytes_out: 8_400_000_000,
                 health: vec![HealthStatus {
                     client: "home".into(),
+                    target: None,
                     up: true,
+                    reason: None,
                 }],
                 set_aside: vec![],
+                entries: vec![],
+                web: vec![],
+                http: None,
             },
             ServiceStatus {
                 name: "db".into(),
@@ -90,6 +95,9 @@ pub(crate) fn sample() -> Status {
                 bytes_out: 0,
                 health: vec![],
                 set_aside: vec![],
+                entries: vec![],
+                web: vec![],
+                http: None,
             },
         ],
         visitors: vec![
@@ -112,6 +120,11 @@ pub(crate) fn sample() -> Status {
                 last_seen_secs: None,
             },
         ],
+        web: None,
+        certificates: Vec::new(),
+        acme: None,
+        local_ca: None,
+        web_waiting: None,
     }
 }
 
@@ -142,6 +155,24 @@ VISITORS
 
 2 refused handshakes since start (wrong secret, unknown name or limits)
 "
+    );
+}
+
+#[test]
+fn a_websites_responses_are_counted_by_class() {
+    let mut s = sample();
+    s.services[0].http = Some(burrow_admin_proto::status::HttpCounts {
+        responses: [0, 1203, 4, 17, 2],
+    });
+    s.services[1].http = Some(burrow_admin_proto::status::HttpCounts::default());
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains("  web: balance, limit 5.0 MB/s, proxy protocol v2, source filter, web responses 2xx 1203, 3xx 4, 4xx 17, 5xx 2\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  db: visitors laptop, no web responses yet\n"),
+        "{text}"
     );
 }
 
@@ -186,6 +217,7 @@ fn clients_set_aside_say_why() {
     let web = &mut s.services[0];
     web.set_aside = vec![SetAside {
         client: "home".into(),
+        target: None,
         refused: true,
     }];
     let text = render(&s, Paint::PLAIN, None);
@@ -198,10 +230,22 @@ fn clients_set_aside_say_why() {
     let web = &mut s.services[0];
     web.health = vec![HealthStatus {
         client: "home".into(),
+        target: None,
         up: false,
+        reason: None,
     }];
     let text = render(&s, Paint::PLAIN, None);
     assert!(text.contains("home down, office offline"), "{text}");
+    assert!(!text.contains("home down:"), "{text}");
+    s.services[0].health[0].reason = Some("answered 401 Unauthorized".into());
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains("home down: answered 401 Unauthorized"),
+        "{text}"
+    );
+    s.services[0].health[0].up = true;
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(!text.contains("answered 401"), "{text}");
 }
 
 #[test]
@@ -419,4 +463,63 @@ fn follow_adds_rates() {
     let text = render(&after, Paint::PLAIN, Some(&r));
     assert!(text.contains("CONN/S"), "{text}");
     assert!(text.contains("10.0  1.5 MB/s"), "{text}");
+}
+
+#[test]
+fn websites_are_listed_with_the_tunnel_first() {
+    use burrow_admin_proto::web::{HostLine, TunnelLine, WebSummary};
+    let mut s = sample();
+    s.web = Some(WebSummary {
+        https: "[::]:443".into(),
+        addresses: "IPv4 and IPv6".into(),
+        shared_with_tunnel: true,
+        tunnel: Some(TunnelLine {
+            url: "wss://tunnel.example.com/burrow".into(),
+            certificate: String::new(),
+        }),
+        hosts: vec![HostLine {
+            name: "nas.example.com".into(),
+            kind: "passthrough".into(),
+            service: "nas".into(),
+            ..HostLine::default()
+        }],
+        ..WebSummary::default()
+    });
+    let text = render(&s, Paint::PLAIN, None);
+    let at = text.find("WEBSITES").expect("a websites table");
+    let rest = &text[at..];
+    let tunnel = rest.find("wss://tunnel.example.com/burrow").unwrap();
+    let nas = rest.find("nas.example.com").unwrap();
+    assert!(tunnel < nas, "{rest}");
+    assert!(
+        rest.contains("passthrough") && rest.contains("nas"),
+        "{rest}"
+    );
+    s.web.as_mut().unwrap().hosts.clear();
+    s.web.as_mut().unwrap().tunnel = None;
+    let empty = render(&s, Paint::PLAIN, None);
+    assert!(
+        empty.contains("no names yet: every connection is closed"),
+        "{empty}"
+    );
+}
+
+#[test]
+fn a_web_proxy_waiting_for_its_port_is_named_even_while_it_is_off() {
+    let mut s = sample();
+    s.web = None;
+    s.web_waiting = Some(burrow_admin_proto::status::PortWait {
+        key: "web.http".into(),
+        addr: "0.0.0.0:80".into(),
+        reason: "in use".into(),
+        stays: String::new(),
+        retry_secs: 5,
+    });
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains(
+            "web.http 0.0.0.0:80 is in use; the web proxy stays off and tries again every 5s"
+        ),
+        "{text}"
+    );
 }

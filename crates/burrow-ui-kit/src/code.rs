@@ -10,9 +10,13 @@ pub fn copy_text(text: &str) {
 }
 
 pub fn download_text(name: &str, text: &str) {
+    download(name, text, "text/plain");
+}
+
+pub fn download(name: &str, text: &str, mime: &str) {
     let parts = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(text));
     let opts = web_sys::BlobPropertyBag::new();
-    opts.set_type("text/plain");
+    opts.set_type(mime);
     let Ok(blob) = web_sys::Blob::new_with_str_sequence_and_options(&parts, &opts) else {
         return;
     };

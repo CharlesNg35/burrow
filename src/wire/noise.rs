@@ -6,7 +6,7 @@ use snow::{Builder, HandshakeState, StatelessTransportState};
 use crate::wire::secret::Secret;
 use burrow_config::Cipher;
 
-pub const MAX_SECRETS_PER_CLIENT: usize = 4;
+pub use burrow_syntax::secret_fmt::MAX_SECRETS as MAX_SECRETS_PER_CLIENT;
 
 pub const TAG_LEN: usize = 16;
 pub const MAX_RECORD: usize = 65535;

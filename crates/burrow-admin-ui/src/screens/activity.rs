@@ -1,7 +1,9 @@
 use burrow_admin_proto::msg::{self, AuditEntry, HistoryReply};
 use burrow_admin_proto::plan::Diff;
-use burrow_admin_proto::serde_json::{self, json};
-use burrow_ui_kit::{Button, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone};
+use burrow_admin_proto::serde_json;
+use burrow_ui_kit::{
+    Button, DiffLine, DiffView, EmptyState, PageHeader, Skeleton, Stat, Stats, Tone,
+};
 use leptos::prelude::*;
 
 use crate::api;
@@ -55,16 +57,20 @@ fn who(e: &AuditEntry) -> String {
     }
 }
 
-fn title_of(e: &AuditEntry) -> String {
+fn title_of(e: &AuditEntry, version: &dyn Fn(&str) -> String) -> String {
     if let Some(to) = &e.reverts {
-        return format!("Reverted to rev {}", short_rev(to));
+        return format!("Reverted to the {}", version(to));
     }
     e.changes
         .iter()
         .find(|c| c.part_of.is_none())
         .or(e.changes.first())
         .map(|c| c.summary.clone())
-        .unwrap_or_else(|| format!("No change ({})", e.result))
+        .unwrap_or_else(|| {
+            burrow_admin_logic::wording::capital(burrow_admin_logic::wording::result_words(
+                &e.result,
+            ))
+        })
 }
 
 fn repeats(entries: &[AuditEntry], i: usize) -> Option<&AuditEntry> {
@@ -100,11 +106,11 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
                 }
             };
             Row {
-                key: e.rev.clone(),
-                to: Route::Activity(Some(e.rev.clone())),
+                key: e.id.to_string(),
+                to: Route::Activity(Some(e.id.to_string())),
                 icon: "history",
                 dot: Some(tone),
-                title: title_of(e),
+                title: title_of(e, &|r| store().version(r)),
                 meta: short_rev(&e.rev),
                 line2: {
                     let same = repeats(entries, i);
@@ -119,7 +125,10 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
                     }
                 },
                 tags: if Some(i) == now {
-                    vec![("current".to_string(), Tone::Success)]
+                    vec![(
+                        burrow_admin_logic::wording::RUNNING_NOW.to_string(),
+                        Tone::Success,
+                    )]
                 } else {
                     Vec::new()
                 },
@@ -135,28 +144,26 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
 fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     let s = store();
     let diff: RwSignal<Option<Result<Vec<DiffLine>, String>>> = RwSignal::new(None);
-    if entry.details_kept {
-        api::request(
-            msg::req::HISTORY,
-            json!({ "limit": 1, "diff": entry.rev.clone() }),
-            move |r| {
-                let lines = r
-                    .map_err(|e| e.message)
-                    .and_then(|v| {
-                        serde_json::from_value::<HistoryReply>(v).map_err(|e| e.to_string())
-                    })
-                    .and_then(|h| {
-                        h.diff.map(|d| diff_lines(&d)).ok_or_else(|| {
-                            "The details of this change are no longer kept.".to_string()
-                        })
-                    });
-                let _ = diff.try_set(Some(lines));
-            },
-        );
+    let ids = burrow_admin_logic::history::has_ids(s.welcome.get_untracked().as_deref());
+    let asked = burrow_admin_logic::history::diff_request(&entry, &newer, ids);
+    if entry.details_kept
+        && let Some(asked) = asked
+    {
+        api::request(msg::req::HISTORY, api::body(&asked), move |r| {
+            let lines = r
+                .map_err(|e| e.message)
+                .and_then(|v| serde_json::from_value::<HistoryReply>(v).map_err(|e| e.to_string()))
+                .and_then(|h| {
+                    h.diff
+                        .map(|d| diff_lines(&d))
+                        .ok_or_else(|| burrow_admin_logic::wording::VERSION_GONE.to_string())
+                });
+            let _ = diff.try_set(Some(lines));
+        });
+    } else if entry.details_kept {
+        diff.set(Some(Err(burrow_admin_logic::history::OLDER_REPEAT.into())));
     } else {
-        diff.set(Some(Err(
-            "The details of this change are no longer kept.".into()
-        )));
+        diff.set(Some(Err(burrow_admin_logic::wording::VERSION_GONE.into())));
     }
     let to = revert_target(&entry);
     let matches = {
@@ -172,33 +179,24 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     } else {
         "Revert to before this change"
     };
-    let title = title_of(&entry);
+    let title = title_of(&entry, &|r| store().version(r));
     let newer_list = newer
         .into_iter()
         .map(|n| {
-            let rev = short_rev(&n.rev);
+            let rev = format::stamp(n.at as f64 * 1000.0);
             view! {
                 <li class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
-                    <Link to=Route::Activity(Some(n.rev.clone())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
-                    <span class="truncate">{title_of(&n)}</span>
+                    <Link to=Route::Activity(Some(n.id.to_string())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
+                    <span class="truncate">{title_of(&n, &|r| store().version(r))}</span>
                     <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
                 </li>
             }
         })
         .collect::<Vec<_>>();
-    let base_short = short_rev(&entry.base);
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
-        <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
-            <Link to=Route::Activity(None) class="text-text-muted no-underline hover:text-text">"Activity"</Link>
-            <span aria-hidden="true">"/"</span>
-            <span class="font-semibold text-text">{format!("rev {}", short_rev(&entry.rev))}</span>
-        </nav>
-        <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
-            <div class="min-w-0 flex-1">
-                <h1 class="text-[25px] font-bold tracking-[-0.015em]">{title}</h1>
-            </div>
-            {can_revert.then(|| view! {
+        {crate::screens::crumbs(Route::Activity(None), "Activity".into(), store().version(&entry.rev), Signal::stored(false), None)}
+        <PageHeader actions={view! { {can_revert.then(|| view! {
                 <Button
                     label=revert_label
                     variant="tinted"
@@ -211,14 +209,13 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                         route::go(Route::Review);
                     }
                 />
-            })}
-        </header>
+            })} }.into_any()}>{title}</PageHeader>
         <Stats testid="version-stats">
-            <Stat label="Rev" value=short_rev(&entry.rev) detail=format!("replaced {base_short}")/>
+            <Stat label="Version" value=format::stamp(entry.at as f64 * 1000.0) detail=format!("replaced the {} · id {}", store().version(&entry.base), short_rev(&entry.rev))/>
             <Stat label="By" value=if hand(&entry) { "hand edit".to_string() } else { who(&entry) } detail=if hand(&entry) { "written to server.yaml directly".to_string() } else { entry.from.clone() }/>
             <Stat label="When" value=format::relative(entry.at) detail=""/>
         </Stats>
-        <h3 class=label>"Diff of this change"</h3>
+        <h3 class=label>{burrow_admin_logic::wording::CHANGED_LINES}</h3>
         <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
             {move || match diff.get() {
                 None => view! { <div class="p-4"><Skeleton lines=3/></div> }.into_any(),
@@ -257,19 +254,19 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     }
     let count = Signal::derive(move || {
         let n = rows.with(Vec::len);
-        format!("{n} version{}", if n == 1 { "" } else { "s" })
+        burrow_admin_logic::wording::count_of(n, "version")
     });
-    let on_action = Callback::new(move |(rev, action): (String, String)| {
+    let on_action = Callback::new(move |(id, action): (String, String)| {
         let entry = s.history.with_untracked(|h| {
             h.as_ref()
-                .and_then(|h| h.iter().find(|e| e.rev == rev).cloned())
+                .and_then(|h| h.iter().find(|e| e.id.to_string() == id).cloned())
         });
         match (action.as_str(), entry) {
             ("revert", Some(e)) => {
                 s.edit.open_revert(s, revert_target(&e));
                 route::go(Route::Review);
             }
-            _ => route::go(Route::Activity(Some(rev))),
+            _ => route::go(Route::Activity(Some(id))),
         }
     });
     let sel = selected.clone();
@@ -297,7 +294,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         }
         .into_any(),
         Some(h) => {
-            let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.rev == r));
+            let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.id.to_string() == r));
             match at {
                 Some(i) => view! { <Version entry=h[i].clone() newer=h[..i].to_vec()/> }.into_any(),
                 None => view! { <div class="max-lg:hidden"><EmptyState icon="history" title="Pick a version on the left" message="Each one shows what changed and can be reverted."/></div> }.into_any(),
@@ -307,6 +304,15 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     };
     let detail = view! { <DetailPane back=Route::Activity(None)>{body}</DetailPane> }.into_any();
     master_detail(list, detail)
+}
+
+pub fn entry_of_rev(rev: &str) -> Option<String> {
+    store().history.with_untracked(|h| {
+        h.as_ref()?
+            .iter()
+            .find(|e| e.rev == rev)
+            .map(|e| e.id.to_string())
+    })
 }
 
 fn revert_target(entry: &AuditEntry) -> String {
@@ -379,7 +385,12 @@ mod tests {
             visitor: "file".into(),
             ..reverted.clone()
         };
-        assert_eq!(title_of(&reverted), "Reverted to rev aaaa1111");
+        assert_eq!(
+            title_of(&reverted, &|_| burrow_admin_logic::wording::version_name(
+                Some("10:00:00")
+            )),
+            "Reverted to the version of 10:00:00"
+        );
         let list = [reverted, removed.clone(), added.clone()];
         assert!(repeats(&list, 0).is_none(), "the revert's title says it");
         let list = [by_hand, removed, added];

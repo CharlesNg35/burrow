@@ -1,26 +1,23 @@
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
+use super::udp::ServiceMeter;
 use super::via::Via;
 use super::visit::Grant;
 use crate::forward::{ForwardError, Opened};
-use crate::metrics::ServiceStats;
-use crate::policy::ratelimit::Limit;
 use crate::policy::throttle::Throttle;
+use crate::udp::front::Meter;
 use crate::udp::link::{Link, Opening, open_udp};
 use crate::udp::peers::{PeerGauge, PeerTable};
 use crate::wire::protocol::{Connect, Status, VisitRequest, VisitTarget, decode_datagram};
 use crate::wire::secret::Secret;
 use crate::wire::transport::Channel;
 use burrow_config::Protocol;
-
-const SWEEP: Duration = Duration::from_secs(5);
 
 pub(super) struct Visit<'a> {
     pub visitor: &'a str,
@@ -38,60 +35,20 @@ struct Peers {
     last: Instant,
 }
 
-struct Meter {
-    limit: Option<Arc<Limit>>,
-    stats: Option<Arc<ServiceStats>>,
-}
-
-impl Meter {
-    fn take_in(&self, n: usize) -> bool {
-        self.limit.as_ref().is_none_or(|l| l.inbound.try_take(n))
-    }
-
-    fn take_out(&self, n: usize) -> bool {
-        self.limit.as_ref().is_none_or(|l| l.outbound.try_take(n))
-    }
-
-    fn count_in(&self, n: usize) {
-        if let Some(s) = &self.stats {
-            s.traffic.inbound.fetch_add(n as u64, Ordering::Relaxed);
-        }
-    }
-
-    fn count_out(&self, n: usize) {
-        if let Some(s) = &self.stats {
-            s.traffic.outbound.fetch_add(n as u64, Ordering::Relaxed);
-        }
-    }
-
-    fn new_peer(&self) {
-        if let Some(s) = &self.stats {
-            s.total.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-}
-
 pub(super) async fn serve(
     shared: &Arc<Shared>,
     channel: &mut Channel,
     visit: Visit<'_>,
-    clients: Vec<Via>,
+    clients: super::pick::Picked,
 ) -> (Outcome, bool) {
     let grant = visit.grant;
     let way = Way {
         service: grant.service.as_deref(),
-        target: &grant.target,
         label: visit.label,
         peer: visit.peer,
+        source: None,
         several: visit.several,
     };
-    let connect = Connect {
-        protocol: Protocol::Udp,
-        service: grant.service.clone().unwrap_or_default(),
-        target: grant.target.clone(),
-        only: grant.only.clone(),
-    }
-    .encode();
     let mut forbidden = false;
     let mut tries = Tries::new(shared, &way, clients);
     let outcome = loop {
@@ -113,7 +70,14 @@ pub(super) async fn serve(
             forbidden = true;
             break Outcome::Gone(None);
         }
-        let wait = shared.settings().heartbeat_interval * 3;
+        let wait = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
+        let connect = Connect {
+            protocol: Protocol::Udp,
+            service: grant.service.clone().unwrap_or_default(),
+            target: session.target.clone(),
+            only: grant.only.clone(),
+        }
+        .encode();
         let opened = match open_udp(ch, &connect, wait).await {
             Ok(link) => link,
             Err(failed) => {
@@ -128,7 +92,7 @@ pub(super) async fn serve(
                 }
             }
         };
-        way.accepted(shared, client);
+        way.accepted(shared, &session);
         if channel
             .writer
             .send(&mut channel.stream, &[Status::Ok as u8])
@@ -137,16 +101,17 @@ pub(super) async fn serve(
         {
             break Outcome::Gone(None);
         }
-        let meter = Meter {
-            limit: grant.service.as_ref().map(|name| shared.limit(name)),
-            stats: grant
-                .service
-                .as_ref()
-                .map(|name| shared.metrics.service(name)),
+        let meter = match &grant.service {
+            Some(name) => ServiceMeter::of(shared, name),
+            None => ServiceMeter {
+                limit: None,
+                stats: None,
+            },
         };
         relay(shared, channel, opened, &session, &visit, meter, &allowed).await;
         break Outcome::Done {
             client: client.to_string(),
+            target: session.target.clone(),
             result: Ok(()),
         };
     };
@@ -159,7 +124,7 @@ async fn relay(
     link: Link,
     session: &Via,
     visit: &Visit<'_>,
-    meter: Meter,
+    meter: ServiceMeter,
     allowed: &impl Fn() -> bool,
 ) {
     let Link {
@@ -180,8 +145,9 @@ async fn relay(
         gauge: PeerGauge::new(shared.clone()),
         last: Instant::now(),
     });
-    let stall = shared.settings().heartbeat_interval * 3;
+    let stall = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
     let up = async {
+        let mut sealed = Vec::new();
         loop {
             let rec = match vreader.recv(&mut vrd).await {
                 Ok(Some(rec)) => rec,
@@ -221,13 +187,14 @@ async fn relay(
                 continue;
             }
             meter.count_in(payload.len());
-            match tokio::time::timeout(stall, cwriter.send(&mut cwr, rec)).await {
+            match tokio::time::timeout(stall, cwriter.send_with(&mut cwr, rec, &mut sealed)).await {
                 Ok(Ok(())) => {}
                 _ => return,
             }
         }
     };
     let down = async {
+        let mut sealed = Vec::new();
         loop {
             let rec = match creader.recv(&mut crd).await {
                 Ok(Some(rec)) => rec,
@@ -251,14 +218,14 @@ async fn relay(
                 continue;
             }
             meter.count_out(payload.len());
-            match tokio::time::timeout(stall, vwriter.send(&mut vwr, rec)).await {
+            match tokio::time::timeout(stall, vwriter.send_with(&mut vwr, rec, &mut sealed)).await {
                 Ok(Ok(())) => {}
                 _ => return,
             }
         }
     };
     tokio::pin!(up, down);
-    let mut sweep = tokio::time::interval(SWEEP);
+    let mut sweep = tokio::time::interval(crate::udp::front::SWEEP);
     let mut reloads = shared.reloads();
     let mut stop = shared.shutdown_signal();
     loop {

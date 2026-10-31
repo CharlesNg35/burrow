@@ -1,5 +1,5 @@
 use burrow_admin_logic::addr;
-use burrow_ui_kit::{Segmented, Select, TextInput, Toggle, Tone, tag_class};
+use burrow_ui_kit::{Segmented, Select, TextInput, Toggle};
 use leptos::prelude::*;
 
 use super::{Addr, Kind, SPECIFIC, base_hosts};
@@ -174,9 +174,9 @@ pub(super) fn network(
                         }
                     }
                 </Show>
-                {move || count.get().map(|n| view! {
-                    <span class=tag_class(if has_error.get() { Tone::Danger } else { Tone::Accent }) data-testid="port-count">
-                        {format!("{n} port{}", if n == 1 { "" } else { "s" })}
+                {move || count.get().filter(|n| *n > 1).map(|n| view! {
+                    <span class=if has_error.get() { "text-xs text-danger" } else { "text-xs text-text-muted" } data-testid="port-count">
+                        {format!("{n} ports")}
                     </span>
                 })}
                 {ranges.then(|| {

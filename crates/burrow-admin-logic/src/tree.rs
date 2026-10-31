@@ -47,6 +47,17 @@ fn entity_info<'a>(schema: &'a Schema, entity: &Entity) -> Option<&'a EntityInfo
     schema.entities.iter().find(|e| &e.entity == entity)
 }
 
+pub fn entity_sections(schema: &Schema) -> Vec<String> {
+    schema
+        .entities
+        .iter()
+        .filter_map(|e| match e.path.as_slice() {
+            [section] => Some(section.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn names(doc: &Value, section: &[String]) -> Vec<String> {
     value::get(doc, section)
         .and_then(Value::as_object)
@@ -84,13 +95,15 @@ fn one_of(node: &Node) -> Option<&str> {
 fn pair(object: &Node) -> Option<(&str, &str)> {
     let all = fields(object);
     all.iter().find_map(|list| {
-        let SemType::RefList(l) = &inner(&list.node).sem else {
-            return None;
+        let entity = match &inner(&list.node).sem {
+            SemType::RefList(l) => &l.entity,
+            SemType::RefEntries(l) => &l.entity,
+            _ => return None,
         };
         let group = one_of(&list.node)?;
         all.iter()
             .find_map(|single| match &inner(&single.node).sem {
-                SemType::Ref(r) if r.entity == l.entity && one_of(&single.node) == Some(group) => {
+                SemType::Ref(r) if &r.entity == entity && one_of(&single.node) == Some(group) => {
                     Some((single.key.as_str(), list.key.as_str()))
                 }
                 _ => None,
@@ -106,6 +119,22 @@ pub fn merged_into<'a>(object: &'a Node, single_key: &str) -> Option<&'a str> {
     pair(object)
         .filter(|(s, _)| *s == single_key)
         .map(|(_, l)| l)
+}
+
+pub fn holds(doc: &Value, pattern: &[String]) -> bool {
+    let Some((first, rest)) = pattern.split_first() else {
+        return !doc.is_null();
+    };
+    match doc {
+        Value::Object(m) if first == burrow_admin_proto::schema::ANY => {
+            m.values().any(|v| holds(v, rest))
+        }
+        Value::Array(a) if first == burrow_admin_proto::schema::ANY => {
+            a.iter().any(|v| holds(v, rest))
+        }
+        Value::Object(m) => m.get(first).is_some_and(|v| holds(v, rest)),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -163,6 +192,11 @@ mod tests {
         assert_eq!(
             entity_names(&s, &d, &Entity::Client),
             vec!["home", "office"]
+        );
+        assert!(entity_sections(&s).contains(&"clients".to_string()));
+        assert!(
+            !entity_sections(&s).contains(&"web".to_string()),
+            "the login services live inside the web settings"
         );
     }
 }

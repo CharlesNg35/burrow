@@ -17,6 +17,7 @@ pub fn path(name: &str) -> &'static str {
         "lock" => "M7 11V8a5 5 0 0110 0v3M5.5 11h13v9.5h-13zM12 15v2",
         "copy" => "M9 9h11v11H9zM5 15H4V4h11v1",
         "download" => "M12 4v11m-5-5l5 5 5-5M5 20h14",
+        "arrow-up" => "M12 20V9m-5 5l5-5 5 5M5 4h14",
         "server" | "box" => "M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9",
         "arrow" => "M5 12h14m-5-5l5 5-5 5",
         "close" | "x" => "M6 6l12 12M18 6L6 18",
@@ -43,6 +44,7 @@ pub fn path(name: &str) -> &'static str {
             "M6 3v12M6 15a3 3 0 100 6 3 3 0 000-6zM18 9a3 3 0 100-6 3 3 0 000 6zM18 9v3a3 3 0 01-3 3H9"
         }
         "plus" => "M12 5v14M5 12h14",
+        "minus" => "M5 12h14",
         "chevron-down" => "M6 9l6 6 6-6",
         "chevron-right" => "M9 6l6 6-6 6",
         "chevron-left" => "M15 6l-6 6 6 6",
@@ -55,7 +57,9 @@ pub fn path(name: &str) -> &'static str {
         "edit" => "M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4",
         "trash" => "M4 7h16M10 11v6M14 11v6M5.5 7l1 13h11l1-13M9 7V4h6v3",
         "external" => "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
-        "more" => "M5 12h.01M12 12h.01M19 12h.01",
+        "more" => {
+            "M5 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8zM12 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8zM19 10.6a1.4 1.4 0 1 1 0 2.8a1.4 1.4 0 1 1 0-2.8z"
+        }
         "fork" => "M10 3h4v4h-4zM3.5 17h4v4h-4zM16.5 17h4v4h-4zM12 7v4M5.5 17v-3h13v3",
         "sun" => {
             "M12 16a4 4 0 100-8 4 4 0 000 8zM12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"

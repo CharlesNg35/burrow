@@ -1,5 +1,6 @@
 mod lock;
 mod note;
+mod own;
 pub mod publish;
 
 use std::fs::{File, OpenOptions};
@@ -16,6 +17,7 @@ pub use lock::{acquire, acquire_in, held, held_in};
 pub(crate) use note::alive;
 pub use note::{Running, running, running_in};
 use note::{no_follow, single_file};
+pub use own::{own_dir, prepare_own};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Identity {
@@ -64,7 +66,17 @@ pub struct InstanceLock {
 const REFRESH: std::time::Duration = std::time::Duration::from_secs(3600);
 
 pub struct Fresh {
-    _stop: std::sync::mpsc::Sender<()>,
+    stop: Option<std::sync::mpsc::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Fresh {
+    fn drop(&mut self) {
+        self.stop.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 pub fn keep_fresh(paths: Vec<PathBuf>) -> Fresh {
@@ -73,7 +85,7 @@ pub fn keep_fresh(paths: Vec<PathBuf>) -> Fresh {
 
 fn keep_fresh_every(paths: Vec<PathBuf>, every: std::time::Duration) -> Fresh {
     let (stop, stopped) = std::sync::mpsc::channel::<()>();
-    let _ = std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("burrow-fresh".into())
         .spawn(move || {
             while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(every)
@@ -82,8 +94,12 @@ fn keep_fresh_every(paths: Vec<PathBuf>, every: std::time::Duration) -> Fresh {
                     touch(path);
                 }
             }
-        });
-    Fresh { _stop: stop }
+        })
+        .ok();
+    Fresh {
+        stop: Some(stop),
+        thread,
+    }
 }
 
 fn touch(path: &Path) {
@@ -100,7 +116,7 @@ fn touch(path: &Path) {
 impl Drop for InstanceLock {
     fn drop(&mut self) {
         if self.noted {
-            let _ = std::fs::remove_file(self.path.with_extension("info"));
+            let _ = std::fs::remove_file(self.path.with_extension(NOTE_EXTENSION));
         }
     }
 }
@@ -111,13 +127,15 @@ impl InstanceLock {
     }
 }
 
+pub const LOCK_EXTENSION: &str = "lock";
+pub const NOTE_EXTENSION: &str = "info";
+pub const STATUS_EXTENSION: &str = "status";
+
 pub fn service_dir() -> Option<PathBuf> {
     if cfg!(target_os = "linux") {
-        Some(PathBuf::from("/run/burrow-instances"))
+        crate::install::Platform::Linux.instances_dir()
     } else if cfg!(target_os = "macos") {
-        Some(PathBuf::from(
-            "/Library/Application Support/burrow/instances",
-        ))
+        crate::install::Platform::MacOs.instances_dir()
     } else {
         None
     }
@@ -141,7 +159,7 @@ pub fn remove_unused(dir: &Path) {
     };
     for path in listing.flatten().map(|e| e.path()) {
         match path.extension().and_then(|x| x.to_str()) {
-            Some("lock") => {
+            Some(LOCK_EXTENSION) => {
                 let mut opts = OpenOptions::new();
                 opts.read(true).write(true);
                 let held = no_follow(&mut opts)
@@ -150,15 +168,15 @@ pub fn remove_unused(dir: &Path) {
                     .ok()
                     .filter(|f| f.try_lock().is_ok());
                 if let Some(lock) = held {
-                    let _ = std::fs::remove_file(path.with_extension("info"));
+                    let _ = std::fs::remove_file(path.with_extension(NOTE_EXTENSION));
                     let _ = std::fs::remove_file(&path);
                     drop(lock);
                 }
             }
-            Some("status") if stale_status(&path) => {
+            Some(STATUS_EXTENSION) if stale_status(&path) => {
                 let _ = std::fs::remove_file(&path);
             }
-            Some("new") if left_behind(&path) => {
+            Some(crate::base::fs::TEMP_EXTENSION) if left_behind(&path) => {
                 let _ = std::fs::remove_file(&path);
             }
             _ => {}
@@ -184,7 +202,7 @@ pub fn dirs_with(dir: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![dir.to_path_buf()];
     if std::env::var_os("BURROW_INSTANCE_DIR").is_none() && dir == default_dir() {
         dirs.extend(
-            [service_dir(), Some(fallback_dir())]
+            [service_dir(), Some(fallback_dir()), Some(own_dir())]
                 .into_iter()
                 .flatten()
                 .filter(|d| d.is_dir() && d != dir),
@@ -212,7 +230,8 @@ pub fn default_dir() -> PathBuf {
     if let Some(dir) = service_dir().filter(|d| d.is_dir()) {
         return dir;
     }
-    fallback_dir()
+    let shared = fallback_dir();
+    if safe_dir(&shared) { shared } else { own_dir() }
 }
 
 pub fn private_dir(dir: &Path) -> std::io::Result<()> {
@@ -230,21 +249,11 @@ pub fn private_dir(dir: &Path) -> std::io::Result<()> {
     }
     #[cfg(windows)]
     {
-        let icacls = |args: &[&str]| {
-            std::process::Command::new("icacls")
-                .arg(dir)
-                .args(args)
-                .output()
-                .is_ok_and(|o| o.status.success())
-        };
-        let done = icacls(&["/setowner", "*S-1-5-32-544"])
-            && icacls(&["/reset"])
-            && icacls(&[
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:(OI)(CI)F",
-                "*S-1-5-32-544:(OI)(CI)F",
-            ]);
+        use crate::base::windows::{ADMINS, SYSTEM, icacls};
+        let (system, admins) = (format!("{SYSTEM}:(OI)(CI)F"), format!("{ADMINS}:(OI)(CI)F"));
+        let done = icacls(dir, &["/setowner", ADMINS]).is_ok()
+            && icacls(dir, &["/reset"]).is_ok()
+            && icacls(dir, &["/inheritance:r", "/grant:r", &system, &admins]).is_ok();
         if !done {
             return Err(std::io::Error::other(format!(
                 "cannot restrict {} to administrators",
@@ -268,8 +277,12 @@ pub fn prepare(dir: &Path) -> std::io::Result<()> {
 
 #[cfg(unix)]
 pub fn safe_dir(dir: &Path) -> bool {
+    safe_dir_as(dir, rustix::process::geteuid().as_raw())
+}
+
+#[cfg(unix)]
+fn safe_dir_as(dir: &Path, me: u32) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let me = rustix::process::geteuid().as_raw();
     let trusted = |uid: u32| uid == 0 || uid == me;
     let Ok(link) = std::fs::symlink_metadata(dir) else {
         return true;
@@ -282,13 +295,7 @@ pub fn safe_dir(dir: &Path) -> bool {
     };
     let sticky = target.mode() & 0o1000 != 0;
     let open_to_all = target.mode() & 0o002 != 0;
-    let owned = trusted(target.uid());
-    target.is_dir()
-        && if sticky {
-            owned || me != 0
-        } else {
-            owned && !open_to_all
-        }
+    target.is_dir() && trusted(target.uid()) && (sticky || !open_to_all)
 }
 
 #[cfg(not(unix))]
@@ -297,6 +304,9 @@ pub fn safe_dir(_dir: &Path) -> bool {
 }
 
 fn prepare_dir(dir: &Path) -> std::io::Result<()> {
+    if dir == own_dir() {
+        return prepare_own(dir);
+    }
     if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }

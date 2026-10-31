@@ -7,6 +7,18 @@ use std::time::{Duration, Instant};
 pub const MAX_BYTES: u64 = 10 * 1024 * 1024;
 pub const KEEP: usize = 5;
 
+fn rotated_name(log: &Path, n: usize) -> PathBuf {
+    let mut name = log.as_os_str().to_owned();
+    name.push(format!(".{n}"));
+    PathBuf::from(name)
+}
+
+pub fn all_files(log: &Path) -> Vec<PathBuf> {
+    std::iter::once(log.to_path_buf())
+        .chain((1..=KEEP).map(|n| rotated_name(log, n)))
+        .collect()
+}
+
 struct State {
     file: File,
     size: u64,
@@ -89,9 +101,7 @@ impl RotatingFile {
     }
 
     fn rotated(&self, n: usize) -> PathBuf {
-        let mut name = self.path.as_os_str().to_owned();
-        name.push(format!(".{n}"));
-        PathBuf::from(name)
+        rotated_name(&self.path, n)
     }
 
     fn rotate(&self, state: &mut State) -> io::Result<()> {
@@ -199,6 +209,25 @@ mod tests {
         );
         let newest = std::fs::read_to_string(&path).unwrap();
         assert!(newest.contains("line 049"));
+        let mut made: Vec<PathBuf> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        made.sort();
+        let mut named = all_files(&path);
+        named.sort();
+        assert_eq!(made, named, "all_files names exactly what rotation keeps");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn all_files_keeps_a_name_that_is_not_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        let log = Path::new(std::ffi::OsStr::from_bytes(b"/var/log/b\xffr.log"));
+        let files = all_files(log);
+        assert_eq!(files[0], log);
+        assert_eq!(files[1].as_os_str().as_bytes(), b"/var/log/b\xffr.log.1");
+        assert_eq!(files.len(), KEEP + 1);
     }
 
     #[cfg(unix)]

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use burrow_admin_proto::schema::{EntityInfo, Node};
+use burrow_admin_proto::schema::{Entity, EntityInfo, Node};
 
 use crate::field::Entry;
 use crate::model::{ClientEntry, ServiceEntry, VisitorEntry};
@@ -93,6 +93,7 @@ pub mod sem {
         PortRange,
         Target,
         Host,
+        HostName,
         ServerAddress,
         Cidr,
         CidrRule,
@@ -101,10 +102,13 @@ pub mod sem {
         Rate,
         Ref,
         RefList,
+        RefEntries,
         RefMap,
         Name,
         SecretRef,
         Path,
+        Upload,
+        PasswordHash,
         UrlPath,
         Object,
         Map,
@@ -126,6 +130,7 @@ carriers!(Port: u16);
 carriers!(IpPort: String);
 carriers!(PortRange: String);
 carriers!(Host: String);
+carriers!(HostName: String);
 carriers!(ServerAddress: String);
 carriers!(Cidr: String);
 carriers!(CidrRule: String);
@@ -134,11 +139,15 @@ carriers!(Size: u32, u64);
 carriers!(Rate: String);
 carriers!(Ref: String);
 carriers!(RefList: Vec<String>);
+carriers!(RefEntries: Vec<crate::model::ClientRef>);
 carriers!(Name: String);
 carriers!(Path: String);
+carriers!(Upload: String);
+carriers!(PasswordHash: String);
 carriers!(UrlPath: String);
+carriers!(SecretRef: String);
 impl<V> Carrier<sem::RefMap> for BTreeMap<String, V> {}
-impl<V: AdminSchema> Carrier<sem::Map> for BTreeMap<String, V> {}
+impl<V> Carrier<sem::Map> for BTreeMap<String, V> {}
 impl<T> Carrier<sem::List> for Vec<T> {}
 
 #[doc(hidden)]
@@ -149,8 +158,9 @@ pub mod __private {
     };
     pub use burrow_admin_proto::schema::{
         Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
-        IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC, PathC, PortRangeC,
-        RefC, RefListC, RefMapC, Relation, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC,
+        HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC,
+        PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC, RefMapC, Relation,
+        SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UploadC,
     };
     use burrow_admin_proto::serde_json;
     pub use serde_json::json;
@@ -172,22 +182,25 @@ pub mod __private {
 }
 
 pub fn entities() -> Vec<EntityInfo> {
-    fn info<E: Entry>(label: &str, plural: &str, facets: &[&str]) -> EntityInfo {
+    fn info<E: Entry>(label: &str, facets: &[&str]) -> EntityInfo {
         EntityInfo {
             entity: E::kind(),
             path: vec![E::section().to_string()],
             label: label.to_string(),
-            plural: plural.to_string(),
+            plural: E::kind().plural().to_string(),
             facets: facets.iter().map(|s| s.to_string()).collect(),
         }
     }
     vec![
-        info::<ClientEntry>("Client", "Clients", &["online", "from", "secret_fp"]),
-        info::<VisitorEntry>("Visitor", "Visitors", &["open"]),
-        info::<ServiceEntry>(
-            "Service",
-            "Services",
-            &[ServiceEntry::PROTOCOL.key(), "public"],
-        ),
+        info::<ClientEntry>("Client", &["online", "from", "secret_fp"]),
+        info::<VisitorEntry>("Visitor", &["open"]),
+        info::<ServiceEntry>("Service", &[ServiceEntry::PROTOCOL.key(), "public"]),
+        EntityInfo {
+            entity: Entity::Login,
+            path: crate::field::logins_path(),
+            label: "Login service".to_string(),
+            plural: Entity::Login.plural().to_string(),
+            facets: Vec::new(),
+        },
     ]
 }

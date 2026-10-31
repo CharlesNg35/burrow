@@ -62,28 +62,6 @@ pub fn same_content(a: &Path, b: &Path) -> bool {
     len(a).is_some() && len(a) == len(b) && std::fs::read(a).ok() == std::fs::read(b).ok()
 }
 
-fn write_new_copy(from: &Path, tmp: &Path, executable: bool) -> std::io::Result<()> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    let mode = if executable { 0o755 } else { 0o600 };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(mode);
-    }
-    #[cfg(not(unix))]
-    let _ = executable;
-    let mut out = opts.open(tmp)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        out.set_permissions(std::fs::Permissions::from_mode(mode))?;
-    }
-    std::io::copy(&mut std::fs::File::open(from)?, &mut out)?;
-    out.sync_all()
-}
-
 pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure> {
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)
@@ -91,16 +69,14 @@ pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure
     }
     let tmp = to.with_extension("burrow-new");
     let _ = std::fs::remove_file(&tmp);
-    let written = write_new_copy(from, &tmp, executable);
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(Failure::new(format!(
+    let mode = if executable { 0o755 } else { 0o600 };
+    crate::base::fs::copy_atomic(from, to, &tmp, mode).map_err(|e| {
+        Failure::new(format!(
             "cannot copy {} to {}: {e}",
             from.display(),
             to.display()
-        )));
-    }
-    replace(&tmp, to)
+        ))
+    })
 }
 
 pub fn write_file(to: &Path, bytes: &[u8]) -> Result<(), Failure> {
@@ -108,77 +84,12 @@ pub fn write_file(to: &Path, bytes: &[u8]) -> Result<(), Failure> {
 }
 
 pub fn write_file_mode(to: &Path, bytes: &[u8], mode: u32) -> Result<(), Failure> {
-    use std::io::Write;
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
     }
-    let tmp = to.with_extension("burrow-new");
-    let _ = std::fs::remove_file(&tmp);
-    let written = (|| {
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        let mut f = opts.open(&tmp)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            f.set_permissions(std::fs::Permissions::from_mode(mode))?;
-        }
-        #[cfg(not(unix))]
-        let _ = mode;
-        f.write_all(bytes)?;
-        f.sync_all()
-    })();
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(Failure::new(format!("cannot write {}: {e}", to.display())));
-    }
-    replace(&tmp, to)
-}
-
-fn replace(tmp: &Path, to: &Path) -> Result<(), Failure> {
-    let mut tries = 0;
-    let mut moved_aside = None;
-    loop {
-        match std::fs::rename(tmp, to) {
-            Ok(()) => return Ok(()),
-            Err(e)
-                if cfg!(windows)
-                    && tries < 8
-                    && e.kind() == std::io::ErrorKind::PermissionDenied =>
-            {
-                tries += 1;
-                std::thread::sleep(std::time::Duration::from_millis(250));
-            }
-            Err(e)
-                if cfg!(windows)
-                    && tries == 8
-                    && e.kind() == std::io::ErrorKind::PermissionDenied =>
-            {
-                tries += 1;
-                let aside = to.with_extension("old");
-                let _ = std::fs::remove_file(&aside);
-                if std::fs::rename(to, &aside).is_ok() {
-                    moved_aside = Some(aside);
-                }
-            }
-            Err(e) => {
-                let _ = std::fs::remove_file(tmp);
-                if let Some(aside) = &moved_aside {
-                    let _ = std::fs::rename(aside, to);
-                }
-                return Err(Failure::new(format!(
-                    "cannot replace {}: {e}",
-                    to.display()
-                )));
-            }
-        }
-    }
+    crate::base::fs::write_atomic(to, bytes, mode)
+        .map_err(|e| Failure::new(format!("cannot write {}: {e}", to.display())))
 }
 
 pub fn binary_version(path: &Path) -> String {
@@ -212,7 +123,7 @@ pub fn run_as_service(name: &str) -> Result<u8, Failure> {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let ids = owner.map(account_ids).transpose()?;
     let root_only_folder = path
         .parent()
@@ -228,21 +139,15 @@ pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
             |e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())),
         );
     }
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
+    let opened = crate::base::fs::open_plain(path)
         .map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
-    let meta = file
-        .metadata()
-        .map_err(|e| Failure::new(format!("cannot read {}: {e}", path.display())))?;
-    if !meta.is_file() || meta.nlink() != 1 {
+    let Some(file) = opened else {
         return Err(Failure::new(format!(
             "{} is not a plain file with one link, so burrow will not secure it",
             path.display()
         ))
         .hint("remove it and run the command again"));
-    }
+    };
     if let (Some((uid, gid)), Some(account)) = (ids, owner) {
         std::os::unix::fs::fchown(&file, Some(uid), Some(gid)).map_err(|e| {
             Failure::new(format!("cannot give {} to {account}: {e}", path.display()))
@@ -268,20 +173,6 @@ impl Operation {
         drop(_file);
         let _ = std::fs::remove_file(path);
     }
-}
-
-#[cfg(unix)]
-fn names(path: &Path, file: &std::fs::File) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (std::fs::symlink_metadata(path), file.metadata()) {
-        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-        _ => false,
-    }
-}
-
-#[cfg(not(unix))]
-fn names(_path: &Path, _file: &std::fs::File) -> bool {
-    true
 }
 
 pub const OPERATION_LOCK: &str = "operation.lock";
@@ -333,7 +224,9 @@ fn operation_in(
             continue;
         }
         match file.try_lock() {
-            Ok(()) if names(&path, &file) => return Ok(Operation { _file: file, path }),
+            Ok(()) if crate::base::fs::names(&path, &file) => {
+                return Ok(Operation { _file: file, path });
+            }
             Ok(()) => {
                 replaced += 1;
                 continue;
@@ -378,16 +271,7 @@ fn private_lock(_file: &std::fs::File) -> bool {
 #[cfg(unix)]
 pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
     use std::io::Read;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .ok()?;
-    let meta = file.metadata().ok()?;
-    if !meta.is_file() || meta.nlink() != 1 {
-        return None;
-    }
+    let mut file = crate::base::fs::open_plain(path).ok()??;
     let mut out = Vec::new();
     file.read_to_end(&mut out).ok()?;
     Some(out)
@@ -404,28 +288,20 @@ pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
 
 #[cfg(unix)]
 pub fn give_plain_file(path: &Path, uid: u32, gid: u32) -> std::io::Result<bool> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let meta = file.metadata()?;
-    if !meta.is_file() || meta.nlink() != 1 {
+    let Some(file) = crate::base::fs::open_plain(path)? else {
         return Ok(false);
-    }
+    };
     std::os::unix::fs::fchown(&file, Some(uid), Some(gid))?;
     Ok(true)
 }
 
 #[cfg(unix)]
 pub fn give_back(path: &Path, from: u32, uid: u32, gid: u32) -> std::io::Result<bool> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let meta = file.metadata()?;
-    if !meta.is_file() || meta.nlink() != 1 || meta.uid() != from {
+    use std::os::unix::fs::MetadataExt;
+    let Some(file) = crate::base::fs::open_plain(path)? else {
+        return Ok(false);
+    };
+    if file.metadata()?.uid() != from {
         return Ok(false);
     }
     std::os::unix::fs::fchown(&file, Some(uid), Some(gid))?;
@@ -448,7 +324,7 @@ pub fn make_dir(path: &Path, mode: u32, owner: Option<&str>) -> Result<(), Failu
 }
 
 #[cfg(target_os = "linux")]
-pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
+pub fn any_path_under(files: &[PathBuf], roots: &[&str]) -> bool {
     files.iter().any(|f| roots.iter().any(|r| f.starts_with(r)))
 }
 
@@ -701,6 +577,25 @@ pub(crate) mod tests {
         assert_eq!(std::fs::read_to_string(&plist).unwrap(), "job");
         assert_eq!(mode(&plist), 0o600);
         assert!(!plist.with_extension("burrow-new").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_copied_binary_stays_executable_for_all_under_a_strict_umask() {
+        under_umask_077(
+            "service::system::tests::a_copied_binary_stays_executable_for_all_under_a_strict_umask",
+            || {
+                use std::os::unix::fs::PermissionsExt;
+                let dir = tempfile::tempdir().unwrap();
+                let src = dir.path().join("burrow-src");
+                std::fs::write(&src, "#!/bin/sh\n").unwrap();
+                let bin = dir.path().join("bin").join("burrow");
+                copy_file(&src, &bin, true).unwrap();
+                let mode = std::fs::metadata(&bin).unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, 0o755);
+                assert!(!bin.with_extension("burrow-new").exists());
+            },
+        );
     }
 
     #[test]

@@ -12,6 +12,7 @@ use burrow_admin_proto::msg::{ErrorBody, ErrorCode};
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::{Applied, Conflict, Plan, Refusal, ReloadFailed};
 use burrow_admin_proto::serde_json::{self, Value};
+use burrow_config::{Entry, ServiceEntry};
 use leptos::prelude::*;
 
 use diags::related_errors;
@@ -100,7 +101,8 @@ fn outcome_of(err: &ErrorBody) -> Outcome {
     }
     match err.code {
         ErrorCode::LockedOut => Outcome::Refused(
-            serde_json::from_value(err.body.get("reasons").cloned().unwrap_or(Value::Null))
+            serde_json::from_value::<burrow_admin_proto::msg::LockedOut>(err.body.clone())
+                .map(|l| l.reasons)
                 .unwrap_or_default(),
         ),
         ErrorCode::ReloadFailed => match serde_json::from_value::<ReloadFailed>(err.body.clone()) {
@@ -130,12 +132,7 @@ fn revert_outcome(err: &ErrorBody) -> Outcome {
 fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
     (err.code == ErrorCode::Conflict).then(|| {
         serde_json::from_value::<Conflict>(err.body.clone()).unwrap_or(Conflict {
-            current: err
-                .body
-                .get("current")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            current: String::new(),
             theirs: Vec::new(),
             known: false,
         })
@@ -305,6 +302,17 @@ impl Edit {
     }
 
     pub fn set(&self, path: &[String], v: Option<Value>) {
+        if let [section, name, web, key] = path
+            && section == ServiceEntry::SECTION
+            && web == ServiceEntry::WEB.key()
+        {
+            let site = [section.clone(), name.clone(), web.clone()];
+            let now = self.peek(&site);
+            return self.set(
+                &site,
+                burrow_admin_logic::web::with_field(now.as_ref(), key, v),
+            );
+        }
         let refused = crate::grants::refuses(path, v.as_ref());
         self.refuse(path, refused);
         if refused {
@@ -348,6 +356,11 @@ impl Edit {
         self.changed();
     }
 
+    pub fn set_password(&self, path: &[String], handle: &str) {
+        self.draft.update(|d| d.set_password(path, handle));
+        self.changed();
+    }
+
     pub fn remove_secret(&self, path: &[String], fp: &str) {
         self.draft.update(|d| d.remove_secret(path, fp));
         self.changed();
@@ -356,6 +369,15 @@ impl Edit {
     pub fn rename(&self, path: &[String], to: &str) -> bool {
         let mut ok = false;
         self.draft.update(|d| ok = d.rename(path, to));
+        if ok {
+            self.editing.update(|m| {
+                for (at, snap) in m.iter_mut() {
+                    if let Some(s) = snap.as_mut() {
+                        burrow_admin_logic::changeset::rename_under(s, at, path, to);
+                    }
+                }
+            });
+        }
         self.changed();
         ok
     }
@@ -424,7 +446,7 @@ mod tests {
             impacts: vec![
                 Impact {
                     level: Level::Danger,
-                    code: "removes-service".into(),
+                    code: burrow_admin_proto::codes::REMOVES_SERVICE.into(),
                     message: "x".into(),
                     confirm: Some("web".into()),
                 },
@@ -450,9 +472,11 @@ mod tests {
         let locked = ErrorBody {
             code: ErrorCode::LockedOut,
             message: "no".into(),
-            body: json!({"reasons": [{"code": "self-demoted", "message": "you would lose write access"}]}),
+            body: json!({"reasons": [{"code": burrow_syntax::grant::SELF_DEMOTED, "message": "you would lose write access"}]}),
         };
-        assert!(matches!(outcome_of(&locked), Outcome::Refused(r) if r[0].code == "self-demoted"));
+        assert!(
+            matches!(outcome_of(&locked), Outcome::Refused(r) if r[0].code == burrow_syntax::grant::SELF_DEMOTED)
+        );
         let reload = ErrorBody {
             code: ErrorCode::ReloadFailed,
             message: "x".into(),
@@ -462,7 +486,7 @@ mod tests {
         let conflict = ErrorBody {
             code: ErrorCode::Conflict,
             message: "changed".into(),
-            body: json!({"current": "b2s:1", "plan_changed": true}),
+            body: json!({"current": "b2s:1"}),
         };
         assert_eq!(
             conflict_of(&conflict).map(|c| c.current),

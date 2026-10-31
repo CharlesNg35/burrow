@@ -42,6 +42,7 @@ fn expand_in(
             let span = node.span;
             let errors = out.len();
             let referenced = s.replace("$${", "").contains("${");
+            let written = s.clone();
             match expand_str(s, span, src, env, key == "secret", out) {
                 Some(v) => *s = v,
                 None if out.len() > errors => node.env = FromEnv::Unset,
@@ -49,6 +50,7 @@ fn expand_in(
             }
             if referenced && node.env == FromEnv::No {
                 node.env = FromEnv::Expanded;
+                node.raw = Some(written);
             }
         }
         Value::Seq(items) => items
@@ -106,7 +108,7 @@ fn expand_str(
                         None => {
                             out.push(
                                 Diagnostic::error(
-                                    "env-unset",
+                                    burrow_admin_proto::codes::ENV_UNSET,
                                     format!("environment variable \"{name}\" is not set"),
                                 )
                                 .at(sub_span(src, span, &token))

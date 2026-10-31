@@ -5,27 +5,42 @@ use serde_json::Value;
 use crate::config::check::secretish;
 use crate::config::patch::Rename;
 
+fn and_list(items: Vec<String>) -> String {
+    match items.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => items.concat(),
+    }
+}
+
+fn item(v: &Value) -> String {
+    match v {
+        Value::Object(m) if m.get("name").is_some_and(Value::is_string) => {
+            let name = m.get("name").map(short).unwrap_or_default();
+            let rest: Vec<String> = m
+                .iter()
+                .filter(|(k, _)| k.as_str() != "name")
+                .map(|(_, x)| short(x))
+                .collect();
+            if rest.is_empty() {
+                name
+            } else {
+                format!("{name} ({})", rest.join(", "))
+            }
+        }
+        other => short(other),
+    }
+}
+
 fn short(v: &Value) -> String {
     let text = match v {
         Value::Null => "nothing".to_string(),
-        Value::String(s) if s.contains("${") => s.clone(),
         Value::String(s) => s.clone(),
         Value::Array(a) if a.is_empty() => "none".into(),
-        Value::Array(a) => a
-            .iter()
-            .map(|x| match x {
-                Value::String(s) => s.clone(),
-                other => other.to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join(", "),
+        Value::Array(a) => and_list(a.iter().map(item).collect()),
         Value::Object(m) if m.is_empty() => "nothing".into(),
         Value::Object(m) => m
             .iter()
-            .map(|(k, x)| match x {
-                Value::Object(_) => format!("{k}: {{…}}"),
-                _ => format!("{k}: {}", short(x)),
-            })
+            .map(|(k, x)| format!("{k} {}", short(x)))
             .collect::<Vec<_>>()
             .join(", "),
         other => other.to_string(),
@@ -36,6 +51,16 @@ fn short(v: &Value) -> String {
     } else {
         text
     }
+}
+
+fn named(path: &[String]) -> String {
+    burrow_config::label_of(path).unwrap_or_else(|| path.last().cloned().unwrap_or_default())
+}
+
+fn under(path: &[String], key: &str) -> Vec<String> {
+    let mut p = path.to_vec();
+    p.push(key.to_string());
+    p
 }
 
 fn entity(section: &str) -> Option<&'static str> {
@@ -81,31 +106,41 @@ fn fields_changed(
                     std::cmp::Ordering::Equal => "secret replaced".into(),
                 });
             }
-            None => parts.push(format!("{k} set to {}", short(nv))),
+            None => parts.push(format!("{} set to {}", named(&under(&path, k)), short(nv))),
             Some(Value::Object(om)) if nv.is_object() => {
                 let nm = nv.as_object().unwrap_or(&empty);
                 let mut what: Vec<String> = Vec::new();
                 for (sub, x) in nm {
+                    let at = named(&under(&under(&path, k), sub));
                     match om.get(sub) {
-                        None => what.push(format!("{sub} added ({})", short(x))),
-                        Some(y) if y != x => {
-                            what.push(format!("{sub} {} → {}", short(y), short(x)))
-                        }
+                        None => what.push(format!("{at} added ({})", short(x))),
+                        Some(y) if y != x => what.push(format!("{at} {} → {}", short(y), short(x))),
                         _ => {}
                     }
                 }
                 what.extend(
                     om.keys()
                         .filter(|sub| !nm.contains_key(*sub))
-                        .map(|sub| format!("{sub} removed")),
+                        .map(|sub| format!("{} removed", named(&under(&under(&path, k), sub)))),
                 );
-                parts.push(format!("{k}: {}", what.join(", ")));
+                parts.push(format!("{}: {}", named(&under(&path, k)), and_list(what)));
             }
-            Some(ov) => parts.push(format!("{k} {} → {}", short(ov), short(nv))),
+            Some(ov) => parts.push(format!(
+                "{} {} → {}",
+                named(&under(&path, k)),
+                short(ov),
+                short(nv)
+            )),
         }
     }
     for k in o.keys().filter(|k| !n.contains_key(*k)) {
-        parts.push(format!("{k} removed"));
+        parts.push(
+            if k == ServiceEntry::WEB.key() && kind == ServiceEntry::ENTITY {
+                "website turned off".to_string()
+            } else {
+                format!("{} removed", named(&under(&path, k)))
+            },
+        );
     }
     if !parts.is_empty() {
         let label = kind[..1].to_uppercase() + &kind[1..];
@@ -138,6 +173,15 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     r.path[1],
                     r.to
                 ),
+                part_of: None,
+            });
+        } else if let Some((name, parent)) = r.path.split_last()
+            && parent == burrow_config::logins_path().as_slice()
+        {
+            out.push(Change {
+                kind: ChangeKind::Rename,
+                path: r.path.clone(),
+                summary: format!("Login service {name} renamed to {}", r.to),
                 part_of: None,
             });
         }
@@ -206,31 +250,36 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
             continue;
         }
         let path = vec![key.clone()];
+        let section = named(&path);
+        let field = |k: &str| named(&under(&path, k));
         let summary = match (ov, nv) {
             (Some(Value::Object(a)), Some(Value::Object(b))) => {
                 let mut parts = Vec::new();
                 for (k, v) in b {
-                    if a.get(k) != Some(v) {
-                        parts.push(format!(
-                            "{key}.{k}: {} → {}",
-                            a.get(k).map_or("default".into(), short),
-                            short(v)
-                        ));
+                    match a.get(k) {
+                        None => parts.push(format!("{} set to {}", field(k), short(v))),
+                        Some(was) if was != v => {
+                            parts.push(format!("{} {} → {}", field(k), short(was), short(v)))
+                        }
+                        _ => {}
                     }
                 }
                 for k in a.keys().filter(|k| !b.contains_key(*k)) {
-                    parts.push(format!("{key}.{k} back to its default"));
+                    parts.push(format!("{} back to its default", field(k)));
                 }
-                parts.join("; ")
+                format!("{section}: {}", parts.join("; "))
             }
-            (None, Some(Value::Object(b))) if !b.is_empty() => b
-                .iter()
-                .map(|(k, v)| format!("{key}.{k} set to {}", short(v)))
-                .collect::<Vec<_>>()
-                .join("; "),
-            (None, Some(v)) => format!("{key} set to {}", short(v)),
-            (Some(_), None) => format!("{key} removed"),
-            (Some(a), Some(b)) => format!("{key}: {} → {}", short(a), short(b)),
+            (None, Some(Value::Object(b))) if !b.is_empty() => format!(
+                "{section}: {}",
+                b.iter()
+                    .map(|(k, v)| format!("{} set to {}", field(k), short(v)))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            (None, Some(v)) => format!("{section} set to {}", short(v)),
+            (Some(Value::Object(_)), None) => format!("{section} back to their defaults"),
+            (Some(_), None) => format!("{section} removed"),
+            (Some(a), Some(b)) => format!("{section} {} → {}", short(a), short(b)),
             (None, None) => continue,
         };
         out.push(Change {
@@ -265,27 +314,60 @@ mod tests {
         let new = json!({"listen": 7836, "clients": {"home": {"secret": ["SECRET-A", "SECRET-B"]}, "office": {"secret": "SECRET-C"}}, "services": {"web": {"client": "home", "bind": 7841, "target": 3000}}});
         let c = changes(&old, &new, &[]);
         let text: Vec<&str> = c.iter().map(|c| c.summary.as_str()).collect();
-        assert!(text.contains(&"listen: 7835 → 7836"), "{text:?}");
+        assert!(text.contains(&"Listen address 7835 → 7836"), "{text:?}");
         assert!(
             text.contains(&"Client home: secret added (2 accepted)"),
             "{text:?}"
         );
         assert!(text.contains(&"New client office (1 secret)"), "{text:?}");
-        assert!(text.contains(&"Service web: bind 7840 → 7841"), "{text:?}");
-        assert!(text.contains(&"limits removed"), "{text:?}");
+        assert!(
+            text.contains(&"Service web: Public address 7840 → 7841"),
+            "{text:?}"
+        );
+        assert!(text.contains(&"Limits back to their defaults"), "{text:?}");
         let old = json!({"visitors": {"lap": {"reach": {"home": "any", "lab": "any"}}}});
         let new = json!({"visitors": {"lap": {"reach": {"home": ["10.0.0.0/8"], "office": "any"}}}, "self": {"allow": ["10.0.0.0/8"]}});
         let c = changes(&old, &new, &[]);
         let text: Vec<&str> = c.iter().map(|c| c.summary.as_str()).collect();
         assert!(
             text.contains(
-                &"Visitor lap: reach: home any → 10.0.0.0/8, office added (any), lab removed"
+                &"Visitor lap: Direct access to clients: home any → 10.0.0.0/8, office added (any) and lab removed"
             ),
             "{text:?}"
         );
-        assert!(text.contains(&"self.allow set to 10.0.0.0/8"), "{text:?}");
+        assert!(
+            text.contains(&"This server: May reach on this server set to 10.0.0.0/8"),
+            "{text:?}"
+        );
+        let old = json!({"services": {"pool": {"clients": ["home"], "target": 8080}}});
+        let new = json!({"services": {"pool": {"clients": ["home", {"name": "office", "target": "10.0.0.13:8080"}, "lab"], "target": 8080}}});
+        let text: Vec<String> = changes(&old, &new, &[])
+            .into_iter()
+            .map(|c| c.summary)
+            .collect();
+        assert_eq!(
+            text,
+            ["Service pool: Clients home → home, office (10.0.0.13:8080) and lab"],
+            "lists read as words, never in brackets"
+        );
         assert!(!text.iter().any(|t| t.contains("settings")), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("SECRET-")), "{text:?}");
+    }
+
+    #[test]
+    fn a_renamed_login_service_reads_as_a_rename() {
+        let old = json!({"web": {"forward_auth": {"sso": {"service": "a", "path": "/a"}}}});
+        let new = json!({"web": {"forward_auth": {"authelia": {"service": "a", "path": "/a"}}}});
+        let r = Rename {
+            path: burrow_config::logins_path()
+                .into_iter()
+                .chain(["sso".to_string()])
+                .collect(),
+            to: "authelia".into(),
+        };
+        let c = changes(&old, &new, &[r]);
+        assert_eq!(c[0].kind, ChangeKind::Rename);
+        assert_eq!(c[0].summary, "Login service sso renamed to authelia");
     }
 
     #[test]

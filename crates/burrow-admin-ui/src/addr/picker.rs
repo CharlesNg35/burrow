@@ -8,7 +8,7 @@ use crate::domain::{FieldCtx, names_of, set_checked};
 use crate::format;
 use crate::store::store;
 
-fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
+pub(super) fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
     let s = store();
     let status = s.status.get();
     let local = reserved.iter().map(|n| ComboOption {
@@ -29,7 +29,7 @@ fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
                 let on = c.as_ref().is_some_and(|c| c.connected);
                 let facet = match &c {
                     Some(c) if c.connected => {
-                        let mut f = vec!["online".to_string()];
+                        let mut f = vec![burrow_admin_logic::wording::ONLINE.to_string()];
                         if let Some(x) = c.connected_secs {
                             f.push(format::span(x));
                         }
@@ -91,6 +91,30 @@ fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
         .collect()
 }
 
+pub(super) type OnCreate = Option<Callback<String, Option<String>>>;
+
+pub(super) fn create_for(entity: &Entity) -> (String, OnCreate) {
+    let section = match entity {
+        Entity::Client => Some(ClientEntry::section()),
+        Entity::Visitor => Some(VisitorEntry::section()),
+        _ => None,
+    };
+    let can = store().can_write_now();
+    let create_label = section
+        .map(|s| format!("New {}…", crate::screens::create::singular(s)))
+        .unwrap_or_default();
+    let on_create = section.filter(|_| can).map(|sec| {
+        Callback::new(move |name: String| {
+            if let Some(p) = crate::screens::create::name_problem(&name, sec, None) {
+                return Some(p);
+            }
+            crate::screens::create::create_with(sec, &name, None, None, &[]);
+            None
+        })
+    });
+    (create_label, on_create)
+}
+
 pub fn merged_partner(spath: &[String]) -> Option<String> {
     let (key, parent) = spath.split_last()?;
     store().schema.with_untracked(|s| {
@@ -110,6 +134,15 @@ fn as_names(v: Option<Value>) -> Vec<String> {
     }
 }
 
+fn only_one(entity: &Entity) -> Vec<String> {
+    let all = names_of(entity);
+    if all.len() == 1 {
+        all
+    } else {
+        vec!["true".to_string()]
+    }
+}
+
 pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
@@ -122,13 +155,18 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         p
     };
     let sp = single_path.clone();
+    let ent_shown = entity.clone();
     let selected = Signal::derive(move || {
         let mut names = if merged {
             as_names(e.value(&sp))
         } else {
             Vec::new()
         };
-        for n in as_names(e.value(&path)) {
+        let given = match e.value(&path) {
+            Some(Value::Bool(true)) => only_one(&ent_shown),
+            v => as_names(v),
+        };
+        for n in given {
             if !names.contains(&n) {
                 names.push(n);
             }
@@ -140,11 +178,7 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     let options = Signal::derive(move || options_for(&ent, &reserved));
     let header = {
         let s = store();
-        let plural = match entity {
-            Entity::Client => "Clients",
-            Entity::Visitor => "Visitors",
-            _ => "Services",
-        };
+        let plural = entity.plural();
         let online = if entity == Entity::Client {
             s.status.with_untracked(|st| {
                 st.as_ref().map(|st| {
@@ -185,24 +219,7 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         let path = fc.path.clone();
         Signal::derive(move || touched.get() && e.local.with(|l| l.contains_key(&path)))
     };
-    let section = match entity {
-        Entity::Client => Some(ClientEntry::section()),
-        Entity::Visitor => Some(VisitorEntry::section()),
-        _ => None,
-    };
-    let can = store().can_write_now();
-    let create_label = section
-        .map(|s| format!("New {}…", crate::screens::create::singular(s)))
-        .unwrap_or_default();
-    let on_create = section.filter(|_| can).map(|sec| {
-        Callback::new(move |name: String| {
-            if let Some(p) = crate::screens::create::name_problem(&name, sec, None) {
-                return Some(p);
-            }
-            crate::screens::create::create_with(sec, &name, None, None, &[]);
-            None
-        })
-    });
+    let (create_label, on_create) = create_for(&entity);
     view! {
         <div data-picker=if multi { "multi" } else { "single" } on:focusout=move |_| { let _ = touched.try_set(true); }>
             <Combobox

@@ -27,6 +27,17 @@ pub fn load_str_in(
     role: Option<Role>,
     env: &dyn EnvSource,
 ) -> Outcome {
+    load_str_at((base_dir, None), name, src, format, role, env)
+}
+
+pub fn load_str_at(
+    (base_dir, state): (&Path, Option<&Path>),
+    name: &str,
+    src: &str,
+    format: Format,
+    role: Option<Role>,
+    env: &dyn EnvSource,
+) -> Outcome {
     let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     let mut report = Report::new(name, src);
     let fail = |mut report: Report, role| {
@@ -124,7 +135,7 @@ pub fn load_str_in(
             &root,
             pruned,
             structural_ok,
-            base_dir,
+            (base_dir, state),
             &env_spans,
             &mut report,
         );
@@ -153,7 +164,7 @@ fn syntax_errors(src: &str, errors: Vec<tree::ParseError>, report: &mut Report) 
             "check the indentation and the \"key: value\" structure around this line"
         };
         report.push(
-            Diagnostic::error("syntax", e.message)
+            Diagnostic::error(burrow_admin_proto::codes::SYNTAX, e.message)
                 .at(e.span)
                 .label("here")
                 .help(help),
@@ -171,14 +182,10 @@ fn wrong_role(name: &str, wanted: Role, found: Role) -> Option<Diagnostic> {
     if !clear {
         return None;
     }
-    let run = match found {
-        Role::Server => "server",
-        Role::Client => "client",
-        Role::Visitor => "visit",
-    };
+    let run = found.command();
     Some(
         Diagnostic::error(
-            "wrong-role",
+            burrow_admin_proto::codes::WRONG_ROLE,
             format!(
                 "{name} is a {} config, not a {} config",
                 found.as_str(),
@@ -198,7 +205,7 @@ fn check_semantics(
     root: &Node,
     pruned: Node,
     structural_ok: bool,
-    base_dir: &Path,
+    (base_dir, state): (&Path, Option<&Path>),
     env_spans: &[Span],
     report: &mut Report,
 ) -> Option<Loaded> {
@@ -209,7 +216,7 @@ fn check_semantics(
     match role {
         Role::Server => match serde_json::from_value::<ServerConfig>(json) {
             Ok(cfg) => {
-                if let Some(s) = check_server(&cfg, &spans, base_dir, &mut sem) {
+                if let Some(s) = check_server(&cfg, &spans, (base_dir, state), &mut sem) {
                     loaded = Some(Loaded::Server(Box::new(s), Box::new(cfg)));
                 }
             }
@@ -252,8 +259,8 @@ fn check_semantics(
         let hidden = d
             .span
             .is_some_and(|s| env_spans.iter().any(|e| within(s, *e)))
-            || (d.code == "no-services" && raw_len("services") > 0)
-            || (d.code == "no-clients" && raw_len("clients") > 0);
+            || (d.code == burrow_admin_proto::codes::NO_SERVICES && raw_len("services") > 0)
+            || (d.code == burrow_admin_proto::codes::NO_CLIENTS && raw_len("clients") > 0);
         if !hidden {
             report.push(d);
         }
@@ -291,6 +298,7 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
                     span: Span::default(),
                     quoted: true,
                     env: tree::FromEnv::No,
+                    raw: None,
                 },
             });
         }

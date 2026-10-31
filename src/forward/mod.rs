@@ -1,4 +1,5 @@
 mod early;
+mod incoming;
 mod linger;
 mod open;
 
@@ -15,6 +16,7 @@ use crate::wire::transport::Channel;
 use crate::wire::transport::Conn;
 pub use early::Early;
 use early::Sealed;
+pub use incoming::Incoming;
 use linger::{Graceful, close};
 pub use linger::{Linger, Split};
 use open::{Client, answer, ended_cleanly, refused, start};
@@ -45,17 +47,11 @@ impl<'a> Meter<'a> {
     }
 
     fn inbound<S>(self, inner: S) -> Counted<'a, Throttled<'a, S>> {
-        Counted::new(
-            Throttled::new(inner, self.limit.map(|l| &l.inbound)),
-            self.traffic.map(|t| &t.inbound),
-        )
+        Counted::new(self.throttle_in(inner), self.traffic.map(|t| &t.inbound))
     }
 
     fn outbound<S>(self, inner: S) -> Counted<'a, Throttled<'a, S>> {
-        Counted::new(
-            Throttled::new(inner, self.limit.map(|l| &l.outbound)),
-            self.traffic.map(|t| &t.outbound),
-        )
+        Counted::new(self.throttle_out(inner), self.traffic.map(|t| &t.outbound))
     }
 }
 
@@ -323,10 +319,23 @@ pub async fn refuse(mut ch: Channel, status: Status) {
     .await;
 }
 
-pub async fn send_and_close(mut ch: Channel, bytes: &[u8]) {
+pub async fn send_and_close(ch: Channel, bytes: &[u8]) {
+    send_then(ch, bytes, false).await;
+}
+
+pub async fn send_and_finish(ch: Channel, bytes: &[u8]) {
+    send_then(ch, bytes, true).await;
+}
+
+async fn send_then(mut ch: Channel, bytes: &[u8], finish: bool) {
     let sent = async {
         ch.writer.send(&mut ch.stream, bytes).await?;
-        ch.stream.shutdown().await
+        if finish {
+            ch.stream.flush().await?;
+            ch.stream.finish().await
+        } else {
+            ch.stream.shutdown().await
+        }
     };
     let _ = tokio::time::timeout(ANSWER_TIMEOUT, sent).await;
 }

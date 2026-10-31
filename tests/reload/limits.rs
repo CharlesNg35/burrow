@@ -404,8 +404,7 @@ async fn the_server_udp_max_peers_follows_reloads_without_dropping_known_peers()
     );
 
     next.udp_max_peers = 1;
-    t.server.reload(next.clone()).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    t.server.reload_applied(next.clone()).await;
     for known in [&a, &b, &c] {
         assert!(
             answers(known, 10).await,

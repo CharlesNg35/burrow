@@ -1,18 +1,18 @@
 # Running burrow as a service
 
-`burrow service install` makes a server, client or visitor start when the machine boots and restart after a failure. It uses the system's own service manager: systemd on Linux, launchd on macOS, and the Service Control Manager on Windows. It needs administrator rights.
+A burrow you start by hand stops when you log out or the machine reboots. `burrow service install` makes a server, client or visitor start at boot and restart after a failure, under its own locked-down account. It uses the system's service manager: systemd on Linux, launchd on macOS, and the Service Control Manager on Windows, and needs administrator rights. This page also covers updating burrow and running it in Docker.
 
 - [Install](#install)
 - [Everyday commands](#everyday-commands)
 - [Where the files go](#where-the-files-go)
 - [Changing the config](#changing-the-config)
-- [Updating](#updating)
+- [Update burrow](#update-burrow)
 - [Linux, macOS and Windows details](#linux-macos-and-windows-details)
 - [Docker](#docker)
 
 ## Install
 
-In the folder that holds the config:
+Run the install in the folder that holds the config:
 
 ```sh
 sudo ./burrow service install                    # finds server.yaml, client.yaml or visitor.yaml here
@@ -26,16 +26,20 @@ The install copies burrow and the config to system folders (see [below](#where-t
 <details>
 <summary><b>What <code>install</code> does, step by step</b></summary>
 
-- **Checks first.** It checks the config, and that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`), or the burrow service that holds it, and changes nothing.
+- **Checks first.** It checks the config, and that every port it listens on is free. If a port is taken, it names the program or burrow service that holds it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`), and changes nothing.
 - **Copies the config** into the service's own folder, readable only by the service. `burrow service status` tells you when the file you installed from has changed since.
-- **Copies the binary** to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\burrow.exe` on Windows), creating the folder if needed. So the service never depends on the folder you downloaded burrow to. If other users can change `/usr/local/bin`, the service gets its own copy in a folder only root can change. Installing again from the same file copies nothing new.
-- **Runs the service under its own account,** without login or home folder: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as USER` picks another existing account. On Linux, a port below 1024 gets only the one permission it needs (`CAP_NET_BIND_SERVICE`).
+- **Copies the binary** to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\burrow.exe` on Windows), creating the folder if needed, so the service never depends on your download folder. If other users can change `/usr/local/bin`, the service gets its own copy in a folder only root can change. Installing again from the same file copies nothing new.
+- **Runs the service under its own account,** without login or home folder: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as USER` picks another existing account.
+- **Ports below 1024:** on Linux, the service gets only the one permission it needs (`CAP_NET_BIND_SERVICE`). On macOS, the service account may open such a port only on all addresses (a bare port like `https: 443`, or `0.0.0.0`); another address, like `127.0.0.1:443`, needs `--run-as root`.
+- **Keeps the web state in a private folder** for every server with `web:`: the Let's Encrypt account and certificates, the local CA's key that your devices trust (`tls: internal`), and uploaded certificates and keys. It is `/var/lib/burrow/<name>` on Linux, `/Library/Application Support/burrow/<name>` on macOS, and `%ProgramData%\burrow\services\<name>` on Windows. Only the service account can read it, and `burrow status` names it. `burrow service uninstall` keeps it and says how to delete it, so a reinstall needs no new certificates; `--purge` deletes it.
 - **Writes logs to a file,** rotated at 10 MB with 5 old files kept, so a log never fills the disk.
+- **Checks the files the config uses.** Only the config is copied, so every certificate, key, CA, error-pages folder, DNS command and `file:` secret must be an absolute path the service account can read.
+- **Checks the access log path.** Besides its state folder, the service may write only to its log folder. So a website access log (`web.access_log`) must be a file of its own directly in that folder: like `/var/log/burrow/<name>/access.log`, or `%ProgramData%\burrow\logs\<name>-access.log` on Windows, where the folder is shared. The install names the path to use.
 - **Saves environment variables.** Variables used as `${VAR}` in the config are saved for the service, readable by it only. `sudo` drops environment variables, so keep them with `sudo --preserve-env=HOME_SECRET ./burrow service install`; the install says so if one is missing.
 
 </details>
 
-**The service name** comes from the config file name (`server.yaml` gives `burrow-server`, `home.yaml` gives `burrow-home`), or from `--name`. You can install several servers, clients and visitors side by side, each with its own config file name or `--name`.
+**The service name** comes from the config file name (`server.yaml` gives `burrow-server`, `home.yaml` gives `burrow-home`), or from `--name`. Several servers, clients and visitors can run side by side, each with its own file name or `--name`.
 
 | install option | meaning |
 | --- | --- |
@@ -48,19 +52,21 @@ The install copies burrow and the config to system folders (see [below](#where-t
 
 ## Everyday commands
 
+Once installed, these commands look after the service:
+
 ```sh
 burrow service list                    # every burrow service on this machine
 burrow service status                  # state, version, account, files, the last log lines
 sudo burrow service logs -f            # follow the log (-n 200 for the last 200 lines)
 sudo burrow service restart            # also: start, stop
 sudo burrow service reload             # apply the config now (it is also applied on save)
-sudo burrow service uninstall          # remove it; --purge also deletes its config folder and saved variables
+sudo burrow service uninstall          # remove it; --purge also deletes its config folder, saved environment variables, log, web access log and web state folder
 sudo burrow status -f                  # live clients and traffic of a server, see monitoring.md
 ```
 
-With one burrow service installed, the commands find it by themselves. With several, add its name: `burrow service status burrow-home`.
+With one burrow service installed, the commands find it. With several, add its name: `burrow service status burrow-home`.
 
-**A burrow unit burrow has no record of**, such as one installed by an older burrow or written by hand, is listed as `not managed by this burrow`, and burrow leaves it alone. `burrow service status <name>` gives the exact commands to take it over: stop it, then install from its config. `install` refuses to replace such a unit while it runs:
+**A burrow unit that burrow has no record of**, such as one installed by an older burrow or written by hand, is listed as `not managed by this burrow`, and burrow leaves it alone. `install` refuses to replace it while it runs. `burrow service status <name>` gives the exact commands to take it over: stop it, then install from its config:
 
 ```sh
 sudo systemctl stop burrow-client
@@ -99,21 +105,21 @@ sudo nano /etc/burrow/server/server.yaml   # or edit the file directly
 
 `burrow edit` refuses a change that the service could not run after a restart, such as a port below 1024 it was not installed for.
 
-**Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only. Its hint gives the exact command: `install the service again so it may change its config; nothing moves: sudo burrow service install -c /etc/burrow/server/server.yaml --admin-writable`. Add the admin visitor to the installed config, then install again from that same file:
+**Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only. Its hint gives the exact command: `install the service again so it may change its config; nothing moves: sudo burrow service install -c /etc/burrow/server/server.yaml --admin-writable`. Add the admin visitor to the installed config, then install again from that file:
 
 ```sh
 sudo burrow edit burrow-server         # add a visitor with admin: write
 sudo burrow service install --admin-writable -c /etc/burrow/server/server.yaml
 ```
 
-This reinstalls the existing service `burrow-server`: burrow recognizes its installed config, so no `--name` is needed. The folder then belongs to the service, and `burrow admin` can save changes.
+This reinstalls `burrow-server`: burrow recognizes its installed config, so no `--name` is needed. The folder then belongs to the service, and `burrow admin` can save changes.
 
 <details>
 <summary><b>Installing again</b></summary>
 
 - You can install again from the installed copy, as above, or from the original file. An installed config always leads to its own service: `-c /etc/burrow/home/client.yaml` reinstalls `burrow-home`.
 - Installing from another file under the same service name is refused; rename the file or pass `--name` to add a second service.
-- A reinstall from the original file copies it over the installed one. When the installed copy has changes made with `burrow admin`, it is first kept as a version in the admin history, so you can revert to it.
+- A reinstall from the original file copies it over the installed one. If the installed copy has changes made with `burrow admin`, it is first kept as a version in Activity in burrow admin, so you can go back to it.
 - A reinstall from the original file also brings back admin access you removed in `burrow admin`, because the original still has it. Remove it there too.
 
 </details>
@@ -121,11 +127,13 @@ This reinstalls the existing service `burrow-server`: burrow recognizes its inst
 <details>
 <summary><b>Running the same tunnel twice</b></summary>
 
-The same tunnel cannot run twice: a second copy of a server config, or a second client with the same name for the same server, is refused while the first one runs. A service is never kept from starting by a copy started by hand: it starts with a warning, and the server then refuses the duplicate client or the duplicate ports.
+The same tunnel cannot run twice: a second copy of a server config, or a second client with the same name for the same server, is refused while the first one runs. A copy started by hand never keeps a service from starting: the service starts with a warning, and the server then refuses the duplicate client or ports.
 
 </details>
 
-## Updating
+## Update burrow
+
+One command installs the latest release and restarts the services that use it:
 
 ```sh
 sudo burrow update            # install the latest release and restart the services that use it
@@ -133,7 +141,7 @@ burrow update --check         # only tell whether a newer release exists
 sudo burrow update --to 0.1.0 # install this release (also an older one)
 ```
 
-`burrow update` downloads the release for your system, checks it against the release's `SHA256SUMS`, and runs it to confirm its version. It then replaces the installed binary and restarts every service that uses it. If a service does not come up again, the old binary is put back. Without `sudo`, it only replaces the binary you ran.
+`burrow update` downloads the release for your system, checks it against the release's `SHA256SUMS`, and runs it to confirm its version. It then replaces the installed binary and restarts every service that uses it. If a service does not come up again, the old binary is put back. Without `sudo`, it replaces only the binary you ran.
 
 <details>
 <summary><b>More about updating</b></summary>
@@ -160,20 +168,24 @@ The unit is sandboxed: a read-only system, no home folders, no new privileges, a
 
 launchd restarts the job after a failure, at most once every 10 seconds.
 
-The macOS builds are signed with burrow's own certificate, so the macOS firewall, when it is on, asks once whether burrow may accept incoming connections and keeps that answer across `burrow update`. A file downloaded with a browser is marked as quarantined and macOS refuses to open it at first; allow it under System Settings, Privacy & Security, or remove the mark with `xattr -d com.apple.quarantine burrow`. Downloading with `curl` or updating with `burrow update` sets no such mark.
+The macOS builds are signed with burrow's own certificate. So the macOS firewall, when it is on, asks once whether burrow may accept incoming connections, and keeps that answer across `burrow update`.
+
+macOS marks a file downloaded with a browser as quarantined, and refuses to open it at first. Allow it under System Settings, Privacy & Security, or remove the mark with `xattr -d com.apple.quarantine burrow`. Downloading with `curl` or updating with `burrow update` sets no such mark.
 
 </details>
 
 <details>
 <summary><b>Windows</b></summary>
 
-Run the commands from a terminal opened with "Run as administrator". The service starts automatically after the network, and Windows restarts it 5 seconds after a failure (30 seconds from the third failure in a day). Set variables used by the config in the same terminal before installing, for example `$env:HOME_SECRET = "..."`. `reload` restarts the service on Windows; every role also applies its config on save.
+Run the commands from a terminal opened with "Run as administrator". The service starts after the network, and Windows restarts it 5 seconds after a failure (30 seconds from the third failure in a day). Before installing, set the variables the config uses in the same terminal, for example `$env:HOME_SECRET = "..."`. On Windows, `reload` restarts the service; every role also applies its config on save.
 
 </details>
 
 ## Docker
 
 The image `ghcr.io/charlesng35/burrow` is small (distroless and static), runs as a non-root user, and reads its config from `/etc/burrow`. Without a command, it runs `server -c /etc/burrow/server.yaml`.
+
+The first command checks a config in the folder `./burrow`, and the second runs the server with it:
 
 ```sh
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/burrow:/etc/burrow:ro" \
@@ -183,8 +195,20 @@ docker run -d --name burrow -p 7835:7835 -p 7840:7840 --user "$(id -u):$(id -g)"
 ```
 
 - Run it with `--user` matching the owner of your config file (mode `0600`).
-- Mount the folder that holds the config, not the file itself. An editor that saves by writing a new file would leave a file mount on the old one, and the change would never apply.
+- Mount the folder that holds the config, not the file. An editor that saves by writing a new file would leave a file mount on the old one, and the change would never apply.
 - Publish each service's port with `-p`, and the clients' port 7835.
+
+A server with `web:` keeps its certificates, its Let's Encrypt account and its local CA in a state folder. In a container, give that folder a writable volume, name it with `--state-dir`, and publish ports 443 and 80:
+
+```sh
+mkdir -p burrow-state
+docker run -d --name burrow -p 7835:7835 -p 443:443 -p 80:80 --user "$(id -u):$(id -g)" \
+  -v "$PWD/burrow:/etc/burrow:ro" -v "$PWD/burrow-state:/var/lib/burrow" \
+  ghcr.io/charlesng35/burrow server -c /etc/burrow/server.yaml --state-dir /var/lib/burrow
+```
+
+- Without the volume, the folder is inside the container: a new container starts with a new account and orders every certificate again, and Let's Encrypt gives at most 5 certificates for the same names a week. With `--user` and no `--state-dir`, the folder would be under `/`, where the user cannot write.
+- Docker lets a container's user listen on ports below 1024 by default (since Docker 20.10), so the image's non-root user can serve 443 and 80.
 
 <details>
 <summary><b>Docker Compose: a server and a client</b></summary>
@@ -218,3 +242,9 @@ services:
 The client uses `network_mode: host` so that `127.0.0.1` in its targets means the host machine, not the container.
 
 </details>
+
+## Next steps
+
+- [Monitoring](monitoring.md): `burrow status`, metrics and logs.
+- [burrow admin](admin.md): manage an installed server from your browser.
+- [Security](security.md): what the service account and sandbox protect.

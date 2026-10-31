@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::admin::core::plan::{self, ReloadResult};
 use crate::admin::core::*;
 
-use super::{apply_now, core_for, core_running, p, session, world};
+use super::{apply_now, core_counted, core_for, core_running, p, session, world};
 
 #[test]
 fn an_applied_revert_is_recorded_with_the_rev_it_went_back_to() {
@@ -28,6 +28,7 @@ fn an_applied_revert_is_recorded_with_the_rev_it_went_back_to() {
         core.history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries
@@ -68,6 +69,7 @@ fn a_revert_is_an_ordinary_plan() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries
@@ -85,7 +87,8 @@ fn a_revert_is_an_ordinary_plan() {
     let with_diff = core
         .history(&HistoryRequest {
             limit: None,
-            diff: Some(entry.rev.clone()),
+            diff: None,
+            entry: Some(entry.id),
         })
         .unwrap();
     assert!(with_diff.diff.unwrap().unified.contains("target: 3001"));
@@ -102,7 +105,8 @@ fn a_revert_is_an_ordinary_plan() {
     let older = core
         .history(&HistoryRequest {
             limit: Some(1),
-            diff: Some(entry.rev.clone()),
+            diff: None,
+            entry: Some(entry.id),
         })
         .expect("an older entry's diff is found whatever the limit");
     assert!(older.diff.unwrap().unified.contains("target: 3001"));
@@ -116,8 +120,6 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
     let base = text::rev(&w.text);
     for (path, value) in [
         (p(&["listen"]), json!(7836)),
-        (p(&["websocket"]), json!({"listen": 7837})),
-        (p(&["websocket", "path"]), json!("/x")),
         (p(&["insecure_plaintext"]), json!(true)),
         (p(&["heartbeat", "interval_secs"]), json!(20)),
         (p(&["limits", "handshake_timeout_secs"]), json!(9)),
@@ -159,7 +161,7 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
         &base,
         &[Op::SetText {
             path: p(&["websocket"]),
-            text: "listen: 1\n".into(),
+            text: "listen: 1\ntls: { cert: a.pem, key: a.key }\n".into(),
         }],
     )
     .err()
@@ -170,7 +172,29 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
         core.schema.locked_paths(),
         vec![
             p(&["listen"]),
-            p(&["websocket"]),
+            p(&["websocket", "tls", "cert"]),
+            p(&["websocket", "tls", "key"]),
+            p(&["web", "letsencrypt", "ca"]),
+            p(&["web", "letsencrypt", "dns", "*", "cloudflare", "token"]),
+            p(&["web", "letsencrypt", "dns", "*", "rfc2136", "server"]),
+            p(&["web", "letsencrypt", "dns", "*", "rfc2136", "key_name"]),
+            p(&["web", "letsencrypt", "dns", "*", "rfc2136", "secret"]),
+            p(&["web", "letsencrypt", "dns", "*", "rfc2136", "algorithm"]),
+            p(&["web", "letsencrypt", "dns", "*", "acme_dns", "api"]),
+            p(&["web", "letsencrypt", "dns", "*", "acme_dns", "username"]),
+            p(&["web", "letsencrypt", "dns", "*", "acme_dns", "password"]),
+            p(&["web", "letsencrypt", "dns", "*", "command"]),
+            p(&["web", "certificates", "*", "cert"]),
+            p(&["web", "certificates", "*", "key"]),
+            p(&["web", "proxy_protocol_from"]),
+            p(&["web", "access_log"]),
+            p(&["web", "error_pages"]),
+            p(&["services", "*", "web", "tls", "cert"]),
+            p(&["services", "*", "web", "tls", "key"]),
+            p(&["services", "*", "web", "target_tls", "ca"]),
+            p(&["services", "*", "web", "client_auth", "ca"]),
+            p(&["services", "*", "web", "client_auth", "crl"]),
+            p(&["services", "*", "web", "error_pages"]),
             p(&["insecure_plaintext"]),
             p(&["heartbeat", "interval_secs"]),
             p(&["limits", "handshake_timeout_secs"]),
@@ -198,6 +222,7 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries
@@ -219,9 +244,9 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
     let kept = plan
         .impacts
         .iter()
-        .find(|i| i.code == "locked-kept")
+        .find(|i| i.code == burrow_admin_proto::codes::LOCKED_KEPT)
         .expect("a note");
-    assert_eq!(kept.message, "listen kept at 7999 (locked)");
+    assert_eq!(kept.message, "Listen address kept at 7999 (locked)");
     let computed = plan::compute(
         &core,
         &s,
@@ -260,7 +285,7 @@ fn a_reload_that_would_clash_with_the_kept_listener_is_predicted() {
         .plan
         .diags
         .iter()
-        .find(|d| d.code == "listen-clash")
+        .find(|d| d.code == burrow_admin_proto::codes::LISTEN_CLASH)
         .unwrap();
     assert_eq!(d.path.as_deref().unwrap(), p(&["services", "web", "bind"]));
 }
@@ -289,7 +314,7 @@ fn set_text_is_parsed_by_the_server() {
         &base,
         &[Op::SetText {
             path: p(&["limits"]),
-            text: "max_pending: 9\n".into(),
+            text: "max_pending: 9\nmax_handshakes: 9\n".into(),
         }],
     )
     .err()
@@ -297,7 +322,20 @@ fn set_text_is_parsed_by_the_server() {
     assert_eq!(
         locked.code,
         ErrorCode::LockedField,
-        "a block with locked fields inside is locked"
+        "a block that changes a locked field inside is locked"
+    );
+    let kept = plan::compute(
+        &core,
+        &s,
+        &base,
+        &[Op::SetText {
+            path: p(&["limits"]),
+            text: "max_pending: 9\n".into(),
+        }],
+    );
+    assert!(
+        kept.is_ok(),
+        "a block that leaves its locked fields as they are is not"
     );
     assert!(
         plan::compute(
@@ -354,7 +392,130 @@ fn a_rejected_reload_is_reported_with_the_restore() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap();
     assert_eq!(h.entries[0].result, "rejected, restored");
+}
+
+#[test]
+fn the_same_file_twice_gives_two_entries_each_with_its_own_diff() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    for target in [3001, 3002, 3001] {
+        apply_now(
+            &core,
+            &s,
+            &[Op::Set {
+                path: p(&["services", "web", "target"]),
+                value: json!(target),
+            }],
+            &[],
+        )
+        .unwrap();
+    }
+    let all = core
+        .history(&HistoryRequest {
+            limit: None,
+            diff: None,
+            entry: None,
+        })
+        .unwrap()
+        .entries;
+    let (newer, older) = (&all[0], &all[2]);
+    assert_eq!(
+        newer.rev, older.rev,
+        "A -> B -> A writes the same file twice"
+    );
+    assert_ne!(newer.id, older.id);
+    assert!(
+        all.windows(2).all(|p| p[0].id > p[1].id),
+        "ids grow with time"
+    );
+    let diff_of = |id: u64| {
+        core.history(&HistoryRequest {
+            limit: Some(1),
+            diff: None,
+            entry: Some(id),
+        })
+        .unwrap()
+        .diff
+        .unwrap()
+        .unified
+    };
+    let (n, o) = (diff_of(newer.id), diff_of(older.id));
+    assert!(
+        n.contains("-") && n.contains("3002"),
+        "the newer one starts from 3002: {n}"
+    );
+    assert!(
+        !o.contains("3002"),
+        "the older one starts from the first file: {o}"
+    );
+    assert!(o.contains("3001"), "{o}");
+    let by_rev = core
+        .history(&HistoryRequest {
+            limit: Some(1),
+            diff: Some(newer.rev.clone()),
+            entry: None,
+        })
+        .unwrap()
+        .diff
+        .unwrap()
+        .unified;
+    assert_eq!(
+        by_rev, n,
+        "a v0.1.2 UI asks by rev and gets the newest entry with it"
+    );
+    let old_shape: HistoryRequest = serde_json::from_value(json!({"diff": older.rev})).unwrap();
+    assert_eq!(old_shape.diff.as_deref(), Some(older.rev.as_str()));
+    let missing = core.history(&HistoryRequest {
+        limit: None,
+        diff: Some("b2s:none".into()),
+        entry: None,
+    });
+    assert!(missing.is_err());
+    let now = core.read().unwrap();
+    for e in [newer, older] {
+        let reply = dispatch(
+            &core,
+            &s,
+            "revert",
+            &json!({"to": e.base, "base": text::rev(&now)}),
+        )
+        .unwrap();
+        let plan: burrow_admin_proto::plan::Plan = serde_json::from_value(reply).unwrap();
+        assert!(plan.valid, "a revert works from either entry");
+        assert_eq!(plan.result_rev, e.base);
+    }
+}
+
+#[test]
+fn history_asks_the_store_once_per_rev() {
+    let w = world();
+    let (core, asked) = core_counted(&w.text, &w.text, Vec::new(), Vec::new());
+    let revs = ["b2s:a", "b2s:b", "b2s:c"];
+    core.store.keep(revs[0], "listen: 1\n");
+    core.store.keep(revs[1], "listen: 2\n");
+    for i in 0..30u64 {
+        core.record(burrow_admin_proto::msg::AuditEntry {
+            at: i,
+            rev: revs[i as usize % 3].into(),
+            result: "applied".into(),
+            ..Default::default()
+        });
+    }
+    let entries = core
+        .history(&HistoryRequest {
+            limit: Some(30),
+            ..Default::default()
+        })
+        .unwrap()
+        .entries;
+    assert_eq!(entries.len(), 30);
+    for e in &entries {
+        assert_eq!(e.revertible, e.rev != revs[2], "{}", e.rev);
+    }
+    assert_eq!(asked.load(std::sync::atomic::Ordering::Relaxed), 3);
 }

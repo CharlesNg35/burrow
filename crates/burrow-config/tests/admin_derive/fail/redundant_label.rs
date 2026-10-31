@@ -2,7 +2,7 @@ use burrow_config::admin_schema::AdminSchema;
 
 #[derive(AdminSchema)]
 pub struct Limits {
-    #[admin(label = "Max visitors")]
+    #[admin(label = "Maximum visitors")]
     pub max_visitors: u32,
 }
 

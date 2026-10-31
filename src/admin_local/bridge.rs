@@ -5,57 +5,20 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_websockets::{CloseCode, Limits, Message, ServerBuilder};
 
-use super::token::Token;
+use crate::admin_link::open::{explain, open_message};
+use crate::admin_link::token::Token;
 use crate::dialer::Dialer;
-use crate::dialer::admin::{AdminOpenError, AdminRefusal, Heard};
-use burrow_admin_proto::frame::{AdminOpen, MAX_MESSAGE};
+use crate::dialer::admin::Heard;
+use burrow_admin_proto::frame::MAX_MESSAGE;
+use burrow_admin_proto::local::{Auth, BRIDGE_EVENT, Bridge, BridgeState, UI_CLIENT};
 
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
 pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
 
-fn bridge_event(state: &str, reason: &str, message: &str) -> Message {
-    let v = serde_json::json!({"ev": "bridge", "body": {"state": state, "reason": reason, "message": message}});
+fn bridge_event(b: &Bridge) -> Message {
+    let v =
+        burrow_admin_proto::msg::event(BRIDGE_EVENT, serde_json::to_value(b).unwrap_or_default());
     Message::text(v.to_string())
-}
-
-pub fn explain(e: &AdminOpenError, visitor: &str, server: &str) -> (&'static str, String) {
-    match e {
-        AdminOpenError::Refused(AdminRefusal::Forbidden) => (
-            "forbidden",
-            format!("visitor \"{visitor}\" has no admin rights on {server}"),
-        ),
-        AdminOpenError::Refused(AdminRefusal::Busy) => (
-            "busy",
-            format!(
-                "{server} already has the most admin sessions it allows for visitor \"{visitor}\"; close another admin tab"
-            ),
-        ),
-        AdminOpenError::Refused(AdminRefusal::NoAdmin) => (
-            "no-admin",
-            format!("{server} was built without the admin interface"),
-        ),
-        AdminOpenError::Refused(AdminRefusal::Explained(t)) => ("refused", t.clone()),
-        AdminOpenError::Refused(AdminRefusal::Other(code)) => (
-            "refused",
-            format!("{server} refused the admin session (status {code})"),
-        ),
-        AdminOpenError::Dial(crate::dialer::DialError::Rejected) => (
-            "rejected",
-            format!("{server} rejected visitor \"{visitor}\"; check the name and secret"),
-        ),
-        AdminOpenError::Dial(crate::dialer::DialError::Unreachable(w))
-        | AdminOpenError::Dial(crate::dialer::DialError::Lost(w)) => ("unreachable", w.clone()),
-        AdminOpenError::Lost(w) => ("unreachable", w.clone()),
-    }
-}
-
-pub fn open_message() -> AdminOpen {
-    AdminOpen {
-        min: burrow_admin_proto::PROTOCOL_MIN,
-        max: burrow_admin_proto::PROTOCOL_MAX,
-        client: format!("burrow-admin-ui/{}", env!("CARGO_PKG_VERSION")),
-        features: Vec::new(),
-    }
 }
 
 pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
@@ -71,13 +34,8 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     let authed = match &first {
         Ok(Some(Ok(m))) => m
             .as_text()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
-            .and_then(|v| {
-                v.get("auth")
-                    .and_then(|a| a.as_str())
-                    .map(|s| token.matches(s))
-            })
-            .unwrap_or(false),
+            .and_then(|t| serde_json::from_str::<Auth>(t).ok())
+            .is_some_and(|a| token.matches(&a.auth)),
         _ => false,
     };
     if !authed {
@@ -93,17 +51,28 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
         .await;
         return;
     }
-    let (mut rx, mut tx, _) = match dialer.open_admin(&open_message()).await {
+    let (mut rx, mut tx, _) = match dialer.open_admin(&open_message(UI_CLIENT)).await {
         Ok(p) => p,
         Err(e) => {
             let (reason, message) = explain(&e, &visitor, &server);
-            let _ = ws.send(bridge_event("refused", reason, &message)).await;
+            let refused = Bridge {
+                state: BridgeState::Refused,
+                reason: Some(reason),
+                message,
+                server: String::new(),
+            };
+            let _ = ws.send(bridge_event(&refused)).await;
             let _ = ws.close().await;
             return;
         }
     };
-    let open = serde_json::json!({"ev": "bridge", "body": {"state": "open", "reason": "", "message": "", "server": server}});
-    if ws.send(Message::text(open.to_string())).await.is_err() {
+    let open = Bridge {
+        state: BridgeState::Open,
+        reason: None,
+        message: String::new(),
+        server,
+    };
+    if ws.send(bridge_event(&open)).await.is_err() {
         tx.close().await;
         return;
     }
@@ -111,6 +80,7 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     let mut pings = tokio::time::interval_at(tokio::time::Instant::now() + ping, ping);
     pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut heard = tokio::time::Instant::now();
+    let silent = format!("the server sent nothing for {} s", silence.as_secs());
     let why = loop {
         tokio::select! {
             from_browser = ws.next() => match from_browser {
@@ -150,11 +120,17 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
                 }
             }
             _ = tokio::time::sleep_until(heard + silence) => {
-                break "the server sent nothing for 90 s";
+                break silent.as_str();
             }
         }
     };
-    let _ = ws.send(bridge_event("server-closed", why, why)).await;
+    let closed = Bridge {
+        state: BridgeState::ServerClosed,
+        reason: None,
+        message: why.to_string(),
+        server: String::new(),
+    };
+    let _ = ws.send(bridge_event(&closed)).await;
     let _ = ws.close().await;
     tx.close().await;
 }

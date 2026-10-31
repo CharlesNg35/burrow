@@ -23,6 +23,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 compile_error!("admin-test-hooks is for end-to-end tests only and never goes into a release build");
 
 pub mod admin;
+pub mod admin_link;
 pub mod admin_local;
 pub mod app;
 pub mod base;
@@ -34,6 +35,7 @@ pub mod forward;
 pub mod init;
 pub mod install;
 pub mod instance;
+pub mod mcp;
 pub mod metrics;
 pub mod policy;
 pub mod server;

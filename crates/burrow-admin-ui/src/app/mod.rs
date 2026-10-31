@@ -1,6 +1,8 @@
 mod header;
 mod menus;
+mod row_menu;
 mod search;
+mod shown;
 
 use burrow_admin_proto::msg::{FileDiagnostics, UiDiagnostics};
 use burrow_admin_proto::serde_json;
@@ -14,11 +16,13 @@ use crate::format;
 use crate::review::ConflictDialog;
 use crate::route::{self, Route};
 use crate::screens;
-use crate::store::{Conn, Store, short_rev, store};
+use crate::store::{Conn, Store, store};
 
 use header::Header;
 pub(crate) use header::popover;
+pub(crate) use row_menu::{Item as MenuItem, row_menu, row_menus};
 use search::SearchPopover;
+pub(crate) use shown::shown_while;
 
 const THEME_KEY: &str = "burrow-admin-theme";
 
@@ -71,8 +75,37 @@ pub fn diagnostics(s: Store) -> String {
             writable: s.file.writable,
             running_ok: s.running.ok,
         }),
+        last_error: s.raw_error.get_untracked(),
     })
     .unwrap_or_default()
+}
+
+fn header_height(header: &web_sys::Element) {
+    if let Some(root) = document().document_element() {
+        let px = header.get_bounding_client_rect().height();
+        let _ = root
+            .unchecked_ref::<web_sys::HtmlElement>()
+            .style()
+            .set_property("--hdr-h", &format!("{px}px"));
+    }
+}
+
+fn watch_header() {
+    let Some(header) = document()
+        .query_selector("[data-testid=header]")
+        .ok()
+        .flatten()
+    else {
+        set_timeout(watch_header, std::time::Duration::from_millis(200));
+        return;
+    };
+    header_height(&header);
+    let seen = header.clone();
+    let on_resize = Closure::<dyn FnMut()>::new(move || header_height(&seen));
+    if let Ok(observer) = web_sys::ResizeObserver::new(on_resize.as_ref().unchecked_ref()) {
+        observer.observe(&header);
+    }
+    on_resize.forget();
 }
 
 #[component]
@@ -80,36 +113,20 @@ pub fn App() -> impl IntoView {
     let s = Store::new(route::current());
     provide_context(s);
     apply_theme(&saved_theme());
-    let on_pop = Closure::<dyn FnMut()>::new(move || s.route.set(route::current()));
+    let on_pop = Closure::<dyn FnMut()>::new(move || {
+        s.route.set(route::current());
+        s.query_seen.update(|n| *n += 1);
+    });
     window().set_onpopstate(Some(on_pop.as_ref().unchecked_ref()));
     on_pop.forget();
     let on_hash = Closure::<dyn FnMut()>::new(move || {
         if s.conn.get_untracked() == Conn::NoToken {
-            let header_height = || {
-                if let Some(h) = document()
-                    .query_selector("[data-testid=header]")
-                    .ok()
-                    .flatten()
-                    && let Some(root) = document().document_element()
-                {
-                    let px = h.get_bounding_client_rect().height();
-                    let _ = root
-                        .unchecked_ref::<web_sys::HtmlElement>()
-                        .style()
-                        .set_property("--hdr-h", &format!("{px}px"));
-                }
-            };
-            let resize = Closure::<dyn FnMut()>::new(header_height);
-            let _ = window()
-                .add_event_listener_with_callback("resize", resize.as_ref().unchecked_ref());
-            resize.forget();
-            set_timeout(header_height, std::time::Duration::from_millis(100));
-            set_timeout(header_height, std::time::Duration::from_millis(1500));
             api::connect(s);
         }
     });
     window().set_onhashchange(Some(on_hash.as_ref().unchecked_ref()));
     on_hash.forget();
+    request_animation_frame(watch_header);
     let on_leave = Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(
         move |ev: web_sys::BeforeUnloadEvent| {
             if s.edit.dirty() {
@@ -126,7 +143,12 @@ pub fn App() -> impl IntoView {
                 s.search_open.set(false);
                 return;
             }
-            if e.ctrl_key() || e.meta_key() || e.alt_key() || typing_now() {
+            if e.ctrl_key()
+                || e.meta_key()
+                || e.alt_key()
+                || typing_now()
+                || s.conn.with_untracked(Conn::is_final)
+            {
                 return;
             }
             match e.key().as_str() {
@@ -172,7 +194,7 @@ pub fn App() -> impl IntoView {
                 view! {
                     <Header/>
                     <Banners/>
-                    <main id="main" tabindex="-1" class="min-h-[calc(100vh-64px)]">
+                    <main id="main" tabindex="-1" class="min-h-[calc(100vh-var(--hdr-h,64px))]">
                         <Body/>
                     </main>
                     <ConflictDialog/>
@@ -185,9 +207,11 @@ pub fn App() -> impl IntoView {
         <ToastHost
             toasts=Signal::derive(move || {
                 let on_review = s.route.with(|r| *r == Route::Review);
+                let nothing = s.edit.pending() == 0;
                 s.toasts
                     .get()
                     .into_iter()
+                    .filter(|t| !(nothing && t.action.as_deref() == Some(crate::store::REVIEW)))
                     .map(|mut t| {
                         if on_review {
                             t.action = None;
@@ -236,7 +260,7 @@ fn Body() -> impl IntoView {
             .into_any(),
             Conn::Ended if !loaded.get() => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="ended">
-                    <EmptyState icon="wifi-off" title="This tab's admin session ended" message="Run burrow admin again; it opens a new tab."/>
+                    <EmptyState icon="wifi-off" title="This tab's admin session ended" message=burrow_admin_logic::wording::SESSION_ENDED_HINT/>
                 </div>
             }
             .into_any(),
@@ -287,8 +311,8 @@ fn Banners() -> impl IntoView {
             };
             let kept = match n {
                 0 => String::new(),
-                1 => " Your 1 pending change is kept.".to_string(),
-                n => format!(" Your {n} pending changes are kept."),
+                1 => " Your 1 change is kept.".to_string(),
+                n => format!(" Your {n} changes are kept."),
             };
             Some(view! {
                 <Banner
@@ -306,7 +330,7 @@ fn Banners() -> impl IntoView {
     let closed = move || {
         match s.conn.get() {
         Conn::Ended if s.state.with(Option::is_some) => Some(view! {
-            <Banner tone=Tone::Warning title="This tab's admin session ended." message="Run burrow admin again; it opens a new tab." testid="banner-ended"/>
+            <Banner tone=Tone::Warning title="This tab's admin session ended." message=burrow_admin_logic::wording::SESSION_ENDED_HINT testid="banner-ended"/>
         }.into_any()),
         Conn::Closed { message } => Some(view! {
             <Banner tone=Tone::Danger title="Disconnected; showing the last known state" message=message testid="banner-closed">
@@ -348,8 +372,8 @@ fn Banners() -> impl IntoView {
             (None, None) => (String::new(), String::new()),
         };
         let action = match stale {
-            Some((_, now)) => view! {
-                <Button label=format!("Review my draft on rev {}", short_rev(&now)) small=true testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
+            Some(_) => view! {
+                <Button label=crate::review::REVIEW_ON_NEW small=true testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
             }
             .into_any(),
             None => view! {
@@ -368,9 +392,9 @@ fn Banners() -> impl IntoView {
                     let (_, at) = s.changed_from.get();
                     let when = if at == 0.0 || s.now.get() - at < 60_000.0 { "noticed just now".to_string() } else { format!("noticed at {}", crate::format::clock(at)) };
                     if revs.0.is_empty() {
-                        format!("now rev {} · {when}", short_rev(&revs.1))
+                        format!("now the {} · {when}", s.version(&revs.1))
                     } else {
-                        format!("rev {} → {} · {when}", short_rev(&revs.0), short_rev(&revs.1))
+                        format!("{} → {} · {when}", s.version(&revs.0), s.version(&revs.1))
                     }
                 }
                 testid="banner-changed"

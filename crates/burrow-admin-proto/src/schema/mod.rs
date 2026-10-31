@@ -8,9 +8,9 @@ use crate::Path;
 
 pub use relation::{Cond, Relation};
 pub use sem::{
-    DurationC, DurationUnit, EnumC, EnumOption, IntegerC, IpC, IpPortC, ListC, MapC, NameC,
-    ObjectC, OptionalC, PathC, PortRangeC, RefC, RefListC, RefMapC, SecretRefC, SemType, SizeC,
-    TargetC, TextC, UnionC, UnknownType,
+    DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
+    NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,
+    RefMapC, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC, WEIGHT_MAX,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -25,26 +25,54 @@ pub struct Schema {
 
 impl Schema {
     pub fn locked_paths(&self) -> Vec<Path> {
-        fn walk(n: &Node, at: &mut Path, out: &mut Vec<Path>) {
+        self.locks().into_iter().map(|(p, _)| p).collect()
+    }
+
+    pub fn locks(&self) -> Vec<(Path, Vec<usize>)> {
+        fn walk(
+            n: &Node,
+            at: &mut Path,
+            lists: &mut Vec<usize>,
+            out: &mut Vec<(Path, Vec<usize>)>,
+        ) {
             if n.locked {
-                out.push(at.clone());
+                match out.iter_mut().find(|(p, _)| p == at) {
+                    Some((_, l)) => l.retain(|k| lists.contains(k)),
+                    None => out.push((at.clone(), lists.clone())),
+                }
                 return;
             }
-            let fields = match &n.sem {
-                SemType::Object(o) => &o.fields,
-                SemType::Optional(o) => {
-                    return walk(&o.inner, at, out);
+            match &n.sem {
+                SemType::Object(o) => {
+                    for f in &o.fields {
+                        at.push(f.key.clone());
+                        walk(&f.node, at, lists, out);
+                        at.pop();
+                    }
                 }
-                _ => return,
-            };
-            for f in fields {
-                at.push(f.key.clone());
-                walk(&f.node, at, out);
-                at.pop();
+                SemType::Optional(o) => walk(&o.inner, at, lists, out),
+                SemType::Union(u) => {
+                    for b in &u.branches {
+                        walk(b, at, lists, out);
+                    }
+                }
+                SemType::Map(MapC { value, .. }) | SemType::RefMap(RefMapC { value, .. }) => {
+                    at.push(ANY.into());
+                    walk(value, at, lists, out);
+                    at.pop();
+                }
+                SemType::List(l) => {
+                    lists.push(at.len());
+                    at.push(ANY.into());
+                    walk(&l.item, at, lists, out);
+                    at.pop();
+                    lists.pop();
+                }
+                _ => {}
             }
         }
         let mut out = Vec::new();
-        walk(&self.root, &mut Vec::new(), &mut out);
+        walk(&self.root, &mut Vec::new(), &mut Vec::new(), &mut out);
         out
     }
 
@@ -74,8 +102,14 @@ impl Schema {
     pub fn locked_at(&self, path: &[String]) -> Option<Path> {
         self.locked_paths()
             .into_iter()
-            .find(|l| path.starts_with(l) || (l.starts_with(path) && !path.is_empty()))
+            .find(|l| under_lock(l, path))
     }
+}
+
+pub const ANY: &str = "*";
+
+pub fn under_lock(lock: &[String], path: &[String]) -> bool {
+    lock.len() <= path.len() && lock.iter().zip(path).all(|(l, p)| l == ANY || l == p)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -168,6 +202,7 @@ impl Node {
             SemType::RefMap(m) => Some(&*m.value),
             SemType::List(l) => first.parse::<usize>().ok().map(|_| &*l.item),
             SemType::Optional(o) => return o.inner.at(path),
+            SemType::Union(u) => return u.branches.iter().find_map(|b| b.at(path)),
             _ => None,
         }?;
         next.at(rest)
@@ -246,6 +281,7 @@ pub enum Entity {
     Client,
     Visitor,
     Service,
+    Login,
     Unknown(String),
 }
 
@@ -255,7 +291,17 @@ impl Entity {
             Entity::Client => "client",
             Entity::Visitor => "visitor",
             Entity::Service => "service",
+            Entity::Login => "login",
             Entity::Unknown(s) => s,
+        }
+    }
+
+    pub fn plural(&self) -> &'static str {
+        match self {
+            Entity::Client => "Clients",
+            Entity::Visitor => "Visitors",
+            Entity::Login => "Login services",
+            Entity::Service | Entity::Unknown(_) => "Services",
         }
     }
 
@@ -264,6 +310,7 @@ impl Entity {
             "client" => Entity::Client,
             "visitor" => Entity::Visitor,
             "service" => Entity::Service,
+            "login" => Entity::Login,
             other => Entity::Unknown(other.to_string()),
         }
     }
@@ -273,6 +320,7 @@ impl Entity {
             Entity::Client => "clients",
             Entity::Visitor => "visitors",
             Entity::Service => "services",
+            Entity::Login => "web",
             Entity::Unknown(s) => s,
         }
     }
@@ -344,6 +392,39 @@ mod tests {
         let broken: SemType = serde_json::from_value(json!({"t": "ref"})).unwrap();
         assert!(matches!(broken, SemType::Unknown(_)));
         assert!(serde_json::from_value::<SemType>(json!({"x": 1})).is_err());
+    }
+
+    #[test]
+    fn every_type_newer_than_v0_1_2_tells_older_uis_what_to_show() {
+        for (s, tag) in [
+            (SemType::HostName(HostNameC::default()), "host_name"),
+            (SemType::Upload(UploadC::new("pair")), "upload"),
+            (
+                SemType::PasswordHash(PasswordHashC::default()),
+                "password_hash",
+            ),
+        ] {
+            let sent = serde_json::to_value(&s).unwrap();
+            assert_eq!(sent["t"], tag);
+            assert_eq!(sent["fallback"], json!([{"t": "text"}]), "{tag}");
+            assert_eq!(serde_json::from_value::<SemType>(sent).unwrap(), s);
+        }
+        let bare: SemType = serde_json::from_value(json!({"t": "password_hash"})).unwrap();
+        assert_eq!(bare, SemType::PasswordHash(PasswordHashC::default()));
+    }
+
+    #[test]
+    fn a_host_name_tells_older_uis_to_show_a_text_field() {
+        let s = SemType::HostName(HostNameC::default());
+        let sent = serde_json::to_value(&s).unwrap();
+        assert_eq!(sent, json!({"t": "host_name", "fallback": [{"t": "text"}]}));
+        assert_eq!(serde_json::from_value::<SemType>(sent).unwrap(), s);
+        let mut older = serde_json::to_value(&s).unwrap();
+        older["t"] = json!("host_name_v0");
+        let SemType::Unknown(u) = serde_json::from_value::<SemType>(older).unwrap() else {
+            panic!("an unknown tag stays unknown")
+        };
+        assert_eq!(u.fallback, vec![SemType::Text(TextC::default())]);
     }
 
     #[test]

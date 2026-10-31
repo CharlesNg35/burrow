@@ -1,3 +1,4 @@
+mod certs;
 mod table;
 
 use std::collections::HashMap;
@@ -121,6 +122,8 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     render_clients(&mut out, s, paint);
     render_services(&mut out, s, paint, rates);
     render_visitors(&mut out, s, paint);
+    render_web(&mut out, s, paint);
+    certs::render_certs(&mut out, s, paint, burrow_syntax::duration::now_secs());
     render_footer(&mut out, s, paint);
     out
 }
@@ -301,6 +304,14 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
                 if !v.visitors.is_empty() {
                     extra.push(format!("visitors {}", v.visitors.join(", ")));
                 }
+                if let Some(h) = &v.http {
+                    extra.push(http_counts(h));
+                }
+                for h in v.health.iter().filter(|h| !h.up) {
+                    if let Some(why) = &h.reason {
+                        extra.push(format!("{} down: {why}", h.client));
+                    }
+                }
                 if !extra.is_empty() {
                     notes.push(format!("{}: {}", v.name, extra.join(", ")));
                 }
@@ -312,6 +323,21 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
             let note = paint.clip(&format!("  {n}"));
             let _ = writeln!(out, "{}", paint.tone(&note, Tone::Dim));
         }
+    }
+}
+
+fn http_counts(h: &burrow_admin_proto::status::HttpCounts) -> String {
+    let set: Vec<String> = h
+        .responses
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| **n > 0)
+        .map(|(i, n)| format!("{}xx {n}", i + 1))
+        .collect();
+    if set.is_empty() {
+        "no web responses yet".into()
+    } else {
+        format!("web responses {}", set.join(", "))
     }
 }
 
@@ -344,6 +370,43 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
     }
 }
 
+fn render_web(out: &mut String, s: &Status, paint: Paint) {
+    if let Some(w) = &s.web_waiting {
+        let _ = writeln!(out, "\n{}", paint.tone(&w.line(), Tone::Bad));
+    }
+    let Some(web) = &s.web else {
+        return;
+    };
+    let mut rows: Vec<Vec<Cell>> = web
+        .tunnel
+        .iter()
+        .map(|t| vec![cell(&t.url), cell("tunnel"), toned("burrow", Tone::Dim)])
+        .collect();
+    rows.extend(web.hosts.iter().map(|h| {
+        let kind = if h.unencrypted() {
+            toned(format!("{}, unencrypted", h.kind), Tone::Warn)
+        } else {
+            cell(&h.kind)
+        };
+        vec![cell(&h.name), kind, cell(&h.service)]
+    }));
+    if rows.is_empty() {
+        let _ = writeln!(out, "\n{}", paint.dim(&web.lines().join("\n")));
+        return;
+    }
+    table(
+        out,
+        paint,
+        &paint.bold("WEBSITES"),
+        &[
+            long("NAME", ALWAYS),
+            col("KIND", 5),
+            long("SERVICE", ALWAYS),
+        ],
+        rows,
+    );
+}
+
 fn render_footer(out: &mut String, s: &Status, paint: Paint) {
     let mut footer = Vec::new();
     match s.udp_peers {
@@ -365,3 +428,6 @@ fn render_footer(out: &mut String, s: &Status, paint: Paint) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_certs;

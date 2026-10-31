@@ -1,3 +1,6 @@
+#[path = "common/output.rs"]
+mod output;
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -9,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use burrow::update::archive::{from_tar_gz, from_zip};
 use burrow::update::http::{Fetched, get};
+use output::text;
 use sha2::{Digest, Sha256};
 
 const MINE: &str = env!("CARGO_PKG_VERSION");
@@ -216,14 +220,6 @@ fn update_with(binary: &Path, releases: &Releases, args: &[&str], env: &[(&str, 
     }
     cmd.envs(env.iter().copied());
     cmd.output().unwrap()
-}
-
-fn text(o: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    )
 }
 
 fn leftovers(dir: &Path) -> Vec<String> {

@@ -57,7 +57,7 @@ fn hop_class(s: HopState) -> &'static str {
         HopState::Bad => "border-danger/55 bg-danger-weak",
         HopState::Warn => "border-warning/50 bg-hop",
         HopState::Added => "border-dashed border-success bg-success-weak",
-        HopState::Removed => "border-dashed border-danger bg-danger-weak",
+        HopState::Removed => "border-dashed border-border-strong bg-hop text-text-muted",
     }
 }
 
@@ -70,8 +70,11 @@ fn badge_class(t: Tone) -> &'static str {
     }
 }
 
-fn hop_view(h: Hop) -> impl IntoView {
+fn hop_view(mut h: Hop) -> impl IntoView {
     let removed = h.state == HopState::Removed;
+    if removed && h.badge.is_none() {
+        h.badge = Some(("removed".into(), Tone::Danger));
+    }
     view! {
         <div
             class=format!(
@@ -115,15 +118,18 @@ fn edge_view(e: Edge) -> impl IntoView {
             "border-t-2 border-dashed border-text-faint",
             "text-text-faint",
         ),
-        EdgeState::Error | EdgeState::Removed => {
-            ("border-t-2 border-dashed border-danger", "text-danger")
-        }
+        EdgeState::Error => ("border-t-2 border-dashed border-danger", "text-danger"),
+        EdgeState::Removed => (
+            "border-t-2 border-dashed border-text-faint",
+            "text-text-faint",
+        ),
         EdgeState::Added => ("border-t-2 border-dashed border-success", "text-success"),
     };
     let head = match e.state {
         EdgeState::Live => "border-l-accent",
         EdgeState::Dead => "border-l-text-faint",
-        EdgeState::Error | EdgeState::Removed => "border-l-danger",
+        EdgeState::Error => "border-l-danger",
+        EdgeState::Removed => "border-l-text-faint",
         EdgeState::Added => "border-l-success",
     };
     view! {

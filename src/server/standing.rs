@@ -158,13 +158,20 @@ impl Shared {
         )
     }
 
-    pub(super) fn seen_any(&self, service: &str, session: &Via) -> Seen {
-        self.standing.lock().expect("standing lock").marked(
-            service,
-            session.name(),
-            &session.token(),
-            Instant::now(),
-        )
+    pub(super) fn seen_of(&self, service: &str, session: &Via, targets: &[String]) -> Seen {
+        let standing = self.standing.lock().expect("standing lock");
+        let now = Instant::now();
+        let seen: Vec<Seen> = targets
+            .iter()
+            .map(|t| standing.of(service, session.name(), t, &session.token(), now))
+            .collect();
+        if seen.contains(&Seen::Refused) {
+            Seen::Refused
+        } else if seen.contains(&Seen::Aside) {
+            Seen::Aside
+        } else {
+            Seen::Clear
+        }
     }
 
     pub(super) fn accepted(&self, service: &str, client: &str, target: &str) {
@@ -224,9 +231,12 @@ impl Shared {
             .expect("standing lock")
             .retain(|service, client, target| {
                 settings.services.get(service).is_some_and(|svc| {
-                    svc.clients.len() > 1
-                        && svc.clients.iter().any(|c| c == client)
-                        && (0..svc.ports.max(1)).any(|i| svc.target_at(i) == target)
+                    svc.several()
+                        && svc.entries().iter().any(|e| {
+                            e.client == client
+                                && (0..svc.ports.max(1))
+                                    .any(|i| svc.entry_target_at(e, i) == target)
+                        })
                 })
             });
     }
@@ -359,6 +369,11 @@ mod tests {
             Some(Trouble::Failed)
         );
         assert_eq!(kind(ForwardError::Protocol), None);
+        assert_eq!(
+            kind(ForwardError::Status(Status::Offline)),
+            None,
+            "a client without a free local port says nothing about the target"
+        );
         assert_eq!(
             kind(ForwardError::Status(Status::Busy)),
             Some(Trouble::Failed),

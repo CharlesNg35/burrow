@@ -32,7 +32,6 @@ fn files_of_a_running_instance_stay_fresh_for_tmp_cleaners() {
     }
     assert_ne!(age(&file), old);
     drop(fresh);
-    std::thread::sleep(std::time::Duration::from_millis(50));
     set_old();
     std::thread::sleep(std::time::Duration::from_millis(100));
     assert_eq!(age(&file), old, "a dropped guard kept touching");
@@ -225,9 +224,13 @@ fn only_entries_of_another_user_count_as_planted() {
 #[test]
 fn only_old_drafts_are_cleaned_up() {
     let dir = tempfile::tempdir().unwrap();
-    let fresh = dir.path().join("1.new");
+    let fresh = dir
+        .path()
+        .join(format!(".1.status.1-0.{}", crate::base::fs::TEMP_EXTENSION));
     std::fs::write(&fresh, "x").unwrap();
-    let old = dir.path().join("2.new");
+    let old = dir
+        .path()
+        .join(format!(".2.status.1-1.{}", crate::base::fs::TEMP_EXTENSION));
     std::fs::write(&old, "x").unwrap();
     let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
     std::fs::File::options()
@@ -420,4 +423,117 @@ fn server_identity_follows_the_real_file() {
     let direct = Identity::server(&cfg);
     let via_dot = Identity::server(&dir.path().join(".").join("server.yaml"));
     assert_eq!(direct, via_dot);
+}
+
+#[test]
+fn a_lock_whose_file_keeps_being_replaced_is_given_up_not_kept() {
+    use super::lock::{Locked, after_lock};
+    assert_eq!(after_lock(1, true), Locked::Keep);
+    assert_eq!(after_lock(1, false), Locked::Again);
+    assert_eq!(after_lock(4, false), Locked::Again);
+    assert_eq!(after_lock(5, false), Locked::Moved);
+    assert_eq!(after_lock(5, true), Locked::Keep);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_planted_at_a_lock_path_is_skipped_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("server.yaml");
+    std::fs::write(&cfg, "x").unwrap();
+    let id = Identity::server(&cfg);
+    let fifo = dir
+        .path()
+        .join(format!("{}.{}", id.key(), super::LOCK_EXTENSION));
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    let folder = dir.path().to_path_buf();
+    std::thread::spawn(move || {
+        let _ = tx.send(held_elsewhere(&folder, &id).is_none());
+    });
+    let skipped = rx.recv_timeout(std::time::Duration::from_secs(5));
+    if skipped.is_err() {
+        let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+    }
+    assert_eq!(skipped, Ok(true), "opening the fifo blocked");
+}
+
+#[cfg(unix)]
+fn other_user() -> Option<u32> {
+    let me = rustix::process::geteuid().as_raw();
+    (me != 0).then_some(me + 1)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_shared_folder_another_user_owns_is_not_trusted() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(other) = other_user() else { return };
+    let base = tempfile::tempdir().unwrap();
+    let dir = base.path().join("instances");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777)).unwrap();
+    assert!(safe_dir(&dir));
+    assert!(!safe_dir_as(&dir, other));
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!safe_dir_as(&dir, other));
+}
+
+#[cfg(unix)]
+#[test]
+fn the_own_folder_is_the_runtime_folder_when_it_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let me = rustix::process::geteuid().as_raw();
+    let run = tempfile::tempdir().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(run.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let picked = own::own_dir_in(Some(run.path().to_path_buf()), temp.path(), me);
+    assert_eq!(picked, run.path().join("burrow"));
+    own::prepare_own_as(&picked, me).unwrap();
+    let mode = std::fs::metadata(&picked).unwrap().permissions().mode();
+    assert_eq!(mode & 0o7777, 0o700);
+    let fallback = temp.path().join(format!("burrow-{me}"));
+    std::fs::set_permissions(run.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        own::own_dir_in(Some(run.path().to_path_buf()), temp.path(), me),
+        fallback
+    );
+    assert_eq!(
+        own::own_dir_in(Some("relative".into()), temp.path(), me),
+        fallback
+    );
+    assert_eq!(own::own_dir_in(None, temp.path(), me), fallback);
+    if let Some(other) = other_user() {
+        std::fs::set_permissions(run.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let theirs = own::own_dir_in(Some(run.path().to_path_buf()), temp.path(), other);
+        assert_eq!(theirs, temp.path().join(format!("burrow-{other}")));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn the_own_fallback_folder_is_made_private_and_refused_when_it_is_not() {
+    use std::os::unix::fs::PermissionsExt;
+    let me = rustix::process::geteuid().as_raw();
+    let temp = tempfile::tempdir().unwrap();
+    let dir = own::own_dir_in(None, temp.path(), me);
+    own::prepare_own_as(&dir, me).unwrap();
+    let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+    assert_eq!(mode & 0o7777, 0o700);
+    own::prepare_own_as(&dir, me).unwrap();
+    if let Some(other) = other_user() {
+        assert!(own::prepare_own_as(&dir, other).is_err());
+    }
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777)).unwrap();
+    assert!(own::prepare_own_as(&dir, me).is_err());
+    let link = temp.path().join("link");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::os::unix::fs::symlink(&dir, &link).unwrap();
+    assert!(own::prepare_own_as(&link, me).is_err());
 }

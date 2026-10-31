@@ -1,6 +1,7 @@
-use burrow_ui_kit::{Icon, Segmented, active_element, button_class, focus_first, trap_focus};
+use burrow_ui_kit::{Icon, Modal, Segmented, Tooltip, button_class};
 use leptos::html;
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::route;
 use crate::store::{Store, store};
@@ -31,7 +32,8 @@ fn node_view(
     };
     let to = n.to.clone();
     let tip = n.tip.clone();
-    let lines: Vec<String> = n.sub.lines().map(str::to_string).collect();
+    let room_lines = (((n.h - 24.0) / 14.0).floor() as usize).max(1);
+    let lines: Vec<String> = n.sub.lines().take(room_lines).map(str::to_string).collect();
     let cursor = if to.is_some() {
         "group cursor-pointer"
     } else {
@@ -68,7 +70,11 @@ fn node_view(
                 }
                 if let Some(el) = wrap.get_untracked() {
                     let r = el.get_bounding_client_rect();
-                    hover.set(Some((tip.clone(), e.client_x() as f64 - r.left() + el.scroll_left() as f64 + 12.0, e.client_y() as f64 - r.top() + el.scroll_top() as f64 + 14.0)));
+                    let top = e
+                        .current_target()
+                        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                        .map_or(e.client_y() as f64, |n| n.get_bounding_client_rect().top());
+                    hover.set(Some((tip.clone(), e.client_x() as f64 - r.left() + el.scroll_left() as f64 + 12.0, top - r.top() + el.scroll_top() as f64 - 30.0)));
                 }
             }
             on:mouseleave=move |_| hover.set(None)
@@ -110,7 +116,7 @@ pub fn FlowModal() -> impl IntoView {
     let panel: NodeRef<html::Div> = NodeRef::new();
     let wrap: NodeRef<html::Div> = NodeRef::new();
     let hover: RwSignal<Option<(String, f64, f64)>> = RwSignal::new(None);
-    restore_focus(s, chart, only_problems, panel, hover);
+    restore_focus(s, chart, only_problems, hover);
     let close = move || s.flow_open.set(false);
     let filter = Signal::derive(move || {
         if only_problems.get() {
@@ -122,25 +128,14 @@ pub fn FlowModal() -> impl IntoView {
     let svg = flow_svg(chart, only_problems, hover, wrap);
     let links = flow_links(s, chart);
     view! {
-        <Show when=move || s.flow_open.get()>
-            <div class="fixed inset-0 z-40 bg-scrim" on:click=move |_| close()></div>
-            <div
-                node_ref=panel
-                class="fixed top-14 right-24 left-24 z-50 flex max-h-[calc(100vh-80px)] flex-col rounded-[16px] border border-border-strong bg-surface shadow-overlay max-lg:right-4 max-lg:left-4 max-sm:inset-0 max-sm:max-h-none max-sm:rounded-none dark:bg-surface-2"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Flow"
-                data-testid="flow"
-                on:keydown=move |e| {
-                    if e.key() == "Escape" {
-                        e.stop_propagation();
-                        close();
-                    }
-                    if let Some(p) = panel.get_untracked() {
-                        trap_focus(&e, &p);
-                    }
-                }
-            >
+        <Modal
+            open=s.flow_open
+            on_close=Callback::new(move |_: ()| close())
+            label="Flow".to_string()
+            class="fixed top-14 right-24 left-24 z-50 flex max-h-[calc(100vh-80px)] flex-col rounded-[16px] border border-border-strong bg-surface shadow-overlay max-lg:right-4 max-lg:left-4 max-sm:inset-0 max-sm:max-h-none max-sm:rounded-none dark:bg-surface-2"
+            testid="flow"
+            panel=panel
+        >
                 <div class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3.5">
                     <span class="text-accent-ink"><Icon name="network"/></span>
                     <h2 class="text-[17px] font-bold">"Flow"</h2>
@@ -165,13 +160,12 @@ pub fn FlowModal() -> impl IntoView {
                 <div node_ref=wrap class="relative min-h-0 flex-1 overflow-auto overscroll-contain px-[22px] pt-4 pb-1.5">
                     {svg}
                     {move || hover.get().map(|(t, x, y)| view! {
-                        <div class="pointer-events-none absolute z-10 rounded-[6px] bg-tip px-2 py-1 text-xs whitespace-nowrap text-white" style:left=format!("{x:.0}px") style:top=format!("{y:.0}px")>{t}</div>
+                        <Tooltip x=x y=y text=t/>
                     })}
                     <ul class="sr-only" aria-label="Open from the flow chart">{links}</ul>
                 </div>
                 {legend()}
-            </div>
-        </Show>
+        </Modal>
     }
 }
 
@@ -179,25 +173,14 @@ fn restore_focus(
     s: Store,
     chart: Memo<Chart>,
     only_problems: RwSignal<bool>,
-    panel: NodeRef<html::Div>,
     hover: RwSignal<Option<(String, f64, f64)>>,
 ) {
-    let back: StoredValue<Option<web_sys::HtmlElement>, LocalStorage> =
-        StoredValue::new_local(None);
     Effect::new(move |was: Option<bool>| {
         let open = s.flow_open.get();
         if open && was != Some(true) {
-            back.set_value(active_element());
             let c = chart.get_untracked();
             only_problems.set(c.services > 12 && c.problems > 0);
-            if let Some(p) = panel.get_untracked() {
-                focus_first(&p);
-            }
         } else if !open && was == Some(true) {
-            if let Some(b) = back.get_value() {
-                let _ = b.focus();
-            }
-            back.set_value(None);
             hover.set(None);
         }
         open
@@ -280,7 +263,7 @@ fn legend() -> impl IntoView {
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-success"></span>"healthy"</span>
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-warning"></span>"degraded"</span>
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-danger"></span>"down"</span>
-        <span class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-text-faint"></span>"offline"</span>
+        <span class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-text-faint"></span>{burrow_admin_logic::wording::OFFLINE}</span>
         <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-accent"></span>"server ↔ client channels"</span>
         <span>"line weight = open connections; client → target lines are fixed"</span>
         <span class="ml-auto">"Click a node to open that service or client · Esc closes"</span>

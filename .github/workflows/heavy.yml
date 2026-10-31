@@ -17,12 +17,18 @@ on:
         type: choice
         options: [tcp, ws]
         default: tcp
+      jobs:
+        description: Which jobs to run
+        type: choice
+        options: [all, heavy, proxies, freebsd]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   heavy:
+    if: inputs.jobs == 'all' || inputs.jobs == 'heavy'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -39,6 +45,7 @@ jobs:
           cargo test --locked --release --test heavy -- --ignored --nocapture --test-threads 1
 
   proxies:
+    if: inputs.jobs == 'all' || inputs.jobs == 'proxies'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -46,3 +53,32 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: wss through nginx and Caddy
         run: tests/e2e/proxies.sh
+
+  freebsd:
+    if: inputs.jobs == 'all' || inputs.jobs == 'freebsd'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test suites in a FreeBSD VM
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          release: "14"
+          mem: 8192
+          cpu: 4
+          prepare: |
+            pkg install -y bash curl git python3 sudo
+            pw useradd tester -m -s /usr/local/bin/bash
+          run: |
+            chown -R tester "$GITHUB_WORKSPACE"
+            su -m tester -c 'bash -u -c "
+              export HOME=/home/tester CARGO_TERM_COLOR=never RUST_TEST_THREADS=4
+              curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none || exit 1
+              . \$HOME/.cargo/env
+              rustup toolchain install || exit 1
+              rc=0
+              cargo test --locked --no-fail-fast || rc=1
+              cargo test --locked --no-fail-fast -p burrow-web || rc=1
+              BURROW_TEST_TRANSPORT=ws cargo test --locked --no-fail-fast --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive --test self_target --test fetch --test web || rc=1
+              exit \$rc
+            "'

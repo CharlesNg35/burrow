@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
+use super::ChallengeKind;
 use super::{
     Bind, ClientEntry, Heartbeat, Limits, Pool, ServiceEntry, TcpOptions, UdpOptions, VisitorEntry,
-    is_default, is_false,
+    WebConfig, is_default, is_false,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -18,6 +19,7 @@ use super::{
     groups(
         listener = "Listener",
         websocket = "WebSocket",
+        web = "Web proxy | One HTTPS port for websites and TLS services, told apart by name.",
         entities = "Clients, visitors and services",
         local = "This server | What this server may dial for itself, for services with client: self and reach: self.",
         limits = "Limits",
@@ -55,13 +57,23 @@ pub struct ServerConfig {
         description = "Accept clients over WebSocket, for servers reachable only through HTTP(S)"
     )]
     #[admin(
-        label = "WebSocket listener",
+        label = "WebSocket",
         group = websocket,
         applies = reload,
-        none_label = "Off",
-        locked
+        none_label = "Off"
     )]
     pub websocket: Option<WebSocketConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The web proxy: one HTTPS port for websites and TLS services by name; off unless set"
+    )]
+    #[admin(
+        label = "Web proxy",
+        group = web,
+        applies = reload,
+        none_label = "Off"
+    )]
+    pub web: Option<WebConfig>,
     #[serde(default)]
     #[schemars(description = "Clients allowed to connect, keyed by client name")]
     #[admin(help = "Clients allowed to connect", ty = map(client), group = entities, applies = reload)]
@@ -94,23 +106,24 @@ pub struct ServerConfig {
         group = security,
         applies = live,
         danger_when_set,
-        locked
+        locked,
+        advanced
     )]
     pub insecure_plaintext: bool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = network, applies = live)]
+    #[admin(group = network, applies = live, advanced)]
     pub heartbeat: Heartbeat,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = limits)]
+    #[admin(group = limits, advanced)]
     pub limits: Limits,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "Pool of idle channels", group = network, applies = reload)]
+    #[admin(label = "Ready connections to clients", group = network, applies = reload, advanced)]
     pub pool: Pool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "TCP", group = network, applies = live)]
+    #[admin(label = "TCP", group = network, applies = live, advanced)]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "UDP", group = network, applies = live)]
+    #[admin(label = "UDP", group = network, applies = live, advanced)]
     pub udp: UdpOptions,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Serve Prometheus metrics at /metrics; off unless set")]
@@ -151,6 +164,17 @@ pub struct WebSocketConfig {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
+        description = "The name that leads to the tunnel when websocket.listen is the same port as web.https, for example tunnel.example.com"
+    )]
+    #[admin(
+        ty = host_name,
+        label = "Name on the HTTPS port",
+        help = "The name that leads to burrow's WebSocket listener when it shares the web proxy's HTTPS port, for example tunnel.example.com",
+        none_label = "Not shared"
+    )]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
         description = "Serve wss:// directly with these PEM files instead of behind a TLS proxy"
     )]
     #[admin(label = "TLS", none_label = "Behind a TLS proxy (plain ws://)")]
@@ -165,6 +189,17 @@ pub struct WebSocketConfig {
     #[schemars(range(min = 5, max = 30))]
     #[admin(label = "Keepalive", advanced)]
     pub keepalive_secs: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "How Let's Encrypt checks the tunnel's own name when it shares web.https: tls, http or dns; automatic when not set"
+    )]
+    #[admin(
+        label = "Let's Encrypt check",
+        help = "How Let's Encrypt checks that name, for example http behind a proxy that does the HTTPS",
+        none_label = "Automatic",
+        advanced
+    )]
+    pub challenge: Option<ChallengeKind>,
 }
 
 fn default_ws_keepalive() -> u32 {
@@ -187,12 +222,20 @@ pub struct TlsFiles {
     #[schemars(
         description = "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem"
     )]
-    #[admin(ty = path(must_exist, relative_to = "config"), label = "Certificate file")]
+    #[admin(
+        ty = path(must_exist, relative_to = "config"),
+        label = "Certificate file",
+        locked
+    )]
     pub cert: String,
     #[schemars(
         description = "Private key PEM file, relative to the config file, for example certs/privkey.pem"
     )]
-    #[admin(ty = path(must_exist, relative_to = "config"), label = "Private key file")]
+    #[admin(
+        ty = path(must_exist, relative_to = "config"),
+        label = "Private key file",
+        locked
+    )]
     pub key: String,
 }
 
@@ -205,6 +248,6 @@ pub struct SelfEntry {
     #[schemars(
         description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
     )]
-    #[admin(help = "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    #[admin(help = "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "May reach on this server", empty_label = "Nothing")]
     pub allow: Vec<String>,
 }

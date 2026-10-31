@@ -1,12 +1,25 @@
+mod access_keys;
+mod certs;
 mod client;
+mod client_ref;
+mod dns;
 mod entries;
 mod options;
 mod server;
+mod site;
+mod site_keys;
 mod visitor;
+mod web;
 
+pub use access_keys::{
+    ClientAuthFiles, ForwardAuthConfig, ForwardAuthSetting, LoginPick, RESERVED_LOGIN_NAMES,
+};
+pub use certs::{CertFile, Directory, DirectoryName, LetsEncrypt};
 pub use client::{
     CLIENT_MAX_CONNECTIONS, CLIENT_MAX_UDP_PEERS, Cipher, ClientConfig, OnRejected, Reconnect,
 };
+pub use client_ref::{ClientRef, ServiceClient, WEIGHT_MAX, ref_name};
+pub use dns::{AcmeDnsDns, CloudflareDns, DnsEntry, Rfc2136Dns};
 pub use entries::{
     Bind, ClientEntry, HealthCheck, HealthCheckSetting, Mode, Protocol, ProxyVersion, Reach,
     Secrets, ServiceEntry, Target, VisitorEntry,
@@ -15,7 +28,13 @@ pub use options::{ClientUdpOptions, Heartbeat, Limits, Pool, TcpOptions, UdpOpti
 pub use server::{
     MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,
 };
+pub use site::{ChallengeKind, SiteFiles, SiteTls, TlsMode, WebSite};
+pub use site_keys::{
+    AccessLog, AccessLogFormat, AccessLogOptions, RedirectRule, RedirectTarget, TargetCa,
+    TargetTls, TargetUnchecked,
+};
 pub use visitor::{ForwardEntry, VisitorConfig, VisitorUdpOptions};
+pub use web::{ServiceWeb, WebConfig};
 
 fn is_false(v: &bool) -> bool {
     !v
@@ -30,6 +49,21 @@ mod tests {
     use super::*;
     use crate::admin_schema::AdminEnum;
     use burrow_admin_proto::msg::AdminLevel;
+
+    #[test]
+    fn a_target_host_drops_the_port_and_brackets_and_a_unix_socket_has_none() {
+        let host = |t: Target| t.host();
+        assert_eq!(host(Target::Port(8080)).as_deref(), Some("127.0.0.1"));
+        assert_eq!(
+            host(Target::Addr("8080".into())).as_deref(),
+            Some("127.0.0.1")
+        );
+        let addr = |s: &str| host(Target::Addr(s.into()));
+        assert_eq!(addr("10.0.0.5:80").as_deref(), Some("10.0.0.5"));
+        assert_eq!(addr("[::1]:443").as_deref(), Some("::1"));
+        assert_eq!(addr("host:8000-8010").as_deref(), Some("host"));
+        assert_eq!(addr("unix:/run/a.sock"), None);
+    }
     use burrow_admin_proto::serde_json::{self, json};
 
     #[test]
@@ -43,6 +77,30 @@ mod tests {
             assert_eq!(serde_json::to_value(l).unwrap(), json!(o.value));
         }
         assert_eq!(AdminLevel::from_wire("owner"), None);
+    }
+
+    #[test]
+    fn reach_offers_the_one_any_token_of_the_allow_syntax() {
+        use crate::admin_schema::AdminSchema;
+        use burrow_admin_proto::schema::SemType;
+        let SemType::Union(u) = Reach::node().sem else {
+            panic!("reach is a union");
+        };
+        let offered: Vec<String> = u
+            .branches
+            .iter()
+            .filter_map(|b| match &b.sem {
+                SemType::Enum(e) => Some(
+                    e.options
+                        .iter()
+                        .map(|o| o.value.clone())
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        assert_eq!(offered, [burrow_syntax::rule::ANY]);
     }
 
     #[test]

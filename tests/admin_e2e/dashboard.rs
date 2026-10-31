@@ -10,11 +10,26 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         let echo = echo_server(c.world.ports["echo"]).await;
         open(c, "ops").await;
-        c.ui.wait_text("[data-testid=kpi-clients]", "1 away", SECS)
+        c.ui.wait_text("[data-testid=kpi-clients]", "1 offline", SECS)
             .await;
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
         c.ui.shot("connected-one-client-online").await;
+        c.ui.nav("/clients/office").await;
+        c.ui.wait_text("[data-testid=client-allow-value]", "not connected", SECS)
+            .await;
+        c.ui.nav("/clients/home").await;
+        let allow =
+            c.ui.wait_text("[data-testid=client-allow-value]", "127.0.0.1", SECS)
+                .await;
+        assert!(
+            c.ui.text("[data-testid=client-allow]")
+                .await
+                .contains("set on that machine"),
+            "the client's own allow list, read only: {allow}"
+        );
+        c.ui.shot("client-allow-list").await;
+        c.ui.nav("/").await;
 
         c.world.start_client("office");
         c.ui.wait_text(
@@ -53,19 +68,29 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.click("[data-testid=flow-open]").await;
         c.ui.wait_for("[data-testid=flow] [data-node='port:web']", SECS)
             .await;
+        c.ui.shot("flow-chart-no-tooltip").await;
         let _: bool = c
             .ui
             .eval("(() => { const n = document.querySelector(\"[data-testid=flow] [data-node='port:web']\"); const r = n.getBoundingClientRect(); n.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: r.left + 10, clientY: r.top + 10 })); return true; })()")
             .await;
-        c.ui.wait_for("[data-testid=flow] .bg-tip", SECS).await;
+        let tip = "[data-testid=flow] [data-testid=tooltip]";
+        c.ui.wait_for(tip, SECS).await;
         let left: String =
-            c.ui.eval("document.querySelector('[data-testid=flow] .bg-tip').style.left")
+            c.ui.eval(&format!("document.querySelector('{tip}').style.left"))
                 .await;
         assert!(
             left.ends_with("px"),
             "the flow tooltip is placed without an inline style attribute: {left:?}"
         );
         c.ui.shot("flow-chart").await;
+        c.ui.dark(true).await;
+        let ratio: f64 = c
+            .ui
+            .eval(&format!("(() => {{ const s = getComputedStyle(document.querySelector('{tip}')); const l = c => {{ const v = c.match(/[\\d.]+/g).slice(0, 3).map(x => {{ const k = x / 255; return k <= 0.03928 ? k / 12.92 : ((k + 0.055) / 1.055) ** 2.4; }}); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; }}; const a = l(s.color), b = l(s.backgroundColor); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); }})()"))
+            .await;
+        assert!(ratio >= 4.5, "the tooltip reads in dark: {ratio:.2}:1");
+        c.ui.shot("flow-chart-dark").await;
+        c.ui.dark(false).await;
         c.ui.press("[data-testid=flow]", "Escape").await;
         c.ui.wait_gone("[data-testid=flow]", SECS).await;
         c.ui.nav("/services/web").await;
@@ -150,12 +175,8 @@ fn at_limit(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         for (w, h) in [(1440, 900), (420, 900), (320, 800)] {
             c.ui.viewport(w, h).await;
             c.ui.nav("/clients/home").await;
-            c.ui.wait_text(
-                "[data-testid=limit-tag]",
-                "at limit · max_connections in client.yaml",
-                SECS,
-            )
-            .await;
+            c.ui.wait_text("[data-testid=limit-tag]", "At its limit", SECS)
+                .await;
             tokio::time::sleep(Duration::from_millis(300)).await;
             let clear: Vec<f64> = c
                 .ui
@@ -215,7 +236,12 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         open(c, "ops").await;
         c.ui.wait_for("[data-testid=attention] li:nth-child(14)", SECS)
             .await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        c.ui.wait_true(
+            "Math.abs(document.querySelector('[data-testid=traffic]').getBoundingClientRect().height - document.querySelector('[data-testid=attention-card]').getBoundingClientRect().height) < 1",
+            "the attention card settles at the traffic card's height",
+            SECS,
+        )
+        .await;
         let heights: Vec<f64> = c
             .ui
             .eval("[document.querySelector('[data-testid=traffic]').getBoundingClientRect().height, document.querySelector('[data-testid=attention-card]').getBoundingClientRect().height]")
@@ -268,7 +294,12 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             "live updates keep the scroll position: {kept}"
         );
         c.ui.viewport(1100, 900).await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        c.ui.wait_true(
+            "[...document.querySelectorAll('[data-testid=attention] li')].every(e => e.offsetParent !== null)",
+            "below 1200 px every attention row shows",
+            SECS,
+        )
+        .await;
         let rows: usize = c
             .ui
             .eval("[...document.querySelectorAll('[data-testid=attention] li')].filter(e => e.offsetParent !== null).length")

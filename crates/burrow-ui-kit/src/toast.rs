@@ -11,6 +11,14 @@ pub struct Toast {
     pub action: Option<String>,
 }
 
+pub const MAX_TOASTS: usize = 3;
+
+pub fn push_toast(list: &mut Vec<Toast>, toast: Toast) {
+    list.push(toast);
+    let excess = list.len().saturating_sub(MAX_TOASTS);
+    list.drain(..excess);
+}
+
 #[component]
 pub fn ToastHost(
     #[prop(into)] toasts: Signal<Vec<Toast>>,
@@ -29,29 +37,26 @@ pub fn ToastHost(
         on_cleanup(move || h.clear());
     }
     let host: NodeRef<leptos::html::Div> = NodeRef::new();
-    Effect::new(move |_| {
-        toasts.track();
-        tick.track();
-        let Some(w) = web_sys::window() else {
-            return;
-        };
-        let h = w
-            .inner_height()
-            .ok()
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let top = w
-            .document()
-            .and_then(|d| d.query_selector("[data-sticky-bar]").ok().flatten())
-            .map(|e| e.get_bounding_client_rect().top());
-        let bottom = match top {
-            Some(t) if t > 0.0 && t < h => (h - t + 8.0).max(16.0),
-            _ => 16.0,
+    let place = move || {
+        let bottom = match crate::bar::bar_top() {
+            Some(t) => (crate::bar::view_height() - t + 8.0).max(16.0),
+            None => 16.0,
         };
         if let Some(el) = host.get_untracked() {
             let el: &web_sys::HtmlElement = &el;
             let _ = el.style().set_property("bottom", &format!("{bottom}px"));
         }
+    };
+    Effect::new(move |_| {
+        toasts.track();
+        tick.track();
+        place();
+    });
+    let resize = window_event_listener(leptos::ev::resize, move |_| place());
+    let scroll = window_event_listener(leptos::ev::scroll, move |_| place());
+    on_cleanup(move || {
+        resize.remove();
+        scroll.remove();
     });
     view! {
         <div
@@ -65,7 +70,7 @@ pub fn ToastHost(
                     .get()
                     .into_iter()
                     .rev()
-                    .take(3)
+                    .take(MAX_TOASTS)
                     .map(|t| {
                         let id = t.id;
                         view! {
@@ -87,5 +92,28 @@ pub fn ToastHost(
                     .collect_view()
             }}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn t(id: u64) -> Toast {
+        Toast {
+            id,
+            tone: Tone::Info,
+            text: String::new(),
+            action: None,
+        }
+    }
+
+    #[test]
+    fn a_fourth_toast_drops_the_oldest() {
+        let mut list = Vec::new();
+        for id in 1..=4 {
+            push_toast(&mut list, t(id));
+        }
+        assert_eq!(list.iter().map(|x| x.id).collect::<Vec<_>>(), [2, 3, 4]);
     }
 }

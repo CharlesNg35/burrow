@@ -1,11 +1,9 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::super::settings::{Health, Service};
-use super::ports::{parse_ranged, ranges_conflict, show_addr, split_target};
-use super::{
-    MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, name_error, parse_host_port, unix, valid_name,
-};
+use super::super::settings::{Health, HttpCheck, Service};
+use super::ports::{parse_ranged, ranges_conflict, show_addr};
+use super::{SENSITIVE_PORTS, Spans, name_error, valid_name};
 use crate::config::diagnostics::Diagnostic;
 use crate::policy::allowlist::{Cidr, Sources};
 use burrow_config::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
@@ -13,6 +11,8 @@ use burrow_config::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntr
 pub(super) struct Taken<'a> {
     pub listen: Option<SocketAddr>,
     pub websocket: Option<SocketAddr>,
+    pub web: Option<SocketAddr>,
+    pub web_http: Option<SocketAddr>,
     pub binds: Vec<(SocketAddr, u16, Protocol, &'a str)>,
 }
 
@@ -50,18 +50,17 @@ pub(super) fn check_service<'a>(
             None
         }
     };
-    if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has_value(&path("bind")) {
-        out.push(
-            Diagnostic::error(
-                "unreachable-service",
-                format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
-            )
-            .at(spans.key(&["services", name]))
-            .label("no bind and no visitors")
-            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
-        );
-    }
-    let target = check_target(name, svc, spans, out);
+    check_reachable(name, svc, spans, out);
+    let target = super::entries::check_target(
+        &super::entries::Whose {
+            name,
+            client: None,
+            protocol: svc.protocol,
+            at: spans.value(&path("target")),
+        },
+        &svc.target,
+        out,
+    );
     if let (Some((_, bind_ports)), Some((_, target_ports))) = (bind, &target)
         && bind_ports != *target_ports
     {
@@ -82,16 +81,75 @@ pub(super) fn check_service<'a>(
         check_bind(name, svc.protocol, addr, ports, taken, spans, out);
     }
     let sources = Sources {
-        allow: parse_sources(name, "allow_from", &svc.allow_from, spans, out),
-        deny: parse_sources(name, "deny_from", &svc.deny_from, spans, out),
+        allow: sources(name, "allow_from", &svc.allow_from, spans, out),
+        deny: sources(name, "deny_from", &svc.deny_from, spans, out),
     };
+    let listed = listed_visitors(name, svc, spans, out);
+    let bandwidth = bandwidth(name, svc, spans, out);
+    let listed_clients = super::entries::check_clients(name, svc, target.as_ref(), spans, out);
+    let health = health(svc);
+    check_tcp_only(
+        name,
+        svc,
+        listed_clients.entries.len(),
+        health.is_some(),
+        spans,
+        out,
+    );
+    let (target, ports) = target?;
+    if svc.bind.is_some() && bind.is_none() {
+        return None;
+    }
+    Some(Service {
+        clients: listed_clients.names,
+        entries: listed_clients.entries,
+        mode: svc.mode,
+        health,
+        bind: bind.map(|(a, _)| a),
+        target,
+        ports,
+        protocol: svc.protocol,
+        max_connections: svc.max_connections.map(|m| m as usize),
+        visitors: listed,
+        sources,
+        proxy_protocol: svc.proxy_protocol,
+        bandwidth,
+    })
+}
+
+fn check_reachable(name: &str, svc: &ServiceEntry, spans: &Spans, out: &mut Vec<Diagnostic>) {
+    let path = |f: &'static str| ["services", name, f];
+    if svc.bind.is_none()
+        && svc.visitors.is_empty()
+        && svc.web.is_none()
+        && !spans.has_value(&path("bind"))
+        && !spans.has_value(&path("web"))
+    {
+        out.push(
+            Diagnostic::error(
+                burrow_admin_proto::codes::UNREACHABLE_SERVICE,
+                format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
+            )
+            .at(spans.key(&["services", name]))
+            .label("no bind and no visitors")
+            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
+        );
+    }
+}
+
+fn listed_visitors(
+    name: &str,
+    svc: &ServiceEntry,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<String> {
     let mut listed = Vec::new();
     for (i, v) in svc.visitors.iter().enumerate() {
         if listed.contains(v) {
             let at = i.to_string();
             out.push(
                 Diagnostic::error(
-                    "duplicate-visitor",
+                    burrow_admin_proto::codes::DUPLICATE_VISITOR,
                     format!("service \"{name}\" lists visitor \"{v}\" twice"),
                 )
                 .at(spans.value(&["services", name, "visitors", &at]))
@@ -101,7 +159,17 @@ pub(super) fn check_service<'a>(
         }
         listed.push(v.clone());
     }
-    let bandwidth = match svc
+    listed
+}
+
+fn bandwidth(
+    name: &str,
+    svc: &ServiceEntry,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<u64> {
+    let path = |f: &'static str| ["services", name, f];
+    match svc
         .bandwidth
         .as_deref()
         .map(crate::policy::ratelimit::parse_rate)
@@ -120,31 +188,45 @@ pub(super) fn check_service<'a>(
             );
             None
         }
-    };
-    let clients = check_clients(name, svc, spans, out);
-    let health = health(svc);
+    }
+}
+
+fn check_tcp_only(
+    name: &str,
+    svc: &ServiceEntry,
+    clients: usize,
+    health: bool,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    let mode_tcp_only = format!("mode {} only works for tcp services", svc.mode.wire());
     for field in ServiceEntry::TCP_ONLY {
         let generic = format!("{field} only works for tcp services");
         let (set, code, why) = match *field {
             "proxy_protocol" => (
                 svc.proxy_protocol.is_some(),
-                "proxy-protocol-tcp-only",
+                burrow_admin_proto::codes::PROXY_PROTOCOL_TCP_ONLY,
                 "proxy_protocol only works for tcp services",
             ),
             "max_connections" => (
                 svc.max_connections.is_some(),
-                "max-connections-tcp-only",
+                burrow_admin_proto::codes::MAX_CONNECTIONS_TCP_ONLY,
                 "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
             ),
             "mode" => (
-                svc.mode == Mode::Balance && clients.len() > 1,
-                "balance-tcp-only",
-                "mode balance only works for tcp services",
+                svc.mode != Mode::Failover && clients > 1,
+                burrow_admin_proto::codes::BALANCE_TCP_ONLY,
+                mode_tcp_only.as_str(),
             ),
             "health_check" => (
-                health.is_some(),
-                "health-check-tcp-only",
+                health,
+                burrow_admin_proto::codes::HEALTH_CHECK_TCP_ONLY,
                 "health_check only works for tcp services",
+            ),
+            "web" => (
+                is_set(svc, "web"),
+                burrow_admin_proto::codes::WEB_TCP_ONLY,
+                "web only works for tcp services; remove web:, or set protocol: tcp",
             ),
             other => (is_set(svc, other), "tcp-only", generic.as_str()),
         };
@@ -152,74 +234,6 @@ pub(super) fn check_service<'a>(
             tcp_only(name, svc, field, code, why, spans, out);
         }
     }
-    let (target, ports) = target?;
-    if svc.bind.is_some() && bind.is_none() {
-        return None;
-    }
-    Some(Service {
-        clients,
-        mode: svc.mode,
-        health,
-        bind: bind.map(|(a, _)| a),
-        target,
-        ports,
-        protocol: svc.protocol,
-        max_connections: svc.max_connections.map(|m| m as usize),
-        visitors: listed,
-        sources,
-        proxy_protocol: svc.proxy_protocol,
-        bandwidth,
-    })
-}
-
-fn check_clients(
-    name: &str,
-    svc: &ServiceEntry,
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) -> Vec<String> {
-    let mut clients: Vec<String> = Vec::new();
-    match (&svc.client, svc.clients.is_empty()) {
-        (Some(_), false) => out.push(
-            Diagnostic::error(
-                "client-and-clients",
-                format!("service \"{name}\" has both \"client\" and \"clients\""),
-            )
-            .at(spans.key(&["services", name, "clients"]))
-            .label("use one or the other")
-            .help("keep \"client: NAME\" for one client, or list them all under \"clients\""),
-        ),
-        (None, true) if !spans.has(&["services", name, "client"]) => out.push(
-            Diagnostic::error(
-                "missing-client",
-                format!("service \"{name}\" has no \"client\""),
-            )
-            .at(spans.key(&["services", name]))
-            .label("which client reaches the target?")
-            .help("add \"client: NAME\" with a client from \"clients:\", or \"clients: [A, B]\" for several"),
-        ),
-        _ => {}
-    }
-    let named = svc.client.iter().map(|c| (None, c));
-    let listed = svc.clients.iter().enumerate().map(|(i, c)| (Some(i), c));
-    for (i, c) in named.chain(listed) {
-        if clients.contains(c) {
-            let at = i.map(|i| i.to_string());
-            let mut place = vec!["services", name, "clients"];
-            place.extend(at.as_deref());
-            out.push(
-                Diagnostic::error(
-                    "duplicate-client",
-                    format!("service \"{name}\" lists client \"{c}\" twice"),
-                )
-                .at(spans.value(&place))
-                .help("list each client once"),
-            );
-            continue;
-        }
-        clients.push(c.clone());
-    }
-    clients
 }
 
 fn health(svc: &ServiceEntry) -> Option<Health> {
@@ -228,11 +242,37 @@ fn health(svc: &ServiceEntry) -> Option<Health> {
         Some(HealthCheckSetting::On(true)) => HealthCheck::default(),
         Some(HealthCheckSetting::Tuned(h)) => h.clone(),
     };
+    let http = tuned
+        .path
+        .as_deref()
+        .zip(check_host(svc))
+        .map(|(path, host)| HttpCheck {
+            path: burrow_syntax::url_path::route_path(path)
+                .unwrap_or_else(|_| path.trim().to_string()),
+            host,
+        });
     Some(Health {
         interval: Duration::from_secs(tuned.interval_secs.into()),
         timeout: Duration::from_secs(tuned.timeout_secs.into()),
         failures: tuned.failures.max(1),
+        http,
     })
+}
+
+fn check_host(svc: &ServiceEntry) -> Option<String> {
+    use burrow_syntax::web::{SingleLabel, host_name, is_wildcard};
+    let hosts: Vec<String> = svc
+        .web
+        .as_ref()?
+        .hosts()
+        .iter()
+        .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
+        .collect();
+    hosts
+        .iter()
+        .find(|h| !is_wildcard(h))
+        .or(hosts.first())
+        .map(|h| h.strip_prefix("*.").unwrap_or(h).to_string())
 }
 
 fn is_set(svc: &ServiceEntry, field: &str) -> bool {
@@ -257,85 +297,16 @@ fn tcp_only(
     out: &mut Vec<Diagnostic>,
 ) {
     if svc.protocol != Protocol::Tcp {
-        out.push(
-            Diagnostic::error(
-                code,
-                format!("service \"{name}\" is {}, but {why}", svc.protocol.wire()),
-            )
-            .at(spans.value(&["services", name, field]))
-            .help(format!("remove \"{field}\", or use a tcp service")),
-        );
-    }
-}
-
-fn check_target(
-    name: &str,
-    svc: &ServiceEntry,
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) -> Option<(String, u16)> {
-    let text = svc.target.host_port();
-    if let Some(path) = unix::path_of(&text) {
-        return check_socket(name, svc, &text, path, spans, out);
-    }
-    let checked = if text.len() > MAX_TARGET_LEN {
-        Err(format!(
-            "\"{text}\" is longer than {MAX_TARGET_LEN} characters"
-        ))
-    } else {
-        split_target(&text).and_then(|(base, ports)| parse_host_port(&base).map(|_| (base, ports)))
-    };
-    match checked {
-        Ok(t) => Some(t),
-        Err(e) => {
-            out.push(
-                Diagnostic::error(
-                    "invalid-address",
-                    format!("invalid target for service \"{name}\": {e}"),
-                )
-                .at(spans.value(&["services", name, "target"]))
-                .label("expected host:port or a port")
-                .help("use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, a range like 30000-30010, or unix:/path/to.sock"),
-            );
-            None
-        }
-    }
-}
-
-fn check_socket(
-    name: &str,
-    svc: &ServiceEntry,
-    text: &str,
-    path: &str,
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) -> Option<(String, u16)> {
-    let at = spans.value(&["services", name, "target"]);
-    if svc.protocol != Protocol::Tcp {
-        out.push(
-            Diagnostic::error(
-                "socket-tcp-only",
-                format!("service \"{name}\" is udp, but its target is a Unix socket"),
-            )
-            .at(at)
-            .help("Unix socket targets work for tcp services only"),
-        );
-        return None;
-    }
-    match unix::check_path(path) {
-        Ok(()) => Some((text.to_string(), 1)),
-        Err(e) => {
-            out.push(
-                Diagnostic::error(
-                    "invalid-address",
-                    format!("invalid target for service \"{name}\": {e}"),
-                )
-                .at(at)
-                .label("expected unix:/absolute/path")
-                .help("use the socket's full path as seen from the client, for example unix:/var/run/postgresql/.s.PGSQL.5432"),
-            );
-            None
-        }
+        let d = Diagnostic::error(
+            code,
+            format!("service \"{name}\" is {}, but {why}", svc.protocol.wire()),
+        )
+        .at(spans.value(&["services", name, field]));
+        out.push(if code == burrow_admin_proto::codes::WEB_TCP_ONLY {
+            d
+        } else {
+            d.help(format!("remove {field}:, or set protocol: tcp"))
+        });
     }
 }
 
@@ -357,12 +328,14 @@ fn check_bind<'a>(
     {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!(
                     "service \"{name}\" binds {} {shown}, already used by service \"{other}\"",
                     protocol.wire()
                 ),
             )
+            .about(name)
+            .about(*other)
             .at(at)
             .label("address already used")
             .help("pick a different port for one of the services"),
@@ -375,6 +348,16 @@ fn check_bind<'a>(
             "same as \"websocket.listen\"",
         ),
         (taken.listen, "the control port", "same as \"listen\""),
+        (
+            taken.web,
+            "the web proxy's HTTPS port",
+            "same as \"web.https\"",
+        ),
+        (
+            taken.web_http,
+            "the web proxy's HTTP port",
+            "same as \"web.http\"",
+        ),
     ] {
         if let Some(l) = listener
             && protocol == Protocol::Tcp
@@ -415,32 +398,20 @@ fn check_bind<'a>(
     taken.binds.push((bind, ports, protocol, name));
 }
 
-fn parse_sources(
+fn sources(
     service: &str,
-    field: &'static str,
+    field: &str,
     list: &[String],
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Vec<Cidr> {
-    let mut nets = Vec::new();
-    for (i, text) in list.iter().enumerate() {
-        match text.parse::<Cidr>() {
-            Ok(net) => nets.push(net),
-            Err(e) => out.push(
-                Diagnostic::error(
-                    "invalid-source",
-                    format!(
-                        "invalid {field} entry for service \"{service}\": {}",
-                        e.describe()
-                    ),
-                )
-                .at(spans.value(&["services", service, field, &i.to_string()]))
-                .label("expected an IP or CIDR")
-                .help(
-                    "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
-                ),
-            ),
-        }
-    }
-    nets
+    let owner = format!("service \"{service}\"");
+    super::source_list(
+        &owner,
+        field,
+        list,
+        &["services", service, field],
+        spans,
+        out,
+    )
 }

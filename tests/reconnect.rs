@@ -83,13 +83,21 @@ async fn client_follows_the_server_to_a_new_address() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retries_forever_by_default() {
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = free.local_addr().unwrap();
-    drop(free);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let tries = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = tries.clone();
+    let doorman = tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            drop(conn);
+        }
+    });
     let mut c = client_settings(addr, Secret::generate());
     c.reconnect_max = Duration::from_millis(50);
     let cli = start_client(c).await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    wait_for(|| tries.load(std::sync::atomic::Ordering::Relaxed) >= 3).await;
+    doorman.abort();
     assert!(
         !cli.task.is_finished(),
         "client keeps retrying while the server is down"
@@ -100,9 +108,7 @@ async fn retries_forever_by_default() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gives_up_only_when_configured() {
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = free.local_addr().unwrap();
-    drop(free);
+    let addr = free_addr();
     let mut c = client_settings(addr, Secret::generate());
     c.reconnect_max = Duration::from_millis(100);
     c.give_up_after = Some(Duration::from_secs(1));
@@ -132,7 +138,9 @@ async fn exits_on_rejection_only_when_configured() {
     let retry = start_client(client_settings(srv.addr, Secret::generate())).await;
     let mut state = retry.state.clone();
     wait_state(&mut state, State::Rejected).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let refused = srv.shared.status().handshakes_refused;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.status().handshakes_refused > refused).await;
     assert!(
         !retry.task.is_finished(),
         "default policy keeps retrying after a rejection"

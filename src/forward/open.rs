@@ -2,7 +2,6 @@ use std::io;
 use std::time::Duration;
 
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 
 use super::early::Early;
 use super::early::{Raw, Source, end_early, send_early};
@@ -154,9 +153,9 @@ pub(super) fn refused(answer: Answer) -> Option<Opened> {
     }
 }
 
-pub async fn open_tcp(
+pub async fn open_tcp<V: Split>(
     ch: Channel,
-    visitor: &mut TcpStream,
+    visitor: &mut V,
     opening: &Opening<'_>,
     meter: Meter<'_>,
     early: &mut Early,
@@ -176,7 +175,7 @@ pub async fn open_tcp(
     }
     let done = {
         let (mut cr, mut cw) = stream.split();
-        let (vr, vw) = visitor.split();
+        let (vr, vw) = visitor.halves();
         let mut vr = meter.inbound(vr);
         let mut vw = meter.outbound(vw);
         let client = Client {

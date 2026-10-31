@@ -31,11 +31,11 @@ impl TargetValue {
     pub fn full(&self) -> String {
         match self {
             TargetValue::Net { host, first, count } => {
-                if host.contains(':') {
-                    format!("[{host}]:{}", show(*first, *count))
-                } else {
-                    format!("{host}:{}", show(*first, *count))
-                }
+                format!(
+                    "{}:{}",
+                    crate::address::url_host(host),
+                    show(*first, *count)
+                )
             }
             TargetValue::Unix(p) => format!("unix:{p}"),
         }

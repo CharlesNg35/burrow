@@ -36,7 +36,10 @@ fn a_renamed_client_keeps_its_place_in_reach_and_the_file_changes_only_the_names
     let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
     assert!(c.plan.valid, "{:?}", c.plan.diags);
     let codes: Vec<&str> = c.plan.impacts.iter().map(|i| i.code.as_str()).collect();
-    assert!(codes.contains(&"renames"), "{codes:?}");
+    assert!(
+        codes.contains(&burrow_admin_proto::codes::RENAMES),
+        "{codes:?}"
+    );
     assert!(
         !codes
             .iter()
@@ -96,7 +99,12 @@ fn a_plan_keeps_comments_and_shows_a_masked_diff() {
             .iter()
             .any(|ch| ch.summary == "New service ssh")
     );
-    assert!(c.plan.impacts.iter().any(|i| i.code == "adds-service"));
+    assert!(
+        c.plan
+            .impacts
+            .iter()
+            .any(|i| i.code == burrow_admin_proto::codes::ADDS_SERVICE)
+    );
     assert!(c.plan.refusals.is_empty());
     let again = plan::compute(&core, &s, &base, &ops).unwrap();
     assert_eq!(again.plan.plan, c.plan.plan, "plans are deterministic");
@@ -192,7 +200,7 @@ fn a_hand_edit_after_the_state_was_read_is_described_in_the_conflict() {
     let c: burrow_admin_proto::plan::Conflict = serde_json::from_value(e.body).unwrap();
     assert!(c.known);
     let theirs: Vec<&str> = c.theirs.iter().map(|t| t.summary.as_str()).collect();
-    assert_eq!(theirs, ["Service web: target 3000 → 3001"]);
+    assert_eq!(theirs, ["Service web: Main target 3000 → 3001"]);
 }
 
 #[test]

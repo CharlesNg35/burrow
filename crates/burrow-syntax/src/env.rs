@@ -45,6 +45,16 @@ pub fn pieces(s: &str) -> Vec<Piece<'_>> {
     out
 }
 
+pub const FILE_REF: &str = "file:";
+
+pub fn is_reference(s: &str) -> bool {
+    let t = s.trim();
+    if let Some(path) = t.strip_prefix(FILE_REF) {
+        return !path.trim().is_empty();
+    }
+    matches!(pieces(t).as_slice(), [Piece::Var { valid: true, .. }])
+}
+
 pub fn names(s: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for p in pieces(s) {
@@ -60,6 +70,23 @@ pub fn names(s: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reference_is_one_variable_or_a_file_and_never_the_value() {
+        for yes in [
+            "${CF_TOKEN}",
+            " ${A_1} ",
+            "file:/etc/burrow/cf.token",
+            "file:cf.token",
+        ] {
+            assert!(is_reference(yes), "{yes}");
+        }
+        for no in [
+            "token", "", "file:", "file:  ", "${A}${B}", "x${A}", "${1A}", "$${A}",
+        ] {
+            assert!(!is_reference(no), "{no}");
+        }
+    }
 
     #[test]
     fn the_tricky_inputs_follow_the_config_rules() {

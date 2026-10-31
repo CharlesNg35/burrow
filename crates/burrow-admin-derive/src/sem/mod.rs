@@ -45,6 +45,7 @@ pub fn marker(t: &Term) -> Option<syn::Ident> {
         "port_range" => "PortRange",
         "target" => "Target",
         "host" => "Host",
+        "host_name" => "HostName",
         "server_address" => "ServerAddress",
         "cidr" => "Cidr",
         "cidr_rule" => "CidrRule",
@@ -53,10 +54,13 @@ pub fn marker(t: &Term) -> Option<syn::Ident> {
         "rate" => "Rate",
         "ref_" => "Ref",
         "ref_list" => "RefList",
+        "ref_entries" => "RefEntries",
         "ref_map" => "RefMap",
         "name" => "Name",
         "secret_ref" => "SecretRef",
         "path" => "Path",
+        "upload" => "Upload",
+        "password_hash" => "PasswordHash",
         "url_path" => "UrlPath",
         "object" => "Object",
         "map" => "Map",
@@ -92,9 +96,12 @@ fn reserved(args: &[Term]) -> TokenStream {
 fn entity(t: Option<&Term>, span: Span, errors: &mut Errors) -> TokenStream {
     let p = crate::p();
     match t.and_then(Term::as_word) {
-        Some(w @ ("client" | "visitor" | "service")) => quote!(#p::Entity::parse(#w)),
+        Some(w @ ("client" | "visitor" | "service" | "login")) => quote!(#p::Entity::parse(#w)),
         _ => {
-            errors.push(span, "expected an entity: client, visitor or service");
+            errors.push(
+                span,
+                "expected an entity: client, visitor, service or login",
+            );
             quote!(#p::Entity::Client)
         }
     }
@@ -177,7 +184,15 @@ fn scalar_sem(
             quote!(#p::SemType::Integer(#p::IntegerC { min: #mn, max: #mx, unit: #unit }))
         }
         "bool" => quote!(#p::SemType::Bool),
-        "enum_" => match ty {
+        "enum_" => match Term::positional(args)
+            .first()
+            .and_then(|a| match a {
+                Term::Type(t, _) => Some((**t).clone()),
+                _ => None,
+            })
+            .as_ref()
+            .or(ty)
+        {
             Some(ty) => {
                 quote!(#p::SemType::Enum(#p::EnumC { options: <#ty as #p::AdminEnum>::options() }))
             }
@@ -215,11 +230,13 @@ fn scalar_sem(
             quote!(#p::SemType::Target(#p::TargetC { ranges: #ranges, unix: #unix }))
         }
         "host" => quote!(#p::SemType::Host),
+        "host_name" => quote!(#p::SemType::HostName(#p::HostNameC::default())),
         "server_address" => quote!(#p::SemType::ServerAddress),
         "cidr" => quote!(#p::SemType::Cidr),
         "cidr_rule" => quote!(#p::SemType::CidrRule),
         "rate" => quote!(#p::SemType::Rate),
         "url_path" => quote!(#p::SemType::UrlPath),
+        "password_hash" => quote!(#p::SemType::PasswordHash(#p::PasswordHashC::default())),
         "duration" => {
             let unit = match Term::positional(args).first().and_then(|a| a.as_word()) {
                 Some("ms") => quote!(#p::DurationUnit::Ms),
@@ -250,18 +267,34 @@ fn scalar_sem(
             let reserved = reserved(args);
             quote!(#p::SemType::RefList(#p::RefListC { entity: #e, ordered: #ordered, unique: true, max: #max, reserved: #reserved }))
         }
+        "ref_entries" => {
+            let e = entity(Term::positional(args).first().copied(), span, errors);
+            let reserved = reserved(args);
+            quote!(#p::SemType::RefEntries(#p::RefEntriesC::new(#e, #reserved)))
+        }
         "name" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);
             quote!(#p::SemType::Name(#p::NameC { entity: #e, max_len: 64 }))
         }
         "secret_ref" => {
             let max = Term::value(args, "max").and_then(Term::as_int).unwrap_or(4) as u32;
-            quote!(#p::SemType::SecretRef(#p::SecretRefC { max: #max }))
+            let reference = Term::flag(args, "reference");
+            quote!(#p::SemType::SecretRef(#p::SecretRefC { max: #max, reference: #reference }))
         }
         "path" => {
             let must = Term::flag(args, "must_exist");
             let rel = opt_str(Term::value(args, "relative_to").and_then(Term::as_str));
             quote!(#p::SemType::Path(#p::PathC { must_exist: #must, relative_to: #rel }))
+        }
+        "upload" => {
+            let kind = match Term::positional(args).first().and_then(|t| t.as_word()) {
+                Some(w @ ("pair" | "ca" | "crl")) => w,
+                _ => {
+                    errors.push(span, "expected an upload kind: pair, ca or crl");
+                    "pair"
+                }
+            };
+            quote!(#p::SemType::Upload(#p::UploadC::new(#kind)))
         }
         _ => unreachable!("marker() covers every name"),
     }
@@ -294,12 +327,38 @@ fn composite_sem(
             }
         }
         "map" => {
-            let e = entity(Term::positional(args).first().copied(), span, errors);
-            let value_ty = ty.and_then(|t| strip(t, "BTreeMap")).cloned();
-            match value_ty {
-                Some(v) => quote!(#p::SemType::Map(#p::MapC {
-                    key: ::std::boxed::Box::new(#p::Node::new(#p::SemType::Name(#p::NameC { entity: #e, max_len: 64 }))),
-                    value: ::std::boxed::Box::new(<#v as #p::AdminSchema>::node()),
+            let key = match Term::value(args, "key") {
+                Some(k) => {
+                    let b = build(k, None, (None, None), errors);
+                    checks.extend(b.checks);
+                    b.node
+                }
+                None => {
+                    let e = entity(Term::positional(args).first().copied(), span, errors);
+                    quote!(#p::Node::new(#p::SemType::Name(#p::NameC { entity: #e, max_len: 64 })))
+                }
+            };
+            let value = match Term::value(args, "value") {
+                Some(v) => {
+                    let b = build(v, None, (None, None), errors);
+                    checks.extend(b.checks);
+                    Some(b.node)
+                }
+                None => ty
+                    .and_then(|t| strip(t, "BTreeMap"))
+                    .map(|v| quote!(<#v as #p::AdminSchema>::node())),
+            };
+            let value = match (
+                value,
+                Term::value(args, "value_help").and_then(Term::as_str),
+            ) {
+                (Some(v), Some(h)) => Some(quote!({ let mut n = #v; n.help = #h.into(); n })),
+                (v, _) => v,
+            };
+            match value {
+                Some(value) => quote!(#p::SemType::Map(#p::MapC {
+                    key: ::std::boxed::Box::new(#key),
+                    value: ::std::boxed::Box::new(#value),
                 })),
                 None => {
                     errors.push(span, "`map` needs a BTreeMap<String, T> field");

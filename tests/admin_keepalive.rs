@@ -235,7 +235,7 @@ struct Local {
 async fn local(server: SocketAddr, secret: &Secret) -> Local {
     let mut s = common::visitor_settings(server, secret.clone(), Vec::new());
     s.name = "ops".into();
-    let listener = burrow::admin_local::bind(0).await.unwrap();
+    let listener = burrow::admin_link::bind(0).await.unwrap();
     let opts = burrow::admin_local::Options {
         port: Some(0),
         open: false,

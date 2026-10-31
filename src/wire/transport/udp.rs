@@ -4,6 +4,18 @@ use tokio::net::UdpSocket;
 
 const ROOM: usize = 64 * 1024;
 
+thread_local! {
+    static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; ROOM]);
+}
+
+pub fn try_recv_owned(sock: &UdpSocket) -> std::io::Result<(Vec<u8>, SocketAddr)> {
+    RECEIVE.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        let (n, from) = sock.try_recv_from(&mut buf)?;
+        Ok((buf[..n].to_vec(), from))
+    })
+}
+
 pub fn std_socket(addr: SocketAddr, kind: socket2::Type) -> std::io::Result<socket2::Socket> {
     let domain = if addr.is_ipv4() {
         socket2::Domain::IPV4

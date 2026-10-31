@@ -266,6 +266,28 @@ try {
   if (Test-Path $AdminDir) { Fail "$AdminDir still exists" }
   Check "uninstall --purge removes the config folder"
 
+  Write-Host "== a server with Let's Encrypt keeps its account and certificates in its own folder"
+  $AcmeSecret = (& $B gensecret | Out-String).Trim()
+  Set-Content e2e-acme.yaml "listen: 127.0.0.1:27944`nclients:`n  home: { secret: $AcmeSecret }`nweb:`n  https: 443`n  letsencrypt: { email: ops@example.com, directory: `"https://127.0.0.1:9/dir`" }`nservices:`n  site: { client: home, target: 127.0.0.1:19100, web: acme.example.com }"
+  $out = Burrow service install -c e2e-acme.yaml
+  if (-not (Running burrow-e2e-acme)) { Fail "the server with letsencrypt is not running: $out" }
+  $AcmeDir = "$env:ProgramData\burrow\services\e2e-acme"
+  for ($i = 0; $i -lt 50; $i++) { if (Get-ChildItem "$AcmeDir\acme\*\account.key" -ErrorAction SilentlyContinue) { break }; Start-Sleep -Milliseconds 200 }
+  if (-not (Get-ChildItem "$AcmeDir\acme\*\account.key" -ErrorAction SilentlyContinue)) { Fail "no account key in $AcmeDir" }
+  $acl = icacls $AcmeDir | Out-String
+  if ($acl -notmatch "NT SERVICE\\burrow-e2e-acme:\(OI\)\(CI\)\(M\)") { Fail "the service account may not change its state folder: $acl" }
+  if ($acl -match [regex]::Escape($users)) { Fail "ordinary users can read the state folder: $acl" }
+  $st = Burrow status burrow-e2e-acme --json
+  if ($st -notmatch '"state_dir"') { Fail "status does not name the state folder: $st" }
+  $out = Burrow service uninstall burrow-e2e-acme
+  if ($out -notmatch "kept .*e2e-acme, the web state") { Fail "uninstall does not name the kept state folder: $out" }
+  if (-not (Test-Path $AcmeDir)) { Fail "uninstall without --purge removed the state folder" }
+  $out = Burrow service install -c e2e-acme.yaml
+  if (-not (Running burrow-e2e-acme)) { Fail "the reinstalled server with letsencrypt is not running: $out" }
+  Burrow service uninstall burrow-e2e-acme --purge | Write-Host
+  if (Test-Path $AcmeDir) { Fail "uninstall --purge left $AcmeDir" }
+  Check "the state folder is private, named, kept by uninstall and removed by --purge"
+
   Write-Host "== uninstall removes everything it created"
   Burrow service uninstall burrow-e2e-visitor --purge | Write-Host
   Burrow service uninstall burrow-e2e-client --purge | Write-Host
@@ -297,6 +319,7 @@ finally {
   & $B service uninstall burrow-e2e-client --purge *> $null
   & $B service uninstall burrow-e2e-server --purge *> $null
   & $B service uninstall burrow-e2e-admin --purge *> $null
+  & $B service uninstall burrow-e2e-acme --purge *> $null
   if ($Echo) { Stop-Process -Id $Echo.Id -Force -ErrorAction SilentlyContinue }
   Set-Location $Root
   Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue

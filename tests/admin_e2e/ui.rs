@@ -8,7 +8,7 @@ use chromiumoxide::cdp::browser_protocol::emulation::{
     MediaFeature, SetDeviceMetricsOverrideParams,
 };
 use chromiumoxide::cdp::browser_protocol::log::EventEntryAdded;
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
 use chromiumoxide::cdp::js_protocol::runtime::{
     ConsoleApiCalledType, EventConsoleApiCalled, EventExceptionThrown,
 };
@@ -184,6 +184,13 @@ impl Ui {
         }
     }
 
+    pub async fn init_script(&self, js: &str) {
+        self.page
+            .evaluate_on_new_document(js.to_string())
+            .await
+            .expect("a script for every new document");
+    }
+
     pub async fn eval<T: serde::de::DeserializeOwned>(&self, expr: &str) -> T {
         let started = Instant::now();
         loop {
@@ -262,6 +269,17 @@ impl Ui {
         }
     }
 
+    pub async fn wait_true(&self, expr: &str, what: &str, timeout: Duration) {
+        let started = Instant::now();
+        while !self.eval::<bool>(expr).await {
+            assert!(
+                started.elapsed() < timeout,
+                "{what}: not true within {timeout:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     pub async fn wait_text(&self, css: &str, wanted: &str, timeout: Duration) -> String {
         let started = Instant::now();
         loop {
@@ -331,6 +349,19 @@ impl Ui {
             .await;
     }
 
+    pub async fn upload_file(&self, css: &str, name: &str, text: &str) {
+        self.wait_for(css, Duration::from_secs(10)).await;
+        let ok: bool = self
+            .eval(&format!(
+                "(() => {{ const i = document.querySelector({}); const dt = new DataTransfer(); dt.items.add(new File([{}], {}, {{ type: 'application/x-pem-file' }})); i.files = dt.files; i.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()",
+                js_str(css),
+                js_str(text),
+                js_str(name)
+            ))
+            .await;
+        assert!(ok, "could not choose a file in {css}");
+    }
+
     pub async fn select(&self, css: &str, value: &str) {
         self.wait_for(css, Duration::from_secs(10)).await;
         let ok: bool = self
@@ -376,7 +407,19 @@ impl Ui {
                 js_str(path)
             ))
             .await;
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        self.settle().await;
+    }
+
+    async fn settle(&self) {
+        let _: bool = self
+            .eval("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))")
+            .await;
+        self.wait_true(
+            "document.getAnimations().every(a => !(a instanceof CSSTransition) || a.playState !== 'running')",
+            "colour and layout transitions to finish",
+            Duration::from_secs(5),
+        )
+        .await;
     }
 
     pub async fn viewport(&self, w: i64, h: i64) {
@@ -385,7 +428,13 @@ impl Ui {
             .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
             .await
             .expect("viewport");
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        self.wait_true(
+            &format!("innerWidth === {w}"),
+            "the new viewport width",
+            Duration::from_secs(5),
+        )
+        .await;
+        self.settle().await;
     }
 
     pub async fn dark(&self, on: bool) {
@@ -401,16 +450,44 @@ impl Ui {
             )])
             .await
             .expect("media");
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        self.wait_true(
+            &format!("matchMedia('(prefers-color-scheme: dark)').matches === {on}"),
+            "the new colour scheme",
+            Duration::from_secs(5),
+        )
+        .await;
+        self.settle().await;
     }
 
     pub async fn png(&self) -> Vec<u8> {
+        let size = self
+            .page
+            .layout_metrics()
+            .await
+            .expect("layout metrics")
+            .css_content_size;
+        self.page
+            .execute(SetDeviceMetricsOverrideParams::new(
+                size.width as i64,
+                size.height as i64,
+                1.0,
+                false,
+            ))
+            .await
+            .expect("the full page viewport");
+        self.settle().await;
         let png = self
             .page
             .screenshot(
                 ScreenshotParams::builder()
                     .format(CaptureScreenshotFormat::Png)
-                    .full_page(true)
+                    .clip(Viewport {
+                        x: 0.0,
+                        y: 0.0,
+                        width: size.width,
+                        height: size.height,
+                        scale: 1.0,
+                    })
                     .build(),
             )
             .await

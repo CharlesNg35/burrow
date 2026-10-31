@@ -12,21 +12,29 @@ use crate::install::{Manifest, all_manifests, load_manifest};
 use crate::instance::Identity;
 use burrow_config::Protocol;
 
-struct Uses {
-    listens: Vec<(Protocol, SocketAddr, String)>,
-    files: Vec<(String, PathBuf)>,
+pub(super) struct Uses {
+    pub(super) listens: Vec<(Protocol, SocketAddr, String)>,
+    pub(super) files: Vec<(String, PathBuf)>,
+    pub(super) access_log: Option<PathBuf>,
+    pub(super) needs_state: bool,
 }
 
-fn uses(loaded: &Loaded) -> Uses {
+pub(super) fn uses(loaded: &Loaded) -> Uses {
     let mut files = Vec::new();
     let mut listens = Vec::new();
+    let mut needs_state = false;
+    let mut access_log = None;
     match loaded {
         Loaded::Server(s, cfg) => {
             if let Some(l) = s.listen {
                 listens.push((Protocol::Tcp, l, "listen".into()));
             }
-            if let Some(ws) = &s.websocket {
+            if let Some(ws) = s.websocket.as_ref().filter(|w| w.host.is_none()) {
                 listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
+            }
+            if let Some(web) = &s.web {
+                listens.extend(web.https.map(|a| (Protocol::Tcp, a, "web.https".into())));
+                listens.extend(web.http.map(|a| (Protocol::Tcp, a, "web.http".into())));
             }
             if let Some(m) = s.metrics {
                 listens.push((Protocol::Tcp, m, "metrics.listen".into()));
@@ -40,6 +48,9 @@ fn uses(loaded: &Loaded) -> Uses {
                 files.push(("websocket.tls.cert".to_string(), PathBuf::from(&tls.cert)));
                 files.push(("websocket.tls.key".to_string(), PathBuf::from(&tls.key)));
             }
+            files.extend(super::web_files::read(cfg));
+            access_log = super::web_files::access_log(cfg);
+            needs_state = super::web_files::needs_state(cfg);
         }
         Loaded::Client(_, cfg) => {
             if let Some(ca) = &cfg.ca {
@@ -57,7 +68,12 @@ fn uses(loaded: &Loaded) -> Uses {
             }
         }
     }
-    Uses { listens, files }
+    Uses {
+        listens,
+        files,
+        access_log,
+        needs_state,
+    }
 }
 
 pub fn misfits(name: &str, loaded: &Loaded) -> Vec<crate::config::diagnostics::Diagnostic> {
@@ -82,9 +98,34 @@ pub(super) fn misfits_of(
         m.source_config.display(),
         crate::base::failure::admin(&install_args(m, &m.source_config))
     );
-    let Uses { listens, files } = uses(loaded);
+    let Uses {
+        listens,
+        files,
+        access_log,
+        needs_state,
+    } = uses(loaded);
     let admins = admin_visitors(loaded);
     let mut out = Vec::new();
+    if let Some(why) = access_log
+        .as_deref()
+        .and_then(|l| super::web_files::log_folder_refusal(l, &m.log_file, cfg!(windows)))
+    {
+        out.push(
+            crate::config::diagnostics::Diagnostic::error("service-unit", format!("{name}: {why}"))
+                .help(again.clone()),
+        );
+    }
+    if needs_state && m.web_state.is_none() {
+        out.push(
+            crate::config::diagnostics::Diagnostic::error(
+                "service-unit",
+                format!(
+                    "{name} was installed without its state folder, which a server with web: needs for Let's Encrypt, tls: internal and uploaded certificates"
+                ),
+            )
+            .help(again.clone()),
+        );
+    }
     let low: Vec<String> = listens
         .iter()
         .filter(|(_, a, _)| needs_low_ports(backend, a))
@@ -149,7 +190,9 @@ pub(super) struct Checked {
     pub(super) identity: Option<Identity>,
     pub(super) listens: Vec<(Protocol, SocketAddr, String)>,
     pub(super) files: Vec<(String, PathBuf)>,
+    pub(super) access_log: Option<PathBuf>,
     pub(super) admins: Vec<String>,
+    pub(super) needs_state: bool,
 }
 
 pub(super) fn check_config(
@@ -218,9 +261,27 @@ pub(super) fn check_config(
             (Role::Visitor, None)
         }
     };
-    let Uses { listens, files } = uses(loaded);
+    let Uses {
+        listens,
+        files,
+        access_log,
+        needs_state,
+    } = uses(loaded);
     let admins = admin_visitors(loaded);
-    for (field, file) in &files {
+    refuse_relative(&files)?;
+    Ok(Checked {
+        role,
+        identity,
+        listens,
+        files,
+        access_log,
+        admins,
+        needs_state,
+    })
+}
+
+pub(super) fn refuse_relative(files: &[(String, PathBuf)]) -> Result<(), Failure> {
+    for (field, file) in files {
         if file.is_relative() {
             return Err(Failure::usage(format!(
                 "{field} is a relative path ({}); a service needs absolute paths",
@@ -229,13 +290,29 @@ pub(super) fn check_config(
             .hint("the config is copied for the service, so write the full path, for example /etc/letsencrypt/live/host/fullchain.pem"));
         }
     }
-    Ok(Checked {
-        role,
-        identity,
-        listens,
-        files,
-        admins,
-    })
+    Ok(())
+}
+
+pub(super) fn refuse_unfit(
+    backend: &dyn Backend,
+    checked: &Checked,
+    manifest: &Manifest,
+) -> Result<(), Failure> {
+    refuse_low_ports(backend, checked, manifest)?;
+    refuse_access_log(checked, manifest)
+}
+
+fn refuse_access_log(checked: &Checked, manifest: &Manifest) -> Result<(), Failure> {
+    match checked
+        .access_log
+        .as_deref()
+        .and_then(|l| super::web_files::log_folder_refusal(l, &manifest.log_file, cfg!(windows)))
+    {
+        Some(why) => {
+            Err(Failure::usage(why).hint("a service can write only its own log and state folders"))
+        }
+        None => Ok(()),
+    }
 }
 
 pub(super) fn refuse_another_source(name: &str, source: &Path) -> Result<(), Failure> {

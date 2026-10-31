@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
+use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use burrow_syntax::share::{Share, Shares};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::wire::protocol::{KEEPALIVE_RECORD, ServerMsg, TOKEN_LEN};
@@ -41,14 +43,22 @@ pub struct ClientSession {
     pool: Mutex<Pool>,
     closed: watch::Sender<bool>,
     allow: Mutex<Option<Vec<String>>>,
+    overflow: Shares<IpAddr>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TakeError {
     TooManyPending,
     Closed,
+    TimedOut,
 }
 
+enum Queued {
+    Within,
+    Over { _share: Option<Share<IpAddr>> },
+}
+
+const WAIT_ROOM: usize = 4;
 const REQUEST_RETRY: Duration = Duration::from_secs(5);
 const DECAY_AFTER: Duration = Duration::from_secs(60);
 
@@ -74,6 +84,7 @@ impl ClientSession {
             over_websocket: false,
             closed: watch::Sender::new(false),
             allow: Mutex::new(None),
+            overflow: Shares::default(),
             pool: Mutex::new(Pool {
                 idle: VecDeque::new(),
                 waiters: VecDeque::new(),
@@ -112,7 +123,8 @@ impl ClientSession {
     }
 
     pub fn waiter_count(&self) -> usize {
-        self.pool.lock().expect("pool lock").waiters.len()
+        let p = self.pool.lock().expect("pool lock");
+        p.waiters.iter().filter(|w| !w.is_closed()).count()
     }
 
     pub fn start(&self) {
@@ -141,7 +153,21 @@ impl ClientSession {
         }
     }
 
-    pub async fn take(&self) -> Result<Channel, TakeError> {
+    pub async fn take(&self, wait: Duration, source: Option<IpAddr>) -> Result<Channel, TakeError> {
+        let mut queued = Queued::Within;
+        let took = tokio::time::timeout(wait, self.wait_for(source, &mut queued)).await;
+        match (took, queued) {
+            (Ok(r), _) => r,
+            (Err(_), Queued::Within) => Err(TakeError::TimedOut),
+            (Err(_), Queued::Over { .. }) => Err(TakeError::TooManyPending),
+        }
+    }
+
+    async fn wait_for(
+        &self,
+        source: Option<IpAddr>,
+        queued: &mut Queued,
+    ) -> Result<Channel, TakeError> {
         let rx = loop {
             let parked = {
                 let mut p = self.pool.lock().expect("pool lock");
@@ -152,9 +178,7 @@ impl ClientSession {
                     Some(parked) => parked,
                     None => {
                         p.waiters.retain(|w| !w.is_closed());
-                        if p.waiters.len() >= p.max_pending {
-                            return Err(TakeError::TooManyPending);
-                        }
+                        *queued = self.queue(&p, source)?;
                         let (tx, rx) = oneshot::channel();
                         p.waiters.push_back(tx);
                         p.last_starved = Instant::now();
@@ -171,6 +195,28 @@ impl ClientSession {
             }
         };
         rx.await.map_err(|_| TakeError::Closed)
+    }
+
+    fn queue(&self, p: &Pool, source: Option<IpAddr>) -> Result<Queued, TakeError> {
+        let waiting = p.waiters.len();
+        if waiting < p.max_pending {
+            return Ok(Queued::Within);
+        }
+        let room = p.max_pending * (WAIT_ROOM - 1);
+        let over = waiting - p.max_pending;
+        if over >= room {
+            return Err(TakeError::TooManyPending);
+        }
+        match source {
+            None => Ok(Queued::Over { _share: None }),
+            Some(ip) => self
+                .overflow
+                .take(ip, room, over)
+                .map(|share| Queued::Over {
+                    _share: Some(share),
+                })
+                .ok_or(TakeError::TooManyPending),
+        }
     }
 
     pub fn tick(&self) {
@@ -191,7 +237,12 @@ impl ClientSession {
     }
 
     fn replenish(&self, p: &mut Pool) {
-        let waiting = p.waiters.iter().filter(|w| !w.is_closed()).count();
+        let waiting = p
+            .waiters
+            .iter()
+            .filter(|w| !w.is_closed())
+            .take(p.max_pending)
+            .count();
         let want = p.target.max(p.min_idle) + waiting;
         let have = p.idle.len() + p.requested;
         if want > have {
@@ -288,17 +339,20 @@ async fn park(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
-    #[tokio::test]
-    async fn a_closed_session_answers_take_at_once() {
-        let (tx, _rx) = mpsc::channel(4);
+    const LONG: Duration = Duration::from_secs(30);
+
+    fn session(max_pending: usize) -> Arc<ClientSession> {
+        let (tx, rx) = mpsc::channel(4);
+        std::mem::forget(rx);
         let cfg = PoolConfig {
             min_idle: 0,
             max_idle: 4,
-            max_pending: 4,
+            max_pending,
             keepalive: Duration::from_secs(25),
         };
-        let s = ClientSession::new(
+        Arc::new(ClientSession::new(
             "home".into(),
             "127.0.0.1:1".parse().unwrap(),
             [0; TOKEN_LEN],
@@ -306,10 +360,135 @@ mod tests {
             Secret::generate(),
             [0; TOKEN_LEN],
             &cfg,
-        );
+        ))
+    }
+
+    fn ip(s: &str) -> Option<IpAddr> {
+        Some(s.parse().unwrap())
+    }
+
+    type Waiter = tokio::task::JoinHandle<Result<Channel, TakeError>>;
+
+    async fn wait(s: &Arc<ClientSession>, source: Option<IpAddr>, n: usize) -> Vec<Waiter> {
+        let goal = s.waiter_count() + n;
+        let mut out = Vec::new();
+        for _ in 0..n {
+            let s = s.clone();
+            out.push(tokio::spawn(async move { s.take(LONG, source).await }));
+        }
+        while s.waiter_count() < goal {
+            tokio::task::yield_now().await;
+        }
+        out
+    }
+
+    async fn refused_at_once(s: &ClientSession, source: Option<IpAddr>) -> bool {
+        let took = tokio::time::timeout(Duration::from_secs(1), s.take(LONG, source)).await;
+        matches!(took, Ok(Err(TakeError::TooManyPending)))
+    }
+
+    #[tokio::test]
+    async fn a_closed_session_answers_take_at_once() {
+        let s = session(4);
         s.close();
-        let took = tokio::time::timeout(Duration::from_secs(1), s.take()).await;
+        let took = tokio::time::timeout(Duration::from_secs(1), s.take(LONG, None)).await;
         assert!(matches!(took, Ok(Err(TakeError::Closed))));
         assert_eq!(s.waiter_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_burst_past_max_pending_waits_and_is_served_in_order() {
+        let s = session(2);
+        let waiters = wait(&s, None, 8).await;
+        for _ in 0..8 {
+            s.offer(crate::wire::transport::local::pair().0);
+        }
+        for w in waiters {
+            assert!(w.await.unwrap().is_ok());
+        }
+        assert_eq!(s.waiter_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_waiting_room_is_four_times_max_pending_then_busy_at_once() {
+        let s = session(2);
+        let waiters = wait(&s, None, 2 * WAIT_ROOM).await;
+        assert!(refused_at_once(&s, None).await);
+        s.offer(crate::wire::transport::local::pair().0);
+        while s.waiter_count() == 2 * WAIT_ROOM {
+            tokio::task::yield_now().await;
+        }
+        let one_more = wait(&s, None, 1).await;
+        assert!(refused_at_once(&s, None).await);
+        s.close();
+        for w in waiters.into_iter().chain(one_more) {
+            let r = w.await.unwrap();
+            assert!(matches!(r, Ok(_) | Err(TakeError::Closed)));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_wait_past_max_pending_ends_busy_at_its_deadline_and_within_it_times_out() {
+        let s = session(1);
+        let within = {
+            let s = s.clone();
+            tokio::spawn(async move { s.take(Duration::from_millis(300), None).await })
+        };
+        while s.waiter_count() < 1 {
+            tokio::task::yield_now().await;
+        }
+        let over = s.take(Duration::from_millis(300), ip("203.0.113.7")).await;
+        assert!(matches!(over, Err(TakeError::TooManyPending)));
+        assert!(matches!(within.await.unwrap(), Err(TakeError::TimedOut)));
+        assert_eq!(s.waiter_count(), 0);
+        assert!(s.overflow.is_empty(), "every share is given back");
+    }
+
+    #[tokio::test]
+    async fn one_address_holds_a_fair_part_of_the_waiting_room() {
+        let s = session(16);
+        let a = ip("203.0.113.7");
+        let held = wait(&s, a, 16 + 25).await;
+        assert!(refused_at_once(&s, a).await, "a is over its part");
+        let b = wait(&s, ip("198.51.100.1"), 8).await;
+        assert!(refused_at_once(&s, ip("198.51.100.1")).await);
+        let local = wait(&s, None, 64 - 49).await;
+        assert!(refused_at_once(&s, None).await, "the room is full");
+        s.close();
+        for w in held.into_iter().chain(b).chain(local) {
+            assert!(matches!(w.await.unwrap(), Err(TakeError::Closed)));
+        }
+        assert!(s.overflow.is_empty());
+    }
+
+    #[tokio::test]
+    async fn closing_the_session_ends_every_waiter_at_once() {
+        let s = session(1);
+        let waiters = wait(&s, ip("203.0.113.7"), 4).await;
+        s.close();
+        for w in waiters {
+            let r = tokio::time::timeout(Duration::from_secs(1), w).await;
+            assert!(matches!(r, Ok(Ok(Err(TakeError::Closed)))));
+        }
+        assert!(s.overflow.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_smaller_max_pending_on_reload_keeps_the_waiters_and_shrinks_the_room() {
+        let s = session(4);
+        let waiters = wait(&s, None, 8).await;
+        s.reconfigure(&PoolConfig {
+            min_idle: 0,
+            max_idle: 4,
+            max_pending: 1,
+            keepalive: Duration::from_secs(25),
+        });
+        assert!(refused_at_once(&s, None).await);
+        for _ in 0..8 {
+            s.offer(crate::wire::transport::local::pair().0);
+        }
+        for w in waiters {
+            assert!(w.await.unwrap().is_ok());
+        }
     }
 }

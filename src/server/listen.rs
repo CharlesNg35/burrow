@@ -1,10 +1,7 @@
-use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::OwnedSemaphorePermit;
 use tokio_rustls::TlsAcceptor;
@@ -87,76 +84,23 @@ impl WsListener {
 
 pub struct Permit {
     _slot: OwnedSemaphorePermit,
-    _source: Option<SourceSlot>,
-}
-
-struct SourceSlot {
-    sources: Sources,
-    key: IpAddr,
-}
-
-impl Drop for SourceSlot {
-    fn drop(&mut self) {
-        let mut sources = self.sources.lock().expect("sources lock");
-        if let Some(n) = sources.get_mut(&self.key) {
-            *n -= 1;
-            if *n == 0 {
-                sources.remove(&self.key);
-            }
-        }
-    }
-}
-
-fn source_key(ip: IpAddr) -> Option<IpAddr> {
-    let ip = ip.to_canonical();
-    if ip.is_loopback() {
-        return None;
-    }
-    Some(match ip {
-        IpAddr::V6(v6) => IpAddr::V6((v6.to_bits() >> 64 << 64).into()),
-        v4 => v4,
-    })
-}
-
-type Sources = Arc<std::sync::Mutex<HashMap<IpAddr, usize>>>;
-
-fn source_slot(
-    sources: &Sources,
-    ip: IpAddr,
-    total: usize,
-    pressed: bool,
-) -> Result<Option<SourceSlot>, ()> {
-    let Some(key) = source_key(ip) else {
-        return Ok(None);
-    };
-    let most = (total / 8).max(8);
-    let mut held = sources.lock().expect("sources lock");
-    let n = held.entry(key).or_insert(0);
-    if pressed && *n >= most {
-        return Err(());
-    }
-    *n += 1;
-    Ok(Some(SourceSlot {
-        sources: sources.clone(),
-        key,
-    }))
+    _source: Option<burrow_syntax::share::Share<IpAddr>>,
 }
 
 pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
     let handshakes = shared.handshakes.read().expect("handshakes lock").clone();
     let total = shared.settings().max_handshakes;
-    let pressed = handshakes.available_permits() < total / 2;
-    let source = match source_slot(&shared.handshake_sources, peer.ip(), total, pressed) {
-        Ok(source) => source,
-        Err(()) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "too many unauthenticated connections from this address, dropping");
-            return None;
-        }
+    let used = total.saturating_sub(handshakes.available_permits());
+    let source = match burrow_syntax::share::source_key(peer.ip()) {
+        None => None,
+        Some(key) => match shared.handshake_sources.take(key, total, used) {
+            Some(share) => Some(share),
+            None => {
+                shared.refused_handshake();
+                debug!(%peer, "too many unauthenticated connections from this address, dropping");
+                return None;
+            }
+        },
     };
     match handshakes.try_acquire_owned() {
         Ok(p) => Some(Permit {
@@ -164,11 +108,7 @@ pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
             _source: source,
         }),
         Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            shared.refused_handshake();
             debug!(%peer, "too many unauthenticated connections, dropping");
             None
         }
@@ -240,27 +180,82 @@ async fn handle_ws(
             debug!(%peer, "websocket upgrade refused: {e:?}");
         })
     };
-    match tokio::time::timeout_at(deadline.into(), upgrade).await {
+    let upgraded = tokio::time::timeout_at(deadline.into(), upgrade).await;
+    upgraded_ws(
+        shared,
+        upgraded,
+        ws.settings.keepalive,
+        peer,
+        permit,
+        deadline,
+    )
+    .await;
+}
+
+async fn upgraded_ws(
+    shared: Arc<Shared>,
+    upgraded: Result<Result<ws::WsConn, ()>, tokio::time::error::Elapsed>,
+    keepalive: std::time::Duration,
+    peer: SocketAddr,
+    permit: Permit,
+    deadline: Instant,
+) {
+    match upgraded {
         Ok(Ok(mut conn)) => {
-            conn.keep_alive(ws.settings.keepalive);
+            conn.keep_alive(keepalive);
             authenticate(shared, Conn::from(conn), peer, permit, deadline).await
         }
-        Ok(Err(())) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-        }
+        Ok(Err(())) => shared.refused_handshake(),
         Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            shared.refused_handshake();
             debug!(%peer, "websocket upgrade timed out");
         }
     }
+}
+
+#[cfg(feature = "web")]
+pub async fn handle_web_tunnel(shared: Arc<Shared>, conn: burrow_web::TunnelConn<Permit>) {
+    let burrow_web::TunnelConn {
+        io,
+        upgraded,
+        path,
+        peer,
+        local,
+        deadline,
+        permit,
+    } = conn;
+    let Some(ws) = shared
+        .settings()
+        .websocket
+        .clone()
+        .filter(|w| w.host.is_some())
+    else {
+        return;
+    };
+    let carrier = Carrier::Accepted(Box::new(ws::Accepted {
+        io: Box::new(io),
+        local,
+    }));
+    let upgrade = async {
+        if upgraded {
+            return (path == ws.path)
+                .then(|| ws::serve_upgraded(carrier))
+                .ok_or(());
+        }
+        ws::accept(carrier, &ws.path).await.map_err(|e| {
+            debug!(%peer, "websocket upgrade on the web proxy port refused: {e:?}");
+        })
+    };
+    let upgraded = tokio::time::timeout_at(deadline, upgrade).await;
+    upgraded_ws(
+        shared,
+        upgraded,
+        ws.keepalive,
+        peer,
+        permit,
+        deadline.into_std(),
+    )
+    .await;
 }
 
 fn secrets_for(shared: &Shared, kind: ChannelKind, name: &str) -> Vec<Secret> {
@@ -287,31 +282,15 @@ async fn authenticate(
     .await;
     let acc = match result {
         Ok(Ok(a)) => a,
-        Ok(Err(AcceptError::Rejected)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake rejected (wrong secret or unknown client name)");
-            return;
-        }
-        Ok(Err(e)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake failed: {e:?}");
-            return;
-        }
-        Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake timed out");
+        failed => {
+            shared.refused_handshake();
+            match failed {
+                Ok(Err(AcceptError::Rejected)) => {
+                    debug!(%peer, "handshake rejected (wrong secret or unknown client name)")
+                }
+                Ok(Err(e)) => debug!(%peer, "handshake failed: {e:?}"),
+                _ => debug!(%peer, "handshake timed out"),
+            }
             return;
         }
     };
@@ -329,13 +308,8 @@ async fn authenticate(
                 Some(s) if s.token == token => s.offer(acc.channel),
                 _ => {
                     debug!(%peer, "data channel for an unknown session, closing");
-                    let mut ch = acc.channel;
-                    let _ = ch
-                        .writer
-                        .send(&mut ch.stream, &[crate::wire::protocol::STALE_RECORD])
-                        .await;
-                    let _ = ch.stream.flush().await;
-                    let _ = ch.stream.finish().await;
+                    let stale = [crate::wire::protocol::STALE_RECORD];
+                    crate::forward::send_and_finish(acc.channel, &stale).await;
                 }
             }
         }
@@ -346,41 +320,5 @@ async fn authenticate(
             debug!(%peer, "hello does not match the channel kind, closing")
         }
         _ => debug!(%peer, "unsupported protocol version"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn one_address_cannot_take_every_handshake_slot() {
-        let sources = Sources::default();
-        let ip: IpAddr = "203.0.113.7".parse().unwrap();
-        let calm: Vec<_> = (0..64)
-            .map(|_| source_slot(&sources, ip, 256, false).unwrap())
-            .collect();
-        assert!(
-            source_slot(&sources, ip, 256, true).is_err(),
-            "a busy server refuses an address over its share"
-        );
-        assert!(source_slot(&sources, "203.0.113.8".parse().unwrap(), 256, true).is_ok());
-        let v6 = |s: &str| s.parse::<IpAddr>().unwrap();
-        let same_net: Vec<_> = (0..32)
-            .map(|i| source_slot(&sources, v6(&format!("2001:db8::{i:x}")), 256, true).unwrap())
-            .collect();
-        assert!(source_slot(&sources, v6("2001:db8::ffff:1"), 256, true).is_err());
-        assert!(
-            source_slot(&sources, v6("::1"), 256, true)
-                .unwrap()
-                .is_none()
-        );
-        drop(calm);
-        drop(same_net);
-        assert!(
-            sources.lock().unwrap().is_empty(),
-            "every slot is given back"
-        );
-        assert!(source_slot(&sources, ip, 256, true).is_ok());
     }
 }

@@ -1,12 +1,14 @@
 mod args;
+mod ca;
 mod service;
 
 use std::path::PathBuf;
 
 pub use args::{
-    AdminArgs, ClientConfigArgs, EditArgs, ExportArgs, InitArgs, RunArgs, StatusArgs, UpdateArgs,
-    ValidateArgs, VisitArgs, VisitorConfigArgs, parse_duration,
+    AdminArgs, ClientConfigArgs, EditArgs, ExportArgs, InitArgs, McpApp, McpArgs, RunArgs,
+    ServerArgs, StatusArgs, UpdateArgs, ValidateArgs, VisitArgs, VisitorConfigArgs, parse_duration,
 };
+pub use ca::{CaAction, CaExportArgs};
 use clap::{Parser, Subcommand, ValueEnum};
 pub use service::{
     ServiceAction, ServiceControlArgs, ServiceInstallArgs, ServiceLogsArgs, ServiceName,
@@ -74,11 +76,12 @@ pub enum FileFormat {
 }
 
 pub const ADMIN_COMMAND: &str = "admin";
+pub const MCP_COMMAND: &str = "mcp";
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
     #[command(about = "Run the public server")]
-    Server(RunArgs),
+    Server(ServerArgs),
     #[command(about = "Run the client behind NAT")]
     Client(RunArgs),
     #[command(about = "Forward local ports to private services through the server")]
@@ -90,6 +93,11 @@ pub enum Command {
         about = "Open the admin UI of a server in your browser, as a visitor with admin access"
     )]
     Admin(AdminArgs),
+    #[command(
+        name = MCP_COMMAND,
+        about = "Let an AI app (Claude Code, Claude Desktop, Cursor) read and change a server over MCP, as a visitor with admin access"
+    )]
+    Mcp(McpArgs),
     #[command(
         about = "Show the running burrow servers on this machine: clients, services, visitors and traffic"
     )]
@@ -106,6 +114,17 @@ pub enum Command {
     VisitorConfig(VisitorConfigArgs),
     #[command(about = "Print a new random 256-bit secret")]
     Gensecret,
+    #[cfg(feature = "web")]
+    #[command(
+        about = "Ask for a password without showing it and print its hash for a website's basic_auth"
+    )]
+    Passwd {
+        #[arg(
+            value_name = "USER",
+            help = "Print the line as USER: hash, ready for basic_auth"
+        )]
+        user: Option<String>,
+    },
     #[command(about = "Print the JSON Schema of a config file")]
     Schema {
         #[arg(value_enum)]
@@ -126,6 +145,11 @@ pub enum Command {
     Service {
         #[command(subcommand)]
         action: ServiceAction,
+    },
+    #[command(about = "Burrow's local certificate authority for tls: internal sites")]
+    Ca {
+        #[command(subcommand)]
+        action: CaAction,
     },
 }
 
@@ -151,7 +175,7 @@ pub fn service_word(
         .skip(1)
         .map(|a| format!(" {}", crate::base::failure::arg(&a.to_string_lossy())))
         .collect();
-    let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
+    let supported = crate::base::failure::SERVICES;
     Some(
         crate::base::failure::Failure::usage(format!("burrow {word} is not a command"))
             .hint(service_word_hint(word, &rest, supported)),
@@ -172,7 +196,9 @@ fn service_word_hint(word: &str, rest: &str, supported: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burrow_syntax::ports::{ADMIN_PORT, FIRST_SERVICE_PORT, SERVER_PORT, WS_PORT, WSS_PORT};
+    use burrow_syntax::ports::{
+        ADMIN_PORT, FIRST_SERVICE_PORT, MCP_PORT, SERVER_PORT, WS_PORT, WSS_PORT,
+    };
     use clap::CommandFactory;
 
     fn help_of(cmd: &mut clap::Command, out: &mut String) {
@@ -199,7 +225,7 @@ mod tests {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
             service_word(&e, &args)
         };
-        let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
+        let supported = crate::base::failure::SERVICES;
         for word in ["install", "uninstall", "start", "stop", "restart", "logs"] {
             let f = parse(&["burrow", word]).unwrap_or_else(|| panic!("{word}"));
             assert_eq!(f.message, format!("burrow {word} is not a command"));
@@ -249,6 +275,7 @@ mod tests {
             WS_PORT,
             WSS_PORT,
             ADMIN_PORT,
+            MCP_PORT,
             FIRST_SERVICE_PORT,
         ];
         let bytes = text.as_bytes();
@@ -268,6 +295,7 @@ mod tests {
             ("for example 127.0.0.1:", WS_PORT),
             ("or 0.0.0.0:", WSS_PORT),
             ("session's port or ", ADMIN_PORT),
+            ("for --http; ", MCP_PORT),
         ] {
             let found = numbers_after(&text, before);
             assert!(!found.is_empty(), "no text names a port after {before:?}");

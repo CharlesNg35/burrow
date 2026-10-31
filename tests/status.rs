@@ -19,7 +19,7 @@ impl Drop for Running {
     }
 }
 
-use common::free_port;
+use common::{free_port, text};
 
 fn server_config(dir: &Path, file: &str) -> PathBuf {
     let config = dir.join(file);
@@ -80,14 +80,6 @@ fn status(instances: &Path, args: &[&str]) -> Output {
         .env("NO_COLOR", "1")
         .output()
         .unwrap()
-}
-
-fn text(o: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    )
 }
 
 #[test]
@@ -279,15 +271,11 @@ fn follow_keeps_refreshing_with_rates() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    std::thread::sleep(Duration::from_millis(1200));
+    let stdout = child.stdout.take().unwrap();
+    let out = common::read_until(stdout, Duration::from_secs(15), |o| {
+        o.matches("CLIENTS").count() >= 3 && o.contains("CONN/S")
+    });
     child.kill().unwrap();
-    let mut out = String::new();
-    child
-        .stdout
-        .take()
-        .unwrap()
-        .read_to_string(&mut out)
-        .unwrap();
     let _ = child.wait();
     let frames = out.matches("CLIENTS").count();
     assert!(frames >= 3, "{frames} frames:\n{out}");
@@ -553,9 +541,9 @@ fn status_json_keeps_its_exact_shape() {
                 open: 2,
                 idle_channels: 4,
                 left_secs_ago: None,
-                local: false,
                 busy_total: 4,
                 at_limit: true,
+                ..ClientStatus::default()
             },
             ClientStatus {
                 name: "office".into(),
@@ -588,11 +576,14 @@ fn status_json_keeps_its_exact_shape() {
             health: vec![HealthStatus {
                 client: "home".into(),
                 up: true,
+                ..HealthStatus::default()
             }],
             set_aside: vec![SetAside {
                 client: "office".into(),
                 refused: true,
+                ..SetAside::default()
             }],
+            ..ServiceStatus::default()
         }],
         visitors: vec![VisitorStatus {
             name: "laptop".into(),
@@ -600,6 +591,11 @@ fn status_json_keeps_its_exact_shape() {
             total: 5,
             last_seen_secs: Some(30),
         }],
+        web: None,
+        certificates: Vec::new(),
+        acme: None,
+        local_ca: None,
+        web_waiting: None,
     };
     let golden = r#"{
   "version": "0.1.0",

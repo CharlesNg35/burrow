@@ -29,26 +29,32 @@ impl Default for Heartbeat {
 pub struct Limits {
     #[schemars(range(min = 1, max = 120))]
     #[admin(
-        label = "Handshake timeout",
-        help = "Time a new connection has to authenticate",
+        label = "Connection setup timeout",
+        help = "How long a new client or visitor connection may take to show its key before it is closed",
         applies = live,
         locked
     )]
     pub handshake_timeout_secs: u32,
     #[schemars(description = "Concurrent connections that have not finished authenticating")]
     #[schemars(range(min = 1, max = 1000000))]
-    #[admin(ty = integer(unit = "connections"), applies = reload, locked)]
+    #[admin(
+        ty = integer(unit = "connections"),
+        label = "Maximum connections setting up",
+        help = "New client and visitor connections that may show their key at the same time; more wait",
+        applies = reload,
+        locked
+    )]
     pub max_handshakes: u32,
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        help = "Connections this server forwards to one client at once, unless that client has its own Max connections on this server",
+        help = "Connections this server forwards to one client at once, unless that client has its own Maximum connections on this server",
         applies = live
     )]
     pub max_connections_per_client: u32,
     #[schemars(description = "Connections waiting for a data channel, per client")]
     #[schemars(range(min = 1))]
-    #[admin(ty = integer(unit = "connections"), label = "Max waiting connections", applies = reload)]
+    #[admin(ty = integer(unit = "connections"), label = "Maximum waiting connections", applies = reload)]
     pub max_pending: u32,
 }
 
@@ -56,7 +62,7 @@ impl Default for Limits {
     fn default() -> Self {
         Limits {
             handshake_timeout_secs: 5,
-            max_handshakes: 256,
+            max_handshakes: 2048,
             max_connections_per_client: 8192,
             max_pending: 512,
         }
@@ -66,20 +72,20 @@ impl Default for Limits {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
-#[admin(label = "Pool")]
+#[admin(label = "Ready connections")]
 pub struct Pool {
     #[schemars(range(max = 1024))]
     #[admin(
-        ty = integer(unit = "channels"),
-        label = "Idle channels kept ready",
-        help = "Data channels each client keeps open in advance, so a new connection starts without a round trip"
+        ty = integer(unit = "connections"),
+        label = "Kept ready",
+        help = "Spare connections each client keeps open, so a new visitor connection starts without waiting"
     )]
     pub min_idle: u32,
     #[schemars(range(min = 1, max = 4096))]
     #[admin(
-        ty = integer(unit = "channels"),
-        label = "Max idle channels",
-        help = "Most data channels each client keeps ready; the pool grows toward it when busy and shrinks when idle"
+        ty = integer(unit = "connections"),
+        label = "Maximum kept ready",
+        help = "Most spare connections each client keeps; more are added when busy and dropped when idle"
     )]
     pub max_idle: u32,
 }
@@ -99,7 +105,7 @@ impl Default for Pool {
 #[admin(label = "TCP options")]
 pub struct TcpOptions {
     #[admin(
-        label = "No delay",
+        label = "Send small packets at once",
         help = "Send small writes at once instead of batching them (TCP_NODELAY)"
     )]
     pub nodelay: bool,
@@ -108,8 +114,8 @@ pub struct TcpOptions {
         range(max = 32767)
     )]
     #[admin(
-        help = "Idle time before keepalive probes start; 0 turns them off",
-        label = "Keepalive"
+        help = "Idle time before burrow checks that a quiet connection is still there (TCP keepalive); 0 turns the checks off",
+        label = "Check idle connections"
     )]
     pub keepalive_secs: u32,
 }
@@ -131,7 +137,7 @@ pub struct UdpOptions {
     #[schemars(range(min = 1))]
     #[admin(
         label = "Session timeout",
-        help = "A UDP peer that sends nothing for this long is forgotten"
+        help = "A UDP sender that sends nothing for this long is forgotten"
     )]
     pub session_timeout_secs: u32,
     #[schemars(
@@ -140,9 +146,9 @@ pub struct UdpOptions {
         extend("x-show-default" = true)
     )]
     #[admin(
-        ty = integer(unit = "peers"),
-        label = "Max UDP peers per port",
-        help = "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped. For example 20000; the default is 4096",
+        ty = integer(unit = "senders"),
+        label = "Maximum UDP senders per port",
+        help = "Most UDP senders one service port keeps at once; a datagram from a new sender beyond it is dropped. For example 20000; the default is 4096",
         applies = live
     )]
     pub max_peers: u32,

@@ -338,3 +338,62 @@ fn review_my_draft_opens_the_draft_after_a_revert_conflict_was_viewed() {
         draft_after_a_viewed_revert_conflict,
     );
 }
+
+async fn set_target(c: &mut Ctx, to: &str, step: &str) {
+    c.ui.nav("/services/web").await;
+    edit_mode(c).await;
+    c.ui.fill("#f-services-web-target", to).await;
+    wait_checked(c).await;
+    open_review(c, &format!("{step}-review")).await;
+    applied(c, step).await;
+}
+
+fn same_file_twice(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        set_target(c, "4001", "first-4001").await;
+        set_target(c, "4002", "then-4002").await;
+        set_target(c, "4001", "again-4001").await;
+        let newer = activity_rev(c, 0).await;
+        let older = activity_rev(c, 2).await;
+        assert_ne!(
+            newer, older,
+            "two entries for the same file have their own ids"
+        );
+        c.ui.click(&format!("[data-row='{older}'] [data-testid=list-row]"))
+            .await;
+        let diff =
+            c.ui.wait_text("[data-testid=activity-diff]", "4001", SECS)
+                .await;
+        assert!(
+            !diff.contains("4002"),
+            "the older entry shows its own diff: {diff}"
+        );
+        assert_eq!(
+            c.ui.all_attrs("[data-testid=activity] [data-selected=true]", "data-row")
+                .await,
+            std::slice::from_ref(&older),
+            "only the older entry is selected"
+        );
+        let at: String = c.ui.eval("location.pathname").await;
+        assert!(at.ends_with(&format!("/activity/{older}")), "{at}");
+        c.ui.shot("the-older-of-two-same-files").await;
+        c.ui.click(&format!("[data-row='{newer}'] [data-testid=list-row]"))
+            .await;
+        let diff =
+            c.ui.wait_text("[data-testid=activity-diff]", "4002", SECS)
+                .await;
+        assert!(diff.contains("4001"), "{diff}");
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_same_file_twice_shows_two_entries_each_with_its_own_diff() {
+    run(
+        "same-file-twice",
+        Options::default(),
+        false,
+        same_file_twice,
+    );
+}

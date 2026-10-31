@@ -1,6 +1,6 @@
 [package]
 name = "burrow"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "Fast, secure, lightweight reverse tunnel"
 license = "MIT"
@@ -20,6 +20,7 @@ members = [
     "crates/burrow-admin-derive",
     "crates/burrow-ui-kit",
     "crates/burrow-admin-ui",
+    "crates/burrow-web",
     "xtask",
 ]
 
@@ -32,7 +33,9 @@ workspace = true
 [dependencies]
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
+burrow-web = { path = "crates/burrow-web", optional = true }
 burrow-syntax = { path = "crates/burrow-syntax" }
+aws-lc-rs = "1.19.0"
 base64 = "0.23.1"
 blake2 = "0.10.6"
 dirs = "6"
@@ -51,10 +54,13 @@ http-body-util = "0.1.5"
 hyper = { version = "1.12.0", default-features = false, features = ["http1", "server", "client"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 notify = "8.2.0"
-ring = "0.17.14"
+rmcp = { version = "3.7.0", default-features = false, features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
+rpassword = { version = "7.5.4", optional = true }
+pem = "4.0.0"
 percent-encoding = "2.3.2"
 saphyr-parser = "0.2.2"
 schemars = "1.2.3"
+rustls = { version = "0.23.46", default-features = false, features = ["prefer-post-quantum"] }
 semver = "1.0.28"
 shlex = "2.0.1"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -65,8 +71,8 @@ socket2 = "0.6.5"
 strsim = "0.11.1"
 subtle = "2.6.1"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "signal", "macros", "fs"] }
-tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
-tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "ring", "getrandom"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
+tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "aws_lc_rs", "getrandom"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fmt", "ansi"] }
 webpki-roots = "1.0.10"
@@ -83,19 +89,27 @@ rustix = { version = "1.1.5", default-features = false, features = ["fs", "proce
 windows-service = "0.8.1"
 
 [target.'cfg(all(target_env = "musl", any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64")))'.dependencies]
-tikv-jemallocator = "0.6"
+tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
 
 [target.'cfg(all(target_env = "musl", target_arch = "arm"))'.dependencies]
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 arbtest = "0.3"
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "getrandom"] }
+bcrypt = { version = "0.19.3", default-features = false, features = ["std"] }
 burrow-admin-logic = { path = "crates/burrow-admin-logic" }
 chromiumoxide = { version = "=0.9.1", default-features = false }
+h2 = "0.4.20"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"
-rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem", "crypto"] }
+rmcp = { version = "3.7.0", default-features = false, features = ["client", "transport-child-process"] }
 tempfile = "3.27.0"
+toml = "1.1.8"
+
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1.1.5", default-features = false, features = ["pty", "std"] }
 
 [build-dependencies]
 blake2 = "0.10.6"
@@ -103,9 +117,10 @@ hex = "0.4.3"
 serde_json = "1.0.154"
 
 [features]
-default = ["ring"]
+default = ["ring", "web"]
 ring = ["snow/ring-accelerated"]
-admin-test-hooks = []
+web = ["dep:burrow-web", "dep:rpassword"]
+admin-test-hooks = ["burrow-web?/admin-test-hooks"]
 
 [profile.release]
 lto = "fat"
@@ -125,9 +140,14 @@ strip = true
 inherits = "release"
 strip = false
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package]
 sha2.opt-level = 3
 blake2.opt-level = 3
+argon2.opt-level = 3
+blowfish.opt-level = 3
 curve25519-dalek.opt-level = 3
 miniz_oxide.opt-level = 3
 crc32fast.opt-level = 3

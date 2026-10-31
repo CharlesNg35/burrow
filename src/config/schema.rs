@@ -49,8 +49,23 @@ pub fn owner_name(role: &str, path: &[&str]) -> String {
         ["visitors", name] => format!("visitor \"{name}\""),
         ["forwards", name] => format!("forward \"{name}\""),
         [section] => format!("\"{section}\""),
-        [.., last] => format!("\"{last}\""),
+        _ => format!("\"{}\"", dotted(path)),
     }
+}
+
+fn dotted(path: &[&str]) -> String {
+    let mut out = String::new();
+    for part in path {
+        if part.parse::<usize>().is_ok() {
+            out.push_str(&format!("[{part}]"));
+        } else {
+            if !out.is_empty() {
+                out.push('.');
+            }
+            out.push_str(part);
+        }
+    }
+    out
 }
 
 impl<'a> Checker<'a> {
@@ -293,6 +308,25 @@ impl<'a> Checker<'a> {
             self.prune.push(own);
         }
         if let Some(required) = schema.get("required").and_then(J::as_array) {
+            if let ["web", "certificates", i] = ctx.parts().as_slice()
+                && required
+                    .iter()
+                    .filter_map(J::as_str)
+                    .any(|n| !entries.iter().any(|e| e.key == n))
+            {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "certificate-entry",
+                        format!(
+                            "web.certificates[{i}] needs hosts, the names that use the file, and the file itself: cert and key, or an upload"
+                        ),
+                    )
+                    .at(ctx.owner_span)
+                    .help("certificates from Let's Encrypt are not listed here: sites get theirs automatically, and many sites under one domain are best served by one wildcard certificate file"),
+                );
+                self.prune.push(ctx.path());
+                return;
+            }
             for name in required.iter().filter_map(J::as_str) {
                 if entries.iter().any(|e| e.key == name) {
                     continue;
@@ -366,7 +400,7 @@ impl<'a> Checker<'a> {
             };
             self.diagnostics.push(
                 Diagnostic::error(
-                    "out-of-range",
+                    burrow_admin_proto::codes::OUT_OF_RANGE,
                     format!(
                         "\"{}\" in {} must be {bounds}, found {value}",
                         ctx.field(),
@@ -389,14 +423,20 @@ impl<'a> Checker<'a> {
             .collect::<Vec<_>>()
             .join(" or ");
         let help = match (ctx.field(), &node.value) {
+            _ if matches!(ctx.parts()[..], ["web", "forward_auth", _]) => {
+                "each login service has its own name, like web.forward_auth: {authelia: {service, path}}".into()
+            }
             ("reach", Value::Seq(_)) => {
                 "write it as a mapping of client names, for example: reach: { home: any }".into()
+            }
+            ("forward_auth", Value::Map(_)) => {
+                "name a login service from web.forward_auth, like forward_auth: authelia".into()
             }
             _ => type_help(types, node, bounds),
         };
         self.diagnostics.push(
             Diagnostic::error(
-                "wrong-type",
+                burrow_admin_proto::codes::WRONG_TYPE,
                 format!(
                     "\"{}\" in {} must be {want}, found {}",
                     ctx.field(),

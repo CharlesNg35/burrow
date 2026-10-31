@@ -166,9 +166,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
     };
     view! {
         <section id=id class="mb-4 rounded-card border border-border bg-surface" data-testid="secrets" data-schema=schema_path>
-            <div class="flex items-center gap-3 border-b border-border px-4 py-3">
-                <h2 class="text-[13.5px] font-bold">"Secrets"</h2>
-                <span class="ml-auto"></span>
+            {burrow_ui_kit::card_head("Secrets".into(), None, view! {
                 {can.then(|| view! {
                     <Button
                         label=label
@@ -181,7 +179,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                         on_click=add
                     />
                 })}
-            </div>
+            }.into_any())}
             <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] gap-4 border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase" aria-hidden="true">
                 <span>"Fingerprint"</span><span>"Source"</span><span>"Session"</span><span></span>
             </div>
@@ -207,8 +205,6 @@ fn os_now() -> String {
         "linux".into()
     }
 }
-
-const RELEASES: &str = "https://github.com/CharlesNg35/burrow/releases/latest";
 
 fn os_label(os: &str) -> &'static str {
     match os {
@@ -254,7 +250,7 @@ pub fn SnippetView(
         view! {
             <div class="mb-3">
                 <Callout tone=Tone::Warning title="The server address is not known">
-                    <p>{if asks { "Type how machines reach this server, or set public_address in Settings. Until then the commands say SERVER_ADDRESS." } else { "Set public_address in Settings, or replace SERVER_ADDRESS by hand." }}</p>
+                    <p>{if asks { format!("Type how machines reach this server, or set Public address in Settings, Server. Until then the commands show {} for you to replace.", burrow_admin_logic::wording::CONNECT_PLACEHOLDER) } else { format!("Set Public address in Settings, Server, or replace {} in the commands by hand.", burrow_admin_logic::wording::CONNECT_PLACEHOLDER) }}</p>
                     {children.map(|c| c())}
                 </Callout>
             </div>
@@ -291,7 +287,7 @@ pub fn SnippetView(
                 "commands" => view! {
                     <div data-testid="snippet-commands">
                         <p class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                            <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=RELEASES target="_blank" rel="noopener noreferrer" data-testid="download">
+                            <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=burrow_admin_logic::wording::releases() target="_blank" rel="noopener noreferrer" data-testid="download">
                                 {move || format!("Download burrow for {}", os_label(&os.get()))}
                                 <burrow_ui_kit::Icon name="external" small=true/>
                             </a>
@@ -328,7 +324,7 @@ pub fn SnippetView(
 fn added_outside_edit(s: crate::store::Store, path: &[String]) {
     let entity: Vec<String> = path.iter().take(2).cloned().collect();
     if !s.edit.is_editing(&entity) {
-        s.toast(Tone::Success, "Added to changes", Some("Review"));
+        s.added_to_changes();
     }
 }
 
@@ -426,7 +422,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                 </div>
                 {snippet}
                 {(sec == ClientEntry::section()).then(|| waiting.clone())}
-                <div class="sticky bottom-4 z-20 mt-6 flex items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="">
+                <burrow_ui_kit::StickyBar>
                     <label class="flex items-center gap-2 text-sm">
                         <input type="checkbox" data-testid="saved" class="size-4 accent-accent" prop:checked=move || saved.get() on:change:target=move |ev| saved.set(ev.target().checked())/>
                         "I have saved the secret"
@@ -448,7 +444,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                             });
                         }
                     />
-                </div>
+                </burrow_ui_kit::StickyBar>
             </div>
         })
     };
@@ -466,7 +462,11 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
     };
     let fetch = move |name: String, addr: Option<String>| {
         data.set(None);
-        let body = json!({ "kind": kind, "name": name, "address": addr });
+        let body = api::body(&msg::ConnectInfo {
+            kind: kind.to_string(),
+            name,
+            address: addr,
+        });
         api::request(msg::req::CONNECT_INFO, body, move |r| {
             let _ = data.try_set(Some(r.map_err(|e| e.message).and_then(|v| {
                 serde_json::from_value::<Snippets>(v).map_err(|e| e.to_string())

@@ -12,21 +12,6 @@ use burrow_syntax::endpoint::Endpoint;
 use common::*;
 use tokio::net::{TcpListener, TcpStream};
 
-struct Cert {
-    cert_pem: String,
-    key_pem: String,
-}
-
-fn self_signed() -> Cert {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-    let cert = params.self_signed(&key).unwrap();
-    Cert {
-        cert_pem: cert.pem(),
-        key_pem: key.serialize_pem(),
-    }
-}
-
 fn ws_server(secret: &Secret, path: &str, tls: Option<&Cert>) -> ServerSettings {
     let mut s = server_settings(vec![secret.clone()]);
     s.listen = None;
@@ -40,6 +25,8 @@ fn ws_server(secret: &Secret, path: &str, tls: Option<&Cert>) -> ServerSettings 
             key_pem: zeroize::Zeroizing::new(c.key_pem.clone().into_bytes()),
         }),
         keepalive: Duration::from_secs(25),
+        host: None,
+        shares: burrow::config::settings::Shares::Nothing,
     });
     s
 }
@@ -109,7 +96,7 @@ async fn websocket_only_server_forwards_tcp_and_udp() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wss_with_own_certificate() {
     let echo = echo_server().await;
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/t", Some(&cert));
     s.services
@@ -127,7 +114,7 @@ async fn wss_with_own_certificate() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wss_without_trusting_the_certificate_fails() {
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
@@ -179,7 +166,7 @@ async fn tls_terminating_proxy(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn behind_a_tls_terminating_proxy() {
     let echo = echo_server().await;
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/burrow", None);
     s.services
@@ -240,8 +227,7 @@ async fn reload_changes_the_websocket_path() {
     next.websocket.as_mut().unwrap().listen = ws;
     next.websocket.as_mut().unwrap().path = "/two".into();
     next.services.get_mut("web").unwrap().bind = Some(srv.services["web"]);
-    srv.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    srv.reload_applied(next).await;
     let _cli = connected(&srv, ws_client(&format!("ws://{ws}/two"), secret, None)).await;
     assert_eq!(roundtrip(srv.services["web"], b"moved").await, b"moved");
 }
@@ -378,9 +364,7 @@ async fn keepalive_keeps_pooled_channels_alive_through_an_idle_timeout_proxy() {
 async fn path_change_swaps_the_route_and_sends_old_path_clients_away() {
     let echo = echo_server().await;
     let secret = Secret::generate();
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port_addr = free.local_addr().unwrap();
-    drop(free);
+    let port_addr = free_addr();
     let mut s = ws_server(&secret, "/one", None);
     for name in ["office", "lab"] {
         s.clients.insert(
@@ -434,21 +418,10 @@ async fn path_change_swaps_the_route_and_sends_old_path_clients_away() {
     );
 }
 
-fn self_signed_ca_flagged() -> Cert {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-    params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-    let cert = params.self_signed(&key).unwrap();
-    Cert {
-        cert_pem: cert.pem(),
-        key_pem: key.serialize_pem(),
-    }
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pinned_self_signed_certificate_marked_as_ca_is_accepted() {
     let echo = echo_server().await;
-    let cert = self_signed_ca_flagged();
+    let cert = ca_flagged(&["localhost"]);
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/t", Some(&cert));
     s.services
@@ -465,8 +438,8 @@ async fn pinned_self_signed_certificate_marked_as_ca_is_accepted() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pinning_a_different_certificate_is_refused() {
-    let cert = self_signed_ca_flagged();
-    let other = self_signed_ca_flagged();
+    let cert = ca_flagged(&["localhost"]);
+    let other = ca_flagged(&["localhost"]);
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
@@ -503,7 +476,7 @@ async fn dial(d: &burrow::dialer::Dialer) -> burrow::dialer::DialError {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_untrusted_certificate_fails_at_once_instead_of_being_retried() {
     use burrow::dialer::DialError;
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let srv = start_server(ws_server(&Secret::generate(), "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
     let e = dial(&dialer_for(&format!("wss://localhost:{port}/t"), None)).await;
@@ -540,12 +513,11 @@ async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload
     let ws = srv.ws_addr.unwrap();
     let mut first = s.clone();
     first.websocket.as_mut().unwrap().listen = ws;
-    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let busy = std::net::TcpListener::bind(free_addr()).unwrap();
     let elsewhere = busy.local_addr().unwrap();
     let mut moved = first.clone();
     moved.websocket.as_mut().unwrap().listen = elsewhere;
-    srv.reload(moved.clone()).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    srv.reload_applied(moved.clone()).await;
     let kept = connected(
         &srv,
         ws_client(&format!("ws://{ws}/burrow"), secret.clone(), None),
@@ -554,8 +526,7 @@ async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload
     kept.stop.send(true).unwrap();
     kept.task.await.unwrap();
     drop(busy);
-    srv.reload(moved).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    srv.reload_applied(moved).await;
     let _moved = connected(
         &srv,
         ws_client(&format!("ws://{elsewhere}/burrow"), secret, None),
@@ -568,9 +539,7 @@ async fn swapping_the_websocket_port_with_a_service_port_ends_with_both_listenin
     logs();
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/burrow", None);
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let web_port = free.local_addr().unwrap();
-    drop(free);
+    let web_port = free_addr();
     let mut web = service("127.0.0.1:1".parse().unwrap(), Protocol::Tcp);
     web.bind = Some(web_port);
     s.services.insert("web".into(), web);
@@ -605,9 +574,7 @@ async fn a_service_can_take_the_port_of_a_websocket_removed_in_the_same_reload()
     logs();
     let secret = Secret::generate();
     let mut s = server_settings(vec![secret.clone()]);
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = free.local_addr().unwrap();
-    drop(free);
+    let port = free_addr();
     s.websocket = ws_server(&secret, "/burrow", None).websocket;
     s.websocket.as_mut().unwrap().listen = port;
     let srv = start_server(s.clone()).await;
@@ -616,8 +583,7 @@ async fn a_service_can_take_the_port_of_a_websocket_removed_in_the_same_reload()
     let mut web = service("127.0.0.1:1".parse().unwrap(), Protocol::Tcp);
     web.bind = Some(port);
     next.services.insert("web".into(), web);
-    srv.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    srv.reload_applied(next).await;
     let mut conn = TcpStream::connect(port)
         .await
         .expect("the service listens on the freed port");
@@ -672,7 +638,7 @@ async fn clients_of_a_websocket_path_that_changed_are_sent_to_reconnect() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_wss_client_with_a_wrong_secret_is_reported_as_rejected() {
     logs();
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
@@ -689,4 +655,64 @@ async fn a_wss_client_with_a_wrong_secret_is_reported_as_rejected() {
     .await
     .is_ok_and(|r| r.is_ok());
     assert!(rejected, "a wrong secret over wss is not reported");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn websocket_turned_off_cuts_its_clients_and_turned_on_again_takes_them() {
+    if ws_mode() {
+        return;
+    }
+    let secret = Secret::generate();
+    let s = ws_server(&secret, "/burrow", None);
+    let srv = start_server(s.clone()).await;
+    let ws = srv.ws_addr.unwrap();
+    let url = format!("ws://{ws}/burrow");
+    let mut cli = connected(&srv, ws_client(&url, secret.clone(), None)).await;
+    let mut off = s.clone();
+    off.websocket = None;
+    srv.reload(off.clone()).await;
+    let left = tokio::time::timeout(
+        Duration::from_secs(5),
+        cli.state.wait_for(|s| *s != State::Connected),
+    )
+    .await
+    .is_ok_and(|r| r.is_ok());
+    assert!(left, "a client stayed on a WebSocket that was turned off");
+    let shared = srv.shared.clone();
+    wait_for(|| shared.settings_snapshot().websocket.is_none()).await;
+    assert!(TcpStream::connect(ws).await.is_err(), "the port is closed");
+    let mut on = off;
+    on.websocket = s.websocket.clone();
+    on.websocket.as_mut().unwrap().listen = ws;
+    srv.reload(on).await;
+    wait_for(|| shared.settings_snapshot().websocket.is_some()).await;
+    let _again = connected(&srv, ws_client(&url, secret, None)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_moved_websocket_listener_cuts_its_clients_and_serves_on_the_new_address() {
+    if ws_mode() {
+        return;
+    }
+    let secret = Secret::generate();
+    let s = ws_server(&secret, "/burrow", None);
+    let srv = start_server(s.clone()).await;
+    let ws = srv.ws_addr.unwrap();
+    let mut cli = connected(
+        &srv,
+        ws_client(&format!("ws://{ws}/burrow"), secret.clone(), None),
+    )
+    .await;
+    let to: SocketAddr = format!("127.0.0.1:{}", free_port()).parse().unwrap();
+    let mut next = s.clone();
+    next.websocket.as_mut().unwrap().listen = to;
+    srv.reload(next).await;
+    let left = tokio::time::timeout(
+        Duration::from_secs(5),
+        cli.state.wait_for(|s| *s != State::Connected),
+    )
+    .await
+    .is_ok_and(|r| r.is_ok());
+    assert!(left, "a client stayed on the old WebSocket address");
+    let _moved = connected(&srv, ws_client(&format!("ws://{to}/burrow"), secret, None)).await;
 }

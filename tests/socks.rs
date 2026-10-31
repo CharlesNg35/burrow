@@ -9,25 +9,7 @@ use burrow::wire::secret::Secret;
 use common::socks::*;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-
-async fn echo_on(addr: &str) -> SocketAddr {
-    let listener = TcpListener::bind(addr).await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut s, _)) = listener.accept().await else {
-                return;
-            };
-            tokio::spawn(async move {
-                let (mut r, mut w) = s.split();
-                let _ = tokio::io::copy(&mut r, &mut w).await;
-                let _ = w.shutdown().await;
-            });
-        }
-    });
-    addr
-}
+use tokio::net::TcpStream;
 
 struct Proxy {
     tunnel: Tunnel,
@@ -90,7 +72,7 @@ async fn ipv6_targets_are_reached() {
         return;
     };
     drop(probe);
-    let echo = echo_on("[::1]:0").await;
+    let echo = echo_on("[::1]:0".parse().unwrap()).await;
     let p = proxy(&["home"], vec!["[::1/128]"]).await;
     let (code, s) = socks_connect(p.addr, "::1", echo.port()).await;
     assert_eq!(code, 0);

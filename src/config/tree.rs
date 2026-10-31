@@ -46,6 +46,7 @@ pub struct Node {
     pub span: Span,
     pub quoted: bool,
     pub env: FromEnv,
+    pub raw: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -221,6 +222,7 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
                     },
                     quoted: false,
                     env: FromEnv::No,
+                    raw: None,
                 },
                 _ => unreachable!("parser emits balanced events"),
             },
@@ -233,6 +235,7 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
                     },
                     quoted: false,
                     env: FromEnv::No,
+                    raw: None,
                 },
                 _ => unreachable!("parser emits balanced events"),
             },
@@ -282,6 +285,7 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
         span: Span::default(),
         quoted: false,
         env: FromEnv::No,
+        raw: None,
     }))
 }
 
@@ -297,6 +301,7 @@ fn scalar(text: &str, style: ScalarStyle, span: Span) -> Node {
         span,
         quoted,
         env: FromEnv::No,
+        raw: None,
     }
 }
 

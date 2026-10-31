@@ -1,6 +1,9 @@
+mod ca;
+#[cfg(feature = "web")]
+mod passwd;
 mod pick;
 
-use std::io::{IsTerminal, Write};
+use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
@@ -53,12 +56,7 @@ pub fn main() -> ExitCode {
 }
 
 fn print(s: &str) -> Result<(), Failure> {
-    let mut out = std::io::stdout().lock();
-    match out.write_all(s.as_bytes()).and_then(|_| out.flush()) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        Err(e) => Err(Failure::new(format!("cannot write output: {e}"))),
-    }
+    crate::base::output::put(&mut std::io::stdout().lock(), s)
 }
 
 fn config_path(
@@ -140,7 +138,7 @@ fn export(
 }
 
 fn control(
-    action: &str,
+    action: crate::service::Action,
     a: crate::app::cli::ServiceControlArgs,
     out: &mut dyn std::io::Write,
 ) -> Result<u8, Failure> {
@@ -187,11 +185,13 @@ fn service(action: ServiceAction, logging: crate::app::run::Logging) -> Result<u
             service::uninstall(a.name.as_deref(), a.purge, &mut out).map(|_| 0)
         }
         ServiceAction::Start(n) => {
-            service::control("start", n.name.as_deref(), &mut out).map(|_| 0)
+            service::control(service::Action::Start, n.name.as_deref(), &mut out).map(|_| 0)
         }
-        ServiceAction::Stop(n) => service::control("stop", n.name.as_deref(), &mut out).map(|_| 0),
-        ServiceAction::Restart(a) => control("restart", a, &mut out),
-        ServiceAction::Reload(a) => control("reload", a, &mut out),
+        ServiceAction::Stop(n) => {
+            service::control(service::Action::Stop, n.name.as_deref(), &mut out).map(|_| 0)
+        }
+        ServiceAction::Restart(a) => control(service::Action::Restart, a, &mut out),
+        ServiceAction::Reload(a) => control(service::Action::Reload, a, &mut out),
         ServiceAction::Status(n) => service::status(n.name.as_deref(), &mut out),
         ServiceAction::Logs(a) => service::logs(a.name.as_deref(), a.lines, a.follow).map(|_| 0),
         ServiceAction::List => service::list(&mut out).map(|_| 0),
@@ -234,6 +234,11 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             ))?;
             Ok(0)
         }
+        #[cfg(feature = "web")]
+        Command::Passwd { user } => {
+            print(&passwd::run(user.as_deref())?)?;
+            Ok(0)
+        }
         Command::Version => {
             print(&format!("burrow {}\n", env!("CARGO_PKG_VERSION")))?;
             Ok(0)
@@ -247,6 +252,9 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             &mut std::io::stdout().lock(),
         ),
         Command::Status(a) => status(a),
+        Command::Ca {
+            action: crate::app::cli::CaAction::Export(a),
+        } => ca::export(&a, &mut std::io::stdout().lock()),
         Command::Update(a) => {
             let mut out = std::io::stdout().lock();
             crate::update::run(
@@ -282,9 +290,14 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         ),
         Command::Service { action } => service(action, logging),
         Command::Admin(args) => admin(args),
+        Command::Mcp(args) => mcp(args),
         Command::Server(args) => {
-            let env = run_env(args.env_file.as_deref())?;
-            crate::app::run::server(&config_path(args.config, Some(Role::Server))?, logging, env)
+            if let Some(dir) = args.state_dir {
+                crate::install::choose_state_dir(dir);
+            }
+            let env = run_env(args.run.env_file.as_deref())?;
+            let path = config_path(args.run.config, Some(Role::Server))?;
+            crate::app::run::server(&path, logging, env)
         }
         Command::Client(args) => {
             let env = run_env(args.env_file.as_deref())?;
@@ -365,6 +378,12 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         env_secret: args.env_secret,
         update: args.update,
         yes: args.yes,
+        email: args.email,
+        web: args.web.map(|domain| crate::init::WebInit {
+            domain,
+            client: args.web_client,
+            target: args.web_target,
+        }),
         websocket: (args.ws
             || args.ws_listen.is_some()
             || args.ws_path.is_some()
@@ -395,9 +414,11 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         ("--secret", opts.secret.is_some()),
         ("--client-name", opts.client_name.is_some()),
         ("--ws", opts.websocket.is_some()),
+        ("--email", opts.email.is_some()),
+        ("--web", opts.web.is_some()),
     ];
     let (kind, applies): (&str, &[&str]) = match role {
-        RoleArg::Server => ("server", &["--client-name", "--ws"]),
+        RoleArg::Server => ("server", &["--client-name", "--ws", "--email", "--web"]),
         RoleArg::Client => ("client", &["--name", "--secret"]),
         RoleArg::Visitor => ("visitor", &["--name", "--secret"]),
     };
@@ -418,7 +439,7 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
     }
     let mut out = std::io::stdout().lock();
     match role {
-        RoleArg::Server => crate::init::init_server(&opts, &mut out)?,
+        RoleArg::Server => crate::init::init_server_asking(&opts, &mut TtyPrompt, &mut out)?,
         RoleArg::Client => crate::init::init_client(&opts, &mut TtyPrompt, &mut out)?,
         RoleArg::Visitor => crate::init::init_visitor(&opts, &mut TtyPrompt, &mut out)?,
     };
@@ -426,55 +447,19 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
 }
 
 fn admin(args: crate::app::cli::AdminArgs) -> Result<u8, Failure> {
-    use crate::admin_local::find::{Found, Installed, choose, unreadable};
     if args.ui_info {
         print!("{}", crate::admin_local::assets::info());
         return Ok(0);
     }
-    let here = crate::config::discover::in_folder(std::path::Path::new("."))
-        .into_iter()
-        .filter(|(_, r)| *r == Role::Visitor)
-        .map(|(p, _)| p)
-        .next();
-    let services: Vec<Installed> =
-        if args.config.is_none() && (here.is_none() || args.service.is_some()) {
-            crate::install::all_manifests()
-                .into_iter()
-                .filter(|m| m.role == "visitor")
-                .map(|m| Installed {
-                    name: m.name,
-                    config: m.config,
-                    env_file: m.env_file,
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-    let found = choose(args.config, here, &services, args.service.as_deref())?;
-    let (path, env) = match found {
-        Found::File(p) => (p, crate::config::env::Env::default()),
-        Found::Service(s) => {
-            let readable = |p: &std::path::Path| {
-                std::fs::File::open(p)
-                    .map(drop)
-                    .map_err(|e| unreadable(p, &e))
-            };
-            readable(&s.config)?;
-            let env = match &s.env_file {
-                Some(f) => {
-                    readable(f)?;
-                    crate::service::saved_env(&s.name)
-                }
-                None => Default::default(),
-            };
-            println!(
-                "using the installed visitor service {} ({})",
-                s.name,
-                s.config.display()
-            );
-            (s.config, crate::config::env::Env::with(env))
-        }
-    };
+    let chosen = crate::admin_link::find::visitor(
+        args.config,
+        args.service.as_deref(),
+        crate::app::cli::ADMIN_COMMAND,
+        crate::service::saved_env,
+    )?;
+    if let Some(note) = &chosen.note {
+        println!("{note}");
+    }
     let opts = crate::admin_local::Options {
         port: args.port,
         open: !args.no_open,
@@ -483,7 +468,39 @@ fn admin(args: crate::app::cli::AdminArgs) -> Result<u8, Failure> {
         idle_exit: args.idle_exit,
         ui_dir: args.ui_dir,
     };
-    crate::app::run::admin(&path, env, opts)
+    crate::app::run::admin(&chosen.path, chosen.env, opts)
+}
+
+fn mcp(args: crate::app::cli::McpArgs) -> Result<u8, Failure> {
+    use crate::app::cli::McpApp;
+    use crate::mcp::setup::App;
+    let config_given = args.config.is_some();
+    let chosen = crate::admin_link::find::visitor(
+        args.config,
+        args.service.as_deref(),
+        crate::app::cli::MCP_COMMAND,
+        crate::service::saved_env,
+    )?;
+    if let Some(note) = &chosen.note {
+        crate::say_errln!("{note}");
+    }
+    let opts = crate::mcp::Options {
+        allow_write: args.allow_write,
+        http: args.http.then_some(crate::mcp::HttpOptions {
+            port: args.port.unwrap_or(burrow_syntax::ports::MCP_PORT),
+            show_token: !args.no_print_token,
+        }),
+        token_file: args.token_file,
+        new_token: args.new_token,
+        print_token: args.print_token,
+        print_config: args.print_config.map(|a| match a {
+            McpApp::Claude => App::Claude,
+            McpApp::Codex => App::Codex,
+            McpApp::Cursor => App::Cursor,
+        }),
+        config_given,
+    };
+    crate::app::run::mcp(&chosen.path, chosen.env, opts)
 }
 
 fn run_env(file: Option<&std::path::Path>) -> Result<crate::config::env::Env, Failure> {

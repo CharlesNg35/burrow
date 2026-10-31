@@ -63,6 +63,8 @@ pub fn change_groups(plan: &Plan) -> Vec<Group> {
     out
 }
 
+pub const REVIEW_ON_NEW: &str = "Review my changes on the new version";
+
 fn section_label(section: &str, n: usize) -> String {
     let one = match burrow_config::entity_of_section(section) {
         Some(burrow_admin_proto::schema::Entity::Client) => burrow_config::ClientEntry::ENTITY,
@@ -104,9 +106,19 @@ pub fn place_of(root: &burrow_admin_proto::schema::Node, path: &[String]) -> Str
     }
 }
 
+fn plain_place(path: &[String]) -> String {
+    match path {
+        [sec, name, ..] if crate::route::SECTIONS.contains(&sec.as_str()) => {
+            let one = section_label(sec, 1);
+            format!("{}{} · {name}", one[..1].to_uppercase(), &one[1..])
+        }
+        _ => path.join(" · "),
+    }
+}
+
 pub fn group_line(g: &Group) -> String {
     if g.parts.is_empty() {
-        return g.head.path.join(".");
+        return plain_place(&g.head.path);
     }
     if g.head
         .path
@@ -271,7 +283,7 @@ mod tests {
         let p = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
             place_of(&root, &p(&["visitors", "laptop", "max_connections"])),
-            "Visitor laptop · Max connections"
+            "Visitor laptop · Maximum connections"
         );
         assert_eq!(
             place_of(&root, &p(&["services", "web", "allow_from", "1"])),
@@ -279,7 +291,7 @@ mod tests {
         );
         assert_eq!(
             place_of(&root, &p(&["pool", "min_idle"])),
-            "Pool of idle channels · Idle channels kept ready"
+            "Ready connections to clients · Kept ready"
         );
         assert_eq!(place_of(&root, &p(&["nonsense"])), "nonsense");
     }
@@ -368,7 +380,7 @@ mod tests {
             group_line(&g[0]),
             "added to services web, db and visitor lap"
         );
-        assert_eq!(group_line(&g[1]), "services.ssh");
+        assert_eq!(group_line(&g[1]), "Service · ssh");
         assert_eq!(
             g[2].head.path,
             ["services", "x"],

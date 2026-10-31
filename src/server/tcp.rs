@@ -1,16 +1,17 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
+use super::share::{FairShare, Pool};
 use crate::config::settings::Service;
-use crate::forward::{ForwardError, Meter, Opened, Opening, open_tcp};
+use crate::forward::{ForwardError, Incoming, Meter, Opened, Opening, Split, open_tcp};
 use crate::wire::protocol::{Connect, Status};
 use crate::wire::proxy_protocol::header;
 use crate::wire::transport::tcp::tune;
@@ -20,7 +21,7 @@ pub(super) async fn tcp_service(
     shared: Arc<Shared>,
     name: String,
     listener: TcpListener,
-    config: watch::Receiver<Service>,
+    config: watch::Receiver<Arc<Service>>,
     index: u16,
 ) {
     loop {
@@ -49,57 +50,128 @@ pub(super) async fn tcp_service(
         let shared = shared.clone();
         let name = name.clone();
         tokio::spawn(async move {
-            visit(shared, name, svc, visitor, peer, index).await;
+            let Ok(admitted) = admit(&shared, &name, &svc, (peer, None), index) else {
+                return;
+            };
+            tune(&visitor, &shared.settings().tcp);
+            let entry = Entry {
+                peer,
+                local: visitor.local_addr().ok(),
+                index,
+                door: Door::Bind,
+            };
+            let shape = Shape::of(&svc, &entry);
+            drop(svc);
+            visit(shared, name, shape, Incoming::Tcp(visitor), entry, admitted).await;
         });
     }
 }
 
-async fn visit(
+pub(super) enum Door {
+    Bind,
+    #[cfg(feature = "web")]
+    Web(String),
+    #[cfg(feature = "web")]
+    Auth,
+}
+
+pub(super) struct Entry {
+    pub peer: SocketAddr,
+    pub local: Option<SocketAddr>,
+    pub index: u16,
+    pub door: Door,
+}
+
+pub(super) struct Shape {
+    prefix: Vec<u8>,
+    several: bool,
+    public: Option<(Protocol, SocketAddr)>,
+}
+
+impl Shape {
+    pub(super) fn of(svc: &Service, entry: &Entry) -> Shape {
+        Shape {
+            prefix: proxy_prefix(svc, entry.peer, entry.local),
+            several: svc.several(),
+            public: public_of(svc, &entry.door),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refusal {
+    Full,
+    NoClient,
+}
+
+pub(super) struct Admitted {
+    stats: Arc<crate::metrics::ServiceStats>,
+    clients: super::pick::Picked,
+    source: Option<IpAddr>,
+    _guard: super::CountGuard,
+    _share: Option<FairShare>,
+    _tracked: super::ActiveConn,
+}
+
+pub(super) fn admit(
+    shared: &Arc<Shared>,
+    name: &str,
+    svc: &Service,
+    (peer, source): (SocketAddr, Option<IpAddr>),
+    index: u16,
+) -> Result<Admitted, Refusal> {
+    let stats = shared.metrics.service(name);
+    stats.total.fetch_add(1, Ordering::Relaxed);
+    let (guard, n) = shared.service_counts.enter(name);
+    let full = |why: &str| {
+        shared.rejected.fetch_add(1, Ordering::Relaxed);
+        stats.refused.fetch_add(1, Ordering::Relaxed);
+        debug!(%peer, "service \"{name}\" {why}");
+        Refusal::Full
+    };
+    if svc.max_connections.is_some_and(|m| n >= m) {
+        return Err(full("is at its connection limit"));
+    }
+    let share = match svc.max_connections {
+        Some(m) => shared
+            .visitor_shares
+            .take(Pool::Service(name.to_string()), source, m, n)
+            .map_err(|()| full("is over half full and this address holds its fair part"))?,
+        None => None,
+    };
+    let clients = shared.route(name, svc, index);
+    if clients.is_empty() {
+        stats.refused.fetch_add(1, Ordering::Relaxed);
+        debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
+        return Err(Refusal::NoClient);
+    }
+    Ok(Admitted {
+        stats,
+        clients,
+        source,
+        _guard: guard,
+        _share: share,
+        _tracked: shared.track(),
+    })
+}
+
+pub(super) async fn visit(
     shared: Arc<Shared>,
     name: String,
-    svc: Service,
-    mut visitor: TcpStream,
-    peer: SocketAddr,
-    index: u16,
+    shape: Shape,
+    mut visitor: Incoming,
+    entry: Entry,
+    admitted: Admitted,
 ) {
     let settings = shared.settings();
-    let target = svc.target_at(index);
-    let stats = shared.metrics.service(&name);
-    stats.total.fetch_add(1, Ordering::Relaxed);
-    let refuse = || stats.refused.fetch_add(1, Ordering::Relaxed);
-    let (_guard, n) = shared.service_counts.enter(&name);
-    if svc.max_connections.is_some_and(|m| n >= m) {
-        shared.rejected.fetch_add(1, Ordering::Relaxed);
-        refuse();
-        debug!(%peer, "service \"{name}\" is at its connection limit");
-        return;
-    }
-    let clients = shared.route(&name, &svc, &target);
-    if clients.is_empty() {
-        refuse();
-        debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
-        return;
-    }
-    let _tracked = shared.track();
-    tune(&visitor, &settings.tcp);
+    let Entry {
+        peer, index, door, ..
+    } = entry;
+    let stats = admitted.stats.clone();
+    let refuse = || {
+        stats.refused.fetch_add(1, Ordering::Relaxed);
+    };
     let label = format!("service \"{name}\"");
-    let first = Connect {
-        protocol: Protocol::Tcp,
-        service: name.clone(),
-        target: target.clone(),
-        only: None,
-    }
-    .encode();
-    let prefix = match (svc.proxy_protocol, visitor.local_addr()) {
-        (Some(version), Ok(local)) => header(version, peer, local),
-        _ => Vec::new(),
-    };
-    let opening = Opening {
-        first: &first,
-        prefix: &prefix,
-        plaintext: settings.insecure_plaintext,
-        reply_timeout: settings.heartbeat_interval * 3,
-    };
     let limit = shared.limit(&name);
     let meter = Meter {
         limit: Some(&limit),
@@ -107,12 +179,12 @@ async fn visit(
     };
     let way = Way {
         service: Some(&name),
-        target: &target,
         label: &label,
         peer,
-        several: svc.clients.len() > 1,
+        source: admitted.source,
+        several: shape.several,
     };
-    let mut tries = Tries::new(&shared, &way, clients);
+    let mut tries = Tries::new(&shared, &way, admitted.clients);
     let outcome = loop {
         let Some((session, ch)) = tries.next().await else {
             break tries.outcome();
@@ -120,19 +192,32 @@ async fn visit(
         let opened = 'attempt: {
             let client = session.name();
             let mut reloads = shared.reloads();
-            let public = svc.bind.map(|b| (svc.protocol, b));
-            let still_open = || match shared.still_open(&name, client, peer.ip(), index, public) {
-                _ if !session.admitted(&shared) => {
-                    Err(format!("client \"{client}\" is no longer allowed"))
+            let still_open = || {
+                if !session.admitted(&shared) {
+                    return Err(format!("client \"{client}\" is no longer allowed"));
                 }
-                r => r,
+                shared.still_open(&name, client, peer.ip(), index, shape.public)?;
+                match &door {
+                    Door::Bind => Ok(()),
+                    #[cfg(feature = "web")]
+                    Door::Web(host) => shared.still_on_web(&name, host),
+                    #[cfg(feature = "web")]
+                    Door::Auth => Ok(()),
+                }
             };
             if let Err(why) = still_open() {
                 debug!(%peer, "service \"{name}\": {why}, closing");
                 break 'attempt Opened::Gone(None);
             }
+            let first = connect_frame(&name, &session.target);
+            let opening = Opening {
+                first: &first,
+                prefix: &shape.prefix,
+                plaintext: settings.insecure_plaintext,
+                reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
+            };
             let forward = open_tcp(ch, &mut visitor, &opening, meter, tries.early(), || {
-                way.accepted(&shared, client)
+                way.accepted(&shared, &session)
             });
             tokio::pin!(forward);
             loop {
@@ -164,29 +249,71 @@ async fn visit(
     ) {
         refuse();
     }
-    if matches!(outcome, Outcome::Done { result: Err(_), .. }) {
-        let _ = socket2::SockRef::from(&visitor).set_linger(Some(Duration::ZERO));
+    match &outcome {
+        Outcome::Done { result: Ok(()), .. } => visitor.finished_cleanly(),
+        Outcome::Done { result: Err(_), .. } => visitor.reset_on_close(true),
+        _ => {}
     }
+    #[cfg(feature = "web")]
+    visitor.refused(super::web::refusal(&outcome));
+    log_outcome(&shared, &label, peer, outcome, refuse);
+}
+
+fn connect_frame(name: &str, target: &str) -> Vec<u8> {
+    Connect {
+        protocol: Protocol::Tcp,
+        service: name.to_string(),
+        target: target.to_string(),
+        only: None,
+    }
+    .encode()
+}
+
+fn proxy_prefix(svc: &Service, peer: SocketAddr, local: Option<SocketAddr>) -> Vec<u8> {
+    match (svc.proxy_protocol, local) {
+        (Some(version), Some(local)) => header(version, peer, local),
+        _ => Vec::new(),
+    }
+}
+
+fn public_of(svc: &Service, door: &Door) -> Option<(Protocol, SocketAddr)> {
+    match door {
+        Door::Bind => svc.bind.map(|b| (svc.protocol, b)),
+        #[cfg(feature = "web")]
+        Door::Web(_) | Door::Auth => None,
+    }
+}
+
+fn log_outcome(
+    shared: &Shared,
+    label: &str,
+    peer: SocketAddr,
+    outcome: Outcome,
+    refuse: impl Fn(),
+) {
     match outcome {
-        Outcome::Done { result: Ok(()), .. } => {
-            debug!(%peer, "service \"{name}\": connection closed")
-        }
+        Outcome::Done { result: Ok(()), .. } => debug!(%peer, "{label}: connection closed"),
         Outcome::Done {
             result: Err(ForwardError::Io(e)),
             ..
-        } => debug!(%peer, "service \"{name}\": connection ended: {e}"),
+        } => debug!(%peer, "{label}: connection ended: {e}"),
         Outcome::Done {
             client,
+            target,
             result: Err(error),
-        } => log_refusal(&label, &client, &target, &error),
-        Outcome::Refused { client, error } => log_refusal(&label, &client, &target, &error),
+        } => log_refusal(label, &client, &target, &error),
+        Outcome::Refused {
+            client,
+            target,
+            error,
+        } => log_refusal(label, &client, &target, &error),
         Outcome::Full(client) => {
             debug!(%peer, "client \"{client}\" is at its connection limit");
             shared.rejected.fetch_add(1, Ordering::Relaxed);
             refuse();
         }
         Outcome::Unavailable(_) => {}
-        Outcome::Gone(Some(e)) => debug!(%peer, "service \"{name}\": connection ended: {e}"),
+        Outcome::Gone(Some(e)) => debug!(%peer, "{label}: connection ended: {e}"),
         Outcome::Gone(None) => {}
     }
 }
@@ -230,7 +357,10 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
             warn!("{label}: client \"{client}\" rejected the target {target} as invalid{more}")
         }
         Status::Busy => warn!("{label}: {}{more}", busy(client)),
-        Status::Forbidden | Status::Offline => {
+        Status::Offline => warn!(
+            "{label}: client \"{client}\" had no free local port to connect to {target}: many recent connections from it are still closing (TIME_WAIT){more}"
+        ),
+        Status::Forbidden => {
             warn!("{label}: client \"{client}\" sent an unexpected reply{more}")
         }
         Status::Ok => {}

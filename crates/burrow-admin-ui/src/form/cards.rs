@@ -2,18 +2,19 @@ use burrow_admin_logic::fallback::needs_newer_ui;
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Field, Node, SemType};
-use burrow_admin_proto::serde_json::Value;
 use burrow_config::{ServiceEntry, VisitorEntry};
-use burrow_ui_kit::Toggle;
+
 use leptos::prelude::*;
 
 use crate::store::store;
 
+use super::more::{More, ROWS, more_settings};
 use super::{
     ADMIN, ADMIN_FROM, ALLOW_FROM, BANDWIDTH, BIND, CLIENTS, DENY_FROM, HEALTH_CHECK,
-    MAX_CONNECTIONS, MODE, PROTOCOL, PROXY_PROTOCOL, SERVICE_VISITORS, SERVICES, TARGET, VISITORS,
-    editing_now, field_id, join, locked_hint, object_view, row,
+    MAX_CONNECTIONS, MODE, PROTOCOL, SERVICE_VISITORS, SERVICES, TARGET, VISITORS, WEB,
+    editing_now, field_id, join, locked_hint, object_view_marked, row,
 };
+use burrow_admin_logic::more::split;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingsCard {
@@ -113,6 +114,56 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
     out
 }
 
+fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
+    let all: Vec<&Field> = c.fields.iter().collect();
+    let (essential, advanced) = split(&all, false);
+    let one = |f: &Field| {
+        row(
+            f.clone(),
+            vec![f.key.clone()],
+            vec![f.key.clone()],
+            Vec::new(),
+        )
+    };
+    let mut rows: Vec<AnyView> = essential.iter().map(|f| one(f)).collect();
+    if !advanced.is_empty() {
+        let more = More {
+            fields: advanced
+                .iter()
+                .map(|f| ((*f).clone(), vec![f.key.clone()]))
+                .collect(),
+            spath: Vec::new(),
+            group: c.key.clone(),
+            entity: Vec::new(),
+            table: true,
+            alone: essential.is_empty(),
+            grid: ROWS,
+            title: essential.is_empty().then(|| c.title.clone()),
+        };
+        rows.push(more_settings(
+            more,
+            advanced.iter().map(|f| one(f)).collect(),
+        ));
+    }
+    let head = (!essential.is_empty())
+        .then(|| burrow_ui_kit::card_head(c.title.clone(), None, ().into_any()));
+    view! {
+        <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
+            {head}
+            <div class="divide-y divide-rowline px-4">{rows}</div>
+        </section>
+    }
+    .into_any()
+}
+
+fn all_advanced(node: &Node) -> bool {
+    let inside = fields(inner(node));
+    let one_group = inner(node).groups.len() <= 1;
+    one_group
+        && burrow_admin_logic::more::hides(0, inside.len())
+        && (node.advanced || inside.iter().all(|f| f.node.advanced))
+}
+
 pub fn settings_card(c: &SettingsCard) -> AnyView {
     let locked_all = store().schema.with_untracked(|sc| {
         sc.as_ref().is_some_and(|sc| {
@@ -128,35 +179,8 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     } else {
         "border-border"
     };
-    let head = |title: String, right: AnyView| {
-        view! {
-            <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-                <h3 class="text-[14px] font-bold">{title}</h3>
-                <span class="ml-auto"></span>
-                {right}
-            </div>
-        }
-    };
     if !c.object {
-        let rows = c
-            .fields
-            .iter()
-            .map(|f| {
-                row(
-                    f.clone(),
-                    vec![f.key.clone()],
-                    vec![f.key.clone()],
-                    Vec::new(),
-                )
-            })
-            .collect_view();
-        return view! {
-            <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
-                {head(c.title.clone(), ().into_any())}
-                <div class="divide-y divide-rowline px-4">{rows}</div>
-            </section>
-        }
-        .into_any();
+        return scalar_card(c, border);
     }
     let Some(f) = c.fields.first().cloned() else {
         return ().into_any();
@@ -168,37 +192,24 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         .schema
         .get_untracked()
         .is_some_and(|sc| sc.locked_paths().iter().any(|l| path.starts_with(l)));
-    let can = s.can_write_now() && f.node.editable.is_yes() && !lock;
+    let doc = untrack(|| e.doc());
+    let ports = s.schema.get_untracked().is_some_and(|sc| {
+        sc.locked_paths().iter().any(|l| {
+            l.len() > path.len() && l.starts_with(&path) && burrow_admin_logic::tree::holds(&doc, l)
+        })
+    });
+    let can = s.can_write_now() && f.node.editable.is_yes() && !lock && !ports;
     let editing = editing_now();
     let optional = matches!(f.node.sem, SemType::Optional(_));
     let inner_node = inner(&f.node).clone();
+    let advanced = f.node.advanced;
     let p2 = path.clone();
     let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
-    let (p3, tid) = (path.clone(), field_id(&path));
-    let toggle = move || {
-        (optional && can && editing.try_get().unwrap_or(false)).then(|| {
-            let p3 = p3.clone();
-            let id = tid.clone();
-            view! {
-                <Toggle
-                    id=id
-                    checked=is_set
-                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
-                    on_change=move |on: bool| {
-                        e.set(&p3, on.then(|| Value::Object(Default::default())));
-                    }
-                />
-            }
-        })
-    };
+    let toggle = super::controls::object_toggle(path.clone(), is_set, optional && can, editing);
     let right = view! {
         <span class="contents">
-            {lock.then(|| view! {
-                <span class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
-                    <burrow_ui_kit::Icon name="lock" small=true/>
-                    {locked_hint(&f.node)}
-                </span>
-            })}
+            {lock.then(|| view! { <burrow_ui_kit::LockLine text=locked_hint(&f.node) testid="locked-hint"/> })}
+            {(ports && optional).then(|| view! { <burrow_ui_kit::LockLine text=burrow_admin_logic::wording::TOGGLE_IN_FILE testid="locked-hint"/> })}
             {toggle}
         </span>
     }
@@ -209,25 +220,47 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         .clone()
         .unwrap_or_else(|| "Not set".into());
     let help = f.node.help.clone();
+    let inside = fields(&inner_node);
+    let first = (inside.len() == 1).then(|| inside[0].clone());
+    let unset_label = first
+        .as_ref()
+        .map_or_else(|| f.node.label.clone(), |g| g.node.label.clone());
+    let unset_path = first.map_or_else(|| path.clone(), |g| vec![f.key.clone(), g.key]);
     let p4 = path.clone();
     let body = move || {
         if !optional || is_set.get() {
-            object_view(&inner_node, p4.clone(), p4.clone(), Vec::new())
+            object_view_marked(
+                &inner_node,
+                p4.clone(),
+                p4.clone(),
+                Vec::new(),
+                &[],
+                advanced,
+            )
         } else {
+            let shown = none_label.clone();
             view! {
-                <div class="py-3">
-                    <p class="text-sm" data-testid="not-set">{none_label.clone()}</p>
-                    <p class="mt-1 text-xs text-text-muted">{help.clone()}</p>
-                </div>
+                <burrow_ui_kit::FieldRow id=field_id(&unset_path) label=unset_label.clone() help=help.clone() key_hint=unset_path.join(".\u{200b}") table=true>
+                    <p class="text-sm text-text-muted" data-testid="not-set">{shown}</p>
+                </burrow_ui_kit::FieldRow>
             }
             .into_any()
         }
     };
     let (jp, js) = (join(&path), join(&path));
+    let compact = !optional && !lock && all_advanced(&f.node);
+    let head = (!compact).then(|| burrow_ui_kit::card_head(c.title.clone(), None, right));
+    let title = super::more::CompactTitle(c.title.clone());
     view! {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone() data-path=jp data-schema=js>
-            {head(c.title.clone(), right)}
-            <div class="px-4">{body}</div>
+            {head}
+            <div class="px-4">
+                {if compact {
+                    view! { <leptos::context::Provider value=title>{body}</leptos::context::Provider> }.into_any()
+                } else {
+                    body.into_any()
+                }}
+            </div>
         </section>
     }
     .into_any()
@@ -236,12 +269,10 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
 pub(super) fn layout_order(spath: &[String], group: &str) -> Option<&'static [&'static str]> {
     match (spath.first().map(String::as_str), spath.len(), group) {
         (Some(SERVICES), 2, ServiceEntry::GROUP_WHO) => Some(&[CLIENTS, MODE, HEALTH_CHECK]),
-        (Some(SERVICES), 2, ServiceEntry::GROUP_EXPOSURE) => Some(&[PROTOCOL, BIND, TARGET]),
+        (Some(SERVICES), 2, ServiceEntry::GROUP_EXPOSURE) => Some(&[PROTOCOL, TARGET]),
+        (Some(SERVICES), 2, ServiceEntry::GROUP_REACH) => Some(&[BIND, WEB, SERVICE_VISITORS]),
         (Some(SERVICES), 2, ServiceEntry::GROUP_ACCESS) => {
-            Some(&[SERVICE_VISITORS, DENY_FROM, ALLOW_FROM])
-        }
-        (Some(SERVICES), 2, ServiceEntry::GROUP_TRAFFIC) => {
-            Some(&[BANDWIDTH, MAX_CONNECTIONS, PROXY_PROTOCOL])
+            Some(&[ALLOW_FROM, DENY_FROM, MAX_CONNECTIONS, BANDWIDTH])
         }
         (Some(VISITORS), 2, VisitorEntry::GROUP_ADMIN) => Some(&[ADMIN, ADMIN_FROM]),
         _ => None,

@@ -1,13 +1,95 @@
+use burrow_admin_logic::web::SiteKind;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::Tone;
+use burrow_ui_kit::{Tone, tag_class};
+use leptos::prelude::*;
 
 use crate::form::plain;
 use crate::format;
-use crate::route::Route;
+use crate::route::{Link, Route};
 use crate::screens::Row;
 use crate::screens::paths::{clients_of, online};
+
+pub(crate) fn protocol_tag(svc: &Value) -> (String, Tone) {
+    let p = ServiceEntry::PROTOCOL
+        .get(svc)
+        .map(plain)
+        .unwrap_or_else(|| Protocol::default().wire().into());
+    let tone = if Protocol::from_wire(&p) == Some(Protocol::Udp) {
+        Tone::Violet
+    } else {
+        Tone::Accent
+    };
+    (p.to_uppercase(), tone)
+}
+
+pub(crate) fn protocol_view(svc: &Value) -> impl IntoView + use<> {
+    let (text, tone) = protocol_tag(svc);
+    view! { <span class=tag_class(tone)>{text}</span> }
+}
+
+pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView + use<> {
+    let s = crate::store::store();
+    let cs = clients_of(svc);
+    let target = ServiceEntry::TARGET
+        .get(svc)
+        .map(burrow_admin_logic::web::target_value_shown)
+        .unwrap_or_default();
+    let name = name.to_string();
+    let to = Route::Detail(ServiceEntry::section().into(), name.clone());
+    let label = name.clone();
+    let exposure = match burrow_admin_logic::web::exposure(svc) {
+        Some(b) => view! { <span class="font-mono text-[13px]">{b}</span> }.into_any(),
+        None => {
+            let w = burrow_admin_logic::web::ways(svc);
+            let none = !(w.website || w.visitors);
+            let text = burrow_admin_logic::web::without_exposure(w);
+            view! { <span class=if none { "text-[13px] text-warning" } else { "text-[13px] text-text-muted" }>{text}</span> }.into_any()
+        }
+    };
+    let open = {
+        let name = name.clone();
+        move || {
+            s.status.with(|st| {
+                st.as_ref()
+                    .and_then(|st| st.services.iter().find(|y| y.name == name))
+                    .map(|x| format::count(x.open))
+                    .unwrap_or_default()
+            })
+        }
+    };
+    let rate = rate.then(|| {
+        let name = name.clone();
+        move || {
+            let (v, u) =
+                burrow_admin_logic::rates::human_bits(s.rates.with(|r| r.service(&name).bytes_in));
+            format!("{v} {u}")
+        }
+    });
+    let health = {
+        let name = name.clone();
+        move || {
+            s.status.with(|st| {
+                let status = st.as_deref();
+                let x = status.and_then(|st| st.services.iter().find(|y| y.name == name));
+                let up = status.map(|_| cs.iter().filter(|c| online(status, c)).count());
+                super::health_tag(up, cs.len(), x.map(|x| x.health.as_slice()).unwrap_or(&[]))
+            })
+        }
+    };
+    view! {
+        <tr data-row=name>
+            <th scope="row"><Link to=to class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
+            <td>{protocol_view(svc)}</td>
+            <td>{exposure}</td>
+            <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=target.clone() data-target=target.clone()>{format!("→ {target}")}</td>
+            <td class="text-right tabular-nums" data-cell="open">{open}</td>
+            {rate.map(|r| view! { <td class="text-right tabular-nums" data-cell="rate">{r}</td> })}
+            <td>{health}</td>
+        </tr>
+    }
+}
 
 pub(super) fn client_row(
     name: &String,
@@ -29,11 +111,6 @@ pub(super) fn client_row(
                 .collect()
         })
         .unwrap_or_default();
-    let serves = if served.is_empty() {
-        "no services".to_string()
-    } else {
-        served.join(", ")
-    };
     let left = c.as_ref().and_then(|c| c.left_secs_ago);
     Row {
         key: name.clone(),
@@ -49,7 +126,7 @@ pub(super) fn client_row(
             (None, _) => String::new(),
         },
         line2: if pending.is_some() {
-            "Draft · not applied yet".into()
+            burrow_admin_logic::wording::NOT_APPLIED.into()
         } else if on {
             let host = c
                 .as_ref()
@@ -58,20 +135,25 @@ pub(super) fn client_row(
                 .unwrap_or_default();
             let since = format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
             if host.is_empty() {
-                format!("for {since} · {serves}")
+                format!("for {since}")
             } else {
-                format!("{host} · for {since} · {serves}")
+                format!("{host} · for {since}")
             }
         } else {
-            serves
+            String::new()
         },
+        terms: served.join(" "),
         group: if on {
             "Online".into()
         } else {
-            "Offline".into()
+            burrow_admin_logic::wording::capital(burrow_admin_logic::wording::OFFLINE)
         },
         pending,
-        filters: vec![if on { "online" } else { "offline" }],
+        filters: vec![if on {
+            crate::screens::ONLINE_FILTER
+        } else {
+            crate::screens::OFFLINE_FILTER
+        }],
         ..Row::default()
     }
 }
@@ -118,19 +200,11 @@ pub(super) fn visitor_row(
         .and_then(Value::as_object)
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
-    let mut line2 = if may.is_empty() {
-        "no services".to_string()
-    } else {
-        may.join(", ")
-    };
-    if !reach.is_empty() {
-        line2.push_str(&format!(" · reach: {}", reach.join(", ")));
-    }
     Row {
         key: name.clone(),
         to,
         icon: if admin.is_some() { "shield" } else { "person" },
-        dot: None,
+        dot: Some(if in_use { Tone::Success } else { Tone::Neutral }),
         title: name.clone(),
         title_tag: admin.map(|a| {
             (
@@ -149,7 +223,12 @@ pub(super) fn visitor_row(
         } else {
             String::new()
         },
-        line2,
+        terms: may
+            .iter()
+            .chain(&reach)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" "),
         tags: Vec::new(),
         group: if in_use {
             "In use now".into()
@@ -164,7 +243,7 @@ pub(super) fn visitor_row(
 
 pub(super) fn service_row(
     name: &String,
-    v: &Value,
+    (v, https_on): (&Value, bool),
     status: Option<&Status>,
     pending: Option<&'static str>,
     to: Route,
@@ -173,7 +252,8 @@ pub(super) fn service_row(
         .as_ref()
         .and_then(|st| st.services.iter().find(|c| &c.name == name))
         .cloned();
-    let public = ServiceEntry::BIND.get(v).is_some_and(|b| !b.is_null());
+    let public = burrow_admin_logic::web::is_public(v);
+    let ways = burrow_admin_logic::web::ways(v);
     let protocol = ServiceEntry::PROTOCOL
         .get(v)
         .map(plain)
@@ -186,10 +266,22 @@ pub(super) fn service_row(
         .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()));
     let problem =
         status.is_some() && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
-    let mut tags = vec![(
-        protocol.to_uppercase(),
-        if udp { Tone::Violet } else { Tone::Accent },
-    )];
+    let mut tags = vec![protocol_tag(v)];
+    if ways.public {
+        tags.push(("public".into(), Tone::Neutral));
+    }
+    if ways.website {
+        tags.push(("website".into(), Tone::Neutral));
+    }
+    if burrow_admin_logic::web::site_kind(v, https_on) == Some(SiteKind::Plain) {
+        tags.push(("unencrypted".into(), Tone::Warning));
+    }
+    if ways.visitors {
+        tags.push((ServiceEntry::VISITORS.key().into(), Tone::Neutral));
+    }
+    if !(ways.public || ways.website || ways.visitors) {
+        tags.push((burrow_admin_logic::web::NO_WAY_IN.into(), Tone::Warning));
+    }
     if up == 0 && status.is_some() {
         tags.push(("✕ Down".into(), Tone::Danger));
     } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {
@@ -215,12 +307,14 @@ pub(super) fn service_row(
             .unwrap_or_default(),
         line2: format!(
             "{} → {}",
-            if public {
-                plain(ServiceEntry::BIND.get(v).unwrap_or(&Value::Null))
-            } else {
-                "private".into()
-            },
-            plain(ServiceEntry::TARGET.get(v).unwrap_or(&Value::Null))
+            burrow_admin_logic::web::reached(v),
+            ServiceEntry::TARGET
+                .get(v)
+                .filter(|t| !t.is_null())
+                .map_or_else(
+                    || burrow_admin_logic::wording::NOT_SET.to_string(),
+                    burrow_admin_logic::web::target_value_shown
+                )
         ),
         tags,
         group: if problem {
@@ -229,10 +323,15 @@ pub(super) fn service_row(
             "Up".into()
         },
         pending,
-        filters: vec![
-            if public { "public" } else { "private" },
-            if udp { Protocol::Udp } else { Protocol::Tcp }.wire(),
-        ],
+        filters: [
+            ways.public.then_some(crate::route::PUBLIC_FILTER),
+            Some(if udp { Protocol::Udp } else { Protocol::Tcp }.wire()),
+            ways.website.then_some(crate::route::WEBSITES_FILTER),
+            ways.visitors.then_some(ServiceEntry::VISITORS.key()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
         actions: Vec::new(),
         ..Row::default()
     }

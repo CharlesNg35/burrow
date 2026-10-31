@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use blake2::Digest;
 
+use crate::target_dir;
 use crate::tools::{self, Tools};
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
@@ -29,12 +30,6 @@ fn run(cmd: &mut Command) -> Result<(), String> {
     } else {
         Err(format!("{shown} failed ({status})"))
     }
-}
-
-fn target_dir(root: &Path) -> PathBuf {
-    std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("target"))
 }
 
 pub fn dist_dir(root: &Path) -> PathBuf {
@@ -144,7 +139,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
 }
 
 fn compile_wasm(root: &Path, release: bool) -> Result<PathBuf, String> {
-    let mut cargo = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+    let mut cargo = crate::cargo();
     cargo
         .args(["build", "--locked", "-p", CRATE, "--target", WASM_TARGET])
         .current_dir(root);

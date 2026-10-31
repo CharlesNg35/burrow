@@ -45,6 +45,33 @@ impl Meter for Unmetered {
     fn count_out(&self, _: usize) {}
 }
 
+fn note_full(name: &str, max_peers: usize, from: SocketAddr) {
+    static FULL: Throttle = Throttle::new();
+    if let Some(more) = FULL.allow() {
+        warn!(
+            "forward \"{name}\": udp.max_peers {max_peers} reached, dropping a datagram from {from}; raise udp.max_peers in visitor.yaml{more}"
+        );
+    }
+}
+
+fn admit_first(
+    peers: &front::Peers,
+    from: SocketAddr,
+    timeout: Duration,
+    max_peers: usize,
+    name: &str,
+) -> (Option<u32>, usize) {
+    let (id, count) = {
+        let mut p = peers.lock().expect("peers lock");
+        p.expire(timeout);
+        (p.id_for(from, || max_peers), p.len())
+    };
+    if id.is_none() {
+        note_full(name, max_peers, from);
+    }
+    (id, count)
+}
+
 struct Port<'a> {
     name: &'a str,
     live: watch::Receiver<Live>,
@@ -66,14 +93,7 @@ impl Hooks for Port<'_> {
     }
 
     fn full(&self, from: SocketAddr) {
-        static FULL: Throttle = Throttle::new();
-        if let Some(more) = FULL.allow() {
-            warn!(
-                "forward \"{}\": udp.max_peers {} reached, dropping a datagram from {from}; raise udp.max_peers in visitor.yaml{more}",
-                self.name,
-                self.max_peers()
-            );
-        }
+        note_full(self.name, self.max_peers(), from);
     }
 
     fn stalled(&self, stall: Duration) {
@@ -165,12 +185,11 @@ pub(super) async fn serve(
             front::too_large(from, first.len());
             continue;
         }
-        let (id, count) = {
-            let settings = live.borrow().settings.clone();
-            let mut p = peers.lock().expect("peers lock");
-            p.expire(settings.udp_session_timeout);
-            (p.id_for(from, || settings.udp_max_peers), p.len())
+        let (timeout, max_peers) = {
+            let l = live.borrow();
+            (l.settings.udp_session_timeout, l.settings.udp_max_peers)
         };
+        let (id, count) = admit_first(&peers, from, timeout, max_peers, &name);
         front.gauge.set(count);
         let Some(id) = id else {
             continue;
@@ -240,10 +259,6 @@ pub(super) async fn serve(
     }
 }
 
-thread_local! {
-    static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
-}
-
 pub(super) enum Received {
     Datagram(Vec<u8>, SocketAddr),
     Nothing,
@@ -251,17 +266,61 @@ pub(super) enum Received {
 }
 
 pub(super) fn receive_from(socket: &UdpSocket, name: &str) -> Received {
-    RECEIVE.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        match socket.try_recv_from(&mut buf) {
-            Ok((n, from)) => Received::Datagram(buf[..n].to_vec(), from),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Received::Nothing,
-            Err(e) => {
-                debug!("forward \"{name}\": UDP receive error: {e}");
-                Received::Failed
-            }
+    match crate::wire::transport::udp::try_recv_owned(socket) {
+        Ok((datagram, from)) => Received::Datagram(datagram, from),
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Received::Nothing,
+        Err(e) => {
+            debug!("forward \"{name}\": UDP receive error: {e}");
+            Received::Failed
         }
-    })
+    }
 }
 
 pub(super) const RECEIVE_ERROR_PAUSE: Duration = Duration::from_millis(100);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_first_datagram_over_the_peer_cap_is_dropped_with_a_warning() {
+        let peers: front::Peers = Arc::new(Mutex::new(PeerTable::default()));
+        let (one, two): (SocketAddr, SocketAddr) = (
+            "127.0.0.1:5001".parse().unwrap(),
+            "127.0.0.1:5002".parse().unwrap(),
+        );
+        let out = Captured::default();
+        let writer = out.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        let (first, second) = tracing::subscriber::with_default(subscriber, || {
+            let wait = Duration::from_secs(60);
+            let first = admit_first(&peers, one, wait, 1, "dns");
+            (first, admit_first(&peers, two, wait, 1, "dns"))
+        });
+        assert!(first.0.is_some());
+        assert_eq!(second, (None, 1));
+        let logged = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        assert!(
+            logged.contains(
+                "forward \"dns\": udp.max_peers 1 reached, dropping a datagram from 127.0.0.1:5002"
+            ),
+            "{logged}"
+        );
+    }
+}

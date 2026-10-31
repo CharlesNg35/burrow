@@ -5,10 +5,21 @@ use crate::icon::Icon;
 
 fn banner_tone(tone: Tone) -> &'static str {
     match tone {
-        Tone::Danger => "border-danger/30 bg-danger-weak text-co-danger",
+        Tone::Danger => {
+            "border-danger/30 bg-danger-weak text-co-danger dark:border-border dark:bg-surface dark:text-text"
+        }
         Tone::Warning => "border-warning/30 bg-warning-weak text-co-warning",
         Tone::Success => "border-success/30 bg-success-weak text-co-success",
         _ => "border-accent/30 bg-accent-weak text-co-info",
+    }
+}
+
+pub const DANGER_CARD: &str = "border border-l-[3px] border-border border-l-danger bg-danger-weak/50 text-text dark:bg-surface";
+
+fn callout_tone(tone: Tone) -> &'static str {
+    match tone {
+        Tone::Danger => DANGER_CARD,
+        t => banner_tone(t),
     }
 }
 
@@ -32,7 +43,7 @@ pub fn Banner(
             data-tone=tone.name()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            <Icon name=tone.icon()/>
+            <span class=tone.text()><Icon name=tone.icon()/></span>
             <strong class="font-semibold">{move || title.get()}</strong>
             <span>{move || message.get()}</span>
             <div class="ml-auto flex gap-2">{children.map(|c| c())}</div>
@@ -49,12 +60,12 @@ pub fn Callout(
 ) -> impl IntoView {
     view! {
         <div
-            class=format!("rounded-[10px] border px-3.5 py-3 text-[13px] {}", banner_tone(tone))
+            class=format!("rounded-[10px] border px-3.5 py-3 text-[13px] {}", callout_tone(tone))
             data-tone=tone.name()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
             <div class="mb-1 flex items-center gap-2 font-semibold">
-                <Icon name=tone.icon()/>
+                <span class=tone.text()><Icon name=tone.icon()/></span>
                 {title}
             </div>
             <div>{children()}</div>

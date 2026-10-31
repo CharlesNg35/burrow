@@ -16,10 +16,6 @@ use crate::wire::protocol::{Connect, MAX_DATAGRAM, Status, decode_datagram, enco
 use crate::wire::transport::Channel;
 use crate::wire::transport::resolve::Resolver;
 
-thread_local! {
-    static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
-}
-
 struct Peer {
     sock: Arc<UdpSocket>,
     to: SocketAddr,
@@ -56,25 +52,22 @@ async fn connected_socket(target: SocketAddr) -> std::io::Result<Arc<UdpSocket>>
 }
 
 fn receive(sock: &UdpSocket) -> Option<Vec<u8>> {
-    RECEIVE.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        match sock.try_recv(&mut buf) {
-            Ok(n) => Some(buf[..n].to_vec()),
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::ConnectionRefused {
-                    static REFUSED: Throttle = Throttle::new();
-                    if let Some(more) = REFUSED.allow() {
-                        warn!(
-                            "UDP target {} refused a datagram; is anything listening there?{more}",
-                            sock.peer_addr()
-                                .map_or_else(|_| "?".to_string(), |a| a.to_string())
-                        );
-                    }
+    match crate::wire::transport::udp::try_recv_owned(sock) {
+        Ok((datagram, _)) => Some(datagram),
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                static REFUSED: Throttle = Throttle::new();
+                if let Some(more) = REFUSED.allow() {
+                    warn!(
+                        "UDP target {} refused a datagram; is anything listening there?{more}",
+                        sock.peer_addr()
+                            .map_or_else(|_| "?".to_string(), |a| a.to_string())
+                    );
                 }
-                None
             }
+            None
         }
-    })
+    }
 }
 
 pub(super) fn preferred(addrs: &[SocketAddr]) -> SocketAddr {
@@ -223,9 +216,10 @@ pub(super) async fn udp<W: Dials>(
     let (tx, mut rx) = mpsc::channel::<(u32, Vec<u8>)>(1024);
     let writer_task = tokio::spawn(async move {
         let mut rec = Vec::with_capacity(65536);
+        let mut sealed = Vec::new();
         while let Some((id, data)) = rx.recv().await {
             encode_datagram(id, &data, &mut rec);
-            if writer.send(&mut wr, &rec).await.is_err() {
+            if writer.send_with(&mut wr, &rec, &mut sealed).await.is_err() {
                 return;
             }
         }
@@ -320,6 +314,13 @@ pub(super) async fn udp<W: Dials>(
         }
     }
     debug!("service \"{}\": UDP relay closed", connect.service);
+}
+
+pub(super) fn unreachable_status(e: &std::io::Error) -> Status {
+    match e.kind() {
+        std::io::ErrorKind::AddrInUse => Status::Offline,
+        _ => Status::Unreachable,
+    }
 }
 
 pub(super) fn unreachable_hint(e: &std::io::Error) -> &'static str {

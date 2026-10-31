@@ -28,10 +28,10 @@ fn first_flight(name: &str, secret: &Secret, kind: ChannelKind) -> (Initiator, V
 }
 
 async fn reply_len(addr: SocketAddr, bytes: &[u8]) -> (usize, Duration) {
-    let mut s = TcpStream::connect(addr).await.unwrap();
-    s.set_nodelay(true).unwrap();
+    let mut s = raw_conn(addr).await;
     let start = Instant::now();
     s.write_all(bytes).await.unwrap();
+    s.flush().await.unwrap();
     let mut buf = [0u8; 256];
     let mut total = 0;
     loop {
@@ -106,12 +106,14 @@ async fn replayed_first_message_cannot_open_a_session() {
     let (n, _) = reply_len(srv.addr, &bytes).await;
     assert_eq!(n, MSG2_LEN, "the original is answered");
 
-    let mut s = TcpStream::connect(srv.addr).await.unwrap();
+    let mut s = raw_conn(srv.addr).await;
     s.write_all(&bytes).await.unwrap();
+    s.flush().await.unwrap();
     let mut msg2 = [0u8; MSG2_LEN];
     s.read_exact(&mut msg2).await.unwrap();
     let forged: Vec<u8> = [&[0u8, 18][..], &[0x55; 18][..]].concat();
     s.write_all(&forged).await.unwrap();
+    s.flush().await.unwrap();
     let mut rest = Vec::new();
     let _ = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut rest)).await;
     assert!(rest.is_empty(), "no welcome for a replayed handshake");
@@ -168,7 +170,7 @@ async fn data_channel_with_wrong_token_is_not_pooled() {
     wait_for(|| shared.idle_channels("home") >= 2).await;
     let before = srv.shared.idle_channels("home");
 
-    let s = TcpStream::connect(srv.addr).await.unwrap();
+    let s = raw_conn(srv.addr).await;
     let p = Preamble {
         kind: ChannelKind::Data,
         cipher: Cipher::Chachapoly,
@@ -176,7 +178,7 @@ async fn data_channel_with_wrong_token_is_not_pooled() {
         name: "home".into(),
     };
     let ch = burrow::wire::handshake::initiate(
-        s.into(),
+        s,
         &p,
         &secret,
         &Hello::Data {
@@ -237,11 +239,12 @@ async fn handshake_flood_is_capped_and_legit_client_gets_in() {
     for _ in 0..200 {
         flood.push(TcpStream::connect(srv.addr).await.unwrap());
     }
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.status().handshakes_refused >= 180).await;
     let mut closed_fast = 0;
     for s in &mut flood {
         let mut b = [0u8; 1];
-        if let Ok(Ok(0)) = tokio::time::timeout(Duration::from_millis(5), s.read(&mut b)).await {
+        if let Ok(Ok(0)) = tokio::time::timeout(Duration::from_secs(1), s.read(&mut b)).await {
             closed_fast += 1;
         }
     }
@@ -271,7 +274,7 @@ fn secrets_never_appear_in_debug_output() {
 async fn silent_client_is_closed_after_heartbeat_timeout() {
     let secret = Secret::generate();
     let srv = start_server(server_settings(vec![secret.clone()])).await;
-    let s = TcpStream::connect(srv.addr).await.unwrap();
+    let s = raw_conn(srv.addr).await;
     let p = Preamble {
         kind: ChannelKind::Control,
         cipher: Cipher::Chachapoly,
@@ -279,7 +282,7 @@ async fn silent_client_is_closed_after_heartbeat_timeout() {
         name: "home".into(),
     };
     let mut ch = burrow::wire::handshake::initiate(
-        s.into(),
+        s,
         &p,
         &secret,
         &Hello::Control {
@@ -334,14 +337,14 @@ async fn hello_must_match_the_channel_kind() {
         ),
         (ChannelKind::Control, Hello::Visit { version: 1 }),
     ] {
-        let s = TcpStream::connect(srv.addr).await.unwrap();
+        let s = raw_conn(srv.addr).await;
         let p = Preamble {
             kind,
             cipher: Cipher::Chachapoly,
             plaintext: false,
             name: "home".into(),
         };
-        if let Ok(mut ch) = burrow::wire::handshake::initiate(s.into(), &p, &secret, &hello).await {
+        if let Ok(mut ch) = burrow::wire::handshake::initiate(s, &p, &secret, &hello).await {
             let mut buf = [0u8; 8];
             let n = tokio::time::timeout(Duration::from_secs(3), ch.stream.read(&mut buf))
                 .await
@@ -351,6 +354,15 @@ async fn hello_must_match_the_channel_kind() {
         }
         assert!(srv.shared.session_names().is_empty(), "{kind:?} {hello:?}");
     }
+}
+
+fn answer_len(got: &[u8]) -> usize {
+    if !ws_mode() {
+        return got.len();
+    }
+    got.windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map_or(0, |end| got.len() - end - 4)
 }
 
 async fn hello_holding_proxy(
@@ -372,11 +384,15 @@ async fn hello_holding_proxy(
         let flag = seen.clone();
         tokio::spawn(async move {
             let mut buf = vec![0u8; 65536];
+            let mut got = Vec::new();
             while let Ok(n) = ur.read(&mut buf).await {
                 if n == 0 || dw.write_all(&buf[..n]).await.is_err() {
                     return;
                 }
-                flag.store(true, Ordering::SeqCst);
+                got.extend_from_slice(&buf[..n]);
+                if answer_len(&got) >= MSG2_LEN {
+                    flag.store(true, Ordering::SeqCst);
+                }
             }
         });
         let mut buf = vec![0u8; 65536];
@@ -411,9 +427,9 @@ async fn a_secret_removed_during_a_handshake_does_not_open_a_session() {
         name: "home".into(),
     };
     let late = tokio::spawn(async move {
-        let s = TcpStream::connect(via).await.unwrap();
+        let s = raw_conn(via).await;
         burrow::wire::handshake::initiate(
-            s.into(),
+            s,
             &p,
             &old,
             &Hello::Control {
@@ -442,9 +458,6 @@ async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
     use burrow::wire::protocol::ServerMsg;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    if ws_mode() {
-        return;
-    }
     let secret = Secret::generate();
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
@@ -457,7 +470,10 @@ async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
             };
             let (count, known) = (count.clone(), known.clone());
             tokio::spawn(async move {
-                let Ok(acc) = burrow::wire::handshake::accept(s.into(), |_, _| vec![known]).await
+                let Some(conn) = raw_accept(s).await else {
+                    return;
+                };
+                let Ok(acc) = burrow::wire::handshake::accept(conn, |_, _| vec![known]).await
                 else {
                     return;
                 };
@@ -495,9 +511,6 @@ async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_replaced_control_connection_is_closed_even_if_its_peer_keeps_talking() {
     use burrow::wire::protocol::ClientMsg;
-    if ws_mode() {
-        return;
-    }
     let secret = Secret::generate();
     let srv = start_server(server_settings(vec![secret.clone()])).await;
     let control = |secret: Secret| async move {
@@ -507,9 +520,9 @@ async fn a_replaced_control_connection_is_closed_even_if_its_peer_keeps_talking(
             plaintext: false,
             name: "home".into(),
         };
-        let s = TcpStream::connect(srv.addr).await.unwrap();
+        let s = raw_conn(srv.addr).await;
         burrow::wire::handshake::initiate(
-            s.into(),
+            s,
             &p,
             &secret,
             &Hello::Control {

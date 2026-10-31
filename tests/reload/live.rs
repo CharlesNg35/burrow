@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use burrow::client::State;
@@ -124,13 +123,6 @@ struct Visiting {
     _stop: tokio::sync::watch::Sender<bool>,
 }
 
-pub(super) fn free_local() -> SocketAddr {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn visitor_forwards_change_one_by_one() {
     logs();
@@ -154,7 +146,7 @@ async fn visitor_forwards_change_one_by_one() {
     let shared = server.shared.clone();
     wait_for(|| shared.idle_channels("home") >= 1).await;
 
-    let db_at = free_local();
+    let db_at = free_addr();
     let mut settings = visitor_settings(server.addr, visitor_secret, vec![]);
     settings.forwards.insert(
         "db".into(),
@@ -172,7 +164,7 @@ async fn visitor_forwards_change_one_by_one() {
     };
     let mut open = open_echo(db_at).await;
 
-    let web_at = free_local();
+    let web_at = free_addr();
     v.settings.forwards.insert(
         "web".into(),
         Forward::single(web_at, VisitTarget::service("web")),
@@ -184,7 +176,7 @@ async fn visitor_forwards_change_one_by_one() {
         "an unchanged forward lost its connection"
     );
 
-    let moved = free_local();
+    let moved = free_addr();
     v.settings.forwards.get_mut("db").unwrap().local = moved;
     v.settings.forwards.remove("web");
     v.reload.send(v.settings.clone()).await.unwrap();
@@ -223,13 +215,13 @@ async fn a_visitor_forward_moved_to_a_busy_port_listens_once_it_is_free() {
     let mut settings = visitor_settings(server.addr, visitor_secret, vec![]);
     settings.forwards.insert(
         "db".into(),
-        Forward::single(free_local(), VisitTarget::service("db")),
+        Forward::single(free_addr(), VisitTarget::service("db")),
     );
     let visitor = burrow::visitor::Visitor::bind(settings.clone()).unwrap();
     let (reload, reloads) = mpsc::channel(4);
     let (_stop, stop_rx) = tokio::sync::watch::channel(false);
     let _task = tokio::spawn(visitor.with_reloads(reloads).run(stop_rx));
-    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let busy = std::net::TcpListener::bind(free_addr()).unwrap();
     let moved = busy.local_addr().unwrap();
     settings.forwards.get_mut("db").unwrap().local = moved;
     reload.send(settings).await.unwrap();

@@ -6,6 +6,7 @@ use burrow_syntax::rate::{RateUnit, compose, split};
 pub fn to_text(v: Option<&Value>) -> String {
     match v {
         None | Some(Value::Null) => String::new(),
+        Some(v) if burrow_admin_proto::value::as_secret(v).is_some() => String::new(),
         Some(Value::String(s)) => s.clone(),
         Some(other) => other.to_string(),
     }
@@ -86,6 +87,12 @@ mod tests {
         );
         assert_eq!(to_text(Some(&json!(7840))), "7840");
         assert_eq!(to_text(None), "");
+        let hidden = json!({"$secret": {"fp": null, "src": "literal"}});
+        assert_eq!(
+            to_text(Some(&hidden)),
+            "",
+            "a hidden value never fills a text box"
+        );
     }
 
     #[test]

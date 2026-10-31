@@ -149,8 +149,7 @@ async fn adding_a_secret_keeps_open_connections() {
     next.services
         .insert("web".into(), service(echo, Protocol::Tcp));
     next.clients.get_mut("home").unwrap().secrets = vec![secret, Secret::generate()];
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    t.server.reload_applied(next).await;
     conn.write_all(b"pong").await.unwrap();
     let mut buf = [0u8; 4];
     conn.read_exact(&mut buf).await.unwrap();
@@ -215,9 +214,7 @@ async fn reload_onto_the_kept_control_port_is_rejected() {
     let echo = echo_server().await;
     let secret = Secret::generate();
     let mut settings = server_settings(vec![secret.clone()]);
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    settings.listen = Some(free.local_addr().unwrap());
-    drop(free);
+    settings.listen = Some(free_addr());
     let t = tunnel_with(
         settings.clone(),
         vec![("a", service(echo, Protocol::Tcp))],
@@ -231,8 +228,8 @@ async fn reload_onto_the_kept_control_port_is_rejected() {
     let mut a = service(echo, Protocol::Tcp);
     a.bind = Some(t.server.addr);
     next.services.insert("a".into(), a);
-    t.server.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let report = t.server.reload_applied(next).await;
+    assert!(report.rejected.is_some(), "{report:?}");
     assert_eq!(roundtrip(old, b"kept").await, b"kept");
 }
 
@@ -300,4 +297,33 @@ async fn a_burst_on_a_public_service_wider_than_the_handshake_limit_still_gets_t
         t.server.shared.status().handshakes_refused > 0,
         "the burst should have hit the limit"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_burst_wider_than_max_pending_to_one_client_waits_and_is_served() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.max_pending = 8;
+    settings.pool_min_idle = 1;
+    settings.pool_max_idle = 1;
+    let t = tunnel_with(
+        settings,
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let addr = t.server.services["web"];
+    let mut tasks = tokio::task::JoinSet::new();
+    for i in 0..32u64 {
+        tasks.spawn(async move {
+            let data = pattern(2_000, i);
+            assert_eq!(roundtrip(addr, &data).await, data);
+        });
+    }
+    while let Some(r) = tasks.join_next().await {
+        r.unwrap();
+    }
+    assert_eq!(t.server.shared.waiting_visitors(), 0);
 }

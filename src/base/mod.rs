@@ -2,11 +2,16 @@
 //! It knows nothing about tunnels and imports no burrow module outside base.
 
 pub(crate) mod access;
+pub mod channel;
 pub mod failure;
 pub mod fs;
 pub mod logfile;
+pub mod output;
 pub(crate) mod ports;
 pub mod process;
 pub mod prompt;
+pub mod slots;
 pub mod style;
 pub mod suggest;
+#[cfg(windows)]
+pub mod windows;

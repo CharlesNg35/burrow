@@ -1,4 +1,6 @@
 mod background;
+#[cfg(unix)]
+mod hand_over;
 mod logview;
 pub(crate) mod ports;
 mod stray;
@@ -14,6 +16,7 @@ mod previous;
 #[cfg(target_os = "linux")]
 mod systemd;
 mod uninstall;
+mod web_files;
 #[cfg(windows)]
 mod windows;
 
@@ -22,10 +25,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::base::failure::Failure;
+use crate::base::output::say;
 use crate::install::{Manifest, Platform, all_manifests, load_manifest, manifest_path};
 
 pub use checks::misfits;
-pub use control::{control, control_now, list, logs, run_service, status};
+pub use control::{
+    Action, DEFAULT_LOG_LINES, control, control_now, list, logs, run_service, status,
+};
 pub use install::{InstallOptions, install};
 pub use system::{binary_version, copy_file, is_admin};
 #[cfg(unix)]
@@ -92,6 +98,27 @@ pub trait Backend {
         }
     }
     fn prepare_dirs(&self, account: &str) -> Result<(), Failure>;
+    fn state_folder(&self, m: &Manifest) -> Result<Vec<PathBuf>, Failure> {
+        let Some(dir) = &m.web_state else {
+            return Ok(Vec::new());
+        };
+        #[cfg(unix)]
+        {
+            let owner = (m.account != "root").then_some(m.account.as_str());
+            system::make_dir(dir, 0o700, owner)?;
+            let (uid, gid) = match owner {
+                Some(a) => crate::base::process::account_ids(a)?,
+                None => (0, 0),
+            };
+            Ok(hand_over::own_tree(dir, uid, gid))
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::create_dir_all(dir)
+                .map(|()| Vec::new())
+                .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
+        }
+    }
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure>;
     fn read_env(&self, _m: &Manifest) -> BTreeMap<String, String> {
         BTreeMap::new()
@@ -113,13 +140,34 @@ pub trait Backend {
     }
 }
 
-fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
-    match writeln!(out, "{}", line.as_ref()) {
-        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
-            Err(Failure::new(format!("cannot write output: {e}")))
-        }
-        _ => Ok(()),
-    }
+#[cfg(any(target_os = "macos", windows, test))]
+pub(super) fn read_json_env(m: &Manifest) -> BTreeMap<String, String> {
+    m.env_file
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", windows, test))]
+pub(super) fn config_exit_detail(name: &str) -> String {
+    format!(
+        "the config has errors or cannot be read (exit {}); fix it, then: {}",
+        crate::base::failure::EXIT_CONFIG,
+        crate::base::failure::admin(&format!("service start {name}"))
+    )
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+pub(super) fn is_config_exit(code: &str) -> bool {
+    code.parse::<u8>() == Ok(crate::base::failure::EXIT_CONFIG)
+}
+
+pub(super) fn logs_hint(name: &str) -> String {
+    format!(
+        "see why with: {}",
+        crate::base::failure::admin(&format!("service logs {name}"))
+    )
 }
 
 pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failure> {
@@ -148,12 +196,8 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
                 .hint("pass --name with 1-48 letters, digits or dashes"),
         );
     }
-    let name = if clean == "burrow" || clean.starts_with("burrow-") {
-        clean
-    } else {
-        format!("burrow-{clean}")
-    };
-    let short = name.strip_prefix("burrow-").unwrap_or(&name);
+    let name = crate::install::service_name(&clean);
+    let short = crate::install::short_name(&name);
     if OWN_FOLDERS.contains(&short) {
         let source = if given.is_some() {
             "--name"
@@ -316,3 +360,5 @@ fn name_for(source: &Path, given: Option<&str>, installed: &[Manifest]) -> Resul
 }
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, target_os = "linux"))]
+mod tests_web;

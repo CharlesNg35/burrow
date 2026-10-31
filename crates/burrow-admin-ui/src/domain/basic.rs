@@ -74,7 +74,7 @@ pub(super) fn text_editor(fc: FieldCtx, sem: Option<SemType>) -> AnyView {
                     suffix=unit.unwrap_or_default()
                 />
             </div>
-            {server_checked.then(|| view! { <span class="text-xs whitespace-nowrap text-info" data-render="server-checked">"Checked by the server"</span> })}
+            {server_checked.then(|| view! { <span data-render="server-checked">{crate::form::server_checked()}</span> })}
         </div>
     }
     .into_any()
@@ -102,7 +102,81 @@ pub(super) fn yaml_editor(fc: FieldCtx) -> AnyView {
     .into_any()
 }
 
+const INHERIT: &str = "inherit";
+
+fn meaning(none_label: &str, default: Option<&Value>) -> Option<bool> {
+    default.and_then(Value::as_bool).or(match none_label {
+        "Yes" | "On" => Some(true),
+        "No" | "Off" => Some(false),
+        _ => None,
+    })
+}
+
+fn words(none_label: &str) -> [&'static str; 2] {
+    if matches!(none_label, "On" | "Off") {
+        ["On", "Off"]
+    } else {
+        ["Yes", "No"]
+    }
+}
+
+fn tri_options(none_label: &str, default: Option<&Value>) -> Vec<(String, String, bool)> {
+    let [yes, no] = words(none_label);
+    match meaning(none_label, default) {
+        Some(on) => vec![
+            (
+                INHERIT.to_string(),
+                format!("{} (default)", if on { yes } else { no }),
+                false,
+            ),
+            (
+                (!on).to_string(),
+                (if on { no } else { yes }).to_string(),
+                false,
+            ),
+        ],
+        None => vec![
+            (INHERIT.to_string(), none_label.to_string(), false),
+            ("true".to_string(), yes.to_string(), false),
+            ("false".to_string(), no.to_string(), false),
+        ],
+    }
+}
+
+fn tri_value(none_label: &str, default: Option<&Value>, v: Option<&Value>) -> String {
+    match (v.and_then(Value::as_bool), meaning(none_label, default)) {
+        (Some(b), Some(on)) if b == on => INHERIT.into(),
+        (Some(b), _) => b.to_string(),
+        (None, _) => INHERIT.into(),
+    }
+}
+
+fn tri_editor(fc: FieldCtx, none_label: String) -> AnyView {
+    let e = store().edit;
+    let path = fc.path.clone();
+    let label = none_label.clone();
+    let default = fc.node.default.clone();
+    let d2 = default.clone();
+    let value = Signal::derive(move || tri_value(&label, d2.as_ref(), e.value(&path).as_ref()));
+    let p2 = fc.path.clone();
+    view! {
+        <div id=fc.id.clone()>
+            <Segmented
+                name=format!("{}-choice", fc.id)
+                options=tri_options(&none_label, default.as_ref())
+                value=value
+                label=fc.node.label.clone()
+                on_change=move |m: String| e.set(&p2, m.parse::<bool>().ok().map(Value::Bool))
+            />
+        </div>
+    }
+    .into_any()
+}
+
 pub(super) fn bool_editor(fc: FieldCtx) -> AnyView {
+    if let Some(none) = fc.node.none_label.clone().filter(|_| !fc.node.required) {
+        return tri_editor(fc, none);
+    }
     let e = store().edit;
     let path = fc.path.clone();
     let default = fc
@@ -239,11 +313,67 @@ pub(super) fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
                 .map(|h| view! { <p class="mt-1 text-sm text-text-muted">{h}</p> })
         }
     };
-    let control = if options.len() <= 4 {
-        view! { <Segmented name=fc.id.clone() options=options value=value on_change=set label=fc.node.label.clone() off=off/> }.into_any()
+    let control = choice(
+        fc.id.clone(),
+        fc.node.label.clone(),
+        options,
+        value,
+        Callback::new(set),
+        off,
+    );
+    view! { <div>{control}{locked}{help}</div> }.into_any()
+}
+
+const SEGMENTED_MAX: usize = 4;
+
+pub(crate) fn choice(
+    id: String,
+    label: String,
+    options: Vec<(String, String, bool)>,
+    value: Signal<String>,
+    on_change: Callback<String>,
+    off: Signal<Vec<String>>,
+) -> AnyView {
+    if options.len() <= SEGMENTED_MAX {
+        view! { <div id=id.clone()><Segmented name=id.clone() options=options value=value on_change=on_change label=label off=off/></div> }.into_any()
     } else {
         let opts: Vec<(String, String)> = options.into_iter().map(|(v, l, _)| (v, l)).collect();
-        view! { <Select id=fc.id.clone() options=opts value=value on_change=set/> }.into_any()
-    };
-    view! { <div id=if c.options.len() + usize::from(optional) <= 4 { Some(fc.id.clone()) } else { None }>{control}{locked}{help}</div> }.into_any()
+        view! { <Select id=id options=opts value=value on_change=on_change/> }.into_any()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn an_optional_yes_or_no_offers_its_unset_meaning_first_without_repeating_it() {
+        let labels = |n: &str, d: Option<Value>| {
+            tri_options(n, d.as_ref())
+                .into_iter()
+                .map(|(v, l, _)| format!("{v}={l}"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            labels("As the web proxy says", None),
+            ["inherit=As the web proxy says", "true=Yes", "false=No"]
+        );
+        assert_eq!(labels("Yes", None), ["inherit=Yes (default)", "false=No"]);
+        assert_eq!(labels("On", None), ["inherit=On (default)", "false=Off"]);
+        assert_eq!(labels("Off", None), ["inherit=Off (default)", "true=On"]);
+        assert_eq!(
+            labels("Not set", Some(json!(true))),
+            ["inherit=Yes (default)", "false=No"]
+        );
+        assert_eq!(tri_value("Yes", None, Some(&json!(true))), "inherit");
+        assert_eq!(tri_value("On", None, Some(&json!(true))), "inherit");
+        assert_eq!(tri_value("Off", None, Some(&json!(true))), "true");
+        assert_eq!(tri_value("Yes", None, Some(&json!(false))), "false");
+        assert_eq!(
+            tri_value("As the web proxy says", None, Some(&json!(true))),
+            "true"
+        );
+        assert_eq!(tri_value("As the web proxy says", None, None), "inherit");
+    }
 }

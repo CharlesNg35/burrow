@@ -172,6 +172,40 @@ fn a_rename_is_one_op_and_carries_references() {
 }
 
 #[test]
+fn a_renamed_login_service_takes_its_sites_along_in_one_op() {
+    let mut doc = base();
+    doc["web"] = json!({"forward_auth": {"sso": {"service": "web", "path": "/auth"}}});
+    doc["services"]["wiki"] = json!({"client": "home", "target": 80, "web": {"hosts": ["w.example.com"], "forward_auth": "sso"}});
+    let mut c = Changeset::new(doc);
+    let at = p(&["web", "forward_auth", "sso"]);
+    assert!(c.rename(&at, "authelia"));
+    assert_eq!(
+        c.draft()["services"]["wiki"]["web"]["forward_auth"],
+        "authelia"
+    );
+    assert!(c.draft()["web"]["forward_auth"].get("authelia").is_some());
+    assert_eq!(
+        c.ops(),
+        [Op::Rename {
+            path: at.clone(),
+            to: "authelia".into(),
+            refs: true
+        }]
+    );
+    assert_eq!(c.renamed_from("web", "authelia"), None);
+    let mut snapshot = json!({"web": {"forward_auth": {"sso": {"path": "/auth"}}}});
+    rename_under(&mut snapshot, &[], &at, "authelia");
+    assert!(snapshot["web"]["forward_auth"].get("authelia").is_some());
+    let mut web = json!({"forward_auth": {"sso": {"path": "/auth"}}});
+    rename_under(&mut web, &p(&["web"]), &at, "authelia");
+    assert!(web["forward_auth"].get("authelia").is_some());
+    let mut other = json!({"x": 1});
+    rename_under(&mut other, &p(&["services", "wiki"]), &at, "authelia");
+    assert_eq!(other, json!({"x": 1}));
+    assert!(!c.rename(&p(&["web", "https"]), "x"), "not an entity");
+}
+
+#[test]
 fn a_kept_draft_moves_onto_a_new_base_without_undoing_hand_edits() {
     let mut c = Changeset::new(base());
     c.set(&p(&["services", "web", "target"]), json!(3002));
@@ -297,4 +331,42 @@ fn a_renamed_client_keeps_its_place_in_the_draft_reach() {
         .keys()
         .collect();
     assert_eq!(keys, ["home2", "office"]);
+}
+
+#[test]
+fn a_new_password_becomes_password_set_and_a_stored_hash_stays_untouched() {
+    let site = |auth: Value| json!({"services": {"site": {"web": {"basic_auth": auth}}}});
+    let path = |u: &str| {
+        ["services", "site", "web", "basic_auth", u]
+            .map(String::from)
+            .to_vec()
+    };
+    let base = site(json!({"alice": {"$hash": {}}}));
+    let mut c = Changeset::new(base.clone());
+    c.set_password(&path("bob"), "p3");
+    assert_eq!(
+        c.ops(),
+        [Op::PasswordSet {
+            path: path("bob"),
+            handle: "p3".into()
+        }]
+    );
+    let mut first = Changeset::new(json!({"services": {"site": {"web": {}}}}));
+    first.set_password(&path("alice"), "p4");
+    let ops = first.ops();
+    assert_eq!(
+        ops.last(),
+        Some(&Op::PasswordSet {
+            path: path("alice"),
+            handle: "p4".into()
+        })
+    );
+    assert!(
+        !burrow_admin_proto::serde_json::to_string(&ops)
+            .unwrap()
+            .contains("$new_password")
+    );
+    let mut again = Changeset::new(base);
+    again.set_password(&path("alice"), "p5");
+    assert_eq!(again.ops().len(), 1);
 }

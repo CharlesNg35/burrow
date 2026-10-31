@@ -14,8 +14,15 @@ libfuzzer-sys = "0.4"
 burrow = { path = ".." }
 burrow-config = { path = "../crates/burrow-config" }
 burrow-syntax = { path = "../crates/burrow-syntax" }
+burrow-web = { path = "../crates/burrow-web" }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-tokio = { version = "1", features = ["rt", "io-util"] }
+instant-acme = { version = "=0.8.5", default-features = false, features = ["aws-lc-rs", "rcgen", "time"] }
+tokio = { version = "1", features = ["rt", "io-util", "net", "time"] }
+hyper = { version = "1.12.0", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+http-body-util = "0.1.5"
+http = "1.5.0"
 
 [[bin]]
 name = "handshake"
@@ -68,3 +75,52 @@ bench = false
 
 [lints.clippy]
 too_many_lines = "deny"
+
+[[bin]]
+name = "sni_peek"
+path = "fuzz_targets/sni_peek.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proxy_header"
+path = "fuzz_targets/proxy_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acme_meta"
+path = "fuzz_targets/acme_meta.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_edge"
+path = "fuzz_targets/http_edge.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_header"
+path = "fuzz_targets/host_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "path_normalize"
+path = "fuzz_targets/path_normalize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "basic_auth_header"
+path = "fuzz_targets/basic_auth_header.rs"
+test = false
+doc = false
+bench = false

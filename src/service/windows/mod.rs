@@ -16,15 +16,13 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use super::{Backend, Manifest, Platform, Status};
 use crate::base::failure::Failure;
+use crate::base::windows::{ADMINS, SYSTEM, USERS};
 use acl::{
-    TRUSTED_OWNERS, broad, grant, grant_dirs, holds_only_hand_run_folders, icacls, is_link,
-    owner_and_me, revoke,
+    broad, grant, grant_dirs, holds_only_hand_run_folders, icacls, is_link, owner_and_me, revoke,
+    trusted_owner,
 };
 pub use dispatch::dispatch;
 
-const SYSTEM: &str = "*S-1-5-18";
-const ADMINS: &str = "*S-1-5-32-544";
-const USERS: &str = "*S-1-5-32-545";
 const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
     .union(ServiceAccess::START)
     .union(ServiceAccess::STOP)
@@ -89,12 +87,6 @@ fn wait_for(
         }
         std::thread::sleep(Duration::from_millis(200));
     }
-}
-
-fn read_env(path: Option<&PathBuf>) -> BTreeMap<String, String> {
-    path.and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
 }
 
 impl Backend for WindowsService {
@@ -178,6 +170,31 @@ impl Backend for WindowsService {
         )
     }
 
+    fn state_folder(&self, m: &Manifest) -> Result<Vec<PathBuf>, Failure> {
+        let Some(dir) = &m.web_state else {
+            return Ok(Vec::new());
+        };
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+        if is_link(dir) {
+            return Err(Failure::new(format!(
+                "{} is a link or junction, not a folder",
+                dir.display()
+            )));
+        }
+        icacls(dir, &["/setowner", ADMINS, "/C", "/Q"])?;
+        icacls(
+            dir,
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &format!("{SYSTEM}:(OI)(CI)F"),
+                &format!("{ADMINS}:(OI)(CI)F"),
+            ],
+        )?;
+        Ok(Vec::new())
+    }
+
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
         let p = Platform::Windows;
         let root = p.config_dir();
@@ -195,7 +212,7 @@ impl Backend for WindowsService {
                     ))
                     .hint("run the command again from an elevated Windows PowerShell; if it keeps failing, delete the folder and run it again"));
                 };
-                if owner != me && !TRUSTED_OWNERS.contains(&owner.as_str()) {
+                if owner != me && !trusted_owner(&owner) {
                     return Err(Failure::new(format!(
                         "{} already exists and belongs to {owner}, not to administrators",
                         dir.display()
@@ -241,7 +258,7 @@ impl Backend for WindowsService {
     }
 
     fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {
-        read_env(m.env_file.as_ref())
+        super::read_json_env(m)
     }
 
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
@@ -320,13 +337,16 @@ impl Backend for WindowsService {
             grant(env, &m.account, "R")?;
         }
         grant_dirs(&m.account)?;
+        if let Some(dir) = m.web_state.as_ref().filter(|_| !broad(&m.account)) {
+            grant(dir, &m.account, "(OI)(CI)M")?;
+        }
         for f in &m.files {
-            grant(f, &m.account, "R")?;
+            grant(f, &m.account, read_rights(f))?;
         }
         if m.admin_writable {
             grant(m.folder(), &m.account, "(OI)(CI)M")?;
             grant(&m.config, &m.account, "M")?;
-            let history = crate::admin::adapters::history_dir_of(&m.config);
+            let history = crate::config::save::history_dir_of(&m.config);
             if !is_link(&history) {
                 for kept in std::fs::read_dir(&history).into_iter().flatten().flatten() {
                     let path = kept.path();
@@ -353,7 +373,7 @@ impl Backend for WindowsService {
             grant(env, &m.account, "R")?;
         }
         for f in &m.files {
-            grant(f, &m.account, "R")?;
+            grant(f, &m.account, read_rights(f))?;
         }
         if service
             .query_status()
@@ -362,10 +382,7 @@ impl Backend for WindowsService {
             return Ok(());
         }
         service.start::<&OsStr>(&[]).map_err(|e| {
-            scm_error(&format!("start {}", m.name), e).hint(format!(
-                "see why with: {}",
-                crate::base::failure::admin(&format!("service logs {}", m.name))
-            ))
+            scm_error(&format!("start {}", m.name), e).hint(super::logs_hint(&m.name))
         })?;
         wait_for(
             &service,
@@ -423,11 +440,10 @@ impl Backend for WindowsService {
         };
         let state = format!("{:?}", st.current_state).to_lowercase();
         let detail = match st.exit_code {
-            ServiceExitCode::ServiceSpecific(3) => {
-                format!(
-                    "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                    crate::base::failure::admin(&format!("service start {}", m.name))
-                )
+            ServiceExitCode::ServiceSpecific(c)
+                if c == u32::from(crate::base::failure::EXIT_CONFIG) =>
+            {
+                super::config_exit_detail(&m.name)
             }
             ServiceExitCode::ServiceSpecific(c) if c != 0 => {
                 format!("{state} (last exit code {c})")
@@ -442,6 +458,11 @@ impl Backend for WindowsService {
         }
     }
 }
+
+fn read_rights(path: &Path) -> &'static str {
+    if path.is_dir() { "(OI)(CI)R" } else { "R" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,10 +488,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let (owner, me) =
                 owner_and_me(dir.path()).expect("the owner of a folder this test made is read");
-            assert!(
-                owner == me || TRUSTED_OWNERS.contains(&owner.as_str()),
-                "{owner} {me}"
-            );
+            assert!(owner == me || trusted_owner(&owner), "{owner} {me}");
             return;
         }
         let pf = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());

@@ -128,7 +128,7 @@ pub fn flows_in(list: &str, filter: Option<&str>) -> Vec<String> {
 }
 
 fn test_binary(root: &Path) -> Result<PathBuf, String> {
-    let out = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+    let out = crate::cargo()
         .current_dir(root)
         .args(build_args())
         .stderr(Stdio::inherit())

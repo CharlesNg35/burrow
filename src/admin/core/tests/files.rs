@@ -63,6 +63,8 @@ fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
         text: Arc::new(Mutex::new(w.text.clone())),
         kept: Mutex::new(Vec::new()),
         read_only: false,
+        state: tempfile::tempdir().unwrap(),
+        asked: Default::default(),
     };
     let core = Core::new(
         Box::new(store),

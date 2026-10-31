@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use super::Format;
 use super::emit::render;
 use super::tree;
-use yaml::{child, entry_bounds, is_flow, patch_yaml};
+use yaml::{child, content_end, entry_bounds, is_flow, patch_yaml};
 
 pub fn line_start(text: &str, at: usize) -> usize {
     text[..at].rfind('\n').map_or(0, |i| i + 1)

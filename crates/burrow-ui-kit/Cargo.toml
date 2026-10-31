@@ -1,6 +1,6 @@
 [package]
 name = "burrow-ui-kit"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "The design system of the burrow admin UI: tokens and generic components"
 license = "MIT"
@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 leptos = { version = "=0.8.22", features = ["csr"] }
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Window", "Navigator", "Clipboard", "Document", "HtmlElement", "KeyboardEvent", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Element", "NodeList", "Node", "FocusEvent", "HtmlInputElement", "EventTarget", "DomRect", "CssStyleDeclaration"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator", "Clipboard", "Document", "HtmlElement", "KeyboardEvent", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Element", "NodeList", "Node", "FocusEvent", "HtmlInputElement", "EventTarget", "DomRect", "CssStyleDeclaration", "ScrollIntoViewOptions", "ScrollLogicalPosition"] }
 js-sys = "0.3"
 
 [lints]

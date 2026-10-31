@@ -23,10 +23,6 @@ pub trait Access: Send + Sync {
     fn revoked(&self) -> Option<String>;
 }
 
-enum Out {
-    Message(Vec<u8>),
-}
-
 struct Ctx {
     hub: Arc<Hub>,
     session: Arc<Session>,
@@ -36,6 +32,19 @@ struct Ctx {
 
 fn encode(v: &Value) -> Vec<u8> {
     serde_json::to_vec(v).unwrap_or_default()
+}
+
+fn reply(id: u32, result: Result<Value, ApiError>) -> Vec<u8> {
+    let bytes = encode(&match result {
+        Ok(body) => msg::reply_ok(id, body),
+        Err(e) => msg::reply_err(id, &e.wire()),
+    });
+    if bytes.len() <= frame::MAX_MESSAGE {
+        return bytes;
+    }
+    debug!("admin reply {id} is {} bytes, over the limit", bytes.len());
+    let too_large = ApiError::new(ErrorCode::TooLarge, frame::FrameError::TooLarge.to_string());
+    encode(&msg::reply_err(id, &too_large.wire()))
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
@@ -72,16 +81,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
     if !begun.wrote {
         let (core_, session) = (cx.hub.core.clone(), cx.session.clone());
         let applied = blocking(move || {
-            plan::finish(
-                &core_,
-                &session,
-                begun,
-                ReloadResult::Applied {
-                    restart: Vec::new(),
-                    unbound: Vec::new(),
-                },
-                None,
-            )
+            plan::finish(&core_, &session, begun, ReloadResult::unchanged(), None)
         })
         .await
         .ok_or_else(|| ApiError::new(ErrorCode::Internal, "the apply task failed"))??;
@@ -100,15 +100,13 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
                     None => ReloadResult::Applied {
                         restart: r.restart.iter().map(|s| s.to_string()).collect(),
                         unbound: r.unbound.clone(),
+                        lines: r.lines.clone(),
                     },
                 },
                 _ => ReloadResult::Timeout,
             }
         }
-        Some(ReloadOutcome::Unchanged) => ReloadResult::Applied {
-            restart: Vec::new(),
-            unbound: Vec::new(),
-        },
+        Some(ReloadOutcome::Unchanged) => ReloadResult::unchanged(),
         None => ReloadResult::Timeout,
     };
     let rejected = matches!(reload, ReloadResult::Rejected(_));
@@ -128,7 +126,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
     core::ok(applied)
 }
 
-async fn handle(cx: Arc<Ctx>, req: Request) -> Value {
+async fn handle(cx: Arc<Ctx>, req: Request) -> Vec<u8> {
     let id = req.id;
     let result = match req.t.as_str() {
         msg::req::APPLY => apply(&cx, req.body).await,
@@ -154,14 +152,11 @@ async fn handle(cx: Arc<Ctx>, req: Request) -> Value {
                 .unwrap_or_else(|| Err(ApiError::new(ErrorCode::Internal, "the request failed")))
         }
     };
-    match result {
-        Ok(body) => msg::reply_ok(id, body),
-        Err(e) => msg::reply_err(id, &e.wire()),
-    }
+    reply(id, result)
 }
 
 async fn writer_task(
-    mut rx: mpsc::Receiver<Out>,
+    mut rx: mpsc::Receiver<Vec<u8>>,
     mut writer: crate::wire::record::RecordWriter,
     mut wr: crate::wire::transport::OwnedWriteHalf,
     ping: Duration,
@@ -171,9 +166,12 @@ async fn writer_task(
         let next = tokio::time::timeout(ping, rx.recv()).await;
         let records = match next {
             Err(_) => vec![frame::ping().to_vec()],
-            Ok(Some(Out::Message(m))) => match frame::chunks(&m) {
+            Ok(Some(m)) => match frame::chunks(&m) {
                 Ok(r) => r,
-                Err(_) => continue,
+                Err(e) => {
+                    debug!("admin message of {} bytes dropped: {e}", m.len());
+                    continue;
+                }
             },
             Ok(None) => break,
         };
@@ -209,7 +207,7 @@ pub async fn run(
         mut reader,
     } = channel;
     let (mut rd, wr) = stream.into_split();
-    let (tx, rx) = mpsc::channel::<Out>(64);
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(64);
     let (ping, silence) = super::keepalive();
     let writer = tokio::spawn(writer_task(rx, writer, wr, ping));
     let visitor = session.visitor.clone();
@@ -221,7 +219,7 @@ pub async fn run(
         access: access.clone(),
     });
     let mut assembler = Assembler::new();
-    let mut jobs: JoinSet<Value> = JoinSet::new();
+    let mut jobs: JoinSet<Vec<u8>> = JoinSet::new();
     let mut status_every: Option<tokio::time::Interval> = None;
     let mut config_events = false;
     let mut last_rev = blocking({
@@ -234,15 +232,16 @@ pub async fn run(
     file_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_request = tokio::time::Instant::now();
     let mut heard = tokio::time::Instant::now();
-    let send = |v: Value, until: tokio::time::Instant| {
+    let send = |bytes: Vec<u8>, until: tokio::time::Instant| {
         let tx = tx.clone();
         async move {
             matches!(
-                tokio::time::timeout_at(until, tx.send(Out::Message(encode(&v)))).await,
+                tokio::time::timeout_at(until, tx.send(bytes)).await,
                 Ok(Ok(()))
             )
         }
     };
+    let silent = format!("silent for {} s", silence.as_secs());
     let end = loop {
         let idle_left = IDLE.saturating_sub(last_request.elapsed());
         tokio::select! {
@@ -271,14 +270,14 @@ pub async fn run(
                     let sub: Subscribe = core::parse(&req.body).unwrap_or_default();
                     status_every = status_interval(&sub);
                     config_events = sub.config;
-                    if !send(msg::reply_ok(req.id, serde_json::json!({})), heard + silence).await {
+                    if !send(reply(req.id, Ok(serde_json::json!({}))), heard + silence).await {
                         break "closed";
                     }
                     continue;
                 }
                 if jobs.len() >= MAX_INFLIGHT {
                     let e = ApiError::new(ErrorCode::Busy, "too many requests in flight");
-                    if !send(msg::reply_err(req.id, &e.wire()), heard + silence).await {
+                    if !send(reply(req.id, Err(e)), heard + silence).await {
                         break "closed";
                     }
                     continue;
@@ -298,9 +297,9 @@ pub async fn run(
                     None => std::future::pending::<()>().await,
                 }
             } => {
-                let status = cx.hub.core.live.status();
+                let status = crate::admin::hooks::status(cx.hub.core.status());
                 let ev = msg::event(msg::ev::STATUS, serde_json::to_value(status).unwrap_or_default());
-                let _ = tx.try_send(Out::Message(encode(&ev)));
+                let _ = tx.try_send(encode(&ev));
             }
             changed = reloads.changed() => {
                 if changed.is_err() {
@@ -308,23 +307,29 @@ pub async fn run(
                 }
                 if let Some(reason) = access.revoked() {
                     let ev = msg::event(msg::ev::REVOKED, serde_json::to_value(Revoked { reason }).unwrap_or_default());
-                    let _ = send(ev, heard + silence).await;
+                    let _ = send(encode(&ev), heard + silence).await;
                     break "revoked";
+                }
+                if config_events
+                    && let Some(ev) = config_event(&hub, &mut last_rev).await
+                    && !send(encode(&ev), heard + silence).await
+                {
+                    break "closed";
                 }
             }
             _ = file_check.tick(), if config_events => {
                 if let Some(ev) = config_event(&hub, &mut last_rev).await
-                    && !send(ev, heard + silence).await
+                    && !send(encode(&ev), heard + silence).await
                 {
                     break "closed";
                 }
             }
             _ = shutdown.changed() => {
-                let _ = send(msg::event(msg::ev::BYE, serde_json::json!({})), heard + silence).await;
+                let _ = send(encode(&msg::event(msg::ev::BYE, serde_json::json!({}))), heard + silence).await;
                 break "server stopping";
             }
             _ = tokio::time::sleep_until(heard + silence) => {
-                break "silent for 90 s";
+                break silent.as_str();
             }
             _ = tokio::time::sleep(idle_left), if status_every.is_none() && jobs.is_empty() => {
                 break "idle for 30 min";
@@ -339,22 +344,22 @@ pub async fn run(
 
 fn status_interval(sub: &Subscribe) -> Option<tokio::time::Interval> {
     (sub.status_ms > 0).then(|| {
-        let ms = sub.status_ms.clamp(500, 60_000);
+        let ms = sub.status_ms.clamp(msg::MIN_STATUS_MS, msg::MAX_STATUS_MS);
         let mut i = tokio::time::interval(Duration::from_millis(ms));
         i.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         i
     })
 }
 
-fn spawn_job(jobs: &mut JoinSet<Value>, cx: &Arc<Ctx>, req: Request) {
+fn spawn_job(jobs: &mut JoinSet<Vec<u8>>, cx: &Arc<Ctx>, req: Request) {
     if req.t == msg::req::APPLY {
         let id = req.id;
         let detached = tokio::spawn(handle(cx.clone(), req));
         jobs.spawn(async move {
             detached.await.unwrap_or_else(|_| {
-                msg::reply_err(
+                reply(
                     id,
-                    &ApiError::new(ErrorCode::Internal, "the apply task failed").wire(),
+                    Err(ApiError::new(ErrorCode::Internal, "the apply task failed")),
                 )
             })
         });
@@ -415,6 +420,31 @@ mod tests {
         fn revoked(&self) -> Option<String> {
             Some("admin level changed".into())
         }
+    }
+
+    #[test]
+    fn a_reply_over_the_message_limit_is_a_too_large_error() {
+        let big = serde_json::json!({ "x": "a".repeat(frame::MAX_MESSAGE) });
+        let bytes = reply(7, Ok(big));
+        assert!(bytes.len() <= frame::MAX_MESSAGE);
+        let text = std::str::from_utf8(&bytes).unwrap();
+        match msg::Incoming::parse(text) {
+            Some(msg::Incoming::Reply {
+                re: 7,
+                result: Err(e),
+            }) => {
+                assert_eq!(e.code, ErrorCode::TooLarge);
+            }
+            _ => panic!("{text}"),
+        }
+        let small = reply(8, Ok(serde_json::json!({ "x": 1 })));
+        assert!(matches!(
+            msg::Incoming::parse(std::str::from_utf8(&small).unwrap()),
+            Some(msg::Incoming::Reply {
+                re: 8,
+                result: Ok(_)
+            })
+        ));
     }
 
     #[tokio::test]

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::is_default;
+use super::{ClientRef, ServiceWeb, is_default};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -23,8 +23,8 @@ pub struct ClientEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Max connections on this server",
-        help = "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
+        label = "Maximum connections on this server",
+        help = "Connections this server forwards to the client at once. The client has its own limit too, Maximum connections in client.yaml on that machine",
         none_label = "Server default",
         default_from("/limits/max_connections_per_client"),
         advanced
@@ -37,7 +37,7 @@ pub struct ClientEntry {
 #[serde(deny_unknown_fields)]
 #[admin(entity = visitor, label = "Visitor", groups(
     admin = "Admin access | May this visitor run burrow admin against this server?",
-    access = "Access | Private services and direct reach.",
+    access = "Direct access | Clients this visitor may reach directly, with burrow visit.",
     traffic = "Traffic | Limits for this visitor."
 ))]
 pub struct VisitorEntry {
@@ -64,6 +64,7 @@ pub struct VisitorEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
+        help = "Open connections this visitor may have at once, for example 20; empty is unlimited",
         group = traffic,
         none_label = "Unlimited",
         advanced
@@ -74,7 +75,7 @@ pub struct VisitorEntry {
         description = "Let this visitor administer the server with burrow admin: read shows the dashboard and the config, write may also change it"
     )]
     #[admin(
-        label = "Admin access",
+        label = "Level",
         group = admin,
         none_label = "None",
         danger_when_set,
@@ -90,9 +91,10 @@ pub struct VisitorEntry {
         ty = list(cidr),
         label = "Admin only from",
         group = admin,
-        visible_if(set(admin)),
+        enabled_if(set(admin), "This applies only to a visitor with admin access"),
         empty_label = "Any address",
-        reduce_only
+        reduce_only,
+        advanced
     )]
     pub admin_from: Vec<String>,
 }
@@ -130,9 +132,9 @@ pub enum ProxyVersion {
 #[serde(untagged)]
 #[admin(semantic = union(enum_values("any"), cidr_rule, list(cidr_rule)))]
 pub enum Reach {
-    #[admin(label = "Any or one rule")]
+    #[admin(label = "Any target, or one")]
     One(String),
-    #[admin(label = "Rules")]
+    #[admin(label = "Only these targets")]
     Many(Vec<String>),
 }
 
@@ -170,13 +172,15 @@ impl Secrets {
 #[serde(deny_unknown_fields)]
 #[admin(
     entity = service,
-    tcp_only(mode, health_check, max_connections, proxy_protocol),
+    tcp_only(mode, health_check, max_connections, proxy_protocol, web),
     label = "Service",
     groups(
+        exposure = "Target | The protocol, and where connections lead.",
         who = "Where it runs | Clients that reach the target.",
-        exposure = "Exposure | What opens on the server, and where it leads.",
-        access = "Access | Who may connect.",
-        traffic = "Traffic | Limits and what the target sees."
+        reach = "Reached by | The ways in to this service; any mix of them works.",
+        website = "Website | How the web proxy reaches it.",
+        access = "Who may connect | All ways in: the addresses that may connect, and limits.",
+        traffic = "What the target sees | Whether the target learns the visitor's address."
     )
 )]
 pub struct ServiceEntry {
@@ -186,15 +190,20 @@ pub struct ServiceEntry {
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
-        description = "Several clients that can each reach the target, instead of client; see mode"
+        description = "Several clients that can each reach the target, instead of client: a name, or {name, target, weight} for another target and its share with mode: balance; see mode"
     )]
-    #[admin(help = "Clients that can each reach the target; with two or more, Mode appears to choose how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
-    pub clients: Vec<String>,
+    #[admin(help = "Clients that can each reach the target, each at the main target or another one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked", ty = ref_entries(client, reserved = "self"), group = who, one_of = "who")]
+    pub clients: Vec<ClientRef>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
-        description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them"
+        description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least_connections sends each new one to the client with the fewest open connections"
     )]
-    #[admin(group = who, visible_if(len_ge(clients, 2)))]
+    #[admin(
+        help = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones",
+        group = who,
+        wide,
+        enabled_if(len_ge(clients, 2), "This applies only with two or more clients")
+    )]
     pub mode: Mode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -213,17 +222,17 @@ pub struct ServiceEntry {
     #[admin(help = "The address and port the server opens for this service, for example 8080 or 127.0.0.1:8080",
         ty = ip_port(ranges, max_range = 1000),
         label = "Public address",
-        group = exposure,
-        none_label = "Private: no public port",
+        group = reach,
+        none_label = "No public port",
         cross(target, protocol)
     )]
     pub bind: Option<Bind>,
     #[schemars(
         description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
     )]
-    #[admin(help = "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself",
+    #[admin(help = "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself; a client row can use another target",
         ty = target(ranges, unix),
-        label = "Target on the client",
+        label = "Main target",
         group = exposure,
         same_len(bind),
         cross(bind, protocol)
@@ -240,15 +249,16 @@ pub struct ServiceEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        group = traffic,
-        none_label = "Unlimited"
+        group = access,
+        none_label = "Unlimited",
+        advanced
     )]
     pub max_connections: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Visitors that may reach this service with burrow visit")]
     #[admin(
         ty = ref_list(visitor),
-        group = access,
+        group = reach,
         empty_label = "No visitors",
         inverse(entity = visitor, label = "Services it may use"),
         narrow
@@ -288,22 +298,42 @@ pub struct ServiceEntry {
     #[admin(help = "Speed limit in each direction, shared by all connections of this service, for example 40mbit or 5MB per second",
         ty = rate,
         label = "Speed limit",
-        group = traffic,
+        group = access,
         none_label = "Unlimited",
-        wide
+        wide,
+        advanced
     )]
     pub bandwidth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Make this service a website on the web proxy: a host name, a list of them, or {hosts, tls}"
+    )]
+    #[admin(
+        label = "Names",
+        help = "Names that lead to this service on the web proxy's HTTPS port, for example nas.example.com",
+        group = website,
+        none_label = "Not a website"
+    )]
+    pub web: Option<ServiceWeb>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     #[default]
     #[admin(label = "Failover", help = "Use the first client that is up")]
     Failover,
-    #[admin(label = "Balance", help = "Spread new connections over all clients")]
+    #[admin(
+        label = "Balance",
+        help = "Spread new connections over all clients that are up, by their weight"
+    )]
     Balance,
+    #[admin(
+        label = "Least connections",
+        help = "Send each new connection to the client that is up with the fewest open connections"
+    )]
+    LeastConnections,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -334,6 +364,17 @@ pub struct HealthCheck {
     #[schemars(range(min = 1, max = 100))]
     #[admin(ty = integer(unit = "checks"), label = "Failures before down")]
     pub failures: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "For a website: check with GET of this path through each client, 2xx or 3xx is up, for example /healthz; without it the check opens a TCP connection"
+    )]
+    #[admin(
+        ty = url_path,
+        label = "Path to check",
+        help = "For a website: ask the app for this path through each client, for example /healthz; an answer of 2xx or 3xx counts as up, and the path must not need a login",
+        none_label = "Only open a connection"
+    )]
+    pub path: Option<String>,
 }
 
 impl Default for HealthCheck {
@@ -342,6 +383,7 @@ impl Default for HealthCheck {
             interval_secs: 10,
             timeout_secs: 3,
             failures: 2,
+            path: None,
         }
     }
 }
@@ -355,6 +397,20 @@ pub enum Bind {
     Port(#[schemars(range(min = 1))] u16),
     #[admin(label = "Text")]
     Addr(String),
+}
+
+impl Bind {
+    pub fn ranged(
+        &self,
+        default_ip: [u8; 4],
+        what: &str,
+    ) -> Result<(std::net::SocketAddr, u16), String> {
+        match self {
+            Bind::Port(0) => Err("port 0 is not allowed".into()),
+            Bind::Port(p) => Ok((std::net::SocketAddr::from((default_ip, *p)), 1)),
+            Bind::Addr(s) => burrow_syntax::ports::parse_ranged_text(s, default_ip, what),
+        }
+    }
 }
 
 impl std::fmt::Display for Bind {
@@ -378,6 +434,28 @@ pub enum Target {
 }
 
 impl Target {
+    pub fn ports(&self) -> Result<u16, String> {
+        let text = self.host_port();
+        if burrow_syntax::unix::path_of(&text).is_some() {
+            return Ok(1);
+        }
+        burrow_syntax::ports::split_target(&text).map(|(_, n)| n)
+    }
+
+    pub fn host(&self) -> Option<String> {
+        let hp = self.host_port();
+        if burrow_syntax::unix::path_of(&hp).is_some() {
+            return None;
+        }
+        if let Some((inner, _)) = hp.strip_prefix('[').and_then(|r| r.split_once(']')) {
+            return Some(inner.to_string());
+        }
+        Some(match hp.rsplit_once(':') {
+            Some((host, _)) if !host.contains(':') => host.to_string(),
+            _ => hp,
+        })
+    }
+
     pub fn host_port(&self) -> String {
         match self {
             Target::Port(p) => format!("127.0.0.1:{p}"),

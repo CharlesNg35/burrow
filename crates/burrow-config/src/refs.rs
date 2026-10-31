@@ -4,10 +4,44 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::serde_json::{Map, Value};
 use burrow_admin_proto::value::get;
 
-use crate::field::Entry;
-use crate::model::{ClientEntry, ServerConfig, ServiceEntry, VisitorEntry};
+use burrow_admin_proto::schema::Entity;
 
-pub fn rename_refs(root: &mut Value, section: &str, from: &str, to: &str) -> Vec<Path> {
+use crate::field::{Entry, entity_at};
+use crate::model::{ClientEntry, ServerConfig, ServiceClient, ServiceEntry, VisitorEntry, WebSite};
+
+pub fn rename_refs(root: &mut Value, entry: &[String], to: &str) -> Vec<Path> {
+    let Some((from, parent)) = entry.split_last() else {
+        return Vec::new();
+    };
+    match entity_at(parent) {
+        Some(Entity::Login) => {
+            rename_login(root, from, to);
+            Vec::new()
+        }
+        Some(e) => rename_in_services(root, e.section(), from, to),
+        None => Vec::new(),
+    }
+}
+
+fn rename_login(root: &mut Value, from: &str, to: &str) {
+    let Some(services) = ServerConfig::SERVICES
+        .get_mut(root)
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    for svc in services.values_mut() {
+        if let Some(v) = ServiceEntry::WEB
+            .then(WebSite::FORWARD_AUTH)
+            .get_mut(svc)
+            .filter(|v| v.as_str().map(str::trim) == Some(from))
+        {
+            *v = Value::String(to.to_string());
+        }
+    }
+}
+
+fn rename_in_services(root: &mut Value, section: &str, from: &str, to: &str) -> Vec<Path> {
     let mut keys = Vec::new();
     let fields = if section == ClientEntry::section() {
         vec![ServiceEntry::CLIENT.key(), ServiceEntry::CLIENTS.key()]
@@ -29,6 +63,8 @@ pub fn rename_refs(root: &mut Value, section: &str, from: &str, to: &str) -> Vec
                     Some(Value::Array(items)) => items.iter_mut().for_each(|v| {
                         if v.as_str() == Some(from) {
                             *v = Value::String(to.to_string());
+                        } else if crate::model::ref_name(v) == Some(from) {
+                            ServiceClient::NAME.set(v, Value::String(to.to_string()));
                         }
                     }),
                     Some(v) if v.as_str() == Some(from) => *v = Value::String(to.to_string()),
@@ -67,27 +103,25 @@ struct Refs {
 }
 
 fn names_in(v: Option<&Value>) -> Vec<String> {
-    match v {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect(),
-        Some(Value::String(s)) => vec![s.clone()],
-        _ => Vec::new(),
-    }
+    ServiceEntry::listed_names(v)
 }
 
 fn refs(section: &str, v: &Value, shared: &BTreeSet<String>) -> Option<Refs> {
     let mut rest = v.as_object().cloned().unwrap_or_default();
     if section == ServiceEntry::section() {
-        let mut clients = names_in(rest.remove(ServiceEntry::CLIENT.key()).as_ref());
-        clients.extend(names_in(rest.remove(ServiceEntry::CLIENTS.key()).as_ref()));
+        let single = rest.remove(ServiceEntry::CLIENT.key());
+        let listed = rest.remove(ServiceEntry::CLIENTS.key());
+        let mut clients = names_in(single.as_ref());
+        clients.extend(names_in(listed.as_ref()));
         let visitors = names_in(rest.remove(ServiceEntry::VISITORS.key()).as_ref());
-        let order = clients
-            .iter()
-            .filter(|c| shared.contains(*c))
-            .map(|c| Value::String(c.clone()))
+        let entries = match listed {
+            Some(Value::Array(a)) => a,
+            other => other.into_iter().collect(),
+        };
+        let order = single
+            .into_iter()
+            .chain(entries)
+            .filter(|c| crate::model::ref_name(c).is_some_and(|n| shared.contains(n)))
             .collect();
         return Some(Refs {
             rest: Value::Object(rest),
@@ -189,7 +223,7 @@ mod tests {
             },
             "visitors": {"lap": {"reach": {"home": "any", "office": "any", "lab": "any"}}}
         });
-        let keys = rename_refs(&mut doc, ClientEntry::section(), "home", "home2");
+        let keys = rename_refs(&mut doc, &p("clients", "home"), "home2");
         assert_eq!(keys, [VisitorEntry::REACH.entry_of("lap", "home")]);
         assert_eq!(doc["services"]["web"]["client"], "home2");
         assert_eq!(doc["services"]["db"]["clients"], json!(["office", "home2"]));
@@ -200,13 +234,48 @@ mod tests {
             .keys()
             .collect();
         assert_eq!(keys, ["home2", "office", "lab"]);
-        rename_refs(&mut doc, VisitorEntry::section(), "home", "guest");
+        let mut weighted =
+            json!({"services": {"db": {"clients": ["a", {"name": "home", "weight": 3}]}}});
+        rename_refs(&mut weighted, &p("clients", "home"), "home2");
+        assert_eq!(
+            weighted["services"]["db"]["clients"],
+            json!(["a", {"name": "home2", "weight": 3}])
+        );
+        rename_refs(&mut doc, &p("visitors", "home"), "guest");
         assert_eq!(doc["services"]["ssh"]["visitors"], json!(["guest"]));
         assert_eq!(doc["services"]["web"]["client"], "home2");
     }
 
     fn p(a: &str, b: &str) -> Path {
         vec![a.to_string(), b.to_string()]
+    }
+
+    #[test]
+    fn a_renamed_login_service_is_renamed_on_every_site_that_names_it() {
+        let mut doc = json!({
+            "web": {"forward_auth": {"sso": {"service": "authelia", "path": "/a"}}},
+            "services": {
+                "wiki": {"client": "home", "target": 80, "web": {"hosts": ["w.example.com"], "forward_auth": "sso"}},
+                "dav": {"client": "home", "target": 81, "web": {"hosts": ["d.example.com"], "forward_auth": true}},
+                "blog": {"client": "home", "target": 82, "web": "b.example.com"},
+                "sso": {"client": "home", "target": 9091}
+            }
+        });
+        let at = vec![
+            "web".to_string(),
+            "forward_auth".to_string(),
+            "sso".to_string(),
+        ];
+        assert!(rename_refs(&mut doc, &at, "authelia").is_empty());
+        assert_eq!(doc["services"]["wiki"]["web"]["forward_auth"], "authelia");
+        assert_eq!(doc["services"]["dav"]["web"]["forward_auth"], true);
+        assert_eq!(doc["services"]["blog"]["web"], "b.example.com");
+        assert_eq!(
+            doc["services"]["sso"]["client"], "home",
+            "a service of the same name stays"
+        );
+        assert!(rename_refs(&mut doc, &p("services", "sso"), "x").is_empty());
+        assert_eq!(doc["services"]["wiki"]["web"]["forward_auth"], "authelia");
     }
 
     #[test]

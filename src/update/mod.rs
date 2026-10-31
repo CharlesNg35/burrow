@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::base::failure::{Failure, admin, cmd};
+use crate::base::output::say;
 use crate::install::Manifest;
 use crate::service::{self, parse_version};
 
@@ -102,21 +103,12 @@ pub fn find_asset(sums: &str, platform: &str, ext: &str) -> Option<Asset> {
     })
 }
 
-fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
-    match writeln!(out, "{}", line.as_ref()).and_then(|_| out.flush()) {
-        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => {
-            Err(Failure::new(format!("cannot write output: {e}")))
-        }
-        _ => Ok(()),
-    }
-}
-
 fn in_container() -> bool {
     cfg!(target_os = "linux")
         && (Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists())
 }
 
-fn fetch(url: &str, limit: usize) -> Result<http::Fetched, String> {
+fn fetch(url: &str, limit: usize) -> Result<http::Fetched, http::FetchError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -308,7 +300,7 @@ fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Fail
             return Err(Failure::new(format!("{what} at {base}"))
                 .hint(format!("see the releases at {base}")));
         }
-        Err(e) if e.contains("is plain http") => {
+        Err(e @ http::FetchError::Insecure(_)) => {
             return Err(Failure::new(format!("cannot check for a new version: {e}")));
         }
         Err(e) => {
@@ -397,7 +389,7 @@ fn download(
         }
         Err(e) => return Err(Failure::new(format!("cannot download {}: {e}", asset.name))),
     };
-    let got = hex(&Sha256::digest(&data));
+    let got = hex::encode(Sha256::digest(&data));
     if got != asset.sha256 {
         return Err(Failure::new(format!(
             "{} does not match its SHA-256 in SHA256SUMS (expected {}, got {got}); nothing was changed",
@@ -480,10 +472,6 @@ fn update_services_with(me: &Path) -> String {
     } else {
         format!("sudo {me} service update")
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    hex::encode(bytes)
 }
 
 fn connect_hint(url: &str, env: &dyn Fn(&str) -> Option<String>) -> String {
@@ -667,7 +655,7 @@ mod tests {
     #[test]
     fn hashes_as_lowercase_hex() {
         assert_eq!(
-            hex(&Sha256::digest(b"abc")),
+            hex::encode(Sha256::digest(b"abc")),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
     }

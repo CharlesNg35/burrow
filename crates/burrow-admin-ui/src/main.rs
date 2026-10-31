@@ -13,11 +13,14 @@ mod edit;
 mod form;
 mod format;
 mod grants;
+mod logins;
+mod passwords;
 mod review;
 mod route;
 mod screens;
 mod secrets;
 mod store;
+mod uploads;
 
 fn main() {
     console_error_panic_hook::set_once();

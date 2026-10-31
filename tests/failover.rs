@@ -1,10 +1,17 @@
 mod common;
+#[path = "failover/entries.rs"]
+mod entries;
 #[path = "failover/health.rs"]
 mod health;
+#[cfg(feature = "web")]
+#[path = "failover/http_check.rs"]
+mod http_check;
 #[path = "failover/selection.rs"]
 mod selection;
 #[path = "failover/udp_moves.rs"]
 mod udp_moves;
+#[path = "failover/weights.rs"]
+mod weights;
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -231,13 +238,8 @@ async fn served_by(addr: SocketAddr) -> Option<char> {
 }
 
 async fn eventually_served_by(addr: SocketAddr, want: char) {
-    for _ in 0..100 {
-        if served_by(addr).await == Some(want) {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    panic!("connections never reached client {want}");
+    let reached = within_tries(100, || async move { served_by(addr).await == Some(want) }).await;
+    assert!(reached, "connections never reached client {want}");
 }
 
 fn web(mode: Mode, health: Option<Health>) -> Service {
@@ -255,5 +257,6 @@ fn quick_health() -> Option<Health> {
         interval: Duration::from_millis(300),
         timeout: Duration::from_secs(1),
         failures: 1,
+        http: None,
     })
 }

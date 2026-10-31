@@ -1,22 +1,34 @@
 pub mod admin_hook;
+mod balance;
+#[cfg(feature = "web")]
+mod certs;
 mod control;
 mod fields;
 mod health;
 mod listen;
 mod local;
+pub mod passwords;
 mod pick;
 mod reload;
 mod route;
 mod run;
 mod session;
+mod share;
 mod standing;
 mod start;
 mod status;
 mod tcp;
 mod udp;
+pub mod uploads;
 mod via;
 mod visit;
 mod visit_udp;
+#[cfg(feature = "web")]
+mod web;
+#[cfg(not(feature = "web"))]
+mod web_off;
+#[cfg(not(feature = "web"))]
+use web_off as web;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -33,6 +45,8 @@ use crate::config::settings::ServerSettings;
 use crate::policy::ratelimit::Limit;
 pub use session::{ClientSession, PoolConfig, TakeError};
 pub use start::bind_error;
+#[cfg(feature = "web")]
+pub(crate) use start::private_write;
 use start::{
     BIND_RETRY, FREED_TRIES, MetricsTask, ServiceTask, Wanted, WsTask, accept_tcp, bind_metrics,
     bind_service, bind_with_retry, bind_ws_with_retry, log_service, spawn_service, take_channel,
@@ -50,7 +64,8 @@ pub struct Shared {
     drained: Notify,
     rejected: AtomicUsize,
     handshakes: RwLock<Arc<Semaphore>>,
-    handshake_sources: Arc<Mutex<HashMap<std::net::IpAddr, usize>>>,
+    handshake_sources: burrow_syntax::share::Shares<std::net::IpAddr>,
+    visitor_shares: share::VisitorShares,
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
     applied: watch::Sender<ApplyReport>,
@@ -58,12 +73,24 @@ pub struct Shared {
     service_counts: Counts,
     visitor_counts: Counts,
     client_counts: Counts,
+    entry_counts: balance::EntryCounts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
+    web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
     standing: Mutex<standing::Standing>,
-    turns: Mutex<HashMap<String, usize>>,
+    wheels: Mutex<balance::Wheels>,
     local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,
+    #[cfg(feature = "web")]
+    certs: Arc<burrow_web::tls::Store>,
+}
+
+pub(crate) struct SessionInfo {
+    pub(crate) name: String,
+    pub(crate) secret_fp: String,
+    pub(crate) from: String,
+    pub(crate) allow: Option<Vec<String>>,
+    pub(crate) over_websocket: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -72,6 +99,7 @@ pub struct ApplyReport {
     pub rejected: Option<String>,
     pub unbound: Vec<String>,
     pub restart: Vec<&'static str>,
+    pub lines: Vec<String>,
 }
 
 #[derive(Default)]
@@ -79,24 +107,39 @@ struct Counts(Mutex<HashMap<String, Arc<AtomicUsize>>>);
 
 impl Counts {
     fn enter(&self, name: &str) -> (CountGuard, usize) {
-        let count = self
-            .0
-            .lock()
-            .expect("counts lock")
-            .entry(name.to_string())
-            .or_default()
-            .clone();
-        let before = count.fetch_add(1, Ordering::AcqRel);
-        (CountGuard(count), before)
+        enter_in(&mut self.0.lock().expect("counts lock"), name)
     }
 
-    fn current(&self, name: &str) -> u64 {
+    fn retain(&self, keep: impl Fn(&str) -> bool) {
         self.0
             .lock()
             .expect("counts lock")
-            .get(name)
-            .map_or(0, |c| c.load(Ordering::Acquire) as u64)
+            .retain(|name, c| Arc::strong_count(c) > 1 || keep(name));
     }
+
+    fn current(&self, name: &str) -> u64 {
+        current_in(&self.0.lock().expect("counts lock"), name)
+    }
+}
+
+fn enter_in<K, Q>(counts: &mut HashMap<K, Arc<AtomicUsize>>, key: &Q) -> (CountGuard, usize)
+where
+    K: std::borrow::Borrow<Q> + Eq + std::hash::Hash,
+    Q: Eq + std::hash::Hash + ToOwned<Owned = K> + ?Sized,
+{
+    let count = crate::base::slots::shared_slot(counts, key, Arc::default);
+    let before = count.fetch_add(1, Ordering::AcqRel);
+    (CountGuard(count), before)
+}
+
+fn current_in<K, Q>(counts: &HashMap<K, Arc<AtomicUsize>>, key: &Q) -> u64
+where
+    K: std::borrow::Borrow<Q> + Eq + std::hash::Hash,
+    Q: Eq + std::hash::Hash + ?Sized,
+{
+    counts
+        .get(key)
+        .map_or(0, |c| c.load(Ordering::Acquire) as u64)
 }
 
 pub(super) struct CountGuard(Arc<AtomicUsize>);
@@ -108,6 +151,13 @@ impl Drop for CountGuard {
 }
 
 impl Shared {
+    pub(super) fn refused_handshake(&self) {
+        self.rejected.fetch_add(1, Ordering::Relaxed);
+        self.metrics
+            .handshakes_refused
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     pub(super) fn client_opens(&self, client: &str) -> (CountGuard, usize) {
         self.client_counts.enter(client)
     }
@@ -133,15 +183,24 @@ impl Shared {
             .get(service)
             .and_then(|s| s.bandwidth)
             .unwrap_or(0);
-        self.limits
-            .lock()
-            .expect("limits lock")
-            .entry(service.to_string())
-            .or_insert_with(|| Limit::new(rate))
-            .clone()
+        let mut limits = self.limits.lock().expect("limits lock");
+        crate::base::slots::shared_slot(&mut limits, service, || Limit::new(rate))
     }
 
     fn sync_limits(&self, settings: &ServerSettings) {
+        self.wheels
+            .lock()
+            .expect("wheels lock")
+            .retain(&settings.services);
+        self.entry_counts.prune(&settings.services);
+        self.service_counts
+            .retain(|n| settings.services.contains_key(n));
+        self.visitor_counts
+            .retain(|n| settings.visitors.contains_key(n));
+        self.client_counts
+            .retain(|n| n == burrow_config::SELF || settings.clients.contains_key(n));
+        self.metrics
+            .retain(&settings.services, &settings.visitors, &settings.clients);
         let mut limits = self.limits.lock().expect("limits lock");
         limits.retain(|name, _| settings.services.contains_key(name));
         for (name, limit) in limits.iter() {
@@ -165,18 +224,17 @@ impl Shared {
         self.shutdown.clone()
     }
 
-    pub(crate) fn client_sessions(&self) -> Vec<(String, String, String, Option<Vec<String>>)> {
+    pub(crate) fn client_sessions(&self) -> Vec<SessionInfo> {
         self.sessions
             .lock()
             .expect("sessions lock")
             .values()
-            .map(|s| {
-                (
-                    s.name.clone(),
-                    s.secret.fingerprint(),
-                    s.peer.to_string(),
-                    s.allow(),
-                )
+            .map(|s| SessionInfo {
+                name: s.name.clone(),
+                secret_fp: s.secret.fingerprint(),
+                from: s.peer.to_string(),
+                allow: s.allow(),
+                over_websocket: s.over_websocket,
             })
             .collect()
     }
@@ -194,6 +252,7 @@ impl Shared {
         rejected: Option<String>,
         unbound: Vec<String>,
         restart: Vec<&'static str>,
+        lines: Vec<String>,
     ) {
         self.applied.send_modify(|r| {
             *r = ApplyReport {
@@ -201,6 +260,7 @@ impl Shared {
                 rejected,
                 unbound,
                 restart,
+                lines,
             }
         });
     }
@@ -307,6 +367,7 @@ pub struct Server {
     metrics: Option<MetricsTask>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,
+    web: Option<web::WebTask>,
     services: HashMap<String, ServiceTask>,
     shutdown_tx: watch::Sender<bool>,
     wanted: Wanted,
@@ -339,6 +400,19 @@ impl Server {
 mod tests {
     use super::*;
     use burrow_config::Protocol;
+
+    #[test]
+    fn a_count_for_a_name_no_longer_configured_goes_once_nothing_holds_it() {
+        let counts = Counts::default();
+        let (guard, _) = counts.enter("old");
+        counts.enter("kept");
+        counts.retain(|n| n == "kept");
+        assert_eq!(counts.current("old"), 1, "an open connection keeps it");
+        drop(guard);
+        counts.retain(|n| n == "kept");
+        assert!(!counts.0.lock().unwrap().contains_key("old"));
+        assert!(counts.0.lock().unwrap().contains_key("kept"));
+    }
 
     #[test]
     fn busy_port_hint_names_the_platform_tool_and_the_protocol() {

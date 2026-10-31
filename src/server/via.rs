@@ -27,9 +27,13 @@ impl Via {
         }
     }
 
-    pub(crate) async fn take(&self) -> Result<Channel, TakeError> {
+    pub(crate) async fn take(
+        &self,
+        wait: std::time::Duration,
+        source: Option<std::net::IpAddr>,
+    ) -> Result<Channel, TakeError> {
         match self {
-            Via::Client(s) => s.take().await,
+            Via::Client(s) => s.take(wait, source).await,
             Via::Local(d) => Ok(d.open()),
         }
     }

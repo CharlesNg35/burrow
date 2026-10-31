@@ -1,6 +1,6 @@
 [package]
 name = "burrow-syntax"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "Shared value parsers and rules of burrow configs, used by the server and the admin UI"
 license = "MIT"

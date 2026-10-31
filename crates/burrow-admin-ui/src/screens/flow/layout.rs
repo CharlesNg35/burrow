@@ -69,6 +69,7 @@ pub(super) fn short_bind(bind: &str) -> String {
 pub(super) struct Svc {
     pub(super) name: String,
     pub(super) bind: Option<String>,
+    pub(super) web: Vec<String>,
     pub(super) target: String,
     pub(super) protocol: String,
     pub(super) clients: Vec<String>,
@@ -76,6 +77,7 @@ pub(super) struct Svc {
     pub(super) rate: f64,
     pub(super) health: Health,
     pub(super) badge: Option<String>,
+    pub(super) reached: String,
 }
 
 pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&str>) -> Chart {
@@ -175,7 +177,11 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
                             .get(v)
                             .filter(|b| !b.is_null())
                             .map(plain),
-                        target: ServiceEntry::TARGET.get(v).map(plain).unwrap_or_default(),
+                        web: burrow_admin_logic::web::hosts(v),
+                        target: ServiceEntry::TARGET
+                            .get(v)
+                            .map(burrow_admin_logic::web::target_value_shown)
+                            .unwrap_or_default(),
                         protocol: ServiceEntry::PROTOCOL
                             .get(v)
                             .map(plain)
@@ -185,6 +191,7 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
                         rate: rates.service(name).bytes_in,
                         health,
                         badge,
+                        reached: burrow_admin_logic::web::reached(v),
                     }
                 })
                 .collect()
@@ -219,9 +226,13 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             y,
             h,
             title: "Internet".into(),
-            right: String::new(),
+            right: if lo > 0 {
+                format!("{lo} local")
+            } else {
+                String::new()
+            },
             sub: format!(
-                "{} public · {lo} loopback\n{} refused",
+                "{} public · {} refused",
                 public.len() - lo,
                 status
                     .map(|s| s.services.iter().map(|x| x.refused).sum::<u64>())
@@ -277,7 +288,7 @@ fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize
         title: "this server".into(),
         right: String::new(),
         sub: format!(
-            "{}\n{total_open} open\n{rate} {unit} in\n{} UDP peers",
+            "{}\n{total_open} open\n{rate} {unit} in\n{} {}",
             status
                 .map(|s| s
                     .listening
@@ -286,7 +297,8 @@ fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize
                     .collect::<Vec<_>>()
                     .join(" · "))
                 .unwrap_or_default(),
-            status.map(|s| s.udp_peers).unwrap_or(0)
+            status.map(|s| s.udp_peers).unwrap_or(0),
+            burrow_admin_logic::wording::UDP_SENDERS
         ),
         badge: None,
         health: Health::Unknown,

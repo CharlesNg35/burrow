@@ -1,5 +1,8 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::policy::allowlist::{AllowList, Cidr, Sources};
@@ -10,6 +13,21 @@ use crate::wire::transport::tcp::SocketTuning;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
+
+mod dns;
+mod site;
+mod web;
+
+pub use dns::{DNS_WAIT, DnsProvider, DnsSettings, SecretText};
+pub use site::{
+    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions,
+    TargetTls, WebClientAuth,
+};
+
+pub use web::{
+    CertFile, LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, WebSettings, WebSite,
+    WebTls, Written, digest_of,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerSettings {
@@ -32,6 +50,7 @@ pub struct ServerSettings {
     pub udp_max_peers: usize,
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
+    pub web: Option<WebSettings>,
 }
 
 pub struct ListenClash {
@@ -41,6 +60,23 @@ pub struct ListenClash {
 }
 
 impl ServerSettings {
+    pub fn admin_access(
+        &self,
+        visitor: &str,
+        secret: &Secret,
+        from: std::net::IpAddr,
+    ) -> Result<AdminLevel, &'static str> {
+        let v = self.visitors.get(visitor).ok_or("visitor removed")?;
+        if !v.secrets.contains(secret) {
+            return Err("secret removed");
+        }
+        let level = v.admin.ok_or("admin removed")?;
+        if !v.admits_admin(from) {
+            return Err("source not allowed");
+        }
+        Ok(level)
+    }
+
     pub fn services_for(&self, client: &str) -> Vec<crate::wire::protocol::ServiceInfo> {
         services_for(&self.services, client)
     }
@@ -55,6 +91,10 @@ impl ServerSettings {
     pub fn listen_clash(&self, next: &ServerSettings) -> Option<ListenClash> {
         let kept = self.listen.filter(|_| next.listen != self.listen)?;
         let conflicts = |a| crate::config::check::binds_conflict(kept, a);
+        let labelled = |path: &[&str]| {
+            let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+            burrow_config::label_of(&path).unwrap_or_else(|| path.join("."))
+        };
         let clash = |path: &[&str], what: String| ListenClash {
             path: path.iter().map(|s| s.to_string()).collect(),
             what,
@@ -70,12 +110,24 @@ impl ServerSettings {
                 next.websocket
                     .as_ref()
                     .filter(|w| conflicts(w.listen))
-                    .map(|_| clash(&["websocket", "listen"], "websocket.listen".into()))
+                    .map(|_| clash(&["websocket", "listen"], labelled(&["websocket"])))
             })
             .or_else(|| {
                 next.metrics
                     .filter(|m| conflicts(*m))
-                    .map(|_| clash(&["metrics", "listen"], "metrics.listen".into()))
+                    .map(|_| clash(&["metrics", "listen"], labelled(&["metrics"])))
+            })
+            .or_else(|| {
+                next.web
+                    .as_ref()
+                    .filter(|w| w.https.is_some_and(conflicts))
+                    .map(|_| clash(&["web", "https"], labelled(&["web", "https"])))
+            })
+            .or_else(|| {
+                next.web
+                    .as_ref()
+                    .filter(|w| w.http.is_some_and(conflicts))
+                    .map(|_| clash(&["web", "http"], labelled(&["web", "http"])))
             })
     }
 }
@@ -119,16 +171,53 @@ impl VisitorAuth {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Health {
     pub interval: Duration,
     pub timeout: Duration,
     pub failures: u32,
+    pub http: Option<HttpCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HttpCheck {
+    pub path: String,
+    pub host: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EntryKey {
+    pub client: Arc<str>,
+    pub base: Arc<str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Entry {
+    pub client: String,
+    pub target: Option<String>,
+    pub weight: u32,
+    pub key: EntryKey,
+}
+
+impl Entry {
+    pub fn new(client: &str, target: Option<String>, weight: u32, service_target: &str) -> Entry {
+        let base = target.as_deref().unwrap_or(service_target);
+        Entry {
+            key: EntryKey {
+                client: Arc::from(client),
+                base: Arc::from(base),
+            },
+            client: client.to_string(),
+            target,
+            weight,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Service {
     pub clients: Vec<String>,
+    pub entries: Vec<Entry>,
     pub mode: Mode,
     pub health: Option<Health>,
     pub bind: Option<SocketAddr>,
@@ -146,6 +235,7 @@ impl Default for Service {
     fn default() -> Self {
         Service {
             clients: Vec::new(),
+            entries: Vec::new(),
             mode: Mode::Failover,
             health: None,
             bind: None,
@@ -162,6 +252,39 @@ impl Default for Service {
 }
 
 impl Service {
+    pub fn entries(&self) -> Cow<'_, [Entry]> {
+        if !self.entries.is_empty() {
+            return Cow::Borrowed(&self.entries);
+        }
+        Cow::Owned(
+            self.clients
+                .iter()
+                .map(|c| Entry::new(c, None, 1, &self.target))
+                .collect(),
+        )
+    }
+
+    pub fn entries_id(&self) -> u64 {
+        let mut h = std::hash::DefaultHasher::new();
+        for e in self.entries().iter() {
+            e.key.hash(&mut h);
+            e.weight.hash(&mut h);
+        }
+        h.finish()
+    }
+
+    pub fn several(&self) -> bool {
+        self.entries.len().max(self.clients.len()) > 1
+    }
+
+    pub fn target_of<'a>(&'a self, entry: &'a Entry) -> &'a str {
+        &entry.key.base
+    }
+
+    pub fn entry_target_at(&self, entry: &Entry, index: u16) -> String {
+        crate::config::check::ports::port_at(self.target_of(entry), index)
+    }
+
     pub fn target_at(&self, index: u16) -> String {
         crate::config::check::ports::port_at(&self.target, index)
     }
@@ -312,15 +435,40 @@ impl Limit {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Shares {
+    #[default]
+    Nothing,
+    Https,
+    Http,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct WebSocketSettings {
     pub listen: SocketAddr,
     pub path: String,
     pub tls: Option<TlsMaterial>,
     pub keepalive: std::time::Duration,
+    pub host: Option<String>,
+    pub shares: Shares,
 }
 
 impl WebSocketSettings {
+    pub fn shared_url(&self) -> Option<String> {
+        let tls = match self.shares {
+            Shares::Nothing => return None,
+            Shares::Https => true,
+            Shares::Http => false,
+        };
+        let url = Endpoint::WebSocket {
+            tls,
+            host: self.host.clone()?,
+            port: self.listen.port(),
+            path: self.path.clone(),
+        };
+        Some(url.to_string())
+    }
+
     pub fn shape(&self) -> burrow_syntax::address::WsShape<'_> {
         burrow_syntax::address::WsShape {
             listen: self.listen,
@@ -343,6 +491,7 @@ impl std::fmt::Debug for WebSocketSettings {
         f.debug_struct("WebSocketSettings")
             .field("listen", &self.listen)
             .field("path", &self.path)
+            .field("host", &self.host)
             .field(
                 "tls",
                 &self.tls.as_ref().map(|t| (&t.cert_path, &t.key_path)),
@@ -367,6 +516,52 @@ mod tests {
     }
 
     #[test]
+    fn a_balanced_client_keeps_its_weight_and_a_named_client_weighs_one() {
+        let s = settings(&format!(
+            "listen: 7835\nclients:\n  a: {{ secret: SECRET }}\n  b: {{ secret: {} }}\nservices:\n  web:\n    mode: balance\n    bind: 7840\n    target: 80\n    clients: [{{ name: a, weight: 3 }}, b]\n",
+            Secret::generate().encode()
+        ));
+        let weights: Vec<(&str, u32)> = s.services["web"]
+            .entries
+            .iter()
+            .map(|e| (e.client.as_str(), e.weight))
+            .collect();
+        assert_eq!(weights, [("a", 3), ("b", 1)]);
+    }
+
+    #[test]
+    fn admin_access_names_why_a_visitor_has_none() {
+        let base = format!(
+            "listen: 7835\nclients:\n  home: {{ secret: SECRET }}\nvisitors:\n  ops: {{ secret: {}, admin: write, admin_from: [10.0.0.0/8] }}\nservices:\n  web: {{ client: home, bind: 7840, target: 80 }}\n",
+            Secret::generate().encode()
+        );
+        let s = settings(&base);
+        let secret = s.visitors["ops"].secrets[0].clone();
+        let inside: std::net::IpAddr = "10.1.2.3".parse().unwrap();
+        assert_eq!(
+            s.admin_access("ops", &secret, inside),
+            Ok(AdminLevel::Write)
+        );
+        assert_eq!(
+            s.admin_access("gone", &secret, inside),
+            Err("visitor removed")
+        );
+        let other = Secret::generate();
+        assert_eq!(s.admin_access("ops", &other, inside), Err("secret removed"));
+        let outside = "192.0.2.1".parse().unwrap();
+        assert_eq!(
+            s.admin_access("ops", &secret, outside),
+            Err("source not allowed")
+        );
+        let none = settings(&base.replace(", admin: write, admin_from: [10.0.0.0/8]", ""));
+        let secret = none.visitors["ops"].secrets[0].clone();
+        assert_eq!(
+            none.admin_access("ops", &secret, inside),
+            Err("admin removed")
+        );
+    }
+
+    #[test]
     fn a_new_listener_on_the_kept_listen_address_is_a_clash() {
         let base = "listen: 7835\nclients:\n  home: { secret: SECRET }\nservices:\n  web: { client: home, bind: 7840, target: 80 }\n";
         let old = settings(base);
@@ -387,12 +582,22 @@ mod tests {
         assert_eq!(c.kept.port(), 7835);
         let ws =
             settings(&base.replace("listen: 7835", "listen: 7836\nwebsocket: { listen: 7835 }"));
-        assert_eq!(old.listen_clash(&ws).unwrap().what, "websocket.listen");
+        assert_eq!(old.listen_clash(&ws).unwrap().what, "WebSocket");
         let metrics = settings(&base.replace(
             "listen: 7835",
             "listen: 7836\nmetrics: { listen: 0.0.0.0:7835 }",
         ));
-        assert_eq!(old.listen_clash(&metrics).unwrap().what, "metrics.listen");
+        assert_eq!(old.listen_clash(&metrics).unwrap().what, "Metrics endpoint");
+        if cfg!(feature = "web") {
+            let web = settings(
+                &base.replace("listen: 7835", "listen: 7836\nweb: { https: 0.0.0.0:7835 }"),
+            );
+            let c = old.listen_clash(&web).unwrap();
+            assert_eq!(
+                (c.what.as_str(), c.path.clone()),
+                ("HTTPS port", vec!["web".to_string(), "https".to_string()])
+            );
+        }
         let udp = settings(&base.replace("listen: 7835", "listen: 7836").replace(
             "bind: 7840, target: 80",
             "bind: 7835, target: 80, protocol: udp",
@@ -401,5 +606,35 @@ mod tests {
             old.listen_clash(&udp).is_none(),
             "a UDP port does not clash with a TCP listener"
         );
+    }
+
+    #[test]
+    fn the_shared_tunnel_url_follows_the_web_port_it_shares() {
+        let ws = |listen: &str, shares: Shares| WebSocketSettings {
+            listen: listen.parse().unwrap(),
+            path: "/burrow".into(),
+            tls: None,
+            keepalive: std::time::Duration::from_secs(25),
+            host: Some("tunnel.example.com".into()),
+            shares,
+        };
+        let url = |listen: &str, shares| ws(listen, shares).shared_url();
+        assert_eq!(
+            url("[::]:443", Shares::Https).as_deref(),
+            Some("wss://tunnel.example.com/burrow")
+        );
+        assert_eq!(
+            url("[::]:8443", Shares::Https).as_deref(),
+            Some("wss://tunnel.example.com:8443/burrow")
+        );
+        assert_eq!(
+            url("[::]:80", Shares::Http).as_deref(),
+            Some("ws://tunnel.example.com/burrow")
+        );
+        assert_eq!(
+            url("[::]:8080", Shares::Http).as_deref(),
+            Some("ws://tunnel.example.com:8080/burrow")
+        );
+        assert_eq!(url("127.0.0.1:7836", Shares::Nothing), None);
     }
 }

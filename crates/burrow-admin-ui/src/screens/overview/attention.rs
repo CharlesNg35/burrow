@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::format;
-use crate::route::Link;
+use crate::route::{Link, Route};
 use crate::store::store;
 
 use super::{Item, attention, away, names, old_server_item};
@@ -31,9 +31,27 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
     let li = "border-b border-rowline last:border-b-0";
     view! {
         <li class=li data-item=i.key.clone() data-tone=tone.name()>
-            {match i.to {
-                Some(to) => view! { <Link to=to class=class>{inner}</Link> }.into_any(),
-                None => view! { <div class=class>{inner}</div> }.into_any(),
+            {match (i.to, i.field) {
+                (Some(to), Some(path)) => {
+                    let href = crate::route::href(&to);
+                    view! {
+                        <a href=href class=class on:click=move |e| {
+                            e.prevent_default();
+                            match (&to, path.first()) {
+                                (Route::Settings, Some(k)) => crate::route::go_query(
+                                    to.clone(),
+                                    Some((crate::route::TAB_QUERY, burrow_admin_logic::settings_tabs::tab_of(k).key())),
+                                ),
+                                _ => crate::route::go(to.clone()),
+                            }
+                            let path = path.clone();
+                            set_timeout(move || crate::screens::entity::go_to_field(&path), std::time::Duration::from_millis(150));
+                        }>{inner}</a>
+                    }
+                    .into_any()
+                }
+                (Some(to), None) => view! { <Link to=to class=class>{inner}</Link> }.into_any(),
+                (None, _) => view! { <div class=class>{inner}</div> }.into_any(),
             }}
         </li>
     }
@@ -135,7 +153,8 @@ pub(super) fn Attention() -> impl IntoView {
         let v = s.running();
         let st = s.state.get();
         let status = s.status.get();
-        let mut items = attention(&v, st.as_deref(), status.as_deref());
+        let now = (s.now.get() / 1000.0) as u64;
+        let mut items = attention(&v, st.as_deref(), status.as_deref(), now);
         items.extend(s.welcome.with(|w| {
             w.as_ref()
                 .and_then(|w| old_server_item(&w.server.version, env!("CARGO_PKG_VERSION")))
@@ -188,7 +207,7 @@ pub(super) fn Attention() -> impl IntoView {
         })
     };
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
-    let away_title: &'static str = "Clients away";
+    let away_title: &'static str = burrow_admin_logic::wording::CLIENTS_OFFLINE;
     let away_grow = Signal::derive(move || {
         if away_items.with(Vec::len) >= 2 {
             "shrink-[2] grow basis-auto min-[1200px]:min-h-[156px]".to_string()

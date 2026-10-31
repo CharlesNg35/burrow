@@ -129,9 +129,7 @@ async fn hot_reload_add_change_remove_without_dropping() {
     let mut buf = [0u8; 4];
     long.read_exact(&mut buf).await.unwrap();
 
-    let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let new_addr = free.local_addr().unwrap();
-    drop(free);
+    let new_addr = free_addr();
     let mut next = settings.clone();
     next.services.get_mut("web").unwrap().bind = Some(web);
     let mut added = service(echo1, Protocol::Tcp);
@@ -142,9 +140,11 @@ async fn hot_reload_add_change_remove_without_dropping() {
     assert_eq!(roundtrip(new_addr, b"api").await, b"api");
 
     next.services.get_mut("web").unwrap().target = echo2.to_string();
-    t.server.reload(next.clone()).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(roundtrip(web, b"x").await, b"two");
+    t.server.reload_applied(next.clone()).await;
+    assert!(
+        within_tries(50, || async { roundtrip(web, b"x").await == b"two" }).await,
+        "the new target answers"
+    );
 
     next.services.remove("api");
     t.server.reload(next.clone()).await;

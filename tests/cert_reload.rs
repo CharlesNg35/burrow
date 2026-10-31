@@ -14,13 +14,6 @@ use burrow::wire::transport::tls;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 
-fn self_signed() -> (String, String) {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-    let cert = params.self_signed(&key).unwrap();
-    (cert.pem(), key.serialize_pem())
-}
-
 async fn trusts(addr: SocketAddr, cert_pem: &str) -> bool {
     let connector = tls::connector(Some(cert_pem.as_bytes())).unwrap();
     let Ok(tcp) = TcpStream::connect(addr).await else {
@@ -33,13 +26,7 @@ async fn trusts(addr: SocketAddr, cert_pem: &str) -> bool {
 }
 
 async fn eventually_trusts(addr: SocketAddr, cert_pem: &str) -> bool {
-    for _ in 0..50 {
-        if trusts(addr, cert_pem).await {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    false
+    common::within_tries(50, || trusts(addr, cert_pem)).await
 }
 
 fn write_config(config: &Path, port: u16, cert: &Path, key: &Path) {
@@ -100,7 +87,10 @@ async fn a_kubernetes_secret_volume_rotation_is_picked_up() {
     common::logs();
     let dir = tempfile::tempdir().unwrap();
     let mount = dir.path().join("tls");
-    let (old_cert, old_key) = self_signed();
+    let common::Cert {
+        cert_pem: old_cert,
+        key_pem: old_key,
+    } = common::cert(&["localhost"]);
     pair(&mount.join("..2026_01"), &old_cert, &old_key);
     symlink("..2026_01", mount.join("..data")).unwrap();
     symlink("..data/tls.crt", mount.join("tls.crt")).unwrap();
@@ -115,7 +105,10 @@ async fn a_kubernetes_secret_volume_rotation_is_picked_up() {
     let addr = serve(&config).await;
     assert!(trusts(addr, &old_cert).await);
 
-    let (new_cert, new_key) = self_signed();
+    let common::Cert {
+        cert_pem: new_cert,
+        key_pem: new_key,
+    } = common::cert(&["localhost"]);
     pair(&mount.join("..2026_02"), &new_cert, &new_key);
     symlink("..2026_02", mount.join("..data_tmp")).unwrap();
     std::fs::rename(mount.join("..data_tmp"), mount.join("..data")).unwrap();
@@ -135,7 +128,10 @@ async fn a_letsencrypt_renewal_through_live_symlinks_is_picked_up() {
     let live = dir.path().join("live/example");
     std::fs::create_dir_all(&archive).unwrap();
     std::fs::create_dir_all(&live).unwrap();
-    let (old_cert, old_key) = self_signed();
+    let common::Cert {
+        cert_pem: old_cert,
+        key_pem: old_key,
+    } = common::cert(&["localhost"]);
     std::fs::write(archive.join("fullchain1.pem"), &old_cert).unwrap();
     std::fs::write(archive.join("privkey1.pem"), &old_key).unwrap();
     symlink(
@@ -158,7 +154,10 @@ async fn a_letsencrypt_renewal_through_live_symlinks_is_picked_up() {
     let addr = serve(&config).await;
     assert!(trusts(addr, &old_cert).await);
 
-    let (new_cert, new_key) = self_signed();
+    let common::Cert {
+        cert_pem: new_cert,
+        key_pem: new_key,
+    } = common::cert(&["localhost"]);
     std::fs::write(archive.join("fullchain2.pem"), &new_cert).unwrap();
     std::fs::write(archive.join("privkey2.pem"), &new_key).unwrap();
     for (link, target) in [
@@ -176,7 +175,10 @@ async fn a_letsencrypt_renewal_through_live_symlinks_is_picked_up() {
 async fn a_half_rotated_or_deleted_pair_keeps_the_working_certificate() {
     common::logs();
     let dir = tempfile::tempdir().unwrap();
-    let (old_cert, old_key) = self_signed();
+    let common::Cert {
+        cert_pem: old_cert,
+        key_pem: old_key,
+    } = common::cert(&["localhost"]);
     pair(dir.path(), &old_cert, &old_key);
     let config = dir.path().join("server.yaml");
     let (cert, key) = (dir.path().join("tls.crt"), dir.path().join("tls.key"));
@@ -184,7 +186,10 @@ async fn a_half_rotated_or_deleted_pair_keeps_the_working_certificate() {
     let addr = serve(&config).await;
     assert!(trusts(addr, &old_cert).await);
 
-    let (new_cert, new_key) = self_signed();
+    let common::Cert {
+        cert_pem: new_cert,
+        key_pem: new_key,
+    } = common::cert(&["localhost"]);
     std::fs::write(&cert, &new_cert).unwrap();
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert!(
@@ -205,7 +210,10 @@ async fn a_half_rotated_or_deleted_pair_keeps_the_working_certificate() {
 async fn certificates_moved_to_another_folder_are_watched_there() {
     common::logs();
     let dir = tempfile::tempdir().unwrap();
-    let (first_cert, first_key) = self_signed();
+    let common::Cert {
+        cert_pem: first_cert,
+        key_pem: first_key,
+    } = common::cert(&["localhost"]);
     let a: PathBuf = dir.path().join("a");
     let b: PathBuf = dir.path().join("b");
     pair(&a, &first_cert, &first_key);
@@ -215,7 +223,10 @@ async fn certificates_moved_to_another_folder_are_watched_there() {
     let addr = serve(&config).await;
     assert!(trusts(addr, &first_cert).await);
 
-    let (second_cert, second_key) = self_signed();
+    let common::Cert {
+        cert_pem: second_cert,
+        key_pem: second_key,
+    } = common::cert(&["localhost"]);
     pair(&b, &second_cert, &second_key);
     let text = std::fs::read_to_string(&config)
         .unwrap()
@@ -223,7 +234,10 @@ async fn certificates_moved_to_another_folder_are_watched_there() {
     std::fs::write(&config, text).unwrap();
     assert!(eventually_trusts(addr, &second_cert).await);
 
-    let (third_cert, third_key) = self_signed();
+    let common::Cert {
+        cert_pem: third_cert,
+        key_pem: third_key,
+    } = common::cert(&["localhost"]);
     let tmp = b.join("tls.crt.tmp");
     std::fs::write(&tmp, &third_cert).unwrap();
     std::fs::rename(&tmp, b.join("tls.crt")).unwrap();
@@ -243,7 +257,10 @@ fn replace(path: &Path, text: &str) {
 async fn a_renewed_certificate_is_used_without_a_restart() {
     common::logs();
     let dir = tempfile::tempdir().unwrap();
-    let (old_cert, old_key) = self_signed();
+    let common::Cert {
+        cert_pem: old_cert,
+        key_pem: old_key,
+    } = common::cert(&["localhost"]);
     std::fs::write(dir.path().join("cert.pem"), &old_cert).unwrap();
     std::fs::write(dir.path().join("key.pem"), &old_key).unwrap();
     let config = dir.path().join("server.yaml");
@@ -282,7 +299,10 @@ async fn a_renewed_certificate_is_used_without_a_restart() {
     tokio::spawn(server.run(reload_rx, stop));
     assert!(trusts(addr, &old_cert).await);
 
-    let (new_cert, new_key) = self_signed();
+    let common::Cert {
+        cert_pem: new_cert,
+        key_pem: new_key,
+    } = common::cert(&["localhost"]);
     tokio::time::sleep(Duration::from_millis(300)).await;
     replace(&dir.path().join("cert.pem"), &new_cert);
     replace(&dir.path().join("key.pem"), &new_key);
@@ -309,7 +329,10 @@ async fn switching_a_release_folder_symlink_reloads_the_config_inside_it() {
     let mut certs = Vec::new();
     for rel in ["rel1", "rel2"] {
         let folder = dir.path().join(rel);
-        let (cert, key) = self_signed();
+        let common::Cert {
+            cert_pem: cert,
+            key_pem: key,
+        } = common::cert(&["localhost"]);
         pair(&folder, &cert, &key);
         write_config(
             &folder.join("server.yaml"),

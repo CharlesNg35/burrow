@@ -1,6 +1,9 @@
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use crate::base::failure::Failure;
+use crate::config::Role;
+use crate::config::env::Env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installed {
@@ -16,7 +19,7 @@ pub enum Found {
 }
 
 fn same(name: &str, wanted: &str) -> bool {
-    name == wanted || name.strip_prefix("burrow-") == Some(wanted)
+    name == wanted || crate::install::short_name(name) == wanted
 }
 
 pub fn choose(
@@ -65,13 +68,13 @@ pub fn choose(
     }
 }
 
-pub fn unreadable(what: &std::path::Path, e: &std::io::Error) -> Failure {
+pub fn unreadable(what: &std::path::Path, e: &std::io::Error, command: &str) -> Failure {
     let hint = if cfg!(windows) {
-        "run burrow admin from an administrator terminal, or pass -c FILE".to_string()
+        format!("run burrow {command} from an administrator terminal, or pass -c FILE")
     } else {
         format!(
             "run with sudo ({}), or pass -c FILE",
-            crate::base::failure::admin(crate::app::cli::ADMIN_COMMAND)
+            crate::base::failure::admin(command)
         )
     };
     Failure::new(format!(
@@ -80,6 +83,70 @@ pub fn unreadable(what: &std::path::Path, e: &std::io::Error) -> Failure {
         crate::base::failure::file_reason(e)
     ))
     .hint(hint)
+}
+
+pub struct Chosen {
+    pub path: PathBuf,
+    pub env: Env,
+    pub note: Option<String>,
+}
+
+fn readable(p: &Path, command: &str) -> Result<(), Failure> {
+    std::fs::File::open(p)
+        .map(drop)
+        .map_err(|e| unreadable(p, &e, command))
+}
+
+pub fn visitor(
+    config: Option<PathBuf>,
+    service: Option<&str>,
+    command: &str,
+    saved_env: fn(&str) -> BTreeMap<String, String>,
+) -> Result<Chosen, Failure> {
+    let here = crate::config::discover::in_folder(Path::new("."))
+        .into_iter()
+        .filter(|(_, r)| *r == Role::Visitor)
+        .map(|(p, _)| p)
+        .next();
+    let services: Vec<Installed> = if config.is_none() && (here.is_none() || service.is_some()) {
+        crate::install::all_manifests()
+            .into_iter()
+            .filter(|m| m.role == crate::install::Role::Visitor)
+            .map(|m| Installed {
+                name: m.name,
+                config: m.config,
+                env_file: m.env_file,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    match choose(config, here, &services, service)? {
+        Found::File(path) => Ok(Chosen {
+            path,
+            env: Env::default(),
+            note: None,
+        }),
+        Found::Service(s) => {
+            readable(&s.config, command)?;
+            let env = match &s.env_file {
+                Some(f) => {
+                    readable(f, command)?;
+                    Env::with(saved_env(&s.name))
+                }
+                None => Env::default(),
+            };
+            Ok(Chosen {
+                note: Some(format!(
+                    "using the installed visitor service {} ({})",
+                    s.name,
+                    s.config.display()
+                )),
+                path: s.config,
+                env,
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -142,8 +209,10 @@ mod tests {
                 .contains("or install a visitor service")
         );
         let e = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-        let u = unreadable(std::path::Path::new("/etc/burrow/a.env"), &e);
-        assert!(u.hint.unwrap().contains(if cfg!(windows) {
+        let u = unreadable(std::path::Path::new("/etc/burrow/a.env"), &e, "mcp");
+        let hint = u.hint.unwrap();
+        assert!(hint.contains("mcp"), "{hint}");
+        assert!(hint.contains(if cfg!(windows) {
             "administrator"
         } else {
             "sudo"

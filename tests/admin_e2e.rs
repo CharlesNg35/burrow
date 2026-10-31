@@ -2,6 +2,10 @@
 mod access;
 #[path = "admin_e2e/checks.rs"]
 mod checks;
+#[path = "admin_e2e/chips.rs"]
+mod chips;
+#[path = "admin_e2e/compat.rs"]
+mod compat;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
 #[path = "admin_e2e/edit_state.rs"]
@@ -10,20 +14,44 @@ mod edit_state;
 mod editors;
 #[path = "admin_e2e/edits.rs"]
 mod edits;
+#[path = "admin_e2e/entries.rs"]
+mod entries;
 #[path = "admin_e2e/guards.rs"]
 mod guards;
 #[path = "admin_e2e/header.rs"]
 mod header;
+#[path = "admin_e2e/hidden.rs"]
+mod hidden;
+#[path = "admin_e2e/logins.rs"]
+mod logins;
+#[path = "admin_e2e/more.rs"]
+mod more;
+#[path = "common/older.rs"]
+mod older;
+#[path = "admin_e2e/passwords.rs"]
+mod passwords;
+#[path = "common/ports.rs"]
+mod ports;
+#[path = "admin_e2e/reach.rs"]
+mod reach;
 #[path = "admin_e2e/reverts.rs"]
 mod reverts;
 #[path = "admin_e2e/screens.rs"]
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
 mod secrets;
+#[path = "admin_e2e/settings.rs"]
+mod settings;
 #[path = "admin_e2e/sheet.rs"]
 mod sheet;
+#[path = "admin_e2e/site_keys.rs"]
+mod site_keys;
+#[path = "admin_e2e/tables.rs"]
+mod tables;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
+#[path = "admin_e2e/websites.rs"]
+mod websites;
 #[path = "admin_e2e/world.rs"]
 mod world;
 
@@ -62,15 +90,23 @@ fn skip(why: &str) -> Option<Gate> {
     None
 }
 
-fn gate() -> Option<Gate> {
+fn ui_info() -> String {
     let info = Command::new(BIN)
         .args(["admin", "--ui-info"])
         .output()
         .expect("burrow admin --ui-info");
-    let info = String::from_utf8_lossy(&info.stdout).to_string();
+    String::from_utf8_lossy(&info.stdout).to_string()
+}
+
+fn gate() -> Option<Gate> {
+    let info = ui_info();
     if info.contains("placeholder") {
         return skip("this burrow has no admin UI built in; run cargo xtask ui first");
     }
+    chrome_gate(info.contains("test_hooks: true"))
+}
+
+fn chrome_gate(hooks: bool) -> Option<Gate> {
     let Some(chrome) = ui::chrome() else {
         panic!(
             "Chrome for Testing {} is missing at {}: run cargo xtask tools to get the pinned Chrome (BURROW_E2E_CHROME or BURROW_E2E_SYSTEM_CHROME=1 use another one)",
@@ -91,7 +127,7 @@ fn gate() -> Option<Gate> {
     Some(Gate {
         chrome,
         chrome_version,
-        hooks: info.contains("test_hooks: true"),
+        hooks,
     })
 }
 
@@ -129,7 +165,11 @@ pub struct Ctx {
 type Body = for<'a> fn(&'a mut Ctx) -> Pin<Box<dyn Future<Output = ()> + 'a>>;
 
 fn run(flow: &str, opts: Options, needs_hooks: bool, body: Body) {
-    let Some(g) = gate() else { return };
+    run_gated(flow, gate(), opts, needs_hooks, body);
+}
+
+fn run_gated(flow: &str, g: Option<Gate>, opts: Options, needs_hooks: bool, body: Body) {
+    let Some(g) = g else { return };
     if needs_hooks && !g.hooks {
         if in_ci() {
             panic!("{flow} needs a burrow built with --features admin-test-hooks");
@@ -222,6 +262,25 @@ pub async fn review_now(c: &Ctx) {
     c.ui.click("[data-testid=review-open]").await;
 }
 
+pub async fn open_more(c: &Ctx, schema: &str) {
+    let field = format!("[data-schema='{schema}']");
+    c.ui.wait_for(&field, SECS).await;
+    let _: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const r = document.querySelector(\"{field}\").closest('[data-testid=more-region][hidden]'); if (r) document.querySelector('[aria-controls=\"' + r.id + '\"]').click(); return true; }})()"
+        ))
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "!document.querySelector(\"{field}\").closest('[data-testid=more-region][hidden]')"
+        ),
+        "the More settings around the field are open",
+        SECS,
+    )
+    .await;
+}
+
 pub async fn edit_mode(c: &Ctx) {
     if c.ui.count("[data-testid=save-bar]").await == 0 {
         c.ui.click("[data-testid=edit]").await;
@@ -229,24 +288,56 @@ pub async fn edit_mode(c: &Ctx) {
     c.ui.wait_for("[data-testid=save-bar]", SECS).await;
 }
 
+pub async fn both_widths(c: &mut Ctx, step: &str) {
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    c.ui.shot(step).await;
+    c.ui.viewport(420, 900).await;
+    c.ui.shot(&format!("{step}-phone")).await;
+    c.ui.viewport(1440, 900).await;
+}
+
+pub async fn overview_tab(c: &Ctx, tab: &str) {
+    let pill = format!("[data-testid=overview-tabs] [data-tab={tab}]");
+    c.ui.wait_for(&pill, SECS).await;
+    c.ui.click(&pill).await;
+    c.ui.wait_for(&format!("{pill}[aria-selected=true]"), SECS)
+        .await;
+}
+
+pub async fn toasts_clear_the_bar(c: &Ctx) {
+    c.ui.wait_true(
+        "(() => { const b = document.querySelector('[data-sticky-bar]'); if (!b) return true; const r = b.getBoundingClientRect(); return [...document.querySelectorAll('[data-testid=toast]')].every(t => { const q = t.getBoundingClientRect(); return q.bottom <= r.top + 1 || q.top >= r.bottom - 1 || q.right <= r.left || q.left >= r.right; }); })()",
+        "no toast covers the save bar or the Review buttons",
+        Duration::from_secs(3),
+    )
+    .await;
+}
+
 pub async fn open_review(c: &mut Ctx, step: &str) {
     review_now(c).await;
     c.ui.wait_for("[data-testid=review]", SECS).await;
+    toasts_clear_the_bar(c).await;
     c.ui.shot(step).await;
 }
 
-pub async fn applied(c: &mut Ctx, step: &str) {
+pub async fn apply_now(c: &Ctx, toast: &str) {
     c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
         .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     c.ui.click("[data-testid=apply]").await;
-    c.ui.wait_text(
-        "[data-testid=toasts]",
-        "Applied rev",
-        Duration::from_secs(20),
+    c.ui.wait_text("[data-testid=toasts]", toast, Duration::from_secs(20))
+        .await;
+    c.ui.wait_gone("[data-testid=review]", SECS).await;
+}
+
+pub async fn applied(c: &mut Ctx, step: &str) {
+    apply_now(c, "Applied: now the version of").await;
+    c.ui.wait_true(
+        "![...document.querySelectorAll('[data-testid=toast]')].some(t => t.textContent.includes('Added to changes'))",
+        "after Apply no Added to changes toast offers a Review with nothing to review",
+        SECS,
     )
     .await;
-    c.ui.wait_gone("[data-testid=review]", SECS).await;
     c.ui.shot(step).await;
 }
 
@@ -262,12 +353,12 @@ async fn ax_clean(c: &Ctx, screen: &str) {
 async fn baseline(c: &mut Ctx, name: &str) {
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; for (const e of document.querySelectorAll('[data-testid=server-line]')) e.style.fontVariantNumeric = 'tabular-nums'; return true; })()")
         .await;
     let png = c.ui.png().await;
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('[style]')) e.style.visibility = ''; return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } return true; })()")
         .await;
     match compare(name, &png, &c.chrome_version) {
         Baseline::Same | Baseline::Written => {}

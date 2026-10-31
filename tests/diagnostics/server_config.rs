@@ -34,7 +34,7 @@ fn typo_field() {
        |
     10 |     bnd: 0.0.0.0:4000
        |     ^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
+       = help: did you mean "bind"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth, web
 
     server.yaml: 2 errors, 0 warnings
     "#);

@@ -106,6 +106,35 @@ pub struct RefC {
     pub reserved: Vec<String>,
 }
 
+pub const WEIGHT_MAX: i64 = 1000;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RefEntriesC {
+    pub entity: Entity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reserved: Vec<String>,
+    pub target: TargetC,
+    pub weight: IntegerC,
+}
+
+impl RefEntriesC {
+    pub fn new(entity: Entity, reserved: Vec<String>) -> RefEntriesC {
+        RefEntriesC {
+            entity,
+            reserved,
+            target: TargetC {
+                ranges: true,
+                unix: true,
+            },
+            weight: IntegerC {
+                min: Some(1),
+                max: Some(WEIGHT_MAX),
+                unit: Some("shares".into()),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefListC {
     pub entity: Entity,
@@ -136,6 +165,40 @@ pub struct NameC {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecretRefC {
     pub max: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reference: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostNameC {
+    #[serde(default = "text_fallback")]
+    pub fallback: Vec<Value>,
+}
+
+impl Default for HostNameC {
+    fn default() -> Self {
+        HostNameC {
+            fallback: text_fallback(),
+        }
+    }
+}
+
+fn text_fallback() -> Vec<Value> {
+    vec![serde_json::json!({"t": "text"})]
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasswordHashC {
+    #[serde(default = "text_fallback")]
+    pub fallback: Vec<Value>,
+}
+
+impl Default for PasswordHashC {
+    fn default() -> Self {
+        PasswordHashC {
+            fallback: text_fallback(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -144,6 +207,23 @@ pub struct PathC {
     pub must_exist: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relative_to: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UploadC {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default = "text_fallback")]
+    pub fallback: Vec<Value>,
+}
+
+impl UploadC {
+    pub fn new(kind: &str) -> UploadC {
+        UploadC {
+            kind: kind.to_string(),
+            fallback: text_fallback(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -240,6 +320,7 @@ sem_types! {
     PortRange "port_range" (PortRangeC),
     Target "target" (TargetC),
     Host "host",
+    HostName "host_name" (HostNameC),
     ServerAddress "server_address",
     Cidr "cidr",
     CidrRule "cidr_rule",
@@ -248,10 +329,13 @@ sem_types! {
     Rate "rate",
     Ref "ref" (RefC),
     RefList "ref_list" (RefListC),
+    RefEntries "ref_entries" (RefEntriesC),
     RefMap "ref_map" (RefMapC),
     Name "name" (NameC),
     SecretRef "secret_ref" (SecretRefC),
     Path "path" (PathC),
+    Upload "upload" (UploadC),
+    PasswordHash "password_hash" (PasswordHashC),
     UrlPath "url_path",
     Object "object" (ObjectC),
     Map "map" (MapC),
@@ -308,6 +392,7 @@ impl SemType {
         match self {
             SemType::Ref(r) => &r.reserved,
             SemType::RefList(r) => &r.reserved,
+            SemType::RefEntries(r) => &r.reserved,
             SemType::RefMap(r) => &r.reserved,
             SemType::Optional(o) => o.inner.sem.reserved(),
             _ => &[],
@@ -322,6 +407,7 @@ impl SemType {
             | SemType::Union(_)
             | SemType::RefMap(_)
             | SemType::RefList(_)
+            | SemType::RefEntries(_)
             | SemType::SecretRef(_) => false,
             SemType::Optional(o) => o.inner.sem.is_scalar(),
             SemType::Unknown(u) => u.fallback.first().is_none_or(SemType::is_scalar),
@@ -335,6 +421,7 @@ impl SemType {
             | SemType::PortRange(_)
             | SemType::Target(_)
             | SemType::Host
+            | SemType::HostName(_)
             | SemType::ServerAddress
             | SemType::Cidr
             | SemType::CidrRule
@@ -344,6 +431,8 @@ impl SemType {
             | SemType::Ref(_)
             | SemType::Name(_)
             | SemType::Path(_)
+            | SemType::Upload(_)
+            | SemType::PasswordHash(_)
             | SemType::UrlPath => true,
         }
     }

@@ -278,10 +278,7 @@ fn swap(
             "{} did not start with {mine}; {outcome}",
             failed.join(", ")
         ))
-        .hint(format!(
-            "see why with: {}",
-            crate::base::failure::admin(&format!("service logs {}", failed[0]))
-        )));
+        .hint(super::logs_hint(&failed[0])));
     }
     for m in &users {
         let mut updated = m.clone();
@@ -383,7 +380,7 @@ mod tests {
     fn service(name: &str, binary: &Path) -> Manifest {
         Manifest {
             name: name.into(),
-            role: "client".into(),
+            role: crate::install::Role::Client,
             config: PathBuf::from("/etc/burrow/x/client.yaml"),
             source_config: PathBuf::from("/tmp/x.yaml"),
             env_file: None,
@@ -396,6 +393,7 @@ mod tests {
             files: vec![],
             version: "1.0.0".into(),
             admin_writable: false,
+            web_state: None,
         }
     }
 

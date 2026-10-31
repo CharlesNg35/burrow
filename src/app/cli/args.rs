@@ -70,6 +70,88 @@ pub struct RunArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ServerArgs {
+    #[command(flatten)]
+    pub run: RunArgs,
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Folder for the web state: the Let's Encrypt account and certificates, the local CA and uploads; burrow service install sets it"
+    )]
+    pub state_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct McpArgs {
+    #[arg(
+        short,
+        long,
+        help = "Visitor config file; ./visitor.yaml, or the one installed visitor service, when omitted"
+    )]
+    pub config: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with = "config",
+        help = "Use the config of this installed visitor service"
+    )]
+    pub service: Option<String>,
+    #[arg(
+        long,
+        help = "Offer the tools that change the config (apply_change, revert_to_version); the visitor also needs admin: write"
+    )]
+    pub allow_write: bool,
+    #[arg(
+        long,
+        help = "Serve MCP over HTTP on 127.0.0.1 with a bearer token, instead of stdio"
+    )]
+    pub http: bool,
+    #[arg(
+        long,
+        requires = "http",
+        help = "Local port on 127.0.0.1 for --http; 7838 when omitted, 0 picks a free one"
+    )]
+    pub port: Option<u16>,
+    #[arg(
+        long,
+        requires = "http",
+        help = "Print only the URL when the HTTP server starts, not the header with the token; for services and logs"
+    )]
+    pub no_print_token: bool,
+    #[arg(
+        long,
+        conflicts_with = "print_config",
+        help = "Print the bearer token, and exit"
+    )]
+    pub print_token: bool,
+    #[arg(
+        long,
+        help = "Replace the bearer token; the old one stops working at once"
+    )]
+    pub new_token: bool,
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Keep the bearer token in FILE, readable by you only; by default it is kept per visitor config in burrow's private state folder"
+    )]
+    pub token_file: Option<PathBuf>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "APP",
+        help = "Print a ready setup for this AI app, and exit; over stdio, or over HTTP with --http"
+    )]
+    pub print_config: Option<McpApp>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum McpApp {
+    Claude,
+    Codex,
+    Cursor,
+}
+
+#[derive(Debug, Args)]
 pub struct AdminArgs {
     #[arg(
         short,
@@ -304,6 +386,32 @@ pub struct InitArgs {
         help = "Server: private key for --ws-tls-cert (PEM)"
     )]
     pub ws_tls_key: Option<String>,
+    #[arg(
+        long,
+        value_name = "ADDRESS",
+        help = "Server: Let's Encrypt contact; with --ws and --server NAME the tunnel shares port 443 with an automatic certificate (accepts Let's Encrypt's terms)"
+    )]
+    pub email: Option<String>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        help = "Server: serve a first website with automatic HTTPS, like blog.example.com (needs --email)"
+    )]
+    pub web: Option<String>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        requires = "web",
+        help = "Server: the client that runs the website's app (the config's first client)"
+    )]
+    pub web_client: Option<String>,
+    #[arg(
+        long,
+        value_name = "TARGET",
+        requires = "web",
+        help = "Server: the website's app on the client, like 3000 or 127.0.0.1:8080 (default 3000)"
+    )]
+    pub web_target: Option<String>,
 }
 
 #[derive(Debug, Args)]

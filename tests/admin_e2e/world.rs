@@ -6,55 +6,7 @@ use std::time::{Duration, Instant};
 
 pub const BIN: &str = env!("CARGO_BIN_EXE_burrow");
 
-const PORTS: std::ops::Range<u16> = 20_000..32_000;
-const CLAIM_KEPT: Duration = Duration::from_secs(3600);
-
-fn random_below(n: u16) -> u16 {
-    use std::hash::{BuildHasher, Hasher};
-    static COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u64(COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-    h.write_u32(std::process::id());
-    (h.finish() % u64::from(n)) as u16
-}
-
-fn claim(port: u16) -> bool {
-    let dir = super::sheet::shots_dir().join("ports");
-    let _ = fs::create_dir_all(&dir);
-    let file = dir.join(port.to_string());
-    let stale = fs::metadata(&file)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.elapsed().ok())
-        .is_some_and(|age| age > CLAIM_KEPT);
-    if stale {
-        let _ = fs::remove_file(&file);
-    }
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&file)
-        .is_ok()
-}
-
-fn bindable(port: u16) -> bool {
-    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
-}
-
-pub fn free_port() -> u16 {
-    free_range(1)
-}
-
-pub fn free_range(n: u16) -> u16 {
-    for _ in 0..2000 {
-        let first = PORTS.start + random_below(PORTS.end - PORTS.start - n);
-        let ports = first..first + n;
-        if ports.clone().all(bindable) && ports.clone().all(claim) {
-            return first;
-        }
-    }
-    panic!("no {n} free ports in a row")
-}
+pub use super::ports::{free_port, free_range};
 
 pub fn secret() -> String {
     let out = Command::new(BIN)
@@ -72,6 +24,8 @@ pub struct Proc {
 
 pub struct World {
     pub dir: tempfile::TempDir,
+    pub server_bin: PathBuf,
+    pub admin_bin: PathBuf,
     pub procs: Vec<Proc>,
     pub ports: BTreeMap<&'static str, u16>,
     pub secrets: BTreeMap<&'static str, String>,
@@ -83,6 +37,9 @@ pub struct Options {
     pub clients: Option<Vec<&'static str>>,
     pub extra_services: String,
     pub extra_clients: String,
+    pub extra_top: String,
+    pub server_bin: Option<PathBuf>,
+    pub admin_bin: Option<PathBuf>,
 }
 
 pub fn wait_until(what: &str, timeout: Duration, mut ok: impl FnMut() -> bool) {
@@ -104,11 +61,13 @@ impl World {
             .expect("a work dir");
         let mut w = World {
             dir,
+            server_bin: opts.server_bin.clone().unwrap_or_else(|| BIN.into()),
+            admin_bin: opts.admin_bin.clone().unwrap_or_else(|| BIN.into()),
             procs: Vec::new(),
             ports: BTreeMap::new(),
             secrets: BTreeMap::new(),
         };
-        for k in ["listen", "web", "echo", "forward", "game"] {
+        for k in ["listen", "web", "echo", "forward", "game", "https", "http"] {
             w.ports.insert(k, free_port());
         }
         for n in ["home", "office", "ops", "viewer", "laptop", "plain", "boss"] {
@@ -119,7 +78,7 @@ impl World {
         let yaml = format!(
             "# server.yaml for the burrow admin end-to-end tests\n\
              # comments here must survive every change made through the admin UI\n\
-             listen: 127.0.0.1:{listen}\npublic_address: 127.0.0.1:{listen}\n\n\
+             listen: 127.0.0.1:{listen}\npublic_address: 127.0.0.1:{listen}\n{extra_top}\n\
              clients:\n  # the home box\n  home:\n    secret: {home}\n  office:\n    secret: {office}\n    max_connections: 100\n{extra_clients}\n\
              visitors:\n  ops:\n    secret: {ops} # the admin\n    admin: write\n    admin_from: [127.0.0.1/32]\n  viewer:\n    secret: {viewer}\n    admin: read\n  laptop:\n    secret: {laptop}\n    reach:\n      home: [127.0.0.1/32]\n  plain:\n    secret: {plain}\n  boss:\n    secret: {boss}\n    admin: write\n\n\
              services:\n  web: {{ client: home, bind: 127.0.0.1:{web}, target: {echo} }} # keep this comment\n  ssh:\n    client: home\n    target: 22\n    visitors: [laptop]\n{extra}",
@@ -135,6 +94,10 @@ impl World {
             boss = s["boss"],
             extra = opts.extra_services,
             extra_clients = opts.extra_clients,
+            extra_top = opts
+                .extra_top
+                .replace("HTTPS_PORT", &p["https"].to_string())
+                .replace("HTTP_PORT", &p["http"].to_string()),
         );
         w.write("server.yaml", &yaml);
         let env: Vec<(&str, &str)> = opts
@@ -142,7 +105,8 @@ impl World {
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
-        w.start("server", &["server", "-c", "server.yaml"], &env);
+        let server = w.server_bin.clone();
+        w.start_bin(&server, "server", &["server", "-c", "server.yaml"], &env);
         let started = Instant::now();
         while w.status().is_none() {
             if let Ok(Some(code)) = w.procs[0].child.try_wait() {
@@ -180,14 +144,25 @@ impl World {
     }
 
     pub fn start(&mut self, name: &str, args: &[&str], env: &[(&str, &str)]) -> &mut Proc {
+        self.start_bin(Path::new(BIN), name, args, env)
+    }
+
+    pub fn start_bin(
+        &mut self,
+        bin: &Path,
+        name: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+    ) -> &mut Proc {
         let log = self.file(&format!("{name}.log"));
         let out = fs::File::create(&log).expect("a log file");
         let err = out.try_clone().expect("a log file");
-        let mut cmd = Command::new(BIN);
+        let mut cmd = Command::new(bin);
         cmd.args(args)
             .current_dir(self.dir.path())
             .env("BURROW_INSTANCE_DIR", self.file(&format!("inst-{name}")))
             .env("BURROW_ADMIN_SESSION_DIR", self.file("admin-sessions"))
+            .env("XDG_STATE_HOME", self.file("state"))
             .stdin(Stdio::null())
             .stdout(out)
             .stderr(err);
@@ -210,7 +185,7 @@ impl World {
     }
 
     pub fn status(&self) -> Option<serde_json::Value> {
-        let out = Command::new(BIN)
+        let out = Command::new(&self.server_bin)
             .args(["status", "--json", "-c"])
             .arg(self.file("server.yaml"))
             .env("BURROW_INSTANCE_DIR", self.file("inst-server"))
@@ -277,7 +252,9 @@ impl World {
         let url_file = self.file(&format!("url-{visitor}"));
         let url_arg = url_file.display().to_string();
         let name = format!("admin-{visitor}");
-        self.start(
+        let admin = self.admin_bin.clone();
+        self.start_bin(
+            &admin,
             &name,
             &[
                 "admin",

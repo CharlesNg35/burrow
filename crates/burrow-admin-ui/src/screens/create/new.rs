@@ -69,71 +69,62 @@ pub fn NewEntity(
         Some(Entity::Client) => {
             "A machine that dials out to this server and reaches targets for your services."
         }
-        Some(Entity::Visitor) => {
-            "A person or machine that reaches private services with burrow visit."
+        Some(Entity::Visitor) => "A person or machine that reaches services with burrow visit.",
+        _ => {
+            "A port on this server, a website, or a service for your visitors, reached through one of your clients."
         }
-        _ => "A port on this server, or a private target, reached through one of your clients.",
     };
     let sec5 = section.clone();
     let options = Signal::derive(move || services_for(&sec5));
     let client = what == ClientEntry::ENTITY;
     let placeholder_max = placeholder_max(s, client);
     let crumb = Route::List(section.clone());
-    let plural_s = match entity_of_section(&section) {
-        Some(Entity::Client) => "Clients",
-        Some(Entity::Visitor) => "Visitors",
-        _ => "Services",
-    };
+    let plural_s = crate::screens::plural(&section);
     view! {
         <div data-testid="new-entity">
-            <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
-                <crate::route::Link to=crumb class="text-text-muted no-underline hover:text-text">{plural_s}</crate::route::Link>
-                <span aria-hidden="true">"/"</span>
-                <span class="font-semibold text-text">{format!("New {what}")}</span>
-            </nav>
-            <header class="mb-[22px]">
-                <h1 class="text-[25px] font-bold tracking-[-0.015em]">{format!("New {what}")}</h1>
-                <p class="mt-1 text-base text-text-muted">{intro}</p>
-            </header>
+            {crate::screens::crumbs(crumb, plural_s.to_string(), format!("New {what}"), Signal::stored(false), None)}
+            <burrow_ui_kit::PageHeader sub=intro>{format!("New {what}")}</burrow_ui_kit::PageHeader>
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
-                <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                    <h3 class="text-[14px] font-bold">"Identity"</h3>
-                    <span class="text-[12.5px] text-text-muted">{if what == "service" { "The name is the key in server.yaml." } else { "The name goes into the config on that machine." }}</span>
-                </div>
-                {name_field(name, problem)}
-                {(what != "service").then(|| secret_field(secret))}
+                <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
+                {super::name_input("new-name", "Name", name, problem, true, super::name_example(entity_of_section(&section).as_ref()))}
+                {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
             </section>
-            {(what != "service").then(|| limits_section(what, name, max, placeholder_max, options, links))}
-            <div class="sticky bottom-4 z-20 mt-6 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
-                <span class="flex items-center gap-1.5 text-sm text-text-muted">
-                    <burrow_ui_kit::Icon name="info" small=true/>
-                    {if what == ServiceEntry::ENTITY {
-                        "You set the client and target next."
+            {(what != ServiceEntry::ENTITY).then(|| limits_section(what, name, max, placeholder_max, options, links))}
+            <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
+            <burrow_ui_kit::StickyBar>
+                {burrow_ui_kit::bar_status(Signal::derive(move || {
+                    if name.with(String::is_empty) {
+                        burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string()
+                    } else if let Some(p) = problem.get() {
+                        p
+                    } else if what == ServiceEntry::ENTITY {
+                        "You set the client and target next.".to_string()
                     } else {
-                        "The secret is shown once, after apply."
-                    }}
-                </span>
+                        "The secret is shown once, after apply.".to_string()
+                    }
+                }))}
                 <span class="ml-auto"></span>
                 <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
                 <Button
-                    label=if what == "service" { "Add and edit".to_string() } else { "Add to changes".to_string() }
-                    variant=if what == "service" { "primary" } else { "secondary" }
+                    label=if what == ServiceEntry::ENTITY { "Add and edit".to_string() } else { "Add to changes".to_string() }
+                    variant=if what == ServiceEntry::ENTITY { "primary" } else { "secondary" }
                     testid="create"
                     disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some())
-                    reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
+                    reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
                     on_click=move |_| finish2(false)
                 />
-                {(what != "service").then(|| view! {
+                {(what != ServiceEntry::ENTITY).then(|| view! {
                     <Button
                         label="Create and apply"
                         variant="primary"
                         testid="create-apply"
                         disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some() || secret.get().is_none())
-                        reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
+                        reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
                         on_click=move |_| finish2(true)
                     />
                 })}
+            </burrow_ui_kit::StickyBar>
             </div>
         </div>
     }
@@ -155,32 +146,6 @@ fn placeholder_max(s: Store, client: bool) -> String {
         format!("Default: {}", crate::format::count(n))
     } else {
         "Unlimited".to_string()
-    }
-}
-
-fn name_field(name: RwSignal<String>, problem: Signal<Option<String>>) -> impl IntoView {
-    view! {
-    <div>
-        <label class="mb-1.5 block text-sm font-semibold" for="new-name">"Name"</label>
-        <div class="relative">
-            <TextInput
-                id="new-name"
-                value=name
-                on_input=move |t: String| name.set(t)
-                invalid=Signal::derive(move || problem.get().is_some())
-                described_by="new-name-msg"
-                mono=true
-            />
-            {move || (!name.get().is_empty() && problem.get().is_none()).then(|| view! {
-                <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 text-xs font-semibold text-success"><burrow_ui_kit::Icon name="check" small=true/>"available"</span>
-            })}
-        </div>
-        <p id="new-name-msg" class="mt-1.5 text-xs text-danger">{move || problem.get()}</p>
-        <p class="text-xs text-text-muted">
-            {move || (!name.get().is_empty() && problem.get().is_none()).then(|| view! { <span class="sr-only" data-testid="name-available">"available"</span> })}
-            "Letters, digits, dot, dash, underscore; up to 64 characters."
-        </p>
-    </div>
     }
 }
 
@@ -229,12 +194,9 @@ fn limits_section(
     };
     view! {
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
-            <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                <h3 class="text-[14px] font-bold">{if what == ClientEntry::ENTITY { "Limits and services" } else { "Access and limits" }}</h3>
-                <span class="text-[12.5px] text-text-muted">"Both optional."</span>
-            </div>
+            <burrow_ui_kit::SectionHead title={if what == ClientEntry::ENTITY { "Limits and services" } else { "Access and limits" }} sub="Both optional."/>
             <div>
-                <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{if what == ClientEntry::ENTITY { "Max connections on this server" } else { "Max connections" }}<span class="font-normal text-text-faint">"· optional"</span></span>
+                <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{if what == ClientEntry::ENTITY { "Maximum connections on this server" } else { "Maximum connections" }}<span class="font-normal text-text-faint">"· optional"</span></span>
                 <div class="flex items-center gap-2">
                     <div class="w-56">
                         <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="connections"/>

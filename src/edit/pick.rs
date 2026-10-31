@@ -89,7 +89,7 @@ pub fn by_target(found: &[Found], target: &str) -> Result<Found, Failure> {
             origin: Origin::Folder,
         });
     }
-    let full = format!("burrow-{target}");
+    let full = crate::install::service_name(target);
     let service = found.iter().find(
         |f| matches!(&f.origin, Origin::Service { name, .. } if *name == target || *name == full),
     );

@@ -117,7 +117,7 @@ pub(super) fn check_websocket(
     {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!("websocket.listen {a} is the same address as listen"),
             )
             .at(spans.value(&["websocket", "listen"]))
@@ -143,7 +143,7 @@ pub(super) fn check_websocket(
                 Ok(bytes) => Some((path, bytes)),
                 Err(e) => {
                     out.push(
-                        Diagnostic::error("tls-unreadable", format!("cannot read websocket.tls.{field} \"{file}\": {}", crate::base::failure::file_reason(&e)))
+                        Diagnostic::error(burrow_admin_proto::codes::TLS_UNREADABLE, format!("cannot read websocket.tls.{field} \"{file}\": {}", crate::base::failure::file_reason(&e)))
                             .at(spans.value(&["websocket", "tls", field]))
                             .label("file not readable")
                             .help("paths are relative to the config file; check the path and its permissions"),
@@ -179,5 +179,7 @@ pub(super) fn check_websocket(
         path: ws.path.clone(),
         tls,
         keepalive: Duration::from_secs(ws.keepalive_secs.into()),
+        host: None,
+        shares: crate::config::settings::Shares::Nothing,
     })
 }

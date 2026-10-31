@@ -132,6 +132,8 @@ pub struct Applied {
     pub secrets: Vec<RevealedSecret>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snippets: Vec<Snippets>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_listening: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

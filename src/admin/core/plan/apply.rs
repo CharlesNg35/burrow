@@ -1,10 +1,14 @@
-use burrow_admin_proto::msg::{AuditEntry, ErrorCode};
-use burrow_admin_proto::plan::{Applied, ReloadFailed, RevealedSecret};
+use burrow_admin_proto::msg::{self, AuditEntry, ErrorCode};
+use burrow_admin_proto::plan::{Applied, Conflict, ReloadFailed, RevealedSecret};
 
 use crate::admin::core::ports::WriteError;
-use crate::admin::core::{ApiError, Core, Session, text};
+use crate::admin::core::{ApiError, Core, Session};
 
 use super::{Computed, compute};
+
+fn body<T: serde::Serialize>(b: &T) -> serde_json::Value {
+    serde_json::to_value(b).unwrap_or_default()
+}
 
 pub struct Begun {
     pub computed: Computed,
@@ -24,11 +28,7 @@ pub fn apply_begin(
         ));
     }
     if let Err(w) = core.store.writable() {
-        return Err(
-            ApiError::new(ErrorCode::NotWritable, w.message.clone()).with(serde_json::json!({
-                "code": w.code, "hint": w.hint
-            })),
-        );
+        return Err(ApiError::new(ErrorCode::NotWritable, w.message.clone()).with(body(&w)));
     }
     let computed = compute(core, s, &req.base, &req.ops)?;
     let plan = &computed.plan;
@@ -37,14 +37,20 @@ pub fn apply_begin(
             ErrorCode::Conflict,
             "the plan changed since you reviewed it (the live state or the file moved); review it again",
         )
-        .with(serde_json::json!({ "current": plan.base, "plan_changed": true })));
+        .with(body(&Conflict {
+            current: plan.base.clone(),
+            theirs: Vec::new(),
+            known: false,
+        })));
     }
     if !plan.valid {
         return Err(ApiError::new(
             ErrorCode::Invalid,
             format!("the change has {} errors", plan.errors()),
         )
-        .with(serde_json::json!({ "diags": plan.diags })));
+        .with(body(&msg::InvalidBody {
+            diags: plan.diags.clone(),
+        })));
     }
     if !plan.refusals.is_empty() {
         return Err(ApiError::new(
@@ -55,7 +61,9 @@ pub fn apply_begin(
                 .collect::<Vec<_>>()
                 .join("; "),
         )
-        .with(serde_json::json!({ "reasons": plan.refusals })));
+        .with(body(&msg::LockedOut {
+            reasons: plan.refusals.clone(),
+        })));
     }
     let missing: Vec<&str> = plan
         .confirms()
@@ -67,7 +75,9 @@ pub fn apply_begin(
             ErrorCode::BadRequest,
             format!("confirm this change by typing: {}", missing.join(", ")),
         )
-        .with(serde_json::json!({ "confirm": missing })));
+        .with(body(&msg::ConfirmBody {
+            confirm: missing.iter().map(|c| c.to_string()).collect(),
+        })));
     }
     if computed.new_text == computed.old_text {
         return Ok(Begun {
@@ -84,7 +94,11 @@ pub fn apply_begin(
                 ErrorCode::Conflict,
                 "the config changed on the server while applying; review your change again",
             )
-            .with(serde_json::json!({ "current": "" })));
+            .with(body(&Conflict {
+                current: String::new(),
+                theirs: Vec::new(),
+                known: false,
+            })));
         }
         Err(WriteError::Io(e)) => {
             return Err(ApiError::new(
@@ -106,9 +120,20 @@ pub enum ReloadResult {
     Applied {
         restart: Vec<String>,
         unbound: Vec<String>,
+        lines: Vec<String>,
     },
     Rejected(String),
     Timeout,
+}
+
+impl ReloadResult {
+    pub fn unchanged() -> ReloadResult {
+        ReloadResult::Applied {
+            restart: Vec::new(),
+            unbound: Vec::new(),
+            lines: Vec::new(),
+        }
+    }
 }
 
 pub fn restore(core: &Core, begun: &Begun) -> bool {
@@ -128,7 +153,8 @@ pub fn finish(
 ) -> Result<Applied, ApiError> {
     let plan = &begun.computed.plan;
     let entry = |result: &str| AuditEntry {
-        at: text::now_unix(),
+        id: 0,
+        at: burrow_syntax::duration::now_secs(),
         visitor: s.visitor.clone(),
         from: s.peer.ip().to_string(),
         base: plan.base.clone(),
@@ -171,9 +197,13 @@ pub fn finish(
             .with(serde_json::to_value(body).unwrap_or_default()))
         }
         ReloadResult::Timeout | ReloadResult::Applied { .. } => {
-            let (restart, unbound) = match &reload {
-                ReloadResult::Applied { restart, unbound } => (restart.clone(), unbound.clone()),
-                _ => (Vec::new(), Vec::new()),
+            let (restart, unbound, not_listening) = match &reload {
+                ReloadResult::Applied {
+                    restart,
+                    unbound,
+                    lines,
+                } => (restart.clone(), unbound.clone(), lines.clone()),
+                _ => (Vec::new(), Vec::new(), Vec::new()),
             };
             tracing::info!(
                 target: "burrow::admin",
@@ -194,6 +224,7 @@ pub fn finish(
                 .fresh
                 .iter()
                 .map(|f| f.handle.clone())
+                .chain(begun.computed.passwords.iter().cloned())
                 .collect();
             let secrets = begun
                 .computed
@@ -219,6 +250,7 @@ pub fn finish(
                 restart_needed: restart,
                 secrets,
                 snippets,
+                not_listening,
             })
         }
     }
