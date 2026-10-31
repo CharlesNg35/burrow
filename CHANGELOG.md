@@ -23,6 +23,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
 - **HTTP/2 and gRPC:** HTTP/2 to browsers is on by default, and `target_http2` speaks HTTP/2 to the app for gRPC. burrow sets its own limits against the HTTP/2 attacks of recent years (Rapid Reset, MadeYouReset, CONTINUATION floods, the 2026 HTTP/2 Bomb). Paths are cleaned before routing, so `//admin` or `/%61dmin` cannot walk around a login.
 - **Health checks for websites:** `health_check: { path: /healthz }` asks each client's app for a page and sends visitors only to clients whose app answers.
 - **The tunnel on the web ports:** clients can connect over `wss://` on port 443 (or `ws://` on 80), on a name of their own or a path of a site, with an automatic certificate. `burrow init server --ws --email ADDRESS --server NAME` writes this setup.
+- **Post-quantum TLS:** burrow's HTTPS, the tunnel's `wss://` and HTTPS to the app prefer the hybrid key exchange X25519MLKEM768, as browsers, Go and OpenSSL 3.5 do. A client that does not offer it gets X25519 or P-256 as before.
 - **Load balancing:**
   - `mode: least_connections` joins `failover` and `balance`.
   - With `balance`, a client can take a weight, `{name: home, weight: 3}` (smooth weighted round robin, as in nginx).

@@ -64,6 +64,7 @@ Wrong names and wrong secrets get exactly the same answer, after the same amount
 A website is open to every browser, so burrow checks each request before it reaches the app:
 
 - **HTTPS ends at the server** for websites burrow serves with `tls: auto` or its own files. The server decrypts the request, and it travels to the client inside the tunnel's own encryption. With `tls: passthrough`, the server never sees the content, and the app keeps its own certificate.
+- **Post-quantum key exchange.** burrow's HTTPS, the tunnel's `wss://` and HTTPS to the app prefer the hybrid X25519MLKEM768, as current browsers, Go and OpenSSL 3.5 do, so recorded traffic stays safe from a future quantum computer. A client that does not offer it gets X25519 or P-256.
 - **Plain HTTP sites are unencrypted** between the visitor and the server. `burrow validate` and the admin UI mark each one; keep them on networks you trust.
 - **The app learns the visitor's address** from `X-Forwarded-For` and `X-Real-IP`, which burrow sets and replaces, so a visitor cannot forge them.
 - **Paths are cleaned before a route is picked.** Repeated slashes are merged, plain escapes decoded and the rest written in capitals. `.` or `..` segments are refused with 400, also when encoded or hidden behind an encoded slash. So a password or other rule on `/admin` cannot be walked around with `//admin`, `/%61dmin` or `/public%2F..%2Fadmin`. The app gets the cleaned path ([How burrow reads a path](web/routing.md#how-burrow-reads-a-path)).
