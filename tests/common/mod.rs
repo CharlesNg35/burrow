@@ -129,6 +129,32 @@ pub fn ws_mode() -> bool {
     std::env::var("BURROW_TEST_TRANSPORT").is_ok_and(|v| v == "ws")
 }
 
+pub async fn raw_conn(addr: SocketAddr) -> burrow::wire::transport::Conn {
+    use burrow::wire::transport::ws;
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    tcp.set_nodelay(true).unwrap();
+    if !ws_mode() {
+        return tcp.into();
+    }
+    let endpoint =
+        burrow_syntax::endpoint::Endpoint::parse(&format!("ws://{addr}/burrow")).unwrap();
+    ws::connect(ws::Carrier::Plain(tcp), &endpoint, &[])
+        .await
+        .unwrap()
+        .into()
+}
+
+pub async fn raw_accept(tcp: tokio::net::TcpStream) -> Option<burrow::wire::transport::Conn> {
+    use burrow::wire::transport::ws;
+    if !ws_mode() {
+        return Some(tcp.into());
+    }
+    ws::accept(ws::Carrier::Plain(tcp), "/burrow")
+        .await
+        .ok()
+        .map(Into::into)
+}
+
 fn as_websocket(mut settings: ServerSettings) -> ServerSettings {
     if ws_mode() && settings.websocket.is_none() {
         let listen = settings
