@@ -55,9 +55,17 @@ pub(crate) struct SiteTls {
 impl SiteTls {
     pub(crate) fn new(certs: Arc<dyn Certificates>) -> SiteTls {
         let resolver: Arc<dyn ResolvesServerCert> = certs;
+        let ticketer = rustls::crypto::aws_lc_rs::Ticketer::new().ok();
+        let resumable = |http2| {
+            let mut c = Arc::unwrap_or_clone(site_config(resolver.clone(), None, http2));
+            if let Some(t) = &ticketer {
+                c.ticketer = t.clone();
+            }
+            TlsAcceptor::from(Arc::new(c))
+        };
         SiteTls {
-            h1: TlsAcceptor::from(site_config(resolver.clone(), None, false)),
-            h2: TlsAcceptor::from(site_config(resolver, None, true)),
+            h1: resumable(false),
+            h2: resumable(true),
         }
     }
 
