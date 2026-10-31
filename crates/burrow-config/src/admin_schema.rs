@@ -202,5 +202,12 @@ pub fn entities() -> Vec<EntityInfo> {
             plural: Entity::Login.plural().to_string(),
             facets: Vec::new(),
         },
+        EntityInfo {
+            entity: Entity::Oidc,
+            path: crate::field::oidc_path(),
+            label: "Login provider".to_string(),
+            plural: Entity::Oidc.plural().to_string(),
+            facets: Vec::new(),
+        },
     ]
 }

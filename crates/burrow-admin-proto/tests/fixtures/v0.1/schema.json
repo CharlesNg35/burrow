@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:a6af02365f07fac7",
+  "hash": "b2s:3232a8833f3a25ef",
   "root": {
     "label": "Server",
     "sem": {
@@ -345,6 +345,73 @@
                                       }
                                     },
                                     "empty_label": "None"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "oidc",
+                      "node": {
+                        "label": "Login providers",
+                        "help": "Accounts like Google, Microsoft or your own Keycloak that visitors log in with, each with a name that websites pick",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "name",
+                              "entity": "oidc",
+                              "max_len": 64
+                            }
+                          },
+                          "value": {
+                            "label": "Login provider",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "issuer",
+                                  "node": {
+                                    "label": "Issuer",
+                                    "help": "The provider's address, for example https://accounts.google.com or https://sso.example.com/realms/home",
+                                    "sem": {
+                                      "t": "text"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "client_id",
+                                  "node": {
+                                    "label": "Client ID",
+                                    "help": "The client ID you got when you registered burrow with the provider",
+                                    "sem": {
+                                      "t": "text"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "client_secret",
+                                  "node": {
+                                    "label": "Client secret",
+                                    "help": "The client secret from the provider, from an environment variable like ${GOOGLE_SECRET} or a file like file:/etc/burrow/google.secret",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "secret_ref",
+                                          "max": 1,
+                                          "reference": true
+                                        }
+                                      }
+                                    },
+                                    "locked": true,
+                                    "none_label": "None (public client)"
                                   }
                                 }
                               ]
@@ -2706,6 +2773,83 @@
                                         }
                                       },
                                       {
+                                        "key": "oidc",
+                                        "node": {
+                                          "label": "Login with",
+                                          "help": "Visitors log in with an account like Google or your own Keycloak before they reach the app; allowed users says who gets in",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "bool"
+                                                    }
+                                                  },
+                                                  {
+                                                    "sem": {
+                                                      "t": "ref",
+                                                      "entity": "oidc"
+                                                    }
+                                                  },
+                                                  {
+                                                    "sem": {
+                                                      "t": "ref_list",
+                                                      "entity": "oidc",
+                                                      "ordered": false,
+                                                      "unique": true
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "none_label": "Off",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "allow_users",
+                                        "node": {
+                                          "label": "Allowed users",
+                                          "help": "Email addresses like alice@gmail.com, or @mycompany.com for everyone at that domain",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "empty_label": "Nobody yet",
+                                          "relations": [
+                                            {
+                                              "r": "enabled_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
                                         "key": "rate_limit",
                                         "node": {
                                           "label": "Rate limit",
@@ -3519,6 +3663,16 @@
       ],
       "label": "Login service",
       "plural": "Login services",
+      "facets": []
+    },
+    {
+      "entity": "oidc",
+      "path": [
+        "web",
+        "oidc"
+      ],
+      "label": "Login provider",
+      "plural": "Login providers",
       "facets": []
     }
   ]
