@@ -7,10 +7,22 @@ use zeroize::Zeroizing;
 use super::{ApiError, Core, Session};
 use crate::server::uploads::{self as files, MAX_KEPT};
 
-fn saved_ca(core: &Core, service: &str) -> Option<PathBuf> {
+fn saved_config(core: &Core) -> Option<burrow_config::ServerConfig> {
     let text = core.read().ok()?;
     let tree = crate::config::tree::parse(&text).ok()?;
-    let cfg: burrow_config::ServerConfig = serde_json::from_value(tree.to_json()).ok()?;
+    serde_json::from_value(tree.to_json()).ok()
+}
+
+fn drafts(core: &Core, state: &Path) -> usize {
+    let ids = saved_config(core)
+        .map(|cfg| burrow_config::uploads::upload_ids(&cfg))
+        .unwrap_or_default();
+    let keep = files::referenced(ids, core.store.history_dir().as_deref());
+    files::drafts(state, &keep)
+}
+
+fn saved_ca(core: &Core, service: &str) -> Option<PathBuf> {
+    let cfg = saved_config(core)?;
     let Some(ServiceWeb::Site(site)) = cfg.services.get(service)?.web.as_ref() else {
         return None;
     };
@@ -60,11 +72,11 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
         return Err(ApiError::new(ErrorCode::Invalid, why));
     }
     let state = core.store.state_dir();
-    if files::kept(&state) >= MAX_KEPT {
+    if drafts(core, &state) >= MAX_KEPT {
         return Err(ApiError::new(
             ErrorCode::Busy,
             format!(
-                "burrow keeps at most {MAX_KEPT} uploaded files; apply your changes first: then burrow removes the uploads the config no longer uses that are older than {} minutes",
+                "burrow keeps at most {MAX_KEPT} uploaded files that neither the config nor a version in Activity uses; apply your changes first: then burrow removes those that are older than {} minutes",
                 burrow_syntax::upload::DRAFT_SECS / 60
             ),
         ));

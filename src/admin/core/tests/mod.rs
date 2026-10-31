@@ -105,7 +105,7 @@ impl Store for MemStore {
             .map(|(_, t)| t.clone())
     }
     fn history_dir(&self) -> Option<PathBuf> {
-        None
+        Some(self.state.path().join(".server.yaml.history")).filter(|d| d.is_dir())
     }
     fn history_problem(&self) -> Option<String> {
         None

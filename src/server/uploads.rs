@@ -22,13 +22,7 @@ pub fn prune_unused(web: Option<&crate::config::settings::WebSettings>) -> usize
     else {
         return 0;
     };
-    let mut keep = web.uploads.clone();
-    keep.extend(
-        web.history
-            .as_deref()
-            .map(crate::config::save::history_upload_ids)
-            .unwrap_or_default(),
-    );
+    let keep = referenced(web.uploads.clone(), web.history.as_deref());
     let removed = remove_unreferenced(state, &keep);
     if removed > 0 {
         tracing::info!("removed {removed} uploaded files the config no longer uses");
@@ -36,8 +30,25 @@ pub fn prune_unused(web: Option<&crate::config::settings::WebSettings>) -> usize
     removed
 }
 
-pub fn kept(state: &Path) -> usize {
-    std::fs::read_dir(folder(state)).map_or(0, |d| d.flatten().count())
+pub fn referenced(mut config_ids: Vec<String>, history: Option<&Path>) -> Vec<String> {
+    config_ids.extend(
+        history
+            .map(crate::config::save::history_upload_ids)
+            .unwrap_or_default(),
+    );
+    config_ids
+}
+
+pub fn drafts(state: &Path, referenced: &[String]) -> usize {
+    let used = |name: &str| {
+        name.strip_suffix(".pem")
+            .is_some_and(|id| referenced.iter().any(|r| r == id))
+    };
+    std::fs::read_dir(folder(state)).map_or(0, |d| {
+        d.flatten()
+            .filter(|e| !used(&e.file_name().to_string_lossy()))
+            .count()
+    })
 }
 
 #[cfg(feature = "web")]
@@ -139,7 +150,7 @@ mod tests {
         }
         std::fs::write(dir.join("ca-00000000000000ff.pem"), "fresh draft").unwrap();
         assert!(
-            kept(state.path()) > MAX_KEPT,
+            drafts(state.path(), &[]) > MAX_KEPT,
             "the admin would refuse new uploads"
         );
         let cfg: burrow_config::ServerConfig = serde_json::from_value(serde_json::json!({
@@ -162,7 +173,7 @@ mod tests {
             dir.join("ca-00000000000000ff.pem").exists(),
             "a draft younger than 30 min stays"
         );
-        assert!(kept(state.path()) < MAX_KEPT, "the next upload fits");
+        assert!(drafts(state.path(), &[]) < MAX_KEPT, "the next upload fits");
     }
 
     #[test]

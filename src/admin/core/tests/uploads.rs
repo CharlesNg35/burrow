@@ -108,3 +108,56 @@ fn a_local_ca_that_cannot_be_read_says_why_instead_of_that_there_is_none() {
     assert_eq!(e.code, ErrorCode::Internal, "{}", e.message);
     assert!(e.message.starts_with("cannot read "), "{}", e.message);
 }
+
+fn waiting(core: &crate::admin::core::Core, ids: &[String]) {
+    let dir = crate::server::uploads::folder(&core.store.state_dir());
+    std::fs::create_dir_all(&dir).unwrap();
+    for id in ids {
+        std::fs::write(dir.join(format!("{id}.pem")), "x").unwrap();
+    }
+}
+
+fn ids(from: usize) -> Vec<String> {
+    let max = crate::server::uploads::MAX_KEPT;
+    (from..from + max)
+        .map(|i| format!("pair-{i:016x}"))
+        .collect()
+}
+
+#[test]
+fn uploads_the_config_or_a_kept_version_names_do_not_count_against_the_cap() {
+    let w = world();
+    let used = ids(0);
+    let text = format!(
+        "{}web:\n  https: 443\n  certificates:\n    - {{ hosts: [a.example.com], upload: {} }}\n",
+        w.text, used[0]
+    );
+    let core = core_for(&text);
+    let history = core.store.state_dir().join(".server.yaml.history");
+    std::fs::create_dir_all(&history).unwrap();
+    std::fs::write(history.join("1000-00ab.yaml"), used[1..].join("\n")).unwrap();
+    waiting(&core, &used);
+    let s = session(&w, AdminLevel::Write);
+    let pem = pair("nas.example.com");
+    let b = body(Kind::Pair.prefix(), &pem, &["nas.example.com"]);
+    let up: Uploaded =
+        serde_json::from_value(dispatch(&core, &s, req::UPLOAD, &b).unwrap()).unwrap();
+    assert!(up.id.starts_with("pair-"), "{}", up.id);
+}
+
+#[test]
+fn a_full_set_of_waiting_uploads_refuses_one_more_and_says_how_to_free_room() {
+    let w = world();
+    let core = core_for(&w.text);
+    waiting(&core, &ids(0));
+    let s = session(&w, AdminLevel::Write);
+    let b = body(Kind::Pair.prefix(), &pair("nas.example.com"), &[]);
+    let e = dispatch(&core, &s, req::UPLOAD, &b).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Busy);
+    assert!(
+        e.message
+            .contains("neither the config nor a version in Activity uses"),
+        "{}",
+        e.message
+    );
+}
