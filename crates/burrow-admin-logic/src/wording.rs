@@ -88,6 +88,8 @@ pub fn field_for(code: &str) -> Option<Vec<String>> {
 }
 
 pub const NOT_SET: &str = "not set";
+pub const ADD_PICK: &str = "Add…";
+pub const KIND: &str = "Kind";
 
 pub fn count_of(n: usize, one: &str) -> String {
     format!("{n} {one}{}", if n == 1 { "" } else { "s" })

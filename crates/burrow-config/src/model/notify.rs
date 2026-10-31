@@ -13,7 +13,8 @@ pub struct NotifyEntry {
     )]
     #[admin(
         help = "burrow POSTs each message as JSON to this address, for example https://hooks.example.com/burrow; http:// only to this machine or the LAN",
-        none_label = "Not used"
+        none_label = "Not used",
+        one_of = "kind"
     )]
     pub webhook: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -23,14 +24,16 @@ pub struct NotifyEntry {
     #[admin(
         label = "ntfy topic",
         help = "The full address of an ntfy topic, for example https://ntfy.sh/my-burrow-topic; pick a name nobody can guess",
-        none_label = "Not used"
+        none_label = "Not used",
+        one_of = "kind"
     )]
     pub ntfy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Send each message by email through an SMTP server")]
     #[admin(
         help = "Send each message by email through your mail server",
-        none_label = "Not used"
+        none_label = "Not used",
+        one_of = "kind"
     )]
     pub email: Option<EmailNotify>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -39,7 +42,7 @@ pub struct NotifyEntry {
     )]
     #[admin(
         ty = list(enum_(NotifyEvent)),
-        help = "Which events this destination gets, for example only client_offline and client_back",
+        help = "Which events this destination gets, for example only a client going offline and coming back",
         empty_label = "All"
     )]
     pub events: Vec<NotifyEvent>,

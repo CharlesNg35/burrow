@@ -293,17 +293,61 @@ async fn notify_card(c: &mut Ctx) {
         "the password shows by name: {card}"
     );
     assert!(!card.contains("e2e-smtp-value"), "{card}");
+    let events =
+        c.ui.all_attrs(
+            "[data-card=monitoring] [data-testid=enum-list] > span",
+            "data-tone",
+        )
+        .await;
+    assert_eq!(events.len(), 2, "each event is a chip");
+    let shown =
+        c.ui.text("[data-card=monitoring] [data-testid=enum-list]")
+            .await;
+    assert!(
+        shown.contains("Client offline") && shown.contains("Client back"),
+        "{shown}"
+    );
     both_widths(c, "settings-notify").await;
+}
+
+async fn notify_edit(c: &mut Ctx) {
     edit_mode(c).await;
-    let card = c.ui.text("[data-card=monitoring]").await;
-    assert!(!card.contains("e2e-smtp-value"), "{card}");
+    c.ui.wait_for("[data-item='0'] [data-testid=kind-choice]", SECS)
+        .await;
+    let first = c.ui.text("[data-card=monitoring] [data-item='0']").await;
+    assert!(first.contains("ntfy topic"), "{first}");
+    for other in [
+        "#f-notify-0-webhook",
+        "#f-notify-0-email",
+        "#f-notify-1-ntfy",
+    ] {
+        assert_eq!(c.ui.count(other).await, 0, "only its own kind: {other}");
+    }
+    assert_eq!(c.ui.count("#f-notify-0-ntfy").await, 1);
+    assert!(
+        first.contains("Client offline"),
+        "events by their labels: {first}"
+    );
+    assert!(!first.contains("client_offline"), "{first}");
+    let second = c.ui.text("[data-card=monitoring] [data-item='1']").await;
+    assert!(second.contains("Mail server"), "{second}");
+    assert!(!second.contains("e2e-smtp-value"), "{second}");
     both_widths(c, "settings-notify-edit").await;
+    click_js(c, "[data-item='0'] input[value=webhook]").await;
+    c.ui.wait_for("#f-notify-0-webhook", SECS).await;
+    let first = c.ui.text("[data-card=monitoring] [data-item='0']").await;
+    assert!(
+        !first.contains("ntfy.sh/burrow-e2e-topic"),
+        "switching kind clears the old one: {first}"
+    );
+    both_widths(c, "settings-notify-webhook").await;
 }
 
 fn notify(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         notify_card(c).await;
+        notify_edit(c).await;
         c.ui.assert_no_errors();
     })
 }

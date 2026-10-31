@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:b2ef5f746b3a4a45",
+  "hash": "b2s:dd85f39dce68fbdf",
   "root": {
     "label": "Server",
     "sem": {
@@ -3600,7 +3600,13 @@
                             }
                           }
                         },
-                        "none_label": "Not used"
+                        "none_label": "Not used",
+                        "relations": [
+                          {
+                            "r": "one_of",
+                            "group": "kind"
+                          }
+                        ]
                       }
                     },
                     {
@@ -3616,7 +3622,13 @@
                             }
                           }
                         },
-                        "none_label": "Not used"
+                        "none_label": "Not used",
+                        "relations": [
+                          {
+                            "r": "one_of",
+                            "group": "kind"
+                          }
+                        ]
                       }
                     },
                     {
@@ -3693,14 +3705,20 @@
                             }
                           }
                         },
-                        "none_label": "Not used"
+                        "none_label": "Not used",
+                        "relations": [
+                          {
+                            "r": "one_of",
+                            "group": "kind"
+                          }
+                        ]
                       }
                     },
                     {
                       "key": "events",
                       "node": {
                         "label": "Events",
-                        "help": "Which events this destination gets, for example only client_offline and client_back",
+                        "help": "Which events this destination gets, for example only a client going offline and coming back",
                         "sem": {
                           "t": "list",
                           "item": {
