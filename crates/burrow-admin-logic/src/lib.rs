@@ -17,6 +17,7 @@ pub mod input;
 pub mod logins;
 pub mod more;
 pub mod off;
+pub mod oidc;
 pub mod rates;
 pub mod relations;
 pub mod settings_tabs;

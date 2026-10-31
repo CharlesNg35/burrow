@@ -371,8 +371,9 @@ fn named_editor(fc: FieldCtx, branch: Node) -> AnyView {
     };
     let entity = r.entity.clone();
     let hint = move || {
-        (entity == Entity::Login && names_of(&entity).is_empty()).then(|| {
-            view! { <p class="mt-1 text-sm text-text-muted" data-testid="no-login-services">"Add a login service under Settings → Web first"</p> }
+        (matches!(entity, Entity::Login | Entity::Oidc) && names_of(&entity).is_empty()).then(|| {
+            let what = crate::screens::create::what(&entity);
+            view! { <p class="mt-1 text-sm text-text-muted" data-testid="no-login-services">{format!("Add a {what} under Settings → Web first")}</p> }
         })
     };
     view! {
