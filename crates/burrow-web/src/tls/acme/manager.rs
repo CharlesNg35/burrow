@@ -44,6 +44,8 @@ pub struct Acme {
     views: RwLock<BTreeMap<String, GroupView>>,
     account: RwLock<Option<String>>,
     reach: RwLock<Reach>,
+    #[cfg(any(test, feature = "admin-test-hooks"))]
+    backoff: RwLock<Option<Duration>>,
 }
 
 impl Acme {
@@ -81,6 +83,19 @@ impl Acme {
     #[cfg(any(test, feature = "admin-test-hooks"))]
     pub fn set_dns_reach(&self, reach: Reach) {
         *self.reach.write().expect("acme lock") = reach;
+    }
+
+    #[cfg(any(test, feature = "admin-test-hooks"))]
+    pub fn set_backoff(&self, wait: Duration) {
+        *self.backoff.write().expect("acme lock") = Some(wait);
+    }
+
+    pub(super) fn backoff(&self, wait: Duration) -> Duration {
+        #[cfg(any(test, feature = "admin-test-hooks"))]
+        if let Some(w) = *self.backoff.read().expect("acme lock") {
+            return w;
+        }
+        wait
     }
 
     pub fn account(&self) -> Option<String> {

@@ -78,7 +78,7 @@ pub(super) fn status_of(store: &Store, name: &str) -> CertStatus {
         .expect("a status line")
 }
 
-async fn until(
+pub(super) async fn until(
     store: &Store,
     name: &str,
     what: &str,
@@ -130,7 +130,7 @@ fn stored_pem(state: &Path) -> String {
     std::fs::read_to_string(a_dir(state).join("cert.pem")).unwrap()
 }
 
-fn stored_leaf(state: &Path) -> CertificateDer<'static> {
+pub(super) fn stored_leaf(state: &Path) -> CertificateDer<'static> {
     use tokio_rustls::rustls::pki_types::pem::PemObject;
     CertificateDer::from_pem_slice(stored_pem(state).as_bytes()).unwrap()
 }
@@ -165,6 +165,8 @@ pub async fn all(p: Pebble) {
     copy_dir(state.path(), before.path());
     ari_replaces(&ctx, state.path()).await;
     already_replaced(&ctx, before.path()).await;
+    super::replaces::a_refused_replaces_order_is_followed_by_a_plain_order(&ctx, state.path())
+        .await;
     ari_malformed_and_explained(&ctx, state.path()).await;
     failure_keeps_the_old(&ctx, state.path()).await;
     a_renewal_that_cannot_be_ordered_keeps_the_old(&ctx).await;
@@ -569,7 +571,7 @@ async fn https_in_front_with_443_only_backs_off_and_keeps_the_old(ctx: &Ctx) {
     );
 }
 
-fn orders(state: &Path) -> usize {
+pub(super) fn orders(state: &Path) -> usize {
     use burrow_web::tls::acme::guard;
     guard::load(&guard::path(state, DIRECTORY)).len()
 }

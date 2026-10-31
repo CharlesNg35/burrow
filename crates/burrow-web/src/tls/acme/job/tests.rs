@@ -285,3 +285,89 @@ fn replaces_is_sent_only_once_the_renewal_time_came_so_an_added_name_counts() {
     g.held.as_mut().unwrap().ari_id = None;
     assert!(replaces(&g, now).is_none(), "no ARI id, no replaces");
 }
+
+fn failed(kind: Problemish, validation: bool, refused: bool) -> Failed {
+    Failed {
+        text: "the CA said no".into(),
+        kind,
+        validation,
+        refused,
+    }
+}
+
+#[test]
+fn a_refused_replaces_order_is_counted_but_a_rate_limit_or_a_lost_connection_is_not() {
+    use Problemish::*;
+    assert_eq!(after(true, &failed(Other, false, true)), Next::Refused);
+    assert_eq!(after(true, &failed(RateLimited, false, true)), Next::Stop);
+    assert_eq!(
+        after(true, &failed(AlreadyReplaced, false, true)),
+        Next::PlainNow
+    );
+    assert_eq!(
+        after(true, &failed(Unsupported, false, false)),
+        Next::PlainNow
+    );
+    assert_eq!(after(true, &failed(Other, true, false)), Next::OtherCheck);
+    assert_eq!(
+        after(true, &failed(Other, false, false)),
+        Next::Stop,
+        "the CA could not be reached: nothing says the hint is at fault"
+    );
+    assert_eq!(after(false, &failed(Other, false, true)), Next::Stop);
+    assert_eq!(
+        after(false, &failed(AlreadyReplaced, false, true)),
+        Next::Stop
+    );
+}
+
+#[test]
+fn the_first_and_second_refusal_keep_replaces_and_the_third_try_orders_plainly() {
+    let (chain, key) = pem_pair(&["a.example.com"], 90);
+    let mut held = Held::parse(&chain, &key, &s(&["a.example.com"])).unwrap();
+    held.ari_id = Some("aki.serial".into());
+    let now = now_secs();
+    let mut g = Group::new(s(&["a.example.com"]), Some(held));
+    g.planned = Some(now);
+    assert!(replaces(&g, now).is_some(), "the first try");
+    g.replaces_refused = 1;
+    assert!(replaces(&g, now).is_some(), "the second try");
+    g.replaces_refused = 2;
+    assert!(replaces(&g, now).is_none(), "the third try orders plainly");
+    assert_eq!(refused_text("no".into(), 1), "no", "nothing changes yet");
+    let told = refused_text("no".into(), 2);
+    assert!(
+        told.starts_with("no; ") && told.ends_with("without replacing it"),
+        "{told}"
+    );
+}
+
+#[tokio::test]
+async fn a_stored_certificate_taken_up_resets_the_count() {
+    let state = tempfile::tempdir().unwrap();
+    save_pair(state.path(), &["a.example.com"], 90);
+    let acme = Arc::new(Acme::default());
+    let mut worker = Worker::new(acme.clone());
+    worker.adopt(&offline_plan(state.path(), &["a.example.com"]));
+    let mut g = Group::new(s(&["a.example.com"]), None);
+    g.replaces_refused = 2;
+    worker.step("moved", &mut g).await;
+    assert!(g.held.is_some());
+    assert_eq!(g.replaces_refused, 0);
+}
+
+#[tokio::test]
+async fn an_issued_certificate_resets_the_count() {
+    let state = tempfile::tempdir().unwrap();
+    let mut worker = Worker::new(Arc::new(Acme::default()));
+    worker.adopt(&offline_plan(state.path(), &["a.example.com"]));
+    let (chain_pem, key_pem) = pem_pair(&["a.example.com"], 90);
+    let held = Held::parse(&chain_pem, &key_pem, &s(&["a.example.com"])).unwrap();
+    let mut g = Group::new(s(&["a.example.com"]), None);
+    g.replaces_refused = 2;
+    let issued = Issued { chain_pem, key_pem };
+    worker
+        .done("moved", &mut g, (held, CertCheck::Tls, issued))
+        .await;
+    assert_eq!(g.replaces_refused, 0);
+}

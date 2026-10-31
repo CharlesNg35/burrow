@@ -33,6 +33,7 @@ pub struct Failed {
     pub text: String,
     pub kind: Problemish,
     pub validation: bool,
+    pub refused: bool,
 }
 
 impl Failed {
@@ -41,6 +42,14 @@ impl Failed {
             text: describe(e),
             kind: Problemish::of(e),
             validation: false,
+            refused: false,
+        }
+    }
+
+    fn refused(e: &instant_acme::Error) -> Failed {
+        Failed {
+            refused: matches!(e, instant_acme::Error::Api(_)),
+            ..Failed::of(e)
         }
     }
 
@@ -49,6 +58,7 @@ impl Failed {
             text,
             kind: Problemish::Other,
             validation: false,
+            refused: false,
         }
     }
 
@@ -57,6 +67,7 @@ impl Failed {
             text,
             kind: Problemish::Other,
             validation: true,
+            refused: false,
         }
     }
 }
@@ -82,7 +93,10 @@ pub async fn issue(
     if let Some(r) = ask.replaces.clone() {
         new = new.replaces(r);
     }
-    let mut order = account.new_order(&new).await.map_err(|e| Failed::of(&e))?;
+    let mut order = account
+        .new_order(&new)
+        .await
+        .map_err(|e| Failed::refused(&e))?;
     let mut tokens = Vec::new();
     let mut cleanup = Cleanup {
         dns: dns.cloned(),

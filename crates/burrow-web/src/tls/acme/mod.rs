@@ -8,6 +8,7 @@ mod job;
 mod learned;
 mod manager;
 pub mod order;
+mod replacing;
 pub mod schedule;
 pub mod storage;
 

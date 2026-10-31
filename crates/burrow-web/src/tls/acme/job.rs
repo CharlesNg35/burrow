@@ -1,8 +1,7 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use instant_acme::{Account, CertificateIdentifier};
+use instant_acme::Account;
 use tracing::{error, info, warn};
 
 use super::dns01::solve::Dns;
@@ -10,6 +9,7 @@ pub use super::group::{Group, Held};
 use super::http::{Client, Limits};
 use super::manager::{Acme, Plan};
 use super::order::{Ask, Failed, Issued, issue};
+use super::replacing::{Next, after, cert_id, refused_text, replaces};
 use super::{Problemish, schedule, storage};
 use crate::tls::CertCheck;
 use crate::tls::store::now_secs;
@@ -165,6 +165,7 @@ impl Worker {
         g.planned = None;
         g.failures = 0;
         g.last_error = None;
+        g.replaces_refused = 0;
         g.next = now_secs();
         true
     }
@@ -218,7 +219,7 @@ impl Worker {
     async fn order(
         &mut self,
         name: &str,
-        g: &Group,
+        g: &mut Group,
     ) -> Result<(Held, CertCheck, Issued), (String, Option<std::time::Duration>)> {
         let plan = self
             .plan
@@ -265,25 +266,23 @@ impl Worker {
                         self.learn(&g.names, check).await;
                         return held_of(&issued, &g.names, check).map_err(|e| (e, None));
                     }
-                    Err(f)
-                        if with.is_some()
-                            && matches!(
-                                f.kind,
-                                Problemish::AlreadyReplaced | Problemish::Unsupported
-                            ) =>
-                    {
-                        with = None;
-                    }
-                    Err(f) if f.validation => {
-                        last = Some(f);
-                        break;
-                    }
-                    Err(f) => {
-                        let wait = (f.kind == Problemish::RateLimited)
-                            .then(|| client.take_wait())
-                            .flatten();
-                        return Err((f.text, wait));
-                    }
+                    Err(f) => match after(with.is_some(), &f) {
+                        Next::PlainNow => with = None,
+                        Next::OtherCheck => {
+                            last = Some(f);
+                            break;
+                        }
+                        Next::Refused => {
+                            g.replaces_refused = g.replaces_refused.saturating_add(1);
+                            return Err((refused_text(f.text, g.replaces_refused), None));
+                        }
+                        Next::Stop => {
+                            let wait = (f.kind == Problemish::RateLimited)
+                                .then(|| client.take_wait())
+                                .flatten();
+                            return Err((f.text, wait));
+                        }
+                    },
                 }
             }
         }
@@ -395,6 +394,7 @@ impl Worker {
         g.staging_at = None;
         g.prod_failed_at = None;
         g.fallback_note = None;
+        g.replaces_refused = 0;
     }
 
     fn failed(
@@ -416,10 +416,10 @@ impl Worker {
             },
             Held::short_lived,
         );
-        let delay = schedule::jittered(
+        let delay = self.acme.backoff(schedule::jittered(
             schedule::after_failure(g.failures, short, left, wait),
             super::fraction(),
-        );
+        ));
         g.next = now + delay.as_secs();
         let fallback = self
             .plan
@@ -508,23 +508,6 @@ fn held_of(
 ) -> Result<(Held, CertCheck, Issued), String> {
     let held = Held::parse(&issued.chain_pem, &issued.key_pem, names)?;
     Ok((held, check, issued.clone()))
-}
-
-fn replaces(g: &Group, now: u64) -> Option<CertificateIdentifier<'static>> {
-    g.held
-        .as_ref()
-        .filter(|h| h.names.iter().any(|n| g.names.contains(n)) && h.not_after > now)
-        .filter(|_| g.planned.is_some_and(|p| p <= now))
-        .and_then(|h| h.ari_id.as_deref())
-        .and_then(cert_id)
-}
-
-fn cert_id(ari_id: &str) -> Option<CertificateIdentifier<'static>> {
-    let (aki, serial) = ari_id.split_once('.')?;
-    Some(CertificateIdentifier {
-        authority_key_identifier: Cow::Owned(aki.to_string()),
-        serial: Cow::Owned(serial.to_string()),
-    })
 }
 
 pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";

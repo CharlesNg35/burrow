@@ -117,6 +117,11 @@ impl Store {
         self.acme.set_dns_reach(reach);
     }
 
+    #[cfg(any(test, feature = "admin-test-hooks"))]
+    pub fn set_acme_backoff(&self, wait: std::time::Duration) {
+        self.acme.set_backoff(wait);
+    }
+
     fn slot_for(&self, name: &str) -> Option<Serve> {
         let inner = self.inner.read().expect("certificate lock");
         let name = sni_name(name);

@@ -5,6 +5,7 @@ mod nonce;
 mod pebble;
 #[path = "../../../../tests/common/ports.rs"]
 mod ports;
+mod replaces;
 mod responder;
 mod scenarios;
 

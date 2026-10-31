@@ -96,6 +96,7 @@ pub struct Group {
     pub(super) staging_at: Option<u64>,
     pub(super) prod_failed_at: Option<u64>,
     pub(super) fallback_note: Option<String>,
+    pub(super) replaces_refused: u8,
     pub(super) running: bool,
 }
 
@@ -115,6 +116,7 @@ impl Group {
             staging_at: None,
             prod_failed_at: None,
             fallback_note: None,
+            replaces_refused: 0,
             running: false,
         }
     }
