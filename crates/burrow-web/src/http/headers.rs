@@ -33,6 +33,15 @@ pub fn add_hsts(h: &mut HeaderMap, https: bool) {
     }
 }
 
+pub fn detach(h: &mut HeaderMap) {
+    for v in h.values_mut() {
+        if let Ok(mut own) = HeaderValue::from_bytes(v.as_bytes()) {
+            own.set_sensitive(v.is_sensitive());
+            *v = own;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,5 +79,32 @@ mod tests {
         assert!(h.is_empty());
         add_hsts(&mut h, true);
         assert_eq!(h[header::STRICT_TRANSPORT_SECURITY], "max-age=31536000");
+    }
+
+    #[test]
+    fn detached_values_no_longer_share_the_buffer_they_were_read_from() {
+        let read = bytes::Bytes::from(vec![b'a'; 32 * 1024]);
+        let mut h = HeaderMap::new();
+        let mut secret = HeaderValue::from_maybe_shared(read.slice(..10)).unwrap();
+        secret.set_sensitive(true);
+        h.insert(
+            "x-sha",
+            HeaderValue::from_maybe_shared(read.slice(10..20)).unwrap(),
+        );
+        h.append(
+            "x-sha",
+            HeaderValue::from_maybe_shared(read.slice(20..30)).unwrap(),
+        );
+        h.insert(header::AUTHORIZATION, secret);
+        let range = read.as_ptr() as usize..read.as_ptr() as usize + read.len();
+        detach(&mut h);
+        assert_eq!(h.get_all("x-sha").iter().count(), 2);
+        for v in h.values() {
+            assert_eq!(v.as_bytes(), b"aaaaaaaaaa");
+            assert!(!range.contains(&(v.as_bytes().as_ptr() as usize)));
+        }
+        assert!(h[header::AUTHORIZATION].is_sensitive());
+        drop(h);
+        assert!(read.is_unique());
     }
 }

@@ -87,6 +87,9 @@ fn service<U: Upstream>(
             let version = req.version();
             let mut r = pipeline::handle(&shared, &conn, req).await;
             *r.version_mut() = version;
+            if conn.proto == Proto::H2 {
+                super::headers::detach(r.headers_mut());
+            }
             if let Some(StreamReset(reason)) = r.extensions().get::<StreamReset>() {
                 return Err(h2::Error::from(*reason));
             }
