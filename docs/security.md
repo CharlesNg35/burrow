@@ -46,7 +46,7 @@ Several checks decide what a connection may reach, and the client has the last w
 
 ## Guessing names
 
-Wrong names and wrong secrets get exactly the same answer, after the same amount of work, so nobody can find out which client or visitor names exist. Connections that have not logged in yet are limited in number and time (`limits.max_handshakes`, `limits.handshake_timeout_secs`). When they run short, one address cannot take more than its share.
+Wrong names and wrong secrets get exactly the same answer, after the same amount of work, so nobody can find out which client or visitor names exist. Connections that have not logged in yet are limited in number and time (`limits.max_handshakes`, `limits.handshake_timeout_secs`). When they run short, one address cannot take more than its share. On the web ports a connection over the limit waits for a free slot within its deadline, and an address loses connections that stall for more than a second while the server is busy.
 
 <details>
 <summary><b>More details</b></summary>

@@ -37,8 +37,6 @@ pub use site::{
 };
 pub use tls::acme::dns01::{DnsEntry, DnsProvider, Secret, TsigAlgorithm};
 
-pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
-
 #[derive(Clone)]
 pub struct ProxySettings {
     pub https: Option<SocketAddr>,
@@ -85,7 +83,6 @@ impl ProxySettings {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeouts {
-    pub hello: Duration,
     pub handshake: Duration,
     pub request_header: Duration,
     pub idle: Duration,
@@ -95,7 +92,6 @@ impl Default for Timeouts {
     fn default() -> Timeouts {
         use burrow_syntax::defaults::{HANDSHAKE_TIMEOUT, IDLE_TIMEOUT, REQUEST_HEADER_TIMEOUT};
         Timeouts {
-            hello: HELLO_TIMEOUT,
             handshake: HANDSHAKE_TIMEOUT,
             request_header: REQUEST_HEADER_TIMEOUT,
             idle: IDLE_TIMEOUT,

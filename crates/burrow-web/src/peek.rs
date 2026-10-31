@@ -22,10 +22,18 @@ pub struct Hello {
     pub bytes: Vec<u8>,
 }
 
+const RECORD_HEADER: usize = 5;
+
+fn record_len(data: &[u8]) -> Option<usize> {
+    let len = data.get(3..RECORD_HEADER)?;
+    Some(usize::from(u16::from_be_bytes([len[0], len[1]])) + RECORD_HEADER)
+}
+
 #[derive(Default)]
 pub struct Peeker {
     acceptor: Acceptor,
     bytes: Vec<u8>,
+    fed: usize,
 }
 
 impl Peeker {
@@ -39,8 +47,25 @@ impl Peeker {
         if self.bytes.first().unwrap_or(&data[0]) != &HANDSHAKE_RECORD {
             return Some(Peek::NotTls);
         }
+        if self.bytes.is_empty() {
+            let first = record_len(data).unwrap_or(0).min(MAX_HELLO);
+            self.bytes.reserve_exact(first.max(data.len()));
+        }
         self.bytes.extend_from_slice(data);
-        let mut rd = data;
+        while let Some(len) = record_len(&self.bytes[self.fed..]) {
+            if self.bytes.len() - self.fed < len {
+                return None;
+            }
+            if let Some(done) = self.read_record(len) {
+                return Some(done);
+            }
+        }
+        None
+    }
+
+    fn read_record(&mut self, len: usize) -> Option<Peek> {
+        let mut rd = &self.bytes[self.fed..self.fed + len];
+        self.fed += len;
         while !rd.is_empty() {
             match self.acceptor.read_tls(&mut rd) {
                 Ok(0) | Err(_) => return Some(Peek::NotTls),

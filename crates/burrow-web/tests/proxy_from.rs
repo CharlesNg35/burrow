@@ -83,7 +83,7 @@ async fn a_passthrough_visitor_behind_a_balancer_is_the_header_source() {
 }
 
 #[tokio::test]
-async fn one_visitor_behind_a_balancer_cannot_hold_every_pending_slot() {
+async fn one_visitor_behind_a_balancer_cannot_hold_every_slot_with_stalled_connections() {
     let app = http_backend().await;
     let (up, _) = Fake::new(4);
     up.serve("blog", app.addr);
@@ -100,25 +100,26 @@ async fn one_visitor_behind_a_balancer_cannot_hold_every_pending_slot() {
     .await;
     let addr = proxy.https_addr().unwrap();
     let mut held = Vec::new();
-    for _ in 0..8 {
+    for _ in 0..24 {
         held.push(with_header(addr, V1).await);
     }
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(proxy.refused(), 0, "nothing is refused before it stalls");
+    let started = std::time::Instant::now();
     let name = ServerName::try_from("example.com").unwrap();
-    let same = with_header(addr, V1).await;
-    let refused = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        connector().connect(name.clone(), same),
-    )
-    .await
-    .unwrap();
-    assert!(
-        refused.is_err(),
-        "the 9th pending connection of one visitor is closed"
-    );
     let other = with_header(addr, b"PROXY TCP4 198.51.100.20 10.0.0.1 40001 443\r\n").await;
     let mut t = connector().connect(name, other).await.unwrap();
     let r = exchange(&mut t, GET.as_bytes()).await;
     assert!(r.contains("x-real-ip: 198.51.100.20\n"), "{r}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(2500),
+        "served soon after the stalled ones are cut, well before the deadline: {:?}",
+        started.elapsed()
+    );
+    wait_until(
+        "all but an eighth (at least 8) of one visitor's stalled connections are closed",
+        || proxy.refused() >= 16,
+    )
+    .await;
     drop(held);
 }

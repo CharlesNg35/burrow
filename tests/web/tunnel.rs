@@ -97,8 +97,11 @@ async fn a_wrong_tunnel_path_is_refused_and_the_client_never_connects() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn overload_and_failed_tunnel_handshakes_on_the_web_port_are_counted() {
-    let (srv, _secret, _tunnel_cert, _nas, web) =
-        shared_server_with(|s| s.max_handshakes = 4).await;
+    let (srv, _secret, _tunnel_cert, _nas, web) = shared_server_with(|s| {
+        s.max_handshakes = 4;
+        s.handshake_timeout = Duration::from_secs(1);
+    })
+    .await;
     let before = srv.shared.status().handshakes_refused;
     let mut silent = Vec::new();
     for _ in 0..8 {

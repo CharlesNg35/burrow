@@ -208,7 +208,7 @@ services:
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |
 | `limits.handshake_timeout_secs` | `5` | time a new connection has to authenticate |
-| `limits.max_handshakes` | `256` | connections that have not finished authenticating yet |
+| `limits.max_handshakes` | `2048` | connections that have not finished authenticating yet; on the web ports, up to four times as many more wait for a slot |
 | `limits.max_connections_per_client` | `8192` | open forwarded connections per client, unless `clients.<name>.max_connections` sets its own |
 | `limits.max_pending` | `512` | connections waiting for a free channel, per client |
 | `pool.min_idle` / `pool.max_idle` | `4` / `64` | channels each client keeps open in advance, so a new connection starts at once |

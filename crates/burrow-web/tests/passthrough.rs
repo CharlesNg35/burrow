@@ -174,8 +174,23 @@ async fn hosts_added_and_removed_take_effect_for_new_connections() {
     );
 }
 
+async fn silent(addr: std::net::SocketAddr, n: usize) -> Vec<TcpStream> {
+    let mut held = Vec::new();
+    for _ in 0..n {
+        held.push(TcpStream::connect(addr).await.unwrap());
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    held
+}
+
+async fn closes_within(s: &mut TcpStream, limit: Duration) -> bool {
+    let mut buf = [0u8; 1];
+    let ended = tokio::time::timeout(limit, s.read(&mut buf)).await;
+    matches!(ended, Ok(Ok(0)) | Ok(Err(_)))
+}
+
 #[tokio::test]
-async fn silent_connections_over_the_cap_are_dropped_and_a_stop_ends_their_wait() {
+async fn silent_connections_over_the_cap_make_others_wait_their_turn_and_a_stop_ends_the_wait() {
     let (nas, _n) = backend("nas", &["nas.example.com"]).await;
     let (up, _) = Fake::new(4);
     up.serve("nas", nas);
@@ -183,30 +198,37 @@ async fn silent_connections_over_the_cap_are_dropped_and_a_stop_ends_their_wait(
         |s| {
             s.sites = vec![site("nas", &["nas.example.com"])];
             s.max_pending = 4;
+            s.timeouts.handshake = Duration::from_secs(3);
         },
         up.clone(),
     )
     .await;
     let addr = proxy.https_addr().unwrap();
-    let mut silent = Vec::new();
-    for _ in 0..4 {
-        silent.push(TcpStream::connect(addr).await.unwrap());
-    }
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(closed_without_tls(addr, "nas.example.com").await);
-    assert!(proxy.refused() >= 1);
-    drop(silent.pop());
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    let mut ok = loop {
-        match tls(addr, "nas.example.com").await {
-            Ok(s) => break s,
-            Err(e) => assert!(tokio::time::Instant::now() < deadline, "a freed slot: {e}"),
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
+    let mut held = silent(addr, 4).await;
+    let waiting = tokio::spawn(async move { tls(addr, "nas.example.com").await });
+    wait_until("the 5th is accepted", || proxy.admitted() == 5).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !waiting.is_finished(),
+        "the 5th waits instead of being closed"
+    );
+    drop(held.pop());
+    let mut ok = waiting.await.unwrap().expect("served once a slot is free");
     assert_eq!(ask(&mut ok, b"z").await.unwrap(), b"nas:z");
+    assert_eq!(proxy.refused(), 0);
+    held.extend(silent(addr, 1).await);
+    let mut late = silent(addr, 1).await.pop().unwrap();
+    assert!(
+        closes_within(&mut late, Duration::from_secs(5)).await,
+        "a silent waiter is closed by its own deadline"
+    );
+    assert!(proxy.refused() >= 1, "it waited and then said nothing");
+    let mut cut = silent(addr, 5).await;
     proxy.stop().await;
-    let mut buf = [0u8; 1];
-    let ended = tokio::time::timeout(Duration::from_secs(2), silent[0].read(&mut buf)).await;
-    assert!(matches!(ended, Ok(Ok(0)) | Ok(Err(_))), "{ended:?}");
+    for s in &mut cut {
+        assert!(
+            closes_within(s, Duration::from_secs(1)).await,
+            "a stop ends every wait at once"
+        );
+    }
 }

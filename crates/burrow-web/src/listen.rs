@@ -13,15 +13,18 @@ use crate::auth::Access;
 use crate::http::{Conn, Proto, serve};
 use crate::io::{Io, Prefixed};
 use crate::log::{LogFile, WARN_EVERY};
-use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
 use crate::proxy_header::read_proxy_header;
-use crate::route::{Kind, Table};
+use crate::route::Table;
 use crate::terminate::SiteTls;
 use crate::terminate::{Picked, acceptor_for};
 use crate::tls::client_auth::Verifiers;
 use crate::tls::{Certificates, cert_names};
 use crate::{AccessLog, LogFormat, ProxySettings, Timeouts, TunnelConn, Upstream, Visitor};
+
+mod arrive;
+
+use arrive::{Dispatch, STALLED, Seen, accept_loop, refuse};
 
 pub(crate) struct Shared<U> {
     pub(crate) up: Arc<U>,
@@ -136,6 +139,10 @@ impl<U: Upstream> Proxy<U> {
         self.shared.permits.refused()
     }
 
+    pub fn admitted(&self) -> usize {
+        self.shared.permits.admitted()
+    }
+
     pub fn table(&self) -> Arc<Table> {
         self.shared.table()
     }
@@ -215,11 +222,6 @@ impl<U> Shared<U> {
     pub(crate) fn timeouts(&self) -> Timeouts {
         *self.timing.read().expect("timing lock")
     }
-
-    fn timing(&self) -> (Duration, Duration) {
-        let t = self.timeouts();
-        (t.hello, t.handshake)
-    }
 }
 
 const PROXY_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -260,35 +262,7 @@ fn gone_before_accept(e: &std::io::Error) -> bool {
     )
 }
 
-async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) {
-    loop {
-        let (stream, peer) = accepted(&listener).await;
-        let proxied = shared.sends_proxy_header(peer);
-        let permit = if proxied {
-            shared.permits.try_take_shared()
-        } else {
-            shared.permits.try_take(peer.ip())
-        };
-        let Some(mut permit) = permit else {
-            shared.up.refused();
-            debug!(%peer, "web: too many connections that have not shown a TLS name yet, dropping");
-            continue;
-        };
-        let shared = shared.clone();
-        tokio::spawn(async move {
-            let mut stopped = shared.stop.clone();
-            let seen = tokio::select! {
-                seen = greet(&shared, stream, peer, proxied, &mut permit) => seen,
-                _ = stopped.wait_for(|s| *s) => None,
-            };
-            if let Some(seen) = seen {
-                dispatch(&shared, seen, permit).await;
-            }
-        });
-    }
-}
-
-async fn accepted(listener: &TcpListener) -> (TcpStream, SocketAddr) {
+pub(super) async fn accepted(listener: &TcpListener) -> (TcpStream, SocketAddr) {
     loop {
         match listener.accept().await {
             Ok(v) => return v,
@@ -326,7 +300,7 @@ async fn plain_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) 
     }
 }
 
-async fn after_proxy_header(
+pub(super) async fn after_proxy_header(
     mut stream: TcpStream,
     peer: SocketAddr,
     proxied: bool,
@@ -346,95 +320,7 @@ async fn after_proxy_header(
     }
 }
 
-enum Dispatch {
-    Passthrough(String),
-    Tunnel(String),
-    ByPath,
-    Terminate,
-}
-
-impl Dispatch {
-    fn of(kind: &Kind) -> Dispatch {
-        match kind {
-            Kind::Passthrough(service) => Dispatch::Passthrough(service.clone()),
-            Kind::Tunnel { path } => Dispatch::Tunnel(path.clone()),
-            k if k.only_tunnel() => Dispatch::ByPath,
-            Kind::Http { .. } | Kind::Plain { .. } => Dispatch::Terminate,
-        }
-    }
-}
-
-struct Seen {
-    io: Prefixed<TcpStream>,
-    peer: SocketAddr,
-    local: SocketAddr,
-    host: String,
-    sni: bool,
-    kind: Dispatch,
-    table: Arc<Table>,
-    deadline: Instant,
-}
-
-async fn greet<U: Upstream>(
-    shared: &Shared<U>,
-    stream: TcpStream,
-    peer: SocketAddr,
-    proxied: bool,
-    permit: &mut Permit,
-) -> Option<Seen> {
-    let accepted = Instant::now();
-    let local = stream.local_addr().ok()?;
-    shared.up.tune(&stream);
-    let (mut early, peer) = after_proxy_header(stream, peer, proxied).await?;
-    if proxied && !shared.permits.claim_source(permit, peer.ip()) {
-        shared.up.refused();
-        debug!(%peer, "web: too many connections from this visitor behind a balancer that have not shown a TLS name yet, dropping");
-        return None;
-    }
-    let (hello_limit, handshake) = shared.timing();
-    let hello = match peek_sni(&mut early, hello_limit).await {
-        Ok(Peek::Hello(h)) => h,
-        Ok(other) => {
-            debug!(%peer, "web: no TLS hello ({other:?}), closing");
-            return None;
-        }
-        Err(e) => {
-            debug!(%peer, "web: no TLS hello: {e}");
-            return None;
-        }
-    };
-    let (left, stream) = early.into_parts();
-    let mut bytes = hello.bytes;
-    bytes.extend_from_slice(&left);
-    if crate::terminate::wants_challenge(&hello.alpn)
-        && let Some(key) = hello
-            .name
-            .as_deref()
-            .and_then(|n| shared.certs.alpn_challenge(n))
-    {
-        debug!(%peer, name = ?hello.name, "web: answering a TLS-ALPN-01 challenge");
-        crate::terminate::answer_challenge(key, stream, bytes, accepted + handshake).await;
-        return None;
-    }
-    let table = shared.table();
-    let Some((host, kind)) = table.pick(hello.name.as_deref(), local.ip()) else {
-        debug!(%peer, name = ?hello.name, "web: unknown name, closing");
-        return None;
-    };
-    let kind = Dispatch::of(kind);
-    Some(Seen {
-        io: Prefixed::new(bytes, stream),
-        peer,
-        local,
-        sni: hello.name.is_some(),
-        host,
-        kind,
-        table,
-        deadline: accepted + handshake,
-    })
-}
-
-async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Permit) {
+async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, mut permit: Permit) {
     let Seen {
         io,
         peer,
@@ -487,7 +373,12 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
                 debug!(%peer, "web: no certificate for \"{host}\", closing");
                 return;
             };
-            let tls = crate::terminate::accept(acceptor, io, deadline).await;
+            let accepting = crate::terminate::accept(acceptor, io, deadline);
+            permit.hello_seen();
+            let Some(tls) = shared.permits.hold(&mut permit, accepting).await else {
+                refuse(shared, peer, STALLED);
+                return;
+            };
             drop(permit);
             if let Some((tls, proto)) = tls {
                 serve(

@@ -62,7 +62,7 @@ impl Default for Limits {
     fn default() -> Self {
         Limits {
             handshake_timeout_secs: 5,
-            max_handshakes: 256,
+            max_handshakes: 2048,
             max_connections_per_client: 8192,
             max_pending: 512,
         }

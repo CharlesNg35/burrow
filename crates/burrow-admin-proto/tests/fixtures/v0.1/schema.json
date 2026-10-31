@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:d8bab077aa5c8466",
+  "hash": "b2s:a6af02365f07fac7",
   "root": {
     "label": "Server",
     "sem": {
@@ -3234,7 +3234,7 @@
                       "max": 1000000,
                       "unit": "connections"
                     },
-                    "default": 256,
+                    "default": 2048,
                     "applies": "reload",
                     "locked": true
                   }
