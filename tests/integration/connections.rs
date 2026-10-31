@@ -298,3 +298,32 @@ async fn a_burst_on_a_public_service_wider_than_the_handshake_limit_still_gets_t
         "the burst should have hit the limit"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_burst_wider_than_max_pending_to_one_client_waits_and_is_served() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.max_pending = 8;
+    settings.pool_min_idle = 1;
+    settings.pool_max_idle = 1;
+    let t = tunnel_with(
+        settings,
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let addr = t.server.services["web"];
+    let mut tasks = tokio::task::JoinSet::new();
+    for i in 0..32u64 {
+        tasks.spawn(async move {
+            let data = pattern(2_000, i);
+            assert_eq!(roundtrip(addr, &data).await, data);
+        });
+    }
+    while let Some(r) = tasks.join_next().await {
+        r.unwrap();
+    }
+    assert_eq!(t.server.shared.waiting_visitors(), 0);
+}

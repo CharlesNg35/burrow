@@ -110,7 +110,14 @@ impl<'a> Tries<'a> {
                 self.last = Outcome::Full(client.to_string());
                 continue;
             };
-            match take_channel(self.shared, &session, self.way.label, self.way.peer).await {
+            match take_channel(
+                self.shared,
+                &session,
+                self.way.label,
+                (self.way.peer, self.way.source),
+            )
+            .await
+            {
                 Ok(ch) => {
                     self.active = Some((active, entry, share));
                     return Some((session, ch));

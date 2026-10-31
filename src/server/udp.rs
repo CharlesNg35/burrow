@@ -53,13 +53,13 @@ pub async fn udp_service(
         };
         let target = hop.target.clone();
         let session = &hop.via;
-        let ch = match tokio::time::timeout(super::TAKE_TIMEOUT, session.take()).await {
-            Ok(Ok(ch)) => ch,
-            Ok(Err(TakeError::TooManyPending)) | Ok(Err(TakeError::Closed)) => {
+        let ch = match session.take(super::TAKE_TIMEOUT, None).await {
+            Ok(ch) => ch,
+            Err(TakeError::TooManyPending | TakeError::Closed) => {
                 tokio::time::sleep(TAKE_FAILED_PAUSE).await;
                 continue;
             }
-            Err(_) => {
+            Err(TakeError::TimedOut) => {
                 if svc.several() {
                     shared.troubled(&name, session, &target, &crate::forward::no_reply());
                 }

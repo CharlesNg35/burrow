@@ -183,7 +183,7 @@ async fn probe(shared: &Shared, service: &str, client: &str, check: &Check) -> R
         .via(client)
         .ok_or_else(|| "the client disconnected".to_string())?;
     let mut ch = session
-        .take()
+        .take(check.timeout, None)
         .await
         .map_err(|_| "the client has no free data channel".to_string())?;
     let settings = shared.settings();

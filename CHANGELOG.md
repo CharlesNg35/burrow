@@ -54,6 +54,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - A server with `web:` gets its private state folder at install.
   - A start that fails only because a web certificate, key or CA file cannot be read exits for a retry.
 - **Docs:** a new docs index by task, a glossary, a page per web topic with recipes (Home Assistant, Nextcloud, Grafana, authentik and more), a full commented example, and admin UI screenshots in the README.
+- **Bursts to a client wait instead of failing:** past `limits.max_pending` (512) connections waiting for a channel, up to three times as many more wait in line for their usual 10 s instead of getting busy at once. One website visitor address gets a fair part of the line. v0.1.x clients get this too.
 - **Compatibility:**
   - The tunnel protocol is unchanged: v0.1.x clients and visitors work with a v0.2.0 server, and v0.2.0 clients and visitors with a v0.1.x server.
   - The admin protocol adds features that each side uses only when the other lists them.

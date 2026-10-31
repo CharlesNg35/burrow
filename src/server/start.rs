@@ -101,12 +101,12 @@ pub(super) async fn take_channel(
     shared: &Shared,
     session: &via::Via,
     label: &str,
-    peer: SocketAddr,
+    (peer, source): (SocketAddr, Option<std::net::IpAddr>),
 ) -> Result<crate::wire::transport::Channel, crate::wire::protocol::Status> {
     use crate::wire::protocol::Status;
-    match tokio::time::timeout(TAKE_TIMEOUT, session.take()).await {
-        Ok(Ok(ch)) => Ok(ch),
-        Ok(Err(TakeError::TooManyPending)) => {
+    match session.take(TAKE_TIMEOUT, source).await {
+        Ok(ch) => Ok(ch),
+        Err(TakeError::TooManyPending) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
             static WAITING: crate::policy::throttle::Throttle =
                 crate::policy::throttle::Throttle::new();
@@ -118,11 +118,11 @@ pub(super) async fn take_channel(
             }
             Err(Status::Busy)
         }
-        Ok(Err(TakeError::Closed)) => {
+        Err(TakeError::Closed) => {
             tracing::debug!(%peer, "{label}: session closed while waiting for a data channel");
             Err(Status::Offline)
         }
-        Err(_) => {
+        Err(TakeError::TimedOut) => {
             static SLOW: crate::policy::throttle::Throttle =
                 crate::policy::throttle::Throttle::new();
             if let Some(more) = SLOW.allow() {
