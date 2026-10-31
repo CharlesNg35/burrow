@@ -5,7 +5,7 @@ use std::sync::Arc;
 use burrow_web::peek::{Hello, MAX_HELLO, Peek, Peeker};
 use libfuzzer_sys::fuzz_target;
 use tokio_rustls::rustls::pki_types::ServerName;
-use tokio_rustls::rustls::{ClientConfig, ClientConnection, RootCertStore, crypto};
+use tokio_rustls::rustls::{ClientConfig, ClientConnection, RootCertStore};
 
 fn feed(stream: &[u8], chunk: usize) -> Option<Peek> {
     let mut peeker = Peeker::default();
@@ -90,7 +90,7 @@ fn made(mode: u8, rest: &[u8]) {
         }
         None => ServerName::IpAddress(std::net::Ipv4Addr::LOCALHOST.into()),
     };
-    let provider = Arc::new(crypto::ring::default_provider());
+    let provider = burrow_web::tls::provider();
     let mut config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .expect("protocol versions")

@@ -5,7 +5,6 @@ use std::time::SystemTime;
 
 use tokio_rustls::rustls::RootCertStore;
 use tokio_rustls::rustls::ServerConfig;
-use tokio_rustls::rustls::crypto::ring::default_provider;
 use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 use tokio_rustls::rustls::server::{
     ResolvesServerCert, VerifierBuilderError, WebPkiClientVerifier,
@@ -38,7 +37,7 @@ fn load(ca: &[u8], crl: Option<&[u8]>) -> Result<Loaded, ClientAuthProblem> {
             .map_err(|_| ClientAuthProblem::NotCa)?;
     }
     let mut b =
-        WebPkiClientVerifier::builder_with_provider(Arc::new(roots), Arc::new(default_provider()));
+        WebPkiClientVerifier::builder_with_provider(Arc::new(roots), crate::tls::provider());
     if !crls.is_empty() {
         b = b.with_crls(crls).allow_unknown_revocation_status();
     }

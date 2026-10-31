@@ -10,7 +10,7 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
-use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 use super::pebble::{DIRECTORY, Pebble};
 use super::responder::{Responder, start};
@@ -101,7 +101,7 @@ async fn until(
 pub(super) async fn served(ctx: &Ctx, name: &str) -> Option<CertificateDer<'static>> {
     let mut roots = RootCertStore::empty();
     roots.add(ctx.root.clone()).unwrap();
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = burrow_web::tls::provider();
     let mut config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .unwrap()

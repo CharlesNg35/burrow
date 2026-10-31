@@ -26,10 +26,10 @@ fn config(
     alpn: &[&[u8]],
     verifier: Option<Verifier>,
 ) -> Arc<ServerConfig> {
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = crate::tls::provider();
     let versions = ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .expect("ring supports the default TLS versions");
+        .expect("aws-lc-rs supports the default TLS versions");
     let mut c = match verifier {
         Some(v) => versions.with_client_cert_verifier(v),
         None => versions.with_no_client_auth(),

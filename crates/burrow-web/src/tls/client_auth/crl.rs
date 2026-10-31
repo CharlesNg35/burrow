@@ -1,7 +1,6 @@
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tokio_rustls::rustls::crypto::ring::default_provider;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
 use x509_cert::certificate::{CertificateInner, Raw};
@@ -164,7 +163,7 @@ fn version_one(tbs: &[u8]) -> bool {
 }
 
 fn signed_by(s: &Signed<'_>, ca: &Ca) -> bool {
-    default_provider()
+    crate::tls::provider()
         .signature_verification_algorithms
         .all
         .iter()

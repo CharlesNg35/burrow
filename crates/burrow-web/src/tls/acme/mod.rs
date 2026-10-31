@@ -169,7 +169,7 @@ pub fn describe(e: &instant_acme::Error) -> String {
 
 pub fn fraction() -> f64 {
     let mut b = [0u8; 8];
-    let _ = ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut b);
+    let _ = aws_lc_rs::rand::SecureRandom::fill(&aws_lc_rs::rand::SystemRandom::new(), &mut b);
     (u64::from_le_bytes(b) >> 11) as f64 / (1u64 << 53) as f64
 }
 

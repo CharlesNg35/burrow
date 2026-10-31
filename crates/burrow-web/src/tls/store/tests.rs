@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
-use tokio_rustls::rustls::{self, ClientConfig, ServerConfig};
+use tokio_rustls::rustls::{ClientConfig, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use super::*;
@@ -10,7 +10,7 @@ use crate::tls::files::tests::write_pair;
 use crate::{CertSource, SharedFile};
 
 async fn served(store: Arc<Store>, name: &str) -> Option<CertificateDer<'static>> {
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = crate::tls::provider();
     let server = ServerConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
         .unwrap()

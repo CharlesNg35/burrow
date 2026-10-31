@@ -168,7 +168,7 @@ fn accept_key<B>(req: &Request<B>) -> Option<String> {
         return None;
     }
     let key = h.get("sec-websocket-key")?.as_bytes();
-    let mut ctx = ring::digest::Context::new(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY);
+    let mut ctx = aws_lc_rs::digest::Context::new(&aws_lc_rs::digest::SHA1_FOR_LEGACY_USE_ONLY);
     ctx.update(key);
     ctx.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
     Some(base64::engine::general_purpose::STANDARD.encode(ctx.finish()))

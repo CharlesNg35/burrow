@@ -15,9 +15,9 @@ burrow = { path = ".." }
 burrow-config = { path = "../crates/burrow-config" }
 burrow-syntax = { path = "../crates/burrow-syntax" }
 burrow-web = { path = "../crates/burrow-web" }
-tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-instant-acme = { version = "=0.8.5", default-features = false, features = ["ring", "rcgen", "time"] }
+instant-acme = { version = "=0.8.5", default-features = false, features = ["aws-lc-rs", "rcgen", "time"] }
 tokio = { version = "1", features = ["rt", "io-util", "net", "time"] }
 hyper = { version = "1.12.0", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }

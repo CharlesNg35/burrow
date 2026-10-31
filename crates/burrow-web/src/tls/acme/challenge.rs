@@ -103,7 +103,7 @@ fn alpn_certificate(identifier: &str, digest: &[u8]) -> Result<CertifiedKey, Str
     let cert = params.self_signed(&key).map_err(fail)?;
     let private = PrivateKeyDer::try_from(key.serialize_der())
         .map_err(|e| format!("cannot use the TLS-ALPN-01 key: {e}"))?;
-    let signing = tokio_rustls::rustls::crypto::ring::default_provider()
+    let signing = crate::tls::provider()
         .key_provider
         .load_private_key(private)
         .map_err(|e| format!("cannot use the TLS-ALPN-01 key: {e}"))?;

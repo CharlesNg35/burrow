@@ -9,8 +9,8 @@ use hyper_util::rt::TokioIo;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::LazyConfigAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::rustls::server::{Acceptor, ResolvesServerCert};
-use tokio_rustls::rustls::{self, ServerConfig};
 
 pub struct Responder {
     pub current: Arc<RwLock<Arc<Store>>>,
@@ -28,7 +28,7 @@ impl Drop for Responder {
 }
 
 fn config(resolver: Arc<dyn ResolvesServerCert>, alpn: &[u8]) -> Arc<ServerConfig> {
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = burrow_web::tls::provider();
     let mut c = ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .unwrap()
@@ -44,7 +44,7 @@ fn front_config() -> Arc<ServerConfig> {
         .unwrap()
         .self_signed(&key)
         .unwrap();
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = burrow_web::tls::provider();
     let c = ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .unwrap()

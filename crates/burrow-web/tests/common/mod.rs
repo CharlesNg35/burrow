@@ -18,9 +18,7 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName}
 use tokio_rustls::rustls::{self, ClientConfig, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
-pub fn provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
-}
+pub use burrow_web::tls::provider;
 
 pub fn acceptor(names: &[&str]) -> TlsAcceptor {
     let key = rcgen::KeyPair::generate().unwrap();

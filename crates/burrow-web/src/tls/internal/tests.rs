@@ -28,7 +28,7 @@ fn verify(
 ) -> Result<(), String> {
     let mut roots = RootCertStore::empty();
     roots.add(root.clone()).unwrap();
-    let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+    let provider = crate::tls::provider();
     let v = WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider)
         .build()
         .unwrap();

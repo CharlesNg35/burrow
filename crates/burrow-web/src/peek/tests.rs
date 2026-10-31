@@ -4,12 +4,12 @@ use std::task::{Context, Poll};
 
 use tokio::io::ReadBuf;
 use tokio_rustls::rustls::pki_types::ServerName;
-use tokio_rustls::rustls::{self, ClientConfig, ClientConnection};
+use tokio_rustls::rustls::{ClientConfig, ClientConnection};
 
 use super::*;
 
 pub(crate) fn client_hello(name: &str, alpn: &[&[u8]]) -> Vec<u8> {
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let provider = crate::tls::provider();
     let mut config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .unwrap()

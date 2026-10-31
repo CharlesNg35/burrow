@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use ring::hmac;
+use aws_lc_rs::hmac;
 
 pub const KEEP: Duration = Duration::from_secs(600);
 pub const MOST: usize = 1024;
@@ -22,7 +22,7 @@ impl Cache {
     }
 
     pub(crate) fn sized(keep: Duration, most: usize) -> Cache {
-        let rng = ring::rand::SystemRandom::new();
+        let rng = aws_lc_rs::rand::SystemRandom::new();
         Cache {
             key: hmac::Key::generate(hmac::HMAC_SHA256, &rng).expect("the system has randomness"),
             held: Mutex::new(HashMap::new()),

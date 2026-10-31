@@ -7,6 +7,7 @@ use burrow::config::settings::{
     ServerSettings, Service, TlsMaterial, WebSettings, WebSite, WebSocketSettings,
 };
 use burrow::wire::secret::Secret;
+use burrow::wire::transport::tls::provider;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -16,10 +17,6 @@ use tokio_rustls::rustls::{self, ClientConfig, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::common::*;
-
-fn provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
-}
 
 pub fn acceptor(c: &Cert) -> TlsAcceptor {
     let certs = vec![CertificateDer::from_pem_slice(c.cert_pem.as_bytes()).unwrap()];

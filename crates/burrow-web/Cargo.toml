@@ -12,29 +12,30 @@ admin-test-hooks = []
 [dependencies]
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "getrandom", "zeroize"] }
 async-compression = { version = "0.4.51", default-features = false, features = ["tokio", "gzip"] }
+aws-lc-rs = "1.19.0"
 base64 = "0.23.1"
 bcrypt = { version = "0.19.3", default-features = false, features = ["std", "zeroize"] }
 burrow-syntax = { path = "../burrow-syntax" }
 bytes = "1.12.1"
 governor = { version = "0.10.4", default-features = false, features = ["std"] }
 h2 = "0.4.20"
-hickory-proto = { version = "0.26.3", default-features = false, features = ["std", "dnssec-ring"] }
+hickory-proto = { version = "0.26.3", default-features = false, features = ["std", "dnssec-aws-lc-rs"] }
 http = "1.5.0"
 http-body-util = "0.1.5"
 httpdate = "1.0.3"
-instant-acme = { version = "=0.8.5", default-features = false, features = ["ring", "rcgen", "time"] }
+instant-acme = { version = "=0.8.5", default-features = false, features = ["aws-lc-rs", "rcgen", "time"] }
 hyper = { version = "1.12.0", default-features = false, features = ["http1", "http2", "server", "client"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 ppp = "2.3.0"
-rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem", "crypto"] }
 resolv-conf = "0.7.6"
-ring = "0.17.14"
+rustls = { version = "0.23.46", default-features = false, features = ["prefer-post-quantum"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 socket2 = "0.6.5"
 time = "0.3.55"
 tokio = { version = "1.53.3", features = ["net", "io-util", "time", "sync", "rt", "macros", "process"] }
-tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
 tokio-util = { version = "0.7.20", default-features = false, features = ["io"] }
 tracing = "0.1.44"
 webpki-roots = "1.0.10"
@@ -51,7 +52,7 @@ futures-util = { version = "0.3.34", default-features = false, features = ["sink
 tempfile = "3.27.0"
 time = "0.3.55"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "test-util", "process"] }
-tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "ring", "getrandom"] }
+tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "aws_lc_rs", "getrandom"] }
 
 [[test]]
 name = "acme"

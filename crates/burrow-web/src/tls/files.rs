@@ -2,7 +2,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use tokio_rustls::rustls::RootCertStore;
-use tokio_rustls::rustls::crypto::ring::default_provider;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::sign::CertifiedKey;
@@ -39,7 +38,7 @@ pub fn certified(
     if chain.is_empty() {
         return Err("holds no certificate".into());
     }
-    let ck = CertifiedKey::from_der(chain, key, &default_provider())
+    let ck = CertifiedKey::from_der(chain, key, &crate::tls::provider())
         .map_err(|e| format!("the key does not fit the certificate ({e})"))?;
     ck.keys_match()
         .map_err(|e| format!("the key does not fit the certificate ({e})"))?;

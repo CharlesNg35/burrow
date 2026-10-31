@@ -12,7 +12,7 @@ pub struct Facts {
 }
 
 pub fn fingerprint(bytes: &[u8]) -> String {
-    ring::digest::digest(&ring::digest::SHA256, bytes)
+    aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, bytes)
         .as_ref()
         .iter()
         .map(|b| format!("{b:02X}"))
@@ -21,7 +21,7 @@ pub fn fingerprint(bytes: &[u8]) -> String {
 }
 
 pub fn short_hex(bytes: &[u8], n: usize) -> String {
-    ring::digest::digest(&ring::digest::SHA256, bytes).as_ref()[..n]
+    aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, bytes).as_ref()[..n]
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()

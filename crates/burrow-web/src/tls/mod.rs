@@ -11,8 +11,9 @@ pub mod x509;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use tokio_rustls::rustls::crypto::{CryptoProvider, aws_lc_rs};
 use tokio_rustls::rustls::server::ResolvesServerCert;
 use tokio_rustls::rustls::sign::CertifiedKey;
 
@@ -23,6 +24,13 @@ pub type Applying<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 pub use fixed::Fixed;
 pub use select::{TUNNEL_GROUP, cert_names};
 pub use store::{Store, now_secs};
+
+static PROVIDER: LazyLock<Arc<CryptoProvider>> =
+    LazyLock::new(|| Arc::new(aws_lc_rs::default_provider()));
+
+pub fn provider() -> Arc<CryptoProvider> {
+    PROVIDER.clone()
+}
 
 pub trait Certificates: ResolvesServerCert + Send + Sync + 'static {
     fn state(&self, name: &str) -> CertState;

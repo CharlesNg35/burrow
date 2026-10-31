@@ -1,4 +1,4 @@
-use ring::signature::{self, UnparsedPublicKey, VerificationAlgorithm};
+use aws_lc_rs::signature::{self, UnparsedPublicKey, VerificationAlgorithm};
 use x509_cert::certificate::{CertificateInner, Raw};
 use x509_cert::crl::CertificateList;
 use x509_cert::der::{Decode, Encode, Header, Reader, SliceReader};

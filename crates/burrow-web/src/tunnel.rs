@@ -24,7 +24,7 @@ const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 pub fn accept_key(key: &str) -> String {
     let mut input = key.as_bytes().to_vec();
     input.extend_from_slice(WEBSOCKET_GUID.as_bytes());
-    let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, &input);
+    let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA1_FOR_LEGACY_USE_ONLY, &input);
     base64::engine::general_purpose::STANDARD.encode(digest.as_ref())
 }
 

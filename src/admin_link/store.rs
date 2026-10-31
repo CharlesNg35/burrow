@@ -66,7 +66,8 @@ fn for_sudo(
 
 pub fn file_for(dir: &Path, config: &Path, prefix: &str, suffix: &str) -> PathBuf {
     let key = std::fs::canonicalize(config).unwrap_or_else(|_| config.to_path_buf());
-    let digest = ring::digest::digest(&ring::digest::SHA256, key.to_string_lossy().as_bytes());
+    let digest =
+        aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, key.to_string_lossy().as_bytes());
     dir.join(format!(
         "{prefix}{}{suffix}",
         hex::encode(&digest.as_ref()[..12])

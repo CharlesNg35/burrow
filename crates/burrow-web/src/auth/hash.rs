@@ -134,7 +134,8 @@ pub(crate) fn dummy() -> &'static Stored {
     static DUMMY: std::sync::OnceLock<Stored> = std::sync::OnceLock::new();
     DUMMY.get_or_init(|| {
         let mut seed = [0u8; 16];
-        let _ = ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut seed);
+        let _ =
+            aws_lc_rs::rand::SecureRandom::fill(&aws_lc_rs::rand::SystemRandom::new(), &mut seed);
         stored(&hash_password(&seed)).expect("our own hash parses")
     })
 }

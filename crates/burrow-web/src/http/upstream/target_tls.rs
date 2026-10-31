@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 pub use crate::tls::files::ca_roots;
+use crate::tls::provider;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::client::danger::{
     HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
 };
 use tokio_rustls::rustls::crypto::{
-    CryptoProvider, WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature,
+    WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature,
 };
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio_rustls::rustls::{
@@ -18,10 +19,6 @@ pub enum Check {
     PublicRoots,
     OwnCa(Vec<u8>),
     Unchecked,
-}
-
-fn provider() -> Arc<CryptoProvider> {
-    Arc::new(tokio_rustls::rustls::crypto::ring::default_provider())
 }
 
 #[derive(Debug)]

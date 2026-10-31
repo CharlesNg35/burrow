@@ -55,14 +55,11 @@ mod tests {
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
-    use tokio_rustls::rustls::{self, ClientConfig, RootCertStore, ServerConfig};
+    use tokio_rustls::rustls::{ClientConfig, RootCertStore, ServerConfig};
     use tokio_rustls::{TlsAcceptor, TlsConnector};
 
     use super::*;
-
-    fn provider() -> Arc<rustls::crypto::CryptoProvider> {
-        Arc::new(rustls::crypto::ring::default_provider())
-    }
+    use crate::tls::provider;
 
     #[tokio::test]
     async fn a_fixed_certificate_serves_a_handshake_through_the_resolver() {

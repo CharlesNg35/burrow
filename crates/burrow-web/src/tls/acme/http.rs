@@ -96,7 +96,7 @@ impl Client {
                 ca.map_or(String::new(), |c| c.display().to_string())
             )
         })?;
-        let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+        let provider = crate::tls::provider();
         let mut config = ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .map_err(|e| e.to_string())?

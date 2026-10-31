@@ -7,9 +7,9 @@ use std::fmt::Write as _;
 use std::net::IpAddr;
 use std::time::SystemTime;
 
+use aws_lc_rs::rand::{SecureRandom, SystemRandom};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ring::rand::{SecureRandom, SystemRandom};
 
 use crate::LogFormat;
 

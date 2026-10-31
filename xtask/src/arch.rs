@@ -68,6 +68,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
         &[
             "argon2",
             "async-compression",
+            "aws-lc-rs",
             "base64",
             "bcrypt",
             "burrow-syntax",
@@ -85,7 +86,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "ppp",
             "rcgen",
             "resolv-conf",
-            "ring",
+            "rustls",
             "rustls-webpki",
             "serde",
             "serde_json",

@@ -26,7 +26,7 @@ async fn serve(answer: Vec<u8>, stall: bool) -> Server {
         .unwrap();
     let ca = dir.path().join("ca.pem");
     std::fs::write(&ca, cert.pem()).unwrap();
-    let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+    let provider = crate::tls::provider();
     let config = ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .unwrap()

@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use tokio_rustls::rustls::client::WebPkiServerVerifier;
 use tokio_rustls::rustls::client::danger::{
     HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
 };
+use tokio_rustls::rustls::crypto::{CryptoProvider, aws_lc_rs};
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use tokio_rustls::rustls::{
@@ -11,8 +12,11 @@ use tokio_rustls::rustls::{
 };
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
-fn provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
+static PROVIDER: LazyLock<Arc<CryptoProvider>> =
+    LazyLock::new(|| Arc::new(aws_lc_rs::default_provider()));
+
+pub fn provider() -> Arc<CryptoProvider> {
+    PROVIDER.clone()
 }
 
 pub fn parse_certs(pem: &[u8]) -> Result<Vec<CertificateDer<'static>>, String> {
@@ -135,4 +139,83 @@ impl ServerCertVerifier for PinnedOrWebPki {
 pub fn server_name(host: &str) -> Result<ServerName<'static>, String> {
     ServerName::try_from(host.to_string())
         .map_err(|_| format!("\"{host}\" is not a valid TLS server name"))
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio_rustls::rustls::NamedGroup;
+    use tokio_rustls::rustls::crypto::SupportedKxGroup;
+    use tokio_rustls::rustls::crypto::aws_lc_rs::kx_group;
+
+    use super::*;
+
+    const NAME: &str = "tunnel.example.com";
+
+    fn server() -> (TlsAcceptor, String) {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec![NAME.into()])
+            .unwrap()
+            .self_signed(&key)
+            .unwrap();
+        let acceptor = acceptor(cert.pem().as_bytes(), key.serialize_pem().as_bytes()).unwrap();
+        (acceptor, cert.pem())
+    }
+
+    fn only(groups: &[&'static dyn SupportedKxGroup], ca: &str) -> TlsConnector {
+        let provider = CryptoProvider {
+            kx_groups: groups.to_vec(),
+            ..aws_lc_rs::default_provider()
+        };
+        let mut roots = RootCertStore::empty();
+        roots.add_parsable_certificates(parse_certs(ca.as_bytes()).unwrap());
+        let config = ClientConfig::builder_with_provider(Arc::new(provider))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        TlsConnector::from(Arc::new(config))
+    }
+
+    async fn agreed(client: TlsConnector, server: TlsAcceptor) -> NamedGroup {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let accepted = tokio::spawn(async move { server.accept(b).await.map(|_| ()) });
+        let name = ServerName::try_from(NAME).unwrap();
+        let tls = client.connect(name, a).await.unwrap();
+        accepted.await.unwrap().unwrap();
+        tls.get_ref()
+            .1
+            .negotiated_key_exchange_group()
+            .unwrap()
+            .name()
+    }
+
+    #[test]
+    fn the_hybrid_post_quantum_group_comes_first() {
+        let names: Vec<_> = provider().kx_groups.iter().map(|g| g.name()).collect();
+        assert_eq!(
+            names,
+            [
+                NamedGroup::X25519MLKEM768,
+                NamedGroup::X25519,
+                NamedGroup::secp256r1,
+                NamedGroup::secp384r1
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn two_burrow_ends_agree_on_the_hybrid_post_quantum_group() {
+        let (server, ca) = server();
+        let client = connector(Some(ca.as_bytes())).unwrap();
+        assert_eq!(agreed(client, server).await, NamedGroup::X25519MLKEM768);
+    }
+
+    #[tokio::test]
+    async fn a_classical_client_still_connects() {
+        let (server, ca) = server();
+        let x25519 = only(&[kx_group::X25519], &ca);
+        assert_eq!(agreed(x25519, server.clone()).await, NamedGroup::X25519);
+        let p256 = only(&[kx_group::SECP256R1], &ca);
+        assert_eq!(agreed(p256, server).await, NamedGroup::secp256r1);
+    }
 }
