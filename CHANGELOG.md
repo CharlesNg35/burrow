@@ -12,6 +12,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - DNS checks through Cloudflare, RFC 2136 (BIND, Knot, PowerDNS, Technitium), acme-dns or a command of your own, for wildcards and names the internet cannot reach. Several providers can be set by domain, `_acme-challenge` CNAMEs are followed, and one shared wildcard can cover many sites.
   - Your own certificate files, or certificates uploaded in the admin UI. A file renewed on disk is picked up on the next reload.
   - A local CA for LAN names (`tls: internal`), like Caddy's. Install it once per device; `burrow ca export` prints its certificate.
+  - A renewal order that the CA refuses twice with its `replaces` hint (ARI) is sent without the hint on the third try, so a certificate never expires over the hint.
   - Certificates and the Let's Encrypt account live in a private state folder (`--state-dir`). `service uninstall` keeps it; `--purge` removes it.
 - **Who may visit:**
   - `basic_auth` with argon2id or bcrypt hashes, from the new `burrow passwd` or set in the admin UI. Wrong passwords are limited to 10 a minute per address.
