@@ -12,6 +12,8 @@ pub(super) struct Place<'a> {
     pub at: &'a dyn Fn(usize) -> Span,
     pub served: Served,
     pub tls: String,
+    pub tls_written: Option<String>,
+    pub tls_unknown: bool,
     pub client_ca: Option<String>,
     pub paths: Vec<String>,
 }
@@ -20,6 +22,7 @@ pub(super) struct Owner {
     pub service: String,
     pub served: Served,
     pub tls: String,
+    pub tls_written: Option<String>,
     pub client_ca: Option<String>,
     pub paths: Vec<String>,
 }
@@ -43,9 +46,7 @@ fn clash(place: &Place<'_>, host: &str, owners: &Owners) -> Option<Diagnostic> {
                 "host \"{host}\" is used by services \"{other}\" and \"{name}\"; each host name leads to one service"
             )
         } else if o.tls != place.tls {
-            format!(
-                "host \"{host}\": services \"{other}\" and \"{name}\" share it but choose different certificates; set tls for it in one service only"
-            )
+            return Some(tls_clash(o, place, host));
         } else if o.client_ca != place.client_ca {
             format!(
                 "host \"{host}\": services share it but name different client_auth CAs; device certificates are checked per host name"
@@ -60,6 +61,31 @@ fn clash(place: &Place<'_>, host: &str, owners: &Owners) -> Option<Diagnostic> {
         return Some(Diagnostic::error("duplicate-host", message).help(own_name_help(name, host)));
     }
     None
+}
+
+fn tls_shown(key: &str, written: Option<&str>) -> String {
+    match written {
+        Some(w) => format!("tls: {w}"),
+        None => format!("no tls, so {key}"),
+    }
+}
+
+fn tls_clash(o: &Owner, place: &Place<'_>, host: &str) -> Diagnostic {
+    let (other, name) = (&o.service, place.name);
+    let help = match (&o.tls_written, &place.tls_written) {
+        (Some(w), _) => format!("for example write tls: {w} on service \"{name}\" too"),
+        (None, Some(w)) => format!("for example write tls: {w} on service \"{other}\" too"),
+        (None, None) => format!("for example remove tls from service \"{name}\""),
+    };
+    Diagnostic::error(
+        "duplicate-host",
+        format!(
+            "host \"{host}\": services \"{other}\" ({}) and \"{name}\" ({}) share it; use the same tls on every service of this name",
+            tls_shown(&o.tls, o.tls_written.as_deref()),
+            tls_shown(&place.tls, place.tls_written.as_deref()),
+        ),
+    )
+    .help(help)
 }
 
 fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str, shares: Shares) -> Option<Diagnostic> {
@@ -145,7 +171,7 @@ pub(super) fn check_hosts(
         let localhost = place.tls
             == burrow_config::admin_schema::AdminEnum::wire(&burrow_config::TlsMode::Internal)
             && is_localhost(text);
-        let single = if matches!(place.served, Served::Plain) || localhost {
+        let single = if matches!(place.served, Served::Plain) || localhost || place.tls_unknown {
             SingleLabel::Allowed
         } else {
             SingleLabel::Refused
@@ -205,6 +231,7 @@ pub(super) fn check_hosts(
             service: name.to_string(),
             served: place.served,
             tls: place.tls.clone(),
+            tls_written: place.tls_written.clone(),
             client_ca: place.client_ca.clone(),
             paths: place.paths.clone(),
         });
@@ -230,6 +257,57 @@ pub(super) fn tls_key(web: &burrow_config::ServiceWeb, https: bool) -> String {
         None if https => TlsMode::Auto.wire().into(),
         None => TlsMode::Off.wire().into(),
     }
+}
+
+pub(super) fn tls_written(web: &burrow_config::ServiceWeb) -> Option<String> {
+    use burrow_config::SiteTls;
+    match web.tls()? {
+        SiteTls::Files(f) => {
+            let text = |v: &Option<String>| v.as_deref().unwrap_or_default().trim().to_string();
+            Some(format!(
+                "{{cert: {}, key: {}}}",
+                text(&f.cert),
+                text(&f.key)
+            ))
+        }
+        SiteTls::Mode(mode) => Some(mode.wire().into()),
+    }
+}
+
+pub(super) fn tls_unknown(
+    spans: &super::Spans,
+    name: &str,
+    web: &burrow_config::ServiceWeb,
+) -> bool {
+    web.tls().is_none() && spans.has(&["services", name, "web", "tls"])
+}
+
+pub(super) fn shares_with_other_tls(
+    cfg: &burrow_config::ServerConfig,
+    service: &str,
+    host: &str,
+    https: bool,
+) -> bool {
+    use burrow_config::{SiteTls, TlsMode};
+    let passthrough = |w: &burrow_config::ServiceWeb| {
+        matches!(w.tls(), Some(SiteTls::Mode(TlsMode::Passthrough)))
+    };
+    let Some(mine) = cfg.services.get(service).and_then(|s| s.web.as_ref()) else {
+        return false;
+    };
+    let names = |w: &burrow_config::ServiceWeb, host: &str| {
+        w.hosts()
+            .iter()
+            .any(|h| host_name(h, SingleLabel::Allowed).is_ok_and(|h| h == host))
+    };
+    !passthrough(mine)
+        && cfg.services.iter().any(|(other, svc)| {
+            other != service
+                && svc.protocol == burrow_config::Protocol::Tcp
+                && svc.web.as_ref().is_some_and(|w| {
+                    !passthrough(w) && names(w, host) && tls_key(w, https) != tls_key(mine, https)
+                })
+        })
 }
 
 pub(super) fn paths_of(web: &burrow_config::ServiceWeb) -> Vec<String> {

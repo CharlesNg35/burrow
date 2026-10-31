@@ -71,7 +71,11 @@ pub(in crate::config::check) fn check_sources(
     redirect_sources(cfg, &sources, ports, spans, out);
     let dns = challenge::Dns::of(cfg);
     for (name, svc) in &cfg.services {
-        let Some(web) = svc.web.as_ref().filter(|w| takes_auto(w)) else {
+        let Some(web) = svc
+            .web
+            .as_ref()
+            .filter(|w| takes_auto(w) && !super::hosts::tls_unknown(spans, name, w))
+        else {
             continue;
         };
         if svc.protocol != Protocol::Tcp {
@@ -81,7 +85,7 @@ pub(in crate::config::check) fn check_sources(
             let Ok(host) = host_name(text, SingleLabel::Refused) else {
                 continue;
             };
-            if sources.lists(&host) {
+            if sources.lists(&host) || super::hosts::shares_with_other_tls(cfg, name, &host, true) {
                 continue;
             }
             let at = host_at(spans, name, web, i);
@@ -122,10 +126,11 @@ fn redirect_sources(
 ) {
     let mut names: Vec<(Who<'_>, String, Option<burrow_config::ChallengeKind>, Span)> = Vec::new();
     for (name, svc) in &cfg.services {
-        let Some(ServiceWeb::Site(site)) = svc.web.as_ref() else {
+        let Some(web @ ServiceWeb::Site(site)) = svc.web.as_ref() else {
             continue;
         };
         if svc.protocol != Protocol::Tcp
+            || super::hosts::tls_unknown(spans, name, web)
             || matches!(
                 site.tls,
                 Some(SiteTls::Mode(

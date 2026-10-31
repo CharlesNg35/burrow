@@ -321,6 +321,8 @@ pub(super) fn check_sites(
             at: &item,
             served: Served::of(web, https.is_some()),
             tls: hosts::tls_key(web, https.is_some()),
+            tls_written: hosts::tls_written(web),
+            tls_unknown: hosts::tls_unknown(spans, name, web),
             client_ca: hosts::client_ca(web),
             paths: hosts::paths_of(web),
         };

@@ -152,7 +152,48 @@ fn services_share_a_host_by_paths_but_never_one_path_or_two_certificates() {
         svc("a", "example.com") + &svc("b", "{ hosts: [example.com], paths: [/api], tls: off }");
     let found = errs("", &tls);
     assert!(
-        found.contains(&"host \"example.com\": services \"a\" and \"b\" share it but choose different certificates; set tls for it in one service only".to_string()),
+        found.contains(&"host \"example.com\": services \"a\" (no tls, so auto) and \"b\" (tls: off) share it; use the same tls on every service of this name".to_string()),
+        "{found:#?}"
+    );
+}
+
+#[test]
+fn services_sharing_a_name_with_different_tls_are_told_to_use_the_same_tls_and_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        "listen: 7835\nweb:\n  https: 443\nservices:\n{}{}",
+        svc("site", "{ hosts: [site.lan], tls: internal }"),
+        svc("api", "{ hosts: [site.lan], paths: [/api] }")
+    );
+    let o = load_in(dir.path(), &text);
+    let found: Vec<(String, String)> = o
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| (d.message.clone(), d.help.clone().unwrap_or_default()))
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            "host \"site.lan\": services \"api\" (no tls, so auto) and \"site\" (tls: internal) share it; use the same tls on every service of this name".to_string(),
+            "for example write tls: internal on service \"api\" too".to_string()
+        )]
+    );
+    let files = format!(
+        "listen: 7835\nweb:\n  https: 443\nservices:\n{}{}",
+        svc(
+            "a",
+            "{ hosts: [example.com], tls: { cert: a.pem, key: a.key } }"
+        ),
+        svc(
+            "b",
+            "{ hosts: [example.com], paths: [/api], tls: internal }"
+        )
+    );
+    let found = errors(&load_in(dir.path(), &files));
+    assert!(
+        found.contains(&"host \"example.com\": services \"a\" (tls: {cert: a.pem, key: a.key}) and \"b\" (tls: internal) share it; use the same tls on every service of this name".to_string()),
         "{found:#?}"
     );
 }
@@ -328,4 +369,26 @@ fn every_header_burrow_strips_or_frames_is_refused_in_a_rule() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn an_unknown_tls_value_is_the_only_error_for_its_site() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        "listen: 7835\nweb:\n  https: 443\n  http: 80\nservices:\n{}{}",
+        svc("dashboard", "{ hosts: [dash], tls: of }"),
+        svc(
+            "blog",
+            "{ hosts: [blog.example.com], redirect_from: [www.blog.example.com], tls: of }"
+        )
+    );
+    let found = errors(&load_in(dir.path(), &text));
+    assert_eq!(
+        found,
+        [
+            "unknown tls \"of\" in \"services.dashboard.web\"",
+            "unknown tls \"of\" in \"services.blog.web\""
+        ],
+        "{found:#?}"
+    );
 }
