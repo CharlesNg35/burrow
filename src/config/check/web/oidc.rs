@@ -226,7 +226,7 @@ pub(super) fn check_site(
         ));
     }
     if s.served == Served::Plain {
-        out.push(err(OIDC, format!("{field}: a site with tls: off has no HTTPS, and login cookies need it; remove tls: off, or remove oidc"), "browsers keep a login cookie only for https:// sites"));
+        out.push(err(OIDC, format!("{field}: this site is served as plain HTTP (tls: off, or no web.https), and login cookies need HTTPS; serve it over HTTPS, or remove oidc"), "browsers keep a login cookie only for https:// sites"));
     } else if s.https_redirect == Some(false) {
         out.push(err(OIDC, format!("{field}: https_redirect: false would serve this site over plain http:// too, where the login cookie is never sent; remove it, or remove oidc"), "a site with oidc always sends http:// visitors to https://"));
     }
