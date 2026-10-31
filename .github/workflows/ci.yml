@@ -139,6 +139,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo build --locked
       - run: cargo test --locked
+      - name: Test the web proxy crate
+        run: cargo test --locked -p burrow-web
       - name: Install and run as a launchd service
         if: runner.os == 'macOS'
         env:
@@ -289,6 +291,11 @@ jobs:
         with:
           tool: cargo-zigbuild@0.23.4
       - run: cargo zigbuild --locked --target ${{ matrix.target }}
+      - name: Build the tests for FreeBSD, warnings as errors (no FreeBSD runner, so they only compile)
+        if: matrix.target == 'x86_64-unknown-freebsd'
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo zigbuild --locked --target x86_64-unknown-freebsd -p burrow -p burrow-web --tests
       - name: Run the built binary
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: ./target/${{ matrix.target }}/debug/burrow version
