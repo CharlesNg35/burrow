@@ -13,6 +13,7 @@ mod reload;
 mod route;
 mod run;
 mod session;
+mod share;
 mod standing;
 mod start;
 mod status;
@@ -64,6 +65,7 @@ pub struct Shared {
     rejected: AtomicUsize,
     handshakes: RwLock<Arc<Semaphore>>,
     handshake_sources: burrow_syntax::share::Shares<std::net::IpAddr>,
+    visitor_shares: share::VisitorShares,
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
     applied: watch::Sender<ApplyReport>,

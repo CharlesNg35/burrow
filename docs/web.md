@@ -114,7 +114,7 @@ Every website gets these without any setting:
 - **The app learns who asked:** burrow sets `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port` and `X-Real-IP`. A visitor's own `Forwarded` and `X-Forwarded-*` headers are removed first; only the proxies in `web.trusted_proxies` are believed ([Behind Cloudflare or a load balancer](web/proxies.md#behind-cloudflare-or-a-load-balancer)).
 - **The name must match:** a request whose `Host` differs from the name of the HTTPS connection gets `421`, and a request without `Host` gets `400`.
 - **Pages when something is wrong**, instead of a broken connection:
-  - `503` when no client of the service is connected, all are down, or the service is at its connection limit;
+  - `503` when no client of the service is connected, all are down, or the service is at its connection limit, or one visitor address already holds its fair part of a busy service or client;
   - `502` when the client cannot reach the app;
   - `404` for an unknown name on port 80.
 

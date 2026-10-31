@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -9,6 +9,7 @@ use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
+use super::share::{FairShare, Pool};
 use crate::config::settings::Service;
 use crate::forward::{ForwardError, Incoming, Meter, Opened, Opening, Split, open_tcp};
 use crate::wire::protocol::{Connect, Status};
@@ -49,7 +50,7 @@ pub(super) async fn tcp_service(
         let shared = shared.clone();
         let name = name.clone();
         tokio::spawn(async move {
-            let Ok(admitted) = admit(&shared, &name, &svc, peer, index) else {
+            let Ok(admitted) = admit(&shared, &name, &svc, (peer, None), index) else {
                 return;
             };
             tune(&visitor, &shared.settings().tcp);
@@ -106,7 +107,9 @@ pub(super) enum Refusal {
 pub(super) struct Admitted {
     stats: Arc<crate::metrics::ServiceStats>,
     clients: super::pick::Picked,
+    source: Option<IpAddr>,
     _guard: super::CountGuard,
+    _share: Option<FairShare>,
     _tracked: super::ActiveConn,
 }
 
@@ -114,18 +117,28 @@ pub(super) fn admit(
     shared: &Arc<Shared>,
     name: &str,
     svc: &Service,
-    peer: SocketAddr,
+    (peer, source): (SocketAddr, Option<IpAddr>),
     index: u16,
 ) -> Result<Admitted, Refusal> {
     let stats = shared.metrics.service(name);
     stats.total.fetch_add(1, Ordering::Relaxed);
     let (guard, n) = shared.service_counts.enter(name);
-    if svc.max_connections.is_some_and(|m| n >= m) {
+    let full = |why: &str| {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
         stats.refused.fetch_add(1, Ordering::Relaxed);
-        debug!(%peer, "service \"{name}\" is at its connection limit");
-        return Err(Refusal::Full);
+        debug!(%peer, "service \"{name}\" {why}");
+        Refusal::Full
+    };
+    if svc.max_connections.is_some_and(|m| n >= m) {
+        return Err(full("is at its connection limit"));
     }
+    let share = match svc.max_connections {
+        Some(m) => shared
+            .visitor_shares
+            .take(Pool::Service(name.to_string()), source, m, n)
+            .map_err(|()| full("is over half full and this address holds its fair part"))?,
+        None => None,
+    };
     let clients = shared.route(name, svc, index);
     if clients.is_empty() {
         stats.refused.fetch_add(1, Ordering::Relaxed);
@@ -135,7 +148,9 @@ pub(super) fn admit(
     Ok(Admitted {
         stats,
         clients,
+        source,
         _guard: guard,
+        _share: share,
         _tracked: shared.track(),
     })
 }
@@ -166,6 +181,7 @@ pub(super) async fn visit(
         service: Some(&name),
         label: &label,
         peer,
+        source: admitted.source,
         several: shape.several,
     };
     let mut tries = Tries::new(&shared, &way, admitted.clients);

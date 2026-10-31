@@ -75,6 +75,7 @@ A website is open to every browser, so burrow checks each request before it reac
   - CONTINUATION floods refused;
   - a stream that makes no progress for 10 seconds closed;
   - the buffers per connection kept to about 8 MiB.
+- **One visitor cannot use up a site's connections.** Each HTTP/2 stream gets its own app connection, so a few connections with many stalled requests could otherwise fill a service's `max_connections` or the client's limit. Once more than half of either is in use, one address (IPv6 per /64, the real client behind `web.trusted_proxies`) may hold at most an eighth of it, and others keep getting through ([Limits](web/headers-limits-pages.md#limits)).
 - **Logins never fail open** ([Who may visit](web/access.md)):
   - `basic_auth` takes argon2id or bcrypt hashes with capped costs, and never passes the `Authorization` header to the app. It allows 10 wrong passwords a minute per address (IPv6 per /64), on all sites together, and then answers `429`, the right password included.
   - `forward_auth` removes a visitor's own copies of the headers every login service passes on (also written with `_`). A login service that is down or slow gives `502`, `503` or `504`, never the app.

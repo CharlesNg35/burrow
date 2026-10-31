@@ -322,6 +322,7 @@ impl Server {
             rejected: AtomicUsize::new(0),
             handshakes: RwLock::new(Arc::new(Semaphore::new(settings.max_handshakes))),
             handshake_sources: burrow_syntax::share::Shares::default(),
+            visitor_shares: super::share::VisitorShares::default(),
             shutdown,
             reloaded: watch::Sender::new(0),
             applied: watch::Sender::new(ApplyReport::default()),

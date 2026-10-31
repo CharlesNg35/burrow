@@ -61,6 +61,7 @@ These fixed limits apply to every website connection, so slow or broken visitors
 
 - A connection has 10 seconds to send its first TLS message, and at most 16 KiB of it is read before the name is known.
 - Connections that have not shown a name yet are limited like the tunnel's own handshakes (`limits.max_handshakes`), with their own counter. A flood of web connections cannot block tunnel clients, and the other way round.
+- One visitor cannot take all of a service's or a client's connections. Once more than half of a service's `max_connections`, or of its client's connections (`limits.max_connections_per_client`), are open, one visitor address (an IPv6 /64) may hold at most an eighth of them, and at least 8. Its further requests get `503` at once; everyone else keeps getting through. Behind `web.trusted_proxies` the visitor is the real address from `X-Forwarded-For`; loopback addresses have no share. There is nothing to set.
 - A tunnel connection on the shared port has `limits.handshake_timeout_secs` in total for TLS, the WebSocket upgrade and burrow's own handshake.
 - Stopping or reloading the server lets a request in flight finish for up to 10 seconds.
 

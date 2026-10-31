@@ -196,7 +196,7 @@ backup:
 ```
 
 - `bandwidth` caps each direction of a service, in bits per second (`kbit`, `mbit`, `gbit`, like `40mbit`) or bytes per second (`kb`, `mb`, `gb`, like `5MB`). Without it, a service is unlimited. TCP slows down to the limit; UDP datagrams over it are dropped.
-- `max_connections` limits open connections of a TCP service. A client also has a limit (`limits.max_connections_per_client`, 8192 by default, or `max_connections` on the client).
+- `max_connections` limits open connections of a TCP service. A client also has a limit (`limits.max_connections_per_client`, 8192 by default, or `max_connections` on the client). For websites, one visitor address may hold at most an eighth of either limit once more than half of it is in use ([Limits](web/headers-limits-pages.md#limits)).
 
 ## Reach a Unix socket
 

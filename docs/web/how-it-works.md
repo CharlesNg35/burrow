@@ -68,6 +68,7 @@ Each check below can stop the request. Before the app has started its answer, bu
    | --- | --- |
    | no client of the service is connected, or all of them are down | `503` |
    | the service is at its connection limit | `503` |
+   | more than half of the service's or the client's connections are open, and this visitor address already holds its part (an eighth, at least 8) | `503` |
    | the client cannot reach the app, or the app's answer is broken | `502` |
    | the app has not sent its headers within `response_header_timeout_secs` | `504` |
 

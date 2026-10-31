@@ -1,10 +1,11 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use tracing::debug;
 
 use super::CountGuard;
 use super::pick::{Held, Hop, Picked};
+use super::share::{FairShare, Pool};
 use super::{Shared, take_channel};
 use crate::config::settings::ServerSettings;
 use crate::forward::{Early, ForwardError, Opened};
@@ -15,6 +16,7 @@ pub(super) struct Way<'a> {
     pub service: Option<&'a str>,
     pub label: &'a str,
     pub peer: SocketAddr,
+    pub source: Option<IpAddr>,
     pub several: bool,
 }
 
@@ -50,7 +52,7 @@ pub(super) struct Tries<'a> {
     held: Option<Held>,
     early: Early,
     last: Outcome,
-    active: Option<(CountGuard, Option<CountGuard>)>,
+    active: Option<(CountGuard, Option<CountGuard>, Option<FairShare>)>,
 }
 
 impl<'a> Tries<'a> {
@@ -98,9 +100,19 @@ impl<'a> Tries<'a> {
                 self.last = Outcome::Full(client.to_string());
                 continue;
             }
+            let pool = Pool::Client(client.to_string());
+            let Ok(share) = self
+                .shared
+                .visitor_shares
+                .take(pool, self.way.source, limit, before)
+            else {
+                debug!(peer = %self.way.peer, "{}: client \"{client}\" is over half full and this address holds its fair part", self.way.label);
+                self.last = Outcome::Full(client.to_string());
+                continue;
+            };
             match take_channel(self.shared, &session, self.way.label, self.way.peer).await {
                 Ok(ch) => {
-                    self.active = Some((active, entry));
+                    self.active = Some((active, entry, share));
                     return Some((session, ch));
                 }
                 Err(status) => {

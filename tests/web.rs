@@ -31,6 +31,8 @@ mod reload;
 mod routing;
 #[path = "web/selection.rs"]
 mod selection;
+#[path = "web/shares.rs"]
+mod shares;
 #[path = "web/sites.rs"]
 mod sites;
 #[path = "web/tunnel.rs"]
