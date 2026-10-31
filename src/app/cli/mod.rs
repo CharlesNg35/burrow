@@ -175,7 +175,7 @@ pub fn service_word(
         .skip(1)
         .map(|a| format!(" {}", crate::base::failure::arg(&a.to_string_lossy())))
         .collect();
-    let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
+    let supported = crate::base::failure::SERVICES;
     Some(
         crate::base::failure::Failure::usage(format!("burrow {word} is not a command"))
             .hint(service_word_hint(word, &rest, supported)),
@@ -225,7 +225,7 @@ mod tests {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
             service_word(&e, &args)
         };
-        let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
+        let supported = crate::base::failure::SERVICES;
         for word in ["install", "uninstall", "start", "stop", "restart", "logs"] {
             let f = parse(&["burrow", word]).unwrap_or_else(|| panic!("{word}"));
             assert_eq!(f.message, format!("burrow {word} is not a command"));

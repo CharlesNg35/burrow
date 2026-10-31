@@ -77,15 +77,17 @@ fn rights() -> Rights {
     }
 }
 
-pub(super) fn message(key: &str, addr: SocketAddr, os: Os) -> String {
+pub(super) fn message(key: &str, addr: SocketAddr, os: Os, services: bool) -> String {
     let who = match os {
         Os::Linux => "root or CAP_NET_BIND_SERVICE",
         _ => "root",
     };
-    format!(
-        "web.{key} {addr}: port {} needs {who}; burrow service install grants it, or run burrow as root",
-        addr.port()
-    )
+    let fix = if services {
+        "burrow service install grants it, or run burrow as root"
+    } else {
+        "run burrow as root"
+    };
+    format!("web.{key} {addr}: port {} needs {who}; {fix}", addr.port())
 }
 
 pub(super) fn help(port: u16) -> String {
@@ -105,9 +107,12 @@ pub(in crate::config::check) fn check_low_ports(
             continue;
         };
         out.push(
-            Diagnostic::warning("low-port", message(key, addr, r.os))
-                .at(spans.value(&["web", key]))
-                .help(help(addr.port())),
+            Diagnostic::warning(
+                "low-port",
+                message(key, addr, r.os, crate::base::failure::SERVICES),
+            )
+            .at(spans.value(&["web", key]))
+            .help(help(addr.port())),
         );
     }
 }
@@ -144,8 +149,12 @@ mod tests {
         assert!(needs_rights(any, r(Os::OtherUnix, false, false)));
         assert!(!needs_rights(any, r(Os::Windows, false, false)));
         assert_eq!(
-            message("https", any, Os::Linux),
+            message("https", any, Os::Linux, true),
             "web.https [::]:443: port 443 needs root or CAP_NET_BIND_SERVICE; burrow service install grants it, or run burrow as root"
+        );
+        assert_eq!(
+            message("http", "[::]:80".parse().unwrap(), Os::OtherUnix, false),
+            "web.http [::]:80: port 80 needs root; run burrow as root"
         );
         assert_eq!(
             help(80),
