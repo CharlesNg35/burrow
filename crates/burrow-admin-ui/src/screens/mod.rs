@@ -49,7 +49,7 @@ pub fn entity_icon(section: &str) -> &'static str {
     match entity_of(section) {
         Entity::Client => "monitor",
         Entity::Visitor => "person",
-        Entity::Service | Entity::Login | Entity::Unknown(_) => "stack",
+        Entity::Service | Entity::Login | Entity::Oidc | Entity::Unknown(_) => "stack",
     }
 }
 

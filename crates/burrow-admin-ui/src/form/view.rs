@@ -172,7 +172,7 @@ pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &C
     let name = name.to_string();
     if exists {
         let to = match entity {
-            Entity::Login => Route::Settings,
+            Entity::Login | Entity::Oidc => Route::Settings,
             e => Route::Detail(e.section().to_string(), name.clone()),
         };
         view! { <Link to=to class=chip_class(Tone::Accent, true)>{name}</Link> }.into_any()

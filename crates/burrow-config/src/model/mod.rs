@@ -4,6 +4,7 @@ mod client;
 mod client_ref;
 mod dns;
 mod entries;
+mod oidc;
 mod options;
 mod server;
 mod site;
@@ -24,6 +25,7 @@ pub use entries::{
     Bind, ClientEntry, HealthCheck, HealthCheckSetting, Mode, Protocol, ProxyVersion, Reach,
     Secrets, ServiceEntry, Target, VisitorEntry,
 };
+pub use oidc::{OidcConfig, OidcPick, OidcSetting};
 pub use options::{ClientUdpOptions, Heartbeat, Limits, Pool, TcpOptions, UdpOptions};
 pub use server::{
     MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,

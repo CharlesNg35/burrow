@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::{ClientAuthFiles, ForwardAuthSetting, RedirectTarget, TargetTls};
+use super::{ClientAuthFiles, ForwardAuthSetting, OidcSetting, RedirectTarget, TargetTls};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -177,6 +177,35 @@ pub struct WebSite {
         )
     )]
     pub forward_auth: Option<ForwardAuthSetting>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Visitors log in with a provider from web.oidc first: its name, a list of names, or true when there is only one"
+    )]
+    #[admin(
+        label = "Login with",
+        help = "Visitors log in with an account like Google or your own Keycloak before they reach the app; allowed users says who gets in",
+        none_label = "Off",
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+        )
+    )]
+    pub oidc: Option<OidcSetting>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Who may log in with oidc: email addresses or whole domains as @domain, for example [alice@gmail.com, \"@mycompany.com\"]"
+    )]
+    #[admin(
+        ty = list(text),
+        label = "Allowed users",
+        help = "Email addresses like alice@gmail.com, or @mycompany.com for everyone at that domain",
+        empty_label = "Nobody yet",
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; the app does its own HTTPS here"
+        )
+    )]
+    pub allow_users: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Requests per second per visitor address (IPv6 per /64), bursts of twice that, 429 above; from web.rate_limit when not set"
