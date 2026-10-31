@@ -284,9 +284,9 @@ const NOTIFY_TOP: &str = "notify:\n  - ntfy: https://ntfy.sh/burrow-e2e-topic\n 
 
 async fn notify_card(c: &mut Ctx) {
     c.ui.nav("/settings?tab=monitoring").await;
-    c.ui.wait_for("[data-testid=settings] [data-card=notify]", SECS)
+    c.ui.wait_for("[data-testid=settings] [data-card=monitoring]", SECS)
         .await;
-    let card = c.ui.text("[data-card=notify]").await;
+    let card = c.ui.text("[data-card=monitoring]").await;
     assert!(card.contains("ntfy.sh/burrow-e2e-topic"), "{card}");
     assert!(
         card.contains("SMTP_PASS"),
@@ -295,7 +295,7 @@ async fn notify_card(c: &mut Ctx) {
     assert!(!card.contains("e2e-smtp-value"), "{card}");
     both_widths(c, "settings-notify").await;
     edit_mode(c).await;
-    let card = c.ui.text("[data-card=notify]").await;
+    let card = c.ui.text("[data-card=monitoring]").await;
     assert!(!card.contains("e2e-smtp-value"), "{card}");
     both_widths(c, "settings-notify-edit").await;
 }
