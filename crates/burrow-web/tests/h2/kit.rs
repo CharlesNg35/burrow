@@ -21,6 +21,7 @@ pub const OTHER: &str = "other.example.com";
 pub const H2: &[u8] = b"h2";
 pub const H1: &[u8] = b"http/1.1";
 const APP_BACKLOG: u32 = 4096;
+pub const ANSWER: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 pub struct Counts {
@@ -245,13 +246,22 @@ pub async fn read_body(mut body: h2::RecvStream) -> Result<Bytes, h2::Error> {
 }
 
 pub async fn send(c: &mut Client, req: http::Request<()>, body: Option<Bytes>) -> (u16, String) {
+    send_within(c, req, body, ANSWER).await
+}
+
+pub async fn send_within(
+    c: &mut Client,
+    req: http::Request<()>,
+    body: Option<Bytes>,
+    within: Duration,
+) -> (u16, String) {
     let mut c = c.clone().ready().await.unwrap();
     let (resp, mut tx) = c.send_request(req, body.is_none()).unwrap();
     if let Some(b) = body {
         tx.reserve_capacity(b.len());
         tx.send_data(b, true).unwrap();
     }
-    let resp = tokio::time::timeout(Duration::from_secs(10), resp)
+    let resp = tokio::time::timeout(within, resp)
         .await
         .expect("an answer in time")
         .unwrap();

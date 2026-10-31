@@ -24,6 +24,7 @@ const SLOW_RATE: f64 = 64.0 * 1024.0;
 const RUN: Duration = Duration::from_secs(12);
 const CAP_KIB: u64 = 8 * 1024;
 const BOUND_KIB: u64 = 2 * CAP_KIB;
+const BASE_CONNS: usize = 10;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn serve_as_the_measured_process() {
@@ -125,19 +126,31 @@ async fn slow_read(c: &Client) {
     assert_eq!(got, SLOW_BODY);
 }
 
-async fn one_stream(mut c: Client, slot: usize, until: Instant, tally: Arc<Tally>) {
+fn answer_within(conns: usize) -> Duration {
+    let load = u32::try_from(conns.div_ceil(BASE_CONNS)).unwrap();
+    ANSWER * load.max(1)
+}
+
+async fn one_stream(
+    mut c: Client,
+    slot: usize,
+    until: Instant,
+    within: Duration,
+    tally: Arc<Tally>,
+) {
     let upload = Bytes::from(vec![b'u'; MIB]);
     while Instant::now() < until {
         match slot {
             s if s < GETS => {
-                let (status, body) = get(&mut c, &site_uri(&format!("/big/{MIB}"))).await;
+                let get = request(&site_uri(&format!("/big/{MIB}")), &[]);
+                let (status, body) = send_within(&mut c, get, None, within).await;
                 assert_eq!((status, body.len()), (200, MIB));
                 tally.gets.fetch_add(1, Ordering::Relaxed);
             }
             s if s < GETS + UPLOADS => {
                 let mut post = request(&site_uri("/up"), &[]);
                 *post.method_mut() = http::Method::POST;
-                let (status, body) = send(&mut c, post, Some(upload.clone())).await;
+                let (status, body) = send_within(&mut c, post, Some(upload.clone()), within).await;
                 assert_eq!(status, 200);
                 assert!(body.contains(&format!("body-len: {MIB}\n")), "{body}");
                 tally.uploads.fetch_add(1, Ordering::Relaxed);
@@ -174,6 +187,7 @@ async fn measure(conns: usize, h2c: bool) -> (u64, u64, u64, Arc<Tally>) {
                 c.clone(),
                 slot,
                 until,
+                answer_within(conns),
                 tally.clone(),
             )));
         }
@@ -205,13 +219,14 @@ async fn server_memory_per_connection_under_legitimate_load_stays_bounded() {
     let conns = std::env::var("BURROW_H2_LOAD_CONNS")
         .ok()
         .and_then(|n| n.parse().ok())
-        .unwrap_or(10usize);
+        .unwrap_or(BASE_CONNS);
     for (h2c, app) in [(false, "HTTP/1.1 app"), (true, "h2c app")] {
         let (idle, peak, hwm, tally) = measure(conns, h2c).await;
         let per_conn = hwm.saturating_sub(idle) / u64::try_from(conns).unwrap();
         println!(
             "h2 load: {app} N={conns} streams/conn={STREAMS} idle={idle} KiB peak-rss={peak} KiB \
-             hwm={hwm} KiB per-conn={per_conn} KiB cap={CAP_KIB} KiB gets={} uploads={} slow={}",
+             hwm={hwm} KiB per-conn={per_conn} KiB cap={CAP_KIB} KiB answer-within={:?} gets={} uploads={} slow={}",
+            answer_within(conns),
             tally.gets.load(Ordering::Relaxed),
             tally.uploads.load(Ordering::Relaxed),
             tally.slow.load(Ordering::Relaxed),
