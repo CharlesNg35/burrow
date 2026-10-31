@@ -53,6 +53,7 @@ httparse = "1.10.1"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", default-features = false, features = ["http1", "server", "client"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "tokio1-rustls", "aws-lc-rs", "webpki-roots"], optional = true }
 notify = "8.2.0"
 rmcp = { version = "3.7.0", default-features = false, features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
 rpassword = { version = "7.5.4", optional = true }
@@ -119,7 +120,7 @@ serde_json = "1.0.154"
 [features]
 default = ["ring", "web"]
 ring = ["snow/ring-accelerated"]
-web = ["dep:burrow-web", "dep:rpassword"]
+web = ["dep:burrow-web", "dep:rpassword", "dep:lettre"]
 admin-test-hooks = ["burrow-web?/admin-test-hooks"]
 
 [profile.release]

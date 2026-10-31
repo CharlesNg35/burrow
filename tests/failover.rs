@@ -6,6 +6,9 @@ mod health;
 #[cfg(feature = "web")]
 #[path = "failover/http_check.rs"]
 mod http_check;
+#[cfg(feature = "web")]
+#[path = "failover/notify.rs"]
+mod notify;
 #[path = "failover/selection.rs"]
 mod selection;
 #[path = "failover/udp_moves.rs"]

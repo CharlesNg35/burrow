@@ -28,6 +28,33 @@ pub struct Status {
     pub local_ca: Option<LocalCaStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_waiting: Option<PortWait>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notify: Vec<NotifyStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NotifyStatus {
+    pub name: String,
+    #[serde(default)]
+    pub sent: u64,
+    #[serde(default)]
+    pub waiting: u64,
+    #[serde(default)]
+    pub dropped: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failing_secs: Option<u64>,
+}
+
+impl NotifyStatus {
+    pub fn line(&self) -> Option<String> {
+        let why = self.failing.as_deref()?;
+        Some(format!(
+            "Notifications to {} fail: {why}; burrow keeps trying",
+            self.name
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

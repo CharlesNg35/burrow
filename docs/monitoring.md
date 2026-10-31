@@ -4,6 +4,7 @@ Monitoring tells you whether your clients are connected, which services carry tr
 
 - **`burrow status`** on the server machine: clients, services, visitors and traffic, with no setup.
 - **Prometheus metrics**, off unless you turn them on.
+- **Notifications** to a webhook, ntfy or email when something breaks and when it is fixed, off unless you turn them on.
 - **`burrow admin`**, a live dashboard in your browser. See [admin.md](admin.md).
 
 For clients and visitors, use `burrow service status` and `burrow service logs -f` ([service.md](service.md)).
@@ -130,6 +131,45 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect. Anyone wh
 | `burrow_certificate_failures_total` | counter | `name` | failed tries to get or renew a web name's certificate since the server started |
 
 </details>
+
+## Notifications
+
+burrow can tell you when something breaks, and again when it is fixed, without a monitoring system. Nothing is sent unless `notify:` is set.
+
+```yaml
+# server.yaml
+notify:
+  - ntfy: https://ntfy.sh/my-burrow-topic-7f3a
+  - webhook: https://hooks.example.com/burrow
+    events: [client_offline, client_back]
+  - email:
+      to: ops@example.com
+      smtp: smtp://alerts@example.com@mail.example.com:587
+      password: ${SMTP_PASS}
+```
+
+Each entry is one destination. `events` picks what it gets; without it, it gets everything:
+
+| event | sent when |
+| --- | --- |
+| `client_offline` | a client lost its connection and has not come back for a minute. A client that has not connected since the server started is not reported |
+| `client_back` | a client reported offline is connected again |
+| `site_down` | a service with a `health_check` fails it on every client that is connected |
+| `site_back` | that service answers its health check again |
+| `certificate_failing` | a certificate cannot be got or renewed, and again when it works |
+| `geoip_stale` | the country database could not be updated for a long time, and again when it is fresh |
+
+There is one message when a problem starts and one when it ends, never a reminder in between. A problem that ends before it is reported, like a client that reconnects within the minute, sends nothing.
+
+**Destinations:**
+
+- **`webhook`** gets a JSON `POST`: `{"event": "client_offline", "resolved": false, "kind": "client", "name": "home", "title": "[tunnel.example.com] Client home is offline", "text": "...", "server": "tunnel.example.com", "at": 1793448000}`. `resolved` is `true` on the message that a problem ended, and `at` is in Unix seconds. Any 2xx answer counts as delivered. Chat services that take a JSON body of their own, like Slack, need a small relay or an automation tool such as n8n or Home Assistant in between.
+- **`ntfy`** publishes to an [ntfy](https://ntfy.sh) topic, on ntfy.sh or your own server, with the title, high priority for a problem and default for its end. On ntfy.sh anyone who knows a topic's name can read it, so pick a name nobody can guess. For a topic that needs a login, add ntfy's `?auth=` parameter to the address.
+- **`email`** sends a plain text mail through your mail server. `smtp://host:587` uses STARTTLS and refuses to send without it; `smtps://host:465` uses TLS from the start. A mail server on this machine (`smtp://localhost:25`) may go without TLS. The user name goes in the address and the password in `password`, from an environment variable or a file (`file:/etc/burrow/smtp.pass`), never written in the config. `from` is the sender; without it, the user name is used when it is an address.
+
+`webhook` and `ntfy` need `https://`; `http://` is accepted only for this machine or the LAN (10/8, 172.16/12, 192.168/16, fc00::/7). Messages carry the server's `public_address` in their title, so you can tell servers apart.
+
+**When a destination fails.** Sending never holds up the server. A message that cannot be delivered is tried again after 5 s, then twice as long each time up to 10 minutes, for about 50 minutes in all; up to 64 messages wait per destination. The log says once that a destination fails and once that it works again, `burrow status` lists each destination with its sent, waiting and lost counts, and `burrow admin` shows a failing one on its overview.
 
 ## Running at scale
 
