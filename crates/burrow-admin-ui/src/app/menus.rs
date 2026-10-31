@@ -8,17 +8,21 @@ use crate::store::{Conn, Store};
 use super::diagnostics;
 use super::header::{read_only_reason, set_theme};
 
+fn retry_left(s: Store) -> u64 {
+    ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64
+}
+
 pub(super) fn conn_state(s: Store, retry_open: RwSignal<bool>) -> impl Fn() -> AnyView + use<> {
+    let shape = Memo::new(move |_| s.conn.with(Conn::shape));
     move || {
-        let conn = s.conn.get();
+        let conn = shape.get();
         match conn {
             Conn::Reconnecting { .. } => {
-                let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
                 view! {
                     <span class="relative">
                         <button type="button" class="flex cursor-pointer items-center gap-1.5 text-[12.5px] text-warning" aria-haspopup="true" aria-expanded=move || retry_open.get().to_string() aria-controls="retry-popover" id="conn-pill" data-testid="conn-pill" on:click=move |_| retry_open.update(|o| *o = !*o)>
                             <Icon name="refresh"/>
-                            {format!("Reconnecting in {left} s")}
+                            {move || format!("Reconnecting in {} s", retry_left(s))}
                         </button>
                         <Show when=move || retry_open.get()>
                             <div class=burrow_ui_kit::menu_class("top-8 right-0 w-56", true) id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">

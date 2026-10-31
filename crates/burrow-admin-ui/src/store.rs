@@ -31,6 +31,13 @@ impl Conn {
         )
     }
 
+    pub fn shape(&self) -> Conn {
+        match self {
+            Conn::Reconnecting { .. } => Conn::Reconnecting { attempt: 0 },
+            other => other.clone(),
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             Conn::NoToken => "Not signed in",

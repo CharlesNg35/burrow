@@ -83,6 +83,27 @@ pub async fn popover_behaves(c: &Ctx, trigger: &str, panel: &str) {
     c.ui.wait_gone(&p, SECS).await;
 }
 
+async fn stays_focused(c: &Ctx, css: &str) {
+    let marked: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.querySelector('{css}'); if (!e) return false; e.dataset.kept = '1'; e.focus(); return document.activeElement === e; }})()"
+        ))
+        .await;
+    assert!(marked, "{css} takes focus");
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let kept: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.querySelector('{css}'); return !!e && e.dataset.kept === '1' && document.activeElement === e; }})()"
+        ))
+        .await;
+    assert!(
+        kept,
+        "{css} keeps its node and the focus while the countdown ticks"
+    );
+}
+
 async fn theme_now(c: &Ctx) -> (String, String) {
     let t =
         c.ui.attr_of("[data-testid=theme-toggle]", "data-theme")
@@ -174,8 +195,10 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             "the reconnecting text shows only while reconnecting"
         );
         popover_behaves(c, "conn-pill", "retry-popover").await;
+        stays_focused(c, "[data-testid=banner-reconnecting] button").await;
         c.ui.click("[data-testid=conn-pill]").await;
         c.ui.wait_for("[data-testid=retry-now]", SECS).await;
+        stays_focused(c, "#retry-popover [data-testid=retry-now]").await;
         c.ui.shot("reconnecting").await;
         c.world
             .start("server", &["server", "-c", "server.yaml"], &[]);
