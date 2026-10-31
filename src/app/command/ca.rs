@@ -45,6 +45,10 @@ fn state_of(a: &CaExportArgs) -> Result<PathBuf, Failure> {
     }
 }
 
+fn wrote(file: &Path) -> String {
+    format!("wrote the local CA's certificate to {}\n", file.display())
+}
+
 const MAX_ROOT_FILE: u64 = 64 * 1024;
 
 pub fn export(a: &CaExportArgs, out: &mut dyn Write) -> Result<u8, Failure> {
@@ -71,7 +75,7 @@ pub fn export(a: &CaExportArgs, out: &mut dyn Write) -> Result<u8, Failure> {
         Some(file) => {
             std::fs::write(file, &bytes)
                 .map_err(|e| Failure::new(format!("cannot write {}: {e}", file.display())))?;
-            crate::say_err!("wrote the local CA's certificate to {}", file.display());
+            crate::base::failure::to_stderr(&wrote(file));
         }
         None => out
             .write_all(&bytes)
@@ -141,6 +145,14 @@ mod tests {
             out,
             der,
         }
+    }
+
+    #[test]
+    fn the_message_after_writing_the_file_ends_its_line() {
+        assert_eq!(
+            wrote(Path::new("ca.crt")),
+            "wrote the local CA's certificate to ca.crt\n"
+        );
     }
 
     #[test]
