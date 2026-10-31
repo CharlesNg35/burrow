@@ -4,7 +4,8 @@ use super::super::Format;
 use super::super::emit::{inline, render, scalar_str};
 use super::super::tree::{self, Node};
 use super::{
-    Edits, child, comment_at, end_of, entry_bounds, entry_yaml, is_flow, lead, line_end, line_start,
+    Edits, child, comment_at, content_end, end_of, entry_bounds, entry_yaml, is_flow, lead,
+    line_end, line_start,
 };
 
 pub(super) fn diff_map(
@@ -332,23 +333,6 @@ fn flow_subset(
         kept.push(pool.remove(at).1);
     }
     Some(format!("[{open}{}{close}]", kept.join(sep)))
-}
-
-fn content_end(node: &Node) -> usize {
-    match &node.value {
-        tree::Value::Seq(items) => items.last().map_or(node.span.end.offset, content_end),
-        tree::Value::Map(entries) => entries.last().map_or(node.span.end.offset, |e| {
-            if matches!(e.value.value, tree::Value::Null) {
-                e.key_span
-                    .end
-                    .offset
-                    .max(e.value.span.end.offset.min(e.key_span.end.offset + 1))
-            } else {
-                content_end(&e.value)
-            }
-        }),
-        _ => node.span.end.offset,
-    }
 }
 
 fn flow_end(src: &str, start: usize) -> usize {

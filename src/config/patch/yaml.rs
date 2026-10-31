@@ -56,11 +56,11 @@ pub(super) fn patch_yaml(
         .unwrap_or_else(|| {
             "this part of the file has a layout the patcher cannot edit in place".into()
         });
-    let scope = edits
-        .unsupported
-        .as_ref()
-        .and_then(|(p, _)| p.first().cloned())
-        .map(|k| vec![k]);
+    let scope = match &edits.unsupported {
+        Some((p, _)) => p.first().cloned(),
+        None => only_changed_key(&root.to_json(), target),
+    }
+    .map(|k| vec![k]);
     if let Some(scope) = scope
         && is_doc_map
         && let Some(out) = reformat_section(&src, &root, target, &scope[0], renames)
@@ -156,6 +156,16 @@ fn reformat_section(
     Some(out)
 }
 
+fn only_changed_key(old: &Value, target: &Value) -> Option<String> {
+    let (old, new) = (old.as_object()?, target.as_object()?);
+    let mut changed = old
+        .keys()
+        .chain(new.keys())
+        .filter(|k| old.get(*k) != new.get(*k));
+    let first = changed.next()?.clone();
+    changed.all(|k| *k == first).then_some(first)
+}
+
 fn indent_unit(src: &str) -> usize {
     src.lines()
         .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
@@ -224,16 +234,33 @@ pub(super) fn entry_bounds(
                 None => end_of(
                     src,
                     starts[i],
-                    entries[i]
-                        .value
-                        .span
-                        .end
-                        .offset
-                        .max(entries[i].key_span.end.offset),
+                    if is_flow(src, &entries[i].value) {
+                        entries[i].value.span.end.offset
+                    } else {
+                        content_end(&entries[i].value)
+                    }
+                    .max(entries[i].key_span.end.offset),
                     indent.len(),
                 ),
             };
             (starts[i], end)
         })
         .collect()
+}
+
+pub(super) fn content_end(node: &Node) -> usize {
+    match &node.value {
+        tree::Value::Seq(items) => items.last().map_or(node.span.end.offset, content_end),
+        tree::Value::Map(entries) => entries.last().map_or(node.span.end.offset, |e| {
+            if matches!(e.value.value, tree::Value::Null) {
+                e.key_span
+                    .end
+                    .offset
+                    .max(e.value.span.end.offset.min(e.key_span.end.offset + 1))
+            } else {
+                content_end(&e.value)
+            }
+        }),
+        _ => node.span.end.offset,
+    }
 }

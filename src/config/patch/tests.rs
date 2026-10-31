@@ -533,3 +533,52 @@ fn explicit_and_odd_keys_never_panic() {
         }
     }
 }
+
+const LAB: &str = "# server.yaml\nlisten: 127.0.0.1:64235\nclients:\n  home:\n    secret: ${SEC_HOME}\nvisitors:\n  vis:\n    secret: ${SEC_VIS}\n    reach:\n      home: [127.0.0.1:64290]\n      self: [127.0.0.1:64290]\n  boss:\n    secret: ${SEC_ADMIN}\n    admin: write\n    admin_from:\n      - 127.0.0.1/32\nself:\n  allow: [127.0.0.1:64290, 127.0.0.1:64291]\nweb:\n  https: 127.0.0.1:64243\n  http: 127.0.0.1:64280\n  access_log: {file: logs/access.log, format: json}\n  request_id: true\n  trusted_proxies: [127.0.0.2/32]\n  certificates:\n    - hosts: [a.test, b.test, c.test, d.test, e.test, f.test, \"*.w.test\"]\n      cert: ../certs/site.pem\n      key: ../certs/site.key\n  forward_auth:\n    lab:\n      service: authsvc\n      path: /check\n      copy_headers: [Remote-User, Remote-Groups]\nservices:\n  open:\n    client: self\n    target: 127.0.0.1:64290\n    web: a.test\n  pw:\n    client: self\n    target: 127.0.0.1:64290\n    web:\n      hosts: [b.test]\n      basic_auth:\n        alice: '$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA'\n  api:\n    client: self\n    target: 127.0.0.1:64290\n    web:\n      hosts: [c.test]\n      paths: [/api]\n      app_path: /v1\n      request_headers:\n        X-Api-Key: live_key_lab_123\n  priv:\n    client: self\n    target: 127.0.0.1:64290\n    allow_from: [10.9.9.0/24]\n    web:\n      hosts: [c.test]\n      paths: [/admin]\n  fa:\n    client: self\n    target: 127.0.0.1:64290\n    web:\n      hosts: [d.test]\n      forward_auth: lab\n  authsvc:\n    client: self\n    target: 127.0.0.1:64291\n    visitors: [vis]\n  mtls:\n    client: self\n    target: 127.0.0.1:64290\n    web:\n      hosts: [e.test]\n      client_auth:\n        ca: ../certs/dev-ca.pem\n  plain:\n    client: self\n    target: 127.0.0.1:64290\n    web:\n      hosts: [f.test]\n      tls: off\n  int:\n    client: self\n    target: 127.0.0.1:64290\n    web:\n      hosts: [nas.home.arpa]\n      tls: internal\n";
+
+#[test]
+fn edits_to_a_commented_file_with_flow_lists_patch_only_their_nodes() {
+    type Edit = fn(&mut Value);
+    let edits: [(&str, Edit); 5] = [
+        ("one maintenance", |v| {
+            v["services"]["api"]["web"]["maintenance"] = json!(false);
+        }),
+        ("maintenance", |v| {
+            for s in ["api", "pw", "mtls", "fa", "int", "priv", "plain"] {
+                v["services"][s]["web"]["maintenance"] = json!(false);
+            }
+        }),
+        ("max_connections", |v| {
+            v["services"]["priv"]["max_connections"] = json!(5);
+        }),
+        ("hsts", |v| v["web"]["hsts"] = json!(true)),
+        ("paths", |v| {
+            v["services"]["api"]["web"]["paths"] = json!(["/api", "/b"]);
+        }),
+    ];
+    for (name, edit) in edits {
+        let out = yaml(LAB, edit);
+        assert!(
+            out.reformat.is_none(),
+            "{name}: {:?}\n{}",
+            out.reformat,
+            out.text
+        );
+        for kept in [
+            "# server.yaml\n",
+            "secret: ${SEC_HOME}\n",
+            "self: [127.0.0.1:64290]\n",
+        ] {
+            assert!(out.text.contains(kept), "{name}: {}", out.text);
+        }
+        let changed = LAB
+            .lines()
+            .filter(|l| !out.text.lines().any(|o| o == *l))
+            .count();
+        assert!(
+            changed <= 1,
+            "{name}: {changed} lines changed\n{}",
+            out.text
+        );
+    }
+}
