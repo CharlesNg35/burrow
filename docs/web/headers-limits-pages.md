@@ -37,7 +37,7 @@ services:
       maintenance: true # every visitor sees the maintenance page (503 with Retry-After)
 ```
 
-- **`request_headers` and `response_headers`** set headers, as `Name: value`, on requests to the app and on answers to visitors. An empty value removes a header. `Host` may be set for an app that wants its own name; `X-Forwarded-Host` keeps the visitor's. Headers of HTTP's own framing, like `Connection` or `Transfer-Encoding`, cannot be set.
+- **`request_headers` and `response_headers`** set headers, as `Name: value`, on requests to the app and on answers to visitors. An empty value removes a header. `Host` may be set for an app that wants its own name; `X-Forwarded-Host` keeps the visitor's. Headers of HTTP's own framing, like `Connection` or `Transfer-Encoding`, cannot be set. The admin UI, `burrow mcp`, change diffs and the server's log show the value of `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie` and any header whose name ends in `-Key`, `-Token`, `-Secret`, `-Password` or `-Auth` as hidden, by name only; a `${VAR}` value shows its variable name.
 - **`max_body_size`** has no limit by default: bodies are streamed to the app, never held in memory. A larger `Content-Length` gets 413 before the app is asked, without a `100 Continue`.
 - **`error_pages`** replaces burrow's built-in pages with yours; a page missing from the folder stays built in. The folder is read when the config is saved.
 - **`hsts`** is never sent on port 80.

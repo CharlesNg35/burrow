@@ -528,8 +528,9 @@ impl Core {
                 match (before, after) {
                     (Some(b), Some(a)) => {
                         let hashes = values::hashes_in(&[&b, &a], &self.schema().root);
+                        let headers = values::header_values_in(&[&b, &a]);
                         Some(diff::unified(&b, &a, &|l| {
-                            text::mask_secrets(&values::veil(l, &hashes), &[])
+                            text::mask_secrets(&values::veil_line(l, &hashes, &headers), &[])
                         }))
                     }
                     _ => None,

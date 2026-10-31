@@ -113,6 +113,10 @@ pub(super) fn value_view(
     if burrow_admin_proto::value::is_hash(v) {
         return view! { <span class="text-sm" data-testid="password-status">{burrow_admin_proto::value::display(v)}</span> }.into_any();
     }
+    if as_secret(v).is_some() && !matches!(inner(node).sem, SemType::SecretRef(_)) {
+        let shown = burrow_admin_proto::value::display(v);
+        return view! { <span class="font-mono text-sm" data-hidden="">{shown}</span> }.into_any();
+    }
     if let Some(e) = as_env(v) {
         let resolved = e
             .resolved

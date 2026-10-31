@@ -6,7 +6,7 @@ use burrow_config::ServerConfig;
 use serde_json::Value;
 
 use crate::admin::core::ops;
-use crate::admin::core::{ApiError, Core, Session, guard, summary, text};
+use crate::admin::core::{ApiError, Core, Session, guard, summary, text, values};
 use crate::config::settings::ServerSettings;
 use crate::config::{patch, tree};
 
@@ -21,11 +21,11 @@ pub(super) fn conflict(core: &Core, base: &str, old_text: &str, current: String)
         .and_then(|b| {
             let (_, _, a) = patch::split_text(&b);
             let (_, _, c) = patch::split_text(old_text);
-            Some(summary::changes(
+            let (before, after) = values::hide_headers(
                 &tree::parse(&a).ok()?.to_json(),
                 &tree::parse(&c).ok()?.to_json(),
-                &[],
-            ))
+            );
+            Some(summary::changes(&before, &after, &[]))
         });
     let body = Conflict {
         current: current.clone(),
@@ -214,16 +214,17 @@ pub(super) fn assemble(
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
     let root = &core.schema().root;
-    let mut hashes = Vec::new();
+    let (mut hashes, mut headers) = (Vec::new(), Vec::new());
     for v in [raw, new_raw] {
-        crate::admin::core::values::hashes(v, Some(root), &mut hashes);
+        values::hashes(v, Some(root), &mut hashes);
+        values::header_values(v, &mut headers);
     }
-    let mask =
-        |l: &str| text::mask_secrets(&crate::admin::core::values::veil(l, &hashes), &fresh_pairs);
+    let mask = |l: &str| text::mask_secrets(&values::veil_line(l, &hashes, &headers), &fresh_pairs);
     let diff = crate::admin::core::diff::unified(old_text, new_text, &mask);
+    let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let changes = summary::changes(
-        &crate::admin::core::values::veil_value(raw, &hashes),
-        &crate::admin::core::values::veil_value(new_raw, &hashes),
+        &values::veil_value(&old_shown, &hashes),
+        &values::veil_value(&new_shown, &hashes),
         &applied.renames,
     );
     let impacts_json =

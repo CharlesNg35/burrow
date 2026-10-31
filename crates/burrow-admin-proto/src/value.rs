@@ -152,7 +152,8 @@ pub fn display(v: &Value) -> String {
         return match (s.fp, s.src) {
             (Some(fp), SecretSrc::Literal) => format!("secret {fp}"),
             (Some(fp), SecretSrc::Env(e)) => format!("${{{e}}} (secret {fp})"),
-            (None, SecretSrc::Env(e)) => format!("${{{e}}} (unset)"),
+            (None, SecretSrc::Env(e)) if s.unset => format!("${{{e}}} (unset)"),
+            (None, SecretSrc::Env(e)) => format!("${{{e}}}"),
             (None, SecretSrc::Literal) => "secret".into(),
         };
     }
