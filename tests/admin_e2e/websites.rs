@@ -121,24 +121,29 @@ async fn website_more(c: &Ctx) -> bool {
         .await
 }
 
+const TOAST_OVER_BAR: &str = "(() => { const t = document.querySelector('[data-testid=toast]'); const bars = [...document.querySelectorAll('[data-sticky-bar]')]; if (!t || !bars.length) return -1; const a = t.getBoundingClientRect(); return bars.map(b => b.getBoundingClientRect()).filter(b => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom).length; })()";
+
 async fn toast_clear_of_the_bar(c: &mut Ctx) {
-    for (w, h) in [(1440, 900), (420, 900)] {
+    for (w, h) in [(1440, 900), (420, 900), (360, 740)] {
         c.ui.viewport(w, h).await;
         c.ui.wait_true(
-            "(() => { const t = document.querySelector('[data-testid=toast]'); const b = document.querySelector('[data-sticky-bar]'); return !!t && !!b && b.getBoundingClientRect().top - t.getBoundingClientRect().bottom >= 0; })()",
+            &format!("{TOAST_OVER_BAR} === 0"),
             "the toast settles clear of the save bar",
             SECS,
         )
         .await;
-        let gap: f64 = c
-            .ui
-            .eval("(() => { const t = document.querySelector('[data-testid=toast]'); const b = document.querySelector('[data-sticky-bar]'); if (!t || !b) return -9999; return b.getBoundingClientRect().top - t.getBoundingClientRect().bottom; })()")
-            .await;
-        assert!(
-            gap >= 0.0,
-            "a toast covers the save bar at {w}px by {gap}px"
-        );
+        let over: i64 = c.ui.eval(TOAST_OVER_BAR).await;
+        assert_eq!(over, 0, "a toast covers the save bar at {w}px");
     }
+    let scrolled: i64 = c
+        .ui
+        .eval(&format!("(async () => {{ scrollTo(0, 0); await new Promise(r => setTimeout(r, 400)); scrollTo(0, document.documentElement.scrollHeight); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); return {TOAST_OVER_BAR}; }})()"))
+        .await;
+    assert_eq!(
+        scrolled, 0,
+        "a toast covers the save bar right after a scroll to the end at 360px"
+    );
+    c.ui.shot("toast-clear-of-the-save-bar-phone").await;
     c.ui.viewport(1440, 900).await;
 }
 

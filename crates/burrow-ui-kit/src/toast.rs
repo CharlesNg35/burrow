@@ -37,9 +37,7 @@ pub fn ToastHost(
         on_cleanup(move || h.clear());
     }
     let host: NodeRef<leptos::html::Div> = NodeRef::new();
-    Effect::new(move |_| {
-        toasts.track();
-        tick.track();
+    let place = move || {
         let bottom = match crate::bar::bar_top() {
             Some(t) => (crate::bar::view_height() - t + 8.0).max(16.0),
             None => 16.0,
@@ -48,6 +46,17 @@ pub fn ToastHost(
             let el: &web_sys::HtmlElement = &el;
             let _ = el.style().set_property("bottom", &format!("{bottom}px"));
         }
+    };
+    Effect::new(move |_| {
+        toasts.track();
+        tick.track();
+        place();
+    });
+    let resize = window_event_listener(leptos::ev::resize, move |_| place());
+    let scroll = window_event_listener(leptos::ev::scroll, move |_| place());
+    on_cleanup(move || {
+        resize.remove();
+        scroll.remove();
     });
     view! {
         <div

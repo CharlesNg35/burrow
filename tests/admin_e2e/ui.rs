@@ -5,10 +5,10 @@ use std::time::{Duration, Instant};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::accessibility::GetFullAxTreeParams;
 use chromiumoxide::cdp::browser_protocol::emulation::{
-    MediaFeature, SetDeviceMetricsOverrideParams,
+    ClearDeviceMetricsOverrideParams, MediaFeature, SetDeviceMetricsOverrideParams,
 };
 use chromiumoxide::cdp::browser_protocol::log::EventEntryAdded;
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, Viewport};
 use chromiumoxide::cdp::js_protocol::runtime::{
     ConsoleApiCalledType, EventConsoleApiCalled, EventExceptionThrown,
 };
@@ -460,16 +460,45 @@ impl Ui {
     }
 
     pub async fn png(&self) -> Vec<u8> {
+        let toast = self.count("[data-testid=toast]").await > 0;
+        let size = self
+            .page
+            .layout_metrics()
+            .await
+            .expect("layout metrics")
+            .css_content_size;
+        self.page
+            .execute(SetDeviceMetricsOverrideParams::new(
+                size.width as i64,
+                size.height as i64,
+                1.0,
+                false,
+            ))
+            .await
+            .expect("the full page viewport");
+        if toast {
+            self.settle().await;
+        }
         let png = self
             .page
             .screenshot(
                 ScreenshotParams::builder()
                     .format(CaptureScreenshotFormat::Png)
-                    .full_page(true)
+                    .clip(Viewport {
+                        x: 0.0,
+                        y: 0.0,
+                        width: size.width,
+                        height: size.height,
+                        scale: 1.0,
+                    })
                     .build(),
             )
             .await
             .expect("screenshot");
+        self.page
+            .execute(ClearDeviceMetricsOverrideParams::default())
+            .await
+            .expect("clear the full page viewport");
         let (w, h) = *self.size.lock().expect("lock");
         self.page
             .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
