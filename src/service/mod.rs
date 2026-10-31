@@ -149,6 +149,7 @@ pub(super) fn read_json_env(m: &Manifest) -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", windows, test))]
 pub(super) fn config_exit_detail(name: &str) -> String {
     format!(
         "the config has errors or cannot be read (exit {}); fix it, then: {}",
@@ -157,7 +158,7 @@ pub(super) fn config_exit_detail(name: &str) -> String {
     )
 }
 
-#[cfg(any(unix, test))]
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub(super) fn is_config_exit(code: &str) -> bool {
     code.parse::<u8>() == Ok(crate::base::failure::EXIT_CONFIG)
 }
