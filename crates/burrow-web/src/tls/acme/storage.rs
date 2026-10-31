@@ -235,9 +235,12 @@ mod tests {
             )
         );
         assert_ne!(ab, cert_dir(s, &names(&["a.example.com"])));
+        assert_eq!(ab.parent(), Some(Path::new("/state/certs")));
         assert!(
-            ab.to_string_lossy()
-                .starts_with("/state/certs/a.example.com-"),
+            ab.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("a.example.com-"),
             "{ab:?}"
         );
         let odd = cert_dir(s, &names(&["*.example.com", "../x"]));
