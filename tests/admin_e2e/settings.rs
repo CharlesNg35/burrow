@@ -279,3 +279,41 @@ fn websocket(c: &mut Ctx) -> Flow<'_> {
 fn websocket_is_turned_on_and_off_in_settings() {
     run("websocket", Options::default(), false, websocket);
 }
+
+const NOTIFY_TOP: &str = "notify:\n  - ntfy: https://ntfy.sh/burrow-e2e-topic\n    events: [client_offline, client_back]\n  - email:\n      to: ops@example.com\n      smtp: \"smtp://alerts@example.com@mail.example.com:587\"\n      password: ${SMTP_PASS}\n";
+
+async fn notify_card(c: &mut Ctx) {
+    c.ui.nav("/settings?tab=monitoring").await;
+    c.ui.wait_for("[data-testid=settings] [data-card=notify]", SECS)
+        .await;
+    let card = c.ui.text("[data-card=notify]").await;
+    assert!(card.contains("ntfy.sh/burrow-e2e-topic"), "{card}");
+    assert!(
+        card.contains("SMTP_PASS"),
+        "the password shows by name: {card}"
+    );
+    assert!(!card.contains("e2e-smtp-value"), "{card}");
+    both_widths(c, "settings-notify").await;
+    edit_mode(c).await;
+    let card = c.ui.text("[data-card=notify]").await;
+    assert!(!card.contains("e2e-smtp-value"), "{card}");
+    both_widths(c, "settings-notify-edit").await;
+}
+
+fn notify(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        notify_card(c).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn notifications_show_in_monitoring_with_the_mail_password_by_name() {
+    let opts = Options {
+        extra_top: NOTIFY_TOP.into(),
+        server_env: vec![("SMTP_PASS".into(), "e2e-smtp-value".into())],
+        ..Options::default()
+    };
+    run("settings-notify", opts, false, notify);
+}
