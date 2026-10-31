@@ -3,6 +3,19 @@ use std::path::Path;
 const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
     (
+        "burrow-io",
+        &["bytes", "tokio"],
+        &[
+            "burrow",
+            "burrow-web",
+            "burrow-config",
+            "burrow-admin-proto",
+            "burrow-admin-logic",
+            "burrow-admin-ui",
+            "burrow-ui-kit",
+        ],
+    ),
+    (
         "burrow-admin-proto",
         &["serde", "serde_json", "schemars"],
         &[],
@@ -71,6 +84,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "aws-lc-rs",
             "base64",
             "bcrypt",
+            "burrow-io",
             "burrow-syntax",
             "bytes",
             "governor",
