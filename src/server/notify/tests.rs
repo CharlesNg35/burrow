@@ -60,7 +60,13 @@ async fn a_message_that_never_goes_through_is_given_up_after_its_tries() {
         .unwrap();
     drop(tx);
     let shown = ("webhook x".to_string(), Duration::from_micros(10));
-    deliver(Err("no route".into()), rx, board.clone(), shown).await;
+    deliver(
+        Err(channel::SendError::Retry("no route".into())),
+        rx,
+        board.clone(),
+        shown,
+    )
+    .await;
     let b = board.lock().unwrap();
     assert_eq!((b.sent, b.dropped, b.waiting), (0, 1, 0));
     assert_eq!(b.failing.as_ref().unwrap().0, "no route");
@@ -90,4 +96,26 @@ async fn a_destination_gets_only_the_events_it_asked_for_and_a_full_queue_drops(
     );
     n.sync(&[]);
     assert!(n.status().is_empty());
+}
+
+#[tokio::test]
+async fn a_permanent_failure_is_not_tried_again() {
+    let (tx, rx) = mpsc::channel(QUEUE);
+    let board = Arc::new(Mutex::new(Board::default()));
+    board.lock().unwrap().waiting = 1;
+    tx.send(letter(NotifyEvent::ClientOffline, false))
+        .await
+        .unwrap();
+    drop(tx);
+    let started = std::time::Instant::now();
+    let shown = ("webhook x".to_string(), Duration::from_secs(5));
+    let bad = channel::SendError::Permanent("the server answered 401 Unauthorized".into());
+    deliver(Err(bad), rx, board.clone(), shown).await;
+    assert!(started.elapsed() < Duration::from_secs(2), "no retry wait");
+    let b = board.lock().unwrap();
+    assert_eq!((b.sent, b.dropped, b.waiting), (0, 1, 0));
+    assert_eq!(
+        b.failing.as_ref().unwrap().0,
+        "the server answered 401 Unauthorized; not tried again until the config changes"
+    );
 }

@@ -1,4 +1,4 @@
-mod send;
+mod channel;
 mod watch;
 
 use std::sync::{Arc, Mutex};
@@ -78,7 +78,10 @@ impl Worker {
     fn start(target: &NotifyTarget) -> Worker {
         let (tx, rx) = mpsc::channel(QUEUE);
         let board = Arc::new(Mutex::new(Board::default()));
-        let sender = send::Sender::new(&target.via);
+        let sender = channel::open(&target.via);
+        if let Ok(c) = &sender {
+            debug!("notifications to {} go out as {}", target.shown(), c.kind());
+        }
         let task = tokio::spawn(deliver(
             sender,
             rx,
@@ -123,7 +126,7 @@ impl Worker {
 }
 
 async fn deliver(
-    sender: Result<send::Sender, String>,
+    sender: Result<Box<dyn channel::Channel>, channel::SendError>,
     mut rx: mpsc::Receiver<Letter>,
     board: Arc<Mutex<Board>>,
     (shown, first_retry): (String, Duration),
@@ -143,12 +146,13 @@ async fn deliver(
                         true
                     }
                     Err(why) => {
-                        b.failed(&shown, why);
-                        if attempt == TRIES {
+                        let last = attempt == TRIES || !why.retryable();
+                        b.failed(&shown, why.to_string());
+                        if last {
                             b.dropped += 1;
                             debug!("gave up on a notification to {shown}: {}", letter.title());
                         }
-                        attempt == TRIES
+                        last
                     }
                 }
             };
