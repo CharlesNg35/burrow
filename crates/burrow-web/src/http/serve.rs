@@ -85,7 +85,9 @@ fn service<U: Upstream>(
         let (shared, conn) = (shared.clone(), conn.clone());
         let busy = conn.activity.enter();
         async move {
-            let r = pipeline::handle(&shared, &conn, req).await;
+            let version = req.version();
+            let mut r = pipeline::handle(&shared, &conn, req).await;
+            *r.version_mut() = version;
             if let Some(StreamReset(reason)) = r.extensions().get::<StreamReset>() {
                 return Err(h2::Error::from(*reason));
             }

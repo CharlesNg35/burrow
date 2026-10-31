@@ -233,3 +233,50 @@ async fn one_proxy_connection_carrying_two_visitors_checks_each_of_them() {
     assert!(third.contains("x-real-ip: 203.0.113.10\n"), "{third}");
     assert_eq!(app.connections.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
+
+async fn http10_app() -> std::net::SocketAddr {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = l.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut head = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut buf).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => head.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let _ = s
+                    .write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 6\r\n\r\nold-ok")
+                    .await;
+                let _ = s.shutdown().await;
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test]
+async fn an_http1_1_visitor_of_an_http1_0_app_gets_http1_1_and_keeps_its_connection() {
+    let (up, _) = Fake::new(4);
+    up.serve("old", http10_app().await);
+    let proxy = start(|s| s.sites = vec![https_site("old", &["example.com"])], up).await;
+    let mut t = tls(proxy.https_addr().unwrap(), "example.com")
+        .await
+        .unwrap();
+    let ask = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    let first = read_response(&mut t, ask).await;
+    assert!(first.starts_with("HTTP/1.1 200"), "{first}");
+    assert!(first.ends_with("old-ok"), "{first}");
+    let second = read_response(&mut t, ask).await;
+    assert!(
+        second.starts_with("HTTP/1.1 200"),
+        "the same connection answers again: {second:?}"
+    );
+}
