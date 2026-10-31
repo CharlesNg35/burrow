@@ -396,7 +396,7 @@ fn the_search_keeps_focus_inside_and_gives_it_back() {
     run("search-modal", Options::default(), false, search_modal);
 }
 
-const TAB_SHOWN: &str = "(() => { const row = document.querySelector('[data-testid=nav-row]'); const on = row && row.querySelector('[aria-current=page]'); if (!on) return 'no current tab'; const r = row.getBoundingClientRect(), t = on.getBoundingClientRect(); return t.left >= r.left - 1 && t.right <= r.right + 1 ? 'shown' : `cut by ${Math.max(r.left - t.left, t.right - r.right)} px`; })()";
+const TAB_SHOWN: &str = "(() => { const row = document.querySelector('[data-testid=nav-row]'); const on = row && row.querySelector('[aria-current=page]'); if (!on) return 'no current tab'; const r = row.getBoundingClientRect(), t = on.getBoundingClientRect(); const end = row.scrollLeft + row.clientWidth >= row.scrollWidth - 1; const right = end ? r.right : r.right - 28; return t.left >= r.left - 1 && t.right <= right + 1 ? 'shown' : `cut or faded by ${Math.max(r.left - t.left, t.right - right)} px`; })()";
 
 const PAGE_STILL: &str = "scrollX === 0 && scrollY === 0";
 

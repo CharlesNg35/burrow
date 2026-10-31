@@ -2,6 +2,7 @@ use leptos::html;
 use leptos::prelude::*;
 
 const ROW: &str = "flex min-w-0 flex-nowrap overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden data-[fade=true]:[mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]";
+const FADE_PX: f64 = 28.0;
 
 fn more_on_the_right(left: i32, width: i32, all: i32) -> bool {
     all > width + 1 && left + width < all - 1
@@ -17,7 +18,7 @@ fn show(el: &web_sys::HtmlElement, selector: &str) {
     }
     if let Ok(Some(on)) = el.query_selector(selector) {
         let (row, item) = (el.get_bounding_client_rect(), on.get_bounding_client_rect());
-        let by = sideways(row.left(), row.right(), item.left(), item.right());
+        let by = sideways(row.left(), row.right() - FADE_PX, item.left(), item.right());
         if by != 0.0 {
             el.set_scroll_left(el.scroll_left() + by.round() as i32);
         }
