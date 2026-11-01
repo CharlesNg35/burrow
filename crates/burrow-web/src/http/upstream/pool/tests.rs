@@ -99,7 +99,7 @@ fn each_field_of_the_key_keeps_connections_apart() {
             bound: Bound::Visitor(addr(1000), addr(443)),
             ..key("blog")
         },
-        key("blog").private(7),
+        key("blog").private(7, IpAddr::from([198, 51, 100, 7])),
     ];
     for other in &others {
         assert_eq!(taken(&store, other), None, "{other:?}");
@@ -158,6 +158,25 @@ fn the_way_that_answered_files_the_connection() {
     assert_eq!(k.answered(None), k);
     assert_eq!(k.answered(Some(1)), k);
     assert_eq!(k.answered(Some(9)).way, 9);
+}
+
+#[test]
+fn a_private_key_names_the_visitor_and_ignores_the_pick() {
+    let ip = |last: u8| IpAddr::from([198, 51, 100, last]);
+    let mine = key("blog").private(7, ip(1));
+    assert_eq!(mine.answered(Some(9)), mine, "the pick never moves it");
+    let elsewhere = Key {
+        way: 2,
+        ..key("blog")
+    }
+    .private(7, ip(1));
+    assert_eq!(elsewhere, mine, "whichever client the request picked");
+    assert_ne!(
+        key("blog").private(7, ip(2)),
+        mine,
+        "another visitor on the same connection"
+    );
+    assert_ne!(key("blog").private(8, ip(1)), mine);
 }
 
 struct Frames(usize);

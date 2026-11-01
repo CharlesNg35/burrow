@@ -143,7 +143,7 @@ impl<U: Upstream> Asking<'_, U> {
 
     async fn take_h1(&self, ups: Option<&Ups>) -> Option<(H1, Key, Arc<str>, Instant)> {
         if let Some(ups) = ups.filter(|u| u.has_private()) {
-            let private = self.key.private(ups.id);
+            let private = self.key.private(ups.id, self.from.addr.ip());
             while let Some((conn, client, since)) = self.pool.h1.take(&private) {
                 if let Some(conn) = conn.ready().await {
                     return Some((conn, private, client, since));

@@ -257,3 +257,38 @@ async fn concurrent_kept_visitors_need_no_more_app_connections_than_requests_in_
         log.conns()
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_ntlm_connection_stays_with_its_visitor_behind_a_proxy_that_carries_several() {
+    let (app, log) = recording_app(Behave::Ntlm).await;
+    let (s, secret) = plain(app, |s| {
+        s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
+    });
+    let web = http(&s);
+    let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    let mut proxy = Keep::open(web, localhost()).await;
+    let a = "X-Forwarded-For: 203.0.113.1\r\n";
+    let b = "X-Forwarded-For: 203.0.113.2\r\n";
+    assert_eq!(status(&proxy.send("GET", "/", a).await.unwrap()), 401);
+    assert_eq!(status(&proxy.send("GET", "/", b).await.unwrap()), 401);
+    let step = format!("{a}Authorization: NTLM step2\r\n");
+    assert_eq!(status(&proxy.send("GET", "/", &step).await.unwrap()), 200);
+    let asked = log.asked();
+    let of = |ip: &str| -> Vec<usize> {
+        asked
+            .iter()
+            .filter(|r| r.real_ip == ip.parse().ok())
+            .map(|r| r.conn)
+            .collect()
+    };
+    let (conns_a, conns_b) = (of("203.0.113.1"), of("203.0.113.2"));
+    assert_eq!(conns_a.len(), 2);
+    assert_eq!(
+        conns_a[0], conns_a[1],
+        "A's handshake stays on its own connection"
+    );
+    assert!(
+        !conns_a.contains(&conns_b[0]),
+        "B never gets A's authenticated connection: {asked:?}"
+    );
+}

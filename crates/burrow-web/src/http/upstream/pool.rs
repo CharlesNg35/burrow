@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -28,7 +28,7 @@ pub const REPLAY_AFTER: Duration = Duration::from_secs(1);
 pub(crate) enum Bound {
     Shared,
     Visitor(SocketAddr, SocketAddr),
-    Private(u64),
+    Private(u64, IpAddr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -61,9 +61,9 @@ impl Key {
         }
     }
 
-    pub(crate) fn private(&self, conn: u64) -> Key {
+    pub(crate) fn private(&self, conn: u64, visitor: IpAddr) -> Key {
         Key {
-            bound: Bound::Private(conn),
+            bound: Bound::Private(conn, visitor),
             ..self.clone()
         }
     }

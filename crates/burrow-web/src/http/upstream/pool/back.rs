@@ -21,9 +21,9 @@ pub(crate) enum Home {
 }
 
 impl Home {
-    pub(crate) fn private(&mut self, conn: u64) {
+    pub(crate) fn private(&mut self, conn: u64, visitor: std::net::IpAddr) {
         if let Home::H1 { key, .. } = self {
-            *key = key.private(conn);
+            *key = key.private(conn, visitor);
         }
     }
 

@@ -258,7 +258,7 @@ pub(crate) async fn forward<U: Upstream>(
     strip_hop_by_hop(resp.headers_mut());
     if private(resp.headers()) {
         ups.went_private();
-        home.private(ups.id);
+        home.private(ups.id, f.visitor.addr.ip());
     }
     let lease = asking.lease;
     let lease = (lease, ticket);
