@@ -246,13 +246,17 @@ pub(super) fn usable(
     }
 }
 
-pub(super) fn clients_for(shared: &Shared, grant: &Grant) -> crate::server::pick::Picked {
+pub(super) fn clients_for(
+    shared: &Shared,
+    grant: &Grant,
+    from: std::net::IpAddr,
+) -> crate::server::pick::Picked {
     match &grant.service {
         Some(name) => shared
             .settings()
             .services
             .get(name)
-            .map(|svc| shared.route(name, svc, grant.index))
+            .map(|svc| shared.route(name, svc, grant.index, Some(from)))
             .unwrap_or_else(|| crate::server::pick::Picked::from(Vec::new())),
         None => grant
             .clients

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use burrow::config::settings::{Health, HttpCheck, WebSettings, WebSite, WebTls};
+use burrow::config::settings::{Health, HttpCheck, ServerSettings, WebSettings, WebSite, WebTls};
 use burrow_config::Mode;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -11,9 +11,13 @@ use tokio::net::{TcpListener, TcpStream};
 use super::common::*;
 use super::{Farm, web};
 
-const HOST: &str = "app.example.com";
+pub(super) const HOST: &str = "app.example.com";
 
-async fn http_app(addr: SocketAddr, tag: char, code: Arc<AtomicU16>) -> Arc<AtomicUsize> {
+pub(super) async fn http_app(
+    addr: SocketAddr,
+    tag: char,
+    code: Arc<AtomicU16>,
+) -> Arc<AtomicUsize> {
     let l = TcpListener::bind(addr).await.unwrap();
     let asked = Arc::new(AtomicUsize::new(0));
     let count = asked.clone();
@@ -42,6 +46,15 @@ async fn http_app(addr: SocketAddr, tag: char, code: Arc<AtomicU16>) -> Arc<Atom
         }
     });
     asked
+}
+
+pub(super) fn plain_site(s: &mut ServerSettings, http: SocketAddr) {
+    let mut w = WebSettings::on((None, Some(http)));
+    let mut site = WebSite::passthrough(vec![HOST.into()]);
+    site.tls = WebTls::Off;
+    site.https_redirect = false;
+    w.sites.insert("web".into(), site);
+    s.web = Some(w);
 }
 
 fn checked() -> Option<Health> {
@@ -90,15 +103,7 @@ async fn wait_health(farm: &Farm, want: &[(&str, bool)]) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_app_answering_500_moves_new_requests_to_the_other_client_and_back_after_one_200() {
     let http: SocketAddr = format!("127.0.0.1:{}", free_port()).parse().unwrap();
-    let mut farm = Farm::start(web(Mode::Failover, checked()), |s| {
-        let mut w = WebSettings::on((None, Some(http)));
-        let mut site = WebSite::passthrough(vec![HOST.into()]);
-        site.tls = WebTls::Off;
-        site.https_redirect = false;
-        w.sites.insert("web".into(), site);
-        s.web = Some(w);
-    })
-    .await;
+    let mut farm = Farm::start(web(Mode::Failover, checked()), |s| plain_site(s, http)).await;
     let codes = [Arc::new(AtomicU16::new(200)), Arc::new(AtomicU16::new(200))];
     let mut asked = Vec::new();
     for (i, tag) in [(0, 'A'), (1, 'B')] {

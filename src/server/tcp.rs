@@ -139,7 +139,7 @@ pub(super) fn admit(
             .map_err(|()| full("is over half full and this address holds its fair part"))?,
         None => None,
     };
-    let clients = shared.route(name, svc, index);
+    let clients = shared.route(name, svc, index, Some(peer.ip()));
     if clients.is_empty() {
         stats.refused.fetch_add(1, Ordering::Relaxed);
         debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
