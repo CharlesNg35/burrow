@@ -91,6 +91,7 @@ pub enum Decision {
     Page(String),
     Asset(String),
     Api,
+    Alive,
     Redirect(String),
     NotFound,
     Reject,
@@ -170,10 +171,7 @@ pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Decision, Reject> {
     match route(&head.path, prefix, head.upgrade) {
         Decision::Api => {
             if !head.upgrade {
-                return Err(Reject {
-                    code: 426,
-                    reason: "a WebSocket upgrade is needed",
-                });
+                return Ok(Decision::Alive);
             }
             let expected = format!("http://{host}");
             if head.origin.as_deref() != Some(expected.as_str()) {
