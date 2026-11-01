@@ -468,5 +468,6 @@ fn a_capped_udp_receive_buffer_is_logged_once_for_all_ports() {
     if expected == 1 {
         assert!(text.contains("net.core.rmem_max"), "{text}");
         assert!(text.contains("CAP_NET_ADMIN"), "{text}");
+        assert!(text.contains("/etc/sysctl.d/"), "{text}");
     }
 }

@@ -135,7 +135,7 @@ fn note_short(once: &std::sync::Once, asked: usize, granted: usize, warn: fn(usi
 
 fn warn_short(asked: usize, granted: usize) {
     tracing::warn!(
-        "the system gave a UDP port {} KiB of receive buffer, well below the {} KiB burrow asked for, so bursts of datagrams may be dropped; running burrow as root (CAP_NET_ADMIN) or raising net.core.rmem_max lifts the cap, see https://github.com/charlesng35/burrow/blob/main/docs/services.md#expose-a-udp-service",
+        "the system gave a UDP port {} KiB of receive buffer, well below the {} KiB burrow asked for, so bursts of datagrams may be dropped; raise the cap with net.core.rmem_max=7500000 in /etc/sysctl.d/ (a burrow running as root with CAP_NET_ADMIN also goes past it, but the service account does not), see https://github.com/charlesng35/burrow/blob/main/docs/services.md#expose-a-udp-service",
         granted / 1024,
         asked / 1024
     );
