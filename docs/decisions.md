@@ -709,4 +709,15 @@ Every run had 0 errors outside the injected faults and 0 wrong answers. CPU per 
 
 The same runs answered why the release soak's RSS rose: with the connection count fixed, memory stayed flat for 45-60 min, with faults and reloads, before and after this change (and jemalloc's allocated bytes stayed flat in profiled runs). Memory follows the number of open connections, about 285 KiB per extra busy connection before this change, and the soak's k6 adds connections after each fault and keeps them.
 
+**Arenas stay at jemalloc's default, 4 per CPU.** TUNING.md suggests fewer arenas to cut fragmentation, and jemalloc 5.3.0 can scale them with the CPU count (`narenas_ratio`, `src/jemalloc.c`, not in the manual). Three quiet alternating rounds on the 10-core VM (mean CPU µs per request, p99 ms, PSS MiB):
+
+| workload | 40 arenas (default) | 10 (`narenas_ratio:1`) | 4 (`narenas_ratio:0.4`) |
+|---|---|---|---|
+| mix HTTP/2, 8000/s | 182.1, 8.07, 164 | 182.8, 8.38, 160 | 183.3, 8.08, 154 |
+| mix HTTP/1.1, 6000/s | 149.4, 5.30, 125 | 150.8, 5.36, 125 | 147.3, 5.37, 120 |
+| 100-byte answers, 10000/s | 62.4, 1.29, 42 | 61.6, 1.17, 42 | 61.6, 1.25, 41 |
+| mix HTTP/2, 300 connections looping | 124.3, 36.3, 112 | 124.9, 36.4, 110 | 126.7, 37.1, 98 |
+
+One arena per CPU saves memory only on the HTTP/2 mix, about 2 %. Four arenas save 4-13 %, but on the busiest workload (300 looping connections) their mean CPU per request (+2 %) and p99 (+2 %) lie above the default's worst round, with 1.6 % fewer requests per second. Fewer arenas also mean more lock contention on hosts with more cores than this one. So nothing changed; `_RJEM_MALLOC_CONF=narenas_ratio:<r>` sets it at run time.
+
 Sources, checked 2026-11-01: tokio 1.53.3 `src/io/util/mem.rs`; bytes 1.12.1 `BytesMut::reserve`; docs.rs/piper `pipe`; docs.rs/sluice; jemalloc(3) `opt.dirty_decay_ms`; tikv-jemalloc-sys 0.6.1 README (`JEMALLOC_SYS_WITH_MALLOC_CONF`) and build.rs; jemalloc 5.3.0 jemalloc(3) `opt.abort_conf`, TUNING.md and `src/jemalloc.c` (`malloc_conf_init_helper`, `malloc_abort_invalid_conf`).
