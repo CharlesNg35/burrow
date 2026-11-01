@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-pub const BODY: usize = 256 * 1024;
+pub const BODY: usize = 512 * 1024;
 const READ_FOR: Duration = Duration::from_secs(10);
 const RESET_WINDOW: Duration = Duration::from_millis(300);
 

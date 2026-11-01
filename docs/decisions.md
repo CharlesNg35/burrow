@@ -683,6 +683,7 @@ A server that answers before it has read the whole request (401 for a wrong toke
 - Every HTTP/1 server burrow runs closes through one helper, `burrow_io::linger`: the MCP server, the local admin page, the metrics endpoint, the WebSocket transport's refusals, and the web proxy's HTTP/1 connections and tunnel requests. After the last answer it shuts down the write side (the client sees the end of the answer), then reads and drops whatever the client still sends, and closes when the client closes, when nothing arrives for 5 s, after 10 s in all, or after 1 MiB. An upgraded connection is handed over and never lingers, and a connection that ended in an error closes at once as before.
 - nginx does the same by default: `lingering_close on`, `lingering_timeout 5s` between reads, `lingering_time 30s` in all. burrow keeps nginx's 5 s, takes 10 s instead of 30 s because its slots are few (8 for MCP) and the client only needs time to read the answer, and adds a 1 MiB cap so an unauthenticated client cannot make it read without end. Go's net/http takes the other route (half-close, then wait 500 ms) and also reads up to 256 KiB of an unread body. No setting: these are fixed, like nginx's defaults that nobody changes.
 - HTTP/2 needs no lingering: an early answer resets only its stream, with flow control bounding what the client may still send.
+- D71: the web proxy's HTTP/1.1 visitors no longer reach this close when the unread body is small; it is read and dropped, and the connection stays open.
 
 Sources, checked 2026-11-01: nginx.org/en/docs/http/ngx_http_core_module.html (`lingering_close`, `lingering_time`, `lingering_timeout`); RFC 1122 §4.2.2.13; hyper 1.12.0 `src/proto/h1/conn.rs` and `dispatch.rs`; github.com/hyperium/hyper/discussions/3113; go.dev/src/net/http/server.go (`rstAvoidanceDelay`, `closeWriteAndWait`, `maxPostHandlerReadBytes`).
 
@@ -709,3 +710,27 @@ Every run had 0 errors outside the injected faults and 0 wrong answers. CPU per 
 The same runs answered why the release soak's RSS rose: with the connection count fixed, memory stayed flat for 45-60 min, with faults and reloads, before and after this change (and jemalloc's allocated bytes stayed flat in profiled runs). Memory follows the number of open connections, about 285 KiB per extra busy connection before this change, and the soak's k6 adds connections after each fault and keeps them.
 
 Sources, checked 2026-11-01: tokio 1.53.3 `src/io/util/mem.rs`; bytes 1.12.1 `BytesMut::reserve`; docs.rs/piper `pipe`; docs.rs/sluice; jemalloc(3) `opt.dirty_decay_ms`; tikv-jemalloc-sys 0.6.1 README (`JEMALLOC_SYS_WITH_MALLOC_CONF`).
+
+## D71. After its own early answer, the web proxy reads and drops a small unread body and keeps the HTTP/1.1 connection, as Go does
+
+After D70 an early answer (401, 403, 404, 429, a maintenance or unreachable-app 503) to a request with a body still closed the connection whenever the body had not fully arrived, so a browser paid a new TCP and TLS handshake for its next request. hyper drops only what the socket already holds (`poll_drain_or_close_read`), and it writes the answer's head before it notices the dropped body, so that answer even went out without `Connection: close`.
+
+- **Go's order.** Before the answer's head is written, the web proxy reads and drops the rest of a body nobody read. It stops at the body's end, past 256 KiB (Go's `maxPostHandlerReadBytes`), after 1 s in all, or on a broken body. Only a clean end keeps the connection. Anything else gets `Connection: close` on the answer, and D70's lingering close reads the rest. hyper's decoder stays the only reader of the body's framing, so a body that was not fully read is never read as the next request (the bug class nginx fixed in 2015 with "discard request body before going to keep-alive state").
+- **What is not read.** Nothing is read when:
+  - a declared length has more than 256 KiB left, as Go does;
+  - the request has `Expect` (no `100 Continue` is sent for a body that would be dropped, as Go and nginx's `expect_tested`), `Connection: close`, or is HTTP/1.0;
+  - the answer already closes, or is a 101.
+- **413, 400 and 431 drain too.** nginx (`keepalive = 0` in `ngx_http_special_response_handler`) and Go's `MaxBytesReader` close after a 413. burrow does not. Its 400 and 431 come after hyper has parsed the request, so the framing is sound. Its 413 for a declared length over `max_body_size` sees at most 256 KiB more before it gives up. Closing cost more than before this change, because hyper already kept a connection whose small body had fully arrived. In the A/B, a 4 KiB POST mix with 10 % 413s went from 70.8 to 92.1 µs per request and from about 80 to 600 new connections a second.
+- **Only burrow's own answers.** The pipeline carries the body in a small wrapper. If the wrapper is dropped without ever being read, it hands the body back. A forwarded body is read by the upstream client as soon as the request is written, so forwarded requests behave as before. A 502 or 503 for an app that could not be reached before any body byte was sent counts as burrow's own answer.
+- **Why 1 s.** nginx answers first, then discards with its 5 s `lingering_timeout`. Go has no bound but its `ReadTimeout`. burrow answers after the drain, so the bound is the most a slow uploader adds to its own error page. 256 KiB in 1 s needs about 2 Mbit/s, and a slower client gets D70's close as before. No setting.
+- **Where.** The web proxy's HTTP/1.1 visitors only. The MCP server, the local admin page, the metrics endpoint, the WebSocket transport's refusals and the web tunnel requests run with keep-alive off: one request per connection. HTTP/2 needs nothing: h2 resets only the stream (RST_STREAM(NO_ERROR) once the answer is complete, RFC 9113 §8.1).
+
+`crates/burrow-web/src/http/unread.rs` tests the limits. `crates/burrow-web/tests/keep_alive.rs` tests:
+- keep-alive after complete Content-Length and chunked bodies, for every early answer;
+- cut-off bodies whose next bytes are never answered;
+- a request hidden in a body, pipelining, a slow body, `Expect` and HTTP/1.0;
+- forwarded posts.
+
+`crates/burrow-web/tests/h2/early.rs` tests HTTP/2.
+
+Sources, checked 2026-11-01: go.dev/src/net/http/server.go (`maxPostHandlerReadBytes`, `chunkWriter.writeHeader`) and transfer.go (`body.Close`); nginx `src/http/ngx_http_request_body.c` (`ngx_http_discard_request_body`, `ngx_http_test_expect`) and `ngx_http_special_response.c`; hyper 1.12.0 `src/proto/h1/conn.rs` (`poll_drain_or_close_read`, `enforce_version`) and `dispatch.rs` (`poll_read`, `poll_write`); h2 0.4.20 `src/proto/streams/streams.rs` (`maybe_cancel`); RFC 9112 §9.3, RFC 9110 §10.1.1, RFC 9113 §8.1.
