@@ -117,7 +117,7 @@ const FIRST_CLIENT: &[(&str, &str)] = &[
     ("secret:", "secret: ${HOME_SECRET}\n"),
 ];
 
-fn yaml_blocks(md: &str) -> Vec<String> {
+pub(in crate::config::check) fn yaml_blocks(md: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut open: Option<(usize, String)> = None;
     for line in md.lines() {
