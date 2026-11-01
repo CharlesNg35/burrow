@@ -352,5 +352,31 @@ pub const TOGGLE_IN_FILE: &str = "Turn it on or off in server.yaml (burrow edit)
 pub const NAMED_IN_FILE: &str =
     "named in server.yaml (burrow edit); remove it there to upload one here";
 
+pub fn check_failed(code: burrow_admin_proto::msg::ErrorCode) -> &'static str {
+    use burrow_admin_proto::msg::ErrorCode;
+    match code {
+        ErrorCode::Busy | ErrorCode::Internal | ErrorCode::Unknown => {
+            "The server could not check this change"
+        }
+        _ => "The server refused this change",
+    }
+}
+
+pub fn locked_here(place: &str) -> String {
+    format!("{place} is locked. {CHANGE_IN_FILE_THEN_RESTART}.")
+}
+
+pub fn reason_text(message: &str) -> String {
+    let text = capital(message.trim());
+    if text.is_empty() || text.ends_with(['.', '!', '?']) {
+        text
+    } else {
+        format!("{text}.")
+    }
+}
+
+pub const CHECK_FAILED_HINT: &str =
+    "Nothing was applied and your changes are kept. Go back to change them, or check again.";
+
 #[cfg(test)]
 mod tests;

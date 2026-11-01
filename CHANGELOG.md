@@ -67,6 +67,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - Returning visitors resume their TLS session with session tickets, except on sites with `client_auth`.
   - The web proxy keeps small, reused buffers per connection, so it uses less than half the memory and about 30 % less CPU per request with large bodies.
   - The Linux amd64, arm64 and riscv64 builds give freed memory back to the system within seconds of going idle.
+  - Public UDP ports and UDP forwards ask the system for a 7 MiB receive buffer, as WireGuard does, and each UDP peer for 256 KiB, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max` (see docs/services.md).
 - **Compatibility:**
   - The tunnel protocol is unchanged: v0.1.x clients and visitors work with a v0.2.0 server, and v0.2.0 clients and visitors with a v0.1.x server.
   - The admin protocol adds features that each side uses only when the other lists them.

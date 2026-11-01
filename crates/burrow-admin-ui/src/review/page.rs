@@ -1,3 +1,4 @@
+use burrow_admin_proto::msg::{ErrorBody, ErrorCode, LockedField};
 use burrow_admin_proto::plan::Plan;
 use burrow_admin_proto::value::get;
 use burrow_ui_kit::{
@@ -54,7 +55,7 @@ pub fn ReviewPage() -> impl IntoView {
             no_counts=true
             empty=(String::new(), String::new())
             rows=rows
-            selected=Signal::stored(None::<String>)
+            selected=Signal::derive(move || plan.with(Option::is_none).then(String::new))
             testid="review-list"
         />
     }
@@ -190,7 +191,7 @@ fn review_body(
             .into_any();
         }
         if !revert.get()
-            && let Some((base, now)) = stale(s)
+            && let Some((base, now)) = stale(s).or_else(|| conflicted(s, plan))
         {
             return view! {
                 <Callout tone=Tone::Warning title=format!("Based on the {}; the file is now the {}", s.version(&base), s.version(&now)) testid="review-stale">
@@ -200,8 +201,9 @@ fn review_body(
             }
             .into_any();
         }
-        match plan.get() {
-            None => view! {
+        match (plan.get(), e.check_error.get()) {
+            (None, Some(err)) => check_failed(s, &err),
+            (None, None) => view! {
                 <div data-testid="review-loading">
                     {outcome_view()}
                     <p class="mb-2 text-text-muted">"Checking your change on the server…"</p>
@@ -209,9 +211,55 @@ fn review_body(
                 </div>
             }
             .into_any(),
-            Some(p) => view! { {outcome_view()} {detail(p, revert.get())} }.into_any(),
+            (Some(p), _) => view! { {outcome_view()} {detail(p, revert.get())} }.into_any(),
         }
     }
+}
+
+fn conflicted(s: Store, plan: Memo<Option<std::sync::Arc<Plan>>>) -> Option<(String, String)> {
+    if plan.with(Option::is_some) {
+        return None;
+    }
+    let now = s
+        .edit
+        .conflict
+        .with(|c| c.as_ref().map(|c| c.current.clone()))?;
+    let now = Some(now)
+        .filter(|n| !n.is_empty())
+        .or_else(|| s.state.with(|st| st.as_ref().map(|st| st.rev.clone())))?;
+    Some((s.edit.base_rev.get(), now))
+}
+
+fn check_failed(s: Store, err: &ErrorBody) -> AnyView {
+    use burrow_admin_logic::wording::{CHECK_FAILED_HINT, locked_here, reason_text};
+    let e = s.edit;
+    let locked = (err.code == ErrorCode::LockedField)
+        .then(|| burrow_admin_proto::serde_json::from_value::<LockedField>(err.body.clone()).ok())
+        .flatten()
+        .map(|l| {
+            let place = s
+                .schema
+                .with_untracked(|sc| sc.as_ref().map(|sc| super::place_of(&sc.root, &l.path)))
+                .unwrap_or_else(|| l.path.join("."));
+            locked_here(&place)
+        });
+    let text = locked.unwrap_or_else(|| reason_text(&err.message));
+    view! {
+        <div data-testid="review-check-failed" data-code=err.code.as_str()>
+            <Callout tone=Tone::Danger title=burrow_admin_logic::wording::check_failed(err.code)>
+                <p class="mb-1" data-testid="check-failed-reason">{text}</p>
+                <p class="mb-2.5 text-text-muted">{CHECK_FAILED_HINT}</p>
+                <div class="flex flex-wrap gap-2">
+                    <Button label="Back" variant="secondary" small=true testid="check-failed-back" on_click=move |_| {
+                        e.review.set(None);
+                        route::go(s.prev.get_untracked());
+                    }/>
+                    <Button label="Check again" variant="primary" icon="refresh" small=true testid="check-again" on_click=move |_| e.open_review()/>
+                </div>
+            </Callout>
+        </div>
+    }
+    .into_any()
 }
 
 pub fn stale(s: Store) -> Option<(String, String)> {
