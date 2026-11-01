@@ -788,3 +788,15 @@ After D70 an early answer (401, 403, 404, 429, a maintenance or unreachable-app 
 `crates/burrow-web/tests/h2/early.rs` tests HTTP/2.
 
 Sources, checked 2026-11-01: go.dev/src/net/http/server.go (`maxPostHandlerReadBytes`, `chunkWriter.writeHeader`) and transfer.go (`body.Close`); nginx `src/http/ngx_http_request_body.c` (`ngx_http_discard_request_body`, `ngx_http_test_expect`) and `ngx_http_special_response.c`; hyper 1.12.0 `src/proto/h1/conn.rs` (`poll_drain_or_close_read`, `enforce_version`) and `dispatch.rs` (`poll_read`, `poll_write`); h2 0.4.20 `src/proto/streams/streams.rs` (`maybe_cancel`); RFC 9112 §9.3, RFC 9110 §10.1.1, RFC 9113 §8.1.
+
+## D72. A client's data channels reuse the server address its control connection reached
+
+In a live test with about 1,600 connections at once, the office resolver behind two clients failed for a second. Both clients logged `failed to lookup address information: Try again` dozens of times and could not open data channels while their control connections were still up, so the server answered 503. Every data channel looked the server's name up again, which also multiplied the DNS load in each burst.
+
+- **What is kept.** The client's dialer keeps the whole answer of the last lookup that led to a connection: the control connection's, or a data channel's after a new lookup. A data channel connects to those addresses through the same steps as before (failing addresses last, the last good one first, IPv6 and IPv4 interleaved, 250 ms apart). Only the socket addresses are kept: `wss://` still sends the name in TLS SNI and the `Host` header, and through a proxy the kept answer is the proxy's own.
+- **When the name is looked up again.** Every control connection looks the name up, so a reconnect follows a changed DNS answer. A data channel looks it up when no kept address answers. Visitors look the name up for every visit, as before, since they have no session to tie a kept answer to. A reload makes a new dialer with nothing kept.
+- **Others.** rathole resolves the server once at the start of each control channel (`AddrMaybeCached::resolve` in `ControlChannel::run`) and its data channels connect to that address without looking it up again. frp avoids new lookups by carrying work connections over the control connection (`transport.tcpMux`, on by default). Go's `net.Dialer` keeps nothing and leaves caching to the system. burrow follows rathole and adds the new lookup when a kept address stops answering.
+
+`src/dialer/mod.rs` tests the reuse, the new lookup after a failure and on a control connection; `tests/reconnect.rs` opens a dozen connections while the resolver fails, over TCP and WebSocket.
+
+Sources, checked 2026-11-01: github.com/rathole-org/rathole `src/transport/mod.rs` (`AddrMaybeCached`) and `src/client.rs`; gofrp.org/en/docs/features/common/network/network/ (TCP stream multiplexing); github.com/fatedier/frp `conf/frpc_full_example.toml` (`transport.tcpMux`).
