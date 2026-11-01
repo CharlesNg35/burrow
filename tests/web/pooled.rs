@@ -7,6 +7,8 @@ use http_body_util::{BodyExt, Empty, Full};
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::pki_types::ServerName;
 
+use burrow::config::settings::TargetTls;
+
 use crate::common::*;
 use crate::kit::*;
 use crate::sites::with_files;
@@ -113,4 +115,60 @@ async fn a_kept_http1_visitor_reaches_the_new_target_after_a_reload() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_kept_http2_visitor_reaches_the_new_target_after_a_reload() {
     a_kept_visitor_reaches_the_new_target_after_a_reload(true).await;
+}
+
+async fn plain_or_tls_app(c: &Cert) -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let tls = acceptor(c);
+    tokio::spawn(async move {
+        while let Ok((s, _)) = l.accept().await {
+            let tls = tls.clone();
+            tokio::spawn(async move {
+                let mut first = [0u8; 1];
+                let _ = s.peek(&mut first).await;
+                let answer = |name: &'static str| {
+                    hyper::service::service_fn(move |_req| async move {
+                        Ok::<_, Infallible>(hyper::Response::new(Full::new(Bytes::from(name))))
+                    })
+                };
+                let http = hyper::server::conn::http1::Builder::new();
+                if first[0] == 0x16 {
+                    let Ok(t) = tls.accept(s).await else { return };
+                    let io = hyper_util::rt::TokioIo::new(t);
+                    let _ = http.serve_connection(io, answer("tls")).await;
+                } else {
+                    let io = hyper_util::rt::TokioIo::new(s);
+                    let _ = http.serve_connection(io, answer("plain")).await;
+                }
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kept_visitor_uses_a_new_app_connection_once_a_reload_turns_target_tls_on() {
+    let app_cert = cert(&["app.internal"]);
+    let app = plain_or_tls_app(&app_cert).await;
+    let dir = tempfile::tempdir().unwrap();
+    let site_cert = cert(&["localhost"]);
+    let secret = Secret::generate();
+    let mut s = web_server(&secret, &[("blog", site(&["home"], app), &["localhost"])]);
+    with_files(&mut s, "blog", &site_cert, dir.path());
+    s.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{}", free_port()).parse().unwrap());
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    let mut v = Visitor::open(t.server.web_addr.unwrap(), &site_cert, false).await;
+    assert_eq!(v.get().await, "plain");
+    assert_eq!(v.get().await, "plain");
+    let mut next = s.clone();
+    let site = next.web.as_mut().unwrap().sites.get_mut("blog").unwrap();
+    site.options.target_tls = TargetTls::Unchecked;
+    site.options.target_name = "app.internal".into();
+    t.server.reload_applied(next).await;
+    assert_eq!(
+        v.get().await,
+        "tls",
+        "the next request on the same visitor connection speaks TLS to the app"
+    );
 }
