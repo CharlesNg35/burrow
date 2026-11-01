@@ -28,6 +28,28 @@ async fn failed(c: &Ctx, code: &str, title: &str, within: Duration) -> String {
     c.ui.text("[data-testid=check-failed-reason]").await
 }
 
+async fn header(c: &Ctx, failed: Option<&str>) {
+    let button = "[data-testid=review-open]";
+    match failed {
+        Some(title) => {
+            c.ui.wait_for(&format!("{button}[data-state=failed]"), SECS)
+                .await;
+            c.ui.wait_text("[data-testid=review-failed]", title, SECS)
+                .await;
+            assert_eq!(
+                c.ui.attr_of(&format!("{button} [data-testid=review-count]"), "title")
+                    .await,
+                title
+            );
+        }
+        None => {
+            c.ui.wait_for(&format!("{button}:not([data-state=failed])"), SECS)
+                .await;
+            assert_eq!(c.ui.count("[data-testid=review-failed]").await, 0);
+        }
+    }
+}
+
 async fn again(c: &Ctx, how: &str) {
     mangle(c, how).await;
     c.ui.click("[data-testid=check-again]").await;
@@ -56,9 +78,21 @@ fn check_failed(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_gone("[data-testid=review-check-failed]", SECS)
             .await;
         c.ui.wait_for("[data-testid=review-open]", SECS).await;
+        header(c, Some(refused)).await;
+        both_widths(c, "header-check-failed").await;
         review_now(c).await;
         failed(c, "locked-field", refused, SECS).await;
-        again(c, "bad").await;
+        again(c, "").await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        header(c, None).await;
+        c.ui.click("[data-testid=keep-editing]").await;
+        c.ui.wait_gone("[data-testid=review]", SECS).await;
+        mangle(c, "bad").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4001").await;
+        wait_checked(c).await;
+        header(c, Some(refused)).await;
+        review_now(c).await;
         let why = failed(c, "bad-request", refused, SECS).await;
         assert!(why.starts_with("Bad request body"), "{why}");
         again(c, "drop").await;
@@ -96,7 +130,7 @@ fn check_failed(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=review]", SECS).await;
         assert_eq!(c.world.config(), before, "nothing was applied on the way");
         applied(c, "applied-after-the-refusals").await;
-        assert!(c.world.config().contains("4000"));
+        assert!(c.world.config().contains("4001"));
         c.ui.take_errors();
     })
 }
