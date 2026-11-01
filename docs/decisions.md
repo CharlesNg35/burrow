@@ -629,3 +629,27 @@ The final v0.2.0 soak lost 113 datagrams in one second. Every one was dropped by
 - No per-socket drop counter in metrics or status: reading it means OS-specific code in the busiest UDP receive loop. The host-wide `UdpRcvbufErrors` (`nstat`, or node_exporter's `node_netstat_Udp_RcvbufErrors`) already shows it, as it does for nginx's stream proxy.
 
 Sources, checked 2026-11-01: git.zx2c4.com/wireguard-go/tree/conn/controlfns.go; github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes; nginx.org/en/docs/stream/ngx_stream_core_module.html (`rcvbuf=`, off by default).
+
+## D68. One in-memory pipe holds a 32 KiB buffer only while data waits, and jemalloc returns freed pages after 1 s
+
+After D56, a profile of the mix (massif on a glibc build, 100 busy connections, HTTP/2 to a `self` site) put 45 % of the web proxy's live heap in tokio's in-memory pipes (`tokio::io::duplex`): the pipe between the web proxy and the tunnel (`burrow_web::Pipe`) and the in-memory pair of a `self` target. Each direction keeps a `BytesMut` that grows to the largest burst it has seen, up to about twice its 32 KiB bound, and never shrinks, so a pooled app connection that once carried a large body kept about 200 KiB after it went quiet. Under heavy churn, jemalloc's 10 s decay also kept freed pages that the next second's allocations did not reuse (`_RJEM_MALLOC_CONF=dirty_decay_ms:0` cut the mix from 196 to 138 MiB, at 25-60 % more CPU).
+
+- **One pipe, in the new crate `burrow-io`.** Each direction takes one 32 KiB buffer when data arrives and drops it when the reader has taken everything, so a quiet connection holds none and a busy one never more than 32 KiB per direction. `burrow_web::Pipe` and the `self` in-memory pair both use it, with the same bound, wake-ups, end-of-stream and broken-pipe behaviour as tokio's pipe. tokio's `duplex` and `simplex` grow and keep their buffer, `piper` allocates its ring buffer when the pipe is made and keeps it, and `sluice` recycles its chunk buffers; none releases memory when drained.
+- **jemalloc `dirty_decay_ms:1000`** (10 s by default), set at build time in `.cargo/config.toml` through tikv-jemalloc-sys's `JEMALLOC_SYS_WITH_MALLOC_CONF`, next to D53's background threads. 1 s kept the CPU per request unchanged in every workload measured; 500 and 250 ms cost 2-13 % more CPU, 0 ms 25-60 %. `_RJEM_MALLOC_CONF` still overrides it at run time.
+
+Measured on 2026-11-01 on the 10-core VM, musl and jemalloc release builds, `client: self` site unless noted, two alternating rounds each (the host was shared, so p99 varies by round; it did not rise). PSS is the server's mean while measured.
+
+| workload | before: PSS | after: PSS |
+|---|---|---|
+| mix HTTP/2, 8000/s, up to 400 connections | 350 MiB | 162 MiB |
+| mix HTTP/1.1, 6000/s, up to 400 connections | 291 MiB | 124 MiB |
+| mix HTTP/2 through a remote client, 6000/s (first version of the pipe, which sized its buffer to the write) | 254 MiB | 144 MiB |
+| mix HTTP/2, 300 connections each looping | 198 MiB | 111 MiB |
+| 100-byte answers, HTTP/1.1, 10000/s | 48 MiB | 40 MiB |
+| soak mix (the soak's k6 script: HTTP/1.1, HTTP/2 and wss on four sites, faults every 30 s, a reload every minute), ~950 connections, 4000/s, 60 min | 311 MiB, flat | 159 MiB, flat |
+
+Every run had 0 errors outside the injected faults and 0 wrong answers. CPU per request stayed within the rounds' spread (mix HTTP/2: 175 and 185 µs; 300 looping connections: 135 and 128 µs).
+
+The same runs answered why the release soak's RSS rose: with the connection count fixed, memory stayed flat for 45-60 min, with faults and reloads, before and after this change (and jemalloc's allocated bytes stayed flat in profiled runs). Memory follows the number of open connections, about 285 KiB per extra busy connection before this change, and the soak's k6 adds connections after each fault and keeps them.
+
+Sources, checked 2026-11-01: tokio 1.53.3 `src/io/util/mem.rs`; bytes 1.12.1 `BytesMut::reserve`; docs.rs/piper `pipe`; docs.rs/sluice; jemalloc(3) `opt.dirty_decay_ms`; tikv-jemalloc-sys 0.6.1 README (`JEMALLOC_SYS_WITH_MALLOC_CONF`).
