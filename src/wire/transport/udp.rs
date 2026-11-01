@@ -69,9 +69,21 @@ fn bind_with(
     Ok(sock)
 }
 
+#[cfg(test)]
+thread_local! {
+    static ASKED: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn asked(want: usize) {
+    #[cfg(test)]
+    ASKED.with(|a| a.borrow_mut().push(want));
+    let _ = want;
+}
+
 fn grow_receive(s: &socket2::SockRef<'_>, want: usize) {
     let mut ask = want;
     while ask >= 2 * ROOM && s.recv_buffer_size().is_ok_and(|n| n < want) {
+        asked(ask);
         if s.set_recv_buffer_size(ask).is_ok() {
             return;
         }
@@ -92,6 +104,7 @@ fn settle(
     want: usize,
     force: fn(&socket2::SockRef<'_>, usize) -> std::io::Result<()>,
 ) -> usize {
+    asked(want);
     if force(s, want).is_err() {
         grow_receive(s, want);
     }
@@ -143,12 +156,28 @@ mod tests {
 
     #[tokio::test]
     async fn a_shared_socket_asks_for_more_receive_room_than_a_peer_socket() {
-        let shared = bind_udp("127.0.0.1:0".parse().unwrap()).await.unwrap();
-        let peer = bind_udp_peer("127.0.0.1:0".parse().unwrap()).await.unwrap();
-        let room = |u: &UdpSocket| socket2::SockRef::from(u).recv_buffer_size().unwrap();
-        assert!(room(&shared) >= 2 * ROOM);
-        assert!(room(&peer) >= 2 * ROOM);
-        assert!(room(&shared) >= room(&peer));
+        let take = || ASKED.with(|a| std::mem::take(&mut *a.borrow_mut()));
+        take();
+        let _shared = bind_udp("127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let shared = take();
+        let _peer = bind_udp_peer("127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let peer = take();
+        let fresh = socket();
+        let start = socket2::SockRef::from(&fresh).recv_buffer_size().unwrap();
+        assert!(
+            start >= PEER_RECEIVE || !peer.is_empty(),
+            "the peer socket asked for nothing"
+        );
+        let forced = force_receive(&socket2::SockRef::from(&fresh), SHARED_RECEIVE).is_ok();
+        assert!(
+            forced || shared.len() >= 2,
+            "the shared socket did not fall back to asking: {shared:?}"
+        );
+        assert!(
+            shared.iter().min() > peer.iter().max(),
+            "shared {shared:?}, peer {peer:?}"
+        );
+        assert!(peer.iter().all(|&n| n >= 2 * ROOM), "{peer:?}");
     }
 
     fn socket() -> UdpSocket {
