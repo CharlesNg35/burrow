@@ -159,3 +159,69 @@ fn the_way_that_answered_files_the_connection() {
     assert_eq!(k.answered(Some(1)), k);
     assert_eq!(k.answered(Some(9)).way, 9);
 }
+
+struct Frames(usize);
+
+impl hyper::body::Body for Frames {
+    type Data = bytes::Bytes;
+    type Error = crate::http::BoxError;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<bytes::Bytes>, Self::Error>>> {
+        if self.0 == 0 {
+            return std::task::Poll::Ready(None);
+        }
+        self.0 -= 1;
+        let data = bytes::Bytes::from_static(b"x");
+        std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(data))))
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.0 == 0
+    }
+}
+
+#[tokio::test]
+async fn an_answer_that_never_waits_is_listed_for_the_reload_check_from_its_first_frame() {
+    use http_body_util::BodyExt;
+    let pool = Pool::new();
+    let (ours, _app) = tokio::io::duplex(1024);
+    let (tx, task) = hyper::client::conn::http1::handshake::<_, crate::http::Body>(
+        hyper_util::rt::TokioIo::new(ours),
+    )
+    .await
+    .unwrap();
+    let task = tokio::spawn(async move {
+        let _ = task.await;
+    })
+    .abort_handle();
+    let home = Home::H1 {
+        pool: pool.clone(),
+        key: key("blog"),
+        client: client(),
+        conn: H1 {
+            tx,
+            ending: None,
+            task: task.clone(),
+        },
+        epoch: pool.epoch(),
+    };
+    let from = crate::Visitor {
+        addr: SocketAddr::from(([198, 51, 100, 7], 4000)),
+        local: SocketAddr::from(([192, 0, 2, 1], 443)),
+        host: "blog.example.com".into(),
+    };
+    let ticket = pool.ticket(&Arc::from("blog"), from, crate::Ask::Site, task);
+    let body = Frames(3).boxed();
+    let mut back = Back::new(body, home, (crate::Lease::new(()), ticket), None);
+    assert!(back.frame().await.is_some());
+    assert_eq!(
+        pool.busy.len(),
+        1,
+        "a slow visitor's answer can be cut on reload"
+    );
+    drop(back);
+    assert_eq!(pool.busy.len(), 0);
+}

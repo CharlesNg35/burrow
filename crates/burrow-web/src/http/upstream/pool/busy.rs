@@ -49,6 +49,11 @@ impl Drop for Ticket {
 type Keeps<'a> = &'a dyn Fn(&str, &Visitor, Ask) -> bool;
 
 impl Busy {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.locked().len()
+    }
+
     fn locked(&self) -> MutexGuard<'_, HashMap<u64, Held>> {
         self.all.lock().unwrap_or_else(PoisonError::into_inner)
     }

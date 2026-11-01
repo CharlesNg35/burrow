@@ -176,3 +176,107 @@ async fn forward_auth_checks_reuse_one_app_connection_of_the_login_service() {
     assert_eq!(checks.asked().len(), 10);
     assert!(checks.conns() <= 2, "{} login connections", checks.conns());
 }
+
+const BIG: usize = 64 * 1024 * 1024;
+
+async fn big_app() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                if read_head(&mut s).await.is_none() {
+                    return;
+                }
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {BIG}\r\n\r\n");
+                if s.write_all(head.as_bytes()).await.is_err() {
+                    return;
+                }
+                let chunk = vec![b'z'; 64 * 1024];
+                for _ in 0..BIG / chunk.len() {
+                    if s.write_all(&chunk).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reload_that_no_longer_allows_a_visitor_cuts_a_fast_apps_answer_it_reads_slowly() {
+    let secret = Secret::generate();
+    let mut svc = site(&["home"], big_app().await);
+    svc.sources.allow = vec!["127.0.0.0/8".parse().unwrap()];
+    let s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    let web = s.web.as_ref().unwrap().http.unwrap();
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    let sock = tokio::net::TcpSocket::new_v4().unwrap();
+    sock.bind("127.0.0.2:0".parse().unwrap()).unwrap();
+    let mut v = sock.connect(web).await.unwrap();
+    v.write_all(b"GET /big HTTP/1.1\r\nHost: app.example.com\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut got = v.read(&mut buf).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut next: ServerSettings = s.clone();
+    next.services.get_mut("app").unwrap().sources.allow = vec!["127.0.0.3/32".parse().unwrap()];
+    t.server.reload_applied(next).await;
+    let read = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            match v.read(&mut buf).await {
+                Ok(0) | Err(_) => return,
+                Ok(n) => got += n,
+            }
+        }
+    })
+    .await;
+    assert!(read.is_ok(), "the answer ended within 20 s");
+    assert!(
+        got < BIG,
+        "the answer is cut, as it was before the pool: {got} of {BIG} bytes arrived"
+    );
+}
+
+async fn silent_app() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let _ = read_head(&mut s).await;
+                let mut rest = [0u8; 1];
+                let _ = s.read(&mut rest).await;
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reload_that_no_longer_allows_a_visitor_cuts_a_request_still_waiting_for_its_answer() {
+    let secret = Secret::generate();
+    let mut svc = site(&["home"], silent_app().await);
+    svc.sources.allow = vec!["127.0.0.0/8".parse().unwrap()];
+    let s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    let web = s.web.as_ref().unwrap().http.unwrap();
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    let sock = tokio::net::TcpSocket::new_v4().unwrap();
+    sock.bind("127.0.0.2:0".parse().unwrap()).unwrap();
+    let mut v = sock.connect(web).await.unwrap();
+    v.write_all(b"GET /poll HTTP/1.1\r\nHost: app.example.com\r\n\r\n")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut next: ServerSettings = s.clone();
+    next.services.get_mut("app").unwrap().sources.allow = vec!["127.0.0.3/32".parse().unwrap()];
+    t.server.reload_applied(next).await;
+    let mut buf = [0u8; 512];
+    let ended = tokio::time::timeout(Duration::from_secs(10), v.read(&mut buf)).await;
+    assert!(
+        ended.is_ok(),
+        "the waiting request is cut at the reload, as it was before the pool"
+    );
+}
