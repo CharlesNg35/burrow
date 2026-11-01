@@ -59,6 +59,7 @@ impl Forward<'_> {
             key,
             deadline,
             epoch: self.pool.epoch(),
+            ask: Ask::Site,
         })
     }
 }
@@ -250,7 +251,7 @@ pub(crate) async fn forward<U: Upstream>(
         Ok(a) => a,
         Err(why) => return f.page(refusal_page(why)),
     };
-    let (mut resp, mut home) = match (asking.send_h1(Some(ups), req)).await {
+    let (mut resp, mut home, ticket) = match asking.send_h1(Some(ups), req).await {
         Ok(r) => r,
         Err(miss) => return f.page(miss.page),
     };
@@ -260,9 +261,6 @@ pub(crate) async fn forward<U: Upstream>(
         home.private(ups.id);
     }
     let lease = asking.lease;
-    let ticket = f
-        .pool
-        .ticket(&f.site.name, f.visitor, Ask::Site, home.task());
     let lease = (lease, ticket);
     let activity = f.activity.clone();
     resp.map(move |b| {

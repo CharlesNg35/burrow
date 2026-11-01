@@ -4,7 +4,6 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use hyper::body::{Body as HttpBody, Frame, SizeHint};
-use tokio::task::AbortHandle;
 
 use super::{H1, Key, Pool, Slot, Stream, Ticket};
 use crate::Lease;
@@ -18,20 +17,13 @@ pub(crate) enum Home {
         conn: H1,
         epoch: u64,
     },
-    H2(Stream, AbortHandle),
+    H2(Stream),
 }
 
 impl Home {
     pub(crate) fn private(&mut self, conn: u64) {
         if let Home::H1 { key, .. } = self {
             *key = key.private(conn);
-        }
-    }
-
-    pub(crate) fn task(&self) -> AbortHandle {
-        match self {
-            Home::H1 { conn, .. } => conn.task.clone(),
-            Home::H2(_, task) => task.clone(),
         }
     }
 
@@ -48,7 +40,7 @@ impl Home {
                     pool.h1.put(key, client, conn);
                 }
             }
-            Home::H2(stream, _) => drop(stream),
+            Home::H2(stream) => drop(stream),
         }
     }
 }

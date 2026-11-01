@@ -3,15 +3,16 @@ use std::sync::Arc;
 use http::{Method, Request, Response};
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Body as HttpBody, Incoming};
+use tokio::task::AbortHandle;
 use tokio::time::Instant;
 use tracing::debug;
 
-use super::pool::{EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, REPLAY_AFTER, Ups};
+use super::pool::{EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, REPLAY_AFTER, Ticket, Ups};
 use super::{Failed, handshake, refusal_page, to_h2};
 use crate::http::pages::Page;
 use crate::http::site::Hop;
 use crate::http::{Body, BoxError};
-use crate::{BoxIo, Ending, Lease, Refused, Upstream, Visitor, Way};
+use crate::{Ask, BoxIo, Ending, Lease, Refused, Upstream, Visitor, Way};
 
 pub(crate) struct Asking<'a, U> {
     pub up: &'a U,
@@ -24,7 +25,10 @@ pub(crate) struct Asking<'a, U> {
     pub key: Key,
     pub deadline: Instant,
     pub epoch: u64,
+    pub ask: Ask,
 }
+
+pub(crate) type Sent = (Response<Incoming>, Home, Ticket);
 
 pub(crate) struct Miss {
     pub page: Page,
@@ -158,7 +162,7 @@ impl<U: Upstream> Asking<'_, U> {
         &self,
         ups: Option<&Ups>,
         req: Request<Body>,
-    ) -> Result<(Response<Incoming>, Home), Miss> {
+    ) -> Result<Sent, Miss> {
         let (mut conn, mut key, mut client, since) = match self.take_h1(ups).await {
             Some(t) => t,
             None => (
@@ -169,6 +173,7 @@ impl<U: Upstream> Asking<'_, U> {
             ),
         };
         let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
+        let mut ticket = self.listed(&conn.task);
         let sent = tokio::time::timeout_at(self.deadline, conn.tx.try_send_request(req)).await;
         let resp = match sent {
             Err(_) => return Err(Page::Timeout.into()),
@@ -187,6 +192,7 @@ impl<U: Upstream> Asking<'_, U> {
                 };
                 debug!(peer = %self.from.addr, "web: service \"{}\": a kept app connection was closed, sending again on a new one", self.service);
                 conn = self.open_h1().await?;
+                ticket = self.listed(&conn.task);
                 (key, client) = (self.key.clone(), self.way.client.clone());
                 let sent = tokio::time::timeout_at(self.deadline, conn.tx.send_request(req));
                 match sent.await {
@@ -206,14 +212,18 @@ impl<U: Upstream> Asking<'_, U> {
             conn,
             epoch: self.epoch,
         };
-        Ok((resp, home))
+        Ok((resp, home, ticket))
     }
 
-    pub(crate) async fn send_h2(
-        &self,
-        ups: &Ups,
-        req: Request<Body>,
-    ) -> Result<(Response<Incoming>, Home), Miss> {
+    fn listed(&self, task: &AbortHandle) -> Ticket {
+        let mut ticket = self
+            .pool
+            .ticket(self.service, self.from.clone(), self.ask, task.clone());
+        ticket.waiting();
+        ticket
+    }
+
+    pub(crate) async fn send_h2(&self, ups: &Ups, req: Request<Body>) -> Result<Sent, Miss> {
         let (conn, stream, since) = match ups.take_h2(self.pool, &self.key) {
             Some(t) => t,
             None => {
@@ -224,9 +234,10 @@ impl<U: Upstream> Asking<'_, U> {
             }
         };
         let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
+        let ticket = self.listed(&conn.task);
         let first = self.try_h2(&conn, req).await;
         let again = match first {
-            Ok(resp) => return Ok((resp, Home::H2(stream, conn.task.clone()))),
+            Ok(resp) => return Ok((resp, Home::H2(stream), ticket)),
             Err(Retry::Timeout) => return Err(Page::Timeout.into()),
             Err(Retry::Unsent(req)) => *req,
             Err(Retry::Failed(e)) => match copy.filter(|_| stale(&e)) {
@@ -234,13 +245,14 @@ impl<U: Upstream> Asking<'_, U> {
                 None => return Err(missed(self.service, self.from, conn.ending.as_ref(), &e)),
             },
         };
-        drop(stream);
+        drop((stream, ticket));
         debug!(peer = %self.from.addr, "web: service \"{}\": a kept HTTP/2 app connection was closed, sending again on a new one", self.service);
         let conn = self.open_h2().await?;
         let client = self.way.client.clone();
         let stream = ups.reserve(self.pool, (self.key.clone(), client), &conn, self.epoch);
+        let ticket = self.listed(&conn.task);
         match self.try_h2(&conn, again).await {
-            Ok(resp) => Ok((resp, Home::H2(stream, conn.task.clone()))),
+            Ok(resp) => Ok((resp, Home::H2(stream), ticket)),
             Err(Retry::Timeout) => Err(Page::Timeout.into()),
             Err(Retry::Unsent(_)) => Err(Page::BadGateway.into()),
             Err(Retry::Failed(e)) => Err(missed(self.service, self.from, conn.ending.as_ref(), &e)),

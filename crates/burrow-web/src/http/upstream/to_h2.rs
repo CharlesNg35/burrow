@@ -10,7 +10,7 @@ use super::{Failed, Forward, extras, hop, refusal_page, rewrite_request, strip_h
 use crate::http::forwarded::Client;
 use crate::http::site::Hop;
 use crate::http::{Body, BoxError};
-use crate::{Ask, BoxIo, Io, Upstream};
+use crate::{BoxIo, Io, Upstream};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StreamReset(pub h2::Reason);
@@ -92,7 +92,7 @@ pub(crate) async fn forward<U: Upstream>(
         Ok(a) => a,
         Err(why) => return f.page(refusal_page(why)),
     };
-    let (mut resp, home) = match asking.send_h2(ups, req).await {
+    let (mut resp, home, ticket) = match asking.send_h2(ups, req).await {
         Ok(r) => r,
         Err(miss) => {
             let mut page = f.page(miss.page);
@@ -104,9 +104,6 @@ pub(crate) async fn forward<U: Upstream>(
     };
     strip_hop_by_hop(resp.headers_mut());
     let lease = asking.lease;
-    let ticket = f
-        .pool
-        .ticket(&f.site.name, f.visitor, Ask::Site, home.task());
     let lease = (lease, ticket);
     let activity = f.activity.clone();
     resp.map(move |b| {
