@@ -5,4 +5,4 @@ xtask = "run --quiet --package xtask --"
 rustflags = ["--cfg", "erase_components"]
 
 [env]
-JEMALLOC_SYS_WITH_MALLOC_CONF = "dirty_decay_ms:1000"
+JEMALLOC_SYS_WITH_MALLOC_CONF = "abort_conf:true,dirty_decay_ms:1000"
