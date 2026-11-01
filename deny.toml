@@ -10,6 +10,7 @@ version = 2
 confidence-threshold = 0.9
 allow = [
     "MIT",
+    "0BSD", # quoted_printable, through lettre (notify email)
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-1-Clause",
