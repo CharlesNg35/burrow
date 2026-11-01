@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use burrow_admin_proto::local::TOKEN_FRAGMENT;
+use burrow_io::linger::ShutOnce;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
@@ -254,7 +255,7 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
         .auto_date_header(false);
     let served = burrow_io::linger::serve(
         builder
-            .serve_connection(TokioIo::new(stream), service)
+            .serve_connection(TokioIo::new(ShutOnce::new(stream)), service)
             .with_upgrades(),
     );
     let _ = tokio::time::timeout(READ_TIMEOUT + WRITE_TIMEOUT, served).await;

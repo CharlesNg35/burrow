@@ -48,6 +48,7 @@ Words like client, visitor, service and target have one meaning throughout; the 
 | [protocol.md](protocol.md) | the wire protocol |
 | [decisions.md](decisions.md) | why burrow is built the way it is |
 | [research.md](research.md) | what burrow learned from rathole, frp, bore, chisel and rtun |
-| [benchmark.md](benchmark.md) | the full benchmark results and how to reproduce them |
+| [benchmark.md](benchmark.md) | the tunnel benchmark against rathole, frp and chisel, and how to reproduce it |
+| [web-benchmark.md](web-benchmark.md) | the web proxy benchmark against nginx and Caddy, and how to reproduce it |
 | [admin-ui-dev.md](admin-ui-dev.md) | working on the admin UI |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | the code rules |

@@ -187,3 +187,5 @@ Each page below covers one part in depth, and links back to the step of [How it 
 | [The tunnel on the web ports](web/tunnel.md) | burrow clients over wss:// on 443 or ws:// on 80 |
 | [Recipes](web/recipes.md) | short configs for common apps |
 | [A full example](web/full-example.md) | everything in one server.yaml, and what validate checks |
+
+How fast burrow serves websites, next to nginx and Caddy on the same machine: [Web proxy benchmark](web-benchmark.md).

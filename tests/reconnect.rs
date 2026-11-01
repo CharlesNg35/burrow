@@ -81,6 +81,71 @@ async fn client_follows_the_server_to_a_new_address() {
     );
 }
 
+struct FlakyDns {
+    name: String,
+    addr: Mutex<Option<SocketAddr>>,
+    asked: std::sync::atomic::AtomicUsize,
+}
+
+impl Resolver for FlakyDns {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> Resolved<'a> {
+        Box::pin(async move {
+            if host_port != self.name {
+                return resolve(host_port).await;
+            }
+            self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let answer = *self.addr.lock().unwrap();
+            answer.map(|a| vec![a]).ok_or_else(|| {
+                std::io::Error::other("failed to lookup address information: Try again")
+            })
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn data_channels_keep_opening_while_the_name_cannot_be_looked_up() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings
+        .services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    let server = start_server(settings).await;
+    let dns = Arc::new(FlakyDns {
+        name: "tunnel.example.test:7835".into(),
+        addr: Mutex::new(Some(server.addr)),
+        asked: Default::default(),
+    });
+    let mut c = client_settings(server.addr, secret);
+    c.server = if ws_mode() {
+        "ws://tunnel.example.test:7835/burrow".into()
+    } else {
+        "tunnel.example.test:7835".into()
+    };
+    c.endpoint = burrow_syntax::endpoint::Endpoint::parse(&c.server).unwrap();
+    let mut cli = start_client_with(Client::new(c).with_resolver(dns.clone())).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let shared = server.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    *dns.addr.lock().unwrap() = None;
+    let asked = dns.asked.load(std::sync::atomic::Ordering::SeqCst);
+    for i in 0..12u8 {
+        let payload = [b'x', i];
+        assert_eq!(
+            try_roundtrip(server.services["web"], &payload)
+                .await
+                .as_deref(),
+            Some(&payload[..]),
+            "connection {i} while the resolver fails"
+        );
+    }
+    assert_eq!(
+        dns.asked.load(std::sync::atomic::Ordering::SeqCst),
+        asked,
+        "data channels reuse the address the control connection reached"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retries_forever_by_default() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

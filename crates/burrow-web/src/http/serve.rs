@@ -4,6 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use burrow_io::linger::ShutOnce;
 use http::{Request, Response};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
@@ -106,9 +107,10 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
     let proto = conn.proto;
     let conn = Arc::new(conn);
     let activity = conn.activity.clone();
-    let io = TokioIo::new(Box::new(Watched::new(io, activity, proto == Proto::H1)) as BoxIo);
+    let io = Box::new(Watched::new(io, activity, proto == Proto::H1)) as BoxIo;
     match proto {
         Proto::H1 => {
+            let io = TokioIo::new(ShutOnce::new(io));
             let served = super::h2::visitor_http1()
                 .header_read_timeout(shared.timeouts().request_header.max(LEAST))
                 .serve_connection(io, service(&shared, &conn, held))
@@ -117,6 +119,7 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
             run(&shared, &conn, served, |s| s.graceful_shutdown(), false).await;
         }
         Proto::H2 => {
+            let io = TokioIo::new(io);
             let served = super::h2::server().serve_connection(io, service(&shared, &conn, watched));
             let served = std::pin::pin!(served);
             run(&shared, &conn, served, |s| s.graceful_shutdown(), true).await;
