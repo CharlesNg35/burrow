@@ -381,3 +381,17 @@ async fn a_target_lookup_that_hangs_fails_within_the_connect_timeout() {
         started.elapsed()
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_stopped_normally_leaves_at_once_and_the_server_lets_it_go() {
+    let echo = echo_server().await;
+    let t = tunnel(vec![("web", service(echo, Protocol::Tcp))]).await;
+    let shared = t.server.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    let started = std::time::Instant::now();
+    t.client.stop.send(true).unwrap();
+    assert_eq!(t.client.task.await.unwrap(), RunEnd::Stopped);
+    let took = started.elapsed();
+    assert!(took < Duration::from_millis(500), "the stop took {took:?}");
+    assert!(shared.session_names().is_empty());
+}

@@ -159,7 +159,7 @@ sudo burrow update --to 0.1.0 # install this release (also an older one)
 <details>
 <summary><b>Linux (systemd)</b></summary>
 
-The unit is sandboxed: a read-only system, no home folders, no new privileges, and no capabilities unless a port below 1024 needs one. A config error stops it with exit code 3, instead of restarting it in a loop. `sudo burrow service install --print` shows the unit without installing anything, if you prefer to manage it yourself.
+The unit is sandboxed: a read-only system, no home folders, no new privileges, and no capabilities unless a port below 1024 needs one. A config error stops it with exit code 3, instead of restarting it in a loop. `sudo burrow service install --print` shows the unit without installing anything, if you prefer to manage it yourself. burrow starts one worker thread per CPU it may use (its CPU quota or affinity) when it starts, so after you raise the limit of a running service, for example with `systemctl set-property burrow-server CPUQuota=400%`, restart it to use the new CPUs.
 
 </details>
 

@@ -10,7 +10,7 @@ HTTP/2 only lets the client open streams, so the server could not open one per v
 
 ## D2. Pool per client, not per service
 
-rathole keeps 8 idle channels per TCP service. Because burrow tells the data channel its target in the first frame, any idle channel can serve any service of that client. Default `pool.min_idle: 4`, adaptive up to `pool.max_idle: 64`: when a visitor finds the pool empty, the target idle count doubles; it decays by one each idle minute.
+rathole keeps 8 idle channels per TCP service. Because burrow tells the data channel its target in the first frame, any idle channel can serve any service of that client. Default `pool.min_idle: 4`, adaptive up to `pool.max_idle: 64`: when a visitor finds the pool empty, the target idle count doubles; once a minute it drops the channels no visitor needed in that minute (D73).
 
 ## D3. Noise_NNpsk0_25519_ChaChaPoly_BLAKE2s, one handshake per channel
 
@@ -854,3 +854,28 @@ In a live test with about 1,600 connections at once, the office resolver behind 
 `src/dialer/mod.rs` tests the reuse, the new lookup after a failure and on a control connection; `tests/reconnect.rs` opens a dozen connections while the resolver fails, over TCP and WebSocket.
 
 Sources, checked 2026-11-01: github.com/rathole-org/rathole `src/transport/mod.rs` (`AddrMaybeCached`) and `src/client.rs`; gofrp.org/en/docs/features/common/network/network/ (TCP stream multiplexing); github.com/fatedier/frp `conf/frpc_full_example.toml` (`transport.tcpMux`).
+
+## D73. Idle data channels that no connection needed for a minute close, down to `pool.min_idle`
+
+The server keeps a pool of idle data channels per client. It doubles its target (up to `pool.max_idle`, 64) when a connection finds the pool empty. Until now the target then dropped by one channel per idle minute. After a burst, the pool took about an hour to get from 64 back to 4: a live test after a burst still held 64 channels (and 64 sockets on each side) 90 s later.
+
+- **What it does now.** The pool notes the fewest idle channels it held during each minute. Those channels were never needed in that minute. At the end of the minute it closes them and lowers its target by as many, never below `pool.min_idle`. Channels that connections used stay, so a pool in use keeps its size, and a burst that comes back within the minute finds its channels. Nothing is added to the config.
+- **Others.** nginx closes an idle upstream keepalive connection after `keepalive_timeout` (60 s by default). Go's `http.DefaultTransport` closes one after `IdleConnTimeout` (90 s). HikariCP retires connections idle for `idleTimeout` (10 min) but never below `minimumIdle`. burrow uses nginx's 60 s, with `pool.min_idle` as the floor, as in HikariCP. frp and rathole keep a fixed number of pooled connections (frp `transport.poolCount`, at most `transport.maxPoolCount`; rathole 8 per service) and do not grow it.
+- **When the target fails.** The pool also grows when every connection fails at the client's target (the live test: no local port left; here: a target the client's `allow` refuses). This stays as it is. Each such connection still took a channel, and the server cannot know the outcome before it takes one. Shrinking within 2 minutes now limits the cost to at most `pool.max_idle` channels for that time.
+
+Measured on one machine (tmp/repro/polish-final/pool-shrink.sh: release builds of the same tree with and without the change, server, client and echo target on loopback, with a counting proxy in front of the server's tunnel port; `QUIET=1` load slot):
+
+| | before | after |
+| --- | --- | --- |
+| burst of 64 concurrent connections for 10 s (4,700 a second) | 64 idle channels, 84 server fds | 64, 84 |
+| idle channels 2 minutes after the burst | 63 | 4 (back at 121 s, 24 fds) |
+| idle channels 8 minutes after the burst | 57 | 4 |
+| steady load, 20 connections a second for 5 minutes: data channels opened per minute | 1,180–1,202 | 1,182–1,202 |
+| steady load: latency p50 / p99 | 0.90 / 1.30 ms | 0.87 / 1.25 ms |
+| 32 parallel connections every 45 s, 6 times: slowest connection per burst | 4.5–6.2 ms | 9.5 ms in the first burst, then 4.0–6.1 ms |
+
+Under steady load, every opened channel carried a connection in both builds (1,200 a minute for 1,200 connections), so nothing was closed only to be opened again. The new pool stayed at 4 channels for this load, where the old one still held 52–57 from the burst. The first burst after the pool had shrunk to 4 waited about 4 ms more while the pool grew. The bursts after it, 45 s apart, found their channels: the pool stayed at 32.
+
+`src/server/session.rs` tests that 64 unused channels go back to 4 after a minute but not before, and that a pool whose connections take 12 of 16 channels each time keeps 12.
+
+Sources, checked 2026-11-01: nginx.org ngx_http_upstream_module (`keepalive`, `keepalive_timeout`); go.dev/src/net/http/transport.go (`DefaultTransport`, `IdleConnTimeout`); github.com/brettwooldridge/HikariCP README (`idleTimeout`, `minimumIdle`); github.com/fatedier/frp `conf/frpc_full_example.toml` (`transport.poolCount`) and `conf/frps_full_example.toml` (`transport.maxPoolCount`).

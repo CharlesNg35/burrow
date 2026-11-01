@@ -110,6 +110,7 @@ pub(super) async fn control_session(
     ));
 
     let timeout = crate::wire::protocol::peer_timeout(interval);
+    let mut peer_left = false;
     let reason = loop {
         tokio::select! {
             r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {
@@ -120,7 +121,10 @@ pub(super) async fn control_session(
                     }
                     continue;
                 }
-                Ok(Ok(None)) => break None,
+                Ok(Ok(None)) => {
+                    peer_left = true;
+                    break None;
+                }
                 Ok(Err(e)) => break Some(format!("connection error: {e}")),
                 Err(_) => break Some(format!("no heartbeat for {}s", timeout.as_secs())),
             },
@@ -138,6 +142,9 @@ pub(super) async fn control_session(
         }
     }
     let abort = writer_task.abort_handle();
+    if peer_left {
+        abort.abort();
+    }
     if tokio::time::timeout(Duration::from_secs(1), writer_task)
         .await
         .is_err()

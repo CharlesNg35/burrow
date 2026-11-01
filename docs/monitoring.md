@@ -183,6 +183,8 @@ Past tens of thousands of connections, the operating system's limits matter more
 
 The 100,000 connections opened in 5 seconds.
 
+Busy connections cost more. In a load test of websites over HTTPS, the server held about 70 KB per open or waiting connection (1,448 MB at 20,521 open files, 1,078 MB at 14,701) and was back to about 150 MB 3 minutes after the load. Size the machine's memory, and any `MemoryMax=` or container memory limit, for the peak number of connections at about 70 KB each plus about 50 MB: a limit that is too small can get burrow killed during a pile-up of slow connections, as a 512 MB `MemoryMax` did at about 7,900 open files. When its clients cannot open tunnel channels fast enough, burrow answers the waiting requests with a 503 "busy" page instead of holding them without end.
+
 **Limits per client.** A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once. The server keeps at most `limits.max_connections_per_client` (8192) connections per client. Beyond these limits, new connections are refused and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit`, and the client logs a warning at most once a minute.
 
 Raise the limits in client.yaml and server.yaml; a saved file applies at once. Above about 28,000 connections through one client, also widen the local port range (see below):

@@ -195,6 +195,42 @@ async fn behind_a_tls_terminating_proxy() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_stopped_normally_closes_its_control_and_idle_data_channels_with_tls_close_notify()
+{
+    let cert = cert(&["localhost"]);
+    let secret = Secret::generate();
+    let srv = start_server(ws_server(&secret, "/burrow", None)).await;
+    let (proxy, mut ends) = tls_terminating_proxy(&cert, srv.ws_addr.unwrap()).await;
+    let cli = connected(
+        &srv,
+        ws_client(
+            &format!("wss://localhost:{}/burrow", proxy.port()),
+            secret,
+            Some(&cert),
+        ),
+    )
+    .await;
+    while ends.try_recv().is_ok() {}
+    cli.stop.send_replace(true);
+    tokio::time::timeout(Duration::from_secs(5), cli.task)
+        .await
+        .expect("the client stops in time")
+        .unwrap();
+    let mut seen = Vec::new();
+    while let Ok(Some(end)) = tokio::time::timeout(Duration::from_secs(3), ends.recv()).await {
+        seen.push(end.map_err(|e| e.to_string()));
+    }
+    assert!(
+        seen.len() >= 2,
+        "the control and a data channel end: {seen:?}"
+    );
+    assert!(
+        seen.iter().all(Result::is_ok),
+        "every channel ends with a TLS close_notify: {seen:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wrong_path_is_refused_and_client_keeps_retrying() {
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/burrow", None)).await;
