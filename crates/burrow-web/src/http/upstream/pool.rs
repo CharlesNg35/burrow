@@ -15,6 +15,7 @@ use crate::http::Proto;
 use crate::http::{Body, BoxError};
 
 pub const APP_CONNECTIONS: usize = 8;
+pub const IDLE_EXTRA: Duration = Duration::from_secs(120);
 const REUSE_WAIT: Duration = Duration::from_secs(1);
 
 pub(crate) struct Stream {
@@ -22,6 +23,7 @@ pub(crate) struct Stream {
     pub client: IpAddr,
     pub tx: SendRequest<Body>,
     pub ending: Option<Ending>,
+    pub idle_since: Instant,
 }
 
 impl Stream {
@@ -83,7 +85,7 @@ impl Upstreams {
             idle.retain(|s| !s.tx.is_closed());
             if let Some(i) = idle
                 .iter()
-                .position(|s| s.serves(service, client) && s.tx.is_ready())
+                .rposition(|s| s.serves(service, client) && s.tx.is_ready())
             {
                 return Some(idle.swap_remove(i));
             }
@@ -108,13 +110,30 @@ impl Upstreams {
         *self.h2.lock().expect("upstream lock") = Some(s);
     }
 
-    pub(crate) fn keep(&self, s: Stream) {
+    pub(crate) fn keep(&self, mut s: Stream, crowded: impl FnOnce() -> bool) {
         let mut idle = self.idle.lock().expect("upstream lock");
         idle.retain(|s| !s.tx.is_closed());
-        if idle.len() >= APP_CONNECTIONS {
+        let most = if idle.len() < APP_CONNECTIONS || !crowded() {
+            self.cap
+        } else {
+            APP_CONNECTIONS
+        };
+        while idle.len() >= most {
             idle.remove(0);
         }
+        s.idle_since = Instant::now();
         idle.push(s);
+    }
+
+    pub(crate) fn expire(&self, crowded: impl Fn(&str) -> bool) {
+        let mut idle = self.idle.lock().expect("upstream lock");
+        idle.retain(|s| !s.tx.is_closed());
+        let now = Instant::now();
+        while idle.len() > APP_CONNECTIONS
+            && (idle[0].idle_since + IDLE_EXTRA <= now || crowded(&idle[0].service))
+        {
+            idle.remove(0);
+        }
     }
 }
 
@@ -146,5 +165,85 @@ impl HttpBody for Slotted {
 
     fn size_hint(&self) -> SizeHint {
         self.inner.size_hint()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn stream(service: &str) -> (Stream, tokio::io::DuplexStream) {
+        let (ours, app) = tokio::io::duplex(1024);
+        let (tx, conn) = hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(ours))
+            .await
+            .unwrap();
+        tokio::spawn(conn);
+        let s = Stream {
+            service: service.to_string(),
+            client: IpAddr::from([192, 0, 2, 1]),
+            tx,
+            ending: None,
+            idle_since: Instant::now(),
+        };
+        (s, app)
+    }
+
+    async fn kept(ups: &Upstreams, n: usize, crowded: bool) -> Vec<tokio::io::DuplexStream> {
+        let mut apps = Vec::new();
+        for _ in 0..n {
+            let (s, app) = stream("site").await;
+            ups.keep(s, || crowded);
+            apps.push(app);
+        }
+        apps
+    }
+
+    fn idle(ups: &Upstreams) -> usize {
+        ups.idle.lock().unwrap().len()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_http2_visitor_keeps_as_many_idle_app_connections_as_its_streams_and_extras_expire()
+    {
+        let ups = Upstreams::new(Proto::H2);
+        let cap = app_connections(Proto::H2);
+        let _apps = kept(&ups, cap + 5, false).await;
+        assert_eq!(idle(&ups), cap, "the oldest go once the stream cap is idle");
+        tokio::time::advance(IDLE_EXTRA - Duration::from_secs(1)).await;
+        ups.expire(|_| false);
+        assert_eq!(idle(&ups), cap, "nothing expires before the idle time");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        ups.expire(|_| false);
+        assert_eq!(
+            idle(&ups),
+            APP_CONNECTIONS,
+            "extras expire, the first 8 stay"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_pressed_service_keeps_only_8_idle_app_connections() {
+        let ups = Upstreams::new(Proto::H2);
+        let _apps = kept(&ups, 20, true).await;
+        assert_eq!(
+            idle(&ups),
+            APP_CONNECTIONS,
+            "a pressed service keeps no extras"
+        );
+        let _more = kept(&ups, 12, false).await;
+        assert_eq!(idle(&ups), 20);
+        ups.expire(|s| s == "site");
+        assert_eq!(
+            idle(&ups),
+            APP_CONNECTIONS,
+            "extras close at once when a quarter of the pool is used"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_http1_visitor_still_keeps_8() {
+        let ups = Upstreams::new(Proto::H1);
+        let _apps = kept(&ups, 12, false).await;
+        assert_eq!(idle(&ups), APP_CONNECTIONS);
     }
 }

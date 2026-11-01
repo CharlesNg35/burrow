@@ -110,6 +110,7 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
         client: f.client.ip,
         tx,
         ending,
+        idle_since: tokio::time::Instant::now(),
     })
 }
 
@@ -262,7 +263,7 @@ pub(crate) async fn forward<U: Upstream>(
     }
     strip_hop_by_hop(resp.headers_mut());
     if !upgrading {
-        ups.keep(s);
+        ups.keep(s, || up.crowded(service));
     }
     let activity = f.activity.clone();
     resp.map(move |b| {

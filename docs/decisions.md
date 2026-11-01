@@ -618,3 +618,38 @@ The v0.2.0 plan set a target of 3 MB added over v0.1.2, a target and not a cap: 
 - `cargo xtask surface --check` against the last release's snapshot flags a release binary that moves more than 1 %, and `cargo xtask size --budget` keeps the admin UI within its own budget in CI.
 
 Sources, checked 2026-10-31: doc.rust-lang.org/cargo/reference/profiles.html; github.com/johnthagen/min-sized-rust; github.com/CharlesNg35/burrow releases v0.1.2; GitHub release assets of caddyserver/caddy v2.11.7, traefik/traefik v3.7.17, fatedier/frp v0.71.1 and cloudflare/cloudflared 2026.10.7; Ubuntu 24.04 package data of nginx 1.24.0-2ubuntu7.19 and libssl3t64 3.0.13; hub.docker.com library/nginx tag `alpine` (amd64, 2026-10-28).
+
+## D61. An HTTP/2 visitor keeps the app connections its parallel streams used, while the pool has room
+
+Each HTTP/2 stream gets its own app connection (D51), and each visitor connection kept at most 8 of them idle afterwards. A browser loads a page's parts as many parallel streams on one connection. Every burst above 8 parallel streams therefore closed its extra app connections and opened them again on the next burst. Each reopen cost a TCP connect to the app, two tasks and an in-memory pipe for `self`, or a new data channel for a remote client. GAP-3 profiling (2026-11-01) found that about 40 % of multiplexed HTTP/2 requests opened a new app connection this way. The k6 benchmark never showed it, because k6 uses one stream per connection.
+
+What others do by default, checked 2026-11-01:
+
+- **nginx** keeps up to 32 idle connections per worker to an upstream, shared by all visitors (`keepalive 32`, the default since 1.29.7). Each is closed after 60 s idle (`keepalive_timeout 60s`) or after 1,000 requests.
+- **Caddy** keeps up to 32 idle connections per upstream host (`keepalive_idle_conns_per_host 32`), shared by all visitors, for 2 minutes (`keepalive 2m`). There is no overall limit (`keepalive_idle_conns`).
+- **Go's `http.Transport`** keeps 2 per host by default (`DefaultMaxIdleConnsPerHost`). Caddy raises that.
+- **Envoy** keeps upstream connections until they have been idle for 1 hour (`idle_timeout`).
+
+burrow's pool belongs to one visitor connection, not to all visitors. It can never hold more than that connection's own stream limit (100), and the connections in it are the ones that visitor just used at the same time. So the cap is the stream limit, not a shared figure like 32.
+
+- **What is kept.** Up to 100 idle app connections per HTTP/2 visitor connection, the newest reused first. The first 8 behave exactly as before. HTTP/1.1 visitors are unchanged at 8.
+- **When extras close.** An extra (above 8) closes after 2 minutes idle (Caddy's keepalive). It also closes within a second, at the next keep or the 1 s check, while a quarter or more of the service's `max_connections` or of the client's connections (`clients.<name>.max_connections` or `limits.max_connections_per_client`) is in use. Kept connections stay counted in those pools and in the D54 fair share, like any open connection. A quarter, not half, leaves room for another visitor's burst. With a tight `max_connections`, the pool then behaves as before: a test with `max_connections: 30`, a burst of 24 streams and then 20 from a second visitor passed 20 of 20 runs both before and after.
+- **Possible later step, not built.** When an open is refused as full, close the idle extras of that service in every visitor connection and retry once. Only if a soak shows a need.
+
+Measured on 2026-11-01 on a 10-core VM with the musl release build. The proxy was pinned to 4 cpus, the app to 1, and the load to 5. The load was 4 HTTP/2 connections with N parallel streams each, every stream asking for a 100-byte answer again as soon as it had one (a Go `net/http` client), 15 s per run.
+
+| load | before: requests/s, µs·core per request, app connects/s, peak PSS | after |
+|---|---|---|
+| `self`, 8 parallel streams | 106,000, 30.8 µs, 0, 23 MiB | 108,700, 29.4 µs, 0, 24 MiB |
+| `self`, 32 parallel streams | 44,700, 72.8 µs, 14,900, 82 MiB | 125,700, 26.6 µs, 0, 38 MiB |
+| `self`, 100 parallel streams | 45,000, 85.2 µs, 15,100, 94 MiB | 127,400, 27.3 µs, 0, 87 MiB |
+| remote client, 32 parallel streams | 24,100, 63.7 µs (server) | 64,500, 29.7 µs |
+| remote client, 100 parallel streams | 22,900, 66.2 µs | 49,800, 37.5 µs |
+| 200 visitor connections × 32 streams (a quarter of the client's 8192 in use, so extras are not kept) | 82,600, 46.1 µs, 0 errors | 81,300, 47.3 µs, 0 errors |
+| HTTP/1.1, 30,000/s open model | 49.1 µs, p99 3.1 ms | 48.9 µs, p99 4.7 ms |
+
+Keeping only 32 instead of 100 still reconnected about 14,000 times a second at 100 streams (79,000 requests/s, 48 µs). Peak open files were the same at every cap (about 420 at 100 streams), because the kept connections are the ones that were in use at the same moment.
+
+`crates/burrow-web/src/http/upstream/pool.rs` tests the cap, the 2-minute expiry, the trim on a pressed pool and the unchanged HTTP/1.1 pool. `crates/burrow-web/tests/h2/reuse.rs` tests that bursts reuse the first burst's app connections. `tests/web/http2.rs` tests that a second visitor gets through after a burst, with a pressed service and with a pressed client.
+
+Sources, checked 2026-11-01: nginx.org ngx_http_upstream_module (`keepalive`, `keepalive_timeout`, `keepalive_requests`); caddyserver.com/docs/caddyfile/directives/reverse_proxy (`keepalive`, `keepalive_idle_conns`, `keepalive_idle_conns_per_host`); pkg.go.dev/net/http (`DefaultMaxIdleConnsPerHost`); envoyproxy.io core v3 `HttpProtocolOptions.idle_timeout`.

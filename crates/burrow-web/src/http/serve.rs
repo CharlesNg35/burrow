@@ -138,7 +138,7 @@ async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
             debug!(peer = %conn.peer, "web: closing a connection idle for {idle:?}");
             return;
         }
-        () = stalled(conn, watch) => {
+        () = stalled(shared, conn, watch) => {
             debug!(peer = %conn.peer, "web: closing a connection whose every response stalled");
             return;
         }
@@ -151,9 +151,10 @@ async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
     }
 }
 
-async fn stalled(conn: &Conn, watch: bool) {
+async fn stalled<U: Upstream>(shared: &Shared<U>, conn: &Conn, watch: bool) {
     if watch {
-        conn.stalls.all_stalled().await;
+        let crowded = |service: &str| shared.up.crowded(service);
+        conn.stalls.all_stalled(|| conn.ups.expire(crowded)).await;
     } else {
         std::future::pending::<()>().await;
     }

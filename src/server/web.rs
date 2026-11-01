@@ -25,6 +25,10 @@ impl Upstream for Doorway {
         self.0.metrics.service(service).answered(status.as_u16());
     }
 
+    fn crowded(&self, service: &str) -> bool {
+        self.0.crowded(service)
+    }
+
     fn tune(&self, stream: &TcpStream) {
         crate::wire::transport::tcp::tune(stream, &self.0.settings().tcp);
     }
