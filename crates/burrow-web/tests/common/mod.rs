@@ -119,6 +119,7 @@ pub struct Fake {
     pub script: Mutex<Option<Script>>,
     pub backends: Mutex<HashMap<String, SocketAddr>>,
     pub visitors: Mutex<Vec<(String, Visitor)>>,
+    pub leased: Mutex<Vec<String>>,
     pub refuse: Mutex<Option<Refused>>,
     pub denied: Mutex<Vec<std::net::IpAddr>>,
     pub answered: Mutex<Vec<(String, u16)>>,
@@ -133,6 +134,7 @@ impl Fake {
             script: Mutex::default(),
             backends: Mutex::default(),
             visitors: Mutex::default(),
+            leased: Mutex::default(),
             refuse: Mutex::default(),
             denied: Mutex::default(),
             answered: Mutex::default(),
@@ -152,7 +154,8 @@ impl Fake {
 
 impl Upstream for Fake {
     type Permit = OwnedSemaphorePermit;
-    fn lease(&self, _service: &str, _from: &Visitor, _ask: Ask) -> Result<(Way, Lease), Refused> {
+    fn lease(&self, service: &str, _from: &Visitor, _ask: Ask) -> Result<(Way, Lease), Refused> {
+        self.leased.lock().unwrap().push(service.to_string());
         let way = Way {
             id: 1,
             client: Arc::from("fake"),

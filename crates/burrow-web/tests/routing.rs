@@ -43,12 +43,7 @@ async fn get(p: &burrow_web::Proxy<Fake>, target: &str, extra: &str) -> String {
 }
 
 fn served_by(t: &Two) -> Vec<String> {
-    t.up.visitors
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|(s, _)| s.clone())
-        .collect()
+    t.up.leased.lock().unwrap().iter().cloned().collect()
 }
 
 #[tokio::test]
