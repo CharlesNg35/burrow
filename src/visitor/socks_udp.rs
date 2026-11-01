@@ -19,7 +19,7 @@ use crate::udp::peers::AbortOnDrop;
 use crate::wire::protocol::{
     ChannelKind, Hello, VERSION, VisitRequest, VisitTarget, decode_datagram, encode_datagram,
 };
-use crate::wire::transport::udp::bind_udp_now;
+use crate::wire::transport::udp::bind_udp_peer_now;
 use burrow_config::Protocol;
 
 pub const MAX_DESTINATIONS: usize = 64;
@@ -167,7 +167,7 @@ pub(super) async fn associate(a: Association) {
         return;
     };
     let near = local.ip().to_canonical();
-    let relay = match bind_udp_now(SocketAddr::new(near, 0)) {
+    let relay = match bind_udp_peer_now(SocketAddr::new(near, 0)) {
         Ok(s) => Arc::new(s),
         Err(e) => {
             warn!("forward \"{name}\": cannot open a UDP relay port for a SOCKS app: {e}");
