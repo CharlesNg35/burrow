@@ -32,8 +32,10 @@ pub fn free_range(count: u16) -> u16 {
         let n = NEXT.fetch_add(u32::from(count) + 1, Ordering::Relaxed);
         let base = PORTS.start + (seed.wrapping_add(n) % span) as u16;
         let all_free = (0..count).all(|i| {
-            let addr = SocketAddr::from(([127, 0, 0, 1], base + i));
-            std::net::TcpListener::bind(addr).is_ok() && std::net::UdpSocket::bind(addr).is_ok()
+            [[127, 0, 0, 1], [0, 0, 0, 0]].into_iter().all(|ip| {
+                let addr = SocketAddr::from((ip, base + i));
+                std::net::TcpListener::bind(addr).is_ok() && std::net::UdpSocket::bind(addr).is_ok()
+            })
         });
         if all_free && (0..count).all(|i| claim(base + i)) {
             return base;

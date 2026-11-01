@@ -2,6 +2,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
+use burrow_io::linger::ShutOnce;
 use bytes::Bytes;
 use http::{HeaderValue, Method, Request, Response, StatusCode, Version, header};
 use http_body_util::Full;
@@ -155,7 +156,7 @@ pub(crate) async fn serve_by_path<U: Upstream>(
         .keep_alive(false)
         .timer(TokioTimer::new())
         .header_read_timeout(remaining)
-        .serve_connection(TokioIo::new(io), service)
+        .serve_connection(TokioIo::new(ShutOnce::new(io)), service)
         .with_upgrades();
     let conn = burrow_io::linger::serve(conn);
     if let Err(e) = tokio::time::timeout_at(deadline, conn)
@@ -189,10 +190,10 @@ pub(crate) async fn take_over<U: Upstream>(up: &U, on: OnUpgrade, h: Handoff<U::
     let Ok(Ok(upgraded)) = tokio::time::timeout_at(h.deadline, on).await else {
         return;
     };
-    let Ok(parts) = upgraded.downcast::<TokioIo<BoxIo>>() else {
+    let Ok(parts) = upgraded.downcast::<TokioIo<ShutOnce<BoxIo>>>() else {
         return;
     };
-    let io = Prefixed::new(parts.read_buf.to_vec(), parts.io.into_inner());
+    let io = Prefixed::new(parts.read_buf.to_vec(), parts.io.into_inner().into_inner());
     up.tunnel(TunnelConn {
         io: Box::new(io),
         upgraded: true,

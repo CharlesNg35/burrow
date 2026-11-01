@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use burrow_io::linger::ShutOnce;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited, combinators::BoxBody};
 use hyper::body::Incoming;
@@ -130,7 +131,9 @@ async fn connection(stream: tokio::net::TcpStream, token: Arc<PathBuf>, mcp: Mcp
         .keep_alive(false)
         .auto_date_header(false);
     let longest = HEADER_TIMEOUT + BODY_TIMEOUT + crate::admin_link::client::ANSWER + SLACK;
-    let served = burrow_io::linger::serve(builder.serve_connection(TokioIo::new(stream), svc));
+    let served = burrow_io::linger::serve(
+        builder.serve_connection(TokioIo::new(ShutOnce::new(stream)), svc),
+    );
     let _ = tokio::time::timeout(longest, served).await;
 }
 
