@@ -7,9 +7,7 @@ use hyper::body::{Body as HttpBody, Incoming};
 use tokio::time::Instant;
 use tracing::debug;
 
-use super::pool::{
-    Cut, Cutter, EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, REPLAY_AFTER, Ticket, Ups,
-};
+use super::pool::{Cut, Cutter, EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, Ticket, Ups};
 use super::{Failed, handshake, refusal_page, to_h2};
 use crate::http::pages::Page;
 use crate::http::site::Hop;
@@ -68,10 +66,6 @@ fn replayable(req: &Request<Body>) -> Option<Request<Body>> {
     *copy.version_mut() = req.version();
     *copy.headers_mut() = req.headers().clone();
     Some(copy)
-}
-
-fn may_be_stale(idle_since: Instant) -> bool {
-    idle_since.elapsed() >= REPLAY_AFTER
 }
 
 fn stale(e: &hyper::Error) -> bool {
@@ -169,16 +163,16 @@ impl<U: Upstream> Asking<'_, U> {
         ups: Option<&Ups>,
         req: Request<Body>,
     ) -> Result<Sent, Miss> {
-        let (mut conn, mut key, mut client, since) = match self.take_h1(ups).await {
-            Some(t) => t,
+        let (mut conn, mut key, mut client, reused) = match self.take_h1(ups).await {
+            Some((conn, key, client, _)) => (conn, key, client, true),
             None => (
                 self.open_h1().await?,
                 self.key.clone(),
                 self.way.client.clone(),
-                Instant::now(),
+                false,
             ),
         };
-        let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
+        let copy = if reused { replayable(&req) } else { None };
         let mut ticket = self.listed(Cutter::Connection(conn.task.clone()));
         let read_before = conn.read.load(Ordering::Acquire);
         let sent = tokio::time::timeout_at(self.deadline, conn.tx.try_send_request(req)).await;
@@ -232,16 +226,16 @@ impl<U: Upstream> Asking<'_, U> {
     }
 
     pub(crate) async fn send_h2(&self, ups: &Ups, req: Request<Body>) -> Result<Sent, Miss> {
-        let (conn, stream, since) = match ups.take_h2(self.pool, &self.key) {
-            Some(t) => t,
+        let (conn, stream, reused) = match ups.take_h2(self.pool, &self.key) {
+            Some((conn, stream, _)) => (conn, stream, true),
             None => {
                 let conn = self.open_h2().await?;
                 let client = self.way.client.clone();
                 let stream = ups.reserve(self.pool, (self.key.clone(), client), &conn, self.epoch);
-                (conn, stream, Instant::now())
+                (conn, stream, false)
             }
         };
-        let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
+        let copy = if reused { replayable(&req) } else { None };
         let cut = Arc::new(Cut::default());
         let ticket = self.listed(Cutter::Stream(cut.clone()));
         let first = self.try_h2(&conn, req, &cut).await;

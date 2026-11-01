@@ -343,3 +343,26 @@ async fn a_visitor_lingering_after_an_early_answer_holds_no_app_connection() {
         "another visitor is served while the first lingers: {other}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_app_that_closes_after_every_answer_gives_no_bad_gateway_and_no_request_twice() {
+    let (app, log) = recording_app(Behave::OneAnswerPerConnection).await;
+    let (s, secret) = plain(app, |_| {});
+    let web = http(&s);
+    let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    let mut bad = Vec::new();
+    for i in 0..60 {
+        let mut v = Keep::open(web, localhost()).await;
+        let got = v
+            .send("GET", "/", &format!("x-id: {i}\r\n"))
+            .await
+            .unwrap_or_default();
+        if status(&got) != 200 {
+            bad.push((i, got));
+        }
+    }
+    assert!(bad.is_empty(), "{} of 60 failed: {bad:?}", bad.len());
+    for i in 0..60 {
+        assert_eq!(seen(&log, &i.to_string()), 1, "request {i}");
+    }
+}

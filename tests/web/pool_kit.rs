@@ -15,6 +15,7 @@ pub enum Behave {
     CloseSometimes,
     Ntlm,
     HalfHeadOnReuse,
+    OneAnswerPerConnection,
 }
 
 #[derive(Debug, Clone)]
@@ -122,7 +123,10 @@ async fn serve(mut s: TcpStream, conn: usize, behave: Behave, log: Arc<Log>) {
             Behave::CloseOnReuse => served > 1,
             Behave::CloseAlways => true,
             Behave::CloseSometimes => (conn + served).is_multiple_of(3),
-            Behave::Answer | Behave::CloseAfterAnswer | Behave::Ntlm => false,
+            Behave::Answer
+            | Behave::CloseAfterAnswer
+            | Behave::Ntlm
+            | Behave::OneAnswerPerConnection => false,
             Behave::HalfHeadOnReuse => {
                 if served > 1 {
                     let _ = s.write_all(b"HTTP/1.1 200 OK\r\n").await;
@@ -142,6 +146,10 @@ async fn serve(mut s: TcpStream, conn: usize, behave: Behave, log: Arc<Log>) {
             _ => answer(&format!("conn {conn}"), ""),
         };
         if s.write_all(reply.as_bytes()).await.is_err() {
+            return;
+        }
+        if behave == Behave::OneAnswerPerConnection {
+            tokio::time::sleep(Duration::from_millis(20)).await;
             return;
         }
         if behave == Behave::CloseAfterAnswer {
