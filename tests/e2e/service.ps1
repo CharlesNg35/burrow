@@ -277,7 +277,7 @@ try {
   $acl = icacls $AcmeDir | Out-String
   if ($acl -notmatch "NT SERVICE\\burrow-e2e-acme:\(OI\)\(CI\)\(M\)") { Fail "the service account may not change its state folder: $acl" }
   if ($acl -match [regex]::Escape($users)) { Fail "ordinary users can read the state folder: $acl" }
-  $st = Burrow status burrow-e2e-acme --json
+  for ($i = 0; $i -lt 25; $i++) { $st = Burrow status burrow-e2e-acme --json; if ($st -match '"state_dir"') { break }; Start-Sleep -Milliseconds 200 }
   if ($st -notmatch '"state_dir"') { Fail "status does not name the state folder: $st" }
   $out = Burrow service uninstall burrow-e2e-acme
   if ($out -notmatch "kept .*e2e-acme, the web state") { Fail "uninstall does not name the kept state folder: $out" }
