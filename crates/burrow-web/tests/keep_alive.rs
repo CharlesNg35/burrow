@@ -94,7 +94,15 @@ impl Conn {
     }
 
     async fn closed(&mut self) -> bool {
-        self.response().await.is_none() && self.buf.is_empty()
+        let mut chunk = [0u8; 8192];
+        while self.buf.is_empty() {
+            match tokio::time::timeout(Duration::from_secs(2), self.t.read(&mut chunk)).await {
+                Ok(Ok(0) | Err(_)) => return true,
+                Ok(Ok(n)) => self.buf.extend_from_slice(&chunk[..n]),
+                Err(_) => panic!("the connection is still open after 2 s; it must close"),
+            }
+        }
+        false
     }
 }
 

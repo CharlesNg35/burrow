@@ -20,6 +20,9 @@ async fn an_early_401_resets_only_its_stream_and_the_connection_goes_on() {
         tx.send_data(Bytes::from(vec![b'x'; 4096]), false).unwrap();
         let resp = tokio::time::timeout(ANSWER, resp).await.unwrap().unwrap();
         assert_eq!(resp.status(), 401);
+        let reset = std::future::poll_fn(|cx| tx.poll_reset(cx));
+        let reason = tokio::time::timeout(ANSWER, reset).await.unwrap().unwrap();
+        assert_eq!(reason, h2::Reason::NO_ERROR);
         drop(read_body(resp.into_body()).await);
         let auth = burrow_web::auth::basic::encode("bob", b"pw");
         let next = request(&site_uri("/next"), &[("authorization", &auth)]);
