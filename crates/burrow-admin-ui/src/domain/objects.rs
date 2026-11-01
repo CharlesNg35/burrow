@@ -116,16 +116,25 @@ fn item_view(node: &Node, path: Path, spath: Path, entity: Path) -> AnyView {
         .iter()
         .map(|(k, label, _)| (k.clone(), label.clone(), false))
         .collect();
+    let objects: Vec<(String, Node)> = kinds(node)
+        .iter()
+        .filter(|f| matches!(inner(&f.node).sem, SemType::Object(_)))
+        .map(|f| (f.key.clone(), inner(&f.node).clone()))
+        .collect();
     let node = node.clone();
     let name = format!("{}-kind", path.join("-"));
     let fields = move || {
         let now = picked.get();
+        let own = objects.iter().find(|(k, _)| *k == now).map(|(k, inside)| {
+            object_view(inside, child(&path, k), child(&spath, k), entity.clone())
+        });
         let skip: Vec<&str> = all
             .iter()
             .map(|(k, _, _)| k.as_str())
-            .filter(|k| *k != now)
+            .filter(|k| *k != now || own.is_some())
             .collect();
-        object_view_skipping(&node, path.clone(), spath.clone(), entity.clone(), &skip)
+        let rest = object_view_skipping(&node, path.clone(), spath.clone(), entity.clone(), &skip);
+        view! { {own} {rest} }
     };
     view! {
         <div class="mb-2" data-testid="kind-choice">

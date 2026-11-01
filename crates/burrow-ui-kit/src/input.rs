@@ -236,7 +236,9 @@ pub fn ChipInput(
     #[prop(optional, into)] placeholder: String,
     #[prop(optional, into)] empty_label: String,
     #[prop(optional, into)] invalid: Signal<bool>,
+    #[prop(optional)] labels: bool,
 ) -> impl IntoView {
+    let font = if labels { "font-sans" } else { "font-mono" };
     let typing = RwSignal::new(String::new());
     let commit = move || {
         let text = typing.get_untracked();
@@ -278,7 +280,7 @@ pub fn ChipInput(
                         };
                         view! {
                             <span
-                                class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 font-mono text-xs font-semibold {chip}")
+                                class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 {font} text-xs font-semibold {chip}")
                                 title=title
                                 data-chip=item.clone()
                                 data-invalid=problem.is_some().then_some("true")
