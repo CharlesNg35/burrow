@@ -331,6 +331,21 @@ async fn notify_edit(c: &mut Ctx) {
     assert!(!first.contains("client_offline"), "{first}");
     let second = c.ui.text("[data-card=monitoring] [data-item='1']").await;
     assert!(second.contains("Mail server"), "{second}");
+    c.ui.wait_for("#f-notify-1-email-to", SECS).await;
+    assert_eq!(
+        c.ui.count("#f-notify-1-email").await,
+        0,
+        "the kind is the choice, no email switch"
+    );
+    let font: String =
+        c.ui.eval(
+            "getComputedStyle(document.querySelector('[data-item=\"0\"] [data-chip]')).fontFamily",
+        )
+        .await;
+    assert!(
+        !font.to_lowercase().contains("mono"),
+        "event chips use the label font: {font}"
+    );
     assert!(!second.contains("e2e-smtp-value"), "{second}");
     both_widths(c, "settings-notify-edit").await;
     click_js(c, "[data-item='0'] input[value=webhook]").await;

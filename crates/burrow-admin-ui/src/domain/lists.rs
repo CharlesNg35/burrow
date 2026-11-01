@@ -177,6 +177,7 @@ fn enum_list_editor(fc: FieldCtx, options: Vec<EnumOption>) -> AnyView {
                 check=check_one
                 placeholder="Type a name and press Enter"
                 empty_label=fc.node.empty_label.clone().unwrap_or_default()
+                labels=true
             />
             <Select id=format!("{}-add", fc.id) options=left value=Signal::derive(String::new) on_change=add small=true/>
         </div>
