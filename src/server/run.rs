@@ -42,7 +42,6 @@ impl Server {
         for (name, svc) in &s.services {
             log_service(name, svc, self.services.get(name).and_then(|t| t.addr));
         }
-        tokio::spawn(super::geo::keep(self.shared.clone()));
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         tick.tick().await;
         let mut retry = tokio::time::interval(BIND_RETRY);
@@ -158,6 +157,7 @@ impl Server {
         if let Some(m) = self.metrics.take() {
             m.task.abort();
         }
+        self.geo.take();
         if let Some(ws) = self.websocket.take() {
             ws.task.abort();
         }

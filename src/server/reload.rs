@@ -44,6 +44,10 @@ impl Server {
         *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
         self.shared.sync_limits(&next);
         self.shared.prune_standing(&next);
+        if next.geoip != current.geoip {
+            self.geo.take();
+            self.geo = super::geo::start(&self.shared, next.geoip.as_ref());
+        }
         self.shared.reloaded.send_modify(|n| *n += 1);
 
         let mut released = self.stop_moving_services(&next).await;

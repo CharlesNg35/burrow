@@ -42,7 +42,7 @@ impl DbIp {
                     "country database: {e}; trying again in {} minutes",
                     self.retry.as_secs() / 60
                 );
-                geo.failed(e);
+                geo.retrying(e);
                 self.next = Instant::now() + self.retry;
                 self.retry = (self.retry * 2).min(MAX_RETRY);
             }
@@ -70,7 +70,7 @@ impl Source for DbIp {
 
     fn start(&mut self, geo: &Geo) {
         let Some(file) = self.file() else {
-            geo.failed("there is no state folder to keep the database in");
+            geo.broken("there is no state folder to keep the database in");
             return;
         };
         if !file.exists() {
@@ -91,7 +91,7 @@ impl Source for DbIp {
                     "country database {}: {e}; downloading it again",
                     file.display()
                 );
-                geo.failed(e);
+                geo.retrying(e);
             }
         }
     }

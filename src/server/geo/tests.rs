@@ -118,6 +118,12 @@ async fn an_own_file_is_read_again_when_it_changes_and_a_broken_one_is_ignored()
     own.start(&geo);
     assert!(geo.held().is_none());
     assert_eq!(geo.watch.lock().unwrap().result, "file not found");
+    let shown = crate::config::settings::GeoSource::File(file.clone());
+    let s = geo.status(Some(&shown)).unwrap();
+    assert!(
+        s.failed && s.stale && !s.ready(),
+        "an unreadable own file is stale: {s:?}"
+    );
     std::fs::write(&file, fixture::world(1_000)).unwrap();
     own.tend(&geo).await;
     assert_eq!(geo.held().unwrap().built, 1_000);
@@ -132,7 +138,7 @@ async fn an_own_file_is_read_again_when_it_changes_and_a_broken_one_is_ignored()
         1_000,
         "kept the one already read"
     );
-    assert!(geo.watch.lock().unwrap().failed);
+    assert_eq!(geo.watch.lock().unwrap().outcome, super::Outcome::Broken);
     std::fs::write(&file, fixture::world(3_000)).unwrap();
     own.tend(&geo).await;
     assert_eq!(geo.held().unwrap().built, 3_000);

@@ -366,6 +366,7 @@ pub struct Server {
     #[cfg(feature = "web")]
     notify: JoinHandle<()>,
     metrics: Option<MetricsTask>,
+    geo: Option<geo::GeoTask>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,
     web: Option<web::WebTask>,

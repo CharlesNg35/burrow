@@ -14,7 +14,7 @@ use super::Shared;
 use crate::config::settings::{GeoSource, STALE_AFTER, Service};
 use crate::policy::geo::{Place, Verdict, admit};
 pub(super) use db::Db;
-pub(super) use keep::keep;
+pub(super) use keep::{GeoTask, start};
 
 #[derive(Default)]
 pub(super) struct Geo {
@@ -28,7 +28,15 @@ struct Watch {
     credit: bool,
     checked: Option<u64>,
     result: String,
-    failed: bool,
+    outcome: Outcome,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Outcome {
+    #[default]
+    Fine,
+    Retrying,
+    Broken,
 }
 
 pub(super) fn unix_now() -> u64 {
@@ -54,19 +62,23 @@ impl Geo {
         *self.db.write().expect("geoip lock") = db.map(Arc::new);
     }
 
-    fn noted(&self, result: String, failed: bool) {
+    fn noted(&self, result: String, outcome: Outcome) {
         let mut w = self.watch.lock().expect("geoip lock");
         w.checked = Some(unix_now());
         w.result = result;
-        w.failed = failed;
+        w.outcome = outcome;
     }
 
     fn fine(&self, result: impl Into<String>) {
-        self.noted(result.into(), false);
+        self.noted(result.into(), Outcome::Fine);
     }
 
-    fn failed(&self, why: impl Into<String>) {
-        self.noted(why.into(), true);
+    fn retrying(&self, why: impl Into<String>) {
+        self.noted(why.into(), Outcome::Retrying);
+    }
+
+    fn broken(&self, why: impl Into<String>) {
+        self.noted(why.into(), Outcome::Broken);
     }
 
     fn reset(&self, source: Option<&dyn source::Source>) {
@@ -99,8 +111,9 @@ impl Geo {
             built,
             checked: w.checked,
             result: w.result.clone(),
-            failed: w.failed,
-            stale: built.is_some_and(|b| now.saturating_sub(b) > STALE_AFTER.as_secs()),
+            failed: w.outcome != Outcome::Fine,
+            stale: w.outcome == Outcome::Broken
+                || built.is_some_and(|b| now.saturating_sub(b) > STALE_AFTER.as_secs()),
         })
     }
 }

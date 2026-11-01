@@ -36,7 +36,7 @@ impl OwnFile {
                     "country database {} changed but {e}; keeping the one already read",
                     self.path.display()
                 );
-                geo.failed(format!("{e}; kept the one already read"));
+                geo.broken(format!("{e}; kept the one already read"));
             }
         }
     }
@@ -61,7 +61,7 @@ impl Source for OwnFile {
             }
             Err(e) => {
                 warn!("country database {}: {e}", self.path.display());
-                geo.failed(e);
+                geo.broken(e);
             }
         }
     }
