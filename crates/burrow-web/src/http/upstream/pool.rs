@@ -22,6 +22,7 @@ pub const SWEEP: Duration = Duration::from_secs(5);
 pub const REUSE_WAIT: Duration = Duration::from_secs(1);
 pub const EVICT_WAIT: Duration = Duration::from_secs(2);
 pub const EVICT_TRIES: usize = 4;
+pub const REPLAY_AFTER: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Bound {

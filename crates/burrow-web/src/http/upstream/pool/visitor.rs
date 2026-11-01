@@ -75,18 +75,18 @@ impl Ups {
         self.private.store(true, Ordering::Release);
     }
 
-    pub(crate) fn take_h2(&self, pool: &Arc<Pool>, key: &Key) -> Option<(H2, Stream)> {
+    pub(crate) fn take_h2(&self, pool: &Arc<Pool>, key: &Key) -> Option<(H2, Stream, Instant)> {
         let mut reserved = locked(&self.reserved);
         let held = reserved
             .iter_mut()
             .find(|r| r.key == *key && !r.conn.is_closed());
-        let conn = match held {
+        let (conn, since) = match held {
             Some(r) => {
                 r.streams += 1;
-                r.conn.clone()
+                (r.conn.clone(), Instant::now())
             }
             None => {
-                let (conn, client) = pool.h2.take(key)?;
+                let (conn, client, since) = pool.h2.take(key)?;
                 reserved.push(Reserved {
                     key: key.clone(),
                     client,
@@ -94,11 +94,11 @@ impl Ups {
                     streams: 1,
                     epoch: pool.epoch(),
                 });
-                conn
+                (conn, since)
             }
         };
         let stream = self.stream(pool, conn.id);
-        Some((conn, stream))
+        Some((conn, stream, since))
     }
 
     pub(crate) fn reserve(

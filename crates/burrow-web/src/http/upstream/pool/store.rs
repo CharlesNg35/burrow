@@ -32,7 +32,7 @@ impl<C: AppConn> Store<C> {
         self.idle.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn take(&self, key: &Key) -> Option<(C, Arc<str>)> {
+    pub(crate) fn take(&self, key: &Key) -> Option<(C, Arc<str>, Instant)> {
         let mut idle = self.locked();
         let list = idle.get_mut(key)?;
         while list.last().is_some_and(|p| p.conn.is_closed()) {
@@ -46,13 +46,13 @@ impl<C: AppConn> Store<C> {
             .map(|from_end| list.len() - 1 - from_end);
         let mut found = ready.map(|i| {
             let p = list.remove(i);
-            (p.conn, p.client)
+            (p.conn, p.client, p.since)
         });
         while found.is_none()
             && let Some(p) = list.pop()
         {
             if !p.conn.is_closed() {
-                found = Some((p.conn, p.client));
+                found = Some((p.conn, p.client, p.since));
             }
         }
         if list.is_empty() {

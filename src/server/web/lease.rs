@@ -14,7 +14,7 @@ use crate::config::settings::{ServerSettings, Service};
 pub(in crate::server) struct WebLease {
     hop: Option<Hop>,
     _entry: Option<CountGuard>,
-    _busy: (CountGuard, CountGuard),
+    _busy: (Option<CountGuard>, CountGuard),
     _shares: (Option<FairShare>, Option<FairShare>),
     _active: ActiveConn,
 }
@@ -67,13 +67,16 @@ pub(in crate::server) fn lease(
         debug!(peer = %from.addr, "service \"{service}\" {why}");
         Refused::Full
     };
-    let (in_service, busy_service) = shared.busy.services.enter(service);
-    let service_share = match svc.max_connections {
-        Some(m) => shared
-            .visitor_shares
-            .take(Pool::Service(service.to_string()), source, m, busy_service)
-            .map_err(|()| full("is over half busy and this address holds its fair part"))?,
-        None => None,
+    let (in_service, service_share) = match svc.max_connections {
+        Some(m) => {
+            let (guard, busy) = shared.busy.services.enter(service);
+            let share = shared
+                .visitor_shares
+                .take(Pool::Service(service.to_string()), source, m, busy)
+                .map_err(|()| full("is over half busy and this address holds its fair part"))?;
+            (Some(guard), share)
+        }
+        None => (None, None),
     };
     let (in_client, busy_client) = shared.busy.clients.enter(&client);
     let limit = client_limit(&settings, &client);

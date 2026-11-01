@@ -48,7 +48,7 @@ fn client() -> Arc<str> {
 }
 
 fn taken(store: &Store<Fake>, key: &Key) -> Option<u32> {
-    store.take(key).map(|(c, _)| c.id)
+    store.take(key).map(|(c, ..)| c.id)
 }
 
 #[test]

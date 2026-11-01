@@ -6,7 +6,7 @@ use hyper::body::{Body as HttpBody, Incoming};
 use tokio::time::Instant;
 use tracing::debug;
 
-use super::pool::{EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, Ups};
+use super::pool::{EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, REPLAY_AFTER, Ups};
 use super::{Failed, handshake, refusal_page, to_h2};
 use crate::http::pages::Page;
 use crate::http::site::Hop;
@@ -62,6 +62,10 @@ fn replayable(req: &Request<Body>) -> Option<Request<Body>> {
     *copy.version_mut() = req.version();
     *copy.headers_mut() = req.headers().clone();
     Some(copy)
+}
+
+fn may_be_stale(idle_since: Instant) -> bool {
+    idle_since.elapsed() >= REPLAY_AFTER
 }
 
 fn stale(e: &hyper::Error) -> bool {
@@ -133,18 +137,18 @@ impl<U: Upstream> Asking<'_, U> {
         opened(tokio::time::timeout_at(self.deadline, self.connect_h2()).await)
     }
 
-    async fn take_h1(&self, ups: Option<&Ups>) -> Option<(H1, Key, Arc<str>)> {
+    async fn take_h1(&self, ups: Option<&Ups>) -> Option<(H1, Key, Arc<str>, Instant)> {
         if let Some(ups) = ups.filter(|u| u.has_private()) {
             let private = self.key.private(ups.id);
-            while let Some((conn, client)) = self.pool.h1.take(&private) {
+            while let Some((conn, client, since)) = self.pool.h1.take(&private) {
                 if let Some(conn) = conn.ready().await {
-                    return Some((conn, private, client));
+                    return Some((conn, private, client, since));
                 }
             }
         }
-        while let Some((conn, client)) = self.pool.h1.take(&self.key) {
+        while let Some((conn, client, since)) = self.pool.h1.take(&self.key) {
             if let Some(conn) = conn.ready().await {
-                return Some((conn, self.key.clone(), client));
+                return Some((conn, self.key.clone(), client, since));
             }
         }
         None
@@ -155,17 +159,16 @@ impl<U: Upstream> Asking<'_, U> {
         ups: Option<&Ups>,
         req: Request<Body>,
     ) -> Result<(Response<Incoming>, Home), Miss> {
-        let taken = self.take_h1(ups).await;
-        let reused = taken.is_some();
-        let (mut conn, mut key, mut client) = match taken {
+        let (mut conn, mut key, mut client, since) = match self.take_h1(ups).await {
             Some(t) => t,
             None => (
                 self.open_h1().await?,
                 self.key.clone(),
                 self.way.client.clone(),
+                Instant::now(),
             ),
         };
-        let copy = if reused { replayable(&req) } else { None };
+        let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
         let sent = tokio::time::timeout_at(self.deadline, conn.tx.try_send_request(req)).await;
         let resp = match sent {
             Err(_) => return Err(Page::Timeout.into()),
@@ -211,16 +214,16 @@ impl<U: Upstream> Asking<'_, U> {
         ups: &Ups,
         req: Request<Body>,
     ) -> Result<(Response<Incoming>, Home), Miss> {
-        let (conn, stream, reused) = match ups.take_h2(self.pool, &self.key) {
-            Some((conn, stream)) => (conn, stream, true),
+        let (conn, stream, since) = match ups.take_h2(self.pool, &self.key) {
+            Some(t) => t,
             None => {
                 let conn = self.open_h2().await?;
                 let client = self.way.client.clone();
                 let stream = ups.reserve(self.pool, (self.key.clone(), client), &conn, self.epoch);
-                (conn, stream, false)
+                (conn, stream, Instant::now())
             }
         };
-        let copy = if reused { replayable(&req) } else { None };
+        let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
         let first = self.try_h2(&conn, req).await;
         let again = match first {
             Ok(resp) => return Ok((resp, Home::H2(stream, conn.task.clone()))),

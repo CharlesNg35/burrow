@@ -71,7 +71,7 @@ async fn an_idle_connection_the_app_closed_is_not_used_and_get_and_post_are_each
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_get_lost_on_a_reused_connection_is_sent_again_once_and_a_post_never() {
+async fn a_get_lost_on_a_connection_kept_idle_is_sent_again_once_and_a_post_never() {
     let (app, log) = recording_app(Behave::CloseOnReuse).await;
     let (s, secret) = plain(app, |_| {});
     let web = http(&s);
@@ -81,6 +81,7 @@ async fn a_get_lost_on_a_reused_connection_is_sent_again_once_and_a_post_never()
         status(&v.send("GET", "/", "x-id: a\r\n").await.unwrap()),
         200
     );
+    tokio::time::sleep(Duration::from_millis(1100)).await;
     let got = v.send("GET", "/", "x-id: b\r\n").await.unwrap();
     assert_eq!(status(&got), 200, "sent again on a new connection: {got}");
     assert_eq!(
@@ -88,6 +89,7 @@ async fn a_get_lost_on_a_reused_connection_is_sent_again_once_and_a_post_never()
         2,
         "the app saw it twice, as Go and nginx allow"
     );
+    tokio::time::sleep(Duration::from_millis(1100)).await;
     let got = v.send("POST", "/", "x-id: c\r\n").await.unwrap();
     assert_eq!(status(&got), 502, "{got}");
     assert_eq!(seen(&log, "c"), 1, "a POST is never sent twice");
