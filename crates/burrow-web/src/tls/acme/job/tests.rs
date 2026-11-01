@@ -137,6 +137,14 @@ fn a_fresh_certificate_shows_its_renewal_date_and_not_the_next_ari_check() {
 }
 
 #[test]
+fn the_issued_line_names_its_end_as_a_utc_time() {
+    assert_eq!(
+        issued_text(&s(&["a.example.com", "b.example.com"]), 1_793_022_936),
+        "certificate for a.example.com, b.example.com issued, valid until 2026-10-26T13:55:36Z"
+    );
+}
+
+#[test]
 fn an_ari_id_becomes_a_certificate_identifier() {
     let id = cert_id("aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE").unwrap();
     assert_eq!(id.to_string(), "aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE");

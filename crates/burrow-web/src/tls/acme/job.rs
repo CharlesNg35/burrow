@@ -380,11 +380,7 @@ impl Worker {
             }
         }
         self.acme.serve(&g.names, &held.key);
-        info!(
-            "certificate for {} issued, valid until {}",
-            g.names.join(", "),
-            held.not_after
-        );
+        info!("{}", issued_text(&g.names, held.not_after));
         g.held = Some(held);
         g.failures = 0;
         g.last_error = None;
@@ -543,6 +539,15 @@ pub fn choose_profile(
             }
         )),
     }
+}
+
+fn issued_text(names: &[String], not_after: u64) -> String {
+    let until = std::time::UNIX_EPOCH + std::time::Duration::from_secs(not_after);
+    format!(
+        "certificate for {} issued, valid until {}",
+        names.join(", "),
+        crate::log::rfc3339_time(until)
+    )
 }
 
 #[cfg(test)]
