@@ -41,8 +41,6 @@ impl Log {
 }
 
 pub struct Head {
-    pub method: String,
-    pub path: String,
     pub headers: Vec<(String, String)>,
 }
 
@@ -70,9 +68,7 @@ async fn line<S: AsyncRead + Unpin>(s: &mut S) -> Option<String> {
 
 pub async fn read_head<S: AsyncRead + Unpin>(s: &mut S) -> Option<Head> {
     let first = line(s).await?;
-    let mut parts = first.split(' ');
-    let method = parts.next()?.to_string();
-    let path = parts.next()?.to_string();
+    first.split(' ').nth(1)?;
     let mut headers = Vec::new();
     loop {
         let l = line(s).await?;
@@ -82,11 +78,7 @@ pub async fn read_head<S: AsyncRead + Unpin>(s: &mut S) -> Option<Head> {
         let (k, v) = l.split_once(':')?;
         headers.push((k.trim().to_string(), v.trim().to_string()));
     }
-    let head = Head {
-        method,
-        path,
-        headers,
-    };
+    let head = Head { headers };
     let length: usize = head
         .header("content-length")
         .and_then(|v| v.parse().ok())
