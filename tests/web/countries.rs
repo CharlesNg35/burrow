@@ -141,3 +141,37 @@ async fn without_a_database_allow_countries_refuses_public_visitors() {
     let g = t.server.shared.status().geoip.unwrap();
     assert!(!g.ready(), "{g:?}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_country_database_comes_and_goes_with_geoip_on_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("own.mmdb");
+    std::fs::write(&file, world(now())).unwrap();
+    let app = http_app().await;
+    let secret = Secret::generate();
+    let mut svc = site(&["home"], app);
+    svc.countries = Some(Countries::Allow(codes(&["FR"])));
+    let mut s = plain_server(&secret, &[("shop", svc, &["shop.example.com"])]);
+    let web = s.web.as_mut().unwrap();
+    web.trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
+    let http = web.http.unwrap();
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    assert!(
+        t.server.shared.status().geoip.is_none(),
+        "no geoip, no database task"
+    );
+    let mut with = s.clone();
+    with.geoip = Some(GeoSource::File(file));
+    t.server.reload_applied(with).await;
+    ready(&t).await;
+    assert!(head(&answer(http, Some("198.51.100.4")).await).starts_with("HTTP/1.1 403"));
+    assert_eq!(
+        head(&answer(http, Some("203.0.113.9")).await),
+        "HTTP/1.1 200 OK"
+    );
+    t.server.reload_applied(s).await;
+    assert!(
+        t.server.shared.status().geoip.is_none(),
+        "the task stops with geoip gone"
+    );
+}
