@@ -4,7 +4,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
     (
         "burrow-io",
-        &["hyper", "hyper-util", "tokio"],
+        &["bytes", "hyper", "hyper-util", "tokio"],
         &[
             "burrow",
             "burrow-web",

@@ -63,6 +63,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - The web proxy keeps small, reused buffers per connection, so it uses less than half the memory and about 30 % less CPU per request with large bodies.
   - An HTTP/2 visitor keeps the app connections its parallel requests used, so a page's next burst reuses them instead of connecting to the app again: about 2.5 times the requests per second with 32 or more parallel requests. Extras close after 2 minutes idle, or at once while a quarter of the service's or client's connections are in use (D66).
   - The Linux amd64, arm64 and riscv64 builds give freed memory back to the system within seconds of going idle.
+  - The web proxy and `self` targets keep a pipe buffer only while data waits, and the jemalloc builds return freed memory after 1 s, so memory under load is about half of what it was and an idle connection holds no buffer.
   - Public UDP ports and UDP forwards ask the system for a 7 MiB receive buffer, as WireGuard does, and each UDP peer for 256 KiB, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max` (see docs/services.md).
 - **Compatibility:**
   - The tunnel protocol is unchanged: v0.1.x clients and visitors work with a v0.2.0 server, and v0.2.0 clients and visitors with a v0.1.x server.

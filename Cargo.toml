@@ -14,6 +14,7 @@ publish = false
 members = [
     ".",
     "crates/burrow-syntax",
+    "crates/burrow-io",
     "crates/burrow-config",
     "crates/burrow-admin-logic",
     "crates/burrow-admin-proto",
@@ -21,7 +22,6 @@ members = [
     "crates/burrow-ui-kit",
     "crates/burrow-admin-ui",
     "crates/burrow-web",
-    "crates/burrow-io",
     "xtask",
 ]
 
@@ -34,8 +34,8 @@ workspace = true
 [dependencies]
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
-burrow-web = { path = "crates/burrow-web", optional = true }
 burrow-io = { path = "crates/burrow-io" }
+burrow-web = { path = "crates/burrow-web", optional = true }
 burrow-syntax = { path = "crates/burrow-syntax" }
 aws-lc-rs = "1.19.0"
 base64 = "0.23.1"

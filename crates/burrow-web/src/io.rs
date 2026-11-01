@@ -5,8 +5,10 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
+
+use burrow_io::pipe::{Duplex, duplex};
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     fn reset_on_close(&self) {}
@@ -147,14 +149,14 @@ const RESET: u8 = 1;
 const DROPPED: u8 = 2;
 
 pub struct Pipe {
-    inner: DuplexStream,
+    inner: Duplex,
     mine: Arc<AtomicU8>,
     theirs: Arc<AtomicU8>,
     reason: Arc<AtomicU8>,
 }
 
 pub fn pipe() -> (Pipe, Pipe) {
-    let (a, b) = tokio::io::duplex(PIPE_BUFFER);
+    let (a, b) = duplex(PIPE_BUFFER);
     let (ra, rb) = (Arc::new(AtomicU8::new(0)), Arc::new(AtomicU8::new(0)));
     let reason = Arc::new(AtomicU8::new(0));
     (
