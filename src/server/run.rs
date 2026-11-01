@@ -157,6 +157,7 @@ impl Server {
         if let Some(m) = self.metrics.take() {
             m.task.abort();
         }
+        self.geo.take();
         if let Some(ws) = self.websocket.take() {
             ws.task.abort();
         }

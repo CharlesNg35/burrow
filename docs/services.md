@@ -91,6 +91,38 @@ ssh:
 
 Blocked connections are closed on the server and never reach your network. When you narrow these lists and save, open connections that are no longer allowed close. The lists also apply to visitors of a private service.
 
+### By country
+
+`allow_countries` lets in only visitors from these countries, and `deny_countries` keeps visitors from these countries out. Both take two-letter ISO 3166 codes, and a service has one of the two:
+
+```yaml
+# server.yaml, under services:
+shop:
+  client: home
+  bind: 8443
+  target: 443
+  allow_countries: [FR, BE, CH]       # only visitors from France, Belgium and Switzerland
+  allow_from: [198.51.100.0/24]       # and the office, wherever it is
+```
+
+- They apply to the public port, the website and UDP (each new sender), not to `burrow visit` or clients.
+- An address in `allow_from` gets in whatever its country; `deny_from` always wins.
+- With `deny_countries`, a non-empty `allow_from` still limits everyone else.
+- Private and loopback addresses (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.1`, `fd00::/8` and the like) are never judged by country, only by `allow_from` and `deny_from`.
+- A public address the database does not know is refused under `allow_countries` and let in under `deny_countries`.
+- Behind a proxy in `web.trusted_proxies`, a website uses the visitor's own address from `X-Forwarded-For`.
+- A refused website visitor gets `403` "This site isn't available in your region"; a TCP connection is closed.
+
+The countries come from a database on the server. By default burrow downloads the free [DB-IP](https://db-ip.com) Lite country database (CC BY 4.0) into its state folder when it starts, then checks once a day for the next month's file, swaps it in without a restart and keeps the last good file when a download fails. The top-level `geoip` key picks another source:
+
+```yaml
+# server.yaml
+geoip: db-ip                                   # the default when a service uses countries
+# geoip: /etc/burrow/GeoLite2-Country.mmdb     # or your own .mmdb file: never downloaded, read again when it changes
+```
+
+Until the database is there, services with `allow_countries` refuse public visitors, and `burrow validate`, `burrow status` and the admin UI say so. `burrow status` shows the database's month, age, last check and the visitors refused by country; the server warns when the file is more than 45 days old or your own file cannot be read, and sends the `geoip_stale` notification ([Notifications](monitoring.md#notifications)) once then and once when it is fine again. Nothing is downloaded while no service uses countries.
+
 <details>
 <summary><b>Behind a proxy</b></summary>
 

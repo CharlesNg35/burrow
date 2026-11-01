@@ -336,6 +336,7 @@ impl Server {
             #[cfg(feature = "web")]
             notifier: super::notify::Notifier::default(),
             web_wait: Mutex::new(None),
+            geo: super::geo::Geo::default(),
             standing: Mutex::new(standing::Standing::default()),
             wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(
@@ -361,7 +362,9 @@ impl Server {
         #[cfg(feature = "web")]
         let notify = tokio::spawn(super::notify::run(shared.clone()));
         let metrics = metrics_listener.map(|l| MetricsTask::start(&shared, l));
+        let geo = super::geo::start(&shared, settings.geoip.as_ref());
         let server = Server {
+            geo,
             health,
             #[cfg(feature = "web")]
             notify,

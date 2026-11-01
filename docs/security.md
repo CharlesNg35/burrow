@@ -42,6 +42,7 @@ Several checks decide what a connection may reach, and the client has the last w
 - **A private service has no port on the server at all.** Only the visitors it lists can reach it.
 - **A visitor reaches only** the services that list it, and clients only through `reach`.
 - **`allow_from` and `deny_from`** are checked on the server before anything enters the tunnel, also for visitors of private services.
+- **`allow_countries` and `deny_countries`** are checked there too, for public ports and websites only.
 - **The server itself** (`client: self`) connects only to what `self.allow` permits. It never connects to its own listen, WebSocket or metrics addresses, nor to link-local or cloud metadata addresses that `self.allow` does not name on their own.
 
 ## Guessing names

@@ -6,6 +6,8 @@ mod checks;
 mod chips;
 #[path = "admin_e2e/compat.rs"]
 mod compat;
+#[path = "admin_e2e/countries.rs"]
+mod countries;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
 #[path = "admin_e2e/edit_state.rs"]

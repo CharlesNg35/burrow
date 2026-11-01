@@ -4,6 +4,7 @@ mod balance;
 mod certs;
 mod control;
 mod fields;
+mod geo;
 mod health;
 mod listen;
 mod local;
@@ -85,6 +86,7 @@ pub struct Shared {
     wheels: Mutex<balance::Wheels>,
     local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,
+    geo: geo::Geo,
     #[cfg(feature = "web")]
     certs: Arc<burrow_web::tls::Store>,
 }
@@ -171,13 +173,6 @@ impl Shared {
             .clients
             .get(client)
             .is_some_and(|c| c.secrets.contains(secret))
-    }
-
-    pub(crate) fn source_allowed(&self, service: &str, ip: std::net::IpAddr) -> bool {
-        self.settings()
-            .services
-            .get(service)
-            .is_some_and(|s| s.sources.permits(ip))
     }
 
     pub(crate) fn limit(&self, service: &str) -> Arc<Limit> {
@@ -371,6 +366,7 @@ pub struct Server {
     #[cfg(feature = "web")]
     notify: JoinHandle<()>,
     metrics: Option<MetricsTask>,
+    geo: Option<geo::GeoTask>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,
     web: Option<web::WebTask>,

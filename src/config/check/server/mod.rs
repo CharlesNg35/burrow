@@ -55,6 +55,7 @@ pub fn check_server(
         super::web::check_sites(cfg, (https, http), websocket.as_ref(), spans, base_dir, out);
 
     warn_proxied_sources(websocket.as_ref(), &services, spans, out);
+    let geoip = super::geo::source(cfg, &services, (base_dir, state), spans, out);
 
     check_service_lists(&clients, &services, spans, out);
 
@@ -121,6 +122,7 @@ pub fn check_server(
         udp_max_peers: cfg.udp.max_peers as usize,
         metrics,
         self_allow,
+        geoip,
         notify,
         web: super::web::settings(cfg, (https, http), sites, websocket.as_ref(), base_dir).map(
             |mut w| {

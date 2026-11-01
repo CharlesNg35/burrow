@@ -14,7 +14,7 @@ use crate::auth::forward::{Asked, copy_granted, strip_visitor_copies, subrequest
 use crate::auth::oidc::{Ask, Logins};
 use crate::auth::{Access, Verdict, basic, retry_after};
 use crate::route::Table;
-use crate::{ForwardAuth, Upstream, Visitor};
+use crate::{Admission, ForwardAuth, Upstream, Visitor};
 
 pub(crate) struct Gate<'a, U> {
     pub up: &'a U,
@@ -43,8 +43,11 @@ fn login(site: &SiteRun) -> Response<Body> {
 
 impl<U: Upstream> Gate<'_, U> {
     pub(crate) fn allowed(&self) -> Option<Response<Body>> {
-        let ok = self.up.allowed(&self.site.service, self.visitor);
-        (!ok).then(|| Page::Forbidden.response_from(&self.site.pages))
+        match self.up.allowed(&self.site.service, self.visitor) {
+            Admission::In => None,
+            Admission::Refused => Some(Page::Forbidden.response_from(&self.site.pages)),
+            Admission::Region { credit } => Some(Page::Region { credit }.response()),
+        }
     }
 
     pub(crate) async fn check(&self, req: &mut Request<Incoming>) -> Option<Response<Body>> {

@@ -9,6 +9,7 @@ Each key below lets in a kind of visitor, and says what the others get:
 | Key | Who gets in | Otherwise |
 | --- | --- | --- |
 | `allow_from`, `deny_from` (the service's) | visitors from these addresses | `403` |
+| `allow_countries`, `deny_countries` (the service's) | visitors from these countries | `403` "This site isn't available in your region" |
 | `rate_limit` | up to so many requests per second per address | `429` |
 | `basic_auth` | visitors with a user name and password | `401` |
 | `forward_auth` | visitors your login service lets in, like Authelia or authentik | the login service's answer, usually its login page |
@@ -24,6 +25,8 @@ The logins guard the website only. A service that also has its own `bind` port i
 ## Addresses
 
 A service's `allow_from` and `deny_from` ([Who may connect](../services.md#who-may-connect)) apply to its website too, before any password, so a refused address costs no work. Behind a proxy in `web.trusted_proxies`, the address is the visitor's own, from `X-Forwarded-For` ([Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer)). Let's Encrypt's checks come first, so a site open only to your network still gets its certificate.
+
+`allow_countries` and `deny_countries` ([By country](../services.md#by-country)) are checked at the same step, with the same address. With the DB-IP database the refusal page links to DB-IP, as its licence asks.
 
 ## Rate limits
 

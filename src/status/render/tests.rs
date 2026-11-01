@@ -64,6 +64,9 @@ pub(crate) fn sample() -> Status {
                 open: 12,
                 total: 153,
                 refused: 1,
+                refused_country: 0,
+                allowed_countries: Vec::new(),
+                denied_countries: Vec::new(),
                 bytes_in: 1_200_000_000,
                 bytes_out: 8_400_000_000,
                 health: vec![HealthStatus {
@@ -91,6 +94,9 @@ pub(crate) fn sample() -> Status {
                 open: 0,
                 total: 0,
                 refused: 0,
+                refused_country: 0,
+                allowed_countries: Vec::new(),
+                denied_countries: Vec::new(),
                 bytes_in: 0,
                 bytes_out: 0,
                 health: vec![],
@@ -125,6 +131,7 @@ pub(crate) fn sample() -> Status {
         acme: None,
         local_ca: None,
         web_waiting: None,
+        geoip: None,
         notify: Vec::new(),
     }
 }

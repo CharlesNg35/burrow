@@ -8,8 +8,8 @@ use crate::Path;
 
 pub use relation::{Cond, Relation};
 pub use sem::{
-    DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
-    NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,
+    CountryC, DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC,
+    MapC, NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,
     RefMapC, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC, WEIGHT_MAX,
 };
 
@@ -402,6 +402,7 @@ mod tests {
     fn every_type_newer_than_v0_1_2_tells_older_uis_what_to_show() {
         for (s, tag) in [
             (SemType::HostName(HostNameC::default()), "host_name"),
+            (SemType::Country(CountryC::default()), "country"),
             (SemType::Upload(UploadC::new("pair")), "upload"),
             (
                 SemType::PasswordHash(PasswordHashC::default()),

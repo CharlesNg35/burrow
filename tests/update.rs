@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use burrow::update::archive::{from_tar_gz, from_zip};
-use burrow::update::http::{Fetched, get};
+use burrow::wire::fetch::{Fetched, get};
 use output::text;
 use sha2::{Digest, Sha256};
 

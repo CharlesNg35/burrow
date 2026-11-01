@@ -220,6 +220,11 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
                 .into_any()
         }
         SemType::Cidr | SemType::CidrRule => view! { <Chip text=plain(v) mono=true/> }.into_any(),
+        SemType::Country(_) => {
+            let code = plain(v);
+            let name = burrow_syntax::country::name_of(&code.to_ascii_uppercase()).unwrap_or_default();
+            view! { <span title=name><Chip text=code mono=true/></span> }.into_any()
+        }
         SemType::Duration(_) if v.as_u64().is_some() => {
             view! { <span class="tabular-nums" title=plain(v)>{sem_text(sem, v)}</span> }.into_any()
         }

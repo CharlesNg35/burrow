@@ -176,6 +176,7 @@ mod tests {
             acme: None,
             local_ca: None,
             web_waiting: None,
+            geoip: None,
             notify: Vec::new(),
         }
     }

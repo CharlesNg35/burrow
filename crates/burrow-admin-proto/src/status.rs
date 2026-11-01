@@ -28,8 +28,57 @@ pub struct Status {
     pub local_ca: Option<LocalCaStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_waiting: Option<PortWait>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geoip: Option<GeoipStatus>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notify: Vec<NotifyStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct GeoipStatus {
+    pub source: String,
+    #[serde(default)]
+    pub file: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub credit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<u64>,
+    #[serde(default)]
+    pub result: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
+}
+
+impl GeoipStatus {
+    pub fn ready(&self) -> bool {
+        self.built.is_some()
+    }
+
+    pub fn line(&self, now: u64) -> String {
+        let held = match self.built {
+            Some(b) => format!(
+                "{} from {}, {} days old",
+                self.source,
+                crate::date::year_month(b),
+                now.saturating_sub(b) / 86_400
+            ),
+            None => format!("{}: no database yet", self.source),
+        };
+        let checked = self
+            .checked
+            .map(|c| format!("; last check {}", crate::date::date_time(c)))
+            .unwrap_or_default();
+        let result = if self.result.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", self.result)
+        };
+        format!("{held}{checked}{result}")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -164,6 +213,12 @@ pub struct ServiceStatus {
     pub total: u64,
     #[serde(default)]
     pub refused: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub refused_country: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_countries: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub denied_countries: Vec<String>,
     #[serde(default)]
     pub bytes_in: u64,
     #[serde(default)]
@@ -273,6 +328,10 @@ pub enum CertStateStatus {
     Pending,
     Renewing,
     Failing { reason: String },
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 #[cfg(test)]

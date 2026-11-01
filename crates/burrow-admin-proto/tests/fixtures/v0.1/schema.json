@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:dd85f39dce68fbdf",
+  "hash": "b2s:c8de81adfe361119",
   "root": {
     "label": "Server",
     "sem": {
@@ -2035,6 +2035,54 @@
                       }
                     },
                     {
+                      "key": "allow_countries",
+                      "node": {
+                        "label": "Allow countries",
+                        "help": "Only visitors from these countries may connect to the public port, the website and UDP, for example FR, BE; burrow visit is not affected. IP geolocation by DB-IP",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "country",
+                              "fallback": [
+                                {
+                                  "t": "text"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "access",
+                        "advanced": true,
+                        "wide": false,
+                        "empty_label": "Every country"
+                      }
+                    },
+                    {
+                      "key": "deny_countries",
+                      "node": {
+                        "label": "Deny countries",
+                        "help": "Visitors from these countries may never connect to the public port, the website and UDP, for example GB, US; burrow visit is not affected. IP geolocation by DB-IP",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "country",
+                              "fallback": [
+                                {
+                                  "t": "text"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "access",
+                        "advanced": true,
+                        "wide": false,
+                        "empty_label": "No countries denied"
+                      }
+                    },
+                    {
                       "key": "proxy_protocol",
                       "node": {
                         "label": "PROXY protocol",
@@ -3576,6 +3624,24 @@
           }
         },
         {
+          "key": "geoip",
+          "node": {
+            "label": "Country database",
+            "help": "db-ip downloads the free DB-IP Lite country database every month; or the path of your own .mmdb file, for example /etc/burrow/GeoLite2-Country.mmdb, which burrow re-reads when it changes",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "sem": {
+                  "t": "text"
+                }
+              }
+            },
+            "applies": "live",
+            "group": "geoip",
+            "none_label": "db-ip when a service uses countries"
+          }
+        },
+        {
           "key": "notify",
           "node": {
             "label": "Notifications",
@@ -3811,6 +3877,11 @@
       {
         "key": "security",
         "label": "Security"
+      },
+      {
+        "key": "geoip",
+        "label": "Countries",
+        "sub": "Where visitors' countries come from, for allow_countries and deny_countries. IP geolocation by DB-IP (https://db-ip.com), CC BY 4.0."
       }
     ]
   },

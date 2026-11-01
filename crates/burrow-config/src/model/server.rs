@@ -25,7 +25,8 @@ use super::{
         limits = "Limits",
         network = "Network",
         monitoring = "Monitoring",
-        security = "Security"
+        security = "Security",
+        geoip = "Countries | Where visitors' countries come from, for allow_countries and deny_countries. IP geolocation by DB-IP (https://db-ip.com), CC BY 4.0."
     )
 )]
 pub struct ServerConfig {
@@ -134,6 +135,17 @@ pub struct ServerConfig {
         none_label = "Off"
     )]
     pub metrics: Option<MetricsConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Where country rules look up visitors: db-ip (the default) downloads the free DB-IP Lite database every month into the state folder; a path to your own .mmdb file is read as it is and never downloaded"
+    )]
+    #[admin(help = "db-ip downloads the free DB-IP Lite country database every month; or the path of your own .mmdb file, for example /etc/burrow/GeoLite2-Country.mmdb, which burrow re-reads when it changes",
+        label = "Country database",
+        group = geoip,
+        applies = live,
+        none_label = "db-ip when a service uses countries"
+    )]
+    pub geoip: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
         description = "Where to send a message when a client goes offline, a certificate fails or a service is down, and when it is fixed; nothing is sent unless set"

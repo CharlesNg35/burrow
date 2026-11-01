@@ -1,5 +1,7 @@
 #[path = "diagnostics/client_and_json.rs"]
 mod client_and_json;
+#[path = "diagnostics/countries.rs"]
+mod countries;
 #[path = "diagnostics/limits.rs"]
 mod limits;
 #[path = "diagnostics/self_target.rs"]
