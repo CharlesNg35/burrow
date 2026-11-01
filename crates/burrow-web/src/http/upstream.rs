@@ -111,6 +111,7 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
         tx,
         ending,
         idle_since: tokio::time::Instant::now(),
+        app_key: f.site.app_key,
     })
 }
 
@@ -236,7 +237,7 @@ pub(crate) async fn forward<U: Upstream>(
     let Some(slot) = ups.slot(deadline).await else {
         return f.page(Page::Timeout);
     };
-    let mut s = match ups.reuse(service, f.client.ip).await {
+    let mut s = match ups.reuse(service, f.client.ip, f.site.app_key).await {
         Some(s) => s,
         None => match tokio::time::timeout_at(deadline, open(up, &f)).await {
             Ok(Ok(s)) => s,

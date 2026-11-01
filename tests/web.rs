@@ -23,6 +23,8 @@ mod passthrough;
 mod plain;
 #[path = "web/plain_tunnel.rs"]
 mod plain_tunnel;
+#[path = "web/pooled.rs"]
+mod pooled;
 #[path = "web/refusals.rs"]
 mod refusals;
 #[path = "web/reload.rs"]

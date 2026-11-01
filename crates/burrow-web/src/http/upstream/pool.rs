@@ -24,11 +24,16 @@ pub(crate) struct Stream {
     pub tx: SendRequest<Body>,
     pub ending: Option<Ending>,
     pub idle_since: Instant,
+    pub app_key: u64,
 }
 
 impl Stream {
     fn serves(&self, service: &str, client: IpAddr) -> bool {
         self.service == service && self.client == client
+    }
+
+    fn stale(&self, service: &str, app_key: u64) -> bool {
+        self.tx.is_closed() || (self.service == service && self.app_key != app_key)
     }
 }
 
@@ -38,6 +43,7 @@ pub(crate) struct H2App {
     pub client: IpAddr,
     pub tx: hyper::client::conn::http2::SendRequest<Body>,
     pub ending: Option<Ending>,
+    pub app_key: u64,
 }
 
 pub(crate) struct Upstreams {
@@ -79,10 +85,15 @@ impl Upstreams {
         }
     }
 
-    pub(crate) async fn reuse(&self, service: &str, client: IpAddr) -> Option<Stream> {
+    pub(crate) async fn reuse(
+        &self,
+        service: &str,
+        client: IpAddr,
+        app_key: u64,
+    ) -> Option<Stream> {
         let mut s = {
             let mut idle = self.idle.lock().expect("upstream lock");
-            idle.retain(|s| !s.tx.is_closed());
+            idle.retain(|s| !s.stale(service, app_key));
             if let Some(i) = idle
                 .iter()
                 .rposition(|s| s.serves(service, client) && s.tx.is_ready())
@@ -99,10 +110,15 @@ impl Upstreams {
         matches!(ready, Ok(Ok(()))).then_some(s)
     }
 
-    pub(crate) fn shared_h2(&self, service: &str, client: IpAddr) -> Option<H2App> {
+    pub(crate) fn shared_h2(&self, service: &str, client: IpAddr, app_key: u64) -> Option<H2App> {
         let held = self.h2.lock().expect("upstream lock");
         held.as_ref()
-            .filter(|s| s.service == service && s.client == client && !s.tx.is_closed())
+            .filter(|s| {
+                s.service == service
+                    && s.client == client
+                    && s.app_key == app_key
+                    && !s.tx.is_closed()
+            })
             .cloned()
     }
 
@@ -184,6 +200,7 @@ mod tests {
             tx,
             ending: None,
             idle_since: Instant::now(),
+            app_key: 0,
         };
         (s, app)
     }
