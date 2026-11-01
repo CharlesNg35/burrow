@@ -60,6 +60,8 @@ dns:
 
 A UDP peer that sends nothing for 2 minutes is forgotten (`udp.session_timeout_secs`). A UDP service follows its target to a new address when the target's DNS name changes.
 
+burrow asks the system for 7 MiB of receive buffer on each public UDP port and each visitor UDP forward, as WireGuard does, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max`, about 416 KiB in effect by default. For bursty UDP traffic, raise it with `sysctl -w net.core.rmem_max=7500000` and keep the setting in `/etc/sysctl.d/`. `nstat -az UdpRcvbufErrors` shows how many datagrams the system dropped because a receive buffer was full.
+
 ## Expose a range of ports
 
 Some apps, like game servers or media servers, use many ports, and one service can expose the whole range. Each public port leads to the same position in the target range: 30000 to 30000, 30001 to 30001, and so on. Both ranges have the same length, at most 1000 ports. This one exposes eleven UDP ports of a game server:

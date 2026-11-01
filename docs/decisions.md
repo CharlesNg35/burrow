@@ -671,3 +671,14 @@ Sources, checked 2026-10-31: docs.ntfy.sh/publish; docs.rs/lettre/0.11.23; RFC 8
 **UDP.** The check runs on each datagram, as `allow_from` already did, and a reload re-checks the known senders. A lookup only runs for services with countries and public addresses.
 
 Sources, checked 2026-10-31: db-ip.com/db/download/ip-to-country-lite (format, URL pattern, monthly updates, CC BY 4.0 and the attribution snippet); docs.rs/maxminddb 0.32.0 (`Reader::from_source`, `lookup`, `decode_path`, `Metadata::build_epoch`); maxmind.github.io/MaxMind-DB (the format); blog.maxmind.com 2019-12 (GeoLite2 needs an account and licence key).
+
+## D64. UDP sockets ask for a large receive buffer, as WireGuard does, and burrow keeps no per-socket drop counter
+
+The final v0.2.0 soak lost 113 datagrams in one second. Every one was dropped by the kernel on a socket at Linux's default 208 KiB receive buffer. burrow has no UDP queue that drops: each internal path waits. A back-to-back burst of about 150 datagrams overflows 208 KiB even when the reader keeps up. The old code raised the buffer only below 128 KiB, so on Linux it never did.
+
+- Public UDP ports and visitor UDP forwards ask for 7 MiB, the value wireguard-go uses; quic-go recommends 7.5 MB. Per-peer sockets (the client's sockets to the app, the visitor's SOCKS relay) ask for 256 KiB. A refused size is halved until the system takes it; Linux silently caps it at `net.core.rmem_max` (about 416 KiB by default), and docs/services.md says how to raise it.
+- Measured with bursts, 3 runs of 10 s each: drops on burrow's public socket went from 82 to 0 at 150 datagrams a burst, from 842 to 0 at 250, and from 4407 to 908 at 400. Under steady load (1,350 datagrams/s next to busy TCP), UDP p99 was 0.42 ms before and 0.40 ms after, with no loss either time.
+- The kernel charges receive buffer only for datagrams that are waiting, so the larger size costs nothing when idle. The worst case is every peer socket full while the tunnel stalls; the kernel's `udp_mem` bounds that total, and WireGuard and quic-go accept the same risk.
+- No per-socket drop counter in metrics or status: reading it means OS-specific code in the busiest UDP receive loop. The host-wide `UdpRcvbufErrors` (`nstat`, or node_exporter's `node_netstat_Udp_RcvbufErrors`) already shows it, as it does for nginx's stream proxy.
+
+Sources, checked 2026-11-01: git.zx2c4.com/wireguard-go/tree/conn/controlfns.go; github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes; nginx.org/en/docs/stream/ngx_stream_core_module.html (`rcvbuf=`, off by default).
