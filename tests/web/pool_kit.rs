@@ -14,6 +14,7 @@ pub enum Behave {
     CloseAfterAnswer,
     CloseSometimes,
     Ntlm,
+    HalfHeadOnReuse,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +123,13 @@ async fn serve(mut s: TcpStream, conn: usize, behave: Behave, log: Arc<Log>) {
             Behave::CloseAlways => true,
             Behave::CloseSometimes => (conn + served).is_multiple_of(3),
             Behave::Answer | Behave::CloseAfterAnswer | Behave::Ntlm => false,
+            Behave::HalfHeadOnReuse => {
+                if served > 1 {
+                    let _ = s.write_all(b"HTTP/1.1 200 OK\r\n").await;
+                    return;
+                }
+                false
+            }
         };
         if close {
             return;

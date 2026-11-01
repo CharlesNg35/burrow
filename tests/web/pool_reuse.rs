@@ -292,3 +292,22 @@ async fn an_ntlm_connection_stays_with_its_visitor_behind_a_proxy_that_carries_s
         "B never gets A's authenticated connection: {asked:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_get_is_not_sent_again_once_part_of_its_answer_arrived() {
+    let (app, log) = recording_app(Behave::HalfHeadOnReuse).await;
+    let (s, secret) = plain(app, |_| {});
+    let web = http(&s);
+    let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    let mut v = Keep::open(web, localhost()).await;
+    let first = v.send("GET", "/", "x-id: a\r\n").await.unwrap();
+    assert_eq!(status(&first), 200);
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let got = v.send("GET", "/", "x-id: b\r\n").await.unwrap();
+    assert_eq!(status(&got), 502, "{got}");
+    assert_eq!(
+        seen(&log, "b"),
+        1,
+        "an answer had started, so it is not sent again"
+    );
+}

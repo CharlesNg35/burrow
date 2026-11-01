@@ -108,7 +108,7 @@ pub(super) async fn hop(io: BoxIo, how: &Hop, http2: bool) -> Result<BoxIo, HopE
 
 pub(crate) async fn handshake(io: BoxIo, how: &Hop) -> Result<H1, Failed> {
     let ending = io.ending();
-    let io = hop(io, how, false).await?;
+    let (io, read) = pool::Counted::new(hop(io, how, false).await?);
     let (tx, conn) = super::h2::app_http1()
         .handshake(TokioIo::new(io))
         .await
@@ -122,6 +122,7 @@ pub(crate) async fn handshake(io: BoxIo, how: &Hop) -> Result<H1, Failed> {
         tx,
         ending,
         task: task.abort_handle(),
+        read,
     })
 }
 

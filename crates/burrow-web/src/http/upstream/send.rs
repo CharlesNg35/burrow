@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use http::{Method, Request, Response};
 use http_body_util::{BodyExt, Empty};
@@ -174,14 +175,16 @@ impl<U: Upstream> Asking<'_, U> {
         };
         let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
         let mut ticket = self.listed(&conn.task);
+        let read_before = conn.read.load(Ordering::Acquire);
         let sent = tokio::time::timeout_at(self.deadline, conn.tx.try_send_request(req)).await;
         let resp = match sent {
             Err(_) => return Err(Page::Timeout.into()),
             Ok(Ok(r)) => r,
             Ok(Err(mut e)) => {
-                let again = e
-                    .take_message()
-                    .or_else(|| copy.filter(|_| stale(e.error())));
+                let again = e.take_message().or_else(|| {
+                    let silent = conn.read.load(Ordering::Acquire) == read_before;
+                    copy.filter(|_| silent && stale(e.error()))
+                });
                 let Some(req) = again else {
                     return Err(missed(
                         self.service,

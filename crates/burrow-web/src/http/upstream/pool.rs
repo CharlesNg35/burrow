@@ -13,7 +13,7 @@ mod visitor;
 
 pub(crate) use back::{Back, Home};
 pub(crate) use busy::Ticket;
-pub(crate) use conns::{AppConn, H1, H2};
+pub(crate) use conns::{AppConn, Counted, H1, H2};
 pub(crate) use store::Store;
 pub(crate) use visitor::{Slot, Stream, Ups};
 
