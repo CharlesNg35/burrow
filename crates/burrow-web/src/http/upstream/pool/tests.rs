@@ -14,6 +14,10 @@ impl AppConn for Fake {
         self.closed.load(Ordering::Acquire)
     }
 
+    fn is_ready(&self) -> bool {
+        !self.is_closed()
+    }
+
     fn ending(&self) -> Option<Ending> {
         None
     }

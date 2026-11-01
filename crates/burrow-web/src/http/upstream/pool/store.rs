@@ -7,6 +7,8 @@ use tokio::time::Instant;
 use super::{AppConn, Key};
 use crate::Ending;
 
+const READY_SCAN: usize = 8;
+
 struct Parked<C> {
     conn: C,
     client: Arc<str>,
@@ -33,11 +35,24 @@ impl<C: AppConn> Store<C> {
     pub(crate) fn take(&self, key: &Key) -> Option<(C, Arc<str>)> {
         let mut idle = self.locked();
         let list = idle.get_mut(key)?;
-        let mut found = None;
-        while let Some(p) = list.pop() {
+        while list.last().is_some_and(|p| p.conn.is_closed()) {
+            list.pop();
+        }
+        let ready = list
+            .iter()
+            .rev()
+            .take(READY_SCAN)
+            .position(|p| p.conn.is_ready())
+            .map(|from_end| list.len() - 1 - from_end);
+        let mut found = ready.map(|i| {
+            let p = list.remove(i);
+            (p.conn, p.client)
+        });
+        while found.is_none()
+            && let Some(p) = list.pop()
+        {
             if !p.conn.is_closed() {
                 found = Some((p.conn, p.client));
-                break;
             }
         }
         if list.is_empty() {
