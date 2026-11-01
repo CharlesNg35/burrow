@@ -619,7 +619,7 @@ The v0.2.0 plan set a target of 3 MB added over v0.1.2, a target and not a cap: 
 
 Sources, checked 2026-10-31: doc.rust-lang.org/cargo/reference/profiles.html; github.com/johnthagen/min-sized-rust; github.com/CharlesNg35/burrow releases v0.1.2; GitHub release assets of caddyserver/caddy v2.11.7, traefik/traefik v3.7.17, fatedier/frp v0.71.1 and cloudflare/cloudflared 2026.10.7; Ubuntu 24.04 package data of nginx 1.24.0-2ubuntu7.19 and libssl3t64 3.0.13; hub.docker.com library/nginx tag `alpine` (amd64, 2026-10-28).
 
-## D61. An HTTP/2 visitor keeps the app connections its parallel streams used, while the pool has room
+## D66. An HTTP/2 visitor keeps the app connections its parallel streams used, while the pool has room
 
 Each HTTP/2 stream gets its own app connection (D51), and each visitor connection kept at most 8 of them idle afterwards. A browser loads a page's parts as many parallel streams on one connection. Every burst above 8 parallel streams therefore closed its extra app connections and opened them again on the next burst. Each reopen cost a TCP connect to the app, two tasks and an in-memory pipe for `self`, or a new data channel for a remote client. GAP-3 profiling (2026-11-01) found that about 40 % of multiplexed HTTP/2 requests opened a new app connection this way. The k6 benchmark never showed it, because k6 uses one stream per connection.
 
