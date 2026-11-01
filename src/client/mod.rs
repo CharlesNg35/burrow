@@ -20,14 +20,22 @@ const STABLE_AFTER: Duration = Duration::from_secs(10);
 const REJECT_CONFIRM_ATTEMPTS: u32 = 3;
 const MAX_OPENING: usize = 32;
 
-pub(crate) struct Waiting(Arc<std::sync::atomic::AtomicUsize>);
+pub(crate) struct Waiting(Arc<watch::Sender<usize>>);
+
+impl Waiting {
+    fn new(count: &Arc<watch::Sender<usize>>) -> Waiting {
+        count.send_modify(|n| *n += 1);
+        Waiting(count.clone())
+    }
+}
 
 impl Drop for Waiting {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        self.0.send_modify(|n| *n -= 1);
     }
 }
 const DATA_PATIENCE: Duration = Duration::from_secs(5);
+const LEAVE_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -188,12 +196,11 @@ impl Client {
         let mut rejected: Option<(Instant, u32)> = None;
         let end = loop {
             let end = {
-                let session = self.session();
+                let session = self.session(stop.clone());
                 tokio::pin!(session);
                 loop {
                     tokio::select! {
                         e = &mut session => break e,
-                        _ = stop.changed() => break SessionEnd::Stop,
                         next = crate::base::channel::next_reload(&mut reloads) => {
                             if self.apply(next, &mut backoff) {
                                 break SessionEnd::Reconnect;

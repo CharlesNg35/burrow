@@ -133,10 +133,14 @@ pub(crate) async fn serve<W: Dials>(
         let next = tokio::time::timeout(IDLE_CHANNEL_LIMIT, ch.reader.recv(&mut ch.stream));
         let rec = tokio::select! {
             r = next => match r {
-                Ok(r) => r,
+                Ok(r) => Some(r),
                 Err(_) => return false,
             },
-            _ = ended.wait_for(|e| *e) => return false,
+            _ = ended.wait_for(|e| *e) => None,
+        };
+        let Some(rec) = rec else {
+            let _ = tokio::time::timeout(super::LEAVE_TIMEOUT, ch.stream.finish()).await;
+            return false;
         };
         match rec {
             Ok(Some([KEEPALIVE_RECORD])) => continue,

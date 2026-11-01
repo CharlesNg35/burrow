@@ -5,13 +5,13 @@ use tokio::sync::{Semaphore, watch};
 use tracing::{info, warn};
 
 use super::reconnect::{Backoff, human};
-use super::{Client, DATA_PATIENCE, MAX_OPENING, SessionEnd, State, Waiting, data};
+use super::{Client, DATA_PATIENCE, LEAVE_TIMEOUT, MAX_OPENING, SessionEnd, State, Waiting, data};
 use crate::base::failure::io_reason;
 use crate::dialer::DialError;
 use crate::wire::protocol::{
     ByeReason, ChannelKind, ClientMsg, Hello, ServerMsg, ServiceInfo, TOKEN_LEN, VERSION,
 };
-use crate::wire::transport::Channel;
+use crate::wire::transport::{Channel, OwnedReadHalf, OwnedWriteHalf};
 
 const STRAYS: usize = 3;
 
@@ -49,70 +49,60 @@ fn bye(reason: ByeReason) -> SessionEnd {
     }
 }
 
-impl Client {
-    pub(super) async fn open(
-        &self,
-        kind: ChannelKind,
-        hello: Hello,
-    ) -> Result<Channel, SessionEnd> {
-        self.live
-            .dialer()
-            .open(kind, hello)
-            .await
-            .map_err(|e| match e {
-                DialError::Lost(why) | DialError::Unreachable(why) => SessionEnd::Lost(why),
-                DialError::Rejected => SessionEnd::Rejected,
-            })
+fn welcomed(
+    s: &crate::config::settings::ClientSettings,
+    got: Result<std::io::Result<Option<&[u8]>>, tokio::time::error::Elapsed>,
+) -> Result<([u8; TOKEN_LEN], Duration), SessionEnd> {
+    match got {
+        Ok(Ok(Some(b))) => match ServerMsg::decode(b) {
+            Ok(ServerMsg::Welcome {
+                token,
+                heartbeat_secs,
+            }) => Ok((token, Duration::from_secs(heartbeat_secs.max(1).into()))),
+            Ok(ServerMsg::Bye { reason }) => Err(bye(reason)),
+            _ => Err(SessionEnd::Lost(
+                "server sent an unexpected first message".into(),
+            )),
+        },
+        Ok(Ok(None)) => Err(SessionEnd::Lost(
+            "the server closed the connection before it was ready".into(),
+        )),
+        Ok(Err(e)) => Err(SessionEnd::Lost(format!(
+            "connection to {} failed ({})",
+            s.server,
+            io_reason(&e)
+        ))),
+        Err(_) => Err(SessionEnd::Lost(format!(
+            "server {} did not answer in time",
+            s.server
+        ))),
     }
+}
 
-    pub(super) async fn session(&self) -> SessionEnd {
-        let s = self.live.settings();
-        let ch = match self
-            .open(
-                ChannelKind::Control,
-                Hello::Control {
-                    version: VERSION,
-                    instance: self.instance,
-                },
-            )
-            .await
-        {
-            Ok(c) => c,
-            Err(e) => return e,
-        };
-        let Channel {
-            stream,
-            mut writer,
-            mut reader,
-        } = ch;
-        let (mut rd, mut wr) = stream.into_split();
+async fn leave(
+    mut rd: OwnedReadHalf,
+    mut wr: OwnedWriteHalf,
+    ended: Option<CloseOnDrop>,
+    waiting: &watch::Sender<usize>,
+) -> SessionEnd {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    drop(ended);
+    let mut idle = waiting.subscribe();
+    let control = async {
+        if wr.shutdown().await.is_ok() {
+            let mut sink = [0u8; 4096];
+            while matches!(rd.read(&mut sink).await, Ok(n) if n > 0) {}
+        }
+    };
+    let data = async {
+        let _ = idle.wait_for(|n| *n == 0).await;
+    };
+    let _ = tokio::time::timeout(LEAVE_TIMEOUT, async { tokio::join!(control, data) }).await;
+    SessionEnd::Stop
+}
 
-        let (token, heartbeat) =
-            match tokio::time::timeout(s.connect_timeout, reader.recv(&mut rd)).await {
-                Ok(Ok(Some(b))) => match ServerMsg::decode(b) {
-                    Ok(ServerMsg::Welcome {
-                        token,
-                        heartbeat_secs,
-                    }) => (token, Duration::from_secs(heartbeat_secs.max(1).into())),
-                    Ok(ServerMsg::Bye { reason }) => return bye(reason),
-                    _ => return SessionEnd::Lost("server sent an unexpected first message".into()),
-                },
-                Ok(Ok(None)) => {
-                    return SessionEnd::Lost(
-                        "the server closed the connection before it was ready".into(),
-                    );
-                }
-                Ok(Err(e)) => {
-                    return SessionEnd::Lost(format!(
-                        "connection to {} failed ({})",
-                        s.server,
-                        io_reason(&e)
-                    ));
-                }
-                Err(_) => {
-                    return SessionEnd::Lost(format!("server {} did not answer in time", s.server));
-                }
-            };
+impl Client {
+    fn note_connected(&self, s: &crate::config::settings::ClientSettings) {
         *self.welcomed.lock().expect("welcomed lock") = Some(Instant::now());
         let _ = self.state.send(State::Connected);
         match self
@@ -129,20 +119,67 @@ impl Client {
             ),
             _ => info!("connected to {} as \"{}\"", s.server, s.name),
         }
+    }
+
+    pub(super) async fn open(
+        &self,
+        kind: ChannelKind,
+        hello: Hello,
+    ) -> Result<Channel, SessionEnd> {
+        self.live
+            .dialer()
+            .open(kind, hello)
+            .await
+            .map_err(|e| match e {
+                DialError::Lost(why) | DialError::Unreachable(why) => SessionEnd::Lost(why),
+                DialError::Rejected => SessionEnd::Rejected,
+            })
+    }
+
+    pub(super) async fn session(&self, mut stop: watch::Receiver<bool>) -> SessionEnd {
+        let s = self.live.settings();
+        let hello = Hello::Control {
+            version: VERSION,
+            instance: self.instance,
+        };
+        let ch = tokio::select! {
+            c = self.open(ChannelKind::Control, hello) => match c {
+                Ok(c) => c,
+                Err(e) => return e,
+            },
+            _ = stop.changed() => return SessionEnd::Stop,
+        };
+        let Channel {
+            stream,
+            mut writer,
+            mut reader,
+        } = ch;
+        let (mut rd, mut wr) = stream.into_split();
+        let waiting = Arc::new(watch::Sender::new(0usize));
+
+        let welcome = tokio::select! {
+            w = tokio::time::timeout(s.connect_timeout, reader.recv(&mut rd)) => w,
+            _ = stop.changed() => return leave(rd, wr, None, &waiting).await,
+        };
+        let (token, heartbeat) = match welcomed(&s, welcome) {
+            Ok(w) => w,
+            Err(end) => return end,
+        };
+        self.note_connected(&s);
 
         let allow = ClientMsg::Allow(s.allow.describe());
         if writer.send(&mut wr, &allow.encode()).await.is_err() {
             return SessionEnd::Lost(format!("connection to {} lost", s.server));
         }
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
-        let waiting = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let (ended, session_ended) = watch::channel(false);
-        let _ended = CloseOnDrop(opening.clone(), ended);
+        let ended = CloseOnDrop(opening.clone(), ended);
         let strays = Arc::new(Strays::default());
         let timeout = crate::wire::protocol::peer_timeout(heartbeat);
         loop {
             let next = tokio::select! {
                 r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => r,
+                _ = stop.changed() => return leave(rd, wr, Some(ended), &waiting).await,
                 _ = strays.seen.notified() => {
                     return SessionEnd::Lost(format!(
                         "{} does not know this session ({STRAYS} data channels were refused as stale), so its address may now lead to another server; reconnecting",
@@ -184,12 +221,11 @@ impl Client {
                     }
                 }
                 ServerMsg::OpenData { count } => {
-                    let now = waiting.load(std::sync::atomic::Ordering::Acquire);
+                    let now = *waiting.borrow();
                     let most = data::WAITING_CAP.load(std::sync::atomic::Ordering::Relaxed);
                     let room = most.saturating_sub(now);
                     for _ in 0..usize::from(count).min(room) {
-                        waiting.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                        let held = Waiting(waiting.clone());
+                        let held = Waiting::new(&waiting);
                         self.spawn_data(
                             token,
                             opening.clone(),
