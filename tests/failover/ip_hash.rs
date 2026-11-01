@@ -78,12 +78,38 @@ mod web_sites {
         got.chars().last()
     }
 
-    async fn web_farm(svc: burrow::config::settings::Service, trusted: bool) -> (Farm, SocketAddr) {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Front {
+        Direct,
+        TrustedProxy,
+        ProxyHeader,
+    }
+
+    async fn proxied_from(http: SocketAddr, visitor: &str) -> Option<char> {
+        let mut s = TcpStream::connect(http).await.ok()?;
+        let src = SocketAddr::new(visitor.parse().ok()?, 40000);
+        let head = burrow::wire::proxy_protocol::header(burrow_config::ProxyVersion::V1, src, http);
+        s.write_all(&head).await.ok()?;
+        let req = format!("GET / HTTP/1.1\r\nHost: {HOST}\r\nConnection: close\r\n\r\n");
+        s.write_all(req.as_bytes()).await.ok()?;
+        let mut got = String::new();
+        tokio::time::timeout(Duration::from_secs(5), s.read_to_string(&mut got))
+            .await
+            .ok()?
+            .ok()?;
+        got.chars().last()
+    }
+
+    async fn web_farm(svc: burrow::config::settings::Service, front: Front) -> (Farm, SocketAddr) {
         let http: SocketAddr = format!("127.0.0.1:{}", free_port()).parse().unwrap();
         let mut farm = Farm::start(svc, |s: &mut ServerSettings| {
             plain_site(s, http);
-            if trusted {
-                s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
+            let web = s.web.as_mut().unwrap();
+            let local = vec!["127.0.0.1/32".parse().unwrap()];
+            match front {
+                Front::Direct => {}
+                Front::TrustedProxy => web.trusted_proxies = local,
+                Front::ProxyHeader => web.proxy_protocol_from = local,
             }
         })
         .await;
@@ -116,7 +142,7 @@ mod web_sites {
     async fn each_real_visitor_behind_a_trusted_proxy_keeps_one_client_and_weights_set_the_split() {
         let mut svc = web(Mode::IpHash, None);
         weigh(&mut svc, 3);
-        let (_farm, http) = web_farm(svc, true).await;
+        let (_farm, http) = web_farm(svc, Front::TrustedProxy).await;
         let seen = spread(http, 120).await;
         let a = seen.get(&'A').copied().unwrap_or(0);
         assert!((75..=105).contains(&a), "weight 3 to 1: {seen:?}");
@@ -125,12 +151,30 @@ mod web_sites {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn an_untrusted_forwarded_for_is_ignored_so_the_peer_address_decides() {
-        let (_farm, http) = web_farm(web(Mode::IpHash, None), false).await;
+        let (_farm, http) = web_farm(web(Mode::IpHash, None), Front::Direct).await;
         let seen = spread(http, 20).await;
         assert_eq!(
             seen.len(),
             1,
             "every request comes from 127.0.0.1: {seen:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_address_in_a_proxy_header_from_a_listed_balancer_decides_the_client() {
+        let (_farm, http) = web_farm(web(Mode::IpHash, None), Front::ProxyHeader).await;
+        let mut seen = BTreeMap::new();
+        for v in visitors(40) {
+            let first = proxied_from(http, &v).await.expect("answered");
+            for _ in 0..2 {
+                assert_eq!(proxied_from(http, &v).await, Some(first), "{v} moved");
+            }
+            *seen.entry(first).or_insert(0) += 1;
+        }
+        assert_eq!(
+            seen.len(),
+            2,
+            "the PROXY address, not 127.0.0.1, decides: {seen:?}"
         );
     }
 }
