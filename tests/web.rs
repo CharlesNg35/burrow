@@ -25,6 +25,18 @@ mod passthrough;
 mod plain;
 #[path = "web/plain_tunnel.rs"]
 mod plain_tunnel;
+#[path = "web/pool_bound.rs"]
+mod pool_bound;
+#[path = "web/pool_h2.rs"]
+mod pool_h2;
+#[path = "web/pool_kit.rs"]
+mod pool_kit;
+#[path = "web/pool_life.rs"]
+mod pool_life;
+#[path = "web/pool_reuse.rs"]
+mod pool_reuse;
+#[path = "web/pooled.rs"]
+mod pooled;
 #[path = "web/refusals.rs"]
 mod refusals;
 #[path = "web/reload.rs"]

@@ -47,8 +47,8 @@ jobs:
       - name: Allow the private network namespace that a test sets up
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: cargo test --locked
-      - name: Test the web proxy crate
-        run: cargo test --locked -p burrow-web
+      - name: Test the web proxy crate, the lingering close and the in-memory pipe
+        run: cargo test --locked -p burrow-web -p burrow-io
       - name: Test the library in the build without the web proxy
         run: cargo test --locked -p burrow --no-default-features --lib
       - name: Integration tests over WebSocket
@@ -139,8 +139,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo build --locked
       - run: cargo test --locked
-      - name: Test the web proxy crate
-        run: cargo test --locked -p burrow-web
+      - name: Test the web proxy crate, the lingering close and the in-memory pipe
+        run: cargo test --locked -p burrow-web -p burrow-io
       - name: Install and run as a launchd service
         if: runner.os == 'macOS'
         env:
@@ -209,10 +209,6 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-latest
-    env:
-      # A dated nightly, so a rustc regression cannot break CI overnight (nightly 2026-11-01 failed to
-      # compile burrow-admin-proto's sem_types with E0391). Move it forward on purpose.
-      RUSTUP_TOOLCHAIN: nightly-2026-10-31
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -220,9 +216,11 @@ jobs:
         target: [handshake, frames, config, update, patch, syntax_parsers, socks_udp_header, sni_peek, proxy_header, acme_meta, http_edge, host_header, path_normalize, basic_auth_header]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install nightly
+      # The dated nightly is pinned once, in fuzz/rust-toolchain.toml: nightly 2026-11-01 fails on
+      # burrow-admin-proto's recursive SemType with E0391 (rust-lang/rust#165263). Move it forward on purpose.
+      - name: Install the pinned nightly
         working-directory: fuzz
-        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+        run: rustup toolchain install
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-fuzz

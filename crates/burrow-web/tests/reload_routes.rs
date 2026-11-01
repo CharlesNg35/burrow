@@ -23,7 +23,7 @@ async fn get(p: &burrow_web::Proxy<Fake>, target: &str, extra: &str) -> String {
 }
 
 fn last_service(up: &Fake) -> String {
-    up.visitors.lock().unwrap().last().unwrap().0.clone()
+    up.leased.lock().unwrap().last().unwrap().clone()
 }
 
 #[tokio::test]

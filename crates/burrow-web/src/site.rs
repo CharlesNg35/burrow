@@ -29,6 +29,7 @@ pub struct SiteOptions {
     pub request_headers: Vec<HeaderRule>,
     pub response_headers: Vec<HeaderRule>,
     pub error_pages: Option<PathBuf>,
+    pub app_key: u64,
 }
 
 impl Default for SiteOptions {
@@ -54,6 +55,7 @@ impl Default for SiteOptions {
             request_headers: Vec::new(),
             response_headers: Vec::new(),
             error_pages: None,
+            app_key: 0,
         }
     }
 }
@@ -121,7 +123,7 @@ pub struct HeaderRule {
     pub value: Option<HeaderValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TargetTls {
     Off,
     PublicRoots,

@@ -4,13 +4,13 @@ use burrow_syntax::url_path::normalize_path;
 use bytes::Bytes;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::BodyExt;
-use hyper::body::Incoming;
 
 use super::forwarded;
 use super::host::{host_port, request_host};
 use super::pages::Page;
 use super::redirect;
 use super::stages::{Asked, to_service};
+use super::unread::Kept;
 use super::{Body, Conn, MAX_HEADERS, full};
 use crate::Upstream;
 use crate::listen::Shared;
@@ -23,7 +23,7 @@ const CHALLENGE: &str = "/.well-known/acme-challenge/";
 pub(crate) async fn handle<U: Upstream>(
     shared: &Arc<Shared<U>>,
     conn: &Conn,
-    mut req: Request<Incoming>,
+    mut req: Request<Kept>,
 ) -> Response<Body> {
     if req.headers().len() > MAX_HEADERS {
         return Page::HeadersTooLarge.response();
@@ -124,7 +124,7 @@ fn challenge_token(path: &str) -> Option<&str> {
     good.then_some(token)
 }
 
-fn challenge<U: Upstream>(shared: &Shared<U>, req: &Request<Incoming>) -> Option<Response<Body>> {
+fn challenge<U: Upstream>(shared: &Shared<U>, req: &Request<Kept>) -> Option<Response<Body>> {
     let answer = challenge_token(req.uri().path()).and_then(|t| shared.certs.http_challenge(t))?;
     let mut r = Response::new(full(Bytes::from(answer)));
     r.headers_mut().insert(
@@ -139,7 +139,7 @@ fn on_plain<U: Upstream>(
     conn: &Conn,
     table: &Table,
     host: &str,
-    req: &Request<Incoming>,
+    req: &Request<Kept>,
 ) -> Option<Response<Body>> {
     let proxied_https = || {
         let trusted = &table.forwarding.trusted_proxies;
@@ -165,7 +165,7 @@ pub fn https_location(host: &str, port: Option<u16>, path_and_query: &str) -> St
     format!("{}{path_and_query}", redirect::address(true, host, port))
 }
 
-fn to_https(host: &str, port: Option<u16>, req: &Request<Incoming>) -> Response<Body> {
+fn to_https(host: &str, port: Option<u16>, req: &Request<Kept>) -> Response<Body> {
     let pq = req.uri().path_and_query().map_or("/", |p| p.as_str());
     let mut r = Response::new(full(Bytes::new()));
     *r.status_mut() = StatusCode::PERMANENT_REDIRECT;
@@ -178,7 +178,7 @@ fn to_https(host: &str, port: Option<u16>, req: &Request<Incoming>) -> Response<
 fn by_path<U: Upstream>(
     shared: &Arc<Shared<U>>,
     conn: &Conn,
-    mut req: Request<Incoming>,
+    mut req: Request<Kept>,
     prefix: &str,
 ) -> Response<Body> {
     let answer = tunnel::answer(&req, prefix);

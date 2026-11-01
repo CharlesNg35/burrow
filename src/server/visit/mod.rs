@@ -83,7 +83,7 @@ pub(super) async fn serve(
         }
     };
     let label = format!("visitor \"{visitor}\"");
-    let clients = clients_for(&shared, &grant);
+    let clients = clients_for(&shared, &grant, peer.ip());
     if clients.is_empty() {
         offline(&shared, &grant, &request, peer, &label, channel).await;
         return;
@@ -151,6 +151,7 @@ pub(super) async fn serve(
     };
     let way = Way {
         service: grant.service.as_deref(),
+        counted: grant.service.as_deref(),
         label: &label,
         peer,
         source: None,

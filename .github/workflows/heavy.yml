@@ -78,7 +78,7 @@ jobs:
               rustup toolchain install || exit 1
               rc=0
               cargo test --locked --no-fail-fast || rc=1
-              cargo test --locked --no-fail-fast -p burrow-web || rc=1
+              cargo test --locked --no-fail-fast -p burrow-web -p burrow-io || rc=1
               BURROW_TEST_TRANSPORT=ws cargo test --locked --no-fail-fast --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive --test self_target --test fetch --test web || rc=1
               exit \$rc
             "'

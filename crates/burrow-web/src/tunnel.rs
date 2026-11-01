@@ -157,6 +157,7 @@ pub(crate) async fn serve_by_path<U: Upstream>(
         .header_read_timeout(remaining)
         .serve_connection(TokioIo::new(io), service)
         .with_upgrades();
+    let conn = burrow_io::linger::serve(conn);
     if let Err(e) = tokio::time::timeout_at(deadline, conn)
         .await
         .unwrap_or(Ok(()))

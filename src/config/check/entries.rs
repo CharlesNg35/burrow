@@ -4,7 +4,7 @@ use crate::config::diagnostics::{Diagnostic, plural};
 use crate::config::settings::Entry;
 use crate::config::tree::Span;
 use burrow_admin_proto::codes;
-use burrow_config::{Mode, Protocol, ServiceClient, ServiceEntry, Target};
+use burrow_config::{Protocol, ServiceClient, ServiceEntry, Target};
 
 pub(super) struct Whose<'a> {
     pub name: &'a str,
@@ -159,17 +159,17 @@ pub(super) fn check_clients(
             continue;
         }
         seen.push((client.to_string(), effective));
-        if given.is_some() && svc.mode != Mode::Balance {
+        if given.is_some() && !svc.mode.weighted() {
             let mut w = place.clone();
             w.push(ServiceClient::WEIGHT.key());
             out.push(
                 Diagnostic::error(
                     codes::WEIGHT_NOT_BALANCE,
-                    format!("service \"{name}\" gives client \"{client}\" a weight, but weights only apply with mode: balance"),
+                    format!("service \"{name}\" gives client \"{client}\" a weight, but weights only apply with mode: balance or ip_hash"),
                 )
                 .at(spans.value(&w))
-                .label("only used by mode: balance")
-                .help("remove the weight, or set mode: balance"),
+                .label("only used by mode: balance or ip_hash")
+                .help("remove the weight, or set mode: balance or ip_hash"),
             );
         }
         if !listed.names.iter().any(|n| n == client) {

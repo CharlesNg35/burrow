@@ -12,7 +12,7 @@ use tracing::debug;
 
 use super::idle::{Activity, Busy, Held, Watched};
 use super::stall::Stalls;
-use super::upstream::Upstreams;
+use super::upstream::Ups;
 use super::upstream::to_h2::StreamReset;
 use super::{Body, pipeline};
 use crate::Upstream;
@@ -33,7 +33,7 @@ pub(crate) struct Conn {
     pub local: SocketAddr,
     pub name: Option<String>,
     pub proto: Proto,
-    pub ups: Upstreams,
+    pub ups: Ups,
     pub activity: Arc<Activity>,
     pub stalls: Stalls,
 }
@@ -50,7 +50,7 @@ impl Conn {
             local,
             name,
             proto,
-            ups: Upstreams::new(proto),
+            ups: Ups::new(proto),
             activity: Activity::new(),
             stalls: Stalls::new(),
         }
@@ -85,7 +85,11 @@ fn service<U: Upstream>(
         let busy = conn.activity.enter();
         async move {
             let version = req.version();
+            let (req, unread) = super::unread::keep(req);
             let mut r = pipeline::handle(&shared, &conn, req).await;
+            if let Some(unread) = unread {
+                unread.settle(&mut r).await;
+            }
             *r.version_mut() = version;
             if conn.proto == Proto::H2 {
                 super::headers::detach(r.headers_mut());
@@ -109,7 +113,7 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
                 .header_read_timeout(shared.timeouts().request_header.max(LEAST))
                 .serve_connection(io, service(&shared, &conn, held))
                 .with_upgrades();
-            let served = std::pin::pin!(served);
+            let served = std::pin::pin!(burrow_io::linger::serve(served));
             run(&shared, &conn, served, |s| s.graceful_shutdown(), false).await;
         }
         Proto::H2 => {

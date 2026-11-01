@@ -125,7 +125,7 @@ Every website gets these without any setting:
   - A connection waiting for the app's next bytes is not idle. An app that goes quiet in the middle of an answer, like a quiet event stream, is kept open while the visitor stays, and closed when the visitor leaves.
   - A visitor who stops reading an answer counts as idle.
 - **TLS 1.2 and 1.3.** TLS 1.0 and 1.1 are retired (RFC 8996). Clients that only speak them cannot reach any site on the port, passthrough sites included.
-- Everything else a service does works for websites too: several clients with failover, balance or least_connections, health checks, `allow_from`, `max_connections`, `bandwidth`.
+- Everything else a service does works for websites too: several clients with failover, balance, least_connections or ip_hash, health checks, `allow_from`, `max_connections`, `bandwidth`.
 - **`allow_from` limits visitors, not Let's Encrypt:** burrow answers Let's Encrypt's checks before it looks at the site, so a site open only to `192.168.1.0/24` still gets its certificate. Behind a CDN or another proxy, `allow_from` sees the proxy's address, not the visitor's ([Behind a proxy](web/proxies.md)).
 
 ## Plain HTTP websites

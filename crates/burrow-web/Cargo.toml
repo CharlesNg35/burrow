@@ -15,6 +15,7 @@ async-compression = { version = "0.4.51", default-features = false, features = [
 aws-lc-rs = "1.19.0"
 base64 = "0.23.1"
 bcrypt = { version = "0.19.3", default-features = false, features = ["std", "zeroize"] }
+burrow-io = { path = "../burrow-io" }
 burrow-syntax = { path = "../burrow-syntax" }
 bytes = "1.12.1"
 governor = { version = "0.10.4", default-features = false, features = ["std"] }
@@ -50,6 +51,7 @@ webpki = { package = "rustls-webpki", version = "0.103.16", default-features = f
 ipconfig = { version = "0.3.4", default-features = false }
 
 [dev-dependencies]
+burrow-io = { path = "../burrow-io", features = ["probe"] }
 flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
 tempfile = "3.27.0"

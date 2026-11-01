@@ -248,6 +248,7 @@ pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
                 burrow_config::Mode::Failover => "failover",
                 burrow_config::Mode::Balance => "balance",
                 burrow_config::Mode::LeastConnections => "least connections",
+                burrow_config::Mode::IpHash => "ip hash",
             }
         ),
     };
@@ -328,6 +329,7 @@ impl Server {
             applied: watch::Sender::new(ApplyReport::default()),
             admin: std::sync::OnceLock::new(),
             service_counts: Counts::default(),
+            busy: super::share::Busy::default(),
             visitor_counts: Counts::default(),
             client_counts: Counts::default(),
             entry_counts: Default::default(),

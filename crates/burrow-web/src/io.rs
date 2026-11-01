@@ -1,12 +1,15 @@
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
+use tokio::sync::Notify;
+
+use burrow_io::pipe::{Duplex, duplex};
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     fn reset_on_close(&self) {}
@@ -16,12 +19,47 @@ pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     }
 }
 
+#[derive(Debug, Default)]
+struct Side {
+    reason: AtomicU8,
+    via: AtomicU64,
+    done: AtomicBool,
+    ended: Notify,
+}
+
 #[derive(Debug, Clone)]
-pub struct Ending(Arc<AtomicU8>);
+pub struct Ending(Arc<Side>);
 
 impl Ending {
     pub fn refused(&self) -> Option<crate::Refused> {
-        crate::Refused::from_code(self.0.load(Ordering::Acquire))
+        crate::Refused::from_code(self.0.reason.load(Ordering::Acquire))
+    }
+
+    pub fn answered_by(&self, way: u64) {
+        self.0.via.store(way, Ordering::Release);
+    }
+
+    pub fn via(&self) -> Option<u64> {
+        Some(self.0.via.load(Ordering::Acquire)).filter(|v| *v != 0)
+    }
+
+    pub fn is_ended(&self) -> bool {
+        self.0.done.load(Ordering::Acquire)
+    }
+
+    pub fn end(&self) {
+        self.0.done.store(true, Ordering::Release);
+        self.0.ended.notify_waiters();
+    }
+
+    pub async fn ended(&self) {
+        let notified = self.0.ended.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.0.done.load(Ordering::Acquire) {
+            return;
+        }
+        notified.await;
     }
 }
 
@@ -147,28 +185,28 @@ const RESET: u8 = 1;
 const DROPPED: u8 = 2;
 
 pub struct Pipe {
-    inner: DuplexStream,
+    inner: Duplex,
     mine: Arc<AtomicU8>,
     theirs: Arc<AtomicU8>,
-    reason: Arc<AtomicU8>,
+    side: Arc<Side>,
 }
 
 pub fn pipe() -> (Pipe, Pipe) {
-    let (a, b) = tokio::io::duplex(PIPE_BUFFER);
+    let (a, b) = duplex(PIPE_BUFFER);
     let (ra, rb) = (Arc::new(AtomicU8::new(0)), Arc::new(AtomicU8::new(0)));
-    let reason = Arc::new(AtomicU8::new(0));
+    let side = Arc::new(Side::default());
     (
         Pipe {
             inner: a,
             mine: ra.clone(),
             theirs: rb.clone(),
-            reason: reason.clone(),
+            side: side.clone(),
         },
         Pipe {
             inner: b,
             mine: rb,
             theirs: ra,
-            reason,
+            side,
         },
     )
 }
@@ -183,7 +221,7 @@ impl Pipe {
     }
 
     pub fn refuse(&self, why: crate::Refused) {
-        self.reason.store(why.code(), Ordering::Release);
+        self.side.reason.store(why.code(), Ordering::Release);
     }
 
     fn peer_reset(&self) -> bool {
@@ -203,7 +241,7 @@ impl Io for Pipe {
     }
 
     fn ending(&self) -> Option<Ending> {
-        Some(Ending(self.reason.clone()))
+        Some(Ending(self.side.clone()))
     }
 }
 
@@ -363,6 +401,29 @@ mod tests {
             b.refuse(why);
             assert_eq!(ending.refused(), Some(why));
         }
+    }
+
+    #[test]
+    fn the_way_that_answered_is_read_on_the_other_end() {
+        let (a, b) = pipe();
+        let ending = Io::ending(&a).unwrap();
+        assert_eq!(ending.via(), None);
+        Io::ending(&b).unwrap().answered_by(42);
+        assert_eq!(ending.via(), Some(42));
+    }
+
+    #[tokio::test]
+    async fn waiting_for_the_end_returns_once_the_other_side_ended_even_if_it_ended_first() {
+        let (a, b) = pipe();
+        let ending = Io::ending(&a).unwrap();
+        let waiting = tokio::spawn({
+            let ending = ending.clone();
+            async move { ending.ended().await }
+        });
+        tokio::task::yield_now().await;
+        Io::ending(&b).unwrap().end();
+        waiting.await.unwrap();
+        ending.ended().await;
     }
 
     #[tokio::test]
