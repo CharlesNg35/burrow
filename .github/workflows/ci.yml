@@ -209,6 +209,10 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-latest
+    env:
+      # A dated nightly, so a rustc regression cannot break CI overnight (nightly 2026-11-01 failed to
+      # compile burrow-admin-proto's sem_types with E0391). Move it forward on purpose.
+      RUSTUP_TOOLCHAIN: nightly-2026-10-31
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -218,7 +222,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install nightly
         working-directory: fuzz
-        run: rustup toolchain install nightly --profile minimal
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-fuzz
@@ -227,13 +231,9 @@ jobs:
           workspaces: fuzz
       - name: Toolchain versions
         working-directory: fuzz
-        env:
-          RUSTUP_TOOLCHAIN: nightly
         run: rustc --version && cargo --version && cargo fuzz --version
       - name: Fuzz ${{ matrix.target }} for 30 seconds
         working-directory: fuzz
-        env:
-          RUSTUP_TOOLCHAIN: nightly
         run: cargo fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }} -- -max_total_time=30 -max_len=4096
       - name: Print the crashing inputs, base64, so they outlive the run's artifacts
         if: failure()
