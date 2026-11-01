@@ -32,9 +32,9 @@ async fn early_answer_to_a_large_body(keep_alive: bool, upgrades: bool) {
     });
     let head = format!(
         "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
-        crate::probe::BODY
+        crate::linger::probe::BODY
     );
-    let ended = crate::probe::send_large_body(addr, &head).await;
+    let ended = crate::linger::probe::send_large_body(addr, &head).await;
     assert!(ended.answer.starts_with("HTTP/1.1 401"), "{ended:?}");
     assert!(ended.broken.is_none(), "{ended:?}");
 }

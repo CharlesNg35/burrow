@@ -1,9 +1,3 @@
-//! Lingering close for HTTP/1 servers: after the last answer, read and drop what the client still sends, within a byte and a time cap, then close.
-//! Closing with unread data sends a TCP reset, and a reset can make the client lose an answer it was already sent (401, 413...).
-//! It must not depend on any other burrow crate.
-
-#![forbid(unsafe_code)]
-
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;

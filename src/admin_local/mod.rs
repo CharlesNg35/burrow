@@ -246,7 +246,7 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
         .keep_alive(false)
         .title_case_headers(true)
         .auto_date_header(false);
-    let served = burrow_linger::serve(
+    let served = burrow_io::linger::serve(
         builder
             .serve_connection(TokioIo::new(stream), service)
             .with_upgrades(),

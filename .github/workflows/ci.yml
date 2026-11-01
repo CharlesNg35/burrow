@@ -48,7 +48,7 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: cargo test --locked
       - name: Test the web proxy crate and the lingering close
-        run: cargo test --locked -p burrow-web -p burrow-linger
+        run: cargo test --locked -p burrow-web -p burrow-io
       - name: Test the library in the build without the web proxy
         run: cargo test --locked -p burrow --no-default-features --lib
       - name: Integration tests over WebSocket
@@ -140,7 +140,7 @@ jobs:
       - run: cargo build --locked
       - run: cargo test --locked
       - name: Test the web proxy crate and the lingering close
-        run: cargo test --locked -p burrow-web -p burrow-linger
+        run: cargo test --locked -p burrow-web -p burrow-io
       - name: Install and run as a launchd service
         if: runner.os == 'macOS'
         env:

@@ -109,7 +109,7 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
                 .header_read_timeout(shared.timeouts().request_header.max(LEAST))
                 .serve_connection(io, service(&shared, &conn, held))
                 .with_upgrades();
-            let served = std::pin::pin!(burrow_linger::serve(served));
+            let served = std::pin::pin!(burrow_io::linger::serve(served));
             run(&shared, &conn, served, |s| s.graceful_shutdown(), false).await;
         }
         Proto::H2 => {

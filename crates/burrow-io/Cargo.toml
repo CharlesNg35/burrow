@@ -1,8 +1,8 @@
 [package]
-name = "burrow-linger"
+name = "burrow-io"
 version = "0.2.0"
 edition = "2024"
-description = "Lingering close for burrow's HTTP/1 servers, so an early answer is not lost to a TCP reset"
+description = "Small I/O helpers shared by the burrow tunnel and web proxy: lingering close for early HTTP/1 answers"
 license = "MIT"
 publish = false
 

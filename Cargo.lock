@@ -446,7 +446,7 @@ dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
  "burrow-config",
- "burrow-linger",
+ "burrow-io",
  "burrow-syntax",
  "burrow-web",
  "bytes",
@@ -562,7 +562,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "burrow-linger"
+name = "burrow-io"
 version = "0.2.0"
 dependencies = [
  "bytes",
@@ -595,7 +595,7 @@ dependencies = [
  "aws-lc-rs",
  "base64 0.23.1",
  "bcrypt",
- "burrow-linger",
+ "burrow-io",
  "burrow-syntax",
  "bytes",
  "flate2",

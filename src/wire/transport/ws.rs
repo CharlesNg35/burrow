@@ -444,7 +444,7 @@ pub fn serve_upgraded(carrier: Carrier) -> WsConn {
 
 async fn refuse(mut carrier: Carrier, r: Refused) {
     let _ = carrier.write_all(r.response()).await;
-    burrow_linger::linger(carrier).await;
+    burrow_io::linger::linger(carrier).await;
 }
 
 #[derive(Debug)]

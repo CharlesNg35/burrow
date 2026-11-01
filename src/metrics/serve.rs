@@ -151,7 +151,7 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
         Err(_) => Err(std::io::Error::other("the reader is too slow")),
         Ok(Err(e)) => Err(std::io::Error::other(e)),
         Ok(Ok(())) => {
-            burrow_linger::linger(served.into_parts().io.into_inner().inner).await;
+            burrow_io::linger::linger(served.into_parts().io.into_inner().inner).await;
             Ok(())
         }
     }
@@ -225,9 +225,9 @@ mod tests {
         tokio::spawn(serve(l, Arc::new(empty)));
         let head = format!(
             "POST /metrics HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
-            burrow_linger::probe::BODY
+            burrow_io::linger::probe::BODY
         );
-        let ended = burrow_linger::probe::send_large_body(addr, &head).await;
+        let ended = burrow_io::linger::probe::send_large_body(addr, &head).await;
         assert!(ended.answer.starts_with("HTTP/1.1 405"), "{ended:?}");
         assert!(ended.broken.is_none(), "{ended:?}");
     }

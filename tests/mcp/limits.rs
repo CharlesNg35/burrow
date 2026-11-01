@@ -189,8 +189,8 @@ async fn an_early_answer_to_a_large_body_ends_in_a_clean_close_not_a_reset() {
     let v = visitor(&w, "viewer", &w.viewer);
     let h = start(&v, &["--no-print-token"]).await;
     let addr = ([127, 0, 0, 1], h.port).into();
-    let head = head(h.port, "wrong", burrow_linger::probe::BODY);
-    let ended = burrow_linger::probe::send_large_body(addr, &head).await;
+    let head = head(h.port, "wrong", burrow_io::linger::probe::BODY);
+    let ended = burrow_io::linger::probe::send_large_body(addr, &head).await;
     assert!(ended.answer.starts_with("HTTP/1.1 401"), "{ended:?}");
     assert!(ended.broken.is_none(), "{ended:?}");
     let _ = w.stop.send(true);

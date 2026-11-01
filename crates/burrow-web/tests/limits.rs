@@ -138,10 +138,11 @@ async fn early_answers_to_a_large_body_end_in_a_clean_close_not_a_reset() {
     let mut site = plain_site("blog", &["blog.example.com"]);
     site.options.max_body_size = Some(10);
     let proxy = start_with(|s| s.sites = vec![site], up, Scripted::new(), true).await;
-    let len = burrow_linger::probe::BODY;
+    let len = burrow_io::linger::probe::BODY;
     for (host, want) in [("blog.example.com", "413"), ("nobody.example.com", "4")] {
         let head = format!("POST /up HTTP/1.1\r\nHost: {host}\r\nContent-Length: {len}\r\n\r\n");
-        let ended = burrow_linger::probe::send_large_body(proxy.http_addr().unwrap(), &head).await;
+        let ended =
+            burrow_io::linger::probe::send_large_body(proxy.http_addr().unwrap(), &head).await;
         assert!(
             ended.answer.starts_with(&format!("HTTP/1.1 {want}")),
             "{host}: {ended:?}"

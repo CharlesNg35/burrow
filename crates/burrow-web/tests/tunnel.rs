@@ -269,10 +269,10 @@ async fn a_refused_tunnel_request_with_a_large_body_ends_in_a_clean_close_not_a_
     let t = tls(proxy.https_addr().unwrap(), "site.example.com")
         .await
         .unwrap();
-    let len = burrow_linger::probe::BODY;
+    let len = burrow_io::linger::probe::BODY;
     let head =
         format!("POST / HTTP/1.1\r\nHost: site.example.com\r\nContent-Length: {len}\r\n\r\n");
-    let ended = burrow_linger::probe::send_large_body_over(t, &head, |t| {
+    let ended = burrow_io::linger::probe::send_large_body_over(t, &head, |t| {
         t.get_ref().0.take_error().unwrap()
     })
     .await;
