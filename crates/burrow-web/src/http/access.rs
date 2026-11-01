@@ -151,7 +151,7 @@ async fn ask<U: Upstream>(
         epoch: pool.epoch(),
     };
     let (resp, home) = asking.send_h1(None, sub).await.map_err(|m| m.page)?;
-    let ticket = pool.enter(&name, visitor, Ask::Auth, home.task());
+    let ticket = pool.ticket(&name, visitor.clone(), Ask::Auth, home.task());
     let lease = (asking.lease, ticket);
     Ok(resp.map(|b| Back::new(b.map_err(Into::into).boxed(), home, lease, None).boxed()))
 }

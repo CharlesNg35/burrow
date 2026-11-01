@@ -246,6 +246,8 @@ async fn sweep_pool<U: Upstream>(shared: Arc<Shared<U>>) {
     loop {
         every.tick().await;
         shared.pool.sweep(|service| shared.up.crowded(service));
+        let keeps = |service: &str, from: &Visitor, ask| shared.up.keeps(service, from, ask);
+        shared.pool.busy.recheck(shared.pool.epoch(), &keeps);
     }
 }
 
@@ -256,9 +258,8 @@ impl<U: Upstream> Shared<U> {
                 .site(&key.service)
                 .is_some_and(|s| s.app_key == key.site)
         });
-        self.pool
-            .busy
-            .cut(|service, from, ask| self.up.keeps(service, from, ask));
+        let keeps = |service: &str, from: &Visitor, ask| self.up.keeps(service, from, ask);
+        self.pool.busy.cut(self.pool.epoch(), &keeps);
     }
 }
 

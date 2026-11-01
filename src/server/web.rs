@@ -53,13 +53,8 @@ impl Upstream for Doorway {
     }
 
     fn lease(&self, service: &str, from: &Visitor, ask: Ask) -> Result<(Way, Lease), Refused> {
-        match ask {
-            Ask::Site => self
-                .0
-                .still_on_web(service, &from.host)
-                .map_err(|_| Refused::Gone)?,
-            Ask::Auth if !self.allowed(service, from) => return Err(Refused::NotAllowed),
-            Ask::Auth => {}
+        if ask == Ask::Auth && !self.allowed(service, from) {
+            return Err(Refused::NotAllowed);
         }
         lease::lease(&self.0, service, from)
     }

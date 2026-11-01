@@ -108,6 +108,11 @@ impl HttpBody for Back {
         let this = &mut *self;
         let polled = Pin::new(&mut this.inner).poll_frame(cx);
         match &polled {
+            Poll::Pending => {
+                if let Some(t) = this.ticket.as_mut() {
+                    t.waiting();
+                }
+            }
             Poll::Ready(None) => this.done(true),
             Poll::Ready(Some(Err(_))) => this.done(false),
             Poll::Ready(Some(Ok(_))) if this.inner.is_end_stream() => this.done(true),

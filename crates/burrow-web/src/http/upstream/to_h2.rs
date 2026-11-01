@@ -103,10 +103,11 @@ pub(crate) async fn forward<U: Upstream>(
         }
     };
     strip_hop_by_hop(resp.headers_mut());
+    let lease = asking.lease;
     let ticket = f
         .pool
-        .enter(&f.site.name, &f.visitor, Ask::Site, home.task());
-    let lease = (asking.lease, ticket);
+        .ticket(&f.site.name, f.visitor, Ask::Site, home.task());
+    let lease = (lease, ticket);
     let activity = f.activity.clone();
     resp.map(move |b| {
         let b = b
