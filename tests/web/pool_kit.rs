@@ -120,7 +120,7 @@ async fn serve(mut s: TcpStream, conn: usize, behave: Behave, log: Arc<Log>) {
         let close = match behave {
             Behave::CloseOnReuse => served > 1,
             Behave::CloseAlways => true,
-            Behave::CloseSometimes => (conn + served) % 3 == 0,
+            Behave::CloseSometimes => (conn + served).is_multiple_of(3),
             Behave::Answer | Behave::CloseAfterAnswer | Behave::Ntlm => false,
         };
         if close {
