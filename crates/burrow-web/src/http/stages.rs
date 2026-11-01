@@ -4,7 +4,6 @@ use std::time::{Instant, SystemTime};
 
 use http::{HeaderMap, HeaderValue, Method, Request, Response, Version};
 use http_body_util::BodyExt;
-use hyper::body::Incoming;
 
 use super::access::Gate;
 use super::forwarded::{self, Client, REQUEST_ID};
@@ -12,6 +11,7 @@ use super::limit::{Capped, declared_over};
 use super::logged::Logged;
 use super::pages::Page;
 use super::site::SiteRun;
+use super::unread::Kept;
 use super::upstream::{Forward, forward};
 use super::{Body, Conn, compress, headers, redirect};
 use crate::listen::Shared;
@@ -40,7 +40,7 @@ fn protocol(v: Version) -> &'static str {
     }
 }
 
-fn entry(req: &Request<Incoming>, client: &Client, asked: &Asked<'_>, id: Option<&str>) -> Entry {
+fn entry(req: &Request<Kept>, client: &Client, asked: &Asked<'_>, id: Option<&str>) -> Entry {
     Entry {
         time: SystemTime::now(),
         client: client.ip,
@@ -74,7 +74,7 @@ pub(crate) async fn to_service<U: Upstream>(
     conn: &Conn,
     table: &Table,
     asked: Asked<'_>,
-    req: Request<Incoming>,
+    req: Request<Kept>,
 ) -> Response<Body> {
     let started = Instant::now();
     let service = asked.service;
@@ -144,7 +144,7 @@ async fn answer<U: Upstream>(
     asked: Asked<'_>,
     client: Client,
     id: Option<&str>,
-    mut req: Request<Incoming>,
+    mut req: Request<Kept>,
 ) -> Response<Body> {
     let o = &site.options;
     let visitor = Visitor {

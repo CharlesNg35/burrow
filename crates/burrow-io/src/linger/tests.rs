@@ -118,3 +118,62 @@ async fn lingering_reads_no_more_than_the_byte_cap() {
         "{sent}"
     );
 }
+
+async fn hyper_answer_to(head: String) -> crate::linger::probe::Ended {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut b = hyper::server::conn::http1::Builder::new();
+        b.max_buf_size(8192);
+        let conn = b.serve_connection(TokioIo::new(stream), hyper::service::service_fn(refuse));
+        serve(conn.with_upgrades()).await
+    });
+    let ended = crate::linger::probe::send_large_body(addr, &head).await;
+    let served = server.await.unwrap();
+    assert!(
+        served.is_err_and(|e| e.is_parse()),
+        "the parse error still reaches the caller"
+    );
+    ended
+}
+
+#[tokio::test]
+async fn hypers_own_431_reaches_the_client_intact_when_more_bytes_follow() {
+    let head = format!(
+        "GET / HTTP/1.1\r\nHost: x\r\nX-Big: {}",
+        "a".repeat(16 * 1024)
+    );
+    let ended = hyper_answer_to(head).await;
+    assert!(ended.answer.starts_with("HTTP/1.1 431"), "{ended:?}");
+    assert!(ended.broken.is_none(), "{ended:?}");
+}
+
+#[tokio::test]
+async fn hypers_own_400_reaches_the_client_intact_when_more_bytes_follow() {
+    let ended = hyper_answer_to("G@T / HTTP/1.1\r\nHost: x\r\n\r\n".into()).await;
+    assert!(ended.answer.starts_with("HTTP/1.1 400"), "{ended:?}");
+    assert!(ended.broken.is_none(), "{ended:?}");
+}
+
+#[tokio::test]
+async fn a_head_that_times_out_closes_at_once_without_lingering() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut b = hyper::server::conn::http1::Builder::new();
+        b.timer(hyper_util::rt::TokioTimer::new())
+            .header_read_timeout(Duration::from_millis(200));
+        let conn = b.serve_connection(TokioIo::new(stream), hyper::service::service_fn(refuse));
+        let started = Instant::now();
+        let served = serve(conn).await;
+        (served, started.elapsed())
+    });
+    let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+    client.write_all(b"GET / HTTP/1.1\r\nHo").await.unwrap();
+    let (served, took) = server.await.unwrap();
+    assert!(served.is_err_and(|e| e.is_timeout()));
+    assert!(took < LINGER_TIMEOUT, "{took:?}");
+    drop(client);
+}

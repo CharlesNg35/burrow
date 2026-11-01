@@ -9,6 +9,7 @@ use super::Body;
 use super::forwarded::Client;
 use super::pages::Page;
 use super::site::{Hop, SiteRun};
+use super::unread::Kept;
 use super::upstream::{Failed, handshake, refusal_page, strip_hop_by_hop};
 use crate::auth::forward::{Asked, copy_granted, strip_visitor_copies, subrequest};
 use crate::auth::{Access, Verdict, basic, retry_after};
@@ -45,7 +46,7 @@ impl<U: Upstream> Gate<'_, U> {
         (!ok).then(|| Page::Forbidden.response_from(&self.site.pages))
     }
 
-    pub(crate) async fn check(&self, req: &mut Request<Incoming>) -> Option<Response<Body>> {
+    pub(crate) async fn check(&self, req: &mut Request<Kept>) -> Option<Response<Body>> {
         if let Some(l) = &self.site.limit
             && let Err(wait) = l.check(self.client.ip)
         {
@@ -78,7 +79,7 @@ impl<U: Upstream> Gate<'_, U> {
     async fn forward_auth(
         &self,
         fa: &ForwardAuth,
-        req: &mut Request<Incoming>,
+        req: &mut Request<Kept>,
     ) -> Option<Response<Body>> {
         strip_visitor_copies(req.headers_mut(), &[&fa.copy_headers, &fa.strip_headers]);
         let pq = req.uri().path_and_query().map_or("/", |p| p.as_str());
