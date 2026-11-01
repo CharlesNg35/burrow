@@ -68,6 +68,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - On FreeBSD and macOS, an early answer such as 401 or 413 to a request whose body is still arriving now ends in a clean close instead of a reset: every HTTP/1 server shuts the write side of its socket once, as nginx and Go do (D70).
   - Public UDP ports and UDP forwards ask the system for a 7 MiB receive buffer, as WireGuard does, and each UDP peer for 256 KiB, so a burst of datagrams waits instead of being dropped. Linux caps the size at `net.core.rmem_max`, and burrow says so once in its log; docs/services.md shows the `/etc/sysctl.d/` line that raises it. A burrow running as root with CAP_NET_ADMIN asks past the cap.
   - A client opens its data channels to the address its control connection reached and looks the server's name up again only when that address stops answering or the control connection reconnects, as rathole does, so a resolver that fails for a moment under load no longer stops new connections.
+  - After a burst, a client's idle data channels go back to `pool.min_idle` within about 2 minutes instead of about an hour: each minute the server closes the channels no connection needed in that minute, as nginx closes idle upstream connections after 60 s. A pool in use keeps its channels (D73).
 - **Compatibility:**
   - The tunnel protocol is unchanged: v0.1.x clients and visitors work with a v0.2.0 server, and v0.2.0 clients and visitors with a v0.1.x server.
   - The admin protocol adds features that each side uses only when the other lists them.

@@ -3,6 +3,8 @@ use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use tokio::time::Instant as Clock;
+
 use burrow_syntax::share::{Share, Shares};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -23,8 +25,9 @@ struct Pool {
     waiters: VecDeque<oneshot::Sender<Channel>>,
     target: usize,
     requested: usize,
-    last_request: Instant,
-    last_starved: Instant,
+    last_request: Clock,
+    spare: usize,
+    trim_at: Clock,
     min_idle: usize,
     max_idle: usize,
     max_pending: usize,
@@ -60,7 +63,7 @@ enum Queued {
 
 const WAIT_ROOM: usize = 4;
 const REQUEST_RETRY: Duration = Duration::from_secs(5);
-const DECAY_AFTER: Duration = Duration::from_secs(60);
+const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 impl ClientSession {
     pub fn new(
@@ -72,11 +75,11 @@ impl ClientSession {
         instance: [u8; TOKEN_LEN],
         cfg: &PoolConfig,
     ) -> Self {
-        let now = Instant::now();
+        let now = Clock::now();
         ClientSession {
             name,
             peer,
-            since: now,
+            since: Instant::now(),
             token,
             control,
             secret,
@@ -91,7 +94,8 @@ impl ClientSession {
                 target: cfg.min_idle,
                 requested: 0,
                 last_request: now,
-                last_starved: now,
+                spare: usize::MAX,
+                trim_at: now,
                 min_idle: cfg.min_idle,
                 max_idle: cfg.max_idle.max(1),
                 max_pending: cfg.max_pending.max(1),
@@ -174,14 +178,15 @@ impl ClientSession {
                 if *self.closed.borrow() {
                     return Err(TakeError::Closed);
                 }
-                match p.idle.pop_front() {
+                let popped = p.idle.pop_front();
+                p.spare = p.spare.min(p.idle.len());
+                match popped {
                     Some(parked) => parked,
                     None => {
                         p.waiters.retain(|w| !w.is_closed());
                         *queued = self.queue(&p, source)?;
                         let (tx, rx) = oneshot::channel();
                         p.waiters.push_back(tx);
-                        p.last_starved = Instant::now();
                         p.target = (p.target.max(1) * 2).min(p.max_idle);
                         self.replenish(&mut p);
                         break rx;
@@ -223,12 +228,17 @@ impl ClientSession {
         let mut p = self.pool.lock().expect("pool lock");
         p.idle.retain(|parked| !parked.is_dead());
         p.waiters.retain(|w| !w.is_closed());
-        if p.last_starved.elapsed() > DECAY_AFTER && p.target > p.min_idle {
-            p.target -= 1;
-            p.last_starved = Instant::now();
+        p.spare = p.spare.min(p.idle.len());
+        let trim = p.trim_at.elapsed() >= IDLE_TIMEOUT;
+        if trim {
+            p.target = p.target.saturating_sub(p.spare).max(p.min_idle);
+            p.trim_at = Clock::now();
         }
         while p.idle.len() > p.target.max(p.min_idle) {
             p.idle.pop_back();
+        }
+        if trim {
+            p.spare = p.idle.len();
         }
         if p.last_request.elapsed() > REQUEST_RETRY {
             p.requested = 0;
@@ -255,7 +265,7 @@ impl ClientSession {
                 .is_ok()
             {
                 p.requested += count;
-                p.last_request = Instant::now();
+                p.last_request = Clock::now();
             }
         }
     }
@@ -385,6 +395,75 @@ mod tests {
     async fn refused_at_once(s: &ClientSession, source: Option<IpAddr>) -> bool {
         let took = tokio::time::timeout(Duration::from_secs(1), s.take(LONG, source)).await;
         matches!(took, Ok(Err(TakeError::TooManyPending)))
+    }
+
+    fn pooled(min_idle: usize, idle: usize) -> (Arc<ClientSession>, Vec<Channel>) {
+        let (tx, rx) = mpsc::channel(1024);
+        std::mem::forget(rx);
+        let cfg = PoolConfig {
+            min_idle,
+            max_idle: 64,
+            max_pending: 64,
+            keepalive: Duration::from_secs(25),
+        };
+        let s = Arc::new(ClientSession::new(
+            "home".into(),
+            "127.0.0.1:1".parse().unwrap(),
+            [0; TOKEN_LEN],
+            tx,
+            Secret::generate(),
+            [0; TOKEN_LEN],
+            &cfg,
+        ));
+        s.pool.lock().unwrap().target = idle;
+        let mut far = Vec::new();
+        for _ in 0..idle {
+            let (near, other) = crate::wire::transport::local::pair();
+            s.offer(near);
+            far.push(other);
+        }
+        (s, far)
+    }
+
+    async fn after(s: &ClientSession, secs: u64) {
+        for _ in 0..secs / 5 {
+            tokio::time::advance(Duration::from_secs(5)).await;
+            s.tick();
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn channels_no_take_needed_for_a_whole_minute_close_down_to_min_idle() {
+        let (s, _far) = pooled(4, 64);
+        assert_eq!(s.idle_count(), 64);
+        after(&s, 30).await;
+        assert_eq!(s.idle_count(), 64, "a channel stays for a full minute");
+        after(&s, 40).await;
+        assert_eq!(s.idle_count(), 4);
+        assert_eq!(s.pool.lock().unwrap().target, 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_pool_in_use_keeps_the_channels_its_takes_reach() {
+        let (s, mut far) = pooled(4, 16);
+        for _ in 0..36 {
+            let mut taken = Vec::new();
+            for _ in 0..12 {
+                taken.push(s.take(LONG, None).await.unwrap());
+            }
+            drop(taken);
+            for _ in 0..12 {
+                let (near, other) = crate::wire::transport::local::pair();
+                s.offer(near);
+                far.push(other);
+            }
+            after(&s, 5).await;
+        }
+        let p = s.pool.lock().unwrap();
+        assert_eq!(
+            p.target, 12,
+            "the 4 never taken in a minute go, the 12 in use stay"
+        );
     }
 
     #[tokio::test]

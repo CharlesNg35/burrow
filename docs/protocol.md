@@ -117,7 +117,7 @@ A second control channel for the same name with the same `instance` replaces the
 
 ## 8. Data channels
 
-The pool is per client. The server keeps `target` idle channels: it starts at `pool.min_idle`, doubles (up to `pool.max_idle`) whenever a connection finds the pool empty, and decays by one per idle minute. It asks for the missing ones with OpenData. Idle channels whose peer has closed are dropped before use.
+The pool is per client. The server keeps `target` idle channels: it starts at `pool.min_idle`, doubles (up to `pool.max_idle`) whenever a connection finds the pool empty, and once a minute drops the channels that no connection needed during that minute (the fewest idle channels seen in it), never below `pool.min_idle` (D73). It asks for the missing ones with OpenData. Idle channels whose peer has closed are dropped before use.
 
 While a channel is idle in the pool, the server watches it: any data or close from the client discards it. The server also sends a keepalive record (plaintext `0x00`) every `websocket.keepalive_secs` (default 25 s, also without a websocket section), so proxies and NATs with idle timeouts keep the connection open. The client ignores keepalive records before Connect and closes a waiting channel that receives nothing for 90 s.
 
