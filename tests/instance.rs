@@ -440,18 +440,12 @@ fn a_start_that_fails_only_on_unreadable_web_files_exits_1_for_a_retry_and_bad_c
 
 #[cfg(target_os = "linux")]
 fn udp_buffer_is_capped() -> bool {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap();
-    let caps = status
-        .lines()
-        .find_map(|l| l.strip_prefix("CapEff:"))
-        .unwrap();
-    let net_admin = u64::from_str_radix(caps.trim(), 16).unwrap() & (1 << 12) != 0;
-    let max: usize = std::fs::read_to_string("/proc/sys/net/core/rmem_max")
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    !net_admin && 2 * max < (7 << 20) / 2
+    let want = 7 << 20;
+    let probe = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+    if rustix::net::sockopt::set_socket_recv_buffer_size_force(&probe, want).is_err() {
+        let _ = probe.set_recv_buffer_size(want);
+    }
+    probe.recv_buffer_size().unwrap() < want / 2
 }
 
 #[cfg(target_os = "linux")]
