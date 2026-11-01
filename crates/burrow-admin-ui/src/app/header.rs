@@ -198,6 +198,8 @@ fn check_state(s: Store) -> Signal<String> {
             && e.dirty();
         if e.checking.get() || waiting {
             "checking".to_string()
+        } else if e.check_error.with(Option::is_some) {
+            "failed".to_string()
         } else if errors > 0 {
             "errors".to_string()
         } else {

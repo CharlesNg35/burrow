@@ -296,3 +296,28 @@ fn needs_attention_speaks_plain_english_without_codes_or_yaml() {
         Some("pick a client")
     );
 }
+
+#[test]
+fn a_failed_check_says_whether_the_server_refused_or_did_not_answer() {
+    use burrow_admin_proto::msg::ErrorCode;
+    for code in [
+        ErrorCode::LockedField,
+        ErrorCode::BadRequest,
+        ErrorCode::Invalid,
+    ] {
+        assert_eq!(check_failed(code), "The server refused this change");
+    }
+    for code in [ErrorCode::Busy, ErrorCode::Internal, ErrorCode::Unknown] {
+        assert_eq!(check_failed(code), "The server could not check this change");
+    }
+    assert_eq!(
+        locked_here("Heartbeat · Interval"),
+        "Heartbeat · Interval is locked. Change this in server.yaml (burrow edit), then restart the server."
+    );
+    assert_eq!(
+        reason_text("too many changes are waiting; try again"),
+        "Too many changes are waiting; try again."
+    );
+    assert_eq!(reason_text("Done."), "Done.");
+    assert_eq!(reason_text(""), "");
+}

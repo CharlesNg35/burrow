@@ -618,3 +618,14 @@ The v0.2.0 plan set a target of 3 MB added over v0.1.2, a target and not a cap: 
 - `cargo xtask surface --check` against the last release's snapshot flags a release binary that moves more than 1 %, and `cargo xtask size --budget` keeps the admin UI within its own budget in CI.
 
 Sources, checked 2026-10-31: doc.rust-lang.org/cargo/reference/profiles.html; github.com/johnthagen/min-sized-rust; github.com/CharlesNg35/burrow releases v0.1.2; GitHub release assets of caddyserver/caddy v2.11.7, traefik/traefik v3.7.17, fatedier/frp v0.71.1 and cloudflare/cloudflared 2026.10.7; Ubuntu 24.04 package data of nginx 1.24.0-2ubuntu7.19 and libssl3t64 3.0.13; hub.docker.com library/nginx tag `alpine` (amd64, 2026-10-28).
+
+## D64. UDP sockets ask for a large receive buffer, as WireGuard does, and burrow keeps no per-socket drop counter
+
+The final v0.2.0 soak lost 113 datagrams in one second. Every one was dropped by the kernel on a socket at Linux's default 208 KiB receive buffer. burrow has no UDP queue that drops: each internal path waits. A back-to-back burst of about 150 datagrams overflows 208 KiB even when the reader keeps up. The old code raised the buffer only below 128 KiB, so on Linux it never did.
+
+- Public UDP ports and visitor UDP forwards ask for 7 MiB, the value wireguard-go uses; quic-go recommends 7.5 MB. Per-peer sockets (the client's sockets to the app, the visitor's SOCKS relay) ask for 256 KiB. A refused size is halved until the system takes it; Linux silently caps it at `net.core.rmem_max` (about 416 KiB by default), and docs/services.md says how to raise it.
+- Measured with bursts, 3 runs of 10 s each: drops on burrow's public socket went from 82 to 0 at 150 datagrams a burst, from 842 to 0 at 250, and from 4407 to 908 at 400. Under steady load (1,350 datagrams/s next to busy TCP), UDP p99 was 0.42 ms before and 0.40 ms after, with no loss either time.
+- The kernel charges receive buffer only for datagrams that are waiting, so the larger size costs nothing when idle. The worst case is every peer socket full while the tunnel stalls; the kernel's `udp_mem` bounds that total, and WireGuard and quic-go accept the same risk.
+- No per-socket drop counter in metrics or status: reading it means OS-specific code in the busiest UDP receive loop. The host-wide `UdpRcvbufErrors` (`nstat`, or node_exporter's `node_netstat_Udp_RcvbufErrors`) already shows it, as it does for nginx's stream proxy.
+
+Sources, checked 2026-11-01: git.zx2c4.com/wireguard-go/tree/conn/controlfns.go; github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes; nginx.org/en/docs/stream/ngx_stream_core_module.html (`rcvbuf=`, off by default).

@@ -448,14 +448,32 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 const COUNT_SOCKETS: &str = "(() => { const W = window.WebSocket; window.__sockets = []; const Counted = function (...a) { const s = new W(...a); window.__sockets.push(s); return s; }; Counted.prototype = W.prototype; Object.assign(Counted, W); window.WebSocket = Counted; })()";
 const LIVE_SOCKETS: &str = "window.__sockets.filter(s => s.readyState <= 1).length";
 
+const SLOW_PROBE: &str = "(() => { const f = window.fetch; window.fetch = function (u, ...a) { return String(u).endsWith('/api') ? new Promise(r => setTimeout(r, 4000)).then(() => f.call(this, u, ...a)) : f.call(this, u, ...a); }; })()";
+
 fn retry_now(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    retry_with(c, &[COUNT_SOCKETS])
+}
+
+fn retry_now_slow_probe(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    retry_with(c, &[COUNT_SOCKETS, SLOW_PROBE])
+}
+
+fn retry_with<'a>(
+    c: &'a mut Ctx,
+    scripts: &'static [&'static str],
+) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
     Box::pin(async move {
         let port = world::free_port();
         let url = c.world.open_admin_on("ops", port);
-        c.ui.init_script(COUNT_SOCKETS).await;
+        for js in scripts {
+            c.ui.init_script(js).await;
+        }
         c.ui.goto(&url).await;
         c.ui.wait_text("[data-testid=conn-pill]", "Connected to", SECS)
             .await;
+        let _: bool =
+            c.ui.eval("Promise.all([...document.fonts].map(f => f.load())).then(() => true)")
+                .await;
         c.world.stop("admin-ops");
         for _ in 0..2 {
             c.ui.wait_for("[data-testid=banner-reconnecting]", Duration::from_secs(20))
@@ -509,6 +527,16 @@ fn retry_now(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 #[test]
 fn retry_now_while_reconnecting_keeps_one_socket() {
     run("retry-now", Options::default(), false, retry_now);
+}
+
+#[test]
+fn an_outage_probe_that_lands_after_the_restart_logs_no_error() {
+    run(
+        "retry-now-slow-probe",
+        Options::default(),
+        false,
+        retry_now_slow_probe,
+    );
 }
 
 #[test]

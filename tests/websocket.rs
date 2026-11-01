@@ -667,7 +667,7 @@ async fn websocket_turned_off_cuts_its_clients_and_turned_on_again_takes_them() 
     let srv = start_server(s.clone()).await;
     let ws = srv.ws_addr.unwrap();
     let url = format!("ws://{ws}/burrow");
-    let mut cli = connected(&srv, ws_client(&url, secret.clone(), None)).await;
+    let mut cli = connected(&srv, ws_client(&url, secret, None)).await;
     let mut off = s.clone();
     off.websocket = None;
     srv.reload(off.clone()).await;
@@ -686,7 +686,8 @@ async fn websocket_turned_off_cuts_its_clients_and_turned_on_again_takes_them() 
     on.websocket.as_mut().unwrap().listen = ws;
     srv.reload(on).await;
     wait_for(|| shared.settings_snapshot().websocket.is_some()).await;
-    let _again = connected(&srv, ws_client(&url, secret, None)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    wait_for(|| shared.idle_channels("home") >= 1).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

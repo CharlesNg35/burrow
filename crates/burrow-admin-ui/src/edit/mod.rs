@@ -48,7 +48,7 @@ pub struct Edit {
     pub related: Memo<BTreeMap<Path, String>>,
     pub plan: RwSignal<Option<Arc<Plan>>>,
     pub checking: RwSignal<bool>,
-    pub check_error: RwSignal<Option<String>>,
+    pub check_error: RwSignal<Option<ErrorBody>>,
     pub conflict: RwSignal<Option<Conflict>>,
     pub conflict_revert: RwSignal<Option<String>>,
     pub conflict_open: RwSignal<bool>,
