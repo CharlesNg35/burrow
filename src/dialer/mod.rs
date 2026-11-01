@@ -13,7 +13,7 @@ use crate::wire::protocol::{ChannelKind, Hello, Preamble};
 use crate::wire::proxy::ProxyConfig;
 use crate::wire::secret::Secret;
 use crate::wire::transport::proxy::dial_tcp_ordered;
-use crate::wire::transport::resolve::{self, Resolver};
+use crate::wire::transport::resolve::{self, Known, Recording, Resolver};
 use crate::wire::transport::tcp::{SocketTuning, tune};
 use crate::wire::transport::ws::{self, Carrier};
 use crate::wire::transport::{Channel, Conn, tls};
@@ -42,6 +42,7 @@ pub struct Dialer {
     tls: Option<TlsConnector>,
     role: &'static str,
     recent: std::sync::Mutex<Recent>,
+    reached: std::sync::Mutex<Option<Vec<std::net::SocketAddr>>>,
 }
 
 #[derive(Default)]
@@ -112,6 +113,7 @@ macro_rules! dialer_from {
             plaintext: $plaintext,
             role: $role,
             recent: Default::default(),
+            reached: Default::default(),
         }
     };
 }
@@ -130,27 +132,53 @@ impl Dialer {
     }
 
     pub async fn connect(&self) -> Result<Conn, DialError> {
-        self.connect_from().await.map(|(conn, _)| conn)
+        self.connect_from(ChannelKind::Control)
+            .await
+            .map(|(conn, _)| conn)
     }
 
-    async fn connect_from(&self) -> Result<(Conn, Option<std::net::SocketAddr>), DialError> {
+    async fn dial_via(&self, resolver: &dyn Resolver) -> std::io::Result<tokio::net::TcpStream> {
+        let order = |addrs: &mut Vec<std::net::SocketAddr>| {
+            self.recent.lock().expect("recent lock").order(addrs);
+        };
+        dial_tcp_ordered(
+            &self.endpoint.dial_address(),
+            self.proxy.as_ref(),
+            self.connect_timeout,
+            resolver,
+            &order,
+        )
+        .await
+    }
+
+    async fn reach(&self, kind: ChannelKind) -> std::io::Result<tokio::net::TcpStream> {
+        let reached = self.reached.lock().expect("reached lock").clone();
+        if let (ChannelKind::Data, Some(addrs)) = (kind, reached) {
+            match self.dial_via(&Known(addrs)).await {
+                Ok(stream) => return Ok(stream),
+                Err(e) => tracing::debug!(
+                    "{} did not answer at its last address ({}); looking the name up again",
+                    self.server,
+                    io_reason(&e)
+                ),
+            }
+        }
+        let lookup = Recording::new(&*self.resolver);
+        let stream = self.dial_via(&lookup).await?;
+        *self.reached.lock().expect("reached lock") = lookup.answer();
+        Ok(stream)
+    }
+
+    async fn connect_from(
+        &self,
+        kind: ChannelKind,
+    ) -> Result<(Conn, Option<std::net::SocketAddr>), DialError> {
         let via = self
             .proxy
             .as_ref()
             .map(|p| format!(" via proxy {p:?}"))
             .unwrap_or_default();
-        let order = |addrs: &mut Vec<std::net::SocketAddr>| {
-            self.recent.lock().expect("recent lock").order(addrs);
-        };
-        let stream = dial_tcp_ordered(
-            &self.endpoint.dial_address(),
-            self.proxy.as_ref(),
-            self.connect_timeout,
-            &*self.resolver,
-            &order,
-        )
-        .await
-        .map_err(|e| {
+        let stream = self.reach(kind).await.map_err(|e| {
             let why = unreachable_reason(&self.server, &via, &e);
             if e.kind() == std::io::ErrorKind::ConnectionAborted {
                 DialError::Lost(why)
@@ -234,7 +262,7 @@ impl Dialer {
     }
 
     pub async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, DialError> {
-        let (conn, peer) = self.connect_from().await?;
+        let (conn, peer) = self.connect_from(kind).await?;
         let preamble = Preamble {
             kind,
             cipher: self.cipher,
@@ -307,6 +335,87 @@ mod tests {
             unreachable_reason("tunnel.example.com:7835", "", &slow),
             "server unreachable at tunnel.example.com:7835 (timed out)"
         );
+    }
+
+    struct Dns(std::sync::Mutex<Option<std::net::SocketAddr>>);
+
+    impl Resolver for Dns {
+        fn resolve<'a>(&'a self, _: &'a str) -> resolve::Resolved<'a> {
+            let answer = *self.0.lock().unwrap();
+            Box::pin(std::future::ready(answer.map(|a| vec![a]).ok_or_else(
+                || std::io::Error::other("failed to lookup address information: Try again"),
+            )))
+        }
+    }
+
+    struct Plain {
+        server: String,
+        name: String,
+        endpoint: Endpoint,
+        headers: Vec<(String, String)>,
+        proxy: Option<ProxyConfig>,
+        connect_timeout: Duration,
+        tcp: SocketTuning,
+        cipher: Cipher,
+        secret: Secret,
+        ca_pem: Option<Vec<u8>>,
+    }
+
+    fn plain_dialer(dns: Arc<Dns>) -> Dialer {
+        let s = Plain {
+            server: "tunnel.example.test:7835".into(),
+            name: "home".into(),
+            endpoint: Endpoint::parse("tunnel.example.test:7835").unwrap(),
+            headers: Vec::new(),
+            proxy: None,
+            connect_timeout: Duration::from_secs(2),
+            tcp: SocketTuning {
+                nodelay: true,
+                keepalive: None,
+            },
+            cipher: Cipher::Chachapoly,
+            secret: Secret::generate(),
+            ca_pem: None,
+        };
+        let mut d = dialer_from!(s, false, "client");
+        d.resolver = dns;
+        d
+    }
+
+    async fn listen() -> (tokio::net::TcpListener, std::net::SocketAddr) {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let a = l.local_addr().unwrap();
+        (l, a)
+    }
+
+    #[tokio::test]
+    async fn data_channels_reuse_the_reached_address_and_look_up_again_when_it_fails() {
+        let (first, at_first) = listen().await;
+        let dns = Arc::new(Dns(std::sync::Mutex::new(Some(at_first))));
+        let d = plain_dialer(dns.clone());
+        let peer = |s: std::io::Result<tokio::net::TcpStream>| s.unwrap().peer_addr().unwrap();
+        assert_eq!(peer(d.reach(ChannelKind::Control).await), at_first);
+        *dns.0.lock().unwrap() = None;
+        assert_eq!(peer(d.reach(ChannelKind::Data).await), at_first);
+        drop(first);
+        let (_second, at_second) = listen().await;
+        *dns.0.lock().unwrap() = Some(at_second);
+        assert_eq!(
+            peer(d.reach(ChannelKind::Data).await),
+            at_second,
+            "a remembered address that fails is looked up again"
+        );
+        *dns.0.lock().unwrap() = None;
+        assert_eq!(peer(d.reach(ChannelKind::Data).await), at_second);
+        assert!(
+            d.reach(ChannelKind::Control).await.is_err(),
+            "a new control connection always looks the name up"
+        );
+        let (_third, at_third) = listen().await;
+        *dns.0.lock().unwrap() = Some(at_third);
+        assert_eq!(peer(d.reach(ChannelKind::Control).await), at_third);
+        assert_eq!(peer(d.reach(ChannelKind::Data).await), at_third);
+        assert_eq!(peer(d.reach(ChannelKind::Visit).await), at_third);
     }
 
     #[test]
