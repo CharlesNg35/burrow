@@ -248,6 +248,7 @@ pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
                 burrow_config::Mode::Failover => "failover",
                 burrow_config::Mode::Balance => "balance",
                 burrow_config::Mode::LeastConnections => "least connections",
+                burrow_config::Mode::IpHash => "ip hash",
             }
         ),
     };

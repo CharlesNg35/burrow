@@ -252,9 +252,11 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
         .keep_alive(false)
         .title_case_headers(true)
         .auto_date_header(false);
-    let served = builder
-        .serve_connection(TokioIo::new(stream), service)
-        .with_upgrades();
+    let served = burrow_io::linger::serve(
+        builder
+            .serve_connection(TokioIo::new(stream), service)
+            .with_upgrades(),
+    );
     let _ = tokio::time::timeout(READ_TIMEOUT + WRITE_TIMEOUT, served).await;
     let task = bridge.lock().ok().and_then(|mut b| b.take());
     if let Some(task) = task {

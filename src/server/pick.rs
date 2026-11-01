@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -67,13 +68,22 @@ impl From<Vec<Hop>> for Picked {
 }
 
 impl Shared {
-    pub(crate) fn route(&self, service: &str, svc: &Service, index: u16) -> Picked {
-        let (hops, held) = self.order(service, svc, index, true);
+    pub(crate) fn route(
+        &self,
+        service: &str,
+        svc: &Service,
+        index: u16,
+        from: Option<IpAddr>,
+    ) -> Picked {
+        let (hops, held) = self.order(service, svc, (index, from), true);
         Picked { hops, held }
     }
 
     pub(crate) fn pick(&self, service: &str, svc: &Service, index: u16) -> Option<Hop> {
-        self.route(service, svc, index).hops.into_iter().next()
+        self.route(service, svc, index, None)
+            .hops
+            .into_iter()
+            .next()
     }
 
     pub(crate) fn preferred(
@@ -84,11 +94,11 @@ impl Shared {
     ) -> Option<(String, String)> {
         match svc.mode {
             Mode::Failover => self
-                .order(service, svc, index, false)
+                .order(service, svc, (index, None), false)
                 .0
                 .first()
                 .map(|h| (h.name().to_string(), h.target.clone())),
-            Mode::Balance | Mode::LeastConnections => None,
+            Mode::Balance | Mode::LeastConnections | Mode::IpHash => None,
         }
     }
 
@@ -119,11 +129,15 @@ impl Shared {
         &self,
         service: &str,
         svc: &Service,
-        index: u16,
+        (index, from): (u16, Option<IpAddr>),
         hold: bool,
     ) -> (Vec<Hop>, Option<Held>) {
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
-        for h in self.hops(svc, index) {
+        let mut hops = self.hops(svc, index);
+        if let (Mode::IpHash, Some(from)) = (svc.mode, from) {
+            super::ip_hash::rank(&mut hops, from);
+        }
+        for h in hops {
             let healthy = svc.health.is_none() || self.is_up(service, &h.key);
             match self.seen(service, &h, &h.target) {
                 Seen::Refused => refused.push(h),
@@ -132,8 +146,8 @@ impl Shared {
                 Seen::Clear => aside.push(h),
             }
         }
-        let mut wheels =
-            (hold && svc.mode != Mode::Failover).then(|| self.wheels.lock().expect("wheels lock"));
+        let serialised = matches!(svc.mode, Mode::Balance | Mode::LeastConnections);
+        let mut wheels = (hold && serialised).then(|| self.wheels.lock().expect("wheels lock"));
         let head = [&mut clear, &mut aside, &mut refused]
             .into_iter()
             .find(|g| !g.is_empty());
@@ -141,7 +155,7 @@ impl Shared {
             && hold
         {
             match svc.mode {
-                Mode::Failover => {}
+                Mode::Failover | Mode::IpHash => {}
                 Mode::Balance => {
                     if let Some(wheels) = wheels.as_mut() {
                         let group = head.iter().map(|h| (&h.key, h.weight));

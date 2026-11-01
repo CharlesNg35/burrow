@@ -5,6 +5,7 @@ mod certs;
 mod control;
 mod fields;
 mod health;
+mod ip_hash;
 mod listen;
 mod local;
 pub mod passwords;

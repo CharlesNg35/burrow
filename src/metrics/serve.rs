@@ -146,14 +146,14 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
         inner: stream,
         left: MAX_HEAD + 1024,
     });
-    match tokio::time::timeout(
-        READ_TIMEOUT + WRITE_TIMEOUT,
-        builder.serve_connection(io, service),
-    )
-    .await
-    {
+    let mut served = builder.serve_connection(io, service);
+    match tokio::time::timeout(READ_TIMEOUT + WRITE_TIMEOUT, &mut served).await {
         Err(_) => Err(std::io::Error::other("the reader is too slow")),
-        Ok(r) => r.map_err(std::io::Error::other),
+        Ok(Err(e)) => Err(std::io::Error::other(e)),
+        Ok(Ok(())) => {
+            burrow_io::linger::linger(served.into_parts().io.into_inner().inner).await;
+            Ok(())
+        }
     }
 }
 
@@ -216,6 +216,20 @@ mod tests {
             assert!(text.starts_with("HTTP/1.1 200"), "{text}");
             assert!(text.contains("burrow_uptime_seconds 5"), "{text}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_refused_post_with_a_large_body_ends_in_a_clean_close_not_a_reset() {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(serve(l, Arc::new(empty)));
+        let head = format!(
+            "POST /metrics HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+            burrow_io::linger::probe::BODY
+        );
+        let ended = burrow_io::linger::probe::send_large_body(addr, &head).await;
+        assert!(ended.answer.starts_with("HTTP/1.1 405"), "{ended:?}");
+        assert!(ended.broken.is_none(), "{ended:?}");
     }
 
     #[tokio::test]

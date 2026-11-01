@@ -6,6 +6,8 @@ mod health;
 #[cfg(feature = "web")]
 #[path = "failover/http_check.rs"]
 mod http_check;
+#[path = "failover/ip_hash.rs"]
+mod ip_hash;
 #[path = "failover/selection.rs"]
 mod selection;
 #[path = "failover/udp_moves.rs"]

@@ -446,6 +446,7 @@ dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
  "burrow-config",
+ "burrow-io",
  "burrow-syntax",
  "burrow-web",
  "bytes",
@@ -561,6 +562,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "burrow-io"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "tokio",
+]
+
+[[package]]
 name = "burrow-syntax"
 version = "0.2.0"
 
@@ -583,6 +595,7 @@ dependencies = [
  "aws-lc-rs",
  "base64 0.23.1",
  "bcrypt",
+ "burrow-io",
  "burrow-syntax",
  "bytes",
  "flate2",
