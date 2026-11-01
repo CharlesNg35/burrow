@@ -10,6 +10,7 @@ use tokio::time::Instant;
 use tracing::{debug, warn};
 
 use crate::auth::Access;
+use crate::http::upstream::pool::{Pool, SWEEP as POOL_SWEEP};
 use crate::http::{Conn, Proto, serve};
 use crate::io::{Io, Prefixed};
 use crate::log::{LogFile, WARN_EVERY};
@@ -28,6 +29,7 @@ use arrive::{Dispatch, STALLED, Seen, accept_loop, refuse};
 
 pub(crate) struct Shared<U> {
     pub(crate) up: Arc<U>,
+    pub(crate) pool: Arc<Pool>,
     pub(crate) certs: Arc<dyn Certificates>,
     pub(crate) https_port: Option<u16>,
     site_tls: SiteTls,
@@ -74,6 +76,7 @@ impl<U: Upstream> Proxy<U> {
         verifiers.refresh(table.client_auths());
         let shared = Arc::new(Shared {
             up,
+            pool: Pool::new(),
             site_tls: SiteTls::new(certs.clone()),
             http2: AtomicBool::new(settings.http2),
             verifiers,
@@ -87,7 +90,10 @@ impl<U: Upstream> Proxy<U> {
             stop: stopped,
         });
         shared.open_log(settings.access_log.as_ref());
-        let mut tasks = vec![tokio::spawn(sweep(shared.clone()))];
+        let mut tasks = vec![
+            tokio::spawn(sweep(shared.clone())),
+            tokio::spawn(sweep_pool(shared.clone())),
+        ];
         if let Some(l) = listeners.https {
             tasks.push(tokio::spawn(accept_loop(shared.clone(), l)));
         }
@@ -120,7 +126,9 @@ impl<U: Upstream> Proxy<U> {
             Err(e) if e.is_panic() => std::panic::resume_unwind(e.into_panic()),
             Err(_) => return,
         };
-        *self.shared.table.write().expect("table lock") = Arc::new(table);
+        let table = Arc::new(table);
+        *self.shared.table.write().expect("table lock") = table.clone();
+        self.shared.reload_pool(&table);
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.open_log(settings.access_log.as_ref());
         self.shared.permits.resize(settings.max_pending);
@@ -137,6 +145,10 @@ impl<U: Upstream> Proxy<U> {
 
     pub fn refused(&self) -> u64 {
         self.shared.permits.refused()
+    }
+
+    pub fn idle_app_connections(&self) -> usize {
+        self.shared.pool.h1.len() + self.shared.pool.h2.len()
     }
 
     pub fn admitted(&self) -> usize {
@@ -166,6 +178,7 @@ impl<U: Upstream> Proxy<U> {
 
     pub async fn stop(self) {
         let _ = self.stop.send(true);
+        self.shared.pool.clear();
         for t in &self.tasks {
             t.abort();
         }
@@ -226,6 +239,29 @@ impl<U> Shared<U> {
 
 const PROXY_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
 pub const SWEEP: Duration = Duration::from_secs(60);
+
+async fn sweep_pool<U: Upstream>(shared: Arc<Shared<U>>) {
+    let mut every = tokio::time::interval(POOL_SWEEP);
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        every.tick().await;
+        shared.pool.sweep(|service| shared.up.crowded(service));
+        let keeps = |service: &str, from: &Visitor, ask| shared.up.keeps(service, from, ask);
+        shared.pool.busy.recheck(shared.pool.epoch(), &keeps);
+    }
+}
+
+impl<U: Upstream> Shared<U> {
+    fn reload_pool(&self, table: &Table) {
+        self.pool.reloaded(|key| {
+            table
+                .site(&key.service)
+                .is_some_and(|s| s.app_key == key.site)
+        });
+        let keeps = |service: &str, from: &Visitor, ask| self.up.keeps(service, from, ask);
+        self.pool.busy.cut(self.pool.epoch(), &keeps);
+    }
+}
 
 async fn sweep<U: Upstream>(shared: Arc<Shared<U>>) {
     let mut every = tokio::time::interval(SWEEP);

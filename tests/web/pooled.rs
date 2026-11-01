@@ -1,5 +1,7 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use burrow::wire::secret::Secret;
 use bytes::Bytes;
@@ -13,11 +15,20 @@ use crate::common::*;
 use crate::kit::*;
 use crate::sites::with_files;
 
-async fn named_app(name: &'static str) -> SocketAddr {
+type Accepted = Arc<AtomicUsize>;
+
+fn accepted(n: &Accepted) -> usize {
+    n.load(Ordering::SeqCst)
+}
+
+async fn named_app(name: &'static str) -> (SocketAddr, Accepted) {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
+    let count = Accepted::default();
+    let counted = count.clone();
     tokio::spawn(async move {
         while let Ok((s, _)) = l.accept().await {
+            counted.fetch_add(1, Ordering::SeqCst);
             tokio::spawn(async move {
                 let service = hyper::service::service_fn(move |_req| async move {
                     Ok::<_, Infallible>(hyper::Response::new(Full::new(Bytes::from(name))))
@@ -28,7 +39,7 @@ async fn named_app(name: &'static str) -> SocketAddr {
             });
         }
     });
-    addr
+    (addr, count)
 }
 
 enum Visitor {
@@ -86,7 +97,7 @@ impl Visitor {
 }
 
 async fn a_kept_visitor_reaches_the_new_target_after_a_reload(h2: bool) {
-    let (old, new) = (named_app("old").await, named_app("new").await);
+    let ((old, old_conns), (new, new_conns)) = (named_app("old").await, named_app("new").await);
     let dir = tempfile::tempdir().unwrap();
     let site_cert = cert(&["localhost"]);
     let secret = Secret::generate();
@@ -96,7 +107,8 @@ async fn a_kept_visitor_reaches_the_new_target_after_a_reload(h2: bool) {
     let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
     let mut v = Visitor::open(t.server.web_addr.unwrap(), &site_cert, h2).await;
     assert_eq!(v.get().await, "old");
-    assert_eq!(v.get().await, "old", "the app connection is reused");
+    assert_eq!(v.get().await, "old");
+    assert_eq!(accepted(&old_conns), 1, "the app connection is reused");
     let mut next = s.clone();
     next.services.get_mut("blog").unwrap().target = new.to_string();
     t.server.reload_applied(next).await;
@@ -105,6 +117,8 @@ async fn a_kept_visitor_reaches_the_new_target_after_a_reload(h2: bool) {
         "new",
         "the next request on the same visitor connection reaches the new target"
     );
+    assert_eq!(accepted(&new_conns), 1, "over a new app connection");
+    assert_eq!(accepted(&old_conns), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -117,12 +131,15 @@ async fn a_kept_http2_visitor_reaches_the_new_target_after_a_reload() {
     a_kept_visitor_reaches_the_new_target_after_a_reload(true).await;
 }
 
-async fn plain_or_tls_app(c: &Cert) -> SocketAddr {
+async fn plain_or_tls_app(c: &Cert) -> (SocketAddr, Accepted) {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
     let tls = acceptor(c);
+    let count = Accepted::default();
+    let counted = count.clone();
     tokio::spawn(async move {
         while let Ok((s, _)) = l.accept().await {
+            counted.fetch_add(1, Ordering::SeqCst);
             let tls = tls.clone();
             tokio::spawn(async move {
                 let mut first = [0u8; 1];
@@ -144,13 +161,13 @@ async fn plain_or_tls_app(c: &Cert) -> SocketAddr {
             });
         }
     });
-    addr
+    (addr, count)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_kept_visitor_uses_a_new_app_connection_once_a_reload_turns_target_tls_on() {
     let app_cert = cert(&["app.internal"]);
-    let app = plain_or_tls_app(&app_cert).await;
+    let (app, conns) = plain_or_tls_app(&app_cert).await;
     let dir = tempfile::tempdir().unwrap();
     let site_cert = cert(&["localhost"]);
     let secret = Secret::generate();
@@ -161,6 +178,7 @@ async fn a_kept_visitor_uses_a_new_app_connection_once_a_reload_turns_target_tls
     let mut v = Visitor::open(t.server.web_addr.unwrap(), &site_cert, false).await;
     assert_eq!(v.get().await, "plain");
     assert_eq!(v.get().await, "plain");
+    assert_eq!(accepted(&conns), 1, "the app connection is reused");
     let mut next = s.clone();
     let site = next.web.as_mut().unwrap().sites.get_mut("blog").unwrap();
     site.options.target_tls = TargetTls::Unchecked;
@@ -171,4 +189,5 @@ async fn a_kept_visitor_uses_a_new_app_connection_once_a_reload_turns_target_tls
         "tls",
         "the next request on the same visitor connection speaks TLS to the app"
     );
+    assert_eq!(accepted(&conns), 2, "over a new app connection");
 }

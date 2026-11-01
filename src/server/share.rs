@@ -28,6 +28,12 @@ impl VisitorShares {
     }
 }
 
+#[derive(Default)]
+pub(super) struct Busy {
+    pub(super) services: super::Counts,
+    pub(super) clients: super::Counts,
+}
+
 #[cfg(feature = "web")]
 pub(super) fn web_source(peer: std::net::SocketAddr) -> Option<IpAddr> {
     burrow_syntax::share::source_key(peer.ip())

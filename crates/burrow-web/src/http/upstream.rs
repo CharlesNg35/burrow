@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
-use http::{Request, Response, StatusCode, Version};
+use http::{Request, Response, Version};
 use http_body_util::BodyExt;
-use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tracing::debug;
 
@@ -15,16 +14,21 @@ use super::idle::Activity;
 use super::pages::Page;
 use super::site::{Hop, SiteRun};
 use super::{Body, BoxError};
-use crate::{BoxIo, Ending, Io, Refused, Upstream, Visitor};
-use pool::{Slotted, Stream};
+use crate::{Ask, BoxIo, Io, Refused, Upstream, Visitor};
+use pool::{Back, H1, Key, Pool};
+use send::Asking;
 
-pub(crate) use pool::Upstreams;
+pub(crate) use pool::Ups;
 
 pub mod pool;
+pub(crate) mod send;
 pub mod target_tls;
 pub mod to_h2;
+mod upgrade;
 
 pub(crate) struct Forward<'a> {
+    pub pool: &'a Arc<Pool>,
+    pub epoch: u64,
     pub site: &'a SiteRun,
     pub visitor: Visitor,
     pub client: Client,
@@ -36,6 +40,28 @@ pub(crate) struct Forward<'a> {
 impl Forward<'_> {
     fn page(&self, page: Page) -> Response<Body> {
         page.response_from(&self.site.pages)
+    }
+
+    fn asking<'a, U: Upstream>(
+        &'a self,
+        up: &'a U,
+        deadline: tokio::time::Instant,
+    ) -> Result<Asking<'a, U>, Refused> {
+        let (way, lease) = up.lease(&self.site.service, &self.visitor, Ask::Site)?;
+        let key = Key::new(&self.site.name, &way, self.site.app_key);
+        Ok(Asking {
+            up,
+            pool: self.pool,
+            service: &self.site.name,
+            from: &self.visitor,
+            hop: &self.site.hop,
+            way,
+            lease,
+            key,
+            deadline,
+            epoch: self.epoch,
+            ask: Ask::Site,
+        })
     }
 }
 
@@ -81,37 +107,23 @@ pub(super) async fn hop(io: BoxIo, how: &Hop, http2: bool) -> Result<BoxIo, HopE
     }
 }
 
-pub(crate) async fn handshake(
-    io: BoxIo,
-    how: &Hop,
-) -> Result<(SendRequest<Body>, Option<Ending>), Failed> {
+pub(crate) async fn handshake(io: BoxIo, how: &Hop) -> Result<H1, Failed> {
     let ending = io.ending();
-    let io = hop(io, how, false).await?;
+    let (io, read) = pool::Counted::new(hop(io, how, false).await?);
     let (tx, conn) = super::h2::app_http1()
         .handshake(TokioIo::new(io))
         .await
         .map_err(|_| Failed::Broken)?;
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         if let Err(e) = conn.with_upgrades().await {
             debug!("web: the connection to the app ended: {e}");
         }
     });
-    Ok((tx, ending))
-}
-
-async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
-    let io = up
-        .open(&f.site.service, &f.visitor)
-        .await
-        .map_err(Failed::Refused)?;
-    let (tx, ending) = handshake(io, &f.site.hop).await?;
-    Ok(Stream {
-        service: f.site.service.clone(),
-        client: f.client.ip,
+    Ok(H1 {
         tx,
         ending,
-        idle_since: tokio::time::Instant::now(),
-        app_key: f.site.app_key,
+        task: task.abort_handle(),
+        read,
     })
 }
 
@@ -222,50 +234,36 @@ pub(super) fn extras(req: &mut Request<Body>, f: &Forward<'_>) {
 
 pub(crate) async fn forward<U: Upstream>(
     up: &U,
-    ups: &Upstreams,
+    ups: &Ups,
     mut req: Request<Body>,
     f: Forward<'_>,
 ) -> Response<Body> {
     if f.site.options.target_http2 {
-        return to_h2::forward(up, ups, req, f).await;
+        return (to_h2::forward(up, ups, req, f)).await;
     }
-    let upgrading = upgrade_of(req.headers()).is_some();
-    let downstream = upgrading.then(|| hyper::upgrade::on(&mut req));
+    if upgrade_of(req.headers()).is_some() {
+        return (upgrade::forward(up, ups, req, f)).await;
+    }
     prepare(&mut req, &f);
-    let service = f.site.service.as_str();
     let deadline = tokio::time::Instant::now() + f.site.options.response_header_timeout;
     let Some(slot) = ups.slot(deadline).await else {
         return f.page(Page::Timeout);
     };
-    let mut s = match ups.reuse(service, f.client.ip, f.site.app_key).await {
-        Some(s) => s,
-        None => match tokio::time::timeout_at(deadline, open(up, &f)).await {
-            Ok(Ok(s)) => s,
-            Ok(Err(Failed::Refused(why))) => return f.page(refusal_page(why)),
-            Ok(Err(Failed::Broken)) => return f.page(Page::BadGateway),
-            Err(_) => return f.page(Page::Timeout),
-        },
+    let asking = match f.asking(up, deadline) {
+        Ok(a) => a,
+        Err(why) => return f.page(refusal_page(why)),
     };
-    let mut resp = match tokio::time::timeout_at(deadline, s.tx.send_request(req)).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => {
-            debug!(peer = %f.visitor.addr, "web: service \"{service}\" did not answer: {e}");
-            let why = s.ending.as_ref().and_then(Ending::refused);
-            return f.page(why.map_or(Page::BadGateway, refusal_page));
-        }
-        Err(_) => return f.page(Page::Timeout),
+    let (mut resp, mut home, ticket) = match asking.send_h1(Some(ups), req).await {
+        Ok(r) => r,
+        Err(miss) => return f.page(miss.page),
     };
-    if resp.status() == StatusCode::SWITCHING_PROTOCOLS {
-        if let Some(down) = downstream {
-            let up = hyper::upgrade::on(&mut resp);
-            tokio::spawn(join(down, up, f.activity.clone()));
-        }
-        return resp.map(|b| b.map_err(Into::into).boxed());
-    }
     strip_hop_by_hop(resp.headers_mut());
-    if !upgrading {
-        ups.keep(s, || up.crowded(service));
+    if private(resp.headers()) {
+        ups.went_private();
+        home.private(ups.id, f.visitor.addr.ip());
     }
+    let lease = asking.lease;
+    let lease = (lease, ticket);
     let activity = f.activity.clone();
     resp.map(move |b| {
         let b = b
@@ -274,23 +272,19 @@ pub(crate) async fn forward<U: Upstream>(
                 BoxError::from(e)
             })
             .boxed();
-        Slotted::new(b, slot).boxed()
+        Back::new(b, home, lease, Some(slot)).boxed()
     })
 }
 
-async fn join(
-    down: hyper::upgrade::OnUpgrade,
-    up: hyper::upgrade::OnUpgrade,
-    activity: Arc<Activity>,
-) {
-    let (Ok(down), Ok(up)) = (down.await, up.await) else {
-        return;
-    };
-    let (mut down, mut up) = (TokioIo::new(down), TokioIo::new(up));
-    if let Err(e) = tokio::io::copy_bidirectional(&mut down, &mut up).await {
-        debug!("web: an upgraded connection ended: {e}");
-        activity.fail();
-    }
+fn private(h: &HeaderMap) -> bool {
+    h.get_all(header::WWW_AUTHENTICATE).iter().any(|v| {
+        let scheme = v
+            .as_bytes()
+            .split(|b| *b == b' ')
+            .next()
+            .unwrap_or_default();
+        scheme.eq_ignore_ascii_case(b"NTLM") || scheme.eq_ignore_ascii_case(b"Negotiate")
+    })
 }
 
 #[cfg(test)]

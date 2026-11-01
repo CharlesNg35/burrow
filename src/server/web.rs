@@ -2,8 +2,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use burrow_web::{
-    AcmeSettings, BoxIo, CertSettings, CertSource, ProxySettings, Refused, SharedFile, Site,
-    SiteTls, TunnelConn, TunnelMode, TunnelPort, TunnelSettings, Upstream, Visitor,
+    AcmeSettings, Ask, BoxIo, CertSettings, CertSource, Lease, ProxySettings, Refused, SharedFile,
+    Site, SiteTls, TunnelConn, TunnelMode, TunnelPort, TunnelSettings, Upstream, Visitor, Way,
 };
 use tokio::net::TcpStream;
 use tracing::debug;
@@ -52,8 +52,24 @@ impl Upstream for Doorway {
         open_door(&self.0, service, from, Door::Web(from.host.clone()))
     }
 
-    async fn open_auth(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
-        open_door(&self.0, service, from, Door::Auth)
+    fn lease(&self, service: &str, from: &Visitor, ask: Ask) -> Result<(Way, Lease), Refused> {
+        if ask == Ask::Auth && !self.allowed(service, from) {
+            return Err(Refused::NotAllowed);
+        }
+        lease::lease(&self.0, service, from)
+    }
+
+    async fn open_pooled(
+        &self,
+        service: &str,
+        from: &Visitor,
+        held: &Lease,
+    ) -> Result<BoxIo, Refused> {
+        lease::open_pooled(&self.0, service, from, held)
+    }
+
+    fn keeps(&self, service: &str, from: &Visitor, ask: Ask) -> bool {
+        lease::keeps(&self.0, service, from, ask)
     }
 
     fn tunnel_permit(&self, peer: SocketAddr) -> Option<Permit> {
@@ -251,8 +267,11 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
 }
 
 mod health;
+mod lease;
 mod options;
 mod task;
+
+pub(super) use lease::way_id;
 
 pub(super) use health::{Checks, Http, exchange};
 pub(super) use task::WebTask;

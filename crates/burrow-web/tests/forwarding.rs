@@ -231,7 +231,11 @@ async fn one_proxy_connection_carrying_two_visitors_checks_each_of_them() {
     assert!(second.starts_with("HTTP/1.1 403"), "{second}");
     let third = read_response(&mut t, &ask("203.0.113.10")).await;
     assert!(third.contains("x-real-ip: 203.0.113.10\n"), "{third}");
-    assert_eq!(app.connections.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(
+        app.connections.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "without a PROXY header every visitor shares the app connection, and each request names its own visitor"
+    );
 }
 
 async fn http10_app() -> std::net::SocketAddr {

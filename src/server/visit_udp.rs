@@ -44,6 +44,7 @@ pub(super) async fn serve(
     let grant = visit.grant;
     let way = Way {
         service: grant.service.as_deref(),
+        counted: grant.service.as_deref(),
         label: visit.label,
         peer: visit.peer,
         source: None,

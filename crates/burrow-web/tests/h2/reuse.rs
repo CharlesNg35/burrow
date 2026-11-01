@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::kit::*;
 
 const BURST: usize = 24;
@@ -31,5 +33,38 @@ async fn bursts_of_parallel_streams_reuse_the_app_connections_of_the_first() {
     assert!(
         after <= first + 2,
         "later bursts reuse the idle app connections: {first} then {after}"
+    );
+}
+
+#[tokio::test]
+async fn slow_readers_on_kept_h2_app_connections_do_not_stall_another_visitor() {
+    let a = app_h2c().await;
+    let p = proxy(&a, |s| {
+        for site in &mut s.sites {
+            site.options.target_http2 = true;
+        }
+    })
+    .await;
+    let addr = p.https_addr().unwrap();
+    let mut stalled = Vec::new();
+    for _ in 0..2 {
+        let c = client(addr).await;
+        let mut ready = c.clone().ready().await.unwrap();
+        let (resp, _) = ready
+            .send_request(request(&site_uri("/big/4194304"), &[]), true)
+            .unwrap();
+        let resp = resp.await.unwrap();
+        assert_eq!(resp.status(), 200);
+        stalled.push((c, resp.into_body()));
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut third = client(addr).await;
+    let (status, _) = tokio::time::timeout(Duration::from_secs(5), get(&mut third, &site_uri("/")))
+        .await
+        .expect("a third visitor is not stalled by the slow readers");
+    assert_eq!(status, 200);
+    assert!(
+        Counts::get(&a.counts.conns) >= 2,
+        "each slow reader holds its own app connection"
     );
 }

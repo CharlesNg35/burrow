@@ -12,7 +12,7 @@ use tracing::debug;
 
 use super::idle::{Activity, Busy, Held, Watched};
 use super::stall::Stalls;
-use super::upstream::Upstreams;
+use super::upstream::Ups;
 use super::upstream::to_h2::StreamReset;
 use super::{Body, pipeline};
 use crate::Upstream;
@@ -33,7 +33,7 @@ pub(crate) struct Conn {
     pub local: SocketAddr,
     pub name: Option<String>,
     pub proto: Proto,
-    pub ups: Upstreams,
+    pub ups: Ups,
     pub activity: Arc<Activity>,
     pub stalls: Stalls,
 }
@@ -50,7 +50,7 @@ impl Conn {
             local,
             name,
             proto,
-            ups: Upstreams::new(proto),
+            ups: Ups::new(proto),
             activity: Activity::new(),
             stalls: Stalls::new(),
         }
@@ -142,7 +142,7 @@ async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
             debug!(peer = %conn.peer, "web: closing a connection idle for {idle:?}");
             return;
         }
-        () = stalled(shared, conn, watch) => {
+        () = stalled(conn, watch) => {
             debug!(peer = %conn.peer, "web: closing a connection whose every response stalled");
             return;
         }
@@ -155,10 +155,9 @@ async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
     }
 }
 
-async fn stalled<U: Upstream>(shared: &Shared<U>, conn: &Conn, watch: bool) {
+async fn stalled(conn: &Conn, watch: bool) {
     if watch {
-        let crowded = |service: &str| shared.up.crowded(service);
-        conn.stalls.all_stalled(|| conn.ups.expire(crowded)).await;
+        conn.stalls.all_stalled().await;
     } else {
         std::future::pending::<()>().await;
     }

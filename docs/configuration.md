@@ -146,7 +146,7 @@ services:
 | `visitors.<name>.admin_from` | any address | source IPs or CIDRs that admin access is limited to |
 | `services.<name>.client` | required (or `clients`) | the client that reaches the target; `self` for the server itself |
 | `services.<name>.clients` | | several clients instead of one: names, or `{name, target, weight}` for a target of its own (the same client may repeat with another target) and, with `mode: balance` or `ip_hash`, a weight from 1 to 1000 (default 1). See [services.md](services.md#several-clients) |
-| `services.<name>.mode` | `failover` | with several clients: `failover`, `balance` (in turn, by weight), `least_connections` (the client with the fewest open connections) or `ip_hash` (each visitor address stays on one client, by weight); all but `failover` are TCP only, see [services.md](services.md#several-clients) |
+| `services.<name>.mode` | `failover` | with several clients: `failover`, `balance` (in turn, by weight), `least_connections` (the client with the fewest open connections; for a website, the fewest requests in progress) or `ip_hash` (each visitor address stays on one client, by weight); all but `failover` are TCP only, see [services.md](services.md#several-clients) |
 | `services.<name>.health_check` | off | `true`, or `{ interval_secs: 10, timeout_secs: 3, failures: 2, path: /healthz }`; `path` (websites only) asks the app for that page, 2xx or 3xx is up |
 | `services.<name>.target` | required | host:port as seen from the client, a port alone (`127.0.0.1`), a range like `30000-30010`, or `unix:/path` |
 | `services.<name>.bind` | none (private) | public port, range or ip:port on the server; a port alone means `0.0.0.0` |

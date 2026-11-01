@@ -144,8 +144,8 @@ web:
 ```
 
 - **`failover`** (the default) uses the first connected client in the list, and moves to the next one while it is away.
-- **`balance`** spreads new connections over all connected clients, in turn.
-- **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service; on a tie, the first in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine.
+- **`balance`** spreads new connections over all connected clients, in turn. For a website it picks per request, as nginx, Caddy, Traefik and HAProxy do, so one kept-alive visitor is spread too.
+- **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service; on a tie, the first in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine. For a website it counts requests in progress, not idle app connections.
 - **`ip_hash`** keeps each visitor address on one client: every connection of a TCP service, and every request of a website, from the same address goes to the same entry, as long as it is up. For a website the address is the real visitor's: the one in `X-Forwarded-For` from a proxy in `web.trusted_proxies`, or in the PROXY header from `web.proxy_protocol_from`; an IPv6 address counts per /64. It suits apps that keep a visitor's session in memory. Two things to know: many visitors behind one NAT or company proxy share one address and so land on one client, and a visitor whose address changes (a phone moving between networks) may move to another client.
 
 All four skip a client whose health check failed (below). `ip_hash` then sends that visitor to the next entry in its own order, and back once the client is up again.
