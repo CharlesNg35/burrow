@@ -209,10 +209,6 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-latest
-    env:
-      # A dated nightly, so a rustc regression cannot break CI overnight (nightly 2026-11-01 failed to
-      # compile burrow-admin-proto's sem_types with E0391). Move it forward on purpose.
-      RUSTUP_TOOLCHAIN: nightly-2026-10-31
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -220,9 +216,11 @@ jobs:
         target: [handshake, frames, config, update, patch, syntax_parsers, socks_udp_header, sni_peek, proxy_header, acme_meta, http_edge, host_header, path_normalize, basic_auth_header]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install nightly
+      # The dated nightly is pinned once, in fuzz/rust-toolchain.toml: nightly 2026-11-01 fails on
+      # burrow-admin-proto's recursive SemType with E0391 (rust-lang/rust#165263). Move it forward on purpose.
+      - name: Install the pinned nightly
         working-directory: fuzz
-        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+        run: rustup toolchain install
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-fuzz

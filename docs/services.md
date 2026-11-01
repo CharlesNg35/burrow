@@ -60,7 +60,14 @@ dns:
 
 A UDP peer that sends nothing for 2 minutes is forgotten (`udp.session_timeout_secs`). A UDP service follows its target to a new address when the target's DNS name changes.
 
-burrow asks the system for 7 MiB of receive buffer on each public UDP port and each visitor UDP forward, as WireGuard does, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max`, about 416 KiB in effect by default. For bursty UDP traffic, raise it with `sysctl -w net.core.rmem_max=7500000` and keep the setting in `/etc/sysctl.d/`. `nstat -az UdpRcvbufErrors` shows how many datagrams the system dropped because a receive buffer was full.
+burrow asks the system for 7 MiB of receive buffer on each public UDP port and each visitor UDP forward, as WireGuard does, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max`, about 416 KiB in effect by default, and when a port gets less than half of what burrow asked for, burrow logs one warning that names the cap. For bursty UDP traffic, raise the cap and keep it across restarts:
+
+```sh
+echo 'net.core.rmem_max=7500000' | sudo tee /etc/sysctl.d/90-burrow-udp.conf
+sudo sysctl --system
+```
+
+A burrow that runs as root with CAP_NET_ADMIN gets the full size without this, but the service that `burrow service install` sets up runs as its own account, which does not have it. `nstat -az UdpRcvbufErrors` shows how many datagrams the system dropped because a receive buffer was full.
 
 ## Expose a range of ports
 
