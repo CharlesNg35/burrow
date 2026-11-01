@@ -704,7 +704,7 @@ Measured on 2026-11-01 on the 10-core VM, musl and jemalloc release builds, `cli
 | 100-byte answers, HTTP/1.1, 10000/s | 48 MiB | 40 MiB |
 | soak mix (the soak's k6 script: HTTP/1.1, HTTP/2 and wss on four sites, faults every 30 s, a reload every minute), ~950 connections, 4000/s, 60 min | 311 MiB, flat | 159 MiB, flat |
 
-Every run had 0 errors outside the injected faults and 0 wrong answers. CPU per request stayed within the rounds' spread (mix HTTP/2: 175 and 185 µs; 300 looping connections: 135 and 128 µs).
+Every run had 0 errors outside the injected faults and 0 wrong answers. CPU per request and p99, three alternating rounds with no builds or other load on the host: mix HTTP/2 183 and 184 µs, p99 8.4 and 8.7 ms; mix HTTP/1.1 147 and 152 µs (+3.5 %, the same in every round and in the earlier rounds of the pipe alone), p99 5.7 and 5.5 ms. The HTTP/1.1 cost is the pipe taking and freeing its buffer per burst; it buys 57 % less memory on that workload.
 
 The same runs answered why the release soak's RSS rose: with the connection count fixed, memory stayed flat for 45-60 min, with faults and reloads, before and after this change (and jemalloc's allocated bytes stayed flat in profiled runs). Memory follows the number of open connections, about 285 KiB per extra busy connection before this change, and the soak's k6 adds connections after each fault and keeps them.
 
