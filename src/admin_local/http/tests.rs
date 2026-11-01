@@ -82,7 +82,7 @@ fn the_websocket_needs_this_origin_and_no_cross_site_fetch() {
         assert_eq!(ws(o, s).unwrap_err().code, 403, "{o:?} {s:?}");
     }
     let plain = head(&["GET /api HTTP/1.1", "Host: 127.0.0.1:4000"]);
-    assert_eq!(check(&plain, 4000, "").unwrap_err().code, 426);
+    assert_eq!(check(&plain, 4000, ""), Ok(Decision::Alive));
     let post = head(&["POST / HTTP/1.1", "Host: 127.0.0.1:4000"]);
     assert_eq!(check(&post, 4000, "").unwrap_err().code, 405);
     let up = head(&["GET /../etc/passwd HTTP/1.1", "Host: 127.0.0.1:4000"]);
@@ -181,8 +181,12 @@ fn only_this_run_s_prefix_serves_pages_and_the_api() {
         Ok(Decision::Page("/services/web".into()))
     );
     assert_eq!(get(&format!("{run}/api"), true), Ok(Decision::Api));
+    assert_eq!(get(&format!("{run}/api"), false), Ok(Decision::Alive));
     for elsewhere in ["/api", "/r-old/api", "/services/api"] {
         assert_eq!(get(elsewhere, true).unwrap_err().code, 404, "{elsewhere}");
+    }
+    for ended in ["/api", "/r-old/api"] {
+        assert_eq!(get(ended, false).unwrap_err().code, 404, "{ended}");
     }
     assert_eq!(get("/", false), Ok(Decision::Redirect(format!("{run}/"))));
     assert_eq!(
@@ -358,6 +362,7 @@ fn random_paths_never_escape_and_reach_the_api_only_exactly() {
                 assert_ne!(to_path, format!("{run}/api"), "{target}");
             }
             Decision::NotFound | Decision::Reject => {}
+            Decision::Alive => panic!("only check answers the liveness probe: {target}"),
         }
         Ok(())
     })
