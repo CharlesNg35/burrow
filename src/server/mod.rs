@@ -169,6 +169,7 @@ impl Shared {
             .is_some_and(|c| c.secrets.contains(secret))
     }
 
+    #[cfg(feature = "web")]
     pub(crate) fn crowded(&self, service: &str) -> bool {
         let settings = self.settings();
         let Some(svc) = settings.services.get(service) else {
