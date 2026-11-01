@@ -190,16 +190,16 @@ pub struct ServiceEntry {
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
-        description = "Several clients that can each reach the target, instead of client: a name, or {name, target, weight} for another target and its share with mode: balance; see mode"
+        description = "Several clients that can each reach the target, instead of client: a name, or {name, target, weight} for another target and its share with mode: balance or ip_hash; see mode"
     )]
     #[admin(help = "Clients that can each reach the target, each at the main target or another one, for example a gateway in front of two VMs; with two or more, Mode chooses how one is picked", ty = ref_entries(client, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<ClientRef>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
-        description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least_connections sends each new one to the client with the fewest open connections"
+        description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least_connections sends each new one to the client with the fewest open connections, ip_hash keeps each visitor address on one client, chosen by weight"
     )]
     #[admin(
-        help = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones",
+        help = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones, IP hash keeps each visitor address on one client",
         group = who,
         wide,
         enabled_if(len_ge(clients, 2), "This applies only with two or more clients")
@@ -334,6 +334,17 @@ pub enum Mode {
         help = "Send each new connection to the client that is up with the fewest open connections"
     )]
     LeastConnections,
+    #[admin(
+        label = "IP hash",
+        help = "Keep each visitor address on one client that is up, chosen by weight"
+    )]
+    IpHash,
+}
+
+impl Mode {
+    pub fn weighted(self) -> bool {
+        matches!(self, Mode::Balance | Mode::IpHash)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

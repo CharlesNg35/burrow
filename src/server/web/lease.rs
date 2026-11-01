@@ -48,7 +48,7 @@ pub(in crate::server) fn lease(
     let settings = shared.settings();
     let svc = settings.services.get(service).ok_or(Refused::Gone)?;
     let (hop, client, id, entry) = if svc.several() {
-        let (hops, entry) = shared.lead(service, svc);
+        let (hops, entry) = shared.lead(service, svc, from.addr.ip());
         let first = hops.into_iter().next().ok_or(Refused::NoClient)?;
         let id = way_id(first.name(), &first.target);
         let client = first.key.client.clone();
@@ -98,8 +98,13 @@ pub(in crate::server) fn lease(
     Ok((way, Lease::new(held)))
 }
 
-fn hops_for(shared: &Shared, service: &str, svc: &Service, lease: &WebLease) -> Vec<Hop> {
-    let mut hops = shared.ranked(service, svc);
+fn hops_for(
+    shared: &Shared,
+    (service, svc): (&str, &Service),
+    from: std::net::IpAddr,
+    lease: &WebLease,
+) -> Vec<Hop> {
+    let mut hops = shared.ranked(service, svc, from);
     if let Some(first) = &lease.hop {
         hops.retain(|h| h.key != first.key);
         hops.insert(0, first.clone());
@@ -116,8 +121,8 @@ pub(in crate::server) fn open_pooled(
     let settings = shared.settings();
     let svc = settings.services.get(service).ok_or(Refused::Gone)?;
     let hops = match lease.held::<WebLease>() {
-        Some(held) => hops_for(shared, service, svc, held),
-        None => shared.ranked(service, svc),
+        Some(held) => hops_for(shared, (service, svc), from.addr.ip(), held),
+        None => shared.ranked(service, svc, from.addr.ip()),
     };
     let (picked, before) = shared.held_first(hops);
     if let [only] = picked.hops.as_slice()

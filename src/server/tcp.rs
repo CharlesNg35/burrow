@@ -143,7 +143,7 @@ pub(super) fn admit(
     index: u16,
 ) -> Result<Admitted, Refusal> {
     let mut admitted = enter(shared, name, svc, (peer, source), || {
-        shared.route(name, svc, index)
+        shared.route(name, svc, index, Some(peer.ip()))
     })?;
     admitted._tracked = Some(shared.track());
     Ok(admitted)

@@ -83,7 +83,7 @@ pub(super) async fn serve(
         }
     };
     let label = format!("visitor \"{visitor}\"");
-    let clients = clients_for(&shared, &grant);
+    let clients = clients_for(&shared, &grant, peer.ip());
     if clients.is_empty() {
         offline(&shared, &grant, &request, peer, &label, channel).await;
         return;

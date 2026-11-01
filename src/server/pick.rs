@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -67,8 +68,14 @@ impl From<Vec<Hop>> for Picked {
 }
 
 impl Shared {
-    pub(crate) fn route(&self, service: &str, svc: &Service, index: u16) -> Picked {
-        let (hops, held) = self.order(service, svc, index, true, |h| {
+    pub(crate) fn route(
+        &self,
+        service: &str,
+        svc: &Service,
+        index: u16,
+        from: Option<IpAddr>,
+    ) -> Picked {
+        let (hops, held) = self.order(service, svc, (index, from), true, |h| {
             let (guard, before) = self.client_opens(h.name());
             Held {
                 name: h.name().to_string(),
@@ -82,8 +89,15 @@ impl Shared {
     }
 
     #[cfg(feature = "web")]
-    pub(crate) fn lead(&self, service: &str, svc: &Service) -> (Vec<Hop>, Option<CountGuard>) {
-        self.order(service, svc, 0, true, |h| self.entry_opens(service, h))
+    pub(crate) fn lead(
+        &self,
+        service: &str,
+        svc: &Service,
+        from: IpAddr,
+    ) -> (Vec<Hop>, Option<CountGuard>) {
+        self.order(service, svc, (0, Some(from)), true, |h| {
+            self.entry_opens(service, h)
+        })
     }
 
     #[cfg(feature = "web")]
@@ -103,12 +117,15 @@ impl Shared {
     }
 
     #[cfg(feature = "web")]
-    pub(crate) fn ranked(&self, service: &str, svc: &Service) -> Vec<Hop> {
-        self.order(service, svc, 0, false, |_| ()).0
+    pub(crate) fn ranked(&self, service: &str, svc: &Service, from: IpAddr) -> Vec<Hop> {
+        self.order(service, svc, (0, Some(from)), false, |_| ()).0
     }
 
     pub(crate) fn pick(&self, service: &str, svc: &Service, index: u16) -> Option<Hop> {
-        self.route(service, svc, index).hops.into_iter().next()
+        self.route(service, svc, index, None)
+            .hops
+            .into_iter()
+            .next()
     }
 
     pub(crate) fn preferred(
@@ -119,11 +136,11 @@ impl Shared {
     ) -> Option<(String, String)> {
         match svc.mode {
             Mode::Failover => self
-                .order(service, svc, index, false, |_| ())
+                .order(service, svc, (index, None), false, |_| ())
                 .0
                 .first()
                 .map(|h| (h.name().to_string(), h.target.clone())),
-            Mode::Balance | Mode::LeastConnections => None,
+            Mode::Balance | Mode::LeastConnections | Mode::IpHash => None,
         }
     }
 
@@ -154,12 +171,16 @@ impl Shared {
         &self,
         service: &str,
         svc: &Service,
-        index: u16,
+        (index, from): (u16, Option<IpAddr>),
         turn: bool,
         seal: impl FnOnce(&Hop) -> T,
     ) -> (Vec<Hop>, Option<T>) {
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
-        for h in self.hops(svc, index) {
+        let mut hops = self.hops(svc, index);
+        if let (Mode::IpHash, Some(from)) = (svc.mode, from) {
+            super::ip_hash::rank(&mut hops, from);
+        }
+        for h in hops {
             let healthy = svc.health.is_none() || self.is_up(service, &h.key);
             match self.seen(service, &h, &h.target) {
                 Seen::Refused => refused.push(h),
@@ -168,8 +189,8 @@ impl Shared {
                 Seen::Clear => aside.push(h),
             }
         }
-        let mut wheels =
-            (turn && svc.mode != Mode::Failover).then(|| self.wheels.lock().expect("wheels lock"));
+        let serialised = matches!(svc.mode, Mode::Balance | Mode::LeastConnections);
+        let mut wheels = (turn && serialised).then(|| self.wheels.lock().expect("wheels lock"));
         let head = [&mut clear, &mut aside, &mut refused]
             .into_iter()
             .find(|g| !g.is_empty());
@@ -177,7 +198,7 @@ impl Shared {
             && turn
         {
             match svc.mode {
-                Mode::Failover => {}
+                Mode::Failover | Mode::IpHash => {}
                 Mode::Balance => {
                     if let Some(wheels) = wheels.as_mut() {
                         let group = head.iter().map(|h| (&h.key, h.weight));
