@@ -20,12 +20,13 @@ const TOKEN_KEY: &str = "burrow-admin-token";
 const STATUS_MS: u64 = 1000;
 
 type Reply = Result<Value, ErrorBody>;
+type Done = Box<dyn FnOnce(Reply)>;
 
 struct Client {
     ws: WebSocket,
     ready: bool,
     next: u32,
-    pending: HashMap<u32, Box<dyn FnOnce(Reply)>>,
+    pending: HashMap<u32, Done>,
     _handlers: Vec<Box<dyn std::any::Any>>,
 }
 
@@ -245,15 +246,65 @@ pub fn body<T: burrow_admin_proto::serde::Serialize>(b: &T) -> Value {
 }
 
 pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
+    send(t, body, Box::new(done));
+}
+
+pub const CHECK_WITHIN: std::time::Duration = std::time::Duration::from_secs(20);
+
+pub fn request_within(
+    t: &str,
+    body: Value,
+    within: std::time::Duration,
+    done: impl FnOnce(Reply) + 'static,
+) {
+    let slot: std::rc::Rc<Cell<Option<Done>>> = std::rc::Rc::new(Cell::new(Some(Box::new(done))));
+    let answer = slot.clone();
+    let generation = GEN.with(Cell::get);
+    let id = send(
+        t,
+        body,
+        Box::new(move |r| {
+            if let Some(f) = answer.take() {
+                f(r);
+            }
+        }),
+    );
+    set_timeout(
+        move || {
+            let Some(f) = slot.take() else {
+                return;
+            };
+            if let Some(id) = id.filter(|_| current(generation)) {
+                CLIENT.with(|c| {
+                    if let Some(c) = c.borrow_mut().as_mut() {
+                        c.pending.remove(&id);
+                    }
+                });
+            }
+            f(Err(ErrorBody {
+                code: ErrorCode::Unknown,
+                message: format!(
+                    "the server did not answer within {} seconds",
+                    within.as_secs()
+                ),
+                body: Value::Null,
+            }));
+        },
+        within,
+    );
+}
+
+fn send(t: &str, body: Value, done: Done) -> Option<u32> {
     let offered = crate::store::try_store()
         .and_then(|s| s.welcome.get_untracked())
         .is_none_or(|w| w.offers(t));
     if !offered {
         let refused = msg::older_server(t);
         set_timeout(move || done(Err(refused)), std::time::Duration::ZERO);
-        return;
+        return None;
     }
-    let mut done: Option<Box<dyn FnOnce(Reply)>> = Some(Box::new(done));
+    let mut done = Some(done);
+    let mut sent = None;
     CLIENT.with(|c| {
         let mut c = c.borrow_mut();
         let Some(c) = c
@@ -274,6 +325,7 @@ pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
             && let Some(f) = done.take()
         {
             c.pending.insert(id, f);
+            sent = Some(id);
         }
     });
     if let Some(f) = done {
@@ -289,6 +341,7 @@ pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
             std::time::Duration::ZERO,
         );
     }
+    sent
 }
 
 fn incoming(store: Store, text: &str) {

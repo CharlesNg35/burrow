@@ -1,5 +1,7 @@
 #[path = "admin_e2e/access.rs"]
 mod access;
+#[path = "admin_e2e/check_failed.rs"]
+mod check_failed;
 #[path = "admin_e2e/checks.rs"]
 mod checks;
 #[path = "admin_e2e/chips.rs"]
