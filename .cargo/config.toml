@@ -3,3 +3,6 @@ xtask = "run --quiet --package xtask --"
 
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg", "erase_components"]
+
+[env]
+JEMALLOC_SYS_WITH_MALLOC_CONF = "dirty_decay_ms:1000"
