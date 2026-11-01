@@ -124,13 +124,13 @@ Turn it on only when the target expects it: an app that does not understand the 
 
 ## Several clients
 
-Run the same app on two machines, list both under `clients`, and the service stays up when one goes away. This works for TCP and UDP services. `mode: balance`, `mode: least_connections` and `health_check` are for TCP only, so a UDP service uses failover. This web service spreads its connections over two clients, and skips one whose app stops answering:
+Run the same app on two machines, list both under `clients`, and the service stays up when one goes away. This works for TCP and UDP services. `mode: balance`, `mode: least_connections`, `mode: ip_hash` and `health_check` are for TCP only, so a UDP service uses failover. This web service spreads its connections over two clients, and skips one whose app stops answering:
 
 ```yaml
 # server.yaml, under services:
 web:
   clients: [home-1, home-2]
-  mode: balance          # or failover (the default), or least_connections
+  mode: balance          # or failover (the default), least_connections or ip_hash
   health_check: true     # or { interval_secs: 10, timeout_secs: 3, failures: 2 }
   bind: 443
   target: 127.0.0.1:8443
@@ -139,10 +139,13 @@ web:
 - **`failover`** (the default) uses the first connected client in the list, and moves to the next one while it is away.
 - **`balance`** spreads new connections over all connected clients, in turn.
 - **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service; on a tie, the first in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine.
+- **`ip_hash`** keeps each visitor address on one client: every connection of a TCP service, and every request of a website, from the same address goes to the same entry, as long as it is up. For a website the address is the real visitor's: the one in `X-Forwarded-For` from a proxy in `web.trusted_proxies`, or in the PROXY header from `web.proxy_protocol_from`; an IPv6 address counts per /64. It suits apps that keep a visitor's session in memory. Two things to know: many visitors behind one NAT or company proxy share one address and so land on one client, and a visitor whose address changes (a phone moving between networks) may move to another client.
 
-All three skip a client whose health check failed (below).
+All four skip a client whose health check failed (below). `ip_hash` then sends that visitor to the next entry in its own order, and back once the client is up again.
 
-**Weights.** With `balance`, a client can get a bigger share: write it as `{name, weight}`, with a whole number from 1 to 1000 (default 1). Here `home-1` gets 3 of every 4 new connections:
+`failover` is the default because the clients of a tunnel are often not identical copies, as the servers behind nginx or Caddy usually are: they may hold different data or sit behind different links. So burrow spreads visitors only when you ask for it.
+
+**Weights.** With `balance` or `ip_hash`, a client can get a bigger share: write it as `{name, weight}`, with a whole number from 1 to 1000 (default 1). Here `home-1` gets 3 of every 4 new connections:
 
 ```yaml
 # server.yaml, under services:
@@ -153,7 +156,7 @@ web:
   target: 127.0.0.1:8443
 ```
 
-The turns are spread evenly, as in nginx's weighted round robin, so `home-1` does not get three connections in a row and then `home-2` one. Weights apply only to `balance`; `validate` refuses them with the other modes.
+The turns are spread evenly, as in nginx's weighted round robin, so `home-1` does not get three connections in a row and then `home-2` one. With `ip_hash` the weight is the share of visitor addresses: `home-1` gets about 3 of every 4 addresses. It uses weighted rendezvous hashing, so adding or removing a client moves only the addresses that client gains or loses; everyone else stays where they are. Weights apply only to `balance` and `ip_hash`; `validate` refuses them with the other modes.
 
 **Several VMs behind one client.** An entry can give its own `target`. One client in front of several machines, such as a LAN gateway with two VMs, can then spread a service over them. An entry without a `target` uses the service's `target`:
 
