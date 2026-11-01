@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use burrow::config::settings::ServerSettings;
 use burrow::wire::secret::Secret;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::common::*;
 use crate::kit::*;
@@ -309,5 +310,36 @@ async fn a_get_is_not_sent_again_once_part_of_its_answer_arrived() {
         seen(&log, "b"),
         1,
         "an answer had started, so it is not sent again"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_visitor_lingering_after_an_early_answer_holds_no_app_connection() {
+    let (app, _log) = recording_app(Behave::Answer).await;
+    let (s, secret) = plain(app, |s| {
+        s.services.get_mut("app").unwrap().max_connections = Some(1);
+        let site = s.web.as_mut().unwrap().sites.get_mut("app").unwrap();
+        site.options.max_body_size = Some(16);
+    });
+    let web = http(&s);
+    let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    let mut lingering = tokio::net::TcpStream::connect(web).await.unwrap();
+    let warm = b"GET / HTTP/1.1\r\nHost: app.example.com\r\n\r\n";
+    lingering.write_all(warm).await.unwrap();
+    let mut buf = vec![0u8; 4096];
+    let n = lingering.read(&mut buf).await.unwrap();
+    assert!(buf[..n].starts_with(b"HTTP/1.1 200"));
+    let big = b"POST / HTTP/1.1\r\nHost: app.example.com\r\nContent-Length: 100000\r\n\r\n";
+    lingering.write_all(big).await.unwrap();
+    let n = lingering.read(&mut buf).await.unwrap();
+    assert!(
+        buf[..n].starts_with(b"HTTP/1.1 413"),
+        "{}",
+        String::from_utf8_lossy(&buf[..n])
+    );
+    let other = plain_get(web, "app.example.com", "/").await;
+    assert!(
+        other.starts_with("HTTP/1.1 200"),
+        "another visitor is served while the first lingers: {other}"
     );
 }
