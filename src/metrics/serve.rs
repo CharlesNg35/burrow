@@ -149,10 +149,10 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
     let mut served = builder.serve_connection(io, service);
     match tokio::time::timeout(READ_TIMEOUT + WRITE_TIMEOUT, &mut served).await {
         Err(_) => Err(std::io::Error::other("the reader is too slow")),
-        Ok(Err(e)) => Err(std::io::Error::other(e)),
-        Ok(Ok(())) => {
+        Ok(Err(e)) if !burrow_io::linger::answered(&e) => Err(std::io::Error::other(e)),
+        Ok(ended) => {
             burrow_io::linger::linger(served.into_parts().io.into_inner().inner).await;
-            Ok(())
+            ended.map_err(std::io::Error::other)
         }
     }
 }
@@ -229,6 +229,17 @@ mod tests {
         );
         let ended = burrow_io::linger::probe::send_large_body(addr, &head).await;
         assert!(ended.answer.starts_with("HTTP/1.1 405"), "{ended:?}");
+        assert!(ended.broken.is_none(), "{ended:?}");
+    }
+
+    #[tokio::test]
+    async fn hypers_own_400_ends_in_a_clean_close_when_more_bytes_follow() {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(serve(l, Arc::new(empty)));
+        let head = "G@T /metrics HTTP/1.1\r\nHost: x\r\n\r\n";
+        let ended = burrow_io::linger::probe::send_large_body(addr, head).await;
+        assert!(ended.answer.starts_with("HTTP/1.1 400"), "{ended:?}");
         assert!(ended.broken.is_none(), "{ended:?}");
     }
 
