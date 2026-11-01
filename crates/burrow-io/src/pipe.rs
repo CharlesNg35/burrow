@@ -91,12 +91,16 @@ impl Duplex {
             if s.closed {
                 return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
             }
+            let total: usize = bufs.iter().map(|b| b.len()).sum();
+            if total == 0 {
+                return Poll::Ready(Ok(0));
+            }
             let avail = s.max - s.buf.len();
             if avail == 0 {
                 s.writer = Some(cx.waker().clone());
                 return Poll::Pending;
             }
-            let want: usize = bufs.iter().map(|b| b.len()).sum::<usize>().min(avail);
+            let want = total.min(avail);
             s.room(want);
             let mut left = want;
             for b in bufs {
@@ -212,25 +216,40 @@ mod tests {
     async fn a_full_direction_waits_for_the_reader_and_never_grows_past_its_size() {
         let (mut a, mut b) = duplex(4);
         a.write_all(b"ab").await.unwrap();
-        let mut two = [0u8; 1];
-        b.read_exact(&mut two).await.unwrap();
+        let mut first = [0u8; 1];
+        b.read_exact(&mut first).await.unwrap();
         a.write_all(b"cd").await.unwrap();
         assert!(lock(&a.write).buf.capacity() <= 4);
-        let mut one = [0u8; 1];
-        b.read_exact(&mut one).await.unwrap();
-        a.write_all(b"e").await.unwrap();
-        assert!(lock(&a.write).buf.capacity() <= 4);
-        a.write_all(b"f").await.unwrap();
-        let w = tokio::spawn(async move {
-            a.write_all(b"efgh").await.unwrap();
+        let mut second = [0u8; 1];
+        b.read_exact(&mut second).await.unwrap();
+        a.write_all(b"ef").await.unwrap();
+        let shared = a.write.clone();
+        let mut w = tokio::spawn(async move {
+            a.write_all(b"gh").await.unwrap();
             a
         });
+        let waiting = tokio::time::timeout(std::time::Duration::from_millis(20), &mut w).await;
+        assert!(waiting.is_err(), "a write to a full direction waits");
+        assert!(lock(&shared).buf.capacity() <= 4);
         let mut got = [0u8; 4];
         b.read_exact(&mut got).await.unwrap();
-        assert_eq!(&two, b"a");
-        assert_eq!(&one, b"b");
+        let a = w.await.unwrap();
+        assert!(lock(&a.write).buf.capacity() <= 4);
+        let mut rest = [0u8; 2];
+        b.read_exact(&mut rest).await.unwrap();
+        assert_eq!(&first, b"a");
+        assert_eq!(&second, b"b");
         assert_eq!(&got, b"cdef");
-        drop(w.await.unwrap());
+        assert_eq!(&rest, b"gh");
+    }
+
+    #[tokio::test]
+    async fn an_empty_write_to_a_full_direction_returns_at_once_as_tokio_does() {
+        let (mut a, _b) = duplex(2);
+        a.write_all(b"xy").await.unwrap();
+        assert_eq!(a.write(&[]).await.unwrap(), 0);
+        let empty = [io::IoSlice::new(&[])];
+        assert_eq!(a.write_vectored(&empty).await.unwrap(), 0);
     }
 
     #[tokio::test]

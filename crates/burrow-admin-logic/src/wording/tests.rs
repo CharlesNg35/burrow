@@ -185,6 +185,16 @@ fn a_tcp_only_field_on_a_udp_service_says_its_label_and_the_fix() {
             "Balance only works for TCP services; set Protocol to TCP, or choose Failover",
         ),
         (
+            BALANCE_TCP_ONLY,
+            "service \"web\" is udp, but mode ip_hash only works for tcp services",
+            "IP hash only works for TCP services; set Protocol to TCP, or choose Failover",
+        ),
+        (
+            BALANCE_TCP_ONLY,
+            "service \"web\" is udp, but mode least_connections only works for tcp services",
+            "Least connections only works for TCP services; set Protocol to TCP, or choose Failover",
+        ),
+        (
             HEALTH_CHECK_TCP_ONLY,
             "service \"web\" is udp, but health_check only works for tcp services",
             "Health check only works for TCP services; set Protocol to TCP, or turn it off",
