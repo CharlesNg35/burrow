@@ -82,10 +82,12 @@ impl Cut {
     }
 }
 
+const SHARDS: usize = 16;
+
 #[derive(Default)]
 pub(crate) struct Busy {
     next: AtomicU64,
-    all: Mutex<HashMap<u64, Held>>,
+    shards: [Mutex<HashMap<u64, Held>>; SHARDS],
 }
 
 pub(crate) struct Ticket {
@@ -105,7 +107,7 @@ impl Ticket {
             return;
         };
         let id = self.pool.busy.next.fetch_add(1, Ordering::Relaxed);
-        self.pool.busy.locked().insert(id, held);
+        self.pool.busy.shard(id).insert(id, held);
         self.id = Some(id);
     }
 }
@@ -113,7 +115,7 @@ impl Ticket {
 impl Drop for Ticket {
     fn drop(&mut self) {
         if let Some(id) = self.id {
-            self.pool.busy.locked().remove(&id);
+            self.pool.busy.shard(id).remove(&id);
         }
     }
 }
@@ -123,34 +125,42 @@ type Keeps<'a> = &'a dyn Fn(&str, &Visitor, Ask) -> bool;
 impl Busy {
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        self.locked().len()
+        (0..SHARDS).map(|i| self.at(i).len()).sum()
     }
 
-    fn locked(&self) -> MutexGuard<'_, HashMap<u64, Held>> {
-        self.all.lock().unwrap_or_else(PoisonError::into_inner)
+    fn at(&self, i: usize) -> MutexGuard<'_, HashMap<u64, Held>> {
+        self.shards[i]
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn shard(&self, id: u64) -> MutexGuard<'_, HashMap<u64, Held>> {
+        self.at(usize::try_from(id).unwrap_or(0) % SHARDS)
     }
 
     fn check(&self, epoch: u64, which: &dyn Fn(u64) -> bool, keeps: Keeps<'_>) {
-        let held: Vec<(u64, Arc<str>, Visitor, Ask)> = self
-            .locked()
-            .iter()
-            .filter(|(_, h)| which(h.epoch))
-            .map(|(id, h)| (*id, h.service.clone(), h.from.clone(), h.ask))
-            .collect();
-        let gone: Vec<u64> = held
-            .iter()
-            .filter(|(_, service, from, ask)| !keeps(service, from, *ask))
-            .map(|(id, ..)| *id)
-            .collect();
-        let mut all = self.locked();
-        for (id, ..) in &held {
-            let Some(h) = all.get_mut(id) else {
-                continue;
-            };
-            h.epoch = epoch;
-            if gone.contains(id) {
-                tracing::debug!(peer = %h.from.addr, "web: service \"{}\" no longer takes this visitor, closing its answer", h.service);
-                h.cutter.cut();
+        for i in 0..SHARDS {
+            let held: Vec<(u64, Arc<str>, Visitor, Ask)> = self
+                .at(i)
+                .iter()
+                .filter(|(_, h)| which(h.epoch))
+                .map(|(id, h)| (*id, h.service.clone(), h.from.clone(), h.ask))
+                .collect();
+            let gone: Vec<u64> = held
+                .iter()
+                .filter(|(_, service, from, ask)| !keeps(service, from, *ask))
+                .map(|(id, ..)| *id)
+                .collect();
+            let mut all = self.at(i);
+            for (id, ..) in &held {
+                let Some(h) = all.get_mut(id) else {
+                    continue;
+                };
+                h.epoch = epoch;
+                if gone.contains(id) {
+                    tracing::debug!(peer = %h.from.addr, "web: service \"{}\" no longer takes this visitor, closing its answer", h.service);
+                    h.cutter.cut();
+                }
             }
         }
     }

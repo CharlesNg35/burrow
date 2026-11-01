@@ -52,7 +52,25 @@ pub(super) fn opened<T>(
     }
 }
 
-fn replayable(req: &Request<Body>) -> Option<Request<Body>> {
+struct Head {
+    method: Method,
+    uri: http::Uri,
+    version: http::Version,
+    headers: http::HeaderMap,
+}
+
+impl Head {
+    fn request(self) -> Request<Body> {
+        let mut req = Request::new(Empty::new().map_err(|e| -> BoxError { match e {} }).boxed());
+        *req.method_mut() = self.method;
+        *req.uri_mut() = self.uri;
+        *req.version_mut() = self.version;
+        *req.headers_mut() = self.headers;
+        req
+    }
+}
+
+fn replayable(req: &Request<Body>) -> Option<Head> {
     let safe = matches!(
         *req.method(),
         Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE
@@ -60,12 +78,12 @@ fn replayable(req: &Request<Body>) -> Option<Request<Body>> {
     if !safe || !req.body().is_end_stream() {
         return None;
     }
-    let mut copy = Request::new(Empty::new().map_err(|e| -> BoxError { match e {} }).boxed());
-    *copy.method_mut() = req.method().clone();
-    *copy.uri_mut() = req.uri().clone();
-    *copy.version_mut() = req.version();
-    *copy.headers_mut() = req.headers().clone();
-    Some(copy)
+    Some(Head {
+        method: req.method().clone(),
+        uri: req.uri().clone(),
+        version: req.version(),
+        headers: req.headers().clone(),
+    })
 }
 
 fn stale(e: &hyper::Error) -> bool {
@@ -183,6 +201,7 @@ impl<U: Upstream> Asking<'_, U> {
                 let again = e.take_message().or_else(|| {
                     let silent = conn.read.load(Ordering::Acquire) == read_before;
                     copy.filter(|_| silent && stale(e.error()))
+                        .map(Head::request)
                 });
                 let Some(req) = again else {
                     return Err(missed(
@@ -245,7 +264,7 @@ impl<U: Upstream> Asking<'_, U> {
             Err(Retry::Cut) => return Err(Page::BadGateway.into()),
             Err(Retry::Unsent(req)) => *req,
             Err(Retry::Failed(e)) => match copy.filter(|_| refused(&e)) {
-                Some(req) => req,
+                Some(head) => head.request(),
                 None => return Err(missed(self.service, self.from, conn.ending.as_ref(), &e)),
             },
         };
