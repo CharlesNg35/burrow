@@ -14,6 +14,14 @@ use super::{
     Edit, Outcome, Review, VALIDATE_AFTER, conflict_of, landing, outcome_of, revert_outcome,
 };
 
+fn protocol_problem(e: serde_json::Error) -> ErrorBody {
+    ErrorBody {
+        code: ErrorCode::Unknown,
+        message: crate::store::store().protocol_problem("plan", e),
+        body: Value::Null,
+    }
+}
+
 impl Edit {
     pub(super) fn changed(&self) {
         let n = self.seq.get_value() + 1;
@@ -34,11 +42,12 @@ impl Edit {
         }
         let me = *self;
         self.checking.set(true);
+        self.check_error.set(None);
         let body = api::body(&msg::Validate {
             base: self.base_rev.get_untracked(),
             ops: self.ops(),
         });
-        api::request(msg::req::VALIDATE, body, move |r| {
+        api::request_within(msg::req::VALIDATE, body, api::CHECK_WITHIN, move |r| {
             if me.seq.get_value() != n {
                 return;
             }
@@ -54,8 +63,7 @@ impl Edit {
                     }
                     Err(e) => {
                         me.auto_apply.set(false);
-                        me.check_error
-                            .set(Some(crate::store::store().protocol_problem("plan", e)));
+                        me.check_error.set(Some(protocol_problem(e)));
                     }
                 },
                 Err(e) => match conflict_of(&e) {
@@ -63,7 +71,7 @@ impl Edit {
                         me.conflict_revert.set(None);
                         me.raise(c, false);
                     }
-                    None => me.check_error.set(Some(e.message)),
+                    None => me.check_error.set(Some(e)),
                 },
             }
         });
@@ -96,25 +104,27 @@ impl Edit {
             return;
         }
         let me = *self;
-        api::request(
+        self.check_error.set(None);
+        api::request_within(
             msg::req::VALIDATE,
             api::body(&msg::Validate { base, ops }),
-            move |r| match r {
-                Ok(v) => {
-                    if let Ok(p) = serde_json::from_value::<Plan>(v) {
-                        me.review.update(|rv| {
-                            if let Some(rv) = rv.as_mut().filter(|rv| rv.own) {
-                                rv.plan = Some(Arc::new(p));
-                            }
-                        });
-                    }
+            api::CHECK_WITHIN,
+            move |r| match r
+                .and_then(|v| serde_json::from_value::<Plan>(v).map_err(protocol_problem))
+            {
+                Ok(p) => {
+                    me.review.update(|rv| {
+                        if let Some(rv) = rv.as_mut().filter(|rv| rv.own) {
+                            rv.plan = Some(Arc::new(p));
+                        }
+                    });
                 }
                 Err(e) => {
                     if let Some(c) = conflict_of(&e) {
                         me.conflict_revert.set(None);
                         me.raise(c, false);
                     } else {
-                        me.check_error.set(Some(e.message));
+                        me.check_error.set(Some(e));
                     }
                 }
             },
@@ -139,19 +149,16 @@ impl Edit {
             own: true,
         }));
         let me = *self;
-        api::request(
+        api::request_within(
             msg::req::REVERT,
             api::body(&msg::Revert {
                 to: to.clone(),
                 base,
             }),
-            move |r| match r.and_then(|v| {
-                serde_json::from_value::<Plan>(v).map_err(|e| ErrorBody {
-                    code: ErrorCode::Unknown,
-                    message: crate::store::store().protocol_problem("plan", e),
-                    body: Value::Null,
-                })
-            }) {
+            api::CHECK_WITHIN,
+            move |r| match r
+                .and_then(|v| serde_json::from_value::<Plan>(v).map_err(protocol_problem))
+            {
                 Ok(p) => {
                     me.review.update(|rv| {
                         if let Some(rv) = rv {

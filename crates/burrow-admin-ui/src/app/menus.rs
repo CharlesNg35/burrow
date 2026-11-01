@@ -71,6 +71,17 @@ pub(super) fn mobile_back(s: Store) -> impl IntoView + use<> {
     }
 }
 
+fn failed_check(s: Store, check_state: Signal<String>) -> Option<&'static str> {
+    (check_state.get() == "failed")
+        .then(|| {
+            s.edit.check_error.with(|e| {
+                e.as_ref()
+                    .map(|e| burrow_admin_logic::wording::check_failed(e.code))
+            })
+        })
+        .flatten()
+}
+
 pub(super) fn review_or_read_only(
     s: Store,
     read_only: Memo<bool>,
@@ -106,7 +117,15 @@ pub(super) fn review_or_read_only(
                 <Link to=Route::Review class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-on-accent no-underline hover:brightness-95 dark:hover:brightness-110" testid="review-open" state=check_state>
                     <Icon name="diff"/>
                     <span class="max-sm:sr-only">"Review"</span>
-                    <span class="rounded-sm bg-white/25 px-1.5 text-[11.5px] dark:bg-black/18" data-testid="review-count">{pending.get()}</span>
+                    {move || match failed_check(s, check_state) {
+                        Some(why) => view! {
+                            <span class="inline-flex items-center gap-1 rounded-sm bg-danger px-1.5 text-[11.5px] text-danger-ink" title=why data-testid="review-count">
+                                <Icon name=Tone::Danger.icon() small=true/>{pending.get()}
+                            </span>
+                            <span class="sr-only" data-testid="review-failed">{why}</span>
+                        }.into_any(),
+                        None => view! { <span class="rounded-sm bg-white/25 px-1.5 text-[11.5px] dark:bg-black/18" data-testid="review-count">{pending.get()}</span> }.into_any(),
+                    }}
                 </Link>
             }
             .into_any()

@@ -193,6 +193,12 @@ fn handle(req: Request<Incoming>, shared: &Arc<Shared>, bridge: &Bridge) -> Resp
             Vec::new(),
         ),
         Ok((_, Decision::NotFound | Decision::Reject)) => plain(404, "not found"),
+        Ok((_, Decision::Alive)) => http::response(
+            200,
+            "text/plain; charset=utf-8",
+            &[("Cache-Control", "no-store".into())],
+            &b"running\n"[..],
+        ),
         Ok((_, Decision::Api)) => {
             let Some(accept) = accept_key(&req) else {
                 return plain(400, "bad request");
