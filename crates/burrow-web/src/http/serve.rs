@@ -85,7 +85,11 @@ fn service<U: Upstream>(
         let busy = conn.activity.enter();
         async move {
             let version = req.version();
+            let (req, unread) = super::unread::keep(req);
             let mut r = pipeline::handle(&shared, &conn, req).await;
+            if let Some(unread) = unread {
+                unread.settle(&mut r).await;
+            }
             *r.version_mut() = version;
             if conn.proto == Proto::H2 {
                 super::headers::detach(r.headers_mut());

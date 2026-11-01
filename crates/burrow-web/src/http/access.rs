@@ -3,13 +3,13 @@ use std::time::Duration;
 
 use http::{HeaderValue, Request, Response, header};
 use http_body_util::BodyExt;
-use hyper::body::Incoming;
 use tokio::time::Instant;
 
 use super::Body;
 use super::forwarded::Client;
 use super::pages::Page;
 use super::site::{Hop, SiteRun};
+use super::unread::Kept;
 use super::upstream::pool::{Back, Key, Pool};
 use super::upstream::send::Asking;
 use super::upstream::{refusal_page, strip_hop_by_hop};
@@ -52,7 +52,7 @@ impl<U: Upstream> Gate<'_, U> {
         (!ok).then(|| Page::Forbidden.response_from(&self.site.pages))
     }
 
-    pub(crate) async fn check(&self, req: &mut Request<Incoming>) -> Option<Response<Body>> {
+    pub(crate) async fn check(&self, req: &mut Request<Kept>) -> Option<Response<Body>> {
         if let Some(l) = &self.site.limit
             && let Err(wait) = l.check(self.client.ip)
         {
@@ -85,7 +85,7 @@ impl<U: Upstream> Gate<'_, U> {
     async fn forward_auth(
         &self,
         fa: &ForwardAuth,
-        req: &mut Request<Incoming>,
+        req: &mut Request<Kept>,
     ) -> Option<Response<Body>> {
         strip_visitor_copies(req.headers_mut(), &[&fa.copy_headers, &fa.strip_headers]);
         let pq = req.uri().path_and_query().map_or("/", |p| p.as_str());

@@ -73,12 +73,18 @@ enum State<C> {
 
 pub struct Lingering<C> {
     state: State<C>,
+    after: Option<hyper::Error>,
 }
 
 pub fn serve<C: Http1>(conn: C) -> Lingering<C> {
     Lingering {
         state: State::Serving(conn),
+        after: None,
     }
+}
+
+pub fn answered(e: &hyper::Error) -> bool {
+    e.is_parse() && !e.is_parse_version_h2()
 }
 
 impl<C: Http1> Lingering<C> {
@@ -97,21 +103,23 @@ impl<C: Http1> Future for Lingering<C> {
         loop {
             match &mut me.state {
                 State::Serving(conn) => {
-                    ready!(Pin::new(conn).poll(cx))?;
+                    let ended = ready!(Pin::new(conn).poll(cx));
                     let State::Serving(conn) = std::mem::replace(&mut me.state, State::Done) else {
-                        return Poll::Ready(Ok(()));
+                        return Poll::Ready(ended);
                     };
-                    match conn.into_io() {
-                        Some(io) => me.state = State::Closing(Box::pin(linger(io))),
-                        None => return Poll::Ready(Ok(())),
+                    match ended {
+                        Err(e) if !answered(&e) => return Poll::Ready(Err(e)),
+                        ended => me.after = ended.err(),
+                    }
+                    if let Some(io) = conn.into_io() {
+                        me.state = State::Closing(Box::pin(linger(io)));
                     }
                 }
                 State::Closing(closing) => {
                     ready!(closing.as_mut().poll(cx));
                     me.state = State::Done;
-                    return Poll::Ready(Ok(()));
                 }
-                State::Done => return Poll::Ready(Ok(())),
+                State::Done => return Poll::Ready(me.after.take().map_or(Ok(()), Err)),
             }
         }
     }
