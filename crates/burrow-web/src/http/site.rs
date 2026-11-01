@@ -18,6 +18,7 @@ pub enum Hop {
 
 pub struct SiteRun {
     pub service: String,
+    pub name: Arc<str>,
     pub options: SiteOptions,
     pub pages: ErrorPages,
     pub hop: Hop,
@@ -102,6 +103,7 @@ impl SiteRun {
         });
         Arc::new(SiteRun {
             service: site.service.clone(),
+            name: Arc::from(site.service.as_str()),
             options: o.clone(),
             pages,
             hop,

@@ -137,8 +137,8 @@ web:
 ```
 
 - **`failover`** (the default) uses the first connected client in the list, and moves to the next one while it is away.
-- **`balance`** spreads new connections over all connected clients, in turn.
-- **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service; on a tie, the first in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine.
+- **`balance`** spreads new connections over all connected clients, in turn. For a website it picks per request, as nginx, Caddy, Traefik and HAProxy do, so one kept-alive visitor is spread too.
+- **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service; on a tie, the first in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine. For a website it counts requests in progress, not idle app connections.
 
 All three skip a client whose health check failed (below).
 

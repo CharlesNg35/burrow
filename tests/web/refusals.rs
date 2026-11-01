@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use burrow::wire::secret::Secret;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -30,13 +31,31 @@ async fn dying_app() -> SocketAddr {
     addr
 }
 
+async fn held_app() -> std::net::SocketAddr {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let mut buf = [0u8; 1024];
+                let _ = s.read(&mut buf).await;
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                let _ = s
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                    .await;
+            });
+        }
+    });
+    addr
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn each_refusal_before_the_app_answers_is_its_page_with_a_normal_close() {
     let app = http_app().await;
     let secret = Secret::generate();
     let mut denied = site(&["home"], app);
     denied.sources.allow = vec!["10.0.0.0/8".parse().unwrap()];
-    let mut limited = site(&["home"], app);
+    let mut limited = site(&["home"], held_app().await);
     limited.max_connections = Some(1);
     let s = plain_server(
         &secret,
@@ -63,13 +82,11 @@ async fn each_refusal_before_the_app_answers_is_its_page_with_a_normal_close() {
         assert!(r.ends_with("</html>\n"), "{host}: {r}");
     }
     let mut first = TcpStream::connect(http).await.unwrap();
-    let r = ask(
-        &mut first,
-        b"GET / HTTP/1.1\r\nHost: one.example.com\r\n\r\n",
-    )
-    .await
-    .unwrap();
-    assert!(String::from_utf8_lossy(&r).starts_with("HTTP/1.1 200"));
+    first
+        .write_all(b"GET / HTTP/1.1\r\nHost: one.example.com\r\n\r\n")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
     let r = plain_get(http, "one.example.com", "/").await;
     assert!(r.starts_with("HTTP/1.1 503"), "max_connections: 1: {r}");
     assert!(
@@ -105,7 +122,7 @@ async fn a_client_at_its_connection_limit_gives_the_busy_page_not_a_bad_gateway(
     let mut s = plain_server(
         &secret,
         &[
-            ("a", site(&["home"], app), &["a.example.com"]),
+            ("a", site(&["home"], held_app().await), &["a.example.com"]),
             ("b", site(&["home"], app), &["b.example.com"]),
         ],
     );
@@ -113,10 +130,11 @@ async fn a_client_at_its_connection_limit_gives_the_busy_page_not_a_bad_gateway(
     let http = s.web.as_ref().unwrap().http.unwrap();
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
     let mut first = TcpStream::connect(http).await.unwrap();
-    let r = ask(&mut first, b"GET / HTTP/1.1\r\nHost: a.example.com\r\n\r\n")
+    first
+        .write_all(b"GET / HTTP/1.1\r\nHost: a.example.com\r\n\r\n")
         .await
         .unwrap();
-    assert!(String::from_utf8_lossy(&r).starts_with("HTTP/1.1 200"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
     let r = plain_get(http, "b.example.com", "/").await;
     assert!(r.starts_with("HTTP/1.1 503"), "{r}");
     assert!(

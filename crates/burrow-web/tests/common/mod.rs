@@ -8,7 +8,9 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use burrow_web::{BoxIo, ProxySettings, Refused, Site, TunnelConn, Upstream, Visitor};
+use burrow_web::{
+    Ask, BoxIo, Lease, ProxySettings, Refused, Site, TunnelConn, Upstream, Visitor, Way,
+};
 use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -150,6 +152,14 @@ impl Fake {
 
 impl Upstream for Fake {
     type Permit = OwnedSemaphorePermit;
+    fn lease(&self, _service: &str, _from: &Visitor, _ask: Ask) -> Result<(Way, Lease), Refused> {
+        let way = Way {
+            id: 1,
+            client: Arc::from("fake"),
+            bound: None,
+        };
+        Ok((way, Lease::new(())))
+    }
 
     fn answered(&self, service: &str, status: http::StatusCode) {
         self.answered

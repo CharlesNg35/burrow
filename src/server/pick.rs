@@ -68,8 +68,43 @@ impl From<Vec<Hop>> for Picked {
 
 impl Shared {
     pub(crate) fn route(&self, service: &str, svc: &Service, index: u16) -> Picked {
-        let (hops, held) = self.order(service, svc, index, true);
+        let (hops, held) = self.order(service, svc, index, true, |h| {
+            let (guard, before) = self.client_opens(h.name());
+            Held {
+                name: h.name().to_string(),
+                target: h.target.clone(),
+                guard,
+                entry: Some(self.entry_opens(service, h)),
+                before,
+            }
+        });
         Picked { hops, held }
+    }
+
+    #[cfg(feature = "web")]
+    pub(crate) fn lead(&self, service: &str, svc: &Service) -> (Vec<Hop>, Option<CountGuard>) {
+        self.order(service, svc, 0, true, |h| self.entry_opens(service, h))
+    }
+
+    #[cfg(feature = "web")]
+    pub(crate) fn held_first(&self, hops: Vec<Hop>) -> (Picked, usize) {
+        let held = hops.first().map(|h| {
+            let (guard, before) = self.client_opens(h.name());
+            Held {
+                name: h.name().to_string(),
+                target: h.target.clone(),
+                guard,
+                entry: None,
+                before,
+            }
+        });
+        let before = held.as_ref().map_or(0, |h| h.before);
+        (Picked { hops, held }, before)
+    }
+
+    #[cfg(feature = "web")]
+    pub(crate) fn ranked(&self, service: &str, svc: &Service) -> Vec<Hop> {
+        self.order(service, svc, 0, false, |_| ()).0
     }
 
     pub(crate) fn pick(&self, service: &str, svc: &Service, index: u16) -> Option<Hop> {
@@ -84,7 +119,7 @@ impl Shared {
     ) -> Option<(String, String)> {
         match svc.mode {
             Mode::Failover => self
-                .order(service, svc, index, false)
+                .order(service, svc, index, false, |_| ())
                 .0
                 .first()
                 .map(|h| (h.name().to_string(), h.target.clone())),
@@ -115,13 +150,14 @@ impl Shared {
             .collect()
     }
 
-    fn order(
+    fn order<T>(
         &self,
         service: &str,
         svc: &Service,
         index: u16,
-        hold: bool,
-    ) -> (Vec<Hop>, Option<Held>) {
+        turn: bool,
+        seal: impl FnOnce(&Hop) -> T,
+    ) -> (Vec<Hop>, Option<T>) {
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
         for h in self.hops(svc, index) {
             let healthy = svc.health.is_none() || self.is_up(service, &h.key);
@@ -133,12 +169,12 @@ impl Shared {
             }
         }
         let mut wheels =
-            (hold && svc.mode != Mode::Failover).then(|| self.wheels.lock().expect("wheels lock"));
+            (turn && svc.mode != Mode::Failover).then(|| self.wheels.lock().expect("wheels lock"));
         let head = [&mut clear, &mut aside, &mut refused]
             .into_iter()
             .find(|g| !g.is_empty());
         if let Some(head) = head
-            && hold
+            && turn
         {
             match svc.mode {
                 Mode::Failover => {}
@@ -156,16 +192,7 @@ impl Shared {
         }
         clear.extend(aside);
         clear.extend(refused);
-        let held = clear.first().filter(|_| hold).map(|h| {
-            let (guard, before) = self.client_opens(h.name());
-            Held {
-                name: h.name().to_string(),
-                target: h.target.clone(),
-                guard,
-                entry: Some(self.entry_opens(service, h)),
-                before,
-            }
-        });
+        let held = clear.first().filter(|_| turn).map(seal);
         drop(wheels);
         (clear, held)
     }
@@ -192,7 +219,7 @@ impl Shared {
         &self,
         service: &str,
         client: &str,
-        from: std::net::IpAddr,
+        from: Option<std::net::IpAddr>,
         index: u16,
         public: Option<(burrow_config::Protocol, std::net::SocketAddr)>,
     ) -> Result<(), String> {
@@ -210,7 +237,9 @@ impl Shared {
         if !s.clients.iter().any(|c| c == client) {
             return Err(format!("client \"{client}\" no longer serves it"));
         }
-        if !s.sources.permits(from) {
+        if let Some(from) = from
+            && !s.sources.permits(from)
+        {
             return Err(format!(
                 "{from} is no longer allowed by allow_from or deny_from"
             ));

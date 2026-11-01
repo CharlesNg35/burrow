@@ -72,7 +72,29 @@ pub(super) enum Door {
     #[cfg(feature = "web")]
     Web(String),
     #[cfg(feature = "web")]
-    Auth,
+    Pool(burrow_web::Ending),
+}
+
+impl Door {
+    fn opener(&self, peer: SocketAddr) -> Option<IpAddr> {
+        match self {
+            Door::Bind => Some(peer.ip()),
+            #[cfg(feature = "web")]
+            Door::Web(_) => Some(peer.ip()),
+            #[cfg(feature = "web")]
+            Door::Pool(_) => None,
+        }
+    }
+
+    fn accepted(&self, hop: &super::pick::Hop, several: bool) {
+        #[cfg(feature = "web")]
+        if let Door::Pool(ending) = self
+            && several
+        {
+            ending.answered_by(super::web::way_id(hop.name(), &hop.target));
+        }
+        let _ = (hop, several);
+    }
 }
 
 pub(super) struct Entry {
@@ -110,7 +132,7 @@ pub(super) struct Admitted {
     source: Option<IpAddr>,
     _guard: super::CountGuard,
     _share: Option<FairShare>,
-    _tracked: super::ActiveConn,
+    _tracked: Option<super::ActiveConn>,
 }
 
 pub(super) fn admit(
@@ -119,6 +141,31 @@ pub(super) fn admit(
     svc: &Service,
     (peer, source): (SocketAddr, Option<IpAddr>),
     index: u16,
+) -> Result<Admitted, Refusal> {
+    let mut admitted = enter(shared, name, svc, (peer, source), || {
+        shared.route(name, svc, index)
+    })?;
+    admitted._tracked = Some(shared.track());
+    Ok(admitted)
+}
+
+#[cfg(feature = "web")]
+pub(super) fn admit_pooled(
+    shared: &Arc<Shared>,
+    name: &str,
+    svc: &Service,
+    peer: SocketAddr,
+    clients: super::pick::Picked,
+) -> Result<Admitted, Refusal> {
+    enter(shared, name, svc, (peer, None), || clients)
+}
+
+fn enter(
+    shared: &Arc<Shared>,
+    name: &str,
+    svc: &Service,
+    (peer, source): (SocketAddr, Option<IpAddr>),
+    pick: impl FnOnce() -> super::pick::Picked,
 ) -> Result<Admitted, Refusal> {
     let stats = shared.metrics.service(name);
     stats.total.fetch_add(1, Ordering::Relaxed);
@@ -139,7 +186,7 @@ pub(super) fn admit(
             .map_err(|()| full("is over half full and this address holds its fair part"))?,
         None => None,
     };
-    let clients = shared.route(name, svc, index);
+    let clients = pick();
     if clients.is_empty() {
         stats.refused.fetch_add(1, Ordering::Relaxed);
         debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
@@ -151,7 +198,7 @@ pub(super) fn admit(
         source,
         _guard: guard,
         _share: share,
-        _tracked: shared.track(),
+        _tracked: None,
     })
 }
 
@@ -177,8 +224,10 @@ pub(super) async fn visit(
         limit: Some(&limit),
         traffic: Some(&stats.traffic),
     };
+    let counted = door.opener(peer).map(|_| name.as_str());
     let way = Way {
         service: Some(&name),
+        counted,
         label: &label,
         peer,
         source: admitted.source,
@@ -196,13 +245,13 @@ pub(super) async fn visit(
                 if !session.admitted(&shared) {
                     return Err(format!("client \"{client}\" is no longer allowed"));
                 }
-                shared.still_open(&name, client, peer.ip(), index, shape.public)?;
+                shared.still_open(&name, client, door.opener(peer), index, shape.public)?;
                 match &door {
                     Door::Bind => Ok(()),
                     #[cfg(feature = "web")]
                     Door::Web(host) => shared.still_on_web(&name, host),
                     #[cfg(feature = "web")]
-                    Door::Auth => Ok(()),
+                    Door::Pool(_) => Ok(()),
                 }
             };
             if let Err(why) = still_open() {
@@ -217,7 +266,8 @@ pub(super) async fn visit(
                 reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
             };
             let forward = open_tcp(ch, &mut visitor, &opening, meter, tries.early(), || {
-                way.accepted(&shared, &session)
+                way.accepted(&shared, &session);
+                door.accepted(&session, shape.several);
             });
             tokio::pin!(forward);
             loop {
@@ -280,7 +330,7 @@ fn public_of(svc: &Service, door: &Door) -> Option<(Protocol, SocketAddr)> {
     match door {
         Door::Bind => svc.bind.map(|b| (svc.protocol, b)),
         #[cfg(feature = "web")]
-        Door::Web(_) | Door::Auth => None,
+        Door::Web(_) | Door::Pool(_) => None,
     }
 }
 

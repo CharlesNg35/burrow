@@ -328,6 +328,7 @@ impl Server {
             applied: watch::Sender::new(ApplyReport::default()),
             admin: std::sync::OnceLock::new(),
             service_counts: Counts::default(),
+            busy: super::share::Busy::default(),
             visitor_counts: Counts::default(),
             client_counts: Counts::default(),
             entry_counts: Default::default(),

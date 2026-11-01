@@ -5,13 +5,12 @@ use http_body_util::BodyExt;
 use hyper_util::rt::TokioIo;
 use tracing::debug;
 
-use super::pool::{H2App, Upstreams};
+use super::pool::{Back, H2, Ups};
 use super::{Failed, Forward, extras, hop, refusal_page, rewrite_request, strip_hop_by_hop};
 use crate::http::forwarded::Client;
-use crate::http::pages::Page;
 use crate::http::site::Hop;
 use crate::http::{Body, BoxError};
-use crate::{Ending, Io, Upstream};
+use crate::{Ask, BoxIo, Io, Upstream};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StreamReset(pub h2::Reason);
@@ -60,13 +59,9 @@ pub fn rewrite_for_h2<B>(req: &mut Request<B>, host: &str, client: &Client, http
     *req.version_mut() = Version::HTTP_2;
 }
 
-async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<H2App, Failed> {
-    let io = up
-        .open(&f.site.service, &f.visitor)
-        .await
-        .map_err(Failed::Refused)?;
+pub(super) async fn handshake(io: BoxIo, how: &Hop) -> Result<H2, Failed> {
     let ending = io.ending();
-    let io = hop(io, &f.site.hop, true).await?;
+    let io = hop(io, how, true).await?;
     let (tx, conn) = crate::http::h2::client()
         .handshake(TokioIo::new(io))
         .await
@@ -74,23 +69,17 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<H2App, Failed> {
             debug!("web: the HTTP/2 handshake with the app failed: {e}");
             Failed::Broken
         })?;
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         if let Err(e) = conn.await {
             debug!("web: the HTTP/2 connection to the app ended: {e}");
         }
     });
-    Ok(H2App {
-        service: f.site.service.clone(),
-        client: f.client.ip,
-        tx,
-        ending,
-        app_key: f.site.app_key,
-    })
+    Ok(H2::new(tx, ending, task.abort_handle()))
 }
 
 pub(crate) async fn forward<U: Upstream>(
     up: &U,
-    ups: &Upstreams,
+    ups: &Ups,
     mut req: Request<Body>,
     f: Forward<'_>,
 ) -> Response<Body> {
@@ -98,45 +87,35 @@ pub(crate) async fn forward<U: Upstream>(
     let https = matches!(f.site.hop, Hop::Tls(..));
     rewrite_for_h2(&mut req, &f.visitor.host, &f.client, https);
     extras(&mut req, &f);
-    let service = f.site.service.as_str();
     let deadline = tokio::time::Instant::now() + f.site.options.response_header_timeout;
-    let mut app = match ups.shared_h2(service, f.client.ip, f.site.app_key) {
-        Some(app) => app,
-        None => match tokio::time::timeout_at(deadline, open(up, &f)).await {
-            Ok(Ok(app)) => {
-                ups.keep_h2(app.clone());
-                app
-            }
-            Ok(Err(Failed::Refused(why))) => return f.page(refusal_page(why)),
-            Ok(Err(Failed::Broken)) => return f.page(Page::BadGateway),
-            Err(_) => return f.page(Page::Timeout),
-        },
+    let asking = match f.asking(up, deadline) {
+        Ok(a) => a,
+        Err(why) => return f.page(refusal_page(why)),
     };
-    let sent = async {
-        app.tx.ready().await?;
-        app.tx.send_request(req).await
-    };
-    let mut resp = match tokio::time::timeout_at(deadline, sent).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => {
-            debug!(peer = %f.visitor.addr, "web: service \"{service}\" did not answer over HTTP/2: {e}");
-            let why = app.ending.as_ref().and_then(Ending::refused);
-            let mut page = f.page(why.map_or(Page::BadGateway, refusal_page));
-            if let Some(reason) = app_reset(&e).filter(|_| visitor_h2) {
+    let (mut resp, home) = match asking.send_h2(ups, req).await {
+        Ok(r) => r,
+        Err(miss) => {
+            let mut page = f.page(miss.page);
+            if let Some(reason) = miss.reset.filter(|_| visitor_h2) {
                 page.extensions_mut().insert(StreamReset(reason));
             }
             return page;
         }
-        Err(_) => return f.page(Page::Timeout),
     };
     strip_hop_by_hop(resp.headers_mut());
+    let ticket = f
+        .pool
+        .enter(&f.site.name, &f.visitor, Ask::Site, home.task());
+    let lease = (asking.lease, ticket);
     let activity = f.activity.clone();
     resp.map(move |b| {
-        b.map_err(move |e| {
-            activity.fail();
-            BoxError::from(e)
-        })
-        .boxed()
+        let b = b
+            .map_err(move |e| {
+                activity.fail();
+                BoxError::from(e)
+            })
+            .boxed();
+        Back::new(b, home, lease, None).boxed()
     })
 }
 

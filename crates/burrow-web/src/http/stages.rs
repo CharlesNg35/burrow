@@ -154,6 +154,7 @@ async fn answer<U: Upstream>(
     };
     let gate = Gate {
         up: shared.up.as_ref(),
+        pool: &shared.pool,
         access: &shared.access,
         table,
         site,
@@ -183,6 +184,7 @@ async fn answer<U: Upstream>(
     };
     let prefix = app_target(&mut req, asked.route);
     let f = Forward {
+        pool: &shared.pool,
         site,
         visitor,
         client,
