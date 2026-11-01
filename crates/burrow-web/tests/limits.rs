@@ -129,3 +129,23 @@ async fn a_head_sent_too_slowly_is_closed_after_the_header_timeout() {
         "{took:?}"
     );
 }
+
+#[tokio::test]
+async fn early_answers_to_a_large_body_end_in_a_clean_close_not_a_reset() {
+    let app = http_backend().await;
+    let (up, _) = Fake::new(4);
+    up.serve("blog", app.addr);
+    let mut site = plain_site("blog", &["blog.example.com"]);
+    site.options.max_body_size = Some(10);
+    let proxy = start_with(|s| s.sites = vec![site], up, Scripted::new(), true).await;
+    let len = burrow_linger::probe::BODY;
+    for (host, want) in [("blog.example.com", "413"), ("nobody.example.com", "4")] {
+        let head = format!("POST /up HTTP/1.1\r\nHost: {host}\r\nContent-Length: {len}\r\n\r\n");
+        let ended = burrow_linger::probe::send_large_body(proxy.http_addr().unwrap(), &head).await;
+        assert!(
+            ended.answer.starts_with(&format!("HTTP/1.1 {want}")),
+            "{host}: {ended:?}"
+        );
+        assert!(ended.broken.is_none(), "{host}: {ended:?}");
+    }
+}

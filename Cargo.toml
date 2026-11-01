@@ -21,6 +21,7 @@ members = [
     "crates/burrow-ui-kit",
     "crates/burrow-admin-ui",
     "crates/burrow-web",
+    "crates/burrow-linger",
     "xtask",
 ]
 
@@ -34,6 +35,7 @@ workspace = true
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
 burrow-web = { path = "crates/burrow-web", optional = true }
+burrow-linger = { path = "crates/burrow-linger" }
 burrow-syntax = { path = "crates/burrow-syntax" }
 aws-lc-rs = "1.19.0"
 base64 = "0.23.1"
@@ -95,6 +97,7 @@ tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+burrow-linger = { path = "crates/burrow-linger", features = ["probe"] }
 arbtest = "0.3"
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "getrandom"] }
 bcrypt = { version = "0.19.3", default-features = false, features = ["std"] }

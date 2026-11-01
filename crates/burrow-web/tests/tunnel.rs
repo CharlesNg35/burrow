@@ -257,3 +257,25 @@ async fn the_tunnels_own_name_gets_its_certificate_like_a_site_from_a_shared_fil
     assert_eq!(ask(&mut t, b"noise").await.unwrap(), b"tunnel:noise");
     assert!(!tunneled.recv().await.unwrap().upgraded);
 }
+
+#[tokio::test]
+async fn a_refused_tunnel_request_with_a_large_body_ends_in_a_clean_close_not_a_reset() {
+    let (up, _t) = Fake::new(4);
+    let proxy = start(
+        |s| s.tunnel = tunnel("site.example.com", TunnelMode::ByPath),
+        up.clone(),
+    )
+    .await;
+    let t = tls(proxy.https_addr().unwrap(), "site.example.com")
+        .await
+        .unwrap();
+    let len = burrow_linger::probe::BODY;
+    let head =
+        format!("POST / HTTP/1.1\r\nHost: site.example.com\r\nContent-Length: {len}\r\n\r\n");
+    let ended = burrow_linger::probe::send_large_body_over(t, &head, |t| {
+        t.get_ref().0.take_error().unwrap()
+    })
+    .await;
+    assert!(ended.answer.starts_with("HTTP/1.1 404"), "{ended:?}");
+    assert!(ended.broken.is_none(), "{ended:?}");
+}

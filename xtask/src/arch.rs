@@ -3,6 +3,19 @@ use std::path::Path;
 const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
     (
+        "burrow-linger",
+        &["hyper", "hyper-util", "tokio"],
+        &[
+            "burrow",
+            "burrow-web",
+            "burrow-config",
+            "burrow-admin-proto",
+            "burrow-admin-logic",
+            "burrow-admin-ui",
+            "burrow-ui-kit",
+        ],
+    ),
+    (
         "burrow-admin-proto",
         &["serde", "serde_json", "schemars"],
         &[],
@@ -71,6 +84,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "aws-lc-rs",
             "base64",
             "bcrypt",
+            "burrow-linger",
             "burrow-syntax",
             "bytes",
             "governor",
@@ -222,6 +236,8 @@ mod tests {
         assert_eq!(dep_problems("burrow-config", &["serde", "tokio"]).len(), 1);
         assert_eq!(dep_problems("burrow-config", &["burrow"]).len(), 1);
         assert!(dep_problems("burrow-web", &["tokio", "hyper", "burrow-syntax"]).is_empty());
+        assert!(dep_problems("burrow-linger", &["tokio", "hyper", "hyper-util"]).is_empty());
+        assert_eq!(dep_problems("burrow-linger", &["burrow-web"]).len(), 1);
         for never in [
             "burrow",
             "burrow-config",

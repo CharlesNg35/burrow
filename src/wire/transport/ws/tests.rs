@@ -228,8 +228,26 @@ async fn an_upgrade_after_an_empty_line_is_accepted_and_garbage_is_not() {
             &b"HTTP/1.1 400"[..]
         };
         assert_eq!(&answer[..], code);
+        drop(tcp);
         assert_eq!(server.await.unwrap(), upgraded);
     }
+}
+
+#[tokio::test]
+async fn a_refused_upgrade_with_a_large_body_ends_in_a_clean_close_not_a_reset() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        accept(Carrier::Plain(tcp), "/burrow").await.is_err()
+    });
+    let head = format!(
+        "POST /other HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+        burrow_linger::probe::BODY
+    );
+    let ended = burrow_linger::probe::send_large_body(addr, &head).await;
+    assert!(ended.answer.starts_with("HTTP/1.1 404"), "{ended:?}");
+    assert!(ended.broken.is_none(), "{ended:?}");
 }
 
 #[tokio::test]
