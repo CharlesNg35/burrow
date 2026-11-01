@@ -121,7 +121,7 @@ geoip: db-ip                                   # the default when a service uses
 # geoip: /etc/burrow/GeoLite2-Country.mmdb     # or your own .mmdb file: never downloaded, read again when it changes
 ```
 
-Until the database is there, services with `allow_countries` refuse public visitors, and `burrow validate`, `burrow status` and the admin UI say so. `burrow status` shows the database's month, age, last check and the visitors refused by country; the server warns when the file is more than 45 days old. Nothing is downloaded while no service uses countries.
+Until the database is there, services with `allow_countries` refuse public visitors, and `burrow validate`, `burrow status` and the admin UI say so. `burrow status` shows the database's month, age, last check and the visitors refused by country; the server warns when the file is more than 45 days old or your own file cannot be read, and sends the `geoip_stale` notification ([Notifications](monitoring.md#notifications)) once then and once when it is fine again. Nothing is downloaded while no service uses countries.
 
 <details>
 <summary><b>Behind a proxy</b></summary>

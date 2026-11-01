@@ -13,6 +13,7 @@ pub(crate) enum Kind {
     Client,
     Service,
     Certificate,
+    CountryDatabase,
 }
 
 impl Kind {
@@ -21,6 +22,7 @@ impl Kind {
             Kind::Client => "client",
             Kind::Service => "service",
             Kind::Certificate => "certificate",
+            Kind::CountryDatabase => "geoip",
         }
     }
 
@@ -32,13 +34,14 @@ impl Kind {
                 NotifyEvent::CertificateFailing,
                 NotifyEvent::CertificateFailing,
             ),
+            Kind::CountryDatabase => (NotifyEvent::GeoipStale, NotifyEvent::GeoipStale),
         }
     }
 
     fn grace(self) -> Duration {
         match self {
             Kind::Client => CLIENT_GRACE,
-            Kind::Service | Kind::Certificate => Duration::ZERO,
+            Kind::Service | Kind::Certificate | Kind::CountryDatabase => Duration::ZERO,
         }
     }
 }
@@ -121,6 +124,12 @@ fn problem((kind, name): &(Kind, String), detail: &str) -> Message {
             format!("The certificate for {name} is failing"),
             format!("The certificate for {name} cannot be got or renewed: {detail}."),
         ),
+        Kind::CountryDatabase => (
+            "The country database is out of date".to_string(),
+            format!(
+                "The country database ({name}) is not being kept up to date: {detail}. Country rules use the last good copy, or refuse public visitors under allow_countries when there is none."
+            ),
+        ),
     };
     Message {
         event: kind.events().0,
@@ -146,6 +155,10 @@ fn resolved((kind, name): &(Kind, String), detail: &str, after: Duration) -> Mes
         Kind::Certificate => (
             format!("The certificate for {name} works again"),
             format!("The certificate for {name} is fine again, after {after} of failures."),
+        ),
+        Kind::CountryDatabase => (
+            "The country database is up to date again".to_string(),
+            format!("The country database ({name}) is fine again: {detail}, after {after}."),
         ),
     };
     Message {
@@ -193,6 +206,17 @@ pub(crate) fn seen(status: &Status) -> BTreeMap<(Kind, String), Health> {
             _ => Health::Unknown,
         };
         out.insert((Kind::Certificate, c.name.clone()), health);
+    }
+    if let Some(g) = &status.geoip {
+        let line = g.line(burrow_syntax::duration::now_secs());
+        let health = if g.stale || (g.failed && !g.ready()) {
+            Health::Problem(line)
+        } else if g.ready() {
+            Health::Fine(line)
+        } else {
+            Health::Unknown
+        };
+        out.insert((Kind::CountryDatabase, g.source.clone()), health);
     }
     out
 }
