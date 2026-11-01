@@ -25,6 +25,8 @@ mod plain;
 mod plain_tunnel;
 #[path = "web/pool_bound.rs"]
 mod pool_bound;
+#[path = "web/pool_h2.rs"]
+mod pool_h2;
 #[path = "web/pool_kit.rs"]
 mod pool_kit;
 #[path = "web/pool_life.rs"]

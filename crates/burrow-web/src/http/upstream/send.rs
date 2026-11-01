@@ -91,6 +91,10 @@ fn stale(e: &hyper::Error) -> bool {
     false
 }
 
+fn refused(e: &hyper::Error) -> bool {
+    to_h2::app_reset(e) == Some(h2::Reason::REFUSED_STREAM)
+}
+
 fn missed(service: &str, from: &Visitor, ending: Option<&Ending>, e: &hyper::Error) -> Miss {
     debug!(peer = %from.addr, "web: service \"{service}\" did not answer: {e}");
     let why = ending.and_then(Ending::refused);
@@ -243,7 +247,7 @@ impl<U: Upstream> Asking<'_, U> {
             Ok(resp) => return Ok((resp, Home::H2(stream), ticket)),
             Err(Retry::Timeout) => return Err(Page::Timeout.into()),
             Err(Retry::Unsent(req)) => *req,
-            Err(Retry::Failed(e)) => match copy.filter(|_| stale(&e)) {
+            Err(Retry::Failed(e)) => match copy.filter(|_| refused(&e)) {
                 Some(req) => req,
                 None => return Err(missed(self.service, self.from, conn.ending.as_ref(), &e)),
             },
