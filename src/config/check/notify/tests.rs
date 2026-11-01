@@ -152,8 +152,8 @@ fn http_to_the_lan_or_this_machine_is_allowed() {
 fn the_example_in_monitoring_md_is_valid() {
     let doc = include_str!("../../../../docs/monitoring.md");
     let section = &doc[doc.find("## Notifications").unwrap()..];
-    let start = section.find("```yaml\n# server.yaml\n").unwrap() + 8;
-    let block = &section[start..start + section[start..].find("```").unwrap()];
+    let blocks = crate::config::check::web::tests_docs::yaml_blocks(section);
+    let block = blocks.first().expect("a yaml block under Notifications");
     let t = targets(load(block, &[("SMTP_PASS", "x")]));
     assert_eq!(t.len(), 3);
 }
