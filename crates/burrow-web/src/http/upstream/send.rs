@@ -225,7 +225,7 @@ impl<U: Upstream> Asking<'_, U> {
         let again = match first {
             Ok(resp) => return Ok((resp, Home::H2(stream, conn.task.clone()))),
             Err(Retry::Timeout) => return Err(Page::Timeout.into()),
-            Err(Retry::Unsent(req)) => req,
+            Err(Retry::Unsent(req)) => *req,
             Err(Retry::Failed(e)) => match copy.filter(|_| stale(&e)) {
                 Some(req) => req,
                 None => return Err(missed(self.service, self.from, conn.ending.as_ref(), &e)),
@@ -248,14 +248,14 @@ impl<U: Upstream> Asking<'_, U> {
         let mut tx = conn.tx.clone();
         match tokio::time::timeout_at(self.deadline, tx.ready()).await {
             Err(_) => return Err(Retry::Timeout),
-            Ok(Err(_)) => return Err(Retry::Unsent(req)),
+            Ok(Err(_)) => return Err(Retry::Unsent(Box::new(req))),
             Ok(Ok(())) => {}
         }
         match tokio::time::timeout_at(self.deadline, tx.try_send_request(req)).await {
             Err(_) => Err(Retry::Timeout),
             Ok(Ok(r)) => Ok(r),
             Ok(Err(mut e)) => match e.take_message() {
-                Some(req) => Err(Retry::Unsent(req)),
+                Some(req) => Err(Retry::Unsent(Box::new(req))),
                 None => Err(Retry::Failed(e.into_error())),
             },
         }
@@ -264,7 +264,7 @@ impl<U: Upstream> Asking<'_, U> {
 
 enum Retry {
     Timeout,
-    Unsent(Request<Body>),
+    Unsent(Box<Request<Body>>),
     Failed(hyper::Error),
 }
 

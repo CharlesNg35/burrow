@@ -8,8 +8,8 @@ use std::time::Duration;
 use burrow_web::http::host::host_header;
 use burrow_web::tls::{Applying, CertName, CertState, CertStatus, Certificates};
 use burrow_web::{
-    BoxIo, CertSettings, Listeners, Proxy, ProxySettings, Refused, Site, SiteTls, Timeouts,
-    TunnelConn, TunnelMode, TunnelSettings, Upstream, Visitor,
+    Ask, BoxIo, CertSettings, Lease, Listeners, Proxy, ProxySettings, Refused, Site, SiteTls,
+    Timeouts, TunnelConn, TunnelMode, TunnelSettings, Upstream, Visitor, Way,
 };
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
@@ -158,6 +158,15 @@ struct App;
 
 impl Upstream for App {
     type Permit = ();
+
+    fn lease(&self, _: &str, _: &Visitor, _: Ask) -> Result<(Way, Lease), Refused> {
+        let way = Way {
+            id: 1,
+            client: Arc::from("app"),
+            bound: None,
+        };
+        Ok((way, Lease::new(())))
+    }
 
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
         assert_eq!(

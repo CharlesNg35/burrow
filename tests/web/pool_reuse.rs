@@ -232,3 +232,26 @@ async fn an_idle_connection_of_another_service_makes_room_on_a_full_client() {
         "the idle one was closed for it: {got}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_kept_visitors_need_no_more_app_connections_than_requests_in_flight() {
+    let (app, log) = recording_app(Behave::Answer).await;
+    let (s, secret) = plain(app, |_| {});
+    let web = http(&s);
+    let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    let mut all = tokio::task::JoinSet::new();
+    for _ in 0..20 {
+        all.spawn(async move {
+            let mut v = Keep::open(web, localhost()).await;
+            for _ in 0..50 {
+                assert_eq!(status(&v.get("/").await), 200);
+            }
+        });
+    }
+    all.join_all().await;
+    assert!(
+        log.conns() <= 20,
+        "20 visitors with one request each in flight, {} app connections",
+        log.conns()
+    );
+}
