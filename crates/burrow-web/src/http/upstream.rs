@@ -28,6 +28,7 @@ mod upgrade;
 
 pub(crate) struct Forward<'a> {
     pub pool: &'a Arc<Pool>,
+    pub epoch: u64,
     pub site: &'a SiteRun,
     pub visitor: Visitor,
     pub client: Client,
@@ -58,7 +59,7 @@ impl Forward<'_> {
             lease,
             key,
             deadline,
-            epoch: self.pool.epoch(),
+            epoch: self.epoch,
             ask: Ask::Site,
         })
     }

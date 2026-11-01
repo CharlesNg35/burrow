@@ -237,9 +237,13 @@ impl<U: Upstream> Asking<'_, U> {
     }
 
     fn listed(&self, cutter: Cutter) -> Ticket {
-        let mut ticket = self
-            .pool
-            .ticket(self.service, self.from.clone(), self.ask, cutter);
+        let mut ticket = self.pool.ticket(
+            self.service,
+            self.from.clone(),
+            self.ask,
+            cutter,
+            self.epoch,
+        );
         ticket.waiting();
         ticket
     }

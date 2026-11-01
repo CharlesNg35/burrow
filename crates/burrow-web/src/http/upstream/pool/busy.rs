@@ -181,6 +181,7 @@ impl Pool {
         from: Visitor,
         ask: Ask,
         cutter: Cutter,
+        epoch: u64,
     ) -> Ticket {
         let stream = match &cutter {
             Cutter::Stream(cut) => Some(cut.clone()),
@@ -191,7 +192,7 @@ impl Pool {
             from,
             ask,
             cutter,
-            epoch: self.epoch(),
+            epoch,
         };
         Ticket {
             pool: self.clone(),

@@ -24,6 +24,7 @@ const AUTH_DRAIN: Duration = Duration::from_secs(1);
 pub(crate) struct Gate<'a, U> {
     pub up: &'a U,
     pub pool: &'a Arc<Pool>,
+    pub epoch: u64,
     pub access: &'a Access,
     pub table: &'a Table,
     pub site: &'a SiteRun,
@@ -102,7 +103,7 @@ impl<U: Upstream> Gate<'_, U> {
         let wait = self.site.options.response_header_timeout;
         let asked = ask(
             self.up,
-            self.pool,
+            (self.pool, self.epoch),
             (self.table, wait),
             (fa, self.visitor),
             sub,
@@ -125,7 +126,7 @@ impl<U: Upstream> Gate<'_, U> {
 
 async fn ask<U: Upstream>(
     up: &U,
-    pool: &Arc<Pool>,
+    (pool, epoch): (&Arc<Pool>, u64),
     (table, wait): (&Table, Duration),
     (fa, visitor): (&ForwardAuth, &Visitor),
     sub: Request<Body>,
@@ -148,7 +149,7 @@ async fn ask<U: Upstream>(
         lease,
         key,
         deadline,
-        epoch: pool.epoch(),
+        epoch,
         ask: Ask::Auth,
     };
     let (resp, home, ticket) = asking.send_h1(None, sub).await.map_err(|m| m.page)?;
