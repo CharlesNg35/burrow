@@ -172,7 +172,9 @@ impl Group {
             phase,
             expires: self.held.as_ref().map(|h| h.not_after),
             next_renewal: Some(match &self.held {
-                Some(_) if self.last_error.is_none() => self.planned.unwrap_or(self.next),
+                Some(h) if self.last_error.is_none() => self
+                    .planned
+                    .unwrap_or_else(|| schedule::renew_at(h.not_before, h.not_after)),
                 _ => self.next,
             }),
             last_error,

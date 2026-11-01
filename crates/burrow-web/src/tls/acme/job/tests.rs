@@ -121,6 +121,22 @@ fn a_group_orders_when_it_has_nothing_its_names_changed_or_its_time_came() {
 }
 
 #[test]
+fn a_fresh_certificate_shows_its_renewal_date_and_not_the_next_ari_check() {
+    let (chain, key) = pem_pair(&["a.example.com"], 90);
+    let held = Held::parse(&chain, &key, &s(&["a.example.com"])).unwrap();
+    let renew = schedule::renew_at(held.not_before, held.not_after);
+    let mut g = Group::new(s(&["a.example.com"]), Some(held));
+    g.next = now_secs() + ARI_RECHECK;
+    assert_eq!(g.view(&[]).next_renewal, Some(renew));
+    g.planned = Some(renew + 60);
+    assert_eq!(
+        g.view(&[]).next_renewal,
+        Some(renew + 60),
+        "an ARI pick wins"
+    );
+}
+
+#[test]
 fn an_ari_id_becomes_a_certificate_identifier() {
     let id = cert_id("aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE").unwrap();
     assert_eq!(id.to_string(), "aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE");
