@@ -86,7 +86,7 @@ fn every_field_locked_before_stays_locked_and_the_web_proxy_and_websocket_keep_t
     {
         assert!(now.contains(&p(old)), "{old:?} is still locked: {now:?}");
     }
-    let finer: [&[&str]; 24] = [
+    let finer: [&[&str]; 26] = [
         &["websocket", "tls", "cert"],
         &["websocket", "tls", "key"],
         &["web", "letsencrypt", "ca"],
@@ -111,6 +111,8 @@ fn every_field_locked_before_stays_locked_and_the_web_proxy_and_websocket_keep_t
         &["services", "*", "web", "client_auth", "ca"],
         &["services", "*", "web", "client_auth", "crl"],
         &["services", "*", "web", "error_pages"],
+        &["notify", "*", "email", "smtp"],
+        &["notify", "*", "email", "password"],
     ];
     for f in finer {
         assert!(now.contains(&p(f)), "{f:?}: {now:?}");

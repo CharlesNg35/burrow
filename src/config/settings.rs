@@ -17,11 +17,13 @@ use burrow_syntax::endpoint::Endpoint;
 
 mod dns;
 mod geo;
+mod notify;
 mod site;
 mod web;
 
 pub use dns::{DNS_WAIT, DnsProvider, DnsSettings, SecretText};
 pub use geo::{DB_IP, DB_IP_CREDIT, DB_IP_FILE, DB_IP_FOLDER, DB_IP_SITE, GeoSource, STALE_AFTER};
+pub use notify::{EmailSettings, NotifyTarget, NotifyVia, SmtpSecurity};
 pub use site::{
     ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOidc,
     SiteOptions, TargetTls, WebClientAuth,
@@ -53,6 +55,7 @@ pub struct ServerSettings {
     pub udp_max_peers: usize,
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
+    pub notify: Vec<NotifyTarget>,
     pub web: Option<WebSettings>,
     pub geoip: Option<GeoSource>,
 }

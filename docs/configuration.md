@@ -211,6 +211,7 @@ services:
 | `web.error_pages` | built in | a folder with any of `404.html`, `413.html`, `429.html`, `502.html`, `503.html`, `504.html`, `maintenance.html` |
 | `geoip` | `db-ip` when a service uses countries | where countries come from: `db-ip` (DB-IP Lite, downloaded monthly into the state folder) or the path of your own `.mmdb` file |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
+| `notify` | off | where to send a message when a client goes offline, a certificate fails or a service is down, and when it is fixed: a list of `{webhook: URL}`, `{ntfy: URL}` or `{email: {to, smtp, password, from}}`, each with optional `events`. See [monitoring.md](monitoring.md#notifications) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |
 | `limits.handshake_timeout_secs` | `5` | time a new connection has to authenticate |

@@ -181,6 +181,7 @@ impl Shared {
             local_ca: self.local_ca_of(),
             web_waiting: self.web_wait.lock().expect("web wait lock").clone(),
             geoip: self.geo.status(settings.geoip.as_ref()),
+            notify: self.notify_lines(),
         }
     }
 }
@@ -227,6 +228,16 @@ impl Shared {
     #[cfg(feature = "web")]
     fn local_ca_of(&self) -> Option<crate::metrics::LocalCaStatus> {
         self.local_ca_line()
+    }
+
+    #[cfg(feature = "web")]
+    fn notify_lines(&self) -> Vec<burrow_admin_proto::status::NotifyStatus> {
+        self.notifier.status()
+    }
+
+    #[cfg(not(feature = "web"))]
+    fn notify_lines(&self) -> Vec<burrow_admin_proto::status::NotifyStatus> {
+        Vec::new()
     }
 
     #[cfg(not(feature = "web"))]

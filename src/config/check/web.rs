@@ -467,7 +467,7 @@ mod tests_dns_secrets;
 mod tests_dns_settings;
 
 #[cfg(all(test, feature = "web"))]
-mod tests_docs;
+pub(in crate::config::check) mod tests_docs;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_files;

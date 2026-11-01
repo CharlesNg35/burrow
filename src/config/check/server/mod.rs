@@ -95,6 +95,8 @@ pub fn check_server(
         out.push(insecure_warning(spans));
     }
 
+    let notify = super::notify::check_notify(cfg, base_dir, spans, out);
+
     if out.iter().filter(|d| d.is_error()).count() > errors_before {
         return None;
     }
@@ -121,6 +123,7 @@ pub fn check_server(
         metrics,
         self_allow,
         geoip,
+        notify,
         web: super::web::settings(cfg, (https, http), sites, websocket.as_ref(), base_dir).map(
             |mut w| {
                 w.written = super::web::written(spans);

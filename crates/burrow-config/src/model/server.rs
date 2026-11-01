@@ -6,8 +6,8 @@ use crate::admin_schema::AdminSchema;
 
 use super::ChallengeKind;
 use super::{
-    Bind, ClientEntry, Heartbeat, Limits, Pool, ServiceEntry, TcpOptions, UdpOptions, VisitorEntry,
-    WebConfig, is_default, is_false,
+    Bind, ClientEntry, Heartbeat, Limits, NotifyEntry, Pool, ServiceEntry, TcpOptions, UdpOptions,
+    VisitorEntry, WebConfig, is_default, is_false,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -146,6 +146,19 @@ pub struct ServerConfig {
         none_label = "db-ip when a service uses countries"
     )]
     pub geoip: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Where to send a message when a client goes offline, a certificate fails or a service is down, and when it is fixed; nothing is sent unless set"
+    )]
+    #[admin(
+        ty = list(object(NotifyEntry)),
+        label = "Notifications",
+        help = "Where burrow sends a message when a client goes offline, a certificate fails or a service is down, and one more when it is fixed, for example an ntfy topic or an email address",
+        group = monitoring,
+        applies = live,
+        empty_label = "None"
+    )]
+    pub notify: Vec<NotifyEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

@@ -8,6 +8,8 @@ mod geo;
 mod health;
 mod listen;
 mod local;
+#[cfg(feature = "web")]
+mod notify;
 pub mod passwords;
 mod pick;
 mod reload;
@@ -77,6 +79,8 @@ pub struct Shared {
     entry_counts: balance::EntryCounts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
+    #[cfg(feature = "web")]
+    notifier: notify::Notifier,
     web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
     standing: Mutex<standing::Standing>,
     wheels: Mutex<balance::Wheels>,
@@ -359,6 +363,8 @@ impl Drop for ActiveConn {
 pub struct Server {
     shared: Arc<Shared>,
     health: JoinHandle<()>,
+    #[cfg(feature = "web")]
+    notify: JoinHandle<()>,
     metrics: Option<MetricsTask>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,

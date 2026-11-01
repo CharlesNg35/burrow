@@ -111,6 +111,29 @@ fn pair(object: &Node) -> Option<(&str, &str)> {
     })
 }
 
+pub fn kinds(object: &Node) -> Vec<&burrow_admin_proto::schema::Field> {
+    let all = fields(object);
+    let Some(group) = all.iter().find_map(|f| one_of(&f.node)) else {
+        return Vec::new();
+    };
+    let members: Vec<_> = all
+        .iter()
+        .filter(|f| one_of(&f.node) == Some(group))
+        .collect();
+    let plain = members.iter().all(|f| {
+        matches!(f.node.sem, SemType::Optional(_))
+            && !matches!(
+                inner(&f.node).sem,
+                SemType::Ref(_) | SemType::RefList(_) | SemType::RefEntries(_)
+            )
+    });
+    if plain && members.len() > 1 {
+        members
+    } else {
+        Vec::new()
+    }
+}
+
 pub fn merged_single<'a>(object: &'a Node, list_key: &str) -> Option<&'a str> {
     pair(object).filter(|(_, l)| *l == list_key).map(|(s, _)| s)
 }
@@ -156,6 +179,16 @@ mod tests {
         assert_eq!(merged_into(svc, "target"), None);
         let visitor = s.root.at(&p(&["visitors", "*"])).unwrap();
         assert_eq!(merged_single(visitor, "reach"), None);
+    }
+
+    #[test]
+    fn a_notification_is_one_kind_and_a_service_client_is_not_a_kind() {
+        let s = schema();
+        let entry = s.root.at(&p(&["notify", "0"])).unwrap();
+        let keys: Vec<&str> = kinds(entry).iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, ["webhook", "ntfy", "email"]);
+        let svc = s.root.at(&p(&["services", "*"])).unwrap();
+        assert!(kinds(svc).is_empty());
     }
 
     #[test]

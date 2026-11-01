@@ -28,6 +28,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         udp_max_peers,
         metrics,
         self_allow,
+        notify,
         web,
         geoip,
     } = new;
@@ -81,6 +82,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*metrics != old.metrics, "metrics", Reload),
         (*geoip != old.geoip, "geoip", Live),
         (*self_allow != old.self_allow, "self.allow", Reload),
+        (*notify != old.notify, "notify", Live),
         (*web != old.web, "web", Reload),
     ]
     .into_iter()
@@ -231,6 +233,16 @@ mod tests {
                 "metrics",
                 Applied::Reload,
                 Box::new(|s| s.metrics = Some("127.0.0.1:9100".parse().unwrap())),
+            ),
+            (
+                "notify",
+                Applied::Live,
+                Box::new(|s| {
+                    s.notify = vec![crate::config::settings::NotifyTarget {
+                        via: crate::config::settings::NotifyVia::Ntfy("https://ntfy.sh/t".into()),
+                        events: Default::default(),
+                    }]
+                }),
             ),
             (
                 "web",

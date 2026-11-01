@@ -132,6 +132,7 @@ pub(crate) fn sample() -> Status {
         local_ca: None,
         web_waiting: None,
         geoip: None,
+        notify: Vec::new(),
     }
 }
 
