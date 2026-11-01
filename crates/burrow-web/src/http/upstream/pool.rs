@@ -53,7 +53,7 @@ impl Key {
 
     pub(crate) fn answered(&self, via: Option<u64>) -> Key {
         match via {
-            Some(way) if way != self.way => Key {
+            Some(way) if way != self.way && !matches!(self.bound, Bound::Private(..)) => Key {
                 way,
                 ..self.clone()
             },
@@ -63,6 +63,7 @@ impl Key {
 
     pub(crate) fn private(&self, conn: u64, visitor: IpAddr) -> Key {
         Key {
+            way: 0,
             bound: Bound::Private(conn, visitor),
             ..self.clone()
         }

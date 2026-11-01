@@ -280,3 +280,51 @@ async fn a_reload_that_no_longer_allows_a_visitor_cuts_a_request_still_waiting_f
         "the waiting request is cut at the reload, as it was before the pool"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_ntlm_handshake_stays_on_one_app_connection_with_balance() {
+    let (a, log_a) = recording_app(Behave::Ntlm).await;
+    let (b, log_b) = recording_app(Behave::Ntlm).await;
+    let secret = Secret::generate();
+    let s = plain_server(
+        &secret,
+        &[(
+            "app",
+            two_entries(Mode::Balance, a, b),
+            &["app.example.com"],
+        )],
+    );
+    let web = s.web.as_ref().unwrap().http.unwrap();
+    let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    for v in 0..4 {
+        let mut keep = Keep::open(web, localhost()).await;
+        let first = keep
+            .send("GET", "/", &format!("x-id: {v}-1\r\n"))
+            .await
+            .unwrap();
+        assert_eq!(status(&first), 401);
+        for step in 2..=3 {
+            let extra = format!("x-id: {v}-{step}\r\nAuthorization: NTLM step{step}\r\n");
+            let got = keep.send("GET", "/", &extra).await.unwrap();
+            assert_eq!(status(&got), 200, "visitor {v} step {step}: {got}");
+        }
+    }
+    for v in 0..4 {
+        let mut placed = Vec::new();
+        for (side, log) in [("a", &log_a), ("b", &log_b)] {
+            for r in log.asked() {
+                if r.id
+                    .as_deref()
+                    .is_some_and(|id| id.starts_with(&format!("{v}-")))
+                {
+                    placed.push((side, r.conn));
+                }
+            }
+        }
+        assert_eq!(placed.len(), 3, "{placed:?}");
+        assert!(
+            placed.iter().all(|p| *p == placed[0]),
+            "visitor {v}'s handshake moved between app connections: {placed:?}"
+        );
+    }
+}
