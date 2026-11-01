@@ -54,6 +54,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
 - **Running as a service:**
   - A server with `web:` gets its private state folder at install.
   - A start that fails only because a web certificate, key or CA file cannot be read exits for a retry.
+  - A client or service stopped normally (Ctrl-C, `systemctl stop`) closes its tunnel connections cleanly within a second, and the server lets it go at once instead of logging a broken connection.
 - **Docs:** a new docs index by task, a glossary, a page per web topic with recipes (Home Assistant, Nextcloud, Grafana, authentik and more), a full commented example, and admin UI screenshots in the README.
 - **Under load:**
   - New connections to the web ports wait for a free handshake slot within their handshake time instead of being dropped, and `limits.max_handshakes` is now 2048 (was 256).
