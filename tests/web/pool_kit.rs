@@ -178,15 +178,21 @@ pub struct Keep {
 }
 
 impl Keep {
-    pub async fn open(web: SocketAddr, from: IpAddr) -> Keep {
-        let sock = match from {
-            IpAddr::V4(_) => tokio::net::TcpSocket::new_v4().unwrap(),
-            IpAddr::V6(_) => tokio::net::TcpSocket::new_v6().unwrap(),
-        };
-        sock.bind(SocketAddr::new(from, 0)).unwrap();
+    pub async fn open(web: SocketAddr) -> Keep {
         Keep {
-            s: sock.connect(web).await.unwrap(),
+            s: TcpStream::connect(web).await.unwrap(),
         }
+    }
+
+    pub async fn behind_proxy(web: SocketAddr, visitor: SocketAddr) -> Keep {
+        let mut s = TcpStream::connect(web).await.unwrap();
+        let header = format!(
+            "PROXY TCP4 {} 127.0.0.1 {} 80\r\n",
+            visitor.ip(),
+            visitor.port()
+        );
+        s.write_all(header.as_bytes()).await.unwrap();
+        Keep { s }
     }
 
     pub async fn send(&mut self, method: &str, path: &str, extra: &str) -> Option<String> {

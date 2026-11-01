@@ -11,10 +11,6 @@ use crate::common::*;
 use crate::kit::*;
 use crate::pool_kit::*;
 
-fn localhost() -> std::net::IpAddr {
-    "127.0.0.1".parse().unwrap()
-}
-
 fn two_entries(mode: Mode, a: SocketAddr, b: SocketAddr) -> burrow::config::settings::Service {
     let mut svc = site(&["home", "self"], a);
     svc.mode = mode;
@@ -48,7 +44,7 @@ async fn two_apps(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn balance_picks_per_request_for_one_kept_visitor() {
     let (_t, web, (a, b), _) = two_apps(Mode::Balance).await;
-    let mut v = Keep::open(web, localhost()).await;
+    let mut v = Keep::open(web).await;
     for _ in 0..100 {
         assert_eq!(status(&v.get("/").await), 200);
     }
@@ -64,7 +60,7 @@ async fn balance_picks_per_request_for_one_kept_visitor() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failover_moves_to_the_second_client_when_the_first_leaves_and_back_when_it_returns() {
     let (t, web, (a, b), secret) = two_apps(Mode::Failover).await;
-    let mut v = Keep::open(web, localhost()).await;
+    let mut v = Keep::open(web).await;
     for _ in 0..3 {
         assert_eq!(status(&v.get("/").await), 200);
     }
@@ -115,21 +111,22 @@ async fn events_app() -> SocketAddr {
 async fn a_reload_that_no_longer_allows_a_visitor_cuts_its_running_answer() {
     let secret = Secret::generate();
     let mut svc = site(&["home"], events_app().await);
-    svc.sources.allow = vec!["127.0.0.0/8".parse().unwrap()];
-    let s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    svc.sources.allow = vec!["203.0.113.0/24".parse().unwrap()];
+    let mut s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
     let web = s.web.as_ref().unwrap().http.unwrap();
     let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
-    let sock = tokio::net::TcpSocket::new_v4().unwrap();
-    sock.bind("127.0.0.2:0".parse().unwrap()).unwrap();
-    let mut v = sock.connect(web).await.unwrap();
-    v.write_all(b"GET /events HTTP/1.1\r\nHost: app.example.com\r\n\r\n")
-        .await
-        .unwrap();
+    let mut v = tokio::net::TcpStream::connect(web).await.unwrap();
+    v.write_all(
+        b"GET /events HTTP/1.1\r\nHost: app.example.com\r\nX-Forwarded-For: 203.0.113.2\r\n\r\n",
+    )
+    .await
+    .unwrap();
     let mut buf = [0u8; 512];
     let n = v.read(&mut buf).await.unwrap();
     assert!(String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200"));
     let mut next: ServerSettings = s.clone();
-    next.services.get_mut("app").unwrap().sources.allow = vec!["127.0.0.3/32".parse().unwrap()];
+    next.services.get_mut("app").unwrap().sources.allow = vec!["203.0.113.3/32".parse().unwrap()];
     t.server.reload_applied(next).await;
     let cut = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -208,21 +205,22 @@ async fn big_app() -> SocketAddr {
 async fn a_reload_that_no_longer_allows_a_visitor_cuts_a_fast_apps_answer_it_reads_slowly() {
     let secret = Secret::generate();
     let mut svc = site(&["home"], big_app().await);
-    svc.sources.allow = vec!["127.0.0.0/8".parse().unwrap()];
-    let s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    svc.sources.allow = vec!["203.0.113.0/24".parse().unwrap()];
+    let mut s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
     let web = s.web.as_ref().unwrap().http.unwrap();
     let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
-    let sock = tokio::net::TcpSocket::new_v4().unwrap();
-    sock.bind("127.0.0.2:0".parse().unwrap()).unwrap();
-    let mut v = sock.connect(web).await.unwrap();
-    v.write_all(b"GET /big HTTP/1.1\r\nHost: app.example.com\r\n\r\n")
-        .await
-        .unwrap();
+    let mut v = tokio::net::TcpStream::connect(web).await.unwrap();
+    v.write_all(
+        b"GET /big HTTP/1.1\r\nHost: app.example.com\r\nX-Forwarded-For: 203.0.113.2\r\n\r\n",
+    )
+    .await
+    .unwrap();
     let mut buf = vec![0u8; 64 * 1024];
     let mut got = v.read(&mut buf).await.unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
     let mut next: ServerSettings = s.clone();
-    next.services.get_mut("app").unwrap().sources.allow = vec!["127.0.0.3/32".parse().unwrap()];
+    next.services.get_mut("app").unwrap().sources.allow = vec!["203.0.113.3/32".parse().unwrap()];
     t.server.reload_applied(next).await;
     let read = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
@@ -259,19 +257,20 @@ async fn silent_app() -> SocketAddr {
 async fn a_reload_that_no_longer_allows_a_visitor_cuts_a_request_still_waiting_for_its_answer() {
     let secret = Secret::generate();
     let mut svc = site(&["home"], silent_app().await);
-    svc.sources.allow = vec!["127.0.0.0/8".parse().unwrap()];
-    let s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    svc.sources.allow = vec!["203.0.113.0/24".parse().unwrap()];
+    let mut s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
     let web = s.web.as_ref().unwrap().http.unwrap();
     let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
-    let sock = tokio::net::TcpSocket::new_v4().unwrap();
-    sock.bind("127.0.0.2:0".parse().unwrap()).unwrap();
-    let mut v = sock.connect(web).await.unwrap();
-    v.write_all(b"GET /poll HTTP/1.1\r\nHost: app.example.com\r\n\r\n")
-        .await
-        .unwrap();
+    let mut v = tokio::net::TcpStream::connect(web).await.unwrap();
+    v.write_all(
+        b"GET /poll HTTP/1.1\r\nHost: app.example.com\r\nX-Forwarded-For: 203.0.113.2\r\n\r\n",
+    )
+    .await
+    .unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
     let mut next: ServerSettings = s.clone();
-    next.services.get_mut("app").unwrap().sources.allow = vec!["127.0.0.3/32".parse().unwrap()];
+    next.services.get_mut("app").unwrap().sources.allow = vec!["203.0.113.3/32".parse().unwrap()];
     t.server.reload_applied(next).await;
     let mut buf = [0u8; 512];
     let ended = tokio::time::timeout(Duration::from_secs(10), v.read(&mut buf)).await;
@@ -297,7 +296,7 @@ async fn an_ntlm_handshake_stays_on_one_app_connection_with_balance() {
     let web = s.web.as_ref().unwrap().http.unwrap();
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
     for v in 0..4 {
-        let mut keep = Keep::open(web, localhost()).await;
+        let mut keep = Keep::open(web).await;
         let first = keep
             .send("GET", "/", &format!("x-id: {v}-1\r\n"))
             .await

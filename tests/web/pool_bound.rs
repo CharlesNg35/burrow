@@ -14,21 +14,30 @@ fn ip(s: &str) -> IpAddr {
     s.parse().unwrap()
 }
 
+fn visitor(addr: &str, port: u16) -> SocketAddr {
+    SocketAddr::new(ip(addr), port)
+}
+
+fn behind_a_front(s: &mut burrow::config::settings::ServerSettings) {
+    s.web.as_mut().unwrap().proxy_protocol_from = vec!["127.0.0.1/32".parse().unwrap()];
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn with_a_proxy_header_each_request_arrives_on_a_connection_that_names_its_own_visitor() {
     let (app, log) = recording_app(Behave::Answer).await;
     let secret = Secret::generate();
     let mut svc = site(&["home"], app);
     svc.proxy_protocol = Some(ProxyVersion::V1);
-    let s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    let mut s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    behind_a_front(&mut s);
     let web = s.web.as_ref().unwrap().http.unwrap();
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let mut a = Keep::open(web, ip("127.0.0.2")).await;
-    let mut b = Keep::open(web, ip("127.0.0.3")).await;
-    for _ in 0..6 {
+    let mut a = Keep::behind_proxy(web, visitor("127.0.0.2", 40000)).await;
+    let mut b = Keep::behind_proxy(web, visitor("127.0.0.3", 40000)).await;
+    for i in 0..6 {
         assert_eq!(status(&a.get("/").await), 200);
         assert_eq!(status(&b.get("/").await), 200);
-        let mut fresh = Keep::open(web, ip("127.0.0.3")).await;
+        let mut fresh = Keep::behind_proxy(web, visitor("127.0.0.3", 41000 + i)).await;
         assert_eq!(status(&fresh.get("/").await), 200);
     }
     let asked = log.asked();
@@ -91,11 +100,12 @@ async fn read_line_raw(s: &mut tokio::net::TcpStream) -> Option<()> {
     }
 }
 
-async fn burst(web: SocketAddr, from: IpAddr, n: usize) -> Vec<u16> {
+async fn burst(web: SocketAddr, from: &str, n: u16) -> Vec<u16> {
     let mut all = tokio::task::JoinSet::new();
-    for _ in 0..n {
+    for i in 0..n {
+        let from = visitor(from, 40000 + i);
         all.spawn(async move {
-            let mut v = Keep::open(web, from).await;
+            let mut v = Keep::behind_proxy(web, from).await;
             status(&v.get("/").await)
         });
     }
@@ -113,12 +123,13 @@ async fn second_visitor_after_a_burst_with_proxy(on_client: bool) {
     if on_client {
         s.max_connections_per_client = 30;
     }
+    behind_a_front(&mut s);
     let web = s.web.as_ref().unwrap().http.unwrap();
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let got = burst(web, ip("127.0.0.2"), 24).await;
+    let got = burst(web, "127.0.0.2", 24).await;
     assert!(got.iter().all(|s| *s == 200), "{got:?}");
     tokio::time::sleep(Duration::from_secs(1)).await;
-    let got = burst(web, ip("127.0.0.3"), 20).await;
+    let got = burst(web, "127.0.0.3", 20).await;
     assert!(
         got.iter().all(|s| *s == 200),
         "idle connections bound to the first visitor were closed for the second: {got:?}"

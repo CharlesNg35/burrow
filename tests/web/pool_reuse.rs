@@ -24,10 +24,6 @@ fn http(s: &ServerSettings) -> SocketAddr {
     s.web.as_ref().unwrap().http.unwrap()
 }
 
-fn localhost() -> std::net::IpAddr {
-    "127.0.0.1".parse().unwrap()
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn new_visitor_connections_share_the_app_connections_of_earlier_ones() {
     let (app, log) = recording_app(Behave::Answer).await;
@@ -58,10 +54,10 @@ async fn an_idle_connection_the_app_closed_is_not_used_and_get_and_post_are_each
     let (s, secret) = plain(app, |_| {});
     let web = http(&s);
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let mut v = Keep::open(web, localhost()).await;
+    let mut v = Keep::open(web).await;
     assert_eq!(status(&v.get("/").await), 200);
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let mut v = Keep::open(web, localhost()).await;
+    let mut v = Keep::open(web).await;
     let got = v.send("GET", "/", "x-id: get\r\n").await.unwrap();
     assert_eq!(status(&got), 200, "{got}");
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -77,7 +73,7 @@ async fn a_get_lost_on_a_connection_kept_idle_is_sent_again_once_and_a_post_neve
     let (s, secret) = plain(app, |_| {});
     let web = http(&s);
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let mut v = Keep::open(web, localhost()).await;
+    let mut v = Keep::open(web).await;
     assert_eq!(
         status(&v.send("GET", "/", "x-id: a\r\n").await.unwrap()),
         200
@@ -102,7 +98,7 @@ async fn a_new_connection_that_fails_is_never_sent_again() {
     let (s, secret) = plain(app, |_| {});
     let web = http(&s);
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let mut v = Keep::open(web, localhost()).await;
+    let mut v = Keep::open(web).await;
     let got = v.send("GET", "/", "x-id: fresh\r\n").await.unwrap();
     assert_eq!(status(&got), 502, "{got}");
     assert_eq!(seen(&log, "fresh"), 1);
@@ -116,7 +112,7 @@ async fn no_request_reaches_the_app_more_often_than_the_rules_allow() {
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
     let mut methods = HashMap::new();
     for round in 0..4 {
-        let mut v = Keep::open(web, localhost()).await;
+        let mut v = Keep::open(web).await;
         for i in 0..15 {
             let method = if i % 3 == 0 { "POST" } else { "GET" };
             let id = format!("{round}-{i}");
@@ -125,7 +121,7 @@ async fn no_request_reaches_the_app_more_often_than_the_rules_allow() {
                 .await
                 .is_none()
             {
-                v = Keep::open(web, localhost()).await;
+                v = Keep::open(web).await;
             }
         }
     }
@@ -168,9 +164,9 @@ async fn an_ntlm_connection_stays_with_the_visitor_connection_that_started_it() 
     let (s, secret) = plain(app, |_| {});
     let web = http(&s);
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let mut a = Keep::open(web, localhost()).await;
+    let mut a = Keep::open(web).await;
     assert_eq!(status(&a.get("/").await), 401);
-    let mut b = Keep::open(web, localhost()).await;
+    let mut b = Keep::open(web).await;
     assert_eq!(status(&b.get("/").await), 401);
     let got = a
         .send("GET", "/", "Authorization: NTLM step2\r\n")
@@ -245,7 +241,7 @@ async fn concurrent_kept_visitors_need_no_more_app_connections_than_requests_in_
     let mut all = tokio::task::JoinSet::new();
     for _ in 0..20 {
         all.spawn(async move {
-            let mut v = Keep::open(web, localhost()).await;
+            let mut v = Keep::open(web).await;
             for _ in 0..50 {
                 assert_eq!(status(&v.get("/").await), 200);
             }
@@ -267,7 +263,7 @@ async fn an_ntlm_connection_stays_with_its_visitor_behind_a_proxy_that_carries_s
     });
     let web = http(&s);
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let mut proxy = Keep::open(web, localhost()).await;
+    let mut proxy = Keep::open(web).await;
     let a = "X-Forwarded-For: 203.0.113.1\r\n";
     let b = "X-Forwarded-For: 203.0.113.2\r\n";
     assert_eq!(status(&proxy.send("GET", "/", a).await.unwrap()), 401);
@@ -300,7 +296,7 @@ async fn a_get_is_not_sent_again_once_part_of_its_answer_arrived() {
     let (s, secret) = plain(app, |_| {});
     let web = http(&s);
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    let mut v = Keep::open(web, localhost()).await;
+    let mut v = Keep::open(web).await;
     let first = v.send("GET", "/", "x-id: a\r\n").await.unwrap();
     assert_eq!(status(&first), 200);
     tokio::time::sleep(Duration::from_millis(1100)).await;
@@ -352,7 +348,7 @@ async fn an_app_that_closes_after_every_answer_gives_no_bad_gateway_and_no_reque
     let _t = tunnel_with(s, Vec::new(), |c| c, secret).await;
     let mut bad = Vec::new();
     for i in 0..60 {
-        let mut v = Keep::open(web, localhost()).await;
+        let mut v = Keep::open(web).await;
         let got = v
             .send("GET", "/", &format!("x-id: {i}\r\n"))
             .await
