@@ -102,9 +102,10 @@ impl Stalls {
         !open.is_empty() && stalled == open.len()
     }
 
-    pub(crate) async fn all_stalled(&self) {
+    pub(crate) async fn all_stalled(&self, mut each_tick: impl FnMut()) {
         loop {
             tokio::time::sleep(TICK).await;
+            each_tick();
             if self.sweep() {
                 return;
             }
@@ -208,7 +209,7 @@ mod tests {
         assert!(poll(&mut a).is_ready());
         assert!(poll(&mut b).is_ready());
         let started = Instant::now();
-        tokio::time::timeout(STALL * 2, stalls.all_stalled())
+        tokio::time::timeout(STALL * 2, stalls.all_stalled(|| {}))
             .await
             .expect("every stream stalled closes the connection");
         assert!(started.elapsed() >= STALL);

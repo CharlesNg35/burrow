@@ -130,7 +130,7 @@ async fn connection(stream: tokio::net::TcpStream, token: Arc<PathBuf>, mcp: Mcp
         .keep_alive(false)
         .auto_date_header(false);
     let longest = HEADER_TIMEOUT + BODY_TIMEOUT + crate::admin_link::client::ANSWER + SLACK;
-    let served = builder.serve_connection(TokioIo::new(stream), svc);
+    let served = burrow_io::linger::serve(builder.serve_connection(TokioIo::new(stream), svc));
     let _ = tokio::time::timeout(longest, served).await;
 }
 

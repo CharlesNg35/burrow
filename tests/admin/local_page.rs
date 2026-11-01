@@ -223,6 +223,22 @@ async fn the_local_page_is_only_served_to_this_machine() {
     let _ = w.stop.send(true);
 }
 
+#[tokio::test]
+async fn a_refused_request_with_a_large_body_ends_in_a_clean_close_not_a_reset() {
+    let w = world().await;
+    let l = local(&w, "ops", &w.ops).await;
+    let head = format!(
+        "POST / HTTP/1.1\r\nHost: evil.example\r\nContent-Length: {}\r\n\r\n",
+        burrow_io::linger::probe::BODY
+    );
+    let addr = ([127, 0, 0, 1], l.port).into();
+    let ended = burrow_io::linger::probe::send_large_body(addr, &head).await;
+    assert!(ended.answer.starts_with("HTTP/1.1 403"), "{ended:?}");
+    assert!(ended.broken.is_none(), "{ended:?}");
+    let _ = l.stop.send(true);
+    let _ = w.stop.send(true);
+}
+
 async fn send_and_read(port: u16, bytes: &[u8], wait: Duration) -> (String, Duration) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
