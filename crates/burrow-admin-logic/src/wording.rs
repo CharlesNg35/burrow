@@ -177,7 +177,7 @@ pub fn capital(text: &str) -> String {
         .map(|c| c.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
 }
-pub const WEIGHTS_NEED_BALANCE: &str = "Weights only apply with Balance.";
+pub const WEIGHTS_NEED_BALANCE: &str = "Weights only apply with Balance or IP hash.";
 
 pub fn required(label: &str) -> String {
     format!("{label} is required")
@@ -269,7 +269,8 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
         return required(key);
     }
     if code == WEIGHT_NOT_BALANCE {
-        return "a weight only applies with Balance; clear it or choose Balance".into();
+        return "a weight only applies with Balance or IP hash; clear it or choose one of them"
+            .into();
     }
     if code == UNUSED_VISITOR {
         return format!("Visitor {subject} can't reach anything");

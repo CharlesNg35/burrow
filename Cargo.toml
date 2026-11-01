@@ -97,6 +97,7 @@ tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+burrow-io = { path = "crates/burrow-io", features = ["probe"] }
 arbtest = "0.3"
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "getrandom"] }
 bcrypt = { version = "0.19.3", default-features = false, features = ["std"] }

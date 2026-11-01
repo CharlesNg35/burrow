@@ -4,7 +4,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
     (
         "burrow-io",
-        &["bytes", "tokio"],
+        &["bytes", "hyper", "hyper-util", "tokio"],
         &[
             "burrow",
             "burrow-web",
@@ -236,6 +236,8 @@ mod tests {
         assert_eq!(dep_problems("burrow-config", &["serde", "tokio"]).len(), 1);
         assert_eq!(dep_problems("burrow-config", &["burrow"]).len(), 1);
         assert!(dep_problems("burrow-web", &["tokio", "hyper", "burrow-syntax"]).is_empty());
+        assert!(dep_problems("burrow-io", &["tokio", "hyper", "hyper-util"]).is_empty());
+        assert_eq!(dep_problems("burrow-io", &["burrow-web"]).len(), 1);
         for never in [
             "burrow",
             "burrow-config",

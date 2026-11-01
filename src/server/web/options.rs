@@ -55,6 +55,7 @@ pub(super) fn site_options(o: &settings::SiteOptions) -> SiteOptions {
         request_headers: rules(&o.request_headers),
         response_headers: rules(&o.response_headers),
         error_pages: o.error_pages.clone(),
+        app_key: 0,
     }
 }
 

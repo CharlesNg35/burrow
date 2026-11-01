@@ -61,31 +61,31 @@ pub struct Channel {
 pub enum Conn {
     Tcp(TcpStream),
     Ws(Box<ws::WsConn>),
-    Local(burrow_io::Duplex),
+    Local(burrow_io::pipe::Duplex),
 }
 
 pub enum ReadHalf<'a> {
     Tcp(tokio_tcp::ReadHalf<'a>),
     Ws(tokio::io::ReadHalf<&'a mut ws::WsConn>),
-    Local(tokio::io::ReadHalf<&'a mut burrow_io::Duplex>),
+    Local(tokio::io::ReadHalf<&'a mut burrow_io::pipe::Duplex>),
 }
 
 pub enum WriteHalf<'a> {
     Tcp(tokio_tcp::WriteHalf<'a>),
     Ws(tokio::io::WriteHalf<&'a mut ws::WsConn>),
-    Local(tokio::io::WriteHalf<&'a mut burrow_io::Duplex>),
+    Local(tokio::io::WriteHalf<&'a mut burrow_io::pipe::Duplex>),
 }
 
 pub enum OwnedReadHalf {
     Tcp(tokio_tcp::OwnedReadHalf),
     Ws(tokio::io::ReadHalf<ws::WsConn>),
-    Local(tokio::io::ReadHalf<burrow_io::Duplex>),
+    Local(tokio::io::ReadHalf<burrow_io::pipe::Duplex>),
 }
 
 pub enum OwnedWriteHalf {
     Tcp(tokio_tcp::OwnedWriteHalf),
     Ws(tokio::io::WriteHalf<ws::WsConn>),
-    Local(tokio::io::WriteHalf<burrow_io::Duplex>),
+    Local(tokio::io::WriteHalf<burrow_io::pipe::Duplex>),
 }
 
 impl Conn {

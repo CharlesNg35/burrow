@@ -27,6 +27,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
 - **Post-quantum TLS:** burrow's HTTPS, the tunnel's `wss://` and HTTPS to the app prefer the hybrid key exchange X25519MLKEM768, as browsers, Go and OpenSSL 3.5 do. A client that does not offer it gets X25519, P-256 or P-384 as before.
 - **Load balancing:**
   - `mode: least_connections` joins `failover` and `balance`.
+  - `mode: ip_hash` keeps each visitor address on one client, for TCP services and websites (the real visitor behind `web.trusted_proxies` or a PROXY header). It uses weighted rendezvous hashing, as Caddy's `ip_hash` does, so adding or removing a client moves only its own visitors; a client that is down is skipped until it is back. `failover` stays the default.
   - With `balance`, a client can take a weight, `{name: home, weight: 3}` (smooth weighted round robin, as in nginx).
   - A `clients` entry may give its own `target`, so one client in front of several machines can spread a service over them. Health checks and open counts are kept per entry. The client gets the target as before, so older clients work.
 - **`burrow mcp`:** lets Claude Code, Codex, Cursor or Claude Desktop read a running server over MCP, on stdio or loopback HTTP with a token.
@@ -60,6 +61,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
   - When a service's or client's connections run short, one website visitor address gets at most a fair part (an eighth), so one address cannot take a site away from everyone else.
   - Returning visitors resume their TLS session with session tickets, except on sites with `client_auth`.
   - The web proxy keeps small, reused buffers per connection, so it uses less than half the memory and about 30 % less CPU per request with large bodies.
+  - An HTTP/2 visitor keeps the app connections its parallel requests used, so a page's next burst reuses them instead of connecting to the app again: about 2.5 times the requests per second with 32 or more parallel requests. Extras close after 2 minutes idle, or at once while a quarter of the service's or client's connections are in use (D66).
   - The Linux amd64, arm64 and riscv64 builds give freed memory back to the system within seconds of going idle.
   - The web proxy and `self` targets keep a pipe buffer only while data waits, and the jemalloc builds return freed memory after 1 s, so memory under load is about half of what it was and an idle connection holds no buffer.
   - Public UDP ports and UDP forwards ask the system for a 7 MiB receive buffer, as WireGuard does, and each UDP peer for 256 KiB, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max` (see docs/services.md).

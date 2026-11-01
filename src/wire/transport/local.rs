@@ -6,7 +6,7 @@ use crate::wire::transport::Conn;
 const PIPE: usize = 32 * 1024;
 
 pub fn pair() -> (Channel, Channel) {
-    let (near, far) = burrow_io::duplex(PIPE);
+    let (near, far) = burrow_io::pipe::duplex(PIPE);
     let session = Session::in_memory(&InMemory(()));
     let channel = |stream| {
         let (sealer, opener) = session.split();

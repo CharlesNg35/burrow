@@ -2,16 +2,22 @@
 name = "burrow-io"
 version = "0.2.0"
 edition = "2024"
-description = "In-memory byte pipes shared by the burrow tunnel and web proxy"
+description = "Small I/O helpers shared by the burrow tunnel and web proxy: lingering close for early HTTP/1 answers, in-memory pipes"
 license = "MIT"
 publish = false
 
+[features]
+probe = ["tokio/net", "tokio/rt"]
+
 [dependencies]
 bytes = "1.12.1"
-tokio = { version = "1.53.3", features = ["rt"] }
+hyper = { version = "1.12.0", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+tokio = { version = "1.53.3", features = ["io-util", "time", "rt"] }
 
 [dev-dependencies]
-tokio = { version = "1.53.3", features = ["rt", "macros", "io-util"] }
+http-body-util = "0.1.5"
+tokio = { version = "1.53.3", features = ["net", "rt-multi-thread", "macros", "test-util"] }
 
 [lints]
 workspace = true

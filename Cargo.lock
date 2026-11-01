@@ -566,6 +566,9 @@ name = "burrow-io"
 version = "0.2.0"
 dependencies = [
  "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "tokio",
 ]
 

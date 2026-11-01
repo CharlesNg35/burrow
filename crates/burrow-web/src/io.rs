@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 
-use burrow_io::{Duplex, duplex};
+use burrow_io::pipe::{Duplex, duplex};
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     fn reset_on_close(&self) {}

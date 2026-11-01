@@ -242,6 +242,10 @@ pub trait Upstream: Send + Sync + 'static {
 
     fn answered(&self, _service: &str, _status: ::http::StatusCode) {}
 
+    fn crowded(&self, _service: &str) -> bool {
+        false
+    }
+
     fn open(
         &self,
         service: &str,

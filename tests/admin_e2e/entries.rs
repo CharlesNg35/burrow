@@ -89,6 +89,27 @@ async fn phone_edit(c: &mut Ctx) {
     c.ui.shot("client-entry-error-phone").await;
 }
 
+async fn ip_hash_keeps_weights(c: &mut Ctx, mode: &str, weight: &str) {
+    click_js(c, &format!("{mode} input[value=ip_hash]")).await;
+    c.ui.wait_for(weight, SECS).await;
+    c.ui.wait_gone("[data-stray-weights]", SECS).await;
+    let hint = c.ui.text(mode).await;
+    assert!(
+        hint.contains("IP hash") && hint.contains("visitor address"),
+        "the picker names IP hash with its one-line hint: {hint}"
+    );
+    for (w, h, step) in [
+        (1440, 900, "mode-ip-hash-wide"),
+        (420, 700, "mode-ip-hash-narrow"),
+    ] {
+        c.ui.viewport(w, h).await;
+        c.ui.shot(step).await;
+    }
+    c.ui.viewport(1440, 900).await;
+    click_js(c, &format!("{mode} input[value=balance]")).await;
+    c.ui.wait_for(weight, SECS).await;
+}
+
 fn entries(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -154,6 +175,7 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for(weight, SECS).await;
         c.ui.fill(weight, "3").await;
         row_clean(c, field).await;
+        ip_hash_keeps_weights(c, mode, weight).await;
         assert_eq!(
             c.ui.count("[data-entry] [data-own-target]").await,
             0,

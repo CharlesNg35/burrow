@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:a6af02365f07fac7",
+  "hash": "b2s:3054a39d76f67072",
   "root": {
     "label": "Server",
     "sem": {
@@ -1645,7 +1645,7 @@
                       "key": "mode",
                       "node": {
                         "label": "Mode",
-                        "help": "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones",
+                        "help": "With several clients: failover uses the first one that is up, balance spreads new connections over all of them by weight, least connections sends each new connection to the client with the fewest open ones, IP hash keeps each visitor address on one client",
                         "sem": {
                           "t": "enum",
                           "options": [
@@ -1663,6 +1663,11 @@
                               "value": "least_connections",
                               "label": "Least connections",
                               "help": "Send each new connection to the client that is up with the fewest open connections"
+                            },
+                            {
+                              "value": "ip_hash",
+                              "label": "IP hash",
+                              "help": "Keep each visitor address on one client that is up, chosen by weight"
                             }
                           ]
                         },
