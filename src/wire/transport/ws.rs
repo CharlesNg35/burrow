@@ -2,6 +2,7 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll, ready};
 
+use burrow_io::linger::ShutOnce;
 use bytes::{Buf, Bytes, BytesMut};
 use futures_util::{Sink, Stream};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
@@ -444,7 +445,7 @@ pub fn serve_upgraded(carrier: Carrier) -> WsConn {
 
 async fn refuse(mut carrier: Carrier, r: Refused) {
     let _ = carrier.write_all(r.response()).await;
-    burrow_io::linger::linger(carrier).await;
+    burrow_io::linger::linger(ShutOnce::new(carrier)).await;
 }
 
 #[derive(Debug)]

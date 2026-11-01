@@ -15,6 +15,9 @@ pub const LINGER_TIMEOUT: Duration = Duration::from_secs(5);
 pub const LINGER_BYTES: u64 = 1024 * 1024;
 const CHUNK: usize = 8 * 1024;
 
+mod once;
+pub use once::ShutOnce;
+
 type BoxError = Box<dyn Error + Send + Sync>;
 
 pub trait Http1: Future<Output = hyper::Result<()>> + Unpin {
@@ -22,10 +25,10 @@ pub trait Http1: Future<Output = hyper::Result<()>> + Unpin {
 
     fn graceful_shutdown(self: Pin<&mut Self>);
 
-    fn into_io(self) -> Option<Self::Io>;
+    fn into_io(self) -> Option<ShutOnce<Self::Io>>;
 }
 
-impl<T, S, B> Http1 for Connection<TokioIo<T>, S>
+impl<T, S, B> Http1 for Connection<TokioIo<ShutOnce<T>>, S>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     S: HttpService<Incoming, ResBody = B>,
@@ -40,12 +43,12 @@ where
         Connection::graceful_shutdown(self);
     }
 
-    fn into_io(self) -> Option<T> {
+    fn into_io(self) -> Option<ShutOnce<T>> {
         Some(self.into_parts().io.into_inner())
     }
 }
 
-impl<T, S, B> Http1 for UpgradeableConnection<TokioIo<T>, S>
+impl<T, S, B> Http1 for UpgradeableConnection<TokioIo<ShutOnce<T>>, S>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     S: HttpService<Incoming, ResBody = B>,
@@ -60,7 +63,7 @@ where
         UpgradeableConnection::graceful_shutdown(self);
     }
 
-    fn into_io(self) -> Option<T> {
+    fn into_io(self) -> Option<ShutOnce<T>> {
         self.into_parts().map(|p| p.io.into_inner())
     }
 }
@@ -125,7 +128,7 @@ impl<C: Http1> Future for Lingering<C> {
     }
 }
 
-pub async fn linger<T: AsyncRead + AsyncWrite + Unpin>(io: T) {
+pub async fn linger<T: AsyncRead + AsyncWrite + Unpin>(io: ShutOnce<T>) {
     let mut io = io;
     let _ = tokio::time::timeout(LINGER_TIME, async {
         let _ = io.shutdown().await;

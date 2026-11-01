@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use burrow_io::linger::ShutOnce;
 use hyper::{Request, Response};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
@@ -63,7 +64,7 @@ pub async fn serve_with(listener: TcpListener, handler: Handler) {
 }
 
 struct Capped {
-    inner: TcpStream,
+    inner: ShutOnce<TcpStream>,
     left: usize,
 }
 
@@ -143,7 +144,7 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
         .title_case_headers(true)
         .auto_date_header(false);
     let io = hyper_util::rt::TokioIo::new(Capped {
-        inner: stream,
+        inner: ShutOnce::new(stream),
         left: MAX_HEAD + 1024,
     });
     let mut served = builder.serve_connection(io, service);
