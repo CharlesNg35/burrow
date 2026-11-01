@@ -284,7 +284,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Only visitors from these countries may connect, as ISO 3166 codes, for example [FR, BE, CH]; allow_from adds addresses, deny_from always wins; private addresses are not judged by country"
     )]
-    #[admin(help = "Only visitors from these countries may connect to the public port, the website and UDP; burrow visit is not affected. IP geolocation by DB-IP",
+    #[admin(help = "Only visitors from these countries may connect to the public port, the website and UDP, for example FR, BE; burrow visit is not affected. IP geolocation by DB-IP",
         ty = list(country),
         group = access,
         empty_label = "Every country",
@@ -296,7 +296,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Visitors from these countries may never connect, as ISO 3166 codes; addresses in allow_from still may"
     )]
-    #[admin(help = "Visitors from these countries may never connect to the public port, the website and UDP; burrow visit is not affected. IP geolocation by DB-IP",
+    #[admin(help = "Visitors from these countries may never connect to the public port, the website and UDP, for example GB, US; burrow visit is not affected. IP geolocation by DB-IP",
         ty = list(country),
         group = access,
         empty_label = "No countries denied",

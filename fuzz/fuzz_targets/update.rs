@@ -1,6 +1,7 @@
 #![no_main]
 
-use burrow::update::{archive, http};
+use burrow::update::archive;
+use burrow::wire::fetch as http;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

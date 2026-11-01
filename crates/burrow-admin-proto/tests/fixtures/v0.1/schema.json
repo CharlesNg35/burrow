@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:9cd9253d7aa636bc",
+  "hash": "b2s:a378b26b492db7ea",
   "root": {
     "label": "Server",
     "sem": {
@@ -2038,7 +2038,7 @@
                       "key": "allow_countries",
                       "node": {
                         "label": "Allow countries",
-                        "help": "Only visitors from these countries may connect to the public port, the website and UDP; burrow visit is not affected. IP geolocation by DB-IP",
+                        "help": "Only visitors from these countries may connect to the public port, the website and UDP, for example FR, BE; burrow visit is not affected. IP geolocation by DB-IP",
                         "sem": {
                           "t": "list",
                           "item": {
@@ -2062,7 +2062,7 @@
                       "key": "deny_countries",
                       "node": {
                         "label": "Deny countries",
-                        "help": "Visitors from these countries may never connect to the public port, the website and UDP; burrow visit is not affected. IP geolocation by DB-IP",
+                        "help": "Visitors from these countries may never connect to the public port, the website and UDP, for example GB, US; burrow visit is not affected. IP geolocation by DB-IP",
                         "sem": {
                           "t": "list",
                           "item": {
