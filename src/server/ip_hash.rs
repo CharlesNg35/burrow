@@ -1,5 +1,3 @@
-//! `mode: ip_hash`: each visitor address ranks a service's entries by weighted rendezvous hashing.
-
 use std::cmp::Reverse;
 use std::net::IpAddr;
 
