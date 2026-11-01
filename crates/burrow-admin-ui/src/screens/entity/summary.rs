@@ -53,6 +53,12 @@ fn mode_line(svc: &Value) -> String {
                 mode_label(Mode::LeastConnections)
             )
         }
+        (true, Some(Mode::IpHash)) => {
+            format!(
+                "{}: each visitor address stays on one healthy client, chosen by weight",
+                mode_label(Mode::IpHash)
+            )
+        }
         (true, _) => {
             format!(
                 "{}: the first healthy client takes new connections",

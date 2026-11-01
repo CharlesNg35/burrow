@@ -6,6 +6,7 @@ mod control;
 mod fields;
 mod geo;
 mod health;
+mod ip_hash;
 mod listen;
 mod local;
 #[cfg(feature = "web")]
@@ -76,6 +77,7 @@ pub struct Shared {
     service_counts: Counts,
     visitor_counts: Counts,
     client_counts: Counts,
+    busy: share::Busy,
     entry_counts: balance::EntryCounts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
@@ -175,6 +177,32 @@ impl Shared {
             .is_some_and(|c| c.secrets.contains(secret))
     }
 
+    #[cfg(feature = "web")]
+    pub(crate) fn crowded(&self, service: &str) -> bool {
+        let settings = self.settings();
+        let Some(svc) = settings.services.get(service) else {
+            return false;
+        };
+        let pressed = |most: usize, open: u64| {
+            usize::try_from(open)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(4)
+                >= most
+        };
+        let service_pressed = svc
+            .max_connections
+            .is_some_and(|m| pressed(m, self.service_counts.current(service)));
+        service_pressed
+            || svc.clients.iter().any(|c| {
+                let most = settings
+                    .clients
+                    .get(c)
+                    .and_then(|c| c.max_connections)
+                    .unwrap_or(settings.max_connections_per_client);
+                pressed(most, self.client_counts.current(c))
+            })
+    }
+
     pub(crate) fn limit(&self, service: &str) -> Arc<Limit> {
         let rate = self
             .settings()
@@ -197,6 +225,12 @@ impl Shared {
         self.visitor_counts
             .retain(|n| settings.visitors.contains_key(n));
         self.client_counts
+            .retain(|n| n == burrow_config::SELF || settings.clients.contains_key(n));
+        self.busy
+            .services
+            .retain(|n| settings.services.contains_key(n));
+        self.busy
+            .clients
             .retain(|n| n == burrow_config::SELF || settings.clients.contains_key(n));
         self.metrics
             .retain(&settings.services, &settings.visitors, &settings.clients);

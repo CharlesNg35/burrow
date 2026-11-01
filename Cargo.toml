@@ -14,6 +14,7 @@ publish = false
 members = [
     ".",
     "crates/burrow-syntax",
+    "crates/burrow-io",
     "crates/burrow-config",
     "crates/burrow-admin-logic",
     "crates/burrow-admin-proto",
@@ -33,6 +34,7 @@ workspace = true
 [dependencies]
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
+burrow-io = { path = "crates/burrow-io" }
 burrow-web = { path = "crates/burrow-web", optional = true }
 burrow-syntax = { path = "crates/burrow-syntax" }
 aws-lc-rs = "1.19.0"
@@ -87,6 +89,9 @@ nix = { version = "0.31.3", default-features = false, features = ["user"] }
 signal-hook = "0.3.18"
 rustix = { version = "1.1.5", default-features = false, features = ["fs", "process", "std"] }
 
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+rustix = { version = "1.1.5", default-features = false, features = ["net"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.8.1"
 
@@ -97,6 +102,7 @@ tikv-jemallocator = { version = "0.6", features = ["background_threads"] }
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+burrow-io = { path = "crates/burrow-io", features = ["probe"] }
 arbtest = "0.3"
 argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "getrandom"] }
 bcrypt = { version = "0.19.3", default-features = false, features = ["std"] }

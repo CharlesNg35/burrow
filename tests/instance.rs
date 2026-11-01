@@ -437,3 +437,37 @@ fn a_start_that_fails_only_on_unreadable_web_files_exits_1_for_a_retry_and_bad_c
         assert!(err.contains("not starting"), "{what}: {err}");
     }
 }
+
+#[cfg(target_os = "linux")]
+fn udp_buffer_is_capped() -> bool {
+    let want = 7 << 20;
+    let probe = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None).unwrap();
+    if rustix::net::sockopt::set_socket_recv_buffer_size_force(&probe, want).is_err() {
+        let _ = probe.set_recv_buffer_size(want);
+    }
+    probe.recv_buffer_size().unwrap() < want / 2
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_capped_udp_receive_buffer_is_logged_once_for_all_ports() {
+    let udp = format!(
+        "  dns:\n    client: home\n    protocol: udp\n    bind: 127.0.0.1:{}\n    target: 127.0.0.1:53\n  game:\n    client: home\n    protocol: udp\n    bind: 127.0.0.1:{}\n    target: 127.0.0.1:27015\n",
+        free_port(),
+        free_port()
+    );
+    let s = setup_with("", &udp);
+    let mut c = burrow(&s);
+    let log = logged(&s, c.arg("server"), "server");
+    let mut child = c.spawn().unwrap();
+    wait_running(&mut child);
+    let text = stopped(child, &log);
+    let warned = text.lines().filter(|l| l.contains("well below")).count();
+    let expected = usize::from(udp_buffer_is_capped());
+    assert_eq!(warned, expected, "{text}");
+    if expected == 1 {
+        assert!(text.contains("net.core.rmem_max"), "{text}");
+        assert!(text.contains("CAP_NET_ADMIN"), "{text}");
+        assert!(text.contains("/etc/sysctl.d/"), "{text}");
+    }
+}

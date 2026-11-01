@@ -43,6 +43,7 @@ The `burrow` crate is built in layers, from the bottom up:
 - Commit messages are a single line that says what is true now, for example "A visitor's UDP forward forgets its peers after the server closes the visit". No trailers.
 - Stage files by name; never `git add -A`.
 - When `rust-toolchain.toml` moves to a newer Rust, check D52 in `docs/decisions.md` (64-bit time on the 32-bit ARM builds).
+- The fuzz targets build on the dated nightly in `fuzz/rust-toolchain.toml`, which CI reads too. It stays before 2026-11-01 because later nightlies reject burrow-admin-proto's recursive `SemType` with E0391, a rustc regression (rust-lang/rust#165263), not a real cycle; move it forward once that issue is closed.
 
 ## Design
 

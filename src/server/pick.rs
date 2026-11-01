@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -67,13 +68,64 @@ impl From<Vec<Hop>> for Picked {
 }
 
 impl Shared {
-    pub(crate) fn route(&self, service: &str, svc: &Service, index: u16) -> Picked {
-        let (hops, held) = self.order(service, svc, index, true);
+    pub(crate) fn route(
+        &self,
+        service: &str,
+        svc: &Service,
+        index: u16,
+        from: Option<IpAddr>,
+    ) -> Picked {
+        let (hops, held) = self.order(service, svc, (index, from), true, |h| {
+            let (guard, before) = self.client_opens(h.name());
+            Held {
+                name: h.name().to_string(),
+                target: h.target.clone(),
+                guard,
+                entry: Some(self.entry_opens(service, h)),
+                before,
+            }
+        });
         Picked { hops, held }
     }
 
+    #[cfg(feature = "web")]
+    pub(crate) fn lead(
+        &self,
+        service: &str,
+        svc: &Service,
+        from: IpAddr,
+    ) -> (Vec<Hop>, Option<CountGuard>) {
+        self.order(service, svc, (0, Some(from)), true, |h| {
+            self.entry_opens(service, h)
+        })
+    }
+
+    #[cfg(feature = "web")]
+    pub(crate) fn held_first(&self, hops: Vec<Hop>) -> (Picked, usize) {
+        let held = hops.first().map(|h| {
+            let (guard, before) = self.client_opens(h.name());
+            Held {
+                name: h.name().to_string(),
+                target: h.target.clone(),
+                guard,
+                entry: None,
+                before,
+            }
+        });
+        let before = held.as_ref().map_or(0, |h| h.before);
+        (Picked { hops, held }, before)
+    }
+
+    #[cfg(feature = "web")]
+    pub(crate) fn ranked(&self, service: &str, svc: &Service, from: IpAddr) -> Vec<Hop> {
+        self.order(service, svc, (0, Some(from)), false, |_| ()).0
+    }
+
     pub(crate) fn pick(&self, service: &str, svc: &Service, index: u16) -> Option<Hop> {
-        self.route(service, svc, index).hops.into_iter().next()
+        self.route(service, svc, index, None)
+            .hops
+            .into_iter()
+            .next()
     }
 
     pub(crate) fn preferred(
@@ -84,11 +136,11 @@ impl Shared {
     ) -> Option<(String, String)> {
         match svc.mode {
             Mode::Failover => self
-                .order(service, svc, index, false)
+                .order(service, svc, (index, None), false, |_| ())
                 .0
                 .first()
                 .map(|h| (h.name().to_string(), h.target.clone())),
-            Mode::Balance | Mode::LeastConnections => None,
+            Mode::Balance | Mode::LeastConnections | Mode::IpHash => None,
         }
     }
 
@@ -115,15 +167,20 @@ impl Shared {
             .collect()
     }
 
-    fn order(
+    fn order<T>(
         &self,
         service: &str,
         svc: &Service,
-        index: u16,
-        hold: bool,
-    ) -> (Vec<Hop>, Option<Held>) {
+        (index, from): (u16, Option<IpAddr>),
+        turn: bool,
+        seal: impl FnOnce(&Hop) -> T,
+    ) -> (Vec<Hop>, Option<T>) {
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
-        for h in self.hops(svc, index) {
+        let mut hops = self.hops(svc, index);
+        if let (Mode::IpHash, Some(from)) = (svc.mode, from) {
+            super::ip_hash::rank(&mut hops, from);
+        }
+        for h in hops {
             let healthy = svc.health.is_none() || self.is_up(service, &h.key);
             match self.seen(service, &h, &h.target) {
                 Seen::Refused => refused.push(h),
@@ -132,16 +189,16 @@ impl Shared {
                 Seen::Clear => aside.push(h),
             }
         }
-        let mut wheels =
-            (hold && svc.mode != Mode::Failover).then(|| self.wheels.lock().expect("wheels lock"));
+        let serialised = matches!(svc.mode, Mode::Balance | Mode::LeastConnections);
+        let mut wheels = (turn && serialised).then(|| self.wheels.lock().expect("wheels lock"));
         let head = [&mut clear, &mut aside, &mut refused]
             .into_iter()
             .find(|g| !g.is_empty());
         if let Some(head) = head
-            && hold
+            && turn
         {
             match svc.mode {
-                Mode::Failover => {}
+                Mode::Failover | Mode::IpHash => {}
                 Mode::Balance => {
                     if let Some(wheels) = wheels.as_mut() {
                         let group = head.iter().map(|h| (&h.key, h.weight));
@@ -156,16 +213,7 @@ impl Shared {
         }
         clear.extend(aside);
         clear.extend(refused);
-        let held = clear.first().filter(|_| hold).map(|h| {
-            let (guard, before) = self.client_opens(h.name());
-            Held {
-                name: h.name().to_string(),
-                target: h.target.clone(),
-                guard,
-                entry: Some(self.entry_opens(service, h)),
-                before,
-            }
-        });
+        let held = clear.first().filter(|_| turn).map(seal);
         drop(wheels);
         (clear, held)
     }
@@ -192,7 +240,7 @@ impl Shared {
         &self,
         service: &str,
         client: &str,
-        from: std::net::IpAddr,
+        from: Option<std::net::IpAddr>,
         index: u16,
         public: Option<(burrow_config::Protocol, std::net::SocketAddr)>,
     ) -> Result<(), String> {
@@ -210,7 +258,9 @@ impl Shared {
         if !s.clients.iter().any(|c| c == client) {
             return Err(format!("client \"{client}\" no longer serves it"));
         }
-        if !self.admits(s, from).admitted() {
+        if let Some(from) = from
+            && !self.admits(s, from).admitted()
+        {
             return Err(format!(
                 "{from} is no longer allowed by allow_from, deny_from or the country rules"
             ));

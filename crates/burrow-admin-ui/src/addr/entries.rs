@@ -340,7 +340,7 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     let is_balance = Signal::derive(move || {
         e.value(&mode_path)
             .and_then(|v| v.as_str().and_then(Mode::from_wire))
-            == Some(Mode::Balance)
+            .is_some_and(Mode::weighted)
     });
     let weighted = {
         let place = place.clone();

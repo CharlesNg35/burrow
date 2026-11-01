@@ -193,6 +193,12 @@ fn handle(req: Request<Incoming>, shared: &Arc<Shared>, bridge: &Bridge) -> Resp
             Vec::new(),
         ),
         Ok((_, Decision::NotFound | Decision::Reject)) => plain(404, "not found"),
+        Ok((_, Decision::Alive)) => http::response(
+            200,
+            "text/plain; charset=utf-8",
+            &[("Cache-Control", "no-store".into())],
+            &b"running\n"[..],
+        ),
         Ok((_, Decision::Api)) => {
             let Some(accept) = accept_key(&req) else {
                 return plain(400, "bad request");
@@ -246,9 +252,11 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
         .keep_alive(false)
         .title_case_headers(true)
         .auto_date_header(false);
-    let served = builder
-        .serve_connection(TokioIo::new(stream), service)
-        .with_upgrades();
+    let served = burrow_io::linger::serve(
+        builder
+            .serve_connection(TokioIo::new(stream), service)
+            .with_upgrades(),
+    );
     let _ = tokio::time::timeout(READ_TIMEOUT + WRITE_TIMEOUT, served).await;
     let task = bridge.lock().ok().and_then(|mut b| b.take());
     if let Some(task) = task {

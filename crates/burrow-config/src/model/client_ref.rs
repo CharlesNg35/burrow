@@ -36,7 +36,7 @@ pub struct ServiceClient {
     pub target: Option<Target>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Share of new connections with mode: balance, from 1 to 1000 (default 1); a client with weight 3 gets three times the new connections of one with weight 1"
+        description = "Share of new connections with mode: balance, or of visitor addresses with mode: ip_hash, from 1 to 1000 (default 1); a client with weight 3 gets three times the share of one with weight 1"
     )]
     #[schemars(range(min = 1, max = 1000))]
     #[admin(ty = integer(unit = "shares"), none_label = "1")]

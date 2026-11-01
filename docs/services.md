@@ -60,7 +60,14 @@ dns:
 
 A UDP peer that sends nothing for 2 minutes is forgotten (`udp.session_timeout_secs`). A UDP service follows its target to a new address when the target's DNS name changes.
 
-burrow asks the system for 7 MiB of receive buffer on each public UDP port and each visitor UDP forward, as WireGuard does, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max`, about 416 KiB in effect by default. For bursty UDP traffic, raise it with `sysctl -w net.core.rmem_max=7500000` and keep the setting in `/etc/sysctl.d/`. `nstat -az UdpRcvbufErrors` shows how many datagrams the system dropped because a receive buffer was full.
+burrow asks the system for 7 MiB of receive buffer on each public UDP port and each visitor UDP forward, as WireGuard does, so a burst of datagrams waits instead of being dropped. Linux caps this at `net.core.rmem_max`, about 416 KiB in effect by default, and when a port gets less than half of what burrow asked for, burrow logs one warning that names the cap. For bursty UDP traffic, raise the cap and keep it across restarts:
+
+```sh
+echo 'net.core.rmem_max=7500000' | sudo tee /etc/sysctl.d/90-burrow-udp.conf
+sudo sysctl --system
+```
+
+A burrow that runs as root with CAP_NET_ADMIN gets the full size without this, but the service that `burrow service install` sets up runs as its own account, which does not have it. `nstat -az UdpRcvbufErrors` shows how many datagrams the system dropped because a receive buffer was full.
 
 ## Expose a range of ports
 
@@ -156,25 +163,28 @@ Turn it on only when the target expects it: an app that does not understand the 
 
 ## Several clients
 
-Run the same app on two machines, list both under `clients`, and the service stays up when one goes away. This works for TCP and UDP services. `mode: balance`, `mode: least_connections` and `health_check` are for TCP only, so a UDP service uses failover. This web service spreads its connections over two clients, and skips one whose app stops answering:
+Run the same app on two machines, list both under `clients`, and the service stays up when one goes away. This works for TCP and UDP services. `mode: balance`, `mode: least_connections`, `mode: ip_hash` and `health_check` are for TCP only, so a UDP service uses failover. This web service spreads its connections over two clients, and skips one whose app stops answering:
 
 ```yaml
 # server.yaml, under services:
 web:
   clients: [home-1, home-2]
-  mode: balance          # or failover (the default), or least_connections
+  mode: balance          # or failover (the default), least_connections or ip_hash
   health_check: true     # or { interval_secs: 10, timeout_secs: 3, failures: 2 }
   bind: 443
   target: 127.0.0.1:8443
 ```
 
 - **`failover`** (the default) uses the first connected client in the list, and moves to the next one while it is away.
-- **`balance`** spreads new connections over all connected clients, in turn.
-- **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service; on a tie, the first in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine.
+- **`balance`** spreads new connections over all connected clients, in turn. For a website it picks per request, as nginx, Caddy, Traefik and HAProxy do, so one kept-alive visitor is spread too.
+- **`least_connections`** sends each new connection to the entry (a client, or a client and its own target) with the fewest open connections of this service; on a tie, the first in the list gets it. This suits long connections, like SSH or databases, that would otherwise pile up on one machine. For a website it counts requests in progress, not idle app connections.
+- **`ip_hash`** keeps each visitor address on one client: every connection of a TCP service, and every request of a website, from the same address goes to the same entry, as long as it is up. For a website the address is the real visitor's: the one in `X-Forwarded-For` from a proxy in `web.trusted_proxies`, or in the PROXY header from `web.proxy_protocol_from`; an IPv6 address counts per /64. It suits apps that keep a visitor's session in memory. Two things to know: many visitors behind one NAT or company proxy share one address and so land on one client, and a visitor whose address changes (a phone moving between networks) may move to another client.
 
-All three skip a client whose health check failed (below).
+All four skip a client whose health check failed (below). `ip_hash` then sends that visitor to the next entry in its own order, and back once the client is up again.
 
-**Weights.** With `balance`, a client can get a bigger share: write it as `{name, weight}`, with a whole number from 1 to 1000 (default 1). Here `home-1` gets 3 of every 4 new connections:
+`failover` is the default because the clients of a tunnel are often not identical copies, as the servers behind nginx or Caddy usually are: they may hold different data or sit behind different links. So burrow spreads visitors only when you ask for it.
+
+**Weights.** With `balance` or `ip_hash`, a client can get a bigger share: write it as `{name, weight}`, with a whole number from 1 to 1000 (default 1). Here `home-1` gets 3 of every 4 new connections:
 
 ```yaml
 # server.yaml, under services:
@@ -185,7 +195,7 @@ web:
   target: 127.0.0.1:8443
 ```
 
-The turns are spread evenly, as in nginx's weighted round robin, so `home-1` does not get three connections in a row and then `home-2` one. Weights apply only to `balance`; `validate` refuses them with the other modes.
+The turns are spread evenly, as in nginx's weighted round robin, so `home-1` does not get three connections in a row and then `home-2` one. With `ip_hash` the weight is the share of visitor addresses: `home-1` gets about 3 of every 4 addresses. It uses weighted rendezvous hashing, so adding or removing a client moves only the addresses that client gains or loses; everyone else stays where they are. Weights apply only to `balance` and `ip_hash`; `validate` refuses them with the other modes.
 
 **Several VMs behind one client.** An entry can give its own `target`. One client in front of several machines, such as a LAN gateway with two VMs, can then spread a service over them. An entry without a `target` uses the service's `target`:
 

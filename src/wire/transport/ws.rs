@@ -395,7 +395,7 @@ pub async fn accept(mut carrier: Carrier, path: &str) -> Result<WsConn, AcceptEr
             break;
         }
         if head.len() >= MAX_REQUEST_HEAD {
-            refuse(&mut carrier, Refused::HeadTooLarge).await;
+            refuse(carrier, Refused::HeadTooLarge).await;
             return Err(AcceptError::Refused(Refused::HeadTooLarge));
         }
         let mut chunk = [0u8; 1024];
@@ -410,12 +410,12 @@ pub async fn accept(mut carrier: Carrier, path: &str) -> Result<WsConn, AcceptEr
             .skip_while(|b| matches!(b, b'\r' | b'\n'))
             .take_while(|b| **b != b' ');
         if method.clone().count() > 16 || !method.into_iter().all(u8::is_ascii_uppercase) {
-            refuse(&mut carrier, Refused::BadRequest).await;
+            refuse(carrier, Refused::BadRequest).await;
             return Err(AcceptError::Refused(Refused::BadRequest));
         }
     }
     if let Err(r) = route(&head, path) {
-        refuse(&mut carrier, r).await;
+        refuse(carrier, r).await;
         return Err(AcceptError::Refused(r));
     }
     let stream = Rewind {
@@ -442,9 +442,9 @@ pub fn serve_upgraded(carrier: Carrier) -> WsConn {
     WsConn::new(ServerBuilder::new().limits(limits()).serve(stream))
 }
 
-async fn refuse(carrier: &mut Carrier, r: Refused) {
+async fn refuse(mut carrier: Carrier, r: Refused) {
     let _ = carrier.write_all(r.response()).await;
-    let _ = carrier.shutdown().await;
+    burrow_io::linger::linger(carrier).await;
 }
 
 #[derive(Debug)]

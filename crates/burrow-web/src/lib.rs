@@ -24,6 +24,7 @@ pub mod tunnel;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::net::TcpStream;
@@ -232,6 +233,31 @@ impl Refused {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Way {
+    pub id: u64,
+    pub client: Arc<str>,
+    pub bound: Option<(SocketAddr, SocketAddr)>,
+}
+
+pub struct Lease(Box<dyn std::any::Any + Send + Sync>);
+
+impl Lease {
+    pub fn new<T: Send + Sync + 'static>(held: T) -> Lease {
+        Lease(Box::new(held))
+    }
+
+    pub fn held<T: 'static>(&self) -> Option<&T> {
+        self.0.downcast_ref()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Ask {
+    Site,
+    Auth,
+}
+
 pub struct TunnelConn<P> {
     pub io: BoxIo,
     pub upgraded: bool,
@@ -251,6 +277,10 @@ pub trait Upstream: Send + Sync + 'static {
 
     fn answered(&self, _service: &str, _status: ::http::StatusCode) {}
 
+    fn crowded(&self, _service: &str) -> bool {
+        false
+    }
+
     fn open(
         &self,
         service: &str,
@@ -261,12 +291,19 @@ pub trait Upstream: Send + Sync + 'static {
         Admission::In
     }
 
-    fn open_auth(
+    fn lease(&self, service: &str, from: &Visitor, ask: Ask) -> Result<(Way, Lease), Refused>;
+
+    fn open_pooled(
         &self,
         service: &str,
         from: &Visitor,
+        _lease: &Lease,
     ) -> impl Future<Output = Result<BoxIo, Refused>> + Send {
         self.open(service, from)
+    }
+
+    fn keeps(&self, _service: &str, _from: &Visitor, _ask: Ask) -> bool {
+        true
     }
 
     fn tunnel_permit(&self, peer: SocketAddr) -> Option<Self::Permit>;

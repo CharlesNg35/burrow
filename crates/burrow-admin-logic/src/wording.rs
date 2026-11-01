@@ -13,7 +13,7 @@ pub fn no_check(subject: &str) -> String {
     )
 }
 
-const TCP_ONLY: [(&str, &str); 5] = [
+const TCP_ONLY: [(&str, &str); 4] = [
     (
         WEB_TCP_ONLY,
         "a website only works for TCP services; set Protocol to TCP, or remove the website",
@@ -27,14 +27,22 @@ const TCP_ONLY: [(&str, &str); 5] = [
         "Maximum connections only works for TCP services; set Protocol to TCP, or clear it (for UDP, Maximum UDP senders per port under Settings limits the senders of each port)",
     ),
     (
-        BALANCE_TCP_ONLY,
-        "Balance only works for TCP services; set Protocol to TCP, or choose Failover",
-    ),
-    (
         HEALTH_CHECK_TCP_ONLY,
         "Health check only works for TCP services; set Protocol to TCP, or turn it off",
     ),
 ];
+
+fn mode_label(message: &str) -> String {
+    use burrow_config::admin_schema::AdminEnum;
+    let wire = message
+        .split_once("mode ")
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .unwrap_or_default();
+    burrow_config::Mode::options()
+        .into_iter()
+        .find(|o| o.value == wire)
+        .map_or_else(|| "This mode".into(), |o| o.label)
+}
 
 fn key_path(head: &str) -> bool {
     head.contains('.')
@@ -179,7 +187,7 @@ pub fn capital(text: &str) -> String {
         .map(|c| c.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
 }
-pub const WEIGHTS_NEED_BALANCE: &str = "Weights only apply with Balance.";
+pub const WEIGHTS_NEED_BALANCE: &str = "Weights only apply with Balance or IP hash.";
 
 pub fn required(label: &str) -> String {
     format!("{label} is required")
@@ -271,7 +279,8 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
         return required(key);
     }
     if code == WEIGHT_NOT_BALANCE {
-        return "a weight only applies with Balance; clear it or choose Balance".into();
+        return "a weight only applies with Balance or IP hash; clear it or choose one of them"
+            .into();
     }
     if code == UNUSED_VISITOR {
         return format!("Visitor {subject} can't reach anything");
@@ -318,6 +327,12 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     }
     if code == REDIRECT_PLAIN {
         return "a plain HTTP website cannot send visitors to https:// in this build; remove this choice in server.yaml (burrow edit)".into();
+    }
+    if code == BALANCE_TCP_ONLY {
+        return format!(
+            "{} only works for TCP services; set Protocol to TCP, or choose Failover",
+            mode_label(message)
+        );
     }
     if let Some((_, text)) = TCP_ONLY.iter().find(|(c, _)| *c == code) {
         return (*text).into();

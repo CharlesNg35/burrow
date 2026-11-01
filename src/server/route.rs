@@ -14,6 +14,7 @@ use crate::wire::transport::Channel;
 
 pub(super) struct Way<'a> {
     pub service: Option<&'a str>,
+    pub counted: Option<&'a str>,
     pub label: &'a str,
     pub peer: SocketAddr,
     pub source: Option<IpAddr>,
@@ -91,7 +92,7 @@ impl<'a> Tries<'a> {
                     let (g, before) = self.shared.client_opens(client);
                     let entry = self
                         .way
-                        .service
+                        .counted
                         .map(|s| self.shared.entry_opens(s, &session));
                     (g, entry, before)
                 }

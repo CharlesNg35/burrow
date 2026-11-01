@@ -57,6 +57,9 @@ impl Standing {
         session: &[u8; TOKEN_LEN],
         now: Instant,
     ) -> Seen {
+        if self.0.is_empty() {
+            return Seen::Clear;
+        }
         match self.0.get(&key(service, client, target)) {
             Some(Mark::Refused { session: s }) if s == session => Seen::Refused,
             Some(Mark::Failed { until, .. }) if now < *until => Seen::Aside,
