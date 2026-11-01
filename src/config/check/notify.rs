@@ -305,5 +305,8 @@ fn is_address(text: &str) -> bool {
         && burrow_syntax::web::host_name(domain, burrow_syntax::web::SingleLabel::Allowed).is_ok()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "web"))]
 mod tests;
+
+#[cfg(all(test, not(feature = "web")))]
+mod tests_without_web;
