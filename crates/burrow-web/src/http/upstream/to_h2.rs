@@ -84,6 +84,7 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<H2App, Failed> {
         client: f.client.ip,
         tx,
         ending,
+        app_key: f.site.app_key,
     })
 }
 
@@ -99,7 +100,7 @@ pub(crate) async fn forward<U: Upstream>(
     extras(&mut req, &f);
     let service = f.site.service.as_str();
     let deadline = tokio::time::Instant::now() + f.site.options.response_header_timeout;
-    let mut app = match ups.shared_h2(service, f.client.ip) {
+    let mut app = match ups.shared_h2(service, f.client.ip, f.site.app_key) {
         Some(app) => app,
         None => match tokio::time::timeout_at(deadline, open(up, &f)).await {
             Ok(Ok(app)) => {

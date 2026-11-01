@@ -25,6 +25,10 @@ impl Upstream for Doorway {
         self.0.metrics.service(service).answered(status.as_u16());
     }
 
+    fn crowded(&self, service: &str) -> bool {
+        self.0.crowded(service)
+    }
+
     fn tune(&self, stream: &TcpStream) {
         crate::wire::transport::tcp::tune(stream, &self.0.settings().tcp);
     }
@@ -122,6 +126,13 @@ pub(super) fn refusal(outcome: &Outcome) -> Option<Refused> {
     }
 }
 
+fn app_key(service: Option<&crate::config::settings::Service>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    service.hash(&mut h);
+    h.finish()
+}
+
 pub(super) fn proxy_settings(s: &ServerSettings) -> Option<ProxySettings> {
     let web = s.web.as_ref()?;
     let mut p = ProxySettings {
@@ -137,7 +148,10 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Option<ProxySettings> {
             hosts: site.hosts.clone(),
             tls: site_tls(&site.tls),
             https_redirect: site.https_redirect,
-            options: options::site_options(&site.options),
+            options: burrow_web::SiteOptions {
+                app_key: app_key(s.services.get(service)),
+                ..options::site_options(&site.options)
+            },
         })
         .collect();
     p.max_pending = s.max_handshakes;

@@ -21,6 +21,7 @@ pub struct SiteRun {
     pub options: SiteOptions,
     pub pages: ErrorPages,
     pub hop: Hop,
+    pub app_key: u64,
     pub(crate) users: Users,
     pub limit: Option<Arc<Limit>>,
 }
@@ -65,6 +66,13 @@ pub(crate) fn hop(o: &SiteOptions) -> Result<Hop, String> {
     ))
 }
 
+fn app_key(o: &SiteOptions) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    (o.app_key, &o.target_tls, &o.target_name, o.target_http2).hash(&mut h);
+    h.finish()
+}
+
 fn limit(o: &SiteOptions, old: Option<&SiteRun>) -> Option<Arc<Limit>> {
     let rate = o.rate_limit?;
     match old.and_then(|s| s.limit.as_ref()) {
@@ -97,6 +105,7 @@ impl SiteRun {
             options: o.clone(),
             pages,
             hop,
+            app_key: app_key(o),
             users: Users::build(&site.service, &o.basic_auth),
             limit: limit(o, old),
         })
