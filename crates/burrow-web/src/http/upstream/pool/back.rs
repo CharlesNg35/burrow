@@ -5,7 +5,7 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use hyper::body::{Body as HttpBody, Frame, SizeHint};
 
-use super::{H1, Key, Pool, Slot, Stream, Ticket};
+use super::{Cut, CutOff, H1, Key, Pool, Slot, Stream, Ticket};
 use crate::Lease;
 use crate::http::{Body, BoxError};
 
@@ -51,6 +51,7 @@ pub(crate) struct Back {
     ticket: Option<Ticket>,
     lease: Option<Lease>,
     slot: Option<Slot>,
+    cut: Option<Arc<Cut>>,
 }
 
 impl Back {
@@ -60,12 +61,14 @@ impl Back {
         (lease, ticket): (Lease, Ticket),
         slot: Option<Slot>,
     ) -> Back {
+        let cut = ticket.stream_cut();
         let mut back = Back {
             inner,
             home: Some(home),
             ticket: Some(ticket),
             lease: Some(lease),
             slot,
+            cut,
         };
         if back.inner.is_end_stream() {
             back.done(true);
@@ -98,6 +101,11 @@ impl HttpBody for Back {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, BoxError>>> {
         let this = &mut *self;
+        if this.cut.as_ref().is_some_and(|c| c.is_cut(cx)) {
+            this.cut = None;
+            this.done(false);
+            return Poll::Ready(Some(Err(Box::new(CutOff))));
+        }
         let polled = Pin::new(&mut this.inner).poll_frame(cx);
         match &polled {
             Poll::Ready(None) => this.done(true),

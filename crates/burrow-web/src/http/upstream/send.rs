@@ -4,11 +4,12 @@ use std::sync::atomic::Ordering;
 use http::{Method, Request, Response};
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Body as HttpBody, Incoming};
-use tokio::task::AbortHandle;
 use tokio::time::Instant;
 use tracing::debug;
 
-use super::pool::{EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, REPLAY_AFTER, Ticket, Ups};
+use super::pool::{
+    Cut, Cutter, EVICT_TRIES, EVICT_WAIT, H1, H2, Home, Key, Pool, REPLAY_AFTER, Ticket, Ups,
+};
 use super::{Failed, handshake, refusal_page, to_h2};
 use crate::http::pages::Page;
 use crate::http::site::Hop;
@@ -178,7 +179,7 @@ impl<U: Upstream> Asking<'_, U> {
             ),
         };
         let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
-        let mut ticket = self.listed(&conn.task);
+        let mut ticket = self.listed(Cutter::Connection(conn.task.clone()));
         let read_before = conn.read.load(Ordering::Acquire);
         let sent = tokio::time::timeout_at(self.deadline, conn.tx.try_send_request(req)).await;
         let resp = match sent {
@@ -199,7 +200,7 @@ impl<U: Upstream> Asking<'_, U> {
                 };
                 debug!(peer = %self.from.addr, "web: service \"{}\": a kept app connection was closed, sending again on a new one", self.service);
                 conn = self.open_h1().await?;
-                ticket = self.listed(&conn.task);
+                ticket = self.listed(Cutter::Connection(conn.task.clone()));
                 (key, client) = (self.key.clone(), self.way.client.clone());
                 let sent = tokio::time::timeout_at(self.deadline, conn.tx.send_request(req));
                 match sent.await {
@@ -222,10 +223,10 @@ impl<U: Upstream> Asking<'_, U> {
         Ok((resp, home, ticket))
     }
 
-    fn listed(&self, task: &AbortHandle) -> Ticket {
+    fn listed(&self, cutter: Cutter) -> Ticket {
         let mut ticket = self
             .pool
-            .ticket(self.service, self.from.clone(), self.ask, task.clone());
+            .ticket(self.service, self.from.clone(), self.ask, cutter);
         ticket.waiting();
         ticket
     }
@@ -241,11 +242,13 @@ impl<U: Upstream> Asking<'_, U> {
             }
         };
         let copy = may_be_stale(since).then(|| replayable(&req)).flatten();
-        let ticket = self.listed(&conn.task);
-        let first = self.try_h2(&conn, req).await;
+        let cut = Arc::new(Cut::default());
+        let ticket = self.listed(Cutter::Stream(cut.clone()));
+        let first = self.try_h2(&conn, req, &cut).await;
         let again = match first {
             Ok(resp) => return Ok((resp, Home::H2(stream), ticket)),
             Err(Retry::Timeout) => return Err(Page::Timeout.into()),
+            Err(Retry::Cut) => return Err(Page::BadGateway.into()),
             Err(Retry::Unsent(req)) => *req,
             Err(Retry::Failed(e)) => match copy.filter(|_| refused(&e)) {
                 Some(req) => req,
@@ -257,16 +260,30 @@ impl<U: Upstream> Asking<'_, U> {
         let conn = self.open_h2().await?;
         let client = self.way.client.clone();
         let stream = ups.reserve(self.pool, (self.key.clone(), client), &conn, self.epoch);
-        let ticket = self.listed(&conn.task);
-        match self.try_h2(&conn, again).await {
+        let cut = Arc::new(Cut::default());
+        let ticket = self.listed(Cutter::Stream(cut.clone()));
+        match self.try_h2(&conn, again, &cut).await {
             Ok(resp) => Ok((resp, Home::H2(stream), ticket)),
             Err(Retry::Timeout) => Err(Page::Timeout.into()),
+            Err(Retry::Cut) => Err(Page::BadGateway.into()),
             Err(Retry::Unsent(_)) => Err(Page::BadGateway.into()),
             Err(Retry::Failed(e)) => Err(missed(self.service, self.from, conn.ending.as_ref(), &e)),
         }
     }
 
-    async fn try_h2(&self, conn: &H2, req: Request<Body>) -> Result<Response<Incoming>, Retry> {
+    async fn try_h2(
+        &self,
+        conn: &H2,
+        req: Request<Body>,
+        cut: &Cut,
+    ) -> Result<Response<Incoming>, Retry> {
+        tokio::select! {
+            sent = self.send_on(conn, req) => sent,
+            () = cut.wait() => Err(Retry::Cut),
+        }
+    }
+
+    async fn send_on(&self, conn: &H2, req: Request<Body>) -> Result<Response<Incoming>, Retry> {
         let mut tx = conn.tx.clone();
         match tokio::time::timeout_at(self.deadline, tx.ready()).await {
             Err(_) => return Err(Retry::Timeout),
@@ -286,6 +303,7 @@ impl<U: Upstream> Asking<'_, U> {
 
 enum Retry {
     Timeout,
+    Cut,
     Unsent(Box<Request<Body>>),
     Failed(hyper::Error),
 }

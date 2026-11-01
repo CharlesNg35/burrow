@@ -116,3 +116,134 @@ async fn an_http2_get_the_app_refused_is_sent_again_once() {
     assert_eq!(status, 200, "REFUSED_STREAM means it was not processed");
     assert_eq!(asked, 3);
 }
+
+async fn trickle_app() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let Ok(mut h2) = h2::server::handshake(s).await else {
+                    return;
+                };
+                while let Some(Ok((_req, mut respond))) = h2.accept().await {
+                    tokio::spawn(async move {
+                        let Ok(mut body) = respond.send_response(http::Response::new(()), false)
+                        else {
+                            return;
+                        };
+                        for _ in 0..100 {
+                            if body.send_data(Bytes::from_static(b"x"), false).is_err() {
+                                return;
+                            }
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                        }
+                        let _ = body.send_data(Bytes::new(), true);
+                    });
+                }
+            });
+        }
+    });
+    addr
+}
+
+async fn open_stream(c: &h2::client::SendRequest<Bytes>, xff: &str) -> h2::RecvStream {
+    let mut c = c.clone().ready().await.unwrap();
+    let req = http::Request::get("https://localhost/")
+        .header("x-forwarded-for", xff)
+        .body(())
+        .unwrap();
+    let (resp, _) = c.send_request(req, true).unwrap();
+    let resp = resp.await.unwrap();
+    assert_eq!(resp.status(), 200);
+    resp.into_body()
+}
+
+async fn chunks_within(
+    body: &mut h2::RecvStream,
+    n: usize,
+    within: Duration,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + within;
+    for i in 0..n {
+        match tokio::time::timeout_at(deadline, body.data()).await {
+            Ok(Some(Ok(chunk))) => {
+                let _ = body.flow_control().release_capacity(chunk.len());
+            }
+            Ok(other) => return Err(format!("chunk {i}: {other:?}")),
+            Err(_) => return Err(format!("chunk {i}: timed out")),
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reload_that_cuts_one_real_visitor_keeps_another_on_the_same_front_connection() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = cert(&["localhost"]);
+    let (mut s, secret) = h2_site(trickle_app().await, dir.path(), &c);
+    s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
+    s.services.get_mut("blog").unwrap().sources.allow = vec!["203.0.113.0/24".parse().unwrap()];
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    let front = h2_visitor(t.server.web_addr.unwrap(), &c).await;
+    let mut a = open_stream(&front, "203.0.113.1").await;
+    let mut b = open_stream(&front, "203.0.113.2").await;
+    chunks_within(&mut a, 2, Duration::from_secs(5))
+        .await
+        .unwrap();
+    chunks_within(&mut b, 2, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let mut next = s.clone();
+    next.services.get_mut("blog").unwrap().sources.allow = vec!["203.0.113.2/32".parse().unwrap()];
+    t.server.reload_applied(next).await;
+    assert!(
+        chunks_within(&mut a, 60, Duration::from_secs(4))
+            .await
+            .is_err(),
+        "the visitor no longer allowed is cut"
+    );
+    chunks_within(&mut b, 20, Duration::from_secs(4))
+        .await
+        .expect("the other visitor's stream keeps going");
+}
+
+async fn silent_h2c_app() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let Ok(mut h2) = h2::server::handshake(s).await else {
+                    return;
+                };
+                let mut held = Vec::new();
+                while let Some(Ok(stream)) = h2.accept().await {
+                    held.push(stream);
+                }
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reload_cuts_an_http2_request_still_waiting_for_its_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = cert(&["localhost"]);
+    let (mut s, secret) = h2_site(silent_h2c_app().await, dir.path(), &c);
+    s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
+    s.services.get_mut("blog").unwrap().sources.allow = vec!["203.0.113.0/24".parse().unwrap()];
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    let front = h2_visitor(t.server.web_addr.unwrap(), &c).await;
+    let waiting = tokio::spawn(async move { status_of(&front, Some("203.0.113.1")).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut next = s.clone();
+    next.services.get_mut("blog").unwrap().sources.allow = vec!["203.0.113.2/32".parse().unwrap()];
+    t.server.reload_applied(next).await;
+    let got = tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .expect("the waiting request ends at the reload")
+        .unwrap();
+    assert_eq!(got, 502);
+}

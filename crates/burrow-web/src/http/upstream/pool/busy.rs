@@ -1,7 +1,9 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Waker};
 
+use tokio::sync::Notify;
 use tokio::task::AbortHandle;
 
 use super::Pool;
@@ -11,8 +13,73 @@ struct Held {
     service: Arc<str>,
     from: Visitor,
     ask: Ask,
-    task: AbortHandle,
+    cutter: Cutter,
     epoch: u64,
+}
+
+pub(crate) enum Cutter {
+    Connection(AbortHandle),
+    Stream(Arc<Cut>),
+}
+
+impl Cutter {
+    fn cut(&self) {
+        match self {
+            Cutter::Connection(task) => task.abort(),
+            Cutter::Stream(cut) => cut.trigger(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CutOff;
+
+impl std::fmt::Display for CutOff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the visitor is no longer allowed to reach this service")
+    }
+}
+
+impl std::error::Error for CutOff {}
+
+#[derive(Default)]
+pub(crate) struct Cut {
+    done: AtomicBool,
+    notify: Notify,
+    waker: Mutex<Option<Waker>>,
+}
+
+impl Cut {
+    fn trigger(&self) {
+        self.done.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+        let waker = self
+            .waker
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(w) = waker {
+            w.wake();
+        }
+    }
+
+    pub(crate) fn is_cut(&self, cx: &Context<'_>) -> bool {
+        if self.done.load(Ordering::Acquire) {
+            return true;
+        }
+        *self.waker.lock().unwrap_or_else(PoisonError::into_inner) = Some(cx.waker().clone());
+        self.done.load(Ordering::Acquire)
+    }
+
+    pub(crate) async fn wait(&self) {
+        let notified = self.notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.done.load(Ordering::Acquire) {
+            return;
+        }
+        notified.await;
+    }
 }
 
 #[derive(Default)]
@@ -25,9 +92,14 @@ pub(crate) struct Ticket {
     pool: Arc<Pool>,
     held: Option<Held>,
     id: Option<u64>,
+    stream: Option<Arc<Cut>>,
 }
 
 impl Ticket {
+    pub(crate) fn stream_cut(&self) -> Option<Arc<Cut>> {
+        self.stream.clone()
+    }
+
     pub(crate) fn waiting(&mut self) {
         let Some(held) = self.held.take() else {
             return;
@@ -78,7 +150,7 @@ impl Busy {
             h.epoch = epoch;
             if gone.contains(id) {
                 tracing::debug!(peer = %h.from.addr, "web: service \"{}\" no longer takes this visitor, closing its answer", h.service);
-                h.task.abort();
+                h.cutter.cut();
             }
         }
     }
@@ -98,19 +170,24 @@ impl Pool {
         service: &Arc<str>,
         from: Visitor,
         ask: Ask,
-        task: AbortHandle,
+        cutter: Cutter,
     ) -> Ticket {
+        let stream = match &cutter {
+            Cutter::Stream(cut) => Some(cut.clone()),
+            Cutter::Connection(_) => None,
+        };
         let held = Held {
             service: service.clone(),
             from,
             ask,
-            task,
+            cutter,
             epoch: self.epoch(),
         };
         Ticket {
             pool: self.clone(),
             held: Some(held),
             id: None,
+            stream,
         }
     }
 }

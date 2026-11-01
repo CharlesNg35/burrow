@@ -233,7 +233,12 @@ async fn an_answer_that_never_waits_is_listed_for_the_reload_check_from_its_firs
         local: SocketAddr::from(([192, 0, 2, 1], 443)),
         host: "blog.example.com".into(),
     };
-    let ticket = pool.ticket(&Arc::from("blog"), from, crate::Ask::Site, task);
+    let ticket = pool.ticket(
+        &Arc::from("blog"),
+        from,
+        crate::Ask::Site,
+        Cutter::Connection(task),
+    );
     let body = Frames(3).boxed();
     let mut back = Back::new(body, home, (crate::Lease::new(()), ticket), None);
     assert!(back.frame().await.is_some());
