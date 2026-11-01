@@ -27,6 +27,7 @@ Websites with automatic HTTPS, a reworked admin UI, load balancing with weights,
 - **Post-quantum TLS:** burrow's HTTPS, the tunnel's `wss://` and HTTPS to the app prefer the hybrid key exchange X25519MLKEM768, as browsers, Go and OpenSSL 3.5 do. A client that does not offer it gets X25519, P-256 or P-384 as before.
 - **Load balancing:**
   - `mode: least_connections` joins `failover` and `balance`.
+  - `mode: ip_hash` keeps each visitor address on one client, for TCP services and websites (the real visitor behind `web.trusted_proxies` or a PROXY header). It uses weighted rendezvous hashing, as Caddy's `ip_hash` does, so adding or removing a client moves only its own visitors; a client that is down is skipped until it is back. `failover` stays the default.
   - With `balance`, a client can take a weight, `{name: home, weight: 3}` (smooth weighted round robin, as in nginx).
   - A `clients` entry may give its own `target`, so one client in front of several machines can spread a service over them. Health checks and open counts are kept per entry. The client gets the target as before, so older clients work.
 - **`burrow mcp`:** lets Claude Code, Codex, Cursor or Claude Desktop read a running server over MCP, on stdio or loopback HTTP with a token.

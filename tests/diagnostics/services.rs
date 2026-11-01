@@ -309,7 +309,7 @@ fn several_clients() {
        |
     29 |     mode: random
        |           ^^^^^^ not a valid mode
-       = help: valid values: failover, balance, least_connections
+       = help: valid values: failover, balance, least_connections, ip_hash
 
     error: "health_check" in service "e" must be true or false or a mapping, found a string
       --> server.yaml:30:19
@@ -338,12 +338,12 @@ fn client_weights() {
     assert_eq!(weights, [1, 3]);
     assert_eq!(s.services["db"].mode, Mode::LeastConnections);
     insta::assert_snapshot!(render("server.yaml", &server("  a:\n    clients: [home, {name: office, weight: 2}]\n    bind: 4000\n    target: 4000\n  b:\n    clients: [home, {name: office, weight: 0}]\n    mode: balance\n    bind: 4001\n    target: 4001\n  c:\n    clients: [home, {name: office, wieght: 3}]\n    mode: balance\n    bind: 4002\n    target: 4002\n  d:\n    clients: [home, {name: home, weight: 2}]\n    mode: balance\n    bind: 4003\n    target: 4003\n  e:\n    clients: [home, office]\n    mode: least_connections\n    protocol: udp\n    bind: 4004\n    target: 4004\n  f:\n    clients: [home, {name: office, weight: 2}]\n    mode: least_connections\n    bind: 4005\n    target: 4005\n  g:\n    clients: [home, {name: ofice, weight: 2}]\n    mode: balance\n    bind: 4006\n    target: 4006\n"), None), @r#"
-    error: service "a" gives client "office" a weight, but weights only apply with mode: balance
+    error: service "a" gives client "office" a weight, but weights only apply with mode: balance or ip_hash
       --> server.yaml:9:44
        |
      9 |     clients: [home, {name: office, weight: 2}]
-       |                                            ^ only used by mode: balance
-       = help: remove the weight, or set mode: balance
+       |                                            ^ only used by mode: balance or ip_hash
+       = help: remove the weight, or set mode: balance or ip_hash
 
     error: "weight" in "services.b.clients[1]" must be between 1 and 1000, found 0
       --> server.yaml:13:44
@@ -373,12 +373,12 @@ fn client_weights() {
        |           ^^^^^^^^^^^^^^^^^
        = help: remove mode:, or set protocol: tcp
 
-    error: service "f" gives client "office" a weight, but weights only apply with mode: balance
+    error: service "f" gives client "office" a weight, but weights only apply with mode: balance or ip_hash
       --> server.yaml:34:44
        |
     34 |     clients: [home, {name: office, weight: 2}]
-       |                                            ^ only used by mode: balance
-       = help: remove the weight, or set mode: balance
+       |                                            ^ only used by mode: balance or ip_hash
+       = help: remove the weight, or set mode: balance or ip_hash
 
     error: unknown client "ofice" referenced by service "g"
       --> server.yaml:39:28
@@ -388,6 +388,32 @@ fn client_weights() {
        = help: did you mean "office"? defined clients: home, office
 
     server.yaml: 7 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn ip_hash_takes_weights_on_tcp_and_is_refused_on_udp() {
+    use burrow::config::Loaded;
+    use burrow_config::Mode;
+    let ok = server(
+        "  web:\n    clients: [home, {name: office, weight: 3}]\n    mode: ip_hash\n    bind: 4000\n    target: 4000\n",
+    );
+    let o = load_str("server.yaml", &ok, Format::Yaml, None, &env);
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("server config loads")
+    };
+    assert_eq!(s.services["web"].mode, Mode::IpHash);
+    let weights: Vec<u32> = s.services["web"].entries.iter().map(|e| e.weight).collect();
+    assert_eq!(weights, [1, 3]);
+    insta::assert_snapshot!(render("server.yaml", &server("  dns:\n    clients: [home, office]\n    mode: ip_hash\n    protocol: udp\n    bind: 4004\n    target: 4004\n"), None), @r#"
+    error: service "dns" is udp, but mode ip_hash only works for tcp services
+      --> server.yaml:10:11
+       |
+    10 |     mode: ip_hash
+       |           ^^^^^^^
+       = help: remove mode:, or set protocol: tcp
+
+    server.yaml: 1 error, 0 warnings
     "#);
 }
 
