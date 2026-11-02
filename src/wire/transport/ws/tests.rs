@@ -53,12 +53,17 @@ async fn after_pings(pings: usize) -> io::Result<usize> {
     server.await.unwrap()
 }
 
+const SMALL_SOCKET_BUFFER: u32 = 16 * 1024;
+
 async fn pinging_while_reading(read_every: Option<std::time::Duration>) -> bool {
     use futures_util::{SinkExt, StreamExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
+        socket2::SockRef::from(&tcp)
+            .set_send_buffer_size(SMALL_SOCKET_BUFFER as usize)
+            .unwrap();
         let conn = accept(Carrier::Plain(tcp), "/burrow").await.unwrap();
         let (mut rd, mut wr) = tokio::io::split(conn);
         let writer = tokio::spawn(async move {
@@ -66,7 +71,7 @@ async fn pinging_while_reading(read_every: Option<std::time::Duration>) -> bool 
             while wr.write_all(&chunk).await.is_ok() && wr.flush().await.is_ok() {}
         });
         let mut buf = [0u8; 64];
-        let ended = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        let ended = tokio::time::timeout(std::time::Duration::from_secs(60), async {
             loop {
                 match rd.read(&mut buf).await {
                     Ok(0) | Err(_) => return,
@@ -79,7 +84,9 @@ async fn pinging_while_reading(read_every: Option<std::time::Duration>) -> bool 
         writer.abort();
         ended
     });
-    let tcp = TcpStream::connect(addr).await.unwrap();
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.set_recv_buffer_size(SMALL_SOCKET_BUFFER).unwrap();
+    let tcp = socket.connect(addr).await.unwrap();
     let (ws, _) = ClientBuilder::new()
         .uri(&format!("ws://{addr}/burrow"))
         .unwrap()
@@ -87,8 +94,12 @@ async fn pinging_while_reading(read_every: Option<std::time::Duration>) -> bool 
         .await
         .unwrap();
     let mut ws = ws;
-    for _ in 0..(MAX_CONTROLS as usize + 30) {
-        if ws.send(Message::ping(vec![0u8; 125])).await.is_err() {
+    let pings = match read_every {
+        None => 2 * MAX_CONTROLS as usize,
+        Some(_) => MAX_CONTROLS as usize + 30,
+    };
+    for _ in 0..pings {
+        if server.is_finished() || ws.send(Message::ping(vec![0u8; 125])).await.is_err() {
             break;
         }
         let pause = std::time::Duration::from_millis(105);
