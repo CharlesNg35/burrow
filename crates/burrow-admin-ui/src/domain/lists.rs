@@ -6,36 +6,14 @@ use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::child;
 use burrow_config::ServiceEntry;
 use burrow_syntax::rule::ANY;
-use burrow_ui_kit::{ChipInput, Segmented, Select, button_class};
+use burrow_ui_kit::{ChipInput, Segmented, button_class};
 use leptos::prelude::*;
 
 use crate::form::object_view;
 use crate::store::store;
 
 use super::basic::text_editor;
-use super::{FieldCtx, THIS_SERVER, cidr_size, editor, names_of, set_checked};
-
-fn facet(entity: &Entity, name: &str) -> String {
-    let s = store();
-    match entity {
-        Entity::Client => {
-            let on = s.status.with(|st| {
-                st.as_ref()
-                    .and_then(|st| st.clients.iter().find(|c| c.name == name))
-                    .is_some_and(|c| c.connected)
-            });
-            format!(
-                "{name} · {}",
-                if on {
-                    burrow_admin_logic::wording::ONLINE
-                } else {
-                    burrow_admin_logic::wording::OFFLINE
-                }
-            )
-        }
-        _ => name.to_string(),
-    }
-}
+use super::{FieldCtx, cidr_size, editor, names_of, set_checked};
 
 pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     if matches!(inner(&item).sem, SemType::Object(_)) {
@@ -105,35 +83,8 @@ pub(super) fn map_editor(
         Some(Value::Object(m)) => m.keys().cloned().collect::<Vec<_>>(),
         _ => Vec::new(),
     });
-    let adding = RwSignal::new(String::new());
     let fc2 = fc.clone();
-    let ent = entity.clone();
     let reserved = fc.node.sem.reserved().to_vec();
-    let candidates = Signal::derive(move || {
-        let used = keys.get();
-        let mut o = vec![(String::new(), "Add…".to_string())];
-        let self_ready = burrow_config::ServerConfig::SELF
-            .then(burrow_config::SelfEntry::ALLOW)
-            .get(&e.doc())
-            .and_then(Value::as_array)
-            .is_some_and(|a| !a.is_empty());
-        o.extend(
-            reserved
-                .iter()
-                .filter(|n| !used.contains(n))
-                .filter(|n| n.as_str() != burrow_config::SELF || self_ready)
-                .map(|n| (n.clone(), format!("{THIS_SERVER} · {n}"))),
-        );
-        if let Some(ent) = &ent {
-            o.extend(
-                names_of(ent)
-                    .into_iter()
-                    .filter(|n| !used.contains(n))
-                    .map(|n| (n.clone(), facet(ent, &n))),
-            );
-        }
-        o
-    });
     let p_add = fc.path.clone();
     let free = key.is_some() && entity.is_none();
     let add_default = match &inner(&value_node).sem {
@@ -149,7 +100,6 @@ pub(super) fn map_editor(
         let mut p = p_add.clone();
         p.push(k);
         e.set(&p, Some(add_default.clone()));
-        adding.set(String::new());
     };
     let renames = key
         .as_ref()
@@ -159,6 +109,7 @@ pub(super) fn map_editor(
         })
         .filter(|e| burrow_config::entity_path(e) == fc.path);
     let add_label = burrow_admin_logic::wording::add_label(&fc.node.label, &value_node.label);
+    let shown_as = reserved.clone();
     let rows = move || {
         keys.get()
             .into_iter()
@@ -179,7 +130,7 @@ pub(super) fn map_editor(
                     touched: fc2.touched,
                     inherited: None,
                 };
-                let label = k.clone();
+                let label = burrow_admin_logic::choices::label_of(&k, &shown_as);
                 let rename = renames.clone().map(|entity| rename_button(entity, &k));
                 view! {
                     <div class="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-start gap-2 py-1" data-key=k.clone()>
@@ -198,14 +149,18 @@ pub(super) fn map_editor(
         <div class="space-y-1" id=fc.id.clone()>
             {rows}
             {key.filter(|_| entity.is_none()).map(|key| super::keyed::key_adder(fc.id.clone(), fc.node.label.clone(), key, keys, add.clone()))}
-            {entity.is_some().then(|| view! {
-                <div class="w-60">
-                    <Select
+            {entity.clone().map(|ent| view! {
+                <div class="max-w-60" data-add-key="">
+                    <crate::addr::RefPicker
                         id=format!("{}-add", fc.id)
+                        entity=ent
+                        field=fc.spath.clone()
+                        reserved=reserved.clone()
+                        selected=Signal::stored(Vec::new())
+                        hidden=Signal::derive(move || keys.get())
+                        on_change=Callback::new(move |picked: Vec<String>| picked.into_iter().next().into_iter().for_each(add.clone()))
+                        placeholder="Add…"
                         label=add_label.clone()
-                        options=candidates
-                        value=adding
-                        on_change=add.clone()
                     />
                 </div>
             })}

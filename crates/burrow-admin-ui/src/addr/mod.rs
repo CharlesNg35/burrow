@@ -15,7 +15,7 @@ use crate::store::store;
 
 pub(crate) use entries::{entries, entries_view};
 use parts::{host_control, mode_switch, network, unix_input};
-pub(crate) use picker::{merged_partner, picker};
+pub(crate) use picker::{RefPicker, merged_partner, picker, service_option};
 
 #[derive(Clone, Debug)]
 pub enum Kind {

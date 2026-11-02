@@ -37,7 +37,7 @@ pub struct FieldCtx {
     pub inherited: Option<Value>,
 }
 
-pub const THIS_SERVER: &str = "This server";
+pub use burrow_admin_logic::wording::THIS_SERVER;
 
 pub(super) struct Choice {
     pub options: Vec<(String, String, bool)>,

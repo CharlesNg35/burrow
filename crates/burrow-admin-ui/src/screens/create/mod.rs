@@ -98,7 +98,9 @@ pub fn name_problem(name: &str, section: &str, except: Option<&str>) -> Option<S
 fn template(section: &str) -> Value {
     let mut v = json!({});
     if section == ServiceEntry::section() {
-        if let Some(c) = taken(ClientEntry::section()).into_iter().next() {
+        let doc = store().edit.doc();
+        let reserved = crate::domain::reserved_clients();
+        if let Some(c) = burrow_admin_logic::choices::default_client(&doc, &reserved) {
             ServiceEntry::CLIENT.set(&mut v, Value::String(c));
         }
         ServiceEntry::TARGET.set(&mut v, Value::from(8080));
@@ -172,37 +174,12 @@ pub fn create_with(
 
 fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
     let s = store();
-    let doc = s.edit.doc();
     let status = s.status.get();
-    ServiceEntry::entries(&doc)
-        .map(|m| {
-            m.iter()
-                .filter(|(_, v)| {
-                    section == ClientEntry::section()
-                        || ServiceEntry::BIND.get(v).is_none_or(Value::is_null)
-                })
-                .map(|(n, v)| {
-                    let up = status.as_ref().map(|st| {
-                        crate::screens::paths::clients_of(v)
-                            .iter()
-                            .any(|c| crate::screens::paths::online(Some(st), c))
-                    });
-                    burrow_ui_kit::ComboOption {
-                        value: n.clone(),
-                        label: n.clone(),
-                        facet: burrow_admin_logic::web::reached(v),
-                        dot: up.map(|u| {
-                            if u {
-                                burrow_ui_kit::Tone::Success
-                            } else {
-                                burrow_ui_kit::Tone::Neutral
-                            }
-                        }),
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    burrow_admin_logic::choices::service_choices(&s.edit.doc(), status.as_deref())
+        .into_iter()
+        .filter(|c| section == ClientEntry::section() || c.private)
+        .map(crate::addr::service_option)
+        .collect()
 }
 
 pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathData {

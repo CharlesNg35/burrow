@@ -1,12 +1,9 @@
 use burrow_admin_logic::web::{needs_letsencrypt, service_name, website};
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_config::{
-    ClientEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, TlsMode, WebConfig,
-};
+use burrow_config::{Entry, LetsEncrypt, ServerConfig, ServiceEntry, TlsMode, WebConfig};
 use burrow_syntax::web::{CheckPorts, checks_for};
 use burrow_ui_kit::{
-    Button, ChipInput, ComboOption, Combobox, Edge, EdgeState, Hop, HopState, PathData,
-    PathDiagram, TextInput, Tone,
+    Button, ChipInput, Edge, EdgeState, Hop, HopState, PathData, PathDiagram, TextInput, Tone,
 };
 use leptos::prelude::*;
 
@@ -143,7 +140,12 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
                 true,
             ),
             hop("box", "Server", server.to_string(), false),
-            hop("monitor", "Client", client.to_string(), false),
+            hop(
+                "monitor",
+                "Client",
+                burrow_admin_logic::choices::label_of(client, &crate::domain::reserved_clients()),
+                false,
+            ),
             hop(
                 "server",
                 "App",
@@ -174,18 +176,6 @@ fn tls_options(p: Ports) -> Vec<burrow_ui_kit::RadioOption> {
             }
         })
     })
-}
-
-fn clients() -> Vec<ComboOption> {
-    taken(ClientEntry::section())
-        .into_iter()
-        .map(|c| ComboOption {
-            value: c.clone(),
-            label: c,
-            facet: String::new(),
-            dot: None,
-        })
-        .collect()
 }
 
 fn site_value(names: &[String], client: &str, target: &str, tls: &str) -> Value {
@@ -304,8 +294,14 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         Memo::new(move |_| web_now().unwrap_or_else(|| planned(&https_in.get(), &http_in.get())));
     let p = Memo::new(move |_| ports_of(Some(&web.get())));
     let names: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
-    let client: RwSignal<Vec<String>> =
-        RwSignal::new(clients().into_iter().take(1).map(|c| c.value).collect());
+    let client: RwSignal<Vec<String>> = RwSignal::new(
+        burrow_admin_logic::choices::default_client(
+            &store().edit.doc(),
+            &crate::domain::reserved_clients(),
+        )
+        .into_iter()
+        .collect(),
+    );
     let target = RwSignal::new("8080".to_string());
     let tls = RwSignal::new(
         if p.get_untracked().https {
@@ -431,7 +427,6 @@ fn steps(
     tls: RwSignal<String>,
     p: Memo<Ports>,
 ) -> impl IntoView {
-    let options = Signal::derive(clients);
     let on_names = Callback::new(move |l: Vec<String>| names.set(l));
     let on_client =
         Callback::new(move |c: Vec<String>| client.set(c.into_iter().last().into_iter().collect()));
@@ -450,9 +445,11 @@ fn steps(
             </div>
             {step(2, "Client", "The machine that reaches the app.")}
             <div>
-                <Combobox
+                <crate::addr::RefPicker
                     id="new-website-client"
-                    options=options
+                    entity=burrow_admin_proto::schema::Entity::Client
+                    field=ServiceEntry::CLIENT.schema()
+                    reserved=crate::domain::reserved_clients()
                     selected=Signal::derive(move || client.get())
                     on_change=on_client
                     header="Clients"

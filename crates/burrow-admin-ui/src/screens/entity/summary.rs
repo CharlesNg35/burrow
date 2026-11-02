@@ -183,6 +183,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                     .unwrap_or(Value::Null);
                 let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
                 let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
+                let reserved = crate::domain::reserved_clients();
                 let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
                 let default_target = ServiceEntry::TARGET
                     .get(&svc)
@@ -203,7 +204,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                             Some(t) => (format!("→\u{a0}{}", burrow_admin_logic::web::target_shown(t)), false),
                             None => (format!("→\u{a0}{default_target}"), true),
                         };
-                        let label = c.clone();
+                        let label = burrow_admin_logic::choices::label_of(&c, &reserved);
                         let open = format::count(en.open);
                         view! {
                             <tr data-row=c.clone()>
