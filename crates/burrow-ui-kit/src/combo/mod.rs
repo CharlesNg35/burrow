@@ -15,6 +15,7 @@ pub struct ComboOption {
     pub facet: String,
     pub dot: Option<Tone>,
     pub blocked: Option<String>,
+    pub group: u8,
 }
 
 pub fn pickable(options: &[ComboOption], value: &str) -> bool {
@@ -61,6 +62,16 @@ fn dot_class(tone: Option<Tone>) -> &'static str {
 }
 
 const POPOVER_ROOM: f64 = 240.0;
+const POPOVER_MAX: f64 = 520.0;
+const EDGE: f64 = 16.0;
+
+fn view_width() -> f64 {
+    window()
+        .inner_width()
+        .ok()
+        .and_then(|w| w.as_f64())
+        .unwrap_or(POPOVER_MAX)
+}
 
 #[component]
 pub fn Combobox(
@@ -184,7 +195,7 @@ pub fn Combobox(
                 {(!multi).then(|| view! { <span class="pointer-events-none mr-1.5 ml-auto text-text-muted" aria-hidden="true" data-single=""><Icon name="chevron-down" small=true/></span> })}
             </div>
             <Show when=move || open.get()>
-                <div class=move || format!("absolute left-0 z-30 w-[min(470px,100%)] min-w-64 rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
+                <div class=move || format!("absolute left-0 z-30 w-full sm:w-max sm:min-w-64 sm:max-w-[var(--pop-room,100%)] rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
                     {(!header.is_empty()).then(|| view! { <div class="px-2.5 pt-1.5 pb-1 text-2xs font-bold tracking-[0.08em] text-text-faint uppercase">{header.clone()}</div> })}
                     <ul id=list_id.clone() role="listbox" aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
                         {rows.clone()}
@@ -320,21 +331,24 @@ fn option_rows(
             return view! { <li class="px-2.5 py-2 text-sm text-text-muted" role="presentation">"Nothing matches"</li> }.into_any();
         }
         let act = active.get().min(list.len() - 1);
+        let groups: Vec<u8> = list.iter().map(|o| o.group).collect();
         list.into_iter()
             .enumerate()
             .map(|(i, o)| {
+                let split = i > 0 && groups[i - 1] != o.group;
                 let on = sel.contains(&o.value);
                 let value = o.value.clone();
                 let off = o.blocked.is_some();
                 let tip = o.blocked.clone().unwrap_or_else(|| o.facet.clone());
                 view! {
+                    {split.then(|| view! { <li role="separator" class="mx-2.5 my-1 h-px bg-border"></li> })}
                     <li
                         id=format!("{id}-opt-{i}")
                         role="option"
                         aria-selected=on.to_string()
                         aria-disabled=off.then_some("true")
                         title=(!tip.is_empty()).then_some(tip)
-                        class="flex h-[34px] items-center gap-2.5 rounded-input px-2.5 text-sm"
+                        class="flex min-h-[34px] flex-wrap items-center gap-x-2.5 rounded-input px-2.5 py-1.5 text-sm whitespace-nowrap sm:flex-nowrap sm:py-0"
                         class:cursor-pointer=!off
                         class:text-text-muted=off
                         class:cursor-not-allowed=off
@@ -366,9 +380,9 @@ fn option_rows(
                             }
                         })}
                         <span class=format!("size-2 shrink-0 rounded-full {}", dot_class(o.dot)) aria-hidden="true"></span>
-                        <span class="font-semibold">{o.label.clone()}</span>
-                        <span class="ml-auto truncate text-[11.5px] text-text-muted">{o.facet.clone()}</span>
-                        {(!multi && on).then(|| view! { <span class="text-accent-ink"><Icon name="check" small=true/></span> })}
+                        <span class="max-w-[calc(100%-18px)] shrink-0 truncate font-semibold">{o.label.clone()}</span>
+                        <span data-facet="" class="order-last basis-full truncate pl-[18px] text-[11.5px] text-text-muted sm:order-none sm:ml-auto sm:min-w-0 sm:basis-auto sm:pl-3">{o.facet.clone()}</span>
+                        {(!multi && on).then(|| view! { <span class="ml-auto text-accent-ink sm:ml-0"><Icon name="check" small=true/></span> })}
                     </li>
                 }
             })
@@ -378,10 +392,7 @@ fn option_rows(
 }
 
 fn place_popover(id: String, open: RwSignal<bool>, up: RwSignal<bool>) {
-    Effect::new(move |_| {
-        if !open.get() {
-            return;
-        }
+    let place = move || {
         let Some(field) = document().get_element_by_id(&id) else {
             return;
         };
@@ -390,7 +401,26 @@ fn place_popover(id: String, open: RwSignal<bool>, up: RwSignal<bool>) {
         let below = floor - r.bottom();
         let above = r.top() - 72.0;
         up.set(below < POPOVER_ROOM && above > below);
+        if let Some(el) = field.closest(".relative").ok().flatten()
+            && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
+        {
+            let b = el.get_bounding_client_rect();
+            let wide = (view_width() - b.left() - EDGE).min(POPOVER_MAX);
+            let _ = el.style().set_property("--pop-room", &format!("{wide}px"));
+        }
+    };
+    let again = place.clone();
+    Effect::new(move |_| {
+        if open.get() {
+            place();
+        }
     });
+    let resize = window_event_listener(leptos::ev::resize, move |_| {
+        if open.get_untracked() {
+            again();
+        }
+    });
+    on_cleanup(move || resize.remove());
 }
 
 #[cfg(test)]

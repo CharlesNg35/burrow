@@ -52,6 +52,7 @@ fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
             label: c.label,
             facet: c.detail,
             blocked: c.blocked.map(str::to_string),
+            group: u8::from(c.presence != Presence::Here),
         })
         .collect()
 }
