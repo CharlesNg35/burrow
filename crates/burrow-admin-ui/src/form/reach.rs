@@ -207,7 +207,7 @@ fn way_block(sw: Switch, field: Option<(Field, Path, Path, Path)>) -> impl IntoV
         <div class="border-b border-rowline py-4 first:pt-0 last:border-b-0" data-way=way.key()>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {sw.toggle()}
-                <span class="text-xs text-text-muted">{way.who()}{(way == Way::Visitors).then_some(", with burrow visit")}</span>
+                <span class="text-xs text-text-muted max-sm:basis-full">{way.who()}{(way == Way::Visitors).then_some(", with burrow visit")}</span>
             </div>
             {under}
         </div>
