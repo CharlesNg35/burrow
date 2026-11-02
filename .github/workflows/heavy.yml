@@ -66,6 +66,7 @@ jobs:
           release: "14"
           mem: 8192
           cpu: 4
+          copyback: false # nothing reads the VM's files afterwards; copying ~2.3 GB of target/ back broke rsync on 2026-11-02
           prepare: |
             pkg install -y bash curl git python3 sudo
             pw useradd tester -m -s /usr/local/bin/bash
