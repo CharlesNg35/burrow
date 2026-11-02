@@ -135,21 +135,19 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
                 http_body_util::Limited::new(body, MAX_BODY).collect(),
             )
             .await;
-            let (code, kind, body) = match read {
-                Ok(Ok(b)) => {
-                    let req = Request::from_parts(parts, ());
-                    let run = tokio::task::spawn_blocking(move || handler(&req, &b.to_bytes()));
-                    match tokio::time::timeout(HANDLER_TIMEOUT, run).await {
-                        Ok(Ok(answer)) => answer,
-                        _ => (
-                            503,
-                            "text/plain",
-                            "the server did not answer in time\n".into(),
-                        ),
-                    }
-                }
-                Ok(Err(_)) => (413, "text/plain", "the request is too large\n".into()),
-                Err(_) => (408, "text/plain", "the request came too slowly\n".into()),
+            let body = match read {
+                Ok(Ok(b)) => b.to_bytes(),
+                _ => bytes::Bytes::new(),
+            };
+            let req = Request::from_parts(parts, ());
+            let run = tokio::task::spawn_blocking(move || handler(&req, &body));
+            let (code, kind, body) = match tokio::time::timeout(HANDLER_TIMEOUT, run).await {
+                Ok(Ok(answer)) => answer,
+                _ => (
+                    503,
+                    "text/plain",
+                    "the server did not answer in time\n".into(),
+                ),
             };
             Response::builder()
                 .status(code)
