@@ -16,7 +16,7 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
         Tone::Danger => "alert-circle",
         Tone::Warning => "alert",
         Tone::Info => "info",
-        _ => "monitor",
+        _ => burrow_admin_logic::entity::CLIENT_ICON,
     };
     let inner = view! {
         <span class=format!("mt-0.5 shrink-0 {}", tone.text())>

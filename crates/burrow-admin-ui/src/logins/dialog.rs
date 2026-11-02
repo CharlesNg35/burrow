@@ -189,7 +189,7 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
                     {note}
                 </div>
                 {labelled("login-service", "Service", view! { <Select id="login-service" options=Signal::derive(services) value=d.service on_change=on_service/> }.into_any())}
-                {move || adding.get().then(|| name_input("login-name", "Name", d.name, name_problem, true, crate::screens::create::name_example(Some(&Entity::Login))))}
+                {move || adding.get().then(|| name_input("login-name", "Name", d.name, name_problem, true, burrow_admin_logic::entity::info(&Entity::Login).name_example))}
                 <div class="md:col-span-2">
                     {labelled("login-path", "Path", view! { <TextInput id="login-path" value=d.path on_input=on_path invalid=path_bad mono=true placeholder="/api/authz/forward-auth"/> }.into_any())}
                     <p class="mt-1.5 text-xs text-danger">{move || path_problem.get()}</p>

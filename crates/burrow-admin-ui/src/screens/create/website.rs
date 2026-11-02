@@ -141,7 +141,7 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
             ),
             hop("box", "Server", server.to_string(), false),
             hop(
-                "monitor",
+                burrow_admin_logic::entity::CLIENT_ICON,
                 "Client",
                 burrow_admin_logic::choices::label_of(client, &crate::domain::reserved_clients()),
                 false,

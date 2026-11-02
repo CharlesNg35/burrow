@@ -1,7 +1,6 @@
 use burrow_admin_proto::msg::{self, GeneratedSecret};
-use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_config::{ClientEntry, Entry, ServiceEntry, entity_of_section};
+use burrow_config::{ClientEntry, Entry, ServiceEntry};
 use burrow_config::{Limits, ServerConfig};
 use burrow_ui_kit::{Button, ComboOption, TextInput};
 use leptos::prelude::*;
@@ -65,15 +64,7 @@ pub fn NewEntity(
     let path_data = Signal::derive(move || {
         new_path(&sec4, &name.get(), &s.server_name(), links.with(Vec::len))
     });
-    let intro = match entity_of_section(&section) {
-        Some(Entity::Client) => {
-            "A machine that dials out to this server and reaches targets for your services."
-        }
-        Some(Entity::Visitor) => "A person or machine that reaches services with burrow visit.",
-        _ => {
-            "A port on this server, a website, or a service for your visitors, reached through one of your clients."
-        }
-    };
+    let intro = burrow_admin_logic::entity::of_section(&section).intro;
     let sec5 = section.clone();
     let options = Signal::derive(move || services_for(&sec5));
     let client = what == ClientEntry::ENTITY;
@@ -87,7 +78,7 @@ pub fn NewEntity(
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
                 <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
-                {super::name_input("new-name", "Name", name, problem, true, super::name_example(entity_of_section(&section).as_ref()))}
+                {super::name_input("new-name", "Name", name, problem, true, burrow_admin_logic::entity::of_section(&section).name_example)}
                 {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
             </section>
             {(what != ServiceEntry::ENTITY).then(|| limits_section(what, name, max, placeholder_max, options, links))}

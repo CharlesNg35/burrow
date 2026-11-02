@@ -115,7 +115,7 @@ pub(super) fn client_row(
     Row {
         key: name.clone(),
         to,
-        icon: "monitor",
+        icon: burrow_admin_logic::entity::CLIENT_ICON,
         dot: format::tone_of(presence).or(Some(Tone::Neutral)),
         title: name.clone(),
         meta: match (&c, on) {

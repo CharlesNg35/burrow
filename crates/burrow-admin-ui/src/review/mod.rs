@@ -68,11 +68,7 @@ pub fn change_groups(plan: &Plan) -> Vec<Group> {
 pub const REVIEW_ON_NEW: &str = "Review my changes on the new version";
 
 fn section_label(section: &str, n: usize) -> String {
-    let one = match burrow_config::entity_of_section(section) {
-        Some(burrow_admin_proto::schema::Entity::Client) => burrow_config::ClientEntry::ENTITY,
-        Some(burrow_admin_proto::schema::Entity::Visitor) => burrow_config::VisitorEntry::ENTITY,
-        _ => burrow_config::ServiceEntry::ENTITY,
-    };
+    let one = burrow_admin_logic::entity::of_section(section).singular;
     if n == 1 {
         one.to_string()
     } else {

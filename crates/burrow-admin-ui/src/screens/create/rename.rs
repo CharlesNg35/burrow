@@ -11,23 +11,13 @@ use crate::store::store;
 use super::{name_input, name_problem};
 
 fn what(entity: &Entity) -> String {
-    match entity {
-        Entity::Login => "login service".to_string(),
-        e => e.as_str().to_string(),
-    }
+    burrow_admin_logic::entity::info(entity)
+        .singular
+        .to_string()
 }
 
 fn note(entity: &Entity) -> &'static str {
-    match entity {
-        Entity::Client => {
-            "The client.yaml on that machine must use the new name, or the client cannot connect."
-        }
-        Entity::Visitor => {
-            "The visitor.yaml on that machine must use the new name, or the visitor cannot connect."
-        }
-        Entity::Login => "Websites that use it are renamed with it.",
-        _ => "Visitors that forward this service by name must use the new name.",
-    }
+    burrow_admin_logic::entity::info(entity).rename_note
 }
 
 pub(crate) fn problem_of(entity: &Entity, name: &str) -> Option<String> {
@@ -75,7 +65,7 @@ pub fn RenameEntity(entity: Entity, name: String, open: RwSignal<bool>) -> impl 
     });
     view! {
         <Dialog open=open title=format!("Rename {what} {name}") testid="rename-entity">
-            {name_input("rename-to", "New name", to, problem, false, super::name_example(Some(&entity)))}
+            {name_input("rename-to", "New name", to, problem, false, burrow_admin_logic::entity::info(&entity).name_example)}
             <p class=move || if same.get() { "my-3 text-sm text-text-muted" } else { "my-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
             <div class="flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| open.set(false)/>

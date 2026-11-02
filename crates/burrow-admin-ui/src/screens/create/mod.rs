@@ -7,7 +7,7 @@ mod website;
 use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_syntax::name::{MAX_NAME_LEN, check_name};
 use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, TextInput, Tone};
 use leptos::prelude::*;
@@ -20,21 +20,7 @@ pub(crate) use rename::{RenameEntity, problem_of};
 pub(crate) use website::NewWebsite;
 
 pub fn singular(section: &str) -> &'static str {
-    match entity_of_section(section) {
-        Some(Entity::Client) => ClientEntry::ENTITY,
-        Some(Entity::Visitor) => VisitorEntry::ENTITY,
-        _ => ServiceEntry::ENTITY,
-    }
-}
-
-pub(crate) fn name_example(entity: Option<&burrow_admin_proto::schema::Entity>) -> &'static str {
-    use burrow_admin_proto::schema::Entity;
-    match entity {
-        Some(Entity::Client) => "home or office",
-        Some(Entity::Visitor) => "laptop or phone",
-        Some(Entity::Login) => "authelia or sso",
-        _ => "nas or home-ssh",
-    }
+    burrow_admin_logic::entity::of_section(section).singular
 }
 
 pub(crate) fn name_input(
@@ -217,7 +203,11 @@ pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathDat
                     state: HopState::Current,
                     badge: None,
                 },
-                pending("monitor", "Client", burrow_admin_logic::wording::NOT_SET),
+                pending(
+                    burrow_admin_logic::entity::CLIENT_ICON,
+                    "Client",
+                    burrow_admin_logic::wording::NOT_SET,
+                ),
                 pending("fork", "Target", burrow_admin_logic::wording::NOT_SET),
             ],
             edges: vec![added(""), added(""), added("")],
@@ -230,7 +220,12 @@ pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathDat
     PathData {
         hops: vec![
             Hop {
-                icon: if visitor { "person" } else { "monitor" },
+                icon: burrow_admin_logic::entity::info(if visitor {
+                    &Entity::Visitor
+                } else {
+                    &Entity::Client
+                })
+                .icon,
                 head: singular(section).to_uppercase(),
                 value: shown,
                 mono: true,

@@ -68,7 +68,7 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
     PathData {
         hops: vec![
             Hop {
-                icon: "monitor",
+                icon: burrow_admin_logic::entity::CLIENT_ICON,
                 head: "Client".into(),
                 value: name.to_string(),
                 mono: true,
