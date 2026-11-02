@@ -192,13 +192,10 @@ fn check_public_address(
         )
     {
         out.push(
-            Diagnostic::error(
-                "invalid-address",
-                format!("invalid public_address: {}", e.message),
-            )
-            .at(spans.at(&[], ServerConfig::PUBLIC_ADDRESS))
-            .label("expected a host, host:port or wss:// URL")
-            .help(e.hint),
+            Diagnostic::error("invalid-address", format!("public_address: {}", e.message))
+                .at(spans.at(&[], ServerConfig::PUBLIC_ADDRESS))
+                .label("expected a host, host:port or wss:// URL")
+                .help(e.hint),
         );
     }
 }

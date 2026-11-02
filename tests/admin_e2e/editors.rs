@@ -150,7 +150,9 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             .await;
         let err = row_error(c, "public_address").await;
         assert!(
-            err.contains("no websocket section"),
+            err.contains("WebSocket is off on this server")
+                && err.contains("Settings, Connections")
+                && !err.contains("public_address"),
             "a wss:// address is refused inline on a server without WebSocket, as validate refuses it: {err}"
         );
         c.ui.shot("server-address-wss").await;
