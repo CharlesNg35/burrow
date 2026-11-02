@@ -29,6 +29,8 @@ mod header;
 mod hidden;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
+#[path = "admin_e2e/modes.rs"]
+mod modes;
 #[path = "admin_e2e/more.rs"]
 mod more;
 #[path = "common/older.rs"]
