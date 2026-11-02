@@ -261,7 +261,7 @@ impl Core {
             you: You {
                 visitor: s.visitor.clone(),
                 level: s.level,
-                from: s.peer.ip().to_string(),
+                from: burrow_syntax::ip::ip_shown(s.peer.ip()),
                 secret_fp: s.secret.fingerprint(),
             },
             features: features(),

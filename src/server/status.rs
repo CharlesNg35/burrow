@@ -71,7 +71,7 @@ impl Shared {
                     name: name.clone(),
                     connected: true,
                     connected_secs: Some(s.since.elapsed().as_secs()),
-                    from: Some(s.peer.to_string()),
+                    from: Some(burrow_syntax::ip::peer_shown(s.peer)),
                     open: self.client_counts.current(name),
                     idle_channels: s.idle_count() as u64,
                     left_secs_ago: None,
