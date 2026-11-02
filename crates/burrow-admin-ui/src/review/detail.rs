@@ -39,7 +39,14 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         })
     };
     let lines = diff_lines(&plan.diff);
-    let (added, removed) = diff_counts(&plan.diff);
+    let (added, removed) = if plan.files.is_empty() {
+        diff_counts(&plan.diff)
+    } else {
+        plan.files
+            .iter()
+            .map(|f| diff_counts(&f.diff))
+            .fold((0, 0), |(a, r), (x, y)| (a + x, r + y))
+    };
     let split = RwSignal::new(false);
     let p2 = plan.clone();
     let missing = Signal::derive(move || e.confirms.with(|c| missing_confirms(&p2, c)));
@@ -298,7 +305,7 @@ fn diff_section(
     let secrets_in_diff = plan.secrets_in_diff.is_empty();
     view! {
     <div class="mb-2 flex items-center gap-2">
-        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{burrow_admin_logic::wording::CHANGED_LINES}</h3>
+        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{if plan.files.is_empty() { burrow_admin_logic::wording::CHANGED_LINES } else { burrow_admin_logic::wording::CHANGED_FILES }}</h3>
         <span class="text-xs text-text-muted">{burrow_admin_logic::wording::diff_head(added, removed, !secrets_in_diff)}</span>
         <span class="ml-auto"></span>
         <Segmented
@@ -309,13 +316,20 @@ fn diff_section(
             on_change=Callback::new(move |v: String| split.set(v == "split"))
         />
     </div>
-    <section class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
-        {if lines.is_empty() {
-            view! { <p class="px-4 py-3 text-text-muted">"The file does not change."</p> }.into_any()
-        } else {
-            view! { <DiffView lines=lines split=split testid="review-diff"/> }.into_any()
-        }}
-    </section>
+    {if plan.files.is_empty() {
+        view! {
+            <section class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
+                {if lines.is_empty() {
+                    view! { <p class="px-4 py-3 text-text-muted">"The file does not change."</p> }.into_any()
+                } else {
+                    view! { <DiffView lines=lines split=split testid="review-diff"/> }.into_any()
+                }}
+            </section>
+        }
+        .into_any()
+    } else {
+        view! { <div class="mb-6" data-testid="file-diffs">{super::files::file_diffs(&plan.files, split, true)}</div> }.into_any()
+    }}
     }
 }
 

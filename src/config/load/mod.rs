@@ -1,3 +1,5 @@
+mod drop_ins;
+mod merge;
 mod parse;
 
 use std::path::Path;
@@ -6,8 +8,9 @@ use super::env::EnvSource;
 use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
 use crate::config::diagnostics::{Diagnostic, Report};
-use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
-pub use parse::{load_str_at, load_str_in};
+use burrow_config::{ClientConfig, Entry as _, ServerConfig, VisitorConfig};
+pub use merge::merge;
+pub use parse::{load_inputs, load_str_at, load_str_in};
 
 pub use crate::install::Role;
 
@@ -28,6 +31,19 @@ impl Format {
 }
 
 #[derive(Debug, Clone)]
+pub struct Input {
+    pub name: String,
+    pub text: String,
+    pub format: Format,
+}
+
+impl Input {
+    pub fn body(&self) -> &str {
+        self.text.strip_prefix('\u{feff}').unwrap_or(&self.text)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Loaded {
     Server(Box<ServerSettings>, Box<ServerConfig>),
     Client(Box<ClientSettings>, Box<ClientConfig>),
@@ -39,6 +55,62 @@ pub struct Outcome {
     pub report: Report,
     pub role: Option<Role>,
     pub loaded: Option<Loaded>,
+    pub files: Vec<FileItems>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FileItems {
+    pub name: String,
+    pub items: Vec<(String, String)>,
+}
+
+pub fn short_name(main: &str, name: &str) -> String {
+    let path = Path::new(name);
+    let folder = crate::config::docs::folder_of(Path::new(main));
+    path.strip_prefix(&folder)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+        .replace('\\', "/")
+}
+
+fn note_service_files(loaded: &mut Option<Loaded>, files: &[FileItems]) {
+    let Some(Loaded::Server(s, _)) = loaded.as_mut() else {
+        return;
+    };
+    let Some(main) = files.first() else {
+        return;
+    };
+    for f in files.iter().skip(1) {
+        for (section, name) in &f.items {
+            if section == burrow_config::ServiceEntry::section() {
+                s.service_files
+                    .insert(name.clone(), short_name(&main.name, &f.name));
+            }
+        }
+    }
+}
+
+fn file_items(root: &Node, names: &[String]) -> Vec<FileItems> {
+    let mut out: Vec<FileItems> = names
+        .iter()
+        .map(|n| FileItems {
+            name: n.clone(),
+            items: Vec::new(),
+        })
+        .collect();
+    if let Value::Map(top) = &root.value {
+        for section in top.iter().filter(|e| merge::is_section(&e.key)) {
+            if let Value::Map(items) = &section.value.value {
+                for item in items {
+                    if let Some(f) = out.get_mut(item.key_span.file.index()) {
+                        f.items.push((section.key.clone(), item.key.clone()));
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 #[derive(Debug)]
@@ -114,14 +186,16 @@ pub fn load_file(
         .is_some_and(|s| s.to_ascii_lowercase().ends_with("visitor"));
     let role = role.or_else(|| named.then(|| visitor_by_name(&src)).flatten());
     let state = crate::install::state_dir_for(path);
-    let mut outcome = load_str_at(
-        (base, Some(&state)),
-        &path.display().to_string(),
-        &src,
-        format,
-        role,
-        env,
+    let server = role.map_or_else(
+        || tree::parse(&src).ok().as_ref().and_then(detect_role) == Some(Role::Server),
+        |r| r == Role::Server,
     );
+    let inputs = vec![Input {
+        name: path.display().to_string(),
+        text: src,
+        format,
+    }];
+    let mut outcome = load_with_drop_ins(path, (base, &state), inputs, role, server, env);
     if let Some(Loaded::Server(s, _)) = outcome.loaded.as_mut()
         && let Some(w) = s.web.as_mut()
     {
@@ -153,8 +227,31 @@ pub fn load_file(
     Ok(outcome)
 }
 
+pub fn load_with_drop_ins(
+    main: &Path,
+    (base, state): (&Path, &Path),
+    mut inputs: Vec<Input>,
+    role: Option<Role>,
+    server: bool,
+    env: &dyn EnvSource,
+) -> Outcome {
+    let mut found = Vec::new();
+    if server {
+        drop_ins::add(main, &mut inputs, &mut found);
+    }
+    let mut outcome = load_inputs((base, Some(state)), &inputs, role, env);
+    if !found.is_empty() {
+        found.into_iter().for_each(|d| outcome.report.push(d));
+        outcome.report.sort();
+        if outcome.report.has_errors() {
+            outcome.loaded = None;
+        }
+    }
+    outcome
+}
+
 #[cfg(unix)]
-fn permission_warning(path: &Path) -> Option<Diagnostic> {
+pub(super) fn permission_warning(path: &Path) -> Option<Diagnostic> {
     use std::os::unix::fs::PermissionsExt;
     let mode = std::fs::metadata(path).ok()?.permissions().mode();
     (mode & 0o004 != 0).then(|| {
@@ -173,7 +270,7 @@ fn permission_warning(path: &Path) -> Option<Diagnostic> {
 }
 
 #[cfg(not(unix))]
-fn permission_warning(_: &Path) -> Option<Diagnostic> {
+pub(super) fn permission_warning(_: &Path) -> Option<Diagnostic> {
     None
 }
 
@@ -273,16 +370,22 @@ fn json_syntax(src: &str) -> Option<Diagnostic> {
 }
 
 fn hide_secret_lines(report: &mut Report) {
-    let lines: Vec<&str> = report.source.lines().collect();
-    for d in &mut report.diagnostics {
-        if let Some(s) = d.span {
-            let line = lines
-                .get(s.start.line.saturating_sub(1))
-                .copied()
-                .unwrap_or("");
-            if secret_line(line) {
-                d.snippet = false;
-            }
+    let secret_at = |report: &Report, s: Span| {
+        let line = report
+            .text_of(s.file)
+            .lines()
+            .nth(s.start.line.saturating_sub(1))
+            .unwrap_or("");
+        secret_line(line)
+    };
+    let hidden: Vec<bool> = report
+        .diagnostics
+        .iter()
+        .map(|d| d.span.is_some_and(|s| secret_at(report, s)))
+        .collect();
+    for (d, hide) in report.diagnostics.iter_mut().zip(hidden) {
+        if hide {
+            d.snippet = false;
         }
     }
 }
@@ -343,6 +446,39 @@ mod tests {
     }
 
     #[test]
+    fn a_problem_in_a_second_source_is_shown_at_its_own_file_and_line() {
+        let nothing = |_: &str| None;
+        let input = |name: &str, text: &str| Input {
+            name: name.into(),
+            text: text.into(),
+            format: Format::Yaml,
+        };
+        let o = load_inputs(
+            (Path::new("."), None),
+            &[
+                input(
+                    "server.yaml",
+                    "listen: 7835\nclients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\n",
+                ),
+                input(
+                    "server.d/apps.yaml",
+                    "services:\n  web:\n    client: hom\n    target: 80\n    bind: 7900\n",
+                ),
+            ],
+            Some(Role::Server),
+            &nothing,
+        );
+        let shown = o
+            .report
+            .render_text(crate::base::style::Style { color: false });
+        assert!(shown.contains("--> server.d/apps.yaml:3:13"), "{shown}");
+        assert!(shown.contains("client: hom"), "{shown}");
+        let json = o.report.render_json();
+        assert_eq!(json["file"], "server.yaml");
+        assert_eq!(json["diagnostics"][0]["file"], "server.d/apps.yaml");
+    }
+
+    #[test]
     fn a_syntax_error_on_a_secret_line_shows_no_snippet() {
         let nothing = |_: &str| None;
         for (src, value) in [
@@ -365,4 +501,20 @@ mod tests {
             assert!(!shown.contains(value), "{shown}");
         }
     }
+}
+
+#[cfg(test)]
+mod tests_drop_ins;
+
+#[cfg(test)]
+#[test]
+fn a_drop_in_is_named_from_the_config_folder_also_for_a_relative_config() {
+    assert_eq!(
+        short_name("server.yaml", "./server.d/a.yaml"),
+        "server.d/a.yaml"
+    );
+    assert_eq!(
+        short_name("/etc/b/server.yaml", "/etc/b/server.d/a.yaml"),
+        "server.d/a.yaml"
+    );
 }

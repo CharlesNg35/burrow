@@ -157,7 +157,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     });
     backend.config_folder(&folder, &config, &account, writable)?;
     if source != crate::base::fs::canonical_or_same(&config) {
-        copy_config(&source, &config, writable, out)?;
+        copy_config(&*backend, (&source, &config), (&account, writable), out)?;
     }
     backend.secure_file(&config, &account)?;
     backend.config_folder(&folder, &config, &account, writable)?;
@@ -367,9 +367,9 @@ fn copy_service_binary(
 }
 
 fn copy_config(
-    source: &Path,
-    config: &Path,
-    writable: bool,
+    backend: &dyn super::Backend,
+    (source, config): (&Path, &Path),
+    (account, writable): (&str, bool),
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     if writable {
@@ -392,7 +392,8 @@ fn copy_config(
     say(
         out,
         format!("copied {} -> {}", source.display(), config.display()),
-    )
+    )?;
+    super::drop_ins::copy(backend, (source, config), account, writable, out)
 }
 
 fn say_writable(checked: &Checked, folder: &Path, out: &mut dyn Write) -> Result<(), Failure> {

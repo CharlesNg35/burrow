@@ -29,6 +29,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         metrics,
         self_allow,
         web,
+        service_files,
     } = new;
     use Applied::{Live, Reload, Restart};
     [
@@ -80,6 +81,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*metrics != old.metrics, "metrics", Reload),
         (*self_allow != old.self_allow, "self.allow", Reload),
         (*web != old.web, "web", Reload),
+        (*service_files != old.service_files, "files", Live),
     ]
     .into_iter()
     .filter_map(|(changed, name, how)| changed.then_some((name, how)))

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1]
+
+Drop-in config files: a server can keep services, clients and visitors in `server.d/*.yaml` next to `server.yaml`. See docs/configuration.md.
+
+- **Drop-in files:** read in name order, only while the folder exists. They hold only `services`, `clients` and `visitors`; the same name in two files, a server-wide key or a file anyone can change is an error at its file and line.
+- **Errors name their file:** `burrow validate` lists the files read, each item's file and the read-only files; `burrow status` names a service's file.
+- **burrow admin and `burrow mcp`:** each item is edited in its own file with its comments; Save in, Split into its own file and Merge into server.yaml; one diff per file in Review; Settings → Files. A file read-only on disk (no write permission, the Windows read-only attribute, or not writable by burrow) stays read-only, also as root.
+- **Saving** writes every touched file or none, refuses a file changed on disk, and history restores the whole set.
+- **Reload** watches the folder and waits for half a second of quiet, so a burst of files reloads once.
+- **`burrow service install`** copies the folder with the config and keeps read-only files read-only.
+
 ## [0.2.0]
 
 Websites with automatic HTTPS, a reworked admin UI, load balancing with weights, and `burrow mcp` for AI apps. Existing configs work unchanged, and v0.1.x clients and visitors keep working with a v0.2.0 server.

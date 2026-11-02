@@ -95,7 +95,12 @@ impl Link {
         };
         let id = self.id();
         let body = self
-            .exchange(&mut conn, id, msg::req::WELCOME, Value::Null)
+            .exchange(
+                &mut conn,
+                id,
+                msg::req::WELCOME,
+                serde_json::json!({ "understands": [burrow_admin_proto::features::CONFIG_FILES] }),
+            )
             .await?;
         let welcome = serde_json::from_value(body).map_err(|e| {
             LinkError::Lost(format!(

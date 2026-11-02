@@ -266,7 +266,10 @@ pub fn apply(root: &Value, ops: &[Op]) -> Value {
                     m.insert(last.clone(), new_password(handle));
                 }
             }
-            Op::ReplaceDocument { .. } | Op::SetText { .. } => {}
+            Op::ReplaceDocument { .. }
+            | Op::SetText { .. }
+            | Op::Place { .. }
+            | Op::DropFile { .. } => {}
         }
     }
     v

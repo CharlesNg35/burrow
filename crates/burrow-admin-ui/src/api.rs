@@ -461,6 +461,7 @@ fn after_refusal(now: &Conn, reason: burrow_admin_proto::local::Reason, message:
 fn start(store: Store) {
     let hello = msg::WelcomeRequest {
         burrow: Some(env!("CARGO_PKG_VERSION").into()),
+        understands: vec![burrow_admin_proto::features::CONFIG_FILES.into()],
     };
     request(msg::req::WELCOME, body(&hello), move |r| match r {
         Ok(v) => match serde_json::from_value::<Welcome>(v) {

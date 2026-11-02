@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::config::Format;
+use crate::config::docs::Docs;
 use crate::config::settings::ServerSettings;
 use crate::metrics::Status;
 
@@ -24,14 +25,17 @@ pub trait Store: Send + Sync {
     fn path(&self) -> &Path;
     fn state_dir(&self) -> PathBuf;
     fn format(&self) -> Format;
-    fn read(&self) -> std::io::Result<String>;
-    fn write(&self, before: &str, after: &str) -> Result<(), WriteError>;
+    fn read(&self) -> std::io::Result<Docs>;
+    fn write(&self, before: &Docs, after: &Docs) -> Result<(), WriteError>;
     fn writable(&self) -> Result<(), WhyNot>;
-    fn keep(&self, rev: &str, text: &str);
+    fn keep(&self, rev: &str, docs: &Docs);
     fn versions(&self) -> Vec<Version>;
-    fn version(&self, rev: &str) -> Option<String>;
+    fn version(&self, rev: &str) -> Option<Docs>;
     fn history_dir(&self) -> Option<PathBuf>;
     fn history_problem(&self) -> Option<String>;
+    fn read_only(&self, _name: &str) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

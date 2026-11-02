@@ -157,6 +157,9 @@ For an AI app on another machine, forward the port with `ssh -L 7838:127.0.0.1:7
 
 ## Safety
 
+With drop-in files ([configuration.md](configuration.md#drop-in-files)), the AI edits each item in its own file and follows the admin's rules: files read-only on disk are never written, and a change is written to every file it touches or to none.
+
+
 An AI app that can change your server must not be able to do harm by mistake or by a trick in the data it reads. These rules hold:
 
 - **Read-only by default.** Writes need `--allow-write` on your machine and `admin: write` on the server.

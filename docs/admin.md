@@ -68,7 +68,25 @@ What the pages do, and what stays a file edit:
 - Before each change from burrow admin, the previous file is kept beside it in `.server.yaml.history/` (the last 20, mode 0600). Activity lists the versions by the time they were applied, and you can go back to each after a review. When that folder cannot be written, the history is kept in memory only.
 - Every change goes through a review page, with what changes in server.yaml and what it affects, before it is applied, and a hand edit made meanwhile shows as a conflict instead of being overwritten.
 
+## Drop-in files
+
+When the server reads a folder of drop-in files ([configuration.md](configuration.md#drop-in-files)), the admin shows which file each service, client and visitor is in, and writes every change to that file:
+
+- **Edit** changes an item in its own file and keeps the file's comments.
+- **Add** writes a new item to `server.yaml`, or, with **Save in**, to a file of its own (`server.d/<name>.yaml`) or to another drop-in file.
+- **Split into its own file** and **Merge into server.yaml** in an item's ⋯ menu move it between files. When a drop-in file is left with nothing in it, Review offers to delete it.
+- **Rename** with references updates them in every file.
+- **Review** shows one diff per file ("server.yaml: no change").
+- **Settings → Files** lists each file, how many items it holds and whether it is read-only; its links open the list of that file's items.
+- A file that is **read-only on disk** shows a lock; its items can be looked at but not edited, renamed, moved or removed.
+- A change is written to every file it touches or to none. If a file changed on disk since you opened your change, it is refused and names the file; review your change again.
+- **History** keeps the whole set of files, and a revert puts back every writable file, creating or deleting drop-in files as needed.
+
+`burrow mcp` follows the same rules, with the `place` and `drop_file` operations for moving items and deleting an empty file.
+
 ## Mixed versions
+
+An admin older than v0.2.1 can still change items in `server.yaml`; the server refuses its changes to items in drop-in files, with a message saying so.
 
 The burrow on your machine and the one on the server don't need the same version. A newer burrow admin works with an older server: it says the server is older in Needs attention, and leaves out what that server cannot do. An older burrow admin, for example v0.1.2, can open a newer server too. When the config uses settings it doesn't know, such as clients with their own target or weight, websites or named login services, its Needs attention lists them ("This burrow admin is older than the server and cannot edit some settings here: …"), and it shows them as text instead of a form. Editing stays allowed, because the server checks every change. To edit those settings in forms, update burrow on your machine.
 

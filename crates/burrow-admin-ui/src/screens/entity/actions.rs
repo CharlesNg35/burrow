@@ -18,6 +18,7 @@ pub(super) fn head_actions(p: &Parts, can: bool) -> impl Fn() -> AnyView + use<>
         tab_list,
         menu,
         renaming,
+        locked,
         ..
     } = p.clone();
     let (path, sec, nm) = (p.path.clone(), p.section.clone(), p.name.clone());
@@ -50,7 +51,7 @@ pub(super) fn head_actions(p: &Parts, can: bool) -> impl Fn() -> AnyView + use<>
                 icon="edit"
                 testid="edit"
                 disabled=!can
-                reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, s.welcome.with_untracked(|w| w.as_ref().map(|w| w.you.visitor.clone())).as_deref()) }
+                reason=if can { String::new() } else if let Some(l) = locked.clone() { l } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, s.welcome.with_untracked(|w| w.as_ref().map(|w| w.you.visitor.clone())).as_deref()) }
                 on_click=move |_| start_edit()
             />
             <div class="relative" class:hidden=!can>
@@ -102,6 +103,7 @@ fn more_menu(
                     route::go(back.clone());
                 }>{format!("Delete {}…", singular(&sec))}</button> }
             })}
+            {can.then(|| super::file::file_menu(path.clone()))}
             {
                 let nm = nm.clone();
                 view! { <button type="button" class=burrow_ui_kit::MENU_ITEM on:click=move |_| { copy_text(&nm); s.toast(Tone::Success, "Copied", None); }>"Copy name"</button> }

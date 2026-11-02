@@ -151,6 +151,8 @@ pub struct ServiceStatus {
     pub web: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<HttpCounts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

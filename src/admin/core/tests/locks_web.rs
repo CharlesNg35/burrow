@@ -45,7 +45,7 @@ fn refused_at(core: &Core, s: &Session, ops: &[Op]) -> String {
     match plan::compute(core, s, &base, ops) {
         Err(e) if e.code == ErrorCode::LockedField => e.message,
         Err(e) => panic!("refused for another reason: {}", e.message),
-        Ok(c) => panic!("not refused: {}", c.new_text),
+        Ok(c) => panic!("not refused: {}", c.new_docs.main().text),
     }
 }
 

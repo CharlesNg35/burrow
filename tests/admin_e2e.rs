@@ -18,6 +18,8 @@ mod editors;
 mod edits;
 #[path = "admin_e2e/entries.rs"]
 mod entries;
+#[path = "admin_e2e/files.rs"]
+mod files;
 #[path = "admin_e2e/guards.rs"]
 mod guards;
 #[path = "admin_e2e/header.rs"]

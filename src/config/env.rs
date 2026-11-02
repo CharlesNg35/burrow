@@ -155,6 +155,7 @@ fn sub_span(src: &str, span: Span, token: &str) -> Span {
     let col = span.start.col + before.chars().count();
     let width = token.chars().count();
     Span {
+        file: span.file,
         start: Pos {
             offset: start + rel,
             line: span.start.line,

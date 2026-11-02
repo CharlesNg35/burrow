@@ -22,6 +22,7 @@ pub const WEBSITES_FILTER: &str = "websites";
 pub const PUBLIC_FILTER: &str = "public";
 pub const CARD_QUERY: &str = "card";
 pub const TAB_QUERY: &str = "tab";
+pub const SEARCH_QUERY: &str = "q";
 
 pub const SECTIONS: [&str; 3] = [
     ServiceEntry::SECTION,
@@ -152,7 +153,7 @@ pub fn go(route: Route) {
 
 pub type Query = Option<(&'static str, &'static str)>;
 
-fn href_with(route: &Route, query: Query) -> String {
+fn href_with(route: &Route, query: Option<(&str, &str)>) -> String {
     match query {
         Some((k, v)) => format!("{}?{k}={}", href(route), encode(v)),
         None => href(route),
@@ -163,11 +164,15 @@ pub fn go_query(route: Route, query: Query) {
     go_with(store(), route, query);
 }
 
+pub fn go_search(route: Route, text: &str) {
+    go_with(store(), route, Some((SEARCH_QUERY, text)));
+}
+
 pub fn go_in(s: crate::store::Store, route: Route) {
     go_with(s, route, None);
 }
 
-fn go_with(s: crate::store::Store, route: Route, query: Query) {
+fn go_with(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
     if s.route.get_untracked() == route && query.is_none() {
         return;
     }

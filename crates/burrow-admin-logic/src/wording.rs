@@ -121,6 +121,7 @@ pub fn result_words(result: &str) -> &'static str {
 }
 pub const UDP_SENDERS: &str = "UDP senders";
 pub const CHANGED_LINES: &str = "What changed in server.yaml";
+pub const CHANGED_FILES: &str = "What changed in the files";
 
 pub fn diff_head(added: usize, removed: usize, hidden: bool) -> String {
     let secrets = if hidden { " · secrets hidden" } else { "" };

@@ -88,7 +88,13 @@ fn a_config_changed_by_burrow_admin_is_kept_before_a_reinstall_replaces_it() {
     let store = crate::admin::adapters::FileStore::new(&config);
     let rev = crate::admin::core::text::rev(changed);
     assert!(store.versions().iter().any(|v| v.rev == rev));
-    assert_eq!(store.version(&rev).as_deref(), Some(changed));
+    assert_eq!(
+        store
+            .version(&rev)
+            .map(|d| d.main().text.clone())
+            .as_deref(),
+        Some(changed)
+    );
 
     let m = Manifest {
         config: config.clone(),
@@ -224,7 +230,7 @@ fn commands_that_interrupt_a_service_go_to_the_background() {
     assert_eq!(interrupts(Action::Reload), cfg!(windows));
 }
 
-struct Recorder(std::cell::RefCell<Vec<String>>, bool);
+pub(super) struct Recorder(pub(super) std::cell::RefCell<Vec<String>>, pub(super) bool);
 
 impl Recorder {
     fn note(&self, what: &str, m: &Manifest) -> Result<(), Failure> {

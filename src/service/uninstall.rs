@@ -415,14 +415,15 @@ pub(super) fn keep_admin_copy(source: &Path, config: &Path) -> Result<Kept, Fail
     let Some(installed) = system::read_plain_file(config) else {
         return Ok(Kept::NotPlain);
     };
-    let (Ok(src), Ok(installed)) = (std::fs::read(source), String::from_utf8(installed)) else {
+    let Ok(installed) = String::from_utf8(installed) else {
         return Ok(Kept::Nothing);
     };
-    if src == installed.as_bytes() {
+    let docs = super::drop_ins::installed(config, installed);
+    if std::fs::metadata(source).is_err() || super::drop_ins::same_set(source, &docs) {
         return Ok(Kept::Nothing);
     }
     let store = crate::admin::adapters::FileStore::new(config);
-    store.keep(&crate::admin::core::text::rev(&installed), &installed);
+    store.keep(&crate::admin::core::text::docs_rev(&docs), &docs);
     match store.history_problem() {
         None => Ok(Kept::Version),
         Some(why) => Err(Failure::new(format!(

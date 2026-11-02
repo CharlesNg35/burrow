@@ -116,6 +116,7 @@ impl Edit {
         if reset || !untrack(|| self.dirty()) || known.is_empty() {
             self.draft.set(Changeset::new(values.clone()));
             self.texts.set(BTreeMap::new());
+            self.files.set(Default::default());
             self.clear_refused();
             if reset {
                 self.local.set(BTreeMap::new());

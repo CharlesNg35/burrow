@@ -1,15 +1,16 @@
 use std::path::Path;
 
 use super::{
-    Format, Loaded, Outcome, Role, detect_role, hide_secret_lines, json_syntax, schema_json,
+    Format, Input, Loaded, Outcome, Role, detect_role, file_items, hide_secret_lines, json_syntax,
+    merge, note_service_files, schema_json,
 };
 use crate::config::check::{
     Spans, check_client, check_refs, check_server, check_visitor, secret_spans,
 };
-use crate::config::diagnostics::{Diagnostic, Report};
+use crate::config::diagnostics::{Diagnostic, Report, Source};
 use crate::config::env::{EnvSource, expand};
 use crate::config::schema::Checker;
-use crate::config::tree::{self, Node, Span, Value};
+use crate::config::tree::{self, FileId, Node, Span, Value};
 use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
 
 fn unquoted_variable_in_flow(line: &str) -> bool {
@@ -31,44 +32,88 @@ pub fn load_str_in(
 }
 
 pub fn load_str_at(
-    (base_dir, state): (&Path, Option<&Path>),
+    dirs: (&Path, Option<&Path>),
     name: &str,
     src: &str,
     format: Format,
     role: Option<Role>,
     env: &dyn EnvSource,
 ) -> Outcome {
-    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
-    let mut report = Report::new(name, src);
+    let input = Input {
+        name: name.to_string(),
+        text: src.to_string(),
+        format,
+    };
+    load_inputs(dirs, std::slice::from_ref(&input), role, env)
+}
+
+fn parse_all(inputs: &[Input], report: &mut Report) -> Option<Vec<Node>> {
+    let mut trees = Vec::with_capacity(inputs.len());
+    let mut broken = false;
+    for (i, input) in inputs.iter().enumerate() {
+        let file = FileId(u16::try_from(i).unwrap_or(u16::MAX));
+        let src = input.body();
+        if input.format == Format::Json
+            && let Some(d) = json_syntax(src)
+        {
+            report.push(in_file(d, file));
+            broken = true;
+            continue;
+        }
+        match tree::parse_in(src, file) {
+            Ok(n) => trees.push(n),
+            Err(errors) => {
+                syntax_errors(src, errors, report);
+                broken = true;
+            }
+        }
+    }
+    if broken {
+        hide_secret_lines(report);
+        report.mask_tokens = true;
+        return None;
+    }
+    Some(trees)
+}
+
+fn in_file(mut d: Diagnostic, file: FileId) -> Diagnostic {
+    d.span = d.span.map(|s| s.in_file(file));
+    d
+}
+
+pub fn load_inputs(
+    (base_dir, state): (&Path, Option<&Path>),
+    inputs: &[Input],
+    role: Option<Role>,
+    env: &dyn EnvSource,
+) -> Outcome {
+    let name = inputs.first().map_or("", |i| i.name.as_str());
+    let mut report = Report::of(
+        inputs
+            .iter()
+            .map(|i| Source {
+                name: i.name.clone(),
+                text: i.body().to_string(),
+            })
+            .collect(),
+    );
     let fail = |mut report: Report, role| {
         report.sort();
         Outcome {
             report,
             role,
             loaded: None,
+            files: Vec::new(),
         }
     };
 
-    if format == Format::Json
-        && let Some(d) = json_syntax(src)
-    {
-        report.push(d);
-        hide_secret_lines(&mut report);
-        report.mask_tokens = true;
+    let Some(mut trees) = parse_all(inputs, &mut report) else {
         return fail(report, role);
-    }
-    let mut root = match tree::parse(src) {
-        Ok(n) => n,
-        Err(errors) => {
-            syntax_errors(src, errors, &mut report);
-            hide_secret_lines(&mut report);
-            report.mask_tokens = true;
-            return fail(report, role);
-        }
     };
-    report.masked = secret_spans(&root);
-
-    let detected = detect_role(&root);
+    let Some(main) = trees.first() else {
+        return fail(report, role);
+    };
+    let detected = detect_role(main);
     if let (Some(wanted), Some(found)) = (role, detected)
         && let Some(d) = wrong_role(name, wanted, found)
     {
@@ -78,7 +123,7 @@ pub fn load_str_at(
     let role = match role.or(detected) {
         Some(r) => r,
         None => {
-            if matches!(root.value, Value::Map(_)) {
+            if matches!(main.value, Value::Map(_)) {
                 report.push(
                     Diagnostic::error("unknown-role", "cannot tell whether this is a server, client or visitor config")
                         .without_snippet()
@@ -91,7 +136,14 @@ pub fn load_str_at(
     };
 
     let mut env_diags = Vec::new();
-    expand(&mut root, src, env, &mut env_diags);
+    for (tree, input) in trees.iter_mut().zip(inputs) {
+        report.masked.extend(secret_spans(tree));
+        expand(tree, input.body(), env, &mut env_diags);
+    }
+    let names: Vec<String> = inputs.iter().map(|i| i.name.clone()).collect();
+    let (root, merged) = merge::merge_with(trees, &names);
+    merged.into_iter().for_each(|d| report.push(d));
+    let files = file_items(&root, &names);
     let env_spans: Vec<Span> = env_diags.iter().filter_map(|d| d.span).collect();
     env_diags.into_iter().for_each(|d| report.push(d));
 
@@ -144,11 +196,13 @@ pub fn load_str_at(
     if report.has_errors() {
         loaded = None;
     }
+    note_service_files(&mut loaded, &files);
     report.sort();
     Outcome {
         report,
         role: Some(role),
         loaded,
+        files,
     }
 }
 
@@ -312,6 +366,10 @@ fn internal(e: serde_json::Error) -> Diagnostic {
 }
 
 fn within(a: Span, b: Span) -> bool {
+    a.file == b.file && within_text(a, b)
+}
+
+fn within_text(a: Span, b: Span) -> bool {
     a.start.line == b.start.line
         || (a.start.offset <= b.start.offset && b.end.offset <= a.end.offset)
 }

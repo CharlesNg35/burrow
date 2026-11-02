@@ -69,6 +69,14 @@ pub const READ_ONLY_FS: &str = "read-only-fs";
 pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
 pub const OLDER_ADMIN: &str = "older-admin";
 pub const TLS_UNREADABLE: &str = "tls-unreadable";
+pub const DROP_IN_KEY: &str = "drop-in-key";
+pub const DROP_IN_SECTION: &str = "drop-in-section";
+pub const DUPLICATE_NAME: &str = "duplicate-name";
+pub const DROP_IN_UNSAFE: &str = "drop-in-unsafe";
+pub const DROP_IN_UNREADABLE: &str = "drop-in-unreadable";
+pub const DROP_IN_IGNORED: &str = "drop-in-ignored";
+pub const FILE_READ_ONLY: &str = "file-read-only";
+pub const OLDER_ADMIN_FILES: &str = "older-admin-files";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,

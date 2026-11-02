@@ -11,6 +11,8 @@ use crate::admin::core::*;
 
 #[cfg(feature = "web")]
 use super::apply_now;
+#[cfg(feature = "web")]
+use super::one;
 use super::{World, core_with_env, p, session, world};
 
 const VARS: &[(&str, &str)] = &[("OLD", "old-value"), ("HOME", "home-secret")];
@@ -34,7 +36,7 @@ fn refused(core: &Core, s: &Session, ops: &[Op]) -> String {
     match plan::compute(core, s, &base, ops) {
         Err(e) if e.code == ErrorCode::Forbidden => e.message,
         Err(e) => panic!("refused for another reason: {}", e.message),
-        Ok(c) => panic!("not refused: {}", c.new_text),
+        Ok(c) => panic!("not refused: {}", c.new_docs.main().text),
     }
 }
 
@@ -158,7 +160,9 @@ fn a_revert_brings_a_reference_back_only_where_the_file_still_has_it() {
         "    web:\n",
         "    web:\n      request_headers:\n        X-Old: \"${OLD}\"\n",
     );
-    core.store.write(&core.read().unwrap(), &again).unwrap();
+    core.store
+        .write(&one(&core.read().unwrap()), &one(&again))
+        .unwrap();
     let still = core.read().unwrap();
     let c = plan::compute(&core, &s, &text::rev(&still), &revert);
     assert!(c.is_err(), "the reference sits at another path in the file");
@@ -166,7 +170,7 @@ fn a_revert_brings_a_reference_back_only_where_the_file_still_has_it() {
         "      response_headers:\n",
         "      request_headers:\n        X-Other: plain\n      response_headers:\n",
     );
-    core.store.write(&still, &back).unwrap();
+    core.store.write(&one(&still), &one(&back)).unwrap();
     let c = plan::compute(&core, &s, &text::rev(&back), &revert);
     assert!(c.is_ok(), "{:?}", c.err().map(|e| e.message));
 }

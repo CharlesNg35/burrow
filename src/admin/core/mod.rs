@@ -2,6 +2,7 @@ pub mod diags;
 pub mod diff;
 mod dispatch;
 pub mod guard;
+mod history;
 mod older;
 pub mod ops;
 pub mod passwords;
@@ -16,22 +17,23 @@ pub mod values;
 
 pub use dispatch::{dispatch, ok, parse};
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use burrow_admin_proto::msg::{
-    AdminLevel, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
-    HistoryRequest, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest,
-    Suggestions, Welcome, WhyNot, You,
+    AdminLevel, AuditEntry, ConfigFile, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, Limits,
+    Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest, Suggestions, Welcome,
+    WhyNot, You,
 };
 use burrow_admin_proto::schema::{Entity, Schema};
 use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry};
 use serde_json::Value;
 use zeroize::Zeroizing;
 
+use crate::config::docs::Docs;
 use crate::wire::secret::Secret;
 use ports::{Env, Live, Store};
 
@@ -87,6 +89,7 @@ pub struct Session {
     pub via_websocket: bool,
     pub client: String,
     ui_version: Mutex<Option<String>>,
+    understands: Mutex<Vec<String>>,
     pending: Mutex<Vec<Pending>>,
     next_handle: AtomicU64,
 }
@@ -108,6 +111,7 @@ impl Session {
             via_websocket,
             client,
             ui_version: Mutex::new(None),
+            understands: Mutex::new(Vec::new()),
             pending: Mutex::new(Vec::new()),
             next_handle: AtomicU64::new(0),
         }
@@ -181,8 +185,17 @@ impl Session {
         self.level == AdminLevel::Write
     }
 
-    pub fn hello(&self, burrow: Option<String>) {
+    pub fn hello(&self, burrow: Option<String>, understands: Vec<String>) {
         *self.ui_version.lock().expect("ui version lock") = burrow;
+        *self.understands.lock().expect("understands lock") = understands;
+    }
+
+    pub fn understands(&self, feature: &str) -> bool {
+        self.understands
+            .lock()
+            .expect("understands lock")
+            .iter()
+            .any(|f| f == feature)
     }
 
     pub fn older_ui(&self) -> bool {
@@ -199,7 +212,7 @@ pub struct Core {
     schema: Schema,
     audit: Mutex<VecDeque<AuditEntry>>,
     last_good: Mutex<Option<String>>,
-    seen: Mutex<VecDeque<(String, String)>>,
+    seen: Mutex<VecDeque<(String, Docs)>>,
     started: Instant,
 }
 
@@ -289,7 +302,12 @@ impl Core {
         }
     }
 
+    #[cfg(test)]
     pub fn read(&self) -> Result<String, ApiError> {
+        self.docs().map(|d| d.main().text.clone())
+    }
+
+    pub fn docs(&self) -> Result<Docs, ApiError> {
         self.store.read().map_err(|e| {
             ApiError::new(
                 ErrorCode::Internal,
@@ -302,7 +320,7 @@ impl Core {
         })
     }
 
-    fn file_info(&self, s: &Session) -> FileInfo {
+    fn file_info(&self, s: &Session, docs: &Docs) -> FileInfo {
         let writable = self.store.writable();
         FileInfo {
             path: self.store.path().display().to_string(),
@@ -326,10 +344,32 @@ impl Core {
             source_differs: None,
             why_not_history: self.store.history_problem(),
             history_dir: self.store.history_dir().map(|d| d.display().to_string()),
+            files: self.config_files(docs),
         }
     }
 
-    pub fn seen_text(&self, rev: &str) -> Option<String> {
+    fn config_files(&self, docs: &Docs) -> Vec<ConfigFile> {
+        if docs.list.len() < 2 {
+            return Vec::new();
+        }
+        let owners = plan::files::Owners::of(docs);
+        docs.list
+            .iter()
+            .enumerate()
+            .map(|(i, d)| ConfigFile {
+                name: d.name.clone(),
+                read_only: self.store.read_only(&d.name),
+                items: owners
+                    .items
+                    .iter()
+                    .filter(|(_, at)| **at == i)
+                    .map(|((section, name), _)| vec![section.clone(), name.clone()])
+                    .collect(),
+            })
+            .collect()
+    }
+
+    pub fn seen_docs(&self, rev: &str) -> Option<Docs> {
         self.seen
             .lock()
             .expect("seen lock")
@@ -339,16 +379,16 @@ impl Core {
     }
 
     pub fn state(&self, s: &Session) -> Result<State, ApiError> {
-        let text = self.read()?;
-        let rev = text::rev(&text);
+        let docs = self.docs()?;
+        let rev = text::docs_rev(&docs);
         {
             let mut seen = self.seen.lock().expect("seen lock");
             if !seen.iter().any(|(r, _)| *r == rev) {
-                seen.push_front((rev.clone(), text.clone()));
+                seen.push_front((rev.clone(), docs.clone()));
                 seen.truncate(SEEN);
             }
         }
-        let checked = plan::check_text(self, &text);
+        let checked = plan::check_docs(self, &docs);
         if checked.valid {
             *self.last_good.lock().expect("last good lock") = Some(rev.clone());
         }
@@ -391,7 +431,7 @@ impl Core {
         warnings.extend(notice);
         Ok(State {
             rev: rev.clone(),
-            file: self.file_info(s),
+            file: self.file_info(s, &docs),
             running: Running {
                 rev: self
                     .last_good
@@ -436,8 +476,8 @@ impl Core {
                     .clamp(1024, 65535) as u16;
                 let count = req.count.unwrap_or(1).clamp(1, 1000) as u16;
                 let udp = req.proto.as_deref().and_then(Protocol::from_wire) == Some(Protocol::Udp);
-                let text = self.read()?;
-                let used = plan::used_ports(self, &text);
+                let docs = self.docs()?;
+                let used = plan::used_ports(self, &docs);
                 let mut at = near;
                 for _ in 0..200 {
                     match self.live.free_port(at, count, udp) {
@@ -453,8 +493,8 @@ impl Core {
                 Ok(Suggestions { values: Vec::new() })
             }
             burrow_admin_proto::msg::suggest::NAME => {
-                let text = self.read()?;
-                let checked = plan::check_text(self, &text);
+                let docs = self.docs()?;
+                let checked = plan::check_docs(self, &docs);
                 let section = match req.entity.as_deref().map(Entity::parse) {
                     Some(Entity::Client) => ClientEntry::section(),
                     Some(Entity::Visitor) => VisitorEntry::section(),
@@ -485,60 +525,6 @@ impl Core {
         entry.id = next_id(a.front(), entry.at);
         a.push_front(entry);
         a.truncate(AUDIT_RING);
-    }
-
-    pub fn history(&self, req: &HistoryRequest) -> Result<HistoryReply, ApiError> {
-        let limit = req.limit.unwrap_or(50).clamp(1, AUDIT_RING as u32) as usize;
-        let mut entries: Vec<AuditEntry> = self
-            .audit
-            .lock()
-            .expect("audit lock")
-            .iter()
-            .take(limit)
-            .cloned()
-            .collect();
-        let mut kept: HashMap<String, bool> = HashMap::new();
-        for e in &mut entries {
-            e.revertible = *kept
-                .entry(e.rev.clone())
-                .or_insert_with(|| self.store.version(&e.rev).is_some());
-        }
-        let missing = match (req.entry, &req.diff) {
-            (Some(id), _) => Some(format!("no history entry {id}")),
-            (None, Some(rev)) => Some(format!("no history entry for {rev}")),
-            (None, None) => None,
-        };
-        let wanted = |e: &AuditEntry| match (req.entry, &req.diff) {
-            (Some(id), _) => e.id == id,
-            (None, Some(rev)) => e.rev == *rev,
-            (None, None) => false,
-        };
-        let diff = match missing {
-            Some(missing) => {
-                let entry = self
-                    .audit
-                    .lock()
-                    .expect("audit lock")
-                    .iter()
-                    .find(|e| wanted(e))
-                    .cloned()
-                    .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, missing))?;
-                let after = self.store.version(&entry.rev);
-                let before = self.store.version(&entry.base);
-                match (before, after) {
-                    (Some(b), Some(a)) => {
-                        let hashes = values::hashes_in(&[&b, &a], &self.schema().root);
-                        let headers = values::header_values_in(&[&b, &a]);
-                        Some(diff::unified(&b, &a, &|l| {
-                            text::mask_secrets(&values::veil_line(l, &hashes, &headers), &[])
-                        }))
-                    }
-                    _ => None,
-                }
-            }
-            None => None,
-        };
-        Ok(HistoryReply { entries, diff })
     }
 }
 

@@ -11,6 +11,7 @@ pub mod check;
 mod diag_words;
 pub mod entries;
 pub mod fallback;
+pub mod files;
 pub mod grant;
 pub mod history;
 pub mod input;

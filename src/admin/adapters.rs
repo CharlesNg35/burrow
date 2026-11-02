@@ -13,7 +13,8 @@ use super::core::ports::{Live, LiveSession, Store, Version, WhyNot, WriteError};
 use super::core::{Core, Session, text};
 use super::transport::{self, Access};
 use crate::config::Format;
-use crate::config::save::{Refused, write_back};
+use crate::config::docs::{Docs, main_name};
+use crate::config::save::{Refused, write_set};
 use crate::config::settings::ServerSettings;
 use crate::metrics::Status;
 use crate::policy::throttle::Throttle;
@@ -28,7 +29,7 @@ const KEEP: usize = 20;
 pub struct FileStore {
     path: PathBuf,
     format: Format,
-    memory: Mutex<Vec<(Version, String)>>,
+    memory: Mutex<Vec<(Version, Docs)>>,
     problem: Mutex<Option<String>>,
 }
 
@@ -217,12 +218,12 @@ impl Store for FileStore {
         self.format
     }
 
-    fn read(&self) -> std::io::Result<String> {
-        std::fs::read_to_string(&self.path)
+    fn read(&self) -> std::io::Result<Docs> {
+        crate::config::docs::read(&self.path)
     }
 
-    fn write(&self, before: &str, after: &str) -> Result<(), WriteError> {
-        match write_back(&self.path, before, after) {
+    fn write(&self, before: &Docs, after: &Docs) -> Result<(), WriteError> {
+        match write_set(&self.path, before, after) {
             Ok(()) => Ok(()),
             Err(Refused::Changed) => Err(WriteError::Changed),
             Err(Refused::Io(e)) => Err(WriteError::Io(crate::base::failure::file_reason(&e))),
@@ -263,8 +264,8 @@ impl Store for FileStore {
         }
     }
 
-    fn keep(&self, rev: &str, body: &str) {
-        if let Err(e) = self.write_history(rev, body) {
+    fn keep(&self, rev: &str, docs: &Docs) {
+        if let Err(e) = self.write_history(rev, &docs.bundle()) {
             *self.problem.lock().expect("problem lock") = Some(format!(
                 "earlier versions are kept in memory only: cannot write {} ({})",
                 self.dir().display(),
@@ -279,7 +280,7 @@ impl Store for FileStore {
                         rev: rev.to_string(),
                         at: burrow_syntax::duration::now_secs(),
                     },
-                    body.to_string(),
+                    docs.clone(),
                 ),
             );
             m.truncate(KEEP);
@@ -297,7 +298,7 @@ impl Store for FileStore {
         out
     }
 
-    fn version(&self, rev: &str) -> Option<String> {
+    fn version(&self, rev: &str) -> Option<Docs> {
         if let Some((_, t)) = self
             .memory
             .lock()
@@ -309,7 +310,8 @@ impl Store for FileStore {
         }
         let (_, path) = self.files().into_iter().find(|(v, _)| v.rev == rev)?;
         let body = std::fs::read_to_string(path).ok()?;
-        (text::rev(&body) == rev).then_some(body)
+        let docs = Docs::unbundle(&main_name(&self.path), &body);
+        (text::docs_rev(&docs) == rev).then_some(docs)
     }
 
     fn history_dir(&self) -> Option<PathBuf> {
@@ -318,6 +320,14 @@ impl Store for FileStore {
 
     fn history_problem(&self) -> Option<String> {
         self.problem.lock().expect("problem lock").clone()
+    }
+
+    fn read_only(&self, name: &str) -> Option<String> {
+        if name == main_name(&self.path) {
+            return None;
+        }
+        let path = crate::config::docs::path_of(&self.path, name);
+        crate::config::docs::read_only(&path).map(|r| r.why().to_string())
     }
 }
 
@@ -564,6 +574,14 @@ fn folder_why_not(path: &Path, folder: &Path, e: &std::io::Error) -> WhyNot {
 
 #[cfg(test)]
 mod tests {
+    fn one(text: &str) -> Docs {
+        Docs::one("server.yaml", text)
+    }
+
+    fn main_text(docs: Option<Docs>) -> Option<String> {
+        docs.map(|d| d.main().text.clone())
+    }
+
     #[tokio::test]
     async fn the_web_port_probe_never_keeps_the_port() {
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -629,12 +647,12 @@ mod tests {
         let base = "listen: 1\n".to_string();
         let base_rev = text::rev(&base);
         for i in 0..(KEEP * 2) {
-            store.keep(&base_rev, &base);
+            store.keep(&base_rev, &one(&base));
             let body = format!("listen: {}\n", 100 + i);
-            store.keep(&text::rev(&body), &body);
+            store.keep(&text::rev(&body), &one(&body));
         }
         assert_eq!(
-            store.version(&base_rev).as_deref(),
+            main_text(store.version(&base_rev)).as_deref(),
             Some(base.as_str()),
             "the version an apply and revert cycle returns to stays in the history"
         );
@@ -653,8 +671,8 @@ mod tests {
         for i in 0..25 {
             let body = format!("listen: {i}\n");
             let rev = text::rev(&body);
-            store.keep(&rev, &body);
-            store.keep(&rev, &body);
+            store.keep(&rev, &one(&body));
+            store.keep(&rev, &one(&body));
             revs.push((rev, body));
         }
         assert!(store.history_problem().is_none());
@@ -667,9 +685,12 @@ mod tests {
             .collect();
         assert_eq!(names.len(), KEEP, "no drafts are left behind: {names:?}");
         let (rev, body) = &revs[24];
-        assert_eq!(store.version(rev).as_deref(), Some(body.as_str()));
+        assert_eq!(
+            main_text(store.version(rev)).as_deref(),
+            Some(body.as_str())
+        );
         for (i, (rev, body)) in revs.iter().enumerate() {
-            let kept = store.version(rev);
+            let kept = main_text(store.version(rev));
             if i < 25 - KEEP {
                 assert!(
                     kept.is_none(),
@@ -698,11 +719,14 @@ mod tests {
         std::fs::write(&path, "listen: 1\n").unwrap();
         let store = FileStore::new(&path);
         assert_eq!(
-            store.write("listen: 2\n", "listen: 3\n"),
+            store.write(&one("listen: 2\n"), &one("listen: 3\n")),
             Err(WriteError::Changed)
         );
-        assert_eq!(store.write("listen: 1\n", "listen: 3\n"), Ok(()));
-        assert_eq!(store.read().unwrap(), "listen: 3\n");
+        assert_eq!(
+            store.write(&one("listen: 1\n"), &one("listen: 3\n")),
+            Ok(())
+        );
+        assert_eq!(store.read().unwrap().main().text, "listen: 3\n");
     }
 
     #[test]
@@ -734,9 +758,9 @@ mod tests {
         std::fs::set_permissions(&inner, std::fs::Permissions::from_mode(0o500)).unwrap();
         let store = FileStore::new(&path);
         let why = store.writable().err();
-        store.keep(&text::rev("listen: 1\n"), "listen: 1\n");
+        store.keep(&text::rev("listen: 1\n"), &one("listen: 1\n"));
         let problem = store.history_problem();
-        let kept = store.version(&text::rev("listen: 1\n"));
+        let kept = main_text(store.version(&text::rev("listen: 1\n")));
         std::fs::set_permissions(&inner, std::fs::Permissions::from_mode(0o700)).unwrap();
         let why = why.expect("not writable");
         assert_eq!(why.code, burrow_admin_proto::codes::FOLDER_NOT_WRITABLE);

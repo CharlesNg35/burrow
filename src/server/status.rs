@@ -131,6 +131,7 @@ impl Shared {
                     set_aside,
                     entries,
                     web: site.map(|s| s.hosts.clone()).unwrap_or_default(),
+                    file: settings.service_files.get(name).cloned(),
                     http: site
                         .filter(|s| s.tls != WebTls::Passthrough)
                         .map(|_| HttpCounts {

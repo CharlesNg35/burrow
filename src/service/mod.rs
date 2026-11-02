@@ -9,6 +9,7 @@ mod update;
 
 mod checks;
 mod control;
+mod drop_ins;
 mod install;
 #[cfg(target_os = "macos")]
 mod launchd;

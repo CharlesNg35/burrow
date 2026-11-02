@@ -6,10 +6,24 @@ pub enum Tab {
     Connections,
     Web,
     Monitoring,
+    Files,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Server, Tab::Connections, Tab::Web, Tab::Monitoring];
+    pub const ALL: [Tab; 5] = [
+        Tab::Server,
+        Tab::Connections,
+        Tab::Web,
+        Tab::Monitoring,
+        Tab::Files,
+    ];
+
+    pub fn shown(files: bool) -> Vec<Tab> {
+        Tab::ALL
+            .into_iter()
+            .filter(|t| files || *t != Tab::Files)
+            .collect()
+    }
 
     pub fn key(self) -> &'static str {
         match self {
@@ -17,6 +31,7 @@ impl Tab {
             Tab::Connections => "connections",
             Tab::Web => "proxy",
             Tab::Monitoring => "monitoring",
+            Tab::Files => "files",
         }
     }
 
@@ -26,6 +41,7 @@ impl Tab {
             Tab::Connections => "Connections",
             Tab::Web => "Web",
             Tab::Monitoring => "Monitoring",
+            Tab::Files => "Files",
         }
     }
 
