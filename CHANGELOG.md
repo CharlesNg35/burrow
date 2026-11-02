@@ -15,6 +15,8 @@
 - burrow admin warns before saving when a service's client has sent an allow list that does not cover the service's target, so it would refuse the service; the hint says to add it or print the client's config again.
 - `burrow validate` warns when a service sets `mode` with only one client, where it has no effect.
 - burrow admin: a website's Let's Encrypt check can be changed only when Let's Encrypt gives the certificate (HTTPS: Automatic), as `burrow validate` requires; Review opened with edits not yet added says so and opens them; a public address shows its "up to 1000 ports" capacity only while Port range is on.
+- burrow admin: Review's impacts and the pre-save port checks compare the config file with your changes, as the change list does, so an unrelated edit no longer says it opens web ports applied before. A web port, WebSocket or metrics address that is in the config but not open on the server is shown in Needs attention instead. Review says "opens the web proxy's HTTPS port …".
+- A client logs a service without a server port as "no server port (a website or visitors)" instead of "private, for visitors".
 - `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
 - Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
 
