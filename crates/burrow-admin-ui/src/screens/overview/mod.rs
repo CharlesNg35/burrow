@@ -85,7 +85,11 @@ fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
         key: format!("web-wait:{}", w.key),
         tone: Tone::Warning,
         title: w.line(),
-        detail: "Free the port, or pick another one in Settings.".into(),
+        detail: if w.hint.is_empty() {
+            "Free the port, or pick another one in Settings.".into()
+        } else {
+            burrow_admin_logic::wording::capital(&w.hint)
+        },
         to: Some(Route::Settings),
         field: Some(field),
     }
@@ -582,6 +586,7 @@ mod tests {
             reason: "in use by another program".into(),
             stays: String::new(),
             retry_secs: 30,
+            hint: "ports below 1024 need root".into(),
         });
         let items = attention(&json!({}), None, Some(&st), 0);
         let w = items
@@ -589,6 +594,7 @@ mod tests {
             .find(|i| i.key == "web-wait:web.https")
             .expect("the wait is listed");
         assert_eq!(w.title, st.web_waiting.as_ref().unwrap().line());
+        assert_eq!(w.detail, "Ports below 1024 need root");
         assert_eq!(
             w.field.as_deref(),
             Some(&["web".to_string(), "https".to_string()][..])

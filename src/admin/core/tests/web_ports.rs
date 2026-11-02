@@ -45,6 +45,36 @@ fn impact<'a>(plan: &'a Plan, code: &str) -> Option<&'a str> {
 const PORTS: &str = "web:\n  https: 8443\n  http: 8080\n";
 
 #[test]
+fn a_low_web_port_the_server_may_not_open_gets_one_warning_with_its_fix() {
+    let w = with_web(PORTS);
+    let core = core_busy(&w.text, &w.text, vec![80]);
+    let plan = plan_of(&core, &w, set(&["web", "https"], json!(80)));
+    let at = |code: &str| plan.diags.iter().filter(|d| d.code == code).count();
+    let addr: std::net::SocketAddr = "[::]:80".parse().unwrap();
+    if !crate::config::check::low_port_refused(addr) {
+        return;
+    }
+    assert_eq!(at(PORT_IN_USE), 0, "{:?}", plan.diags);
+    let d = plan
+        .diags
+        .iter()
+        .find(|d| d.code == "low-port")
+        .expect("a low-port warning");
+    assert!(!d.is_error());
+    assert!(
+        d.message.starts_with("web.https: port 80 needs root"),
+        "{}",
+        d.message
+    );
+    assert!(
+        d.help
+            .as_deref()
+            .is_some_and(|h| h.contains(&crate::base::ports::low_port_hint())),
+        "{d:?}"
+    );
+}
+
+#[test]
 fn a_new_web_port_another_program_holds_refuses_the_plan_with_the_find_hint() {
     let w = with_web(PORTS);
     let core = core_busy(&w.text, &w.text, vec![9443]);

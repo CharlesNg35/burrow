@@ -428,7 +428,8 @@ Where each name gets its certificate:
 | a UDP service with `web` | `service "dns" is udp, but web only works for tcp services; remove web:, or set protocol: tcp` |
 | warning: a plain-HTTP site | `services.wiki: served as plain HTTP; anyone on the path can read and change its traffic` |
 | warning: no `web.http` | `web.http is not set: http:// addresses get no answer` |
-| warning: a low port burrow may not open | `web.https [::]:443: port 443 needs root or CAP_NET_BIND_SERVICE; burrow service install grants it, or run burrow as root` |
+| warning: a low port burrow may not open | `web.https: port 443 needs root or CAP_NET_BIND_SERVICE`, with how to grant it |
+| warning: the two web ports swapped | `web.https: port 80 is where browsers send http:// addresses, so visitors who type a name do not reach these websites` |
 | another listener on the same port | `web.https [::]:443 is also the control port (listen ...)`, or the service or metrics port it clashes with |
 
 ## Next steps

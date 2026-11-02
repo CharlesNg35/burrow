@@ -148,9 +148,10 @@ impl Live for FakeLive {
         (!self.busy.contains(&near)).then_some(near)
     }
     fn bind_probe(&self, addr: std::net::SocketAddr) -> std::io::Result<()> {
-        match self.busy.contains(&addr.port()) {
-            true => Err(std::io::ErrorKind::AddrInUse.into()),
-            false => Ok(()),
+        match (self.busy.contains(&addr.port()), addr.port() < 1024) {
+            (true, true) => Err(std::io::ErrorKind::PermissionDenied.into()),
+            (true, false) => Err(std::io::ErrorKind::AddrInUse.into()),
+            (false, _) => Ok(()),
         }
     }
 }

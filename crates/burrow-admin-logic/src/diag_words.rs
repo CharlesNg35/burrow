@@ -144,6 +144,9 @@ mod tests {
             "unknown-login",
             "forward-auth-unused",
             "forward-auth-h2",
+            "low-port",
+            "swapped-port",
+            "plain-ws-443",
         ];
         let client_file = [
             "allow-all",
@@ -192,13 +195,11 @@ mod tests {
             "letsencrypt-directory",
             "letsencrypt-email",
             "link-local-target",
-            "low-port",
             "missing-secret",
             "no-clients",
             "no-listener",
             "no-services",
             "no-web-proxy",
-            "plain-ws-443",
             "proxied-source",
             "proxy-tls-check",
             "public-metrics",

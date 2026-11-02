@@ -116,7 +116,7 @@ fn plain_websocket_on_443_gets_a_note() {
     assert!(!note.is_error());
     assert_eq!(
         note.message,
-        "websocket.listen 443 has no TLS: clients must use ws://tunnel.example.com:443/burrow, and networks that expect TLS on 443 may block it; add websocket.tls, use web.letsencrypt (a web: block with websocket.host), or use port 80"
+        "websocket.listen: port 443 has no TLS, so clients must use ws://tunnel.example.com:443/burrow, and networks that expect TLS on 443 may block it; add websocket.tls, use web.letsencrypt (a web: block with websocket.host), or use port 80"
     );
     assert!(found(&format!("listen: 7835\n{}", ws("7836", "")), "plain-ws-443").is_empty());
 }

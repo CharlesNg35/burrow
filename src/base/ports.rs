@@ -40,9 +40,67 @@ pub(crate) fn inspect_hint(proto: Protocol, port: u16) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Os {
+    Linux,
+    Mac,
+    OtherUnix,
+    Windows,
+}
+
+pub(crate) fn os() -> Os {
+    if cfg!(windows) {
+        Os::Windows
+    } else if cfg!(target_os = "linux") {
+        Os::Linux
+    } else if cfg!(target_os = "macos") {
+        Os::Mac
+    } else {
+        Os::OtherUnix
+    }
+}
+
+pub(crate) fn low_port_who(os: Os) -> &'static str {
+    match os {
+        Os::Linux => "root or CAP_NET_BIND_SERVICE",
+        Os::Mac => "root, except on all addresses (0.0.0.0 or ::)",
+        _ => "root",
+    }
+}
+
+pub(crate) fn low_port_fix(os: Os, burrow: &str, exe: &str) -> String {
+    match os {
+        Os::Linux => format!(
+            "a burrow service installed with this port has it (run {burrow} service install again after adding one); for a server run by hand: sudo setcap cap_net_bind_service=+ep {exe} (again after each update); or use a port above 1023"
+        ),
+        Os::Mac => "listen on all addresses, use a port above 1023, or run burrow as root".into(),
+        _ => "run burrow as root, or use a port above 1023".into(),
+    }
+}
+
+pub(crate) fn low_port_hint() -> String {
+    let exe = std::env::current_exe()
+        .map(|p| crate::base::failure::arg(&p.to_string_lossy()))
+        .unwrap_or_else(|_| "$(command -v burrow)".into());
+    low_port_fix(os(), crate::base::failure::command(), &exe)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_low_port_hint_names_the_service_and_setcap_on_linux() {
+        assert_eq!(
+            low_port_fix(Os::Linux, "burrow", "/usr/local/bin/burrow"),
+            "a burrow service installed with this port has it (run burrow service install again after adding one); for a server run by hand: sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow (again after each update); or use a port above 1023"
+        );
+        assert_eq!(
+            low_port_fix(Os::OtherUnix, "burrow", "/x"),
+            "run burrow as root, or use a port above 1023"
+        );
+        assert_eq!(low_port_who(Os::Linux), "root or CAP_NET_BIND_SERVICE");
+    }
 
     #[tokio::test]
     async fn a_bind_is_tried_the_given_number_of_times_then_its_last_error_is_kept() {

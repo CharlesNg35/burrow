@@ -63,7 +63,8 @@ The web proxy listens on up to two ports of the server, set under `web:`:
 
 - A port alone, like `443`, listens on IPv4 and IPv6, since many home connections only have a public IPv6 address. Write `0.0.0.0:443` for IPv4 only, or one address, like `203.0.113.10:443`.
 - `web:` needs at least one of the two. Without `web.https`, every website is plain HTTP.
-- Ports below 1024 need root or `CAP_NET_BIND_SERVICE` on Linux; `burrow service install` takes care of that.
+- Ports below 1024 need root or `CAP_NET_BIND_SERVICE` on Linux. `burrow service install` grants it when the config has such a port; install again after adding one. For a server you run by hand, `sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow` grants it to the binary, and must be run again after each update, as for Caddy. `burrow validate` and burrow admin warn when this process may not open the port, with the same text.
+- `burrow validate` warns when `web.https` is 80 or `web.http` is 443: browsers send `http://` to 80 and `https://` to 443, so visitors who type a name would not reach the websites. Keep it only when a router or proxy in front sends the usual port there.
 - Without `web.http`, nothing answers `http://`: a visitor who types `http://blog.example.com` gets "connection refused".
 
 ## How a website is served

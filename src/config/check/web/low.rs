@@ -1,15 +1,8 @@
 use std::net::SocketAddr;
 
 use super::Spans;
+use crate::base::ports::{Os, low_port_who, os};
 use crate::config::diagnostics::Diagnostic;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Os {
-    Linux,
-    Mac,
-    OtherUnix,
-    Windows,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Rights {
@@ -27,18 +20,6 @@ pub(super) fn needs_rights(addr: SocketAddr, r: Rights) -> bool {
         Os::Linux => !r.bind_cap,
         Os::Mac => !addr.ip().is_unspecified(),
         Os::OtherUnix => true,
-    }
-}
-
-fn os() -> Os {
-    if cfg!(windows) {
-        Os::Windows
-    } else if cfg!(target_os = "linux") {
-        Os::Linux
-    } else if cfg!(target_os = "macos") {
-        Os::Mac
-    } else {
-        Os::OtherUnix
     }
 }
 
@@ -77,23 +58,18 @@ fn rights() -> Rights {
     }
 }
 
-pub(super) fn message(key: &str, addr: SocketAddr, os: Os, services: bool) -> String {
-    let who = match os {
-        Os::Linux => "root or CAP_NET_BIND_SERVICE",
-        _ => "root",
-    };
-    let fix = if services {
-        "burrow service install grants it, or run burrow as root"
-    } else {
-        "run burrow as root"
-    };
-    format!("web.{key} {addr}: port {} needs {who}; {fix}", addr.port())
+pub(super) fn message(key: &str, port: u16, os: Os) -> String {
+    format!("web.{key}: port {port} needs {}", low_port_who(os))
 }
 
-pub(super) fn help(port: u16) -> String {
+pub(super) fn help(port: u16, fix: &str) -> String {
     format!(
-        "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port {port} for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web/proxies.md"
+        "{fix}; Let's Encrypt checks only ports 443 and 80 from the internet, so to run burrow on a higher port, forward port {port} to it on the router (\"Port forwarding at home\" in docs/web/proxies.md)"
     )
+}
+
+pub(crate) fn refused_here(addr: SocketAddr) -> bool {
+    needs_rights(addr, rights())
 }
 
 pub(in crate::config::check) fn check_low_ports(
@@ -107,13 +83,40 @@ pub(in crate::config::check) fn check_low_ports(
             continue;
         };
         out.push(
-            Diagnostic::warning(
-                "low-port",
-                message(key, addr, r.os, crate::base::failure::SERVICES),
-            )
-            .at(spans.value(&["web", key]))
-            .help(help(addr.port())),
+            Diagnostic::warning("low-port", message(key, addr.port(), r.os))
+                .at(spans.value(&["web", key]))
+                .help(help(addr.port(), &crate::base::ports::low_port_hint())),
         );
+    }
+}
+
+pub(super) fn swapped(key: &str, port: u16) -> Option<(String, &'static str)> {
+    let (other, scheme) = match (key, port) {
+        ("https", 80) => ("80", "http://"),
+        ("http", 443) => ("443", "https://"),
+        _ => return None,
+    };
+    Some((
+        format!(
+            "web.{key}: port {other} is where browsers send {scheme} addresses, so visitors who type a name do not reach these websites"
+        ),
+        "use 443 for HTTPS and 80 for HTTP; keep this only when a router or proxy in front sends the usual port here",
+    ))
+}
+
+pub(in crate::config::check) fn check_swapped(
+    (https, http): (Option<SocketAddr>, Option<SocketAddr>),
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    for (key, addr) in [("https", https), ("http", http)] {
+        if let Some((message, help)) = addr.and_then(|a| swapped(key, a.port())) {
+            out.push(
+                Diagnostic::warning("swapped-port", message)
+                    .at(spans.value(&["web", key]))
+                    .help(help),
+            );
+        }
     }
 }
 
@@ -128,6 +131,26 @@ mod tests {
             bind_cap: cap,
             unprivileged_from: 1024,
         }
+    }
+
+    #[test]
+    fn only_the_two_well_known_ports_count_as_swapped() {
+        assert!(swapped("https", 80).is_some());
+        assert!(swapped("http", 443).is_some());
+        for (key, port) in [
+            ("https", 443),
+            ("http", 80),
+            ("https", 8080),
+            ("http", 8443),
+            ("http", 4432),
+            ("https", 8000),
+        ] {
+            assert!(swapped(key, port).is_none(), "{key} {port}");
+        }
+        assert_eq!(
+            swapped("https", 80).unwrap().0,
+            "web.https: port 80 is where browsers send http:// addresses, so visitors who type a name do not reach these websites"
+        );
     }
 
     #[test]
@@ -149,16 +172,16 @@ mod tests {
         assert!(needs_rights(any, r(Os::OtherUnix, false, false)));
         assert!(!needs_rights(any, r(Os::Windows, false, false)));
         assert_eq!(
-            message("https", any, Os::Linux, true),
-            "web.https [::]:443: port 443 needs root or CAP_NET_BIND_SERVICE; burrow service install grants it, or run burrow as root"
+            message("https", 443, Os::Linux),
+            "web.https: port 443 needs root or CAP_NET_BIND_SERVICE"
         );
         assert_eq!(
-            message("http", "[::]:80".parse().unwrap(), Os::OtherUnix, false),
-            "web.http [::]:80: port 80 needs root; run burrow as root"
+            message("http", 80, Os::OtherUnix),
+            "web.http: port 80 needs root"
         );
         assert_eq!(
-            help(80),
-            "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port 80 for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web/proxies.md"
+            help(80, "run burrow as root, or use a port above 1023"),
+            "run burrow as root, or use a port above 1023; Let's Encrypt checks only ports 443 and 80 from the internet, so to run burrow on a higher port, forward port 80 to it on the router (\"Port forwarding at home\" in docs/web/proxies.md)"
         );
     }
 }

@@ -374,6 +374,9 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
 fn render_web(out: &mut String, s: &Status, paint: Paint) {
     if let Some(w) = &s.web_waiting {
         let _ = writeln!(out, "\n{}", paint.tone(&w.line(), Tone::Bad));
+        if !w.hint.is_empty() {
+            let _ = writeln!(out, "  {}", paint.tone(&w.hint, Tone::Dim));
+        }
     }
     let Some(web) = &s.web else {
         return;

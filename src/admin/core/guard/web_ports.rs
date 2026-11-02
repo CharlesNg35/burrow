@@ -183,6 +183,11 @@ pub fn busy(
                 return None;
             }
             let e = probe(addr).err()?;
+            if e.kind() == std::io::ErrorKind::PermissionDenied
+                && crate::config::check::low_port_refused(addr)
+            {
+                return None;
+            }
             let f = crate::server::bind_error(&path.join("."), Protocol::Tcp, addr, &e);
             Some(Diag {
                 severity: Severity::Error,

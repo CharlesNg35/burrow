@@ -51,6 +51,8 @@ pub struct PortWait {
     pub stays: String,
     #[serde(default)]
     pub retry_secs: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hint: String,
 }
 
 impl PortWait {
@@ -291,6 +293,7 @@ mod tests {
             reason: "in use".into(),
             stays: "https 0.0.0.0:443".into(),
             retry_secs: 5,
+            hint: String::new(),
         };
         assert_eq!(
             w.line(),
