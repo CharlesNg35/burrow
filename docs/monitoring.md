@@ -27,12 +27,12 @@ A server installed as a service needs `sudo` (an administrator terminal on Windo
 
 ```
 $ sudo burrow status
-burrow 0.2.0  ·  up 3d 4h  ·  clients on tcp 0.0.0.0:7835
+burrow 0.2.2  ·  up 3d 4h  ·  clients on tcp 0.0.0.0:7835
 
 CLIENTS  1/2 online
-  NAME    STATE    SINCE        FROM            OPEN  IDLE
-  home    online   2h 13m       81.2.3.4:51234     3     4
-  office  offline  left 5m ago                     0     0
+  NAME    STATE    SINCE        VERSION  FROM            OPEN  IDLE
+  home    online   2h 13m       0.2.2    81.2.3.4:51234     3     4
+  office  offline  left 5m ago                              0     0
 
 SERVICES
   NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT

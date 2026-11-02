@@ -60,6 +60,17 @@ sudo burrow clients update --all --yes   # every client that can take it, withou
 sudo burrow clients update home --json   # the result as JSON, for scripts
 ```
 
+The list looks like this:
+
+```
+$ sudo burrow clients
+CLIENTS  latest release 0.2.3
+  NAME    VERSION  SYSTEM       RUNS     REMOTE UPDATES      NEWER
+  home    0.2.2    linux/amd64  service  allowed             0.2.3 available
+  nas     0.2.2    linux/arm64  by hand  off in its config   0.2.3 available, but remote updates are off in its config (update: remote: true in client.yaml)
+  office  < 0.2.2                                            update it by hand once (sudo burrow update); from 0.2.2 on it can be updated from here
+```
+
 - With several servers on the machine, name one with `--service NAME` (short names work: `--service server`) or `-c FILE`. Listing shows them all; updating refuses until one is named.
 - It says first which clients it asks and why the others are not asked (offline, remote updates off, already on the latest release, older than 0.2.2), then asks for a confirmation unless `--yes` is given. Without a terminal and without `--yes` nothing is asked.
 - It follows each client and prints a line per step: `home: 0.2.2 → 0.2.3 updated`, `nas: rolled back: <reason>`, and `stopped: pi not updated` when an update of several stops at a failure.
