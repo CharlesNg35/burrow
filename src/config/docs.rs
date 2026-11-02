@@ -129,7 +129,7 @@ impl Skip {
     pub fn why(self) -> &'static str {
         match self {
             Skip::Extension => "only files ending in .yaml are",
-            Skip::Name => "names with : or \\ or control characters are not",
+            Skip::Name => "names that are not text, or have : or \\ or control characters, are not",
             Skip::NotRegular => "it is not a regular file",
         }
     }
@@ -153,8 +153,15 @@ pub fn list(main: &Path) -> std::io::Result<Option<Listed>> {
     let mut out = Listed::default();
     for entry in entries {
         let entry = entry?;
-        let Ok(name) = entry.file_name().into_string() else {
-            continue;
+        let name = match entry.file_name().into_string() {
+            Ok(name) => name,
+            Err(raw) => {
+                let shown = raw.to_string_lossy().into_owned();
+                if shown.ends_with(".yaml") {
+                    out.ignored.push((format!("{prefix}/{shown}"), Skip::Name));
+                }
+                continue;
+            }
         };
         if name.starts_with('.') || std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir()) {
             continue;

@@ -407,10 +407,38 @@ fn a_name_with_a_newline_is_not_read_and_history_stays_readable() {
     let o = d.load();
     assert_eq!(o.report.sources.len(), 1, "{}", shown(&o));
     assert!(
-        o.report.diagnostics.iter().any(|x| x.code == codes::DROP_IN_IGNORED),
+        o.report
+            .diagnostics
+            .iter()
+            .any(|x| x.code == codes::DROP_IN_IGNORED),
         "{}",
         shown(&o)
     );
     let docs = crate::config::docs::read(&d.main).unwrap();
-    assert_eq!(crate::config::docs::Docs::unbundle(&d.main, &docs.bundle()), Some(docs));
+    assert_eq!(
+        crate::config::docs::Docs::unbundle(&d.main, &docs.bundle()),
+        Some(docs)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_name_that_is_not_utf8_is_warned_about() {
+    use std::os::unix::ffi::OsStrExt;
+    let d = Dir::new();
+    let folder = d.main.parent().unwrap().join("server.d");
+    std::fs::create_dir_all(&folder).unwrap();
+    let name = std::ffi::OsStr::from_bytes(b"caf\xe9.yaml");
+    if std::fs::write(folder.join(name), "services: {}\n").is_err() {
+        return;
+    }
+    let o = d.load();
+    assert!(
+        o.report
+            .diagnostics
+            .iter()
+            .any(|x| x.code == codes::DROP_IN_IGNORED),
+        "{}",
+        shown(&o)
+    );
 }
