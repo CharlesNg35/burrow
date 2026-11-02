@@ -60,11 +60,16 @@ pub fn FieldRow(
     let class = move || {
         let s = state.get();
         format!(
-            "relative min-w-0{}{}",
+            "relative min-w-0{}{}{}",
             if table {
                 " grid grid-cols-1 gap-x-4 gap-y-1.5 py-3.5 md:grid-cols-[210px_minmax(0,1fr)_110px]"
             } else if wide {
                 " md:col-span-2"
+            } else {
+                ""
+            },
+            if quiet {
+                " has-[[data-testid=reset-field]]:pt-7"
             } else {
                 ""
             },
