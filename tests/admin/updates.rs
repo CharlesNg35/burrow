@@ -137,7 +137,15 @@ async fn until(a: &mut Admin, what: &str, ok: impl Fn(&Value) -> bool) -> Value 
     }
 }
 
+fn latest() -> burrow_admin_proto::updates::LatestRelease {
+    burrow_admin_proto::updates::LatestRelease {
+        version: Some(NEW.into()),
+        ..Default::default()
+    }
+}
+
 async fn start(hand: &mut Hand, w: &World) -> Admin {
+    burrow::admin::adapters::use_latest(latest);
     hand.supervise();
     let mut a = connect(w, "ops", &w.ops, 1, 1).await.unwrap();
     a.call("subscribe", json!({"status_ms": 200}))
@@ -186,13 +194,18 @@ async fn a_client_started_by_hand_updates_itself_and_reconnects_with_the_new_ver
         &build(&[("VERSION", OLD)])
     ));
     assert_eq!(hand.record()["outcome"], "done");
-    let again = a
+    let older = a
         .call(
             "update_clients",
             json!({"clients": ["home"], "version": OLD}),
         )
         .await
-        .unwrap();
+        .unwrap_err();
+    assert!(
+        older.message.contains("only to the latest release"),
+        "{older:?}"
+    );
+    let again = ask(&mut a).await;
     assert!(
         again["skipped"][0]["why"]
             .as_str()
@@ -286,7 +299,7 @@ async fn a_release_that_is_not_published_is_refused_by_the_client() {
         home["update"]["detail"]
             .as_str()
             .unwrap()
-            .contains("not released"),
+            .contains("no burrow release was found"),
         "{home}"
     );
     assert!(same(&hand.binary, &build(&[("VERSION", OLD)])));

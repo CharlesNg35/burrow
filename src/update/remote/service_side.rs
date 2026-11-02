@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
 use super::Job;
-use super::record::{self, Record, Request};
+use super::record::{self, Asked, Record};
 use crate::install::Manifest;
 use crate::service::helper;
-use crate::wire::protocol::{Outcome, Step};
+use crate::wire::protocol::{LastUpdate, Outcome, Step};
 
 const WATCH_FOR: Duration = Duration::from_secs(30 * 60);
 
@@ -23,24 +23,47 @@ pub fn blocked(m: &Manifest) -> Option<String> {
             ))
         ));
     }
-    let dir = helper::dir(m);
-    (!super::by_hand::can_replace(&dir.join("x")))
-        .then(|| format!("this service cannot write to {}", dir.display()))
+    let trigger = helper::trigger(m)?;
+    (!super::by_hand::can_replace(&trigger)).then(|| {
+        format!(
+            "this service cannot write to {}",
+            trigger.parent().unwrap_or(&trigger).display()
+        )
+    })
 }
 
-fn place(dir: &Path, file: &Path, request: &Request) -> std::io::Result<()> {
-    let tmp = dir.join(".request.tmp");
-    record::write(&tmp, request, 0o600)?;
-    std::fs::rename(&tmp, file)
+fn asked_file(m: &Manifest) -> PathBuf {
+    let key = hex::encode(sha2_short(m.config.to_string_lossy().as_bytes()));
+    crate::instance::default_dir().join(format!("update-asked-{key}.json"))
+}
+
+fn sha2_short(bytes: &[u8]) -> [u8; 8] {
+    use sha2::Digest;
+    let d = sha2::Sha256::digest(bytes);
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&d[..8]);
+    out
+}
+
+fn result_of(m: &Manifest) -> Option<Record> {
+    record::read(&helper::result_file(m))
+}
+
+pub fn last(m: &Manifest) -> Option<LastUpdate> {
+    let mut r = result_of(m)?;
+    r.id = record::read::<Asked>(&asked_file(m))
+        .filter(|a| r.at >= a.at)
+        .map_or(0, |a| a.id);
+    r.last()
 }
 
 pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String> {
-    let file = helper::request_file(m).ok_or("this system has no updater")?;
-    let request = Request {
+    let asked = Asked {
         id: job.id,
-        version: job.to.clone(),
+        at: record::now(),
     };
-    place(&helper::dir(m), &file, &request)
+    let file = asked_file(m);
+    record::write(&file, &asked, 0o600)
         .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
     helper::fire(m)?;
     info!(
@@ -51,23 +74,23 @@ pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String
     );
     job.say(
         Step::Accepted,
-        format!("{} downloads {}", helper::helper_name(m), job.to),
+        format!("{} downloads the latest release", helper::helper_name(m)),
     );
-    let result = helper::result_file(m);
-    std::thread::spawn(move || watch(&result, &job, &busy));
+    let m = m.clone();
+    std::thread::spawn(move || watch(&m, asked.at, &job, &busy));
     Ok(())
 }
 
-fn watch(result: &Path, job: &Job, busy: &AtomicBool) {
+fn watch(m: &Manifest, since: u64, job: &Job, busy: &AtomicBool) {
     let until = Instant::now() + WATCH_FOR;
     while Instant::now() < until {
         std::thread::sleep(Duration::from_secs(2));
-        let Some(r) = record::read::<Record>(result).filter(|r| r.id == job.id) else {
+        let Some(r) = result_of(m).filter(|r| r.at >= since) else {
             continue;
         };
         match r.outcome() {
             Some(Outcome::Failed) => {
-                warn!("not updating to {}: {}", job.to, r.detail);
+                warn!("not updating: {}", r.detail);
                 job.say(Step::Failed, r.detail);
                 break;
             }
@@ -79,21 +102,19 @@ fn watch(result: &Path, job: &Job, busy: &AtomicBool) {
 }
 
 pub fn await_result(m: &Manifest, again: Arc<tokio::sync::watch::Sender<u64>>) {
-    let result = helper::result_file(m);
-    let Some(waiting) = record::read::<Record>(&result) else {
+    let Some(waiting) = result_of(m) else {
         return;
     };
     if waiting.outcome() != Some(Outcome::Trying) || waiting.to == crate::base::build::version() {
         return;
     }
+    let m = m.clone();
     std::thread::spawn(move || {
         let until = Instant::now() + Duration::from_secs(120);
         while Instant::now() < until {
             std::thread::sleep(Duration::from_secs(1));
-            let now = record::read::<Record>(&result);
-            if now
-                .as_ref()
-                .is_some_and(|r| r.id != waiting.id || r.outcome() != Some(Outcome::Trying))
+            if result_of(&m)
+                .is_some_and(|r| r.at != waiting.at || r.outcome() != Some(Outcome::Trying))
             {
                 again.send_modify(|n| *n += 1);
                 return;

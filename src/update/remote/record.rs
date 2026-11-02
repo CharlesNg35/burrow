@@ -7,9 +7,15 @@ use crate::wire::protocol::{LastUpdate, Outcome};
 const MAX_RECORD: u64 = 16 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct Request {
+pub struct Asked {
     pub id: u32,
-    pub version: String,
+    pub at: u64,
+}
+
+pub fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -24,6 +30,8 @@ pub struct Record {
     pub config: PathBuf,
     #[serde(default)]
     pub starts: u32,
+    #[serde(default)]
+    pub at: u64,
 }
 
 impl Record {
@@ -36,6 +44,7 @@ impl Record {
             detail: String::new(),
             config: config.to_path_buf(),
             starts: 0,
+            at: now(),
         }
     }
 
@@ -46,6 +55,7 @@ impl Record {
     pub fn ended(mut self, outcome: Outcome, detail: impl Into<String>) -> Record {
         self.outcome = outcome.wire().into();
         self.detail = detail.into();
+        self.at = now();
         self
     }
 

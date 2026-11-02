@@ -42,8 +42,10 @@ mark v5 VERSION=9.0.0-test.5 BREAK=start
 mark v6 VERSION=9.0.0-test.6 BREAK=config
 
 cd "$WORK"
-"$SERVE" 9.0.0-test.2 v2 good 9.0.0-test.3 v3 tampered 9.0.0-test.4 v4 good 9.0.0-test.5 v5 good 9.0.0-test.6 v6 good > releases.url &
+mkfifo releases.ctl
+"$SERVE" 9.0.0-test.2 v2 good 9.0.0-test.3 v3 tampered 9.0.0-test.4 v4 good 9.0.0-test.5 v5 good 9.0.0-test.6 v6 good < releases.ctl > releases.url &
 PIDS+=($!)
+exec 3> releases.ctl
 for _ in $(seq 1 600); do [ -s releases.url ] && break; sleep 0.2; done
 URL="$(cat releases.url)"
 [ -n "$URL" ] || fail "the release server did not start"
@@ -77,7 +79,7 @@ update:
   remote: true
 YAML
 chmod 600 server.yaml ops.yaml e2e-upd.yaml
-"$OUT/burrow" server -c server.yaml > server.log 2>&1 &
+BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_LATEST_SECS=0 "$OUT/burrow" server -c server.yaml > server.log 2>&1 &
 PIDS+=($!)
 
 home() { "$PROBE" ops.yaml status 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); c=[c for c in s["clients"] if c["name"]=="home"][0]; print(json.dumps(c))'; }
@@ -87,7 +89,11 @@ wait_for() {
   for _ in $(seq 1 240); do [ "$(field "$expr")" = "$want" ] && return 0; sleep 0.5; done
   fail "$what: $(home)"
 }
-ask() { "$PROBE" ops.yaml call update_clients "{\"clients\":[\"home\"],\"version\":\"$1\"}" || fail "ask $1"; }
+ask() {
+  echo "latest $1" >&3
+  wait_for "the server to see $1" "['available']" "$1"
+  "$PROBE" ops.yaml call update_clients '{"clients":["home"]}' || fail "ask $1"
+}
 installed() { sudo "$(sudo cat /var/lib/burrow/services/$NAME.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["binary"])' 2>/dev/null || echo /usr/local/bin/burrow)" version; }
 
 echo "== install the client as a service that allows remote updates"
@@ -143,7 +149,7 @@ case "$(uname)" in
 esac
 case "$(uname)" in
   Darwin) [ ! -e "/Library/Application Support/burrow/updates/e2e-upd" ] || fail "the update folder is left" ;;
-  *) [ ! -e /var/lib/burrow/e2e-upd ] || fail "the update folder is left" ;;
+  *) [ ! -e /var/lib/burrow/e2e-upd ] && [ ! -e /var/lib/burrow/updates/e2e-upd ] || fail "the update folders are left" ;;
 esac
 check "updater removed"
 echo "remote-update e2e: all ok"

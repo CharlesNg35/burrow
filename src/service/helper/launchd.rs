@@ -45,9 +45,12 @@ pub(super) fn plist(m: &Manifest, queue: &Path) -> String {
 }
 
 impl Helper for QueueJob {
-    fn install(&self, m: &Manifest, _dir: &Path) -> Result<(), Failure> {
-        let owner = (m.account != "root").then_some(m.account.as_str());
-        crate::service::system::make_dir(&queue(m), 0o700, owner)?;
+    fn install(&self, m: &Manifest) -> Result<(), Failure> {
+        let owner = match m.account.as_str() {
+            "root" => None,
+            a => Some(crate::base::process::account_ids(a)?),
+        };
+        crate::service::nofollow::subfolder(&super::dir(m), "queue", 0o700, owner)?;
         let target = format!("system/{}", label(m));
         let _ = run("launchctl", &["bootout", &target]);
         let path = plist_path(m);
@@ -75,8 +78,12 @@ impl Helper for QueueJob {
         plist_path(m).exists()
     }
 
-    fn request_file(&self, m: &Manifest) -> PathBuf {
-        queue(m).join(super::REQUEST)
+    fn trigger(&self, m: &Manifest) -> Option<PathBuf> {
+        Some(queue(m).join(super::TRIGGER))
+    }
+
+    fn take_trigger(&self, m: &Manifest) {
+        crate::service::nofollow::empty_folder(&queue(m));
     }
 }
 

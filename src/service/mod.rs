@@ -3,6 +3,8 @@ mod background;
 mod hand_over;
 pub mod helper;
 mod logview;
+#[cfg(unix)]
+pub(crate) mod nofollow;
 pub(crate) mod ports;
 pub(crate) mod stray;
 pub(crate) mod system;
@@ -117,19 +119,6 @@ pub trait Backend {
         {
             std::fs::create_dir_all(dir)
                 .map(|()| Vec::new())
-                .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
-        }
-    }
-    fn update_folder(&self, m: &Manifest, dir: &Path) -> Result<(), Failure> {
-        #[cfg(unix)]
-        {
-            let owner = (m.account != "root").then_some(m.account.as_str());
-            system::make_dir(dir, 0o700, owner)
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = m;
-            std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
         }
     }
@@ -283,6 +272,10 @@ pub fn installed() -> Vec<Installed> {
             manifest,
         })
         .collect()
+}
+
+pub fn main_pid(m: &Manifest) -> Option<u32> {
+    system::backend().ok()?.status(m).pid
 }
 
 pub fn env_of(m: &Manifest) -> BTreeMap<String, String> {

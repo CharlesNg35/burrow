@@ -68,31 +68,26 @@ pub fn offer(status: &mut Status) {
 }
 
 fn target(core: &Core, wanted: Option<&str>, status: &Status) -> Result<String, ApiError> {
-    let v = match wanted
-        .map(str::trim)
+    let latest = status.latest.clone().unwrap_or_else(|| core.live.latest());
+    let known = latest.version.ok_or_else(|| {
+        ApiError::new(
+            ErrorCode::Invalid,
+            format!(
+                "the latest release is not known yet{}; try again in a moment",
+                latest.error.map(|e| format!(" ({e})")).unwrap_or_default()
+            ),
+        )
+    })?;
+    match wanted
+        .map(|v| v.trim().trim_start_matches('v'))
         .filter(|v| !v.is_empty() && *v != "latest")
     {
-        Some(v) => v.trim_start_matches('v').to_string(),
-        None => {
-            let latest = status.latest.clone().unwrap_or_else(|| core.live.latest());
-            latest.version.ok_or_else(|| {
-                ApiError::new(
-                    ErrorCode::Invalid,
-                    format!(
-                        "the latest release is not known yet{}; try again in a moment or name a version",
-                        latest.error.map(|e| format!(" ({e})")).unwrap_or_default()
-                    ),
-                )
-            })?
-        }
-    };
-    if version(&v).is_none() || v.contains(['+', ' ']) {
-        return Err(ApiError::new(
+        Some(v) if v != known => Err(ApiError::new(
             ErrorCode::BadRequest,
-            format!("\"{v}\" is not a release number like 1.2.3"),
-        ));
+            format!("clients update only to the latest release, {known}; \"{v}\" is not it"),
+        )),
+        _ => Ok(known),
     }
-    Ok(v)
 }
 
 pub fn update_clients(

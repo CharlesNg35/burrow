@@ -40,6 +40,22 @@ pub fn can_replace(binary: &Path) -> bool {
     made
 }
 
+pub fn shared_with_services(me: &Path) -> Option<String> {
+    let users: Vec<String> = crate::install::all_manifests()
+        .into_iter()
+        .filter(|m| m.binary == me)
+        .map(|m| m.name)
+        .collect();
+    (!users.is_empty()).then(|| {
+        format!(
+            "{} is the program of the installed services {}; update them with: {}",
+            me.display(),
+            users.join(", "),
+            crate::base::failure::admin("update")
+        )
+    })
+}
+
 pub fn trial_of(me: &Path, config: &Path) -> Option<Record> {
     let path = record_path(me);
     let mut r: Record = record::read(&path)?;
@@ -131,11 +147,14 @@ impl Shared {
     }
 }
 
-pub fn start(shared: Shared, job: Job) {
+pub fn start(shared: Shared, mut job: Job) {
     std::thread::spawn(move || {
-        info!("the server asked to update {} -> {}", job.from, job.to);
-        job.say(Step::Accepted, format!("downloading {}", job.to));
-        match prepare(&shared, &job) {
+        info!(
+            "the server asked to update {} to the latest release",
+            job.from
+        );
+        job.say(Step::Accepted, "downloading the latest release");
+        match prepare(&shared, &mut job) {
             Ok(()) => {
                 job.say(Step::Restarting, format!("restarting with {}", job.to));
                 info!("installed {}; restarting", job.to);
@@ -151,7 +170,9 @@ pub fn start(shared: Shared, job: Job) {
     });
 }
 
-fn prepare(shared: &Shared, job: &Job) -> Result<(), String> {
+fn prepare(shared: &Shared, job: &mut Job) -> Result<(), String> {
+    let latest = crate::update::latest::check()?;
+    job.to = super::allowed_target(&latest, &job.from)?.to_string();
     let staged =
         crate::update::fetch_verified(&job.to, &shared.me, &mut std::io::sink()).map_err(text)?;
     accepts_config(

@@ -14,7 +14,7 @@ use crate::client::updates::{Progress, Updates};
 use crate::config::settings::ClientSettings;
 use crate::install::Manifest;
 use crate::wire::protocol::{LastUpdate, Outcome, Remote, Report, RunMode};
-pub use record::{Record, Request};
+pub use record::{Asked, Record};
 
 pub const WINDOW: Duration = Duration::from_secs(60);
 pub const MAX_STARTS: u32 = 3;
@@ -89,8 +89,10 @@ impl Mode {
             Mode::Container => Some("it runs in a container: update the image instead".into()),
             Mode::Service(m) => service_side::blocked(m),
             Mode::ByHand { binary: None } => Some("it cannot find its own program file".into()),
-            Mode::ByHand { binary: Some(b) } => (!by_hand::can_replace(b))
-                .then(|| format!("this account cannot replace {}", b.display())),
+            Mode::ByHand { binary: Some(b) } => by_hand::shared_with_services(b).or_else(|| {
+                (!by_hand::can_replace(b))
+                    .then(|| format!("this account cannot replace {}", b.display()))
+            }),
         }
     }
 }
@@ -121,13 +123,13 @@ impl ClientUpdates {
     }
 
     fn last(&self) -> Option<LastUpdate> {
-        let record: Option<Record> = match &self.mode {
+        match &self.mode {
             Mode::ByHand { binary: Some(me) } => record::read::<Record>(&by_hand::record_path(me))
-                .filter(|r| r.config == self.config),
-            Mode::Service(m) => record::read(&crate::service::helper::result_file(m)),
+                .filter(|r| r.config == self.config)
+                .and_then(|r| r.last()),
+            Mode::Service(m) => service_side::last(m),
             _ => None,
-        };
-        record.and_then(|r| r.last())
+        }
     }
 
     fn by_hand(&self) -> Option<by_hand::Shared> {
@@ -192,14 +194,13 @@ impl Updates for ClientUpdates {
             return Err(why);
         }
         let mine = crate::base::build::version();
-        let target = allowed_target(version, mine)?.to_string();
         if self.busy.swap(true, Ordering::AcqRel) {
             return Err("an update is already running".into());
         }
         let job = Job {
             id,
             from: mine.to_string(),
-            to: target,
+            to: version.trim().to_string(),
             progress,
         };
         let started = match (&self.mode, self.by_hand()) {

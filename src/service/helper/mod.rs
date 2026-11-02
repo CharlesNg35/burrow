@@ -8,23 +8,40 @@ mod windows;
 use std::io::Write;
 use std::path::PathBuf;
 
-use super::{Backend, Manifest, say};
+use super::{Manifest, say};
 use crate::base::failure::Failure;
 use crate::install::{Platform, Role};
 
 pub const SUFFIX: &str = "-update";
-pub const REQUEST: &str = "request.json";
+pub const TRIGGER: &str = "update-now";
 pub const RESULT: &str = "result.json";
 
 pub trait Helper {
-    fn install(&self, m: &Manifest, dir: &std::path::Path) -> Result<(), Failure>;
+    fn install(&self, m: &Manifest) -> Result<(), Failure>;
     fn remove(&self, m: &Manifest) -> Result<(), Failure>;
     fn installed(&self, m: &Manifest) -> bool;
-    fn fire(&self, _m: &Manifest) -> Result<(), String> {
-        Ok(())
+    fn trigger(&self, m: &Manifest) -> Option<PathBuf>;
+    fn fire(&self, m: &Manifest) -> Result<(), String> {
+        let file = self
+            .trigger(m)
+            .ok_or("this system has no updater to start")?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&file)
+            .map(drop)
+            .map_err(|e| format!("cannot write {}: {e}", file.display()))
     }
-    fn request_file(&self, m: &Manifest) -> PathBuf {
-        dir(m).join(REQUEST)
+    fn take_trigger(&self, m: &Manifest) {
+        #[cfg(unix)]
+        if let Some(file) = self.trigger(m)
+            && let Some(dir) = file.parent()
+        {
+            super::nofollow::remove_entry(dir, TRIGGER);
+        }
+        #[cfg(not(unix))]
+        let _ = m;
     }
 }
 
@@ -51,32 +68,55 @@ pub fn helper_name(m: &Manifest) -> String {
     format!("{}{SUFFIX}", m.name)
 }
 
-pub fn dir(m: &Manifest) -> PathBuf {
+fn base() -> PathBuf {
     let p = Platform::current();
     match p {
-        Platform::Linux | Platform::Other => PathBuf::from("/var/lib/burrow").join(m.short()),
+        Platform::Linux | Platform::Other => PathBuf::from("/var/lib/burrow"),
         _ => p
             .state_dir()
             .parent()
-            .map_or_else(|| p.state_dir(), std::path::Path::to_path_buf)
-            .join("updates")
-            .join(m.short()),
+            .map_or_else(|| p.state_dir(), std::path::Path::to_path_buf),
     }
+}
+
+pub fn dir(m: &Manifest) -> PathBuf {
+    base().join("updates").join(m.short())
 }
 
 pub fn result_file(m: &Manifest) -> PathBuf {
     dir(m).join(RESULT)
 }
 
-pub fn request_file(m: &Manifest) -> Option<PathBuf> {
-    helper().map(|h| h.request_file(m))
+pub fn trigger(m: &Manifest) -> Option<PathBuf> {
+    helper()?.trigger(m)
 }
 
 pub fn wanted(m: &Manifest) -> bool {
     m.role == Role::Client && m.remote_updates
 }
 
-pub fn set_up(backend: &dyn Backend, m: &Manifest, out: &mut dyn Write) -> Result<(), Failure> {
+fn results_folder(m: &Manifest) -> Result<(), Failure> {
+    #[cfg(unix)]
+    {
+        let _ = m;
+        let base = base();
+        std::fs::create_dir_all(&base)
+            .map_err(|e| Failure::new(format!("cannot create {}: {e}", base.display())))?;
+        super::nofollow::subfolder(&base, "updates", 0o755, None)?;
+        super::nofollow::subfolder(&base.join("updates"), m.short(), 0o755, None)
+    }
+    #[cfg(windows)]
+    {
+        super::windows::results_folder(&dir(m), &m.account)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = m;
+        Ok(())
+    }
+}
+
+pub fn set_up(m: &Manifest, out: &mut dyn Write) -> Result<(), Failure> {
     let Some(h) = helper() else {
         return Ok(());
     };
@@ -90,13 +130,12 @@ pub fn set_up(backend: &dyn Backend, m: &Manifest, out: &mut dyn Write) -> Resul
         }
         return Ok(());
     }
-    let dir = dir(m);
-    backend.update_folder(m, &dir)?;
-    h.install(m, &dir)?;
+    results_folder(m)?;
+    h.install(m)?;
     say(
         out,
         format!(
-            "{}: the server's admin may ask it to update; {} downloads and checks the release, and puts the old one back if the new one does not connect within a minute",
+            "{}: the server's admin may ask it to update to the latest release; {} downloads and checks it, and puts the old one back if the new one does not connect within a minute",
             m.name,
             helper_name(m)
         ),
@@ -112,6 +151,7 @@ pub fn remove(m: &Manifest) -> Result<(), Failure> {
 
 fn remove_with(h: &dyn Helper, m: &Manifest) -> Result<(), Failure> {
     h.remove(m)?;
+    h.take_trigger(m);
     if m.role == Role::Client {
         let _ = std::fs::remove_dir_all(dir(m));
     }
@@ -122,5 +162,11 @@ pub fn fire(m: &Manifest) -> Result<(), String> {
     match helper() {
         Some(h) => h.fire(m),
         None => Err("this system has no service manager burrow can use".into()),
+    }
+}
+
+pub fn take_trigger(m: &Manifest) {
+    if let Some(h) = helper() {
+        h.take_trigger(m);
     }
 }

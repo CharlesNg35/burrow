@@ -1,5 +1,5 @@
 use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use windows_service::service::{
@@ -70,7 +70,7 @@ fn info(m: &Manifest) -> ServiceInfo {
 }
 
 impl Helper for StartableService {
-    fn install(&self, m: &Manifest, dir: &Path) -> Result<(), Failure> {
+    fn install(&self, m: &Manifest) -> Result<(), Failure> {
         let scm = crate::service::windows::manager(
             ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
         )?;
@@ -90,7 +90,6 @@ impl Helper for StartableService {
             m.short(),
             m.config.display()
         ));
-        crate::service::windows::grant_update_folder(dir, &m.account)?;
         let sid = sid_of(&m.account)?;
         let name = helper_name(m);
         let now = output_of(Command::new(sc()).args(["sdshow", &name]))?;
@@ -115,6 +114,10 @@ impl Helper for StartableService {
         })
     }
 
+    fn trigger(&self, _m: &Manifest) -> Option<PathBuf> {
+        None
+    }
+
     fn fire(&self, m: &Manifest) -> Result<(), String> {
         let scm = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
             .map_err(|e| format!("cannot reach the service manager: {e}"))?;
@@ -134,6 +137,14 @@ impl Helper for StartableService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_client_account_may_only_read_what_the_updater_writes_and_writes_no_trigger() {
+        let rights = crate::service::windows::RESULTS_RIGHTS;
+        assert!(!rights.contains(['M', 'W', 'F', 'D']), "{rights}");
+        let m = crate::service::stray::bare("burrow-nas");
+        assert_eq!(StartableService.trigger(&m), None);
+    }
 
     #[test]
     fn only_start_and_status_are_added_for_the_client_account() {

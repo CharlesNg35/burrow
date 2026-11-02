@@ -101,6 +101,13 @@ impl Releases {
         Releases { base, routes, seen }
     }
 
+    pub fn set_latest(&self, version: &str) {
+        self.route(
+            "/latest/download/SHA256SUMS",
+            Reply::Redirect(format!("/releases/download/v{version}/SHA256SUMS")),
+        );
+    }
+
     pub fn route_at(&self, path: &str, reply: Reply) {
         self.routes.lock().unwrap().insert(path.to_string(), reply);
     }
@@ -135,10 +142,7 @@ impl Releases {
             &format!("/download/v{version}/{asset}"),
             Reply::Body(archive),
         );
-        self.route(
-            "/latest/download/SHA256SUMS",
-            Reply::Redirect(format!("/releases/download/v{version}/SHA256SUMS")),
-        );
+        self.set_latest(version);
         asset
     }
 }

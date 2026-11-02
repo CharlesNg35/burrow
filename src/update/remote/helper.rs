@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::time::Instant;
 
-use super::record::{self, Record, Request};
+use super::record::{self, Record};
 use super::{allowed_target, outcome_of, window};
 use crate::base::failure::Failure;
 use crate::config::{Loaded, Role};
@@ -46,14 +46,13 @@ fn shared_with_others(m: &Manifest) -> Result<(), String> {
     ))
 }
 
-pub type Probe<'a> = &'a dyn Fn(&std::path::Path, &str) -> bool;
+pub type Probe<'a> = &'a dyn Fn(&Manifest, &str) -> bool;
 
 fn healthy(m: &Manifest, version: &str, probe: Probe) -> Result<(), String> {
     let window = window();
     let until = Instant::now() + window;
-    let config = crate::base::fs::canonical_or_same(&m.config);
     while Instant::now() < until {
-        if probe(&config, version) {
+        if probe(m, version) {
             return Ok(());
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -64,11 +63,8 @@ fn healthy(m: &Manifest, version: &str, probe: Probe) -> Result<(), String> {
     ))
 }
 
-fn take_request(m: &Manifest) -> Option<Request> {
-    let file = helper::request_file(m)?;
-    let request = record::read::<Request>(&file);
-    let _ = std::fs::remove_file(&file);
-    request
+fn latest() -> Result<String, String> {
+    crate::update::latest::check()
 }
 
 fn finish(
@@ -100,41 +96,34 @@ pub fn run(name: &str, probe: Probe, out: &mut dyn Write) -> Result<u8, Failure>
             m.name
         )));
     }
+    helper::take_trigger(&m);
     crate::update::use_env(crate::service::env_of(&m));
-    let mut code = 0;
-    while let Some(request) = take_request(&m) {
-        code = one(&m, &request, probe, out)?;
-    }
-    Ok(code)
-}
-
-fn one(m: &Manifest, request: &Request, probe: Probe, out: &mut dyn Write) -> Result<u8, Failure> {
     let installed = crate::service::binary_version(&m.binary);
-    let r = Record::new(request.id, &installed, &request.version, &m.config);
-    let result = helper::result_file(m);
-    let checks = opted_in(m)
-        .and_then(|()| allowed_target(&request.version, &installed).map(drop))
-        .and_then(|()| shared_with_others(m));
-    if let Err(why) = checks {
-        return finish(out, m, r, Outcome::Failed, why);
+    let mut r = Record::new(0, &installed, "", &m.config);
+    if let Err(why) = opted_in(&m) {
+        return finish(out, &m, r, Outcome::Failed, why);
     }
-    record::write(&result, &r, 0o644)
-        .map_err(|e| Failure::new(format!("cannot write {}: {e}", result.display())))?;
-    let staged = match crate::update::fetch_verified(&request.version, &m.binary, out) {
-        Ok(s) => s,
-        Err(f) => return finish(out, m, r, Outcome::Failed, f.message),
+    let to = match latest().and_then(|v| allowed_target(&v, &installed).map(|v| v.to_string())) {
+        Ok(v) => v,
+        Err(why) => return finish(out, &m, r, Outcome::Failed, why),
     };
-    if let Err(why) = super::by_hand::accepts_config(
-        staged.binary(),
-        &m.config,
-        &request.version,
-        &crate::service::env_of(m),
-    ) {
-        return finish(out, m, r, Outcome::Failed, why);
+    r.to = to.clone();
+    if let Err(why) = shared_with_others(&m) {
+        return finish(out, &m, r, Outcome::Failed, why);
     }
-    let check = |s: &Manifest| healthy(s, &request.version, probe);
-    match crate::service::update_checked(&m.name, staged.binary(), &request.version, &check, out) {
-        Ok(()) => finish(out, m, r, Outcome::Done, String::new()),
-        Err(f) => finish(out, m, r, outcome_of(&f.message), f.message),
+    record::write(&helper::result_file(&m), &r, 0o644)
+        .map_err(|e| Failure::new(format!("cannot write the result: {e}")))?;
+    let staged = match crate::update::fetch_verified(&to, &m.binary, out) {
+        Ok(s) => s,
+        Err(f) => return finish(out, &m, r, Outcome::Failed, f.message),
+    };
+    let env = crate::service::env_of(&m);
+    if let Err(why) = super::by_hand::accepts_config(staged.binary(), &m.config, &to, &env) {
+        return finish(out, &m, r, Outcome::Failed, why);
+    }
+    let check = |s: &Manifest| healthy(s, &to, probe);
+    match crate::service::update_checked(&m.name, staged.binary(), &to, &check, out) {
+        Ok(()) => finish(out, &m, r, Outcome::Done, String::new()),
+        Err(f) => finish(out, &m, r, outcome_of(&f.message), f.message),
     }
 }

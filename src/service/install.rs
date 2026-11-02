@@ -174,7 +174,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         save_env(&*backend, &manifest, &env, f, out)?;
     }
     backend.install(&manifest)?;
-    super::helper::set_up(&*backend, &manifest, out)?;
+    super::helper::set_up(&manifest, out)?;
     if !opts.start {
         again.manifest = None;
     }

@@ -28,16 +28,37 @@ pub fn version_in(sums: &str) -> Option<String> {
     })
 }
 
-fn check() -> Result<String, String> {
+pub fn check() -> Result<String, String> {
     let (_, sums) = super::fetch_sums(&super::releases(), None).map_err(|f| f.message)?;
     version_in(&sums).ok_or_else(|| "the latest release lists no burrow build".to_string())
 }
 
+pub const FRESH_ENV: &str = "BURROW_ADMIN_TEST_LATEST_SECS";
+
+fn test_fresh() -> Option<Duration> {
+    if !cfg!(feature = "admin-test-hooks") {
+        return None;
+    }
+    std::env::var(FRESH_ENV)
+        .ok()?
+        .parse()
+        .ok()
+        .map(Duration::from_secs)
+}
+
 pub fn cached() -> LatestRelease {
     let known = KNOWN.lock().expect("latest lock");
+    let fresh = test_fresh().unwrap_or(FRESH);
     let stale = match &*known {
         None => true,
-        Some(k) => k.at.elapsed() > if k.found.is_ok() { FRESH } else { RETRY },
+        Some(k) => {
+            k.at.elapsed()
+                > if k.found.is_ok() {
+                    fresh
+                } else {
+                    RETRY.min(fresh)
+                }
+        }
     };
     let shown = known.as_ref().map(|k| LatestRelease {
         version: k.found.as_ref().ok().cloned(),

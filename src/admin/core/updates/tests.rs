@@ -155,59 +155,67 @@ fn update_all_asks_only_the_clients_that_can_update_and_says_why_others_are_skip
     assert!(asked[0].2.starts_with("ops ("), "{}", asked[0].2);
 }
 
+fn asking(
+    core: &Core,
+    s: &Session,
+    names: &[&str],
+    v: Option<&str>,
+    dry: bool,
+) -> Result<UpdateClientsReply, ApiError> {
+    update_clients(
+        core,
+        s,
+        &UpdateClients {
+            clients: names.iter().map(|n| n.to_string()).collect(),
+            all: false,
+            version: v.map(String::from),
+            dry_run: dry,
+        },
+    )
+}
+
 #[test]
-fn one_client_is_asked_for_a_named_version_but_never_for_an_older_one() {
+fn clients_are_asked_only_for_the_latest_release() {
     let mut busy = client("busy", Some("0.2.1"), RemoteUpdates::On);
     busy.update = Some(UpdateStatus {
         state: UpdateState::Downloading,
         ..UpdateStatus::default()
     });
     let (core, asked, w) = setup(
-        None,
+        Some("0.2.3"),
         vec![client("nas", Some("0.2.1"), RemoteUpdates::On), busy],
     );
     let s = session(&w, AdminLevel::Write);
-    let ask = |names: &[&str], v: Option<&str>| {
-        update_clients(
-            &core,
-            &s,
-            &UpdateClients {
-                clients: names.iter().map(|n| n.to_string()).collect(),
-                all: false,
-                version: v.map(String::from),
-                dry_run: false,
-            },
-        )
-    };
-    let unknown = ask(&["nas"], None).unwrap_err();
+    let older = asking(&core, &s, &["nas"], Some("0.2.2"), false).unwrap_err();
     assert!(
-        unknown.message.contains("not known yet (offline)"),
+        older.message.contains("only to the latest release, 0.2.3"),
         "{}",
-        unknown.message
+        older.message
     );
-    let back = ask(&["nas"], Some("0.2.0")).unwrap();
-    assert!(back.asked.is_empty() && back.skipped[0].why.contains("already runs"));
-    assert!(ask(&["nas"], Some("../x")).is_err());
-    let r = ask(&["nas", "busy", "ghost"], Some("0.2.3")).unwrap();
+    assert!(asking(&core, &s, &["nas"], Some("../x"), false).is_err());
+    let dry = asking(&core, &s, &["nas"], None, true).unwrap();
+    assert_eq!(dry.asked, ["nas"]);
+    assert!(asked.lock().unwrap().is_empty(), "a dry run asks nobody");
+    let r = asking(&core, &s, &["nas", "busy", "ghost"], Some("v0.2.3"), false).unwrap();
     assert_eq!(r.asked, ["nas"]);
     let why: Vec<&str> = r.skipped.iter().map(|s| s.why.as_str()).collect();
     assert!(why.iter().any(|w| w.contains("already running")), "{why:?}");
     assert!(why.iter().any(|w| w.contains("no client")), "{why:?}");
     assert_eq!(asked.lock().unwrap()[0].1, "0.2.3");
-    let dry = update_clients(
-        &core,
-        &s,
-        &UpdateClients {
-            clients: vec!["nas".into()],
-            version: Some("0.2.4".into()),
-            dry_run: true,
-            ..UpdateClients::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(dry.asked, ["nas"]);
-    assert_eq!(asked.lock().unwrap().len(), 1, "a dry run asks nobody");
     let read = session(&w, AdminLevel::Read);
     let refused = update_clients(&core, &read, &UpdateClients::default()).unwrap_err();
     assert_eq!(refused.code, ErrorCode::Forbidden);
+}
+
+#[test]
+fn nothing_is_asked_while_the_latest_release_is_unknown() {
+    let (core, asked, w) = setup(None, vec![client("nas", Some("0.2.1"), RemoteUpdates::On)]);
+    let s = session(&w, AdminLevel::Write);
+    let unknown = asking(&core, &s, &["nas"], Some("0.2.3"), false).unwrap_err();
+    assert!(
+        unknown.message.contains("not known yet (offline)"),
+        "{}",
+        unknown.message
+    );
+    assert!(asked.lock().unwrap().is_empty());
 }

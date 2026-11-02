@@ -10,12 +10,16 @@ fn unit(m: &Manifest, kind: &str) -> PathBuf {
     PathBuf::from(format!("/etc/systemd/system/{}.{kind}", helper_name(m)))
 }
 
+fn state(m: &Manifest) -> PathBuf {
+    Path::new("/var/lib/burrow").join(m.short())
+}
+
 pub(super) fn render_path(m: &Manifest, dir: &Path) -> String {
     format!(
         "[Unit]\nDescription=burrow {} \"{}\": update requests from the server's admin\n\n[Path]\nPathExists={}\nUnit={}.service\n\n[Install]\nWantedBy=paths.target\n",
         m.role,
         m.short(),
-        crate::service::systemd::quote(&dir.join(super::REQUEST)),
+        crate::service::systemd::quote(&dir.join(super::TRIGGER)),
         helper_name(m)
     )
 }
@@ -39,9 +43,9 @@ pub(super) fn render_service(m: &Manifest) -> String {
 }
 
 impl Helper for PathUnit {
-    fn install(&self, m: &Manifest, dir: &Path) -> Result<(), Failure> {
+    fn install(&self, m: &Manifest) -> Result<(), Failure> {
         crate::service::system::write_file(&unit(m, "service"), render_service(m).as_bytes())?;
-        crate::service::system::write_file(&unit(m, "path"), render_path(m, dir).as_bytes())?;
+        crate::service::system::write_file(&unit(m, "path"), render_path(m, &state(m)).as_bytes())?;
         run("systemctl", &["daemon-reload"])?;
         let path = format!("{}.path", helper_name(m));
         run("systemctl", &["enable", "--quiet", "--now", &path])?;
@@ -59,11 +63,16 @@ impl Helper for PathUnit {
             }
         }
         run("systemctl", &["daemon-reload"])?;
+        let _ = std::fs::remove_dir_all(state(m));
         Ok(())
     }
 
     fn installed(&self, m: &Manifest) -> bool {
         unit(m, "path").exists()
+    }
+
+    fn trigger(&self, m: &Manifest) -> Option<PathBuf> {
+        Some(state(m).join(super::TRIGGER))
     }
 }
 
@@ -79,7 +88,7 @@ mod tests {
         m.env_file = Some(PathBuf::from("/etc/burrow/nas.env"));
         let path = render_path(&m, Path::new("/var/lib/burrow/nas"));
         assert!(
-            path.contains("PathExists=/var/lib/burrow/nas/request.json\n"),
+            path.contains("PathExists=/var/lib/burrow/nas/update-now\n"),
             "{path}"
         );
         assert!(path.contains("Unit=burrow-nas-update.service\n"), "{path}");

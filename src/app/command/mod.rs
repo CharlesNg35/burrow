@@ -32,9 +32,13 @@ fn format(f: FileFormat) -> Format {
     }
 }
 
-fn connected_with(config: &std::path::Path, version: &str) -> bool {
-    let scan = crate::status::query::scan(&crate::instance::default_dir(), Some(config));
-    scan.found.iter().any(|f| {
+fn connected_with(m: &crate::install::Manifest, version: &str) -> bool {
+    let Some(pid) = crate::service::main_pid(m) else {
+        return false;
+    };
+    let config = crate::base::fs::canonical_or_same(&m.config);
+    let scan = crate::status::query::scan(&crate::instance::default_dir(), Some(&config));
+    scan.found.iter().filter(|f| f.entry.pid == pid).any(|f| {
         f.status
             .client
             .as_ref()
