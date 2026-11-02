@@ -24,6 +24,13 @@ impl Port {
         }
     }
 
+    fn word(self) -> &'static str {
+        match self {
+            Port::Https => "HTTPS",
+            Port::Http => "HTTP",
+        }
+    }
+
     fn key(self) -> String {
         self.path().join(".")
     }
@@ -115,7 +122,8 @@ pub fn impacts(old: &ServerSettings, new: &ServerSettings) -> Vec<Impact> {
             },
             code: OPENS_PORT.into(),
             message: format!(
-                "opens port {} on {} for websites ({})",
+                "opens the web proxy's {} port {} on {} ({})",
+                p.word(),
                 addr.port(),
                 addresses(addr),
                 p.key()
@@ -189,11 +197,11 @@ fn wanted(running: &ServerSettings, next: &ServerSettings) -> Vec<Wanted> {
 
 pub fn busy(
     probe: &dyn Fn(Protocol, SocketAddr) -> std::io::Result<()>,
-    running: &ServerSettings,
+    (running, before): (&ServerSettings, &ServerSettings),
     next: &ServerSettings,
 ) -> Vec<Diag> {
     let ours = held(running);
-    wanted(running, next)
+    wanted(before, next)
         .into_iter()
         .filter_map(|(path, proto, addr)| {
             if ours

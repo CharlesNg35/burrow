@@ -125,6 +125,10 @@ pub(super) fn judge(
             secret: &s.secret,
             via_websocket: s.via_websocket,
         };
+        let before = match (&file.settings, file.valid) {
+            (Some(settings), true) => settings,
+            _ => running,
+        };
         let base = match (&file.settings, file.valid) {
             (Some(settings), true) => guard::Base::Valid(settings),
             _ => guard::Base::Broken {
@@ -147,13 +151,13 @@ pub(super) fn judge(
         }
         clash.extend(guard::busy_web_ports(
             &|p, a| core.live.bind_probe(p, a),
-            running,
+            (running, before),
             next,
         ));
-        clash.extend(guard::not_allowed(&core.live.allows(), running, next));
+        clash.extend(guard::not_allowed(&core.live.allows(), before, next));
         clash.extend(guard::not_here(
             &|a| core.live.bind_probe(burrow_config::Protocol::Tcp, a),
-            running,
+            before,
             next,
         ));
         let how = applies(core, raw, &applied.target);
@@ -163,7 +167,7 @@ pub(super) fn judge(
             .map(|a| a.field.clone())
             .collect();
         impacts = guard::impacts(
-            running,
+            before,
             next,
             &core.live.status(),
             &core.live.sessions(),

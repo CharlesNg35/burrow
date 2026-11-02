@@ -107,12 +107,12 @@ fn a_free_new_web_port_passes_and_review_says_it_opens() {
     assert!(plan.valid, "{:?}", plan.diags);
     assert_eq!(
         impact(&plan, OPENS_PORT),
-        Some("opens port 9443 on all addresses for websites (web.https)")
+        Some("opens the web proxy's HTTPS port 9443 on all addresses (web.https)")
     );
     let plan = plan_of(&core, &w, set(&["web", "http"], json!("127.0.0.1:8081")));
     assert_eq!(
         impact(&plan, OPENS_PORT),
-        Some("opens port 8081 on 127.0.0.1 for websites (web.http)")
+        Some("opens the web proxy's HTTP port 8081 on 127.0.0.1 (web.http)")
     );
 }
 
@@ -330,4 +330,44 @@ fn moving_a_service_to_a_client_whose_allow_list_lacks_the_target_is_a_warning()
             .iter()
             .all(|d| d.code != burrow_admin_proto::codes::TARGET_NOT_ALLOWED)
     );
+}
+
+#[test]
+fn an_edit_does_not_claim_to_open_web_ports_the_file_already_had() {
+    let file = with_web("web:\n  https: 9443\n  http: 9080\n");
+    let running = with_web("web:\n  https: 8443\n  http: 8080\n");
+    let core = core_running(&file.text, &running.text);
+    let plan = plan_of(
+        &core,
+        &file,
+        set(&["services", "web", "target"], json!(3001)),
+    );
+    assert!(
+        plan.impacts.iter().all(|i| i.code != OPENS_PORT),
+        "{:?}",
+        plan.impacts
+    );
+    assert!(
+        plan.diags.iter().all(|d| d.code != PORT_IN_USE),
+        "{:?}",
+        plan.diags
+    );
+}
+
+#[test]
+fn a_web_port_in_the_file_but_not_running_is_reported_once_in_the_state() {
+    let file = with_web("web:\n  https: 9443\n  http: 9080\n");
+    let running = with_web("web:\n  https: 8443\n  http: 9080\n");
+    let core = core_running(&file.text, &running.text);
+    let s = session(&file, AdminLevel::Write);
+    let st = core.state(&s).unwrap();
+    let paths: Vec<String> = st
+        .runtime
+        .not_open
+        .iter()
+        .map(|n| n.path.join("."))
+        .collect();
+    assert_eq!(paths, ["web.https"]);
+    assert_eq!(st.runtime.not_open[0].wanted, "[::]:9443");
+    assert_eq!(st.runtime.not_open[0].running, "[::]:8443");
 }

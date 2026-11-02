@@ -325,3 +325,44 @@ fn web_ports(c: &mut Ctx) -> Flow<'_> {
 fn a_web_port_host_reads_truthfully_and_its_warning_says_how_to_fix_it() {
     run("settings-web-ports", opts(), false, web_ports);
 }
+
+async fn web_ports_applied(c: &mut Ctx, https: &str, http: &str, step: &str) {
+    c.ui.nav("/settings?tab=proxy").await;
+    edit_mode(c).await;
+    c.ui.fill("#f-web-https", https).await;
+    c.ui.fill("#f-web-http", http).await;
+    wait_checked(c).await;
+    open_review(c, &format!("{step}-review")).await;
+    applied(c, &format!("{step}-applied")).await;
+}
+
+fn failed_then_unrelated(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        web_ports_applied(c, "443", "80", "web-ports-low").await;
+        let (https, http) = (world::free_port(), world::free_port());
+        web_ports_applied(c, &https.to_string(), &http.to_string(), "web-ports-high").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", &world::free_port().to_string())
+            .await;
+        wait_checked(c).await;
+        open_review(c, "unrelated-edit-review").await;
+        let review = c.ui.text("[data-testid=review]").await;
+        assert!(
+            !review.contains("opens the web proxy"),
+            "an edit of a service does not claim to open web ports applied before: {review}"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn an_unrelated_edit_after_web_port_applies_lists_only_its_own_impacts() {
+    run(
+        "settings-web-port-sequence",
+        opts(),
+        false,
+        failed_then_unrelated,
+    );
+}

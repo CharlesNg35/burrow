@@ -80,6 +80,30 @@ pub fn attention(
     out
 }
 
+fn not_open_item(n: &burrow_admin_proto::msg::NotOpen) -> Item {
+    let own = burrow_config::label_of(&n.path).unwrap_or_else(|| n.path.join("."));
+    let label = match n.path.split_last() {
+        Some((_, parent)) if !parent.is_empty() => burrow_config::label_of(parent)
+            .map_or(own.clone(), |p| format!("{p} {}", own.to_lowercase())),
+        _ => own,
+    };
+    let now = if n.running.is_empty() {
+        "nothing there yet".to_string()
+    } else {
+        format!("it stays on {}", n.running)
+    };
+    Item {
+        key: format!("not-open:{}", n.path.join(".")),
+        tone: Tone::Warning,
+        title: format!("{label} {} is in the config but not open", n.wanted),
+        detail: format!(
+            "The server could not open it and keeps trying; {now}. The server log says why."
+        ),
+        to: Some(Route::Settings),
+        field: Some(n.path.clone()),
+    }
+}
+
 fn not_listening_item(s: &burrow_admin_proto::status::ServiceStatus) -> Option<Item> {
     let why = s.not_listening.as_ref()?;
     Some(Item {
@@ -136,6 +160,9 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             to: Some(Route::Settings),
             field: None,
         });
+    }
+    for n in &st.runtime.not_open {
+        out.push(not_open_item(n));
     }
     for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
         out.push(Item {
@@ -593,6 +620,21 @@ mod tests {
         let d = chart(&full, &full, 900);
         assert_eq!(d.a.len(), 900);
         assert!(d.empty_note.is_none());
+    }
+
+    #[test]
+    fn a_listener_in_the_config_but_not_open_needs_attention() {
+        let n = burrow_admin_proto::msg::NotOpen {
+            path: vec!["websocket".into(), "listen".into()],
+            wanted: "0.0.0.0:7900".into(),
+            running: "0.0.0.0:7836".into(),
+        };
+        let i = not_open_item(&n);
+        assert_eq!(
+            i.title,
+            "WebSocket listen address 0.0.0.0:7900 is in the config but not open"
+        );
+        assert!(i.detail.contains("stays on 0.0.0.0:7836"), "{}", i.detail);
     }
 
     #[test]
