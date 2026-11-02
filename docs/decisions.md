@@ -847,3 +847,11 @@ Until now a passthrough site (`tls: passthrough`) got `404` on `web.http`, and b
 - **Cost.** A visitor who types `http://nas.example.com` now reaches the NAS instead of an error page. A passthrough app that wanted plain HTTP on port 80 through burrow could not have it before either.
 
 Sources, checked 2026-11-02: doc.traefik.io/traefik/reference/install-configuration/entrypoints (`http.redirections.entryPoint.to`, `scheme`, `permanent`); caddyserver.com/docs/automatic-https ("redirects HTTP … to HTTPS … automatically"); nginx.org/en/docs/stream/ngx_stream_ssl_preread_module.html and nginx.org/en/docs/http/ngx_http_rewrite_module.html (`return`).
+
+## D78. Durations, sizes and client states are written by one function each, in the crates both the CLI and the UI use
+
+`burrow status` wrote "2 h 13 min" and "never seen", burrow admin "2h 13m" and "not seen since server start", the client's reconnect log "3m 20s", and certificate times read "in 60 days" in the UI and "in 60 d" in the CLI. The owner ruled (2026-11-02) that durations read like `2h 5m` everywhere.
+
+- **One function each.** `burrow_syntax::duration::span` writes a time span with its two largest units (`45s`, `5m`, `2h 5m`, `3d 4h`), leaving out a second unit that is zero (`2h`, `60d`); `ago` adds "ago" or says "just now" under 5 s; `human` writes an exact config value in the same units (`1h 30m`, `1s 500ms`); `burrow_syntax::size::bytes` writes sizes (`3.1 MB`). The words `online` and `offline`, and "left … ago / added …, not connected yet / not seen since server start", are in `burrow_admin_proto::status` next to `ClientStatus`.
+- **Where they live.** The `burrow` crate may not use `burrow-admin-logic` (it is for the UI only), so the shared code sits in `burrow-syntax`, which depends on nothing, and `burrow-admin-proto`, which may now depend on `burrow-syntax`.
+- **What reads differently.** A span over a minute drops its seconds, so the reconnect log says "reconnected after 3m" where it said "3m 20s". Prose in help text and server warnings ("the local CA expires in 20 days") is unchanged.

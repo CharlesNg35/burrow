@@ -4,7 +4,7 @@ use burrow_admin_proto::status::{
     CertCheck, CertSourceStatus, CertStateStatus, CertStatus, Status,
 };
 use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
-use burrow_syntax::duration::DAY_SECS as DAY;
+use burrow_syntax::duration::{DAY_SECS as DAY, span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -37,19 +37,6 @@ pub struct Notice {
     pub field: Option<Vec<String>>,
 }
 
-fn days(secs: u64) -> String {
-    match secs / DAY {
-        d if d >= 730 => format!("{} years", d / 365),
-        0 => match secs / 3600 {
-            0 => format!("{} min", (secs / 60).max(1)),
-            1 => "1 hour".into(),
-            h => format!("{h} hours"),
-        },
-        1 => "1 day".into(),
-        d => format!("{d} days"),
-    }
-}
-
 fn source(c: &CertStatus) -> String {
     match &c.source {
         CertSourceStatus::OwnFile { path } => format!("File {path}"),
@@ -72,9 +59,9 @@ fn source(c: &CertStatus) -> String {
 const YEAR: u64 = 365 * DAY;
 pub fn ends(at: u64, now: u64) -> String {
     match at {
-        t if t <= now => format!("expired {} ago", days(now - t)),
+        t if t <= now => format!("expired {} ago", span(now - t)),
         t if t - now >= YEAR => date(t),
-        t => format!("in {}", days(t - now)),
+        t => format!("in {}", span(t - now)),
     }
 }
 
@@ -93,7 +80,7 @@ fn next(c: &CertStatus, now: u64) -> String {
     let Some(t) = c.next_renewal else {
         return "—".into();
     };
-    let at = days(t.saturating_sub(now));
+    let at = span(t.saturating_sub(now));
     match c.state {
         CertStateStatus::Failing { .. } | CertStateStatus::Pending => format!("next try in {at}"),
         _ => format!("in {at}"),
@@ -212,7 +199,7 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
                     format!(
                         "The certificate for {} expires in {}",
                         c.name,
-                        days(t - now)
+                        span(t - now)
                     ),
                     "Replace the file, or let Let's Encrypt renew it.".into(),
                 ))
@@ -294,14 +281,13 @@ mod tests {
         assert_eq!(r[0].source, "Let's Encrypt");
         assert_eq!(r[0].check, "TLS");
         assert_eq!(r[0].state, ("Valid".to_string(), Level::Good));
-        assert_eq!(r[0].expires, ("in 60 days".to_string(), Level::Good));
-        assert_eq!(r[0].next, "in 10 min");
-        assert_eq!(days(800 * DAY), "2 years");
+        assert_eq!(r[0].expires, ("in 60d".to_string(), Level::Good));
+        assert_eq!(r[0].next, "in 10m");
         assert_eq!(r[0].expires_on, date(NOW + 60 * DAY));
         assert_eq!(ends(NOW + 400 * DAY, NOW), date(NOW + 400 * DAY));
-        assert_eq!(ends(NOW + 20 * DAY, NOW), "in 20 days");
+        assert_eq!(ends(NOW + 20 * DAY, NOW), "in 20d");
         assert_eq!(r[1].state.1, Level::Bad);
-        assert_eq!(r[1].next, "next try in 10 min");
+        assert_eq!(r[1].next, "next try in 10m");
         assert_eq!(r[1].problem.as_deref(), Some("the DNS name does not exist"));
     }
 
@@ -367,7 +353,7 @@ mod tests {
             [
                 "The certificate for blog.example.com cannot be renewed",
                 "The certificate for old.example.com has expired",
-                "The certificate for soon.example.com expires in 3 days",
+                "The certificate for soon.example.com expires in 3d",
             ]
         );
         assert_eq!(n[0].detail, "rate limited · tried 3 times");

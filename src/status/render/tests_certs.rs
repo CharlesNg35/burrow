@@ -91,15 +91,15 @@ fn each_certificate_shows_its_source_state_expiry_and_next_renewal() {
         ok.contains("Let's Encrypt, TLS check") && ok.contains("ok"),
         "{ok}"
     );
-    assert!(ok.contains("in 60 d") && ok.contains("in 30 d"), "{ok}");
+    assert!(ok.contains("in 60d") && ok.contains("in 30d"), "{ok}");
     let failing = row("wiki.example.com");
     assert!(
-        failing.contains("failing") && failing.contains("in 10 min"),
+        failing.contains("failing") && failing.contains("in 10m"),
         "{failing}"
     );
     let own = row("portal.example.com");
     assert!(
-        own.contains("own file /etc/burrow/portal.pem") && own.contains("expired 2 d"),
+        own.contains("own file /etc/burrow/portal.pem") && own.contains("expired 2d"),
         "{own}"
     );
     assert!(

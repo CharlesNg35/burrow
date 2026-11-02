@@ -391,26 +391,21 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
 pub fn x_ticks(window: usize) -> Vec<String> {
     match window {
         60 => vec![
-            "−60 s".into(),
-            "−45 s".into(),
-            "−30 s".into(),
-            "−15 s".into(),
+            "−60s".into(),
+            "−45s".into(),
+            "−30s".into(),
+            "−15s".into(),
             "now".into(),
         ],
         300 => vec![
-            "−5 min".into(),
-            "−4 min".into(),
-            "−3 min".into(),
-            "−2 min".into(),
-            "−1 min".into(),
+            "−5m".into(),
+            "−4m".into(),
+            "−3m".into(),
+            "−2m".into(),
+            "−1m".into(),
             "now".into(),
         ],
-        _ => vec![
-            "−15 min".into(),
-            "−10 min".into(),
-            "−5 min".into(),
-            "now".into(),
-        ],
+        _ => vec!["−15m".into(), "−10m".into(), "−5m".into(), "now".into()],
     }
 }
 
@@ -536,7 +531,7 @@ mod tests {
         assert_eq!(titles, ["Client b is offline", "Service both is down"]);
         assert_eq!(
             items[0].detail,
-            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d 0h ago"
+            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d ago"
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");

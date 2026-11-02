@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Durations read one way everywhere, like `2h 5m`, `45s` or `3d`: `burrow status`, burrow admin, client reconnect logs and the ranges in `burrow validate` messages (`between 1s and 1h`). `burrow status` says `online` and `offline` like burrow admin, and a client never seen since the server started reads "not seen since server start (2h 5m)".
 - On port 80, a passthrough site's names are sent to `https://` with `308`, where the app answers, instead of `404`. `https_redirect` is always on for a passthrough site: burrow admin shows it on with the reason, and `burrow validate` refuses `https_redirect: false` there with the code `passthrough-fixed` (it was `redirect-passthrough`).
 - A network written with host bits set, like `127.0.0.1/24`, is refused with what to write instead: `127.0.0.0/24` for the network, or `127.0.0.1/32` for that one address (`/128` for IPv6). This holds everywhere networks are written: `allow`, `self.allow`, `allow_from`, `deny_from`, `reach`, `admin_from` and the web proxy's trusted ranges, in `burrow validate`, burrow admin and `burrow mcp`.
 - burrow admin: every client picker offers this server, from one shared list. New website and a visitor's reach show it too; reach shows it disabled until May reach on this server is set. Clients read "online · their address" or "offline", names stay on one line, and the dropdown grows to fit on wide screens.
