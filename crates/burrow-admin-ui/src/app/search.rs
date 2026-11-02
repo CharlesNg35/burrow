@@ -18,9 +18,21 @@ struct Hit {
     query: Option<(&'static str, &'static str)>,
 }
 
+fn word_at(lower: &str, needle: &str) -> Option<usize> {
+    lower.match_indices(needle).map(|(i, _)| i).find(|&i| {
+        lower[..i]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric())
+    })
+}
+
 fn marked(label: &str, needle: &str) -> AnyView {
     let lower = label.to_lowercase();
-    match (!needle.is_empty()).then(|| lower.find(needle)).flatten() {
+    match (!needle.is_empty())
+        .then(|| word_at(&lower, needle).or_else(|| lower.find(needle)))
+        .flatten()
+    {
         Some(at) if label.is_char_boundary(at) && label.is_char_boundary(at + needle.len()) => {
             let (a, rest) = label.split_at(at);
             let (b, c) = rest.split_at(needle.len());
@@ -74,7 +86,7 @@ fn names(doc: &Value, sec: &str) -> Vec<String> {
 fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
     for c in names(doc, ClientEntry::section()) {
         let label = format!("Rotate secret of {c}…");
-        if !needle.is_empty() && hit(needle, &label) {
+        if !needle.is_empty() && word_at(&label.to_lowercase(), needle).is_some() {
             out.push(Hit {
                 section: "Actions",
                 icon: "refresh",
@@ -358,5 +370,21 @@ pub(super) fn SearchPopover() -> impl IntoView {
                     <span class="ml-auto">"Searches services, clients, visitors, settings and history"</span>
                 </div>
         </Modal>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::word_at;
+
+    #[test]
+    fn an_action_matches_where_a_word_starts() {
+        assert_eq!(word_at("rotate secret of etiolles…", "et"), Some(17));
+        assert_eq!(word_at("rotate secret of home…", "et"), None);
+        assert_eq!(
+            word_at("rotate secret of etiolles-ai-pve…", "pve"),
+            Some(29)
+        );
+        assert_eq!(word_at("rotate secret of home…", "secret of"), Some(7));
     }
 }
