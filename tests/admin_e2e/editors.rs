@@ -5,6 +5,20 @@ use super::open_more;
 use super::world::{Options, free_range};
 use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
 
+async fn not_added_yet(c: &mut Ctx) {
+    c.ui.nav("/review").await;
+    c.ui.wait_for("[data-testid=review-not-added]", SECS).await;
+    let note = c.ui.text("[data-testid=review-not-added]").await;
+    assert!(
+        note.contains("service web") && note.contains("Open them"),
+        "{note}"
+    );
+    assert!(!c.ui.text("body").await.contains("Nothing to apply"));
+    c.ui.shot("review-with-edits-not-added").await;
+    c.ui.click("[data-testid=review-not-added] button").await;
+    c.ui.wait_for("#f-services-web-bind", SECS).await;
+}
+
 fn editors(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         let public = free_range(2);
@@ -25,6 +39,11 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
                 .await,
             0,
             "one port needs no count beside it"
+        );
+        let row = c.ui.text("[data-schema='services/*/bind']").await;
+        assert!(
+            !row.contains("up to"),
+            "the range capacity shows only with Port range on: {row}"
         );
         c.ui.select("#f-services-web-bind-host", "\u{1}specific")
             .await;
@@ -106,6 +125,8 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.press("#f-services-web-clients", "Enter").await;
         c.ui.wait_for(&format!("{client} [data-chip=home]"), SECS)
             .await;
+        wait_checked(c).await;
+        not_added_yet(c).await;
         wait_checked(c).await;
         c.ui.click("[data-testid=save]").await;
         open_review(c, "review-of-the-editors").await;

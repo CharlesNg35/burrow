@@ -157,7 +157,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
             <p class="mt-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" class:hidden=move || stored.with(String::is_empty) || has_error.get() data-testid="stored-as" data-stored=stored>
                 {format!("{} ", burrow_admin_logic::wording::WRITTEN_AS)}
                 <code class="font-mono">{stored}</code>
-                {(ranges && max.is_some()).then(|| max.map(|m| format!(" · up to {m} ports")))}
+                {move || (ranges && range_on.get()).then(|| max.map(|m| format!(" · up to {m} ports")))}
             </p>
             {none.map(|n| view! { <p class="mt-1.5 text-xs text-text-muted" class:hidden=move || !stored.with(String::is_empty) data-testid="stored-none">{n}</p> })}
         </div>
