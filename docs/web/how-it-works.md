@@ -15,7 +15,7 @@ This page follows a visitor through burrow, step by step, in the order the code 
 visitor ──TCP──> web.https
   │
   ├─ from web.proxy_protocol_from?  read the PROXY header: the visitor's own address
-  ├─ too many connections without a name yet?  dropped
+  ├─ too many connections without a name yet?  waits for a free slot
   ├─ read the TLS hello (10 s, 16 KiB): the name the visitor asks for (SNI)
   ├─ a Let's Encrypt TLS check?  answered, closed
   ├─ which site has this name?  none: closed
@@ -62,7 +62,7 @@ Each check below can stop the request. Before the app has started its answer, bu
    4. `basic_auth`: no or a wrong password gets `401`; too many wrong passwords from one address get `429`.
    5. `forward_auth`: the login service decides; its own answer goes back to the visitor when it says no.
    6. `max_body_size`: a body that says it is larger gets `413` at once; one that grows larger on the way is cut, and `413` is the answer.
-6. **To the app.** `app_path` replaces the matched path ([Paths](routing.md#paths-several-apps-on-one-name)). burrow opens a connection to the app through the tunnel, or reuses one, and sends the request with `request_headers` and the `X-Forwarded-*` headers ([Headers, limits and pages](headers-limits-pages.md)). If it cannot:
+6. **To the app.** `app_path` replaces the matched path ([Paths](routing.md#paths-several-apps-on-one-name)). burrow picks the client first, as the service's `mode` says, then takes an idle connection to the app from one pool that all visitors share, or opens a new one through the tunnel. It sends the request with `request_headers` and the `X-Forwarded-*` headers ([Headers, limits and pages](headers-limits-pages.md)). An app connection that stays idle for 60 seconds is closed, or after 5 seconds while the service or client is busy. A GET, HEAD, OPTIONS or TRACE without a body that fails on a connection that had been idle, before any byte of the answer arrived, is sent once more on a new connection; nothing else is sent twice. If it cannot:
 
    | Why | Answer |
    | --- | --- |
@@ -76,7 +76,7 @@ Each check below can stop the request. Before the app has started its answer, bu
 
 **Page or close.** Once the app has sent its headers, the status code has gone to the visitor. If the app or the tunnel fails after that, burrow cannot send a page any more. On HTTP/1.1 it closes the connection. On HTTP/2 it ends only that stream (`RST_STREAM`), so the visitor's other requests on the connection go on. An HTTP/2 stream that makes no progress for 10 seconds is closed the same way ([gRPC streams](http2-grpc.md#grpc-streams)).
 
-**The connection.** On HTTP/1.1 the connection is kept for the next request, which the visitor has `web.request_header_timeout_secs` to send. Any connection that moves no data for `web.idle_timeout_secs` is closed; WebSockets stay open as long as they carry data ([Limits](headers-limits-pages.md#limits)).
+**The connection.** On HTTP/1.1 the connection is kept for the next request, which the visitor has `web.request_header_timeout_secs` to send. When burrow answers itself before the visitor has sent the whole body, like a `401` or a `413`, it first reads and drops the rest, up to 256 KiB and for at most 1 second, and keeps the connection. A larger or slower body gets `Connection: close`; burrow then reads what the visitor still sends for a few seconds, so the visitor gets the answer and not a reset. Any connection that moves no data for `web.idle_timeout_secs` is closed; WebSockets stay open as long as they carry data ([Limits](headers-limits-pages.md#limits)).
 
 ## 3. Which certificate a name gets
 

@@ -73,8 +73,8 @@ A failing certificate gets a line with the reason, and a link when Let's Encrypt
 <details>
 <summary><b>What the columns mean</b></summary>
 
-- **OPEN:** connections open now. **TOTAL:** connections since the server started.
-- **IDLE:** channels the client keeps open in advance, so a new connection starts at once.
+- **OPEN:** connections open now. For a website this includes idle connections to the app, kept for up to 60 seconds for the next request. **TOTAL:** connections since the server started.
+- **IDLE:** channels the client keeps open in advance, so a new connection starts at once. After a burst there can be up to `pool.max_idle` (64); channels that no connection needed for a minute close, so about 2 minutes later it is back to `pool.min_idle` (4).
 - **at limit** after a client's state: in the last minute the client refused new connections because it reached its `max_connections`. In `--json`, `at_limit` is true, and `busy_total` counts those refusals since the server started.
 - **REFUSED:** connections the service refused: a blocked source address, a limit (the service's own, or a client that answered busy at its `max_connections`), or no client to serve it.
 - **IN:** bytes from users to the target. **OUT:** bytes back to users.

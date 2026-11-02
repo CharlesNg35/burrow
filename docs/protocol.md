@@ -11,6 +11,8 @@ A client opens TCP connections to the server's `listen` address. Each connection
 - a **control channel**: one per client, long-lived, carries commands and heartbeats;
 - a **data channel**: one per forwarded TCP connection, or one per UDP service; opened ahead of time into the server's pool.
 
+A client's data channels connect to the server address its control channel reached, and look the server's name up again only when no such address answers (D72).
+
 A visitor (`burrow visit`) opens a third kind:
 
 - a **visit channel**: one per local TCP connection, or one per port of a UDP forward while it has peers, relayed by the server to a data channel of the client (section 9).
@@ -112,6 +114,8 @@ A client sends Allow once after Welcome; the server keeps it for the session and
 `str8` = `len:u8 bytes`. Unknown ids, truncated bodies and trailing bytes are errors for the client; the server ignores a client message it cannot decode, which still counts as a sign of life.
 
 Heartbeat: the server sends Ping every `heartbeat.interval_secs`, and the client answers Pong. Each side drops the channel after 3 intervals without receiving anything. The client learns the interval from Welcome, so the two sides cannot disagree.
+
+A client that is stopped normally closes its control channel and its idle data channels cleanly, between records: it shuts down the connection's write side (over `wss://`, with a TLS close_notify), and waits at most 1 s for that. The server ends a control channel that closes cleanly at once, without waiting for the heartbeat to time out.
 
 A second control channel for the same name with the same `instance` replaces the first (`Bye replaced`), so a client that reconnects is not kept out by its own stale session. One with another `instance` is refused with `Bye duplicate` while the first is connected, so two machines with the same config do not take the name from each other. If `insecure_plaintext` differs between the two sides, the server authenticates first and then sends `Bye plaintext mismatch`, so the client can print an exact reason.
 
