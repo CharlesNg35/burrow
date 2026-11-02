@@ -325,6 +325,7 @@ type Hits = (Vec<String>, Vec<(String, usize, usize)>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Problem {
+    NotListening,
     Down,
     Partial,
     Health,
@@ -341,12 +342,11 @@ pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String,
                 .filter_map(|(name, svc)| {
                     let cs = clients_of(svc);
                     let up = cs.iter().filter(|c| online(c)).count();
-                    let failing = status
-                        .services
-                        .iter()
-                        .find(|x| &x.name == name)
-                        .is_some_and(|x| x.health.iter().any(|h| !h.up));
-                    let p = if up == 0 {
+                    let st = status.services.iter().find(|x| &x.name == name);
+                    let failing = st.is_some_and(|x| x.health.iter().any(|h| !h.up));
+                    let p = if st.is_some_and(|x| x.not_listening.is_some()) {
+                        Problem::NotListening
+                    } else if up == 0 {
                         Problem::Down
                     } else if failing {
                         Problem::Health
@@ -367,6 +367,7 @@ pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String,
 pub fn healthy_detail(p: &[(String, Problem)]) -> String {
     match p {
         [] => "all up".into(),
+        [(n, Problem::NotListening)] => format!("{n} is not listening"),
         [(n, Problem::Down)] => format!("{n} is down"),
         [(n, Problem::Health)] => format!("{n} fails its health check"),
         [(n, Problem::Partial)] => format!("{n} runs on fewer clients"),
@@ -601,6 +602,15 @@ mod tests {
         assert_eq!(healthy_detail(&p[..1]), "backup is down");
         assert_eq!(healthy_detail(&p[1..]), "both runs on fewer clients");
         assert_eq!(healthy_detail(&[]), "all up");
+        let mut st = status(&["a", "b"], &[]);
+        st.services.push(burrow_admin_proto::status::ServiceStatus {
+            name: "web".into(),
+            not_listening: Some("cannot bind".into()),
+            ..Default::default()
+        });
+        let p = service_problems(&v, Some(&st));
+        assert_eq!(p, [("web".to_string(), Problem::NotListening)]);
+        assert_eq!(healthy_detail(&p), "web is not listening");
     }
 
     #[test]
