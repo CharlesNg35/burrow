@@ -142,7 +142,8 @@ request on web.http ──> Let's Encrypt HTTP check?   answered
           ├─> HTTPS site, from a trusted proxy that did HTTPS   served (step 2)
           ├─> HTTPS site, certificate ready         308 to https://
           ├─> HTTPS site, certificate on its way    503
-          └─> passthrough, the tunnel's own name, unknown       404
+          ├─> passthrough site                      308 to https://
+          └─> the tunnel's own name, unknown        404
 ```
 
 1. **The request itself**, as on HTTPS: too many headers get `431`, no `Host` or `CONNECT` gets `400`. There is no TLS, so no `421`.
@@ -154,7 +155,8 @@ request on web.http ──> Let's Encrypt HTTP check?   answered
    - an HTTPS site with `https_redirect: false` is served as plain HTTP too;
    - when the request comes from a proxy in `web.trusted_proxies` with `X-Forwarded-Proto: https`, the proxy did HTTPS, and the site is served instead of redirected ([Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer)). Otherwise, a plain site with `https_redirect: true` behind such a proxy is redirected to `https://`;
    - an HTTPS site redirects to `https://` with `308`, keeping the path and query, and naming the port when `web.https` is not 443. While its certificate is on its way it gets `503` instead, so a visitor is never sent to a name with no certificate yet;
-   - a passthrough site, the tunnel's own name and an unknown name get `404`.
+   - a passthrough site redirects to `https://` with `308` in the same way, where the app answers: burrow does not need the site's certificate to send a visitor there;
+   - the tunnel's own name and an unknown name get `404`.
 6. **Then the request goes on as in [step 2](#2-a-request-is-answered)**, from the route on.
 
 ## Next steps

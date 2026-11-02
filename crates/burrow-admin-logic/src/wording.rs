@@ -2,9 +2,9 @@
 
 use burrow_admin_proto::codes::{
     BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, MISSING_FIELD,
-    NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PLAIN_HTTP, PLAIN_NEEDS_HTTP,
-    PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PASSTHROUGH, REDIRECT_PLAIN,
-    UNUSED_VISITOR, WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
+    NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PASSTHROUGH_FIXED, PLAIN_HTTP,
+    PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PLAIN, UNUSED_VISITOR,
+    WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
@@ -265,7 +265,7 @@ pub(crate) const SHOWN_CODES: [&str; 17] = [
     NO_CERTIFICATE,
     WILDCARD_NEEDS_DNS,
     PLAIN_HTTP,
-    REDIRECT_PASSTHROUGH,
+    PASSTHROUGH_FIXED,
     REDIRECT_PLAIN,
     WEB_TCP_ONLY,
     PROXY_PROTOCOL_TCP_ONLY,
@@ -323,8 +323,8 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
             "{service} is served as plain HTTP: anyone on the path can read and change its traffic"
         );
     }
-    if code == REDIRECT_PASSTHROUGH {
-        return "the app does its own HTTPS, so burrow cannot also answer plain HTTP for it; remove this choice in server.yaml (burrow edit)".into();
+    if code == PASSTHROUGH_FIXED {
+        return "the app does its own HTTPS, so this setting is fixed on this website; remove this choice in server.yaml (burrow edit)".into();
     }
     if code == REDIRECT_PLAIN {
         return "a plain HTTP website cannot send visitors to https:// in this build; remove this choice in server.yaml (burrow edit)".into();

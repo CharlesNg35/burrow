@@ -24,7 +24,12 @@ fn settings(tunnel: Option<(&str, TunnelMode)>) -> ProxySettings {
 #[test]
 fn exact_names_win_over_a_wildcard_of_one_label() {
     let t = Table::build(&settings(None));
-    let pass = |s: &str| Some(Kind::Passthrough(s.into()));
+    let pass = |s: &str| {
+        Some(Kind::Passthrough {
+            service: s.into(),
+            redirect: true,
+        })
+    };
     assert_eq!(t.kind("nas.example.com").cloned(), pass("nas"));
     assert_eq!(t.kind("x.apps.example.com").cloned(), pass("apps"));
     assert_eq!(t.kind("one.apps.example.com").cloned(), pass("exact"));
@@ -102,7 +107,10 @@ fn the_tunnel_by_path_shares_a_terminated_sites_name_and_wins_its_prefix() {
     let on_passthrough = Table::build(&settings(Some(("nas.example.com", TunnelMode::ByPath))));
     assert_eq!(
         on_passthrough.kind("nas.example.com"),
-        Some(&Kind::Passthrough("nas".into()))
+        Some(&Kind::Passthrough {
+            service: "nas".into(),
+            redirect: true
+        })
     );
 }
 
@@ -112,7 +120,13 @@ fn a_client_without_a_name_reaches_the_site_of_the_address_it_dialled() {
     let local: IpAddr = "203.0.113.10".parse().unwrap();
     let (name, kind) = t.pick(None, local).unwrap();
     assert_eq!(name, "203.0.113.10");
-    assert_eq!(kind, &Kind::Passthrough("nas".into()));
+    assert_eq!(
+        kind,
+        &Kind::Passthrough {
+            service: "nas".into(),
+            redirect: true
+        }
+    );
     let mapped: IpAddr = "::ffff:203.0.113.10".parse().unwrap();
     assert!(t.pick(None, mapped).is_some());
     assert!(t.pick(None, "203.0.113.11".parse().unwrap()).is_none());

@@ -334,12 +334,15 @@ fn field_body(
             view! {
                 <div class="flex min-h-[38px] flex-wrap items-center gap-3 text-[13px]" id=id.clone()>
                     {move || {
-                        let v = e.value(&path).or_else(|| {
-                            single
-                                .as_ref()
-                                .and_then(|s| e.value(s))
-                                .map(|c| Value::Array(vec![c]))
-                        });
+                        let v = e
+                            .value(&path)
+                            .or_else(|| {
+                                single
+                                    .as_ref()
+                                    .and_then(|s| e.value(s))
+                                    .map(|c| Value::Array(vec![c]))
+                            })
+                            .or_else(|| st.with(|s| s.fixed.clone()));
                         match ctx_now() {
                             Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &Ctx { path: path.clone(), ..c }),
                             None => ().into_any(),

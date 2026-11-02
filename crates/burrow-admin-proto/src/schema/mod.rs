@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::Path;
 
-pub use relation::{Cond, Relation};
+pub use relation::{Cond, Lookup, Relation, decide, holds};
 pub use sem::{
     DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
     NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,

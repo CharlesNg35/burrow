@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:3054a39d76f67072",
+  "hash": "b2s:2313946348804ebf",
   "root": {
     "label": "Server",
     "sem": {
@@ -2250,27 +2250,28 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
+                                              "r": "fixed_if",
+                                              "cond": {
+                                                "eq": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "value": true,
+                                              "reason": "Always on: the app does its own HTTPS, and burrow sends http:// visitors to https://, where the app answers"
+                                            },
+                                            {
                                               "r": "enabled_if",
                                               "cond": {
-                                                "all": [
+                                                "any": [
                                                   {
                                                     "ne": [
                                                       "tls",
-                                                      "passthrough"
+                                                      "off"
                                                     ]
                                                   },
                                                   {
-                                                    "any": [
-                                                      {
-                                                        "ne": [
-                                                          "tls",
-                                                          "off"
-                                                        ]
-                                                      },
-                                                      {
-                                                        "set": "/web/trusted_proxies"
-                                                      }
-                                                    ]
+                                                    "set": "/web/trusted_proxies"
                                                   }
                                                 ]
                                               },

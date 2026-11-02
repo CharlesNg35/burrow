@@ -157,7 +157,7 @@ fn the_redirect_choices_say_what_to_do_in_plain_words() {
         &[],
     );
     assert!(too.starts_with("answering plain HTTP too"), "{too}");
-    for code in [REDIRECT_PASSTHROUGH, REDIRECT_PLAIN] {
+    for code in [PASSTHROUGH_FIXED, REDIRECT_PLAIN] {
         let m = shown(code, "services.nas.web.https_redirect: ...", &[]);
         assert!(
             !m.contains("https_redirect") && !m.contains("services."),

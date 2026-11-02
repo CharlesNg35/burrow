@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
-    Passthrough(String),
+    Passthrough { service: String, redirect: bool },
     Tunnel { path: String },
     Http { routes: Vec<Route>, redirect: bool },
     Plain { routes: Vec<Route>, redirect: bool },
@@ -91,7 +91,10 @@ fn site_routes(site: &Site) -> Vec<Route> {
 
 fn empty_kind(site: &Site) -> Kind {
     match &site.tls {
-        SiteTls::Passthrough => Kind::Passthrough(site.service.clone()),
+        SiteTls::Passthrough => Kind::Passthrough {
+            service: site.service.clone(),
+            redirect: site.https_redirect,
+        },
         SiteTls::Https(_) => Kind::Http {
             routes: Vec::new(),
             redirect: site.https_redirect,
