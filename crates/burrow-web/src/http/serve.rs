@@ -14,6 +14,7 @@ use tracing::debug;
 use super::idle::{Activity, Busy, Held, Watched};
 use super::stall::Stalls;
 use super::upstream::Ups;
+use super::upstream::pool::Cut;
 use super::upstream::to_h2::StreamReset;
 use super::{Body, pipeline};
 use crate::Upstream;
@@ -37,6 +38,7 @@ pub(crate) struct Conn {
     pub ups: Ups,
     pub activity: Arc<Activity>,
     pub stalls: Stalls,
+    pub cut: Arc<Cut>,
 }
 
 impl Conn {
@@ -54,6 +56,7 @@ impl Conn {
             ups: Ups::new(proto),
             activity: Activity::new(),
             stalls: Stalls::new(),
+            cut: Arc::default(),
         }
     }
 }
@@ -143,6 +146,11 @@ async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
         }
         () = conn.activity.idle(idle.max(LEAST)) => {
             debug!(peer = %conn.peer, "web: closing a connection idle for {idle:?}");
+            return;
+        }
+        () = conn.cut.wait() => {
+            conn.activity.fail();
+            debug!(peer = %conn.peer, "web: closing a connection whose answer a reload cut");
             return;
         }
         () = stalled(conn, watch) => {
