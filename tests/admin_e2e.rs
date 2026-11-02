@@ -49,6 +49,8 @@ mod screens;
 mod secrets;
 #[path = "admin_e2e/self_picker.rs"]
 mod self_picker;
+#[path = "admin_e2e/sequences.rs"]
+mod sequences;
 #[path = "admin_e2e/settings.rs"]
 mod settings;
 #[path = "admin_e2e/sheet.rs"]
