@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::platform::{self, Pending};
 use super::{Refused, spare_prefix, write_back};
-use crate::config::docs::{Docs, folder_of, read_only};
+use crate::config::docs::{Docs, read_only};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
@@ -60,14 +60,6 @@ struct Staged {
     path: PathBuf,
     change: Change,
     step: Step,
-}
-
-fn path_of(main: &Path, before: &Docs, name: &str) -> PathBuf {
-    if name == before.main().name {
-        main.to_path_buf()
-    } else {
-        folder_of(main).join(name)
-    }
 }
 
 fn stage(main: &Path, path: &Path, change: &Change) -> Result<Step, Refused> {
@@ -129,7 +121,13 @@ fn undo(s: &Staged) {
 pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused> {
     let mut staged: Vec<Staged> = Vec::new();
     for (name, change) in changes(before, after) {
-        let path = path_of(main, before, &name);
+        let Some(path) = crate::config::docs::path_of(main, &name) else {
+            discard(&staged);
+            return Err(Refused::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{name} is not a file in the config's drop-in folder"),
+            )));
+        };
         let locked = (name != before.main().name && !matches!(change, Change::Create { .. }))
             .then(|| read_only(&path))
             .flatten();
@@ -352,6 +350,22 @@ mod tests {
         after.list[1].text = "services: { x: {} }\n".into();
         assert!(write_set(&main, &before, &after).is_err());
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "services: {}\n");
+    }
+
+    #[test]
+    fn a_name_that_leaves_the_folder_is_never_written() {
+        let (dir, main, before) = setup();
+        for bad in ["server.d/../x.yaml", "../x.yaml", "/tmp/burrow-escape.yaml"] {
+            let mut after = before.clone();
+            after.list.push(Doc {
+                name: bad.into(),
+                text: "services: {}\n".into(),
+            });
+            assert!(write_set(&main, &before, &after).is_err(), "{bad}");
+        }
+        assert!(!dir.path().join("x.yaml").exists());
+        assert!(!dir.path().parent().unwrap().join("x.yaml").exists());
+        assert!(!std::path::Path::new("/tmp/burrow-escape.yaml").exists());
     }
 
     #[test]

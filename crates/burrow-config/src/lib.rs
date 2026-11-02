@@ -6,6 +6,7 @@
 extern crate self as burrow_config;
 
 pub mod admin_schema;
+pub mod drop_ins;
 pub mod field;
 pub mod labels;
 pub mod model;

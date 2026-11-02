@@ -37,14 +37,18 @@ pub fn add(main: &Path, inputs: &mut Vec<Input>, out: &mut Vec<Diagnostic>) {
                 codes::DROP_IN_IGNORED,
                 format!(
                     "{} is not read: only files ending in .yaml are",
-                    path_of(main, name).display()
+                    folder
+                        .join(name.rsplit('/').next().unwrap_or(name))
+                        .display()
                 ),
             )
             .help("rename it to end in .yaml to use it, or to end in .off to keep it switched off"),
         );
     }
     for name in &listed.names {
-        let path = path_of(main, name);
+        let Some(path) = path_of(main, name) else {
+            continue;
+        };
         if open_to_others(&path) {
             out.push(unsafe_one(&path, "file"));
         }

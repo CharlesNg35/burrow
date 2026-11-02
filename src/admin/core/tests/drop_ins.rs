@@ -430,3 +430,41 @@ fn a_problem_in_a_drop_in_names_its_file() {
     assert_eq!(d.path, Some(p(&["services", "blog", "client"])));
     assert_eq!(d.line, Some(2));
 }
+
+#[test]
+fn a_history_version_naming_a_file_outside_the_folder_is_never_restored() {
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let s = set.session(true);
+    let outside = set.dir.path().join("escaped.yaml");
+    for name in [
+        "server.d/../escaped.yaml".to_string(),
+        outside.display().to_string(),
+    ] {
+        let docs = crate::config::docs::Docs {
+            list: vec![
+                crate::config::docs::Doc {
+                    name: "server.yaml".into(),
+                    text: set.w.text.clone(),
+                },
+                crate::config::docs::Doc {
+                    name,
+                    text: "services: {}\n".into(),
+                },
+            ],
+        };
+        let rev = text::docs_rev(&docs);
+        let history = set.path(".server.yaml.history");
+        std::fs::create_dir_all(&history).unwrap();
+        let hex = text::rev_hex(&rev).unwrap();
+        std::fs::write(history.join(format!("1000-{hex}.yaml")), docs.bundle()).unwrap();
+        assert!(
+            set.core.store.version(&rev).is_none(),
+            "a bad bundle is no version"
+        );
+        assert!(
+            set.apply(&s, &[Op::ReplaceDocument { from_history: rev }])
+                .is_err()
+        );
+        assert!(!outside.exists());
+    }
+}

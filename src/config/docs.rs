@@ -57,7 +57,10 @@ impl Docs {
                 name: if i == 0 {
                     main.display().to_string()
                 } else {
-                    path_of(main, &d.name).display().to_string()
+                    path_of(main, &d.name)
+                        .unwrap_or_default()
+                        .display()
+                        .to_string()
                 },
                 text: d.text.clone(),
                 format: if i == 0 { format } else { Format::Yaml },
@@ -91,23 +94,28 @@ pub fn main_name(main: &Path) -> String {
 }
 
 pub fn drop_in_folder_name(main: &Path) -> String {
-    let stem = main
-        .file_stem()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "server".into());
-    format!("{stem}.d")
+    burrow_config::drop_ins::folder_name(&main_name(main))
 }
 
 pub fn drop_in_folder(main: &Path) -> PathBuf {
     folder_of(main).join(drop_in_folder_name(main))
 }
 
-pub fn path_of(main: &Path, name: &str) -> PathBuf {
+pub fn path_of(main: &Path, name: &str) -> Option<PathBuf> {
     if name == main_name(main) {
-        return main.to_path_buf();
+        return Some(main.to_path_buf());
     }
-    name.split('/')
-        .fold(folder_of(main), |p, part| p.join(part))
+    let file = burrow_config::drop_ins::file_in(&drop_in_folder_name(main), name)?;
+    Some(drop_in_folder(main).join(file))
+}
+
+pub fn valid_set(main: &Path, docs: &Docs) -> bool {
+    docs.list.first().is_some_and(|d| d.name == main_name(main))
+        && docs
+            .list
+            .iter()
+            .skip(1)
+            .all(|d| path_of(main, &d.name).is_some())
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -149,7 +157,10 @@ pub fn list(main: &Path) -> std::io::Result<Option<Listed>> {
 pub fn read(main: &Path) -> std::io::Result<Docs> {
     let mut docs = Docs::one(main_name(main), std::fs::read_to_string(main)?);
     for name in list(main)?.map(|l| l.names).unwrap_or_default() {
-        let text = std::fs::read_to_string(path_of(main, &name))?;
+        let Some(path) = path_of(main, &name) else {
+            continue;
+        };
+        let text = std::fs::read_to_string(path)?;
         docs.list.push(Doc { name, text });
     }
     Ok(docs)
@@ -218,8 +229,11 @@ impl Docs {
         out
     }
 
-    pub fn unbundle(main: &str, body: &str) -> Docs {
-        Docs::split_bundle(body).unwrap_or_else(|| Docs::one(main, body))
+    pub fn unbundle(main: &Path, body: &str) -> Option<Docs> {
+        if !body.starts_with(BUNDLE) {
+            return Some(Docs::one(main_name(main), body));
+        }
+        Docs::split_bundle(body).filter(|d| valid_set(main, d))
     }
 
     fn split_bundle(body: &str) -> Option<Docs> {
@@ -248,14 +262,21 @@ mod tests {
     fn a_set_of_one_file_is_kept_as_that_file_and_a_larger_set_comes_back_whole() {
         let one = Docs::one("server.yaml", "listen: 1\n");
         assert_eq!(one.bundle(), "listen: 1\n");
-        assert_eq!(Docs::unbundle("server.yaml", &one.bundle()), one);
+        let main = Path::new("/etc/burrow/server.yaml");
+        assert_eq!(Docs::unbundle(main, &one.bundle()), Some(one.clone()));
         let mut two = one.clone();
         two.list.push(Doc {
             name: "server.d/a b.yaml".into(),
             text: "services:\n  x: {}\n#file 3 trick\n".into(),
         });
-        assert_eq!(Docs::unbundle("server.yaml", &two.bundle()), two);
+        assert_eq!(Docs::unbundle(main, &two.bundle()), Some(two.clone()));
         let broken = two.bundle().replace("#file 10 ", "#file 99 ");
-        assert_eq!(Docs::unbundle("server.yaml", &broken).list.len(), 1);
+        assert_eq!(Docs::unbundle(main, &broken), None);
+        let mut out = two.clone();
+        out.list[1].name = "server.d/../x.yaml".into();
+        assert_eq!(Docs::unbundle(main, &out.bundle()), None);
+        let mut other_main = two;
+        other_main.list[0].name = "other.yaml".into();
+        assert_eq!(Docs::unbundle(main, &other_main.bundle()), None);
     }
 }

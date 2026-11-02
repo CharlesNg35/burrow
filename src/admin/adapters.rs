@@ -310,7 +310,7 @@ impl Store for FileStore {
         }
         let (_, path) = self.files().into_iter().find(|(v, _)| v.rev == rev)?;
         let body = std::fs::read_to_string(path).ok()?;
-        let docs = Docs::unbundle(&main_name(&self.path), &body);
+        let docs = Docs::unbundle(&self.path, &body)?;
         (text::docs_rev(&docs) == rev).then_some(docs)
     }
 
@@ -326,8 +326,10 @@ impl Store for FileStore {
         if name == main_name(&self.path) {
             return None;
         }
-        let path = crate::config::docs::path_of(&self.path, name);
-        crate::config::docs::read_only(&path).map(|r| r.why().to_string())
+        match crate::config::docs::path_of(&self.path, name) {
+            Some(path) => crate::config::docs::read_only(&path).map(|r| r.why().to_string()),
+            None => Some("its name is not a file in the drop-in folder".into()),
+        }
     }
 }
 

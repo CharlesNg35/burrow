@@ -102,7 +102,8 @@ fn keep_read_only(path: &Path, _account: &str) -> Result<(), Failure> {
 pub(super) fn installed(config: &Path, main: String) -> Docs {
     let mut docs = Docs::one(docs::main_name(config), main);
     for name in listed(config).unwrap_or_default() {
-        if let Some(text) = system::read_plain_file(&docs::path_of(config, &name))
+        if let Some(text) = docs::path_of(config, &name)
+            .and_then(|p| system::read_plain_file(&p))
             .and_then(|b| String::from_utf8(b).ok())
         {
             docs.list.push(Doc { name, text });

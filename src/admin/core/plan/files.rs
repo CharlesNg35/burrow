@@ -138,30 +138,6 @@ pub fn holds_items(target: &Value) -> bool {
     })
 }
 
-pub fn valid_name(prefix: &str, name: &str) -> bool {
-    let Some(file) = name
-        .strip_prefix(prefix)
-        .and_then(|rest| rest.strip_prefix('/'))
-    else {
-        return false;
-    };
-    let stem = file.strip_suffix(".yaml").unwrap_or("");
-    let device = stem.split('.').next().unwrap_or("").to_ascii_uppercase();
-    let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&device.as_str())
-        || ((device.starts_with("COM") || device.starts_with("LPT"))
-            && device.len() == 4
-            && device.ends_with(|c: char| c.is_ascii_digit()));
-    !stem.is_empty()
-        && stem.len() <= 100
-        && !reserved
-        && !stem.contains("..")
-        && !stem.starts_with(['.', '-'])
-        && !stem.ends_with('.')
-        && stem
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-}
-
 pub struct Written {
     pub docs: Docs,
     pub reformat: Option<patch::Reformat>,
@@ -202,7 +178,7 @@ fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
         }
         let at = match base.iter().position(|d| d.name == *file) {
             Some(at) => at,
-            None if valid_name(moves.prefix, file) => {
+            None if burrow_config::drop_ins::new_name_ok(moves.prefix, file) => {
                 base.push(Doc {
                     name: file.clone(),
                     text: String::new(),
@@ -415,7 +391,10 @@ mod tests {
             "server.d/team-a_1.yaml",
             "server.d/v1.2.yaml",
         ] {
-            assert!(valid_name("server.d", good), "{good}");
+            assert!(
+                burrow_config::drop_ins::new_name_ok("server.d", good),
+                "{good}"
+            );
         }
         for bad in [
             "server.d/../x.yaml",
@@ -437,7 +416,10 @@ mod tests {
             "server.yaml",
             "/etc/x.yaml",
         ] {
-            assert!(!valid_name("server.d", bad), "{bad}");
+            assert!(
+                !burrow_config::drop_ins::new_name_ok("server.d", bad),
+                "{bad}"
+            );
         }
         let base = docs(&[("server.yaml", "listen: 1\n")]);
         let places = [(
