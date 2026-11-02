@@ -3,6 +3,19 @@ use std::path::{Path, PathBuf};
 
 use super::{Refused, spare_prefix};
 
+#[cfg(test)]
+thread_local! {
+    pub static FAIL_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn hard_link(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_LINK.with(|f| f.get()) {
+        return Err(std::io::ErrorKind::Unsupported.into());
+    }
+    std::fs::hard_link(from, to)
+}
+
 pub struct Pending {
     real: PathBuf,
     spare: PathBuf,
@@ -35,7 +48,7 @@ impl Pending {
                 std::fs::remove_file(&self.spare)
             }
             None => {
-                let placed = match std::fs::hard_link(&self.spare, &self.real) {
+                let placed = match hard_link(&self.spare, &self.real) {
                     Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
                         copy_new(&self.spare, &self.real)
                     }
