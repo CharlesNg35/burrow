@@ -7,6 +7,26 @@ use rustix::fs::{AtFlags, FileType, Mode, OFlags};
 
 use super::{Refused, spare_prefix};
 
+#[cfg(test)]
+thread_local! {
+    pub static FAIL_FSYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn sync_folder(dir: &OwnedFd) {
+    let synced = || -> std::io::Result<()> {
+        #[cfg(test)]
+        if FAIL_FSYNC.with(|f| f.get()) {
+            return Err(std::io::Error::other("injected fsync failure"));
+        }
+        Ok(rustix::fs::fsync(dir)?)
+    };
+    if let Err(e) = synced() {
+        tracing::warn!(
+            "the config folder could not be synced to disk after a save ({e}); the save itself is done"
+        );
+    }
+}
+
 pub struct Pending {
     dir: OwnedFd,
     temp: String,
@@ -26,7 +46,7 @@ impl Pending {
             self.discard();
         }
         moved?;
-        rustix::fs::fsync(&self.dir)?;
+        sync_folder(&self.dir);
         Ok(())
     }
 
@@ -209,7 +229,8 @@ impl Hidden {
             &self.dir,
             self.spare.as_str(),
         )?;
-        Ok(rustix::fs::fsync(&self.dir)?)
+        sync_folder(&self.dir);
+        Ok(())
     }
 
     pub fn undo(&self) -> std::io::Result<()> {
@@ -219,7 +240,8 @@ impl Hidden {
             &self.dir,
             self.name.as_os_str(),
         )?;
-        Ok(rustix::fs::fsync(&self.dir)?)
+        sync_folder(&self.dir);
+        Ok(())
     }
 
     pub fn finish(&self) {

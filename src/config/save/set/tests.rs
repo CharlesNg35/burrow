@@ -309,3 +309,23 @@ fn a_new_file_never_replaces_one_that_appeared_meanwhile() {
     ));
     assert_eq!(read(dir.path(), "server.d/new.yaml").unwrap(), "mine\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_folder_sync_that_fails_after_the_rename_does_not_undo_the_save() {
+    let (dir, main, before) = setup();
+    let after = docs(&[
+        ("server.yaml", "listen: 2\n"),
+        ("server.d/a.yaml", "services: { x: {} }\n"),
+        ("server.d/gone.yaml", "clients: {}\n"),
+    ]);
+    super::super::unix::FAIL_FSYNC.with(|f| f.set(true));
+    let r = write_set(&main, &before, &after);
+    super::super::unix::FAIL_FSYNC.with(|f| f.set(false));
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(read(dir.path(), "server.yaml").unwrap(), "listen: 2\n");
+    assert_eq!(
+        read(dir.path(), "server.d/a.yaml").unwrap(),
+        "services: { x: {} }\n"
+    );
+}
