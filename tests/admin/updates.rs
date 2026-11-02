@@ -145,7 +145,7 @@ fn latest() -> burrow_admin_proto::updates::LatestRelease {
 }
 
 async fn start(hand: &mut Hand, w: &World) -> Admin {
-    burrow::admin::adapters::use_latest(latest);
+    burrow::admin::adapters::use_latest(latest, latest);
     hand.supervise();
     let mut a = connect(w, "ops", &w.ops, 1, 1).await.unwrap();
     a.call("subscribe", json!({"status_ms": 200}))

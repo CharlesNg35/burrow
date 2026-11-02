@@ -57,6 +57,16 @@ impl Rollout {
 
 pub(crate) type Ask = (String, u32, String);
 
+fn at_least(version: &str, asked: &str) -> bool {
+    match (
+        semver::Version::parse(version),
+        semver::Version::parse(asked),
+    ) {
+        (Ok(v), Ok(a)) => v >= a,
+        _ => false,
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Board {
     reports: HashMap<String, Report>,
@@ -68,7 +78,12 @@ pub(crate) struct Board {
 impl Board {
     pub(crate) fn reported(&mut self, client: &str, report: Report, now: Instant) {
         if let Some(job) = self.jobs.get_mut(client).filter(|j| !j.state.finished()) {
-            if report.version == job.to {
+            let done_here = report
+                .last
+                .as_ref()
+                .is_some_and(|l| l.id == job.id && l.outcome == Outcome::Done);
+            if report.version == job.to || (done_here && at_least(&report.version, &job.to)) {
+                job.to = report.version.clone();
                 job.set(UpdateState::Done, "", now);
                 info!("client \"{client}\" updated {} -> {}", job.from, job.to);
             } else if let Some(last) = report.last.as_ref().filter(|l| l.id == job.id) {

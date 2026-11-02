@@ -67,8 +67,18 @@ pub fn offer(status: &mut Status) {
     }
 }
 
-fn target(core: &Core, wanted: Option<&str>, status: &Status) -> Result<String, ApiError> {
-    let latest = status.latest.clone().unwrap_or_else(|| core.live.latest());
+fn target(
+    core: &Core,
+    wanted: Option<&str>,
+    status: &Status,
+    fresh: bool,
+) -> Result<String, ApiError> {
+    let shown = status.latest.as_ref().and_then(|l| l.version.clone());
+    let latest = if fresh {
+        core.live.latest_now()
+    } else {
+        status.latest.clone().unwrap_or_else(|| core.live.latest())
+    };
     let known = latest.version.ok_or_else(|| {
         ApiError::new(
             ErrorCode::Invalid,
@@ -82,7 +92,7 @@ fn target(core: &Core, wanted: Option<&str>, status: &Status) -> Result<String, 
         .map(|v| v.trim().trim_start_matches('v'))
         .filter(|v| !v.is_empty() && *v != "latest")
     {
-        Some(v) if v != known => Err(ApiError::new(
+        Some(v) if v != known && shown.as_deref() != Some(v) => Err(ApiError::new(
             ErrorCode::BadRequest,
             format!("clients update only to the latest release, {known}; \"{v}\" is not it"),
         )),
@@ -102,7 +112,7 @@ pub fn update_clients(
         ));
     }
     let status = core.status();
-    let to = target(core, r.version.as_deref(), &status)?;
+    let to = target(core, r.version.as_deref(), &status, !r.dry_run)?;
     let named: Vec<&ClientStatus> = if r.all {
         status.clients.iter().filter(|c| !c.local).collect()
     } else {

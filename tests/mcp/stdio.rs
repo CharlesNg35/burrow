@@ -57,10 +57,13 @@ async fn a_write_admin_checks_changes_but_applies_them_only_with_allow_write() {
             "update_clients"
         ])
     );
-    burrow::admin::adapters::use_latest(|| burrow_admin_proto::updates::LatestRelease {
-        version: Some("99.0.0".into()),
-        ..Default::default()
-    });
+    fn latest() -> burrow_admin_proto::updates::LatestRelease {
+        burrow_admin_proto::updates::LatestRelease {
+            version: Some("99.0.0".into()),
+            ..Default::default()
+        }
+    }
+    burrow::admin::adapters::use_latest(latest, latest);
     let preview = a
         .ok(
             "update_clients",

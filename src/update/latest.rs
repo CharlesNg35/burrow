@@ -33,6 +33,20 @@ pub fn check() -> Result<String, String> {
     version_in(&sums).ok_or_else(|| "the latest release lists no burrow build".to_string())
 }
 
+pub fn fresh() -> LatestRelease {
+    let found = check();
+    let shown = LatestRelease {
+        version: found.as_ref().ok().cloned(),
+        error: found.as_ref().err().cloned(),
+        checked_secs_ago: 0,
+    };
+    *KNOWN.lock().expect("latest lock") = Some(Known {
+        at: Instant::now(),
+        found,
+    });
+    shown
+}
+
 pub const FRESH_ENV: &str = "BURROW_ADMIN_TEST_LATEST_SECS";
 
 fn test_fresh() -> Option<Duration> {

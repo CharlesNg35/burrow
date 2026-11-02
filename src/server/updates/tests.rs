@@ -163,3 +163,39 @@ fn a_request_that_could_not_be_sent_leaves_no_job_behind() {
         "a retry is not refused as already running"
     );
 }
+
+#[test]
+fn a_client_that_installed_a_newer_release_than_asked_counts_as_updated_and_the_rollout_goes_on() {
+    let (mut b, now) = board(&["a", "b"]);
+    b.start_rollout(vec!["a".into(), "b".into()], "0.2.2", "ops")
+        .unwrap();
+    let asks = b.tick(now);
+    let mut newer = report("0.2.3", Remote::On);
+    newer.last = Some(LastUpdate {
+        id: asks[0].1,
+        outcome: Outcome::Done,
+        from: "0.2.1".into(),
+        to: "0.2.3".into(),
+        detail: String::new(),
+    });
+    b.reported("a", newer, now);
+    let job = b.job("a", now).unwrap();
+    assert_eq!(job.state, UpdateState::Done);
+    assert_eq!(job.to, "0.2.3", "the version it really runs");
+    let asks = b.tick(now);
+    assert_eq!(asks.iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), ["b"]);
+    let mut stale = report("0.2.1", Remote::On);
+    stale.last = Some(LastUpdate {
+        id: asks[0].1,
+        outcome: Outcome::Done,
+        from: "0.2.0".into(),
+        to: "0.2.1".into(),
+        detail: String::new(),
+    });
+    b.reported("b", stale, now);
+    assert_ne!(
+        b.job("b", now).unwrap().state,
+        UpdateState::Done,
+        "older than asked is not done"
+    );
+}

@@ -54,6 +54,9 @@ pub trait Live: Send + Sync {
     fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
         burrow_admin_proto::updates::LatestRelease::default()
     }
+    fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
+        self.latest()
+    }
     fn ask_update(&self, _client: &str, _to: &str, _by: &str) -> Result<(), String> {
         Err("this server cannot ask clients to update".into())
     }

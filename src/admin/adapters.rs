@@ -325,11 +325,12 @@ fn probe_bind(addr: SocketAddr) -> std::io::Result<()> {
     crate::wire::transport::tcp::bind_tcp(addr).map(drop)
 }
 
-static LATEST: std::sync::OnceLock<fn() -> burrow_admin_proto::updates::LatestRelease> =
-    std::sync::OnceLock::new();
+type Check = fn() -> burrow_admin_proto::updates::LatestRelease;
 
-pub fn use_latest(check: fn() -> burrow_admin_proto::updates::LatestRelease) {
-    let _ = LATEST.set(check);
+static LATEST: std::sync::OnceLock<(Check, Check)> = std::sync::OnceLock::new();
+
+pub fn use_latest(cached: Check, fresh: Check) {
+    let _ = LATEST.set((cached, fresh));
 }
 
 pub struct ServerLive(pub Arc<Shared>);
@@ -369,7 +370,11 @@ impl Live for ServerLive {
     }
 
     fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
-        LATEST.get().map(|check| check()).unwrap_or_default()
+        LATEST.get().map(|(cached, _)| cached()).unwrap_or_default()
+    }
+
+    fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
+        LATEST.get().map(|(_, fresh)| fresh()).unwrap_or_default()
     }
 
     fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {

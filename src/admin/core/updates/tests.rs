@@ -14,6 +14,7 @@ type Asked = Arc<Mutex<Vec<(Vec<String>, String, String)>>>;
 struct UpdLive {
     inner: FakeLive,
     latest: Option<String>,
+    fresh: Option<String>,
     asked: Asked,
 }
 
@@ -38,6 +39,15 @@ impl Live for UpdLive {
             version: self.latest.clone(),
             error: self.latest.is_none().then(|| "offline".to_string()),
             checked_secs_ago: 5,
+        }
+    }
+    fn latest_now(&self) -> LatestRelease {
+        match &self.fresh {
+            Some(v) => LatestRelease {
+                version: Some(v.clone()),
+                ..LatestRelease::default()
+            },
+            None => self.latest(),
         }
     }
     fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {
@@ -76,6 +86,14 @@ fn setup(
     latest: Option<&str>,
     clients: Vec<ClientStatus>,
 ) -> (Core, Asked, crate::admin::core::tests::World) {
+    setup_fresh(latest, None, clients)
+}
+
+fn setup_fresh(
+    latest: Option<&str>,
+    fresh: Option<&str>,
+    clients: Vec<ClientStatus>,
+) -> (Core, Asked, crate::admin::core::tests::World) {
     let w = world();
     let mut core = core_running(&w.text, &w.text);
     let asked: Asked = Arc::default();
@@ -91,6 +109,7 @@ fn setup(
             allows: BTreeMap::new(),
         },
         latest: latest.map(String::from),
+        fresh: fresh.map(String::from),
         asked: asked.clone(),
     });
     (core, asked, w)
@@ -218,4 +237,34 @@ fn nothing_is_asked_while_the_latest_release_is_unknown() {
         unknown.message
     );
     assert!(asked.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_latest_release_is_checked_again_before_clients_are_asked() {
+    let (core, asked, w) = setup_fresh(
+        Some("0.2.3"),
+        Some("0.2.4"),
+        vec![
+            client("a", Some("0.2.1"), RemoteUpdates::On),
+            client("b", Some("0.2.1"), RemoteUpdates::On),
+        ],
+    );
+    let s = session(&w, AdminLevel::Write);
+    let dry = asking(&core, &s, &["a"], Some("0.2.3"), true).unwrap();
+    assert_eq!(dry.to, "0.2.3", "a preview needs no new check");
+    let r = update_clients(
+        &core,
+        &s,
+        &UpdateClients {
+            all: true,
+            version: Some("0.2.3".into()),
+            ..UpdateClients::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        r.to, "0.2.4",
+        "the version shown when the admin clicked is still accepted"
+    );
+    assert_eq!(asked.lock().unwrap()[0].1, "0.2.4");
 }

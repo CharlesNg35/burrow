@@ -47,7 +47,7 @@ fn connected_with(m: &crate::install::Manifest, version: &str) -> bool {
 }
 
 pub fn main() -> ExitCode {
-    crate::admin::adapters::use_latest(crate::update::latest::cached);
+    crate::admin::adapters::use_latest(crate::update::latest::cached, crate::update::latest::fresh);
     crate::app::run::use_client_updates(|path| {
         std::sync::Arc::new(crate::update::remote::ClientUpdates::new(path))
     });
