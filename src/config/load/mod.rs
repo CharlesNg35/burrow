@@ -66,8 +66,8 @@ pub struct FileItems {
 
 pub fn short_name(main: &str, name: &str) -> String {
     let path = Path::new(name);
-    let folder = Path::new(main).parent().unwrap_or(Path::new(""));
-    path.strip_prefix(folder)
+    let folder = crate::config::docs::folder_of(Path::new(main));
+    path.strip_prefix(&folder)
         .unwrap_or(path)
         .display()
         .to_string()
@@ -505,3 +505,16 @@ mod tests {
 
 #[cfg(test)]
 mod tests_drop_ins;
+
+#[cfg(test)]
+#[test]
+fn a_drop_in_is_named_from_the_config_folder_also_for_a_relative_config() {
+    assert_eq!(
+        short_name("server.yaml", "./server.d/a.yaml"),
+        "server.d/a.yaml"
+    );
+    assert_eq!(
+        short_name("/etc/b/server.yaml", "/etc/b/server.d/a.yaml"),
+        "server.d/a.yaml"
+    );
+}
