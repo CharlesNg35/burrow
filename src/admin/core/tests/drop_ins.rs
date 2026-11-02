@@ -484,3 +484,29 @@ fn a_new_file_that_sorts_first_gives_the_rev_read_back_from_disk() {
         .unwrap();
     assert_eq!(applied.rev, set.base());
 }
+
+#[cfg(unix)]
+#[test]
+fn review_shows_a_drop_in_anyone_can_change_and_nothing_is_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let s = set.session(true);
+    let file = set.path("server.d/apps.yaml");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o602)).unwrap();
+    let ops = [Op::Set {
+        path: p(&["services", "web", "target"]),
+        value: json!(3005),
+    }];
+    let plan = set.plan(&s, &ops).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(!plan.valid);
+    assert!(
+        plan.diags.iter().any(|d| d.code == codes::DROP_IN_UNSAFE),
+        "{:?}",
+        plan.diags
+    );
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o602)).unwrap();
+    assert!(set.apply(&s, &ops).is_err());
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(set.read("server.yaml").unwrap(), set.w.text);
+}

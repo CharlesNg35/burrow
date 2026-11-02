@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::env::EnvSource;
-use crate::config::load::{Input, load_with_drop_ins};
+use crate::config::load::{Input, finish, load_inputs, load_set, read_set};
 use crate::config::{Format, Outcome, Role};
 
 pub fn check(
@@ -18,13 +18,14 @@ pub fn check(
         text: text.to_string(),
         format,
     };
-    load_with_drop_ins(
-        original,
-        (dir, &state),
-        vec![main],
-        Some(role),
-        role == Role::Server,
-        env,
+    if role != Role::Server {
+        return load_inputs((dir, Some(&state)), &[main], Some(role), env);
+    }
+    let mut found = Vec::new();
+    let inputs = read_set(original, main, &mut found);
+    finish(
+        load_set(original, (dir, &state), inputs, Some(role), env),
+        found,
     )
 }
 

@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use crate::config::docs::Docs;
 use crate::config::settings::ServerSettings;
-use crate::config::{Loaded, Role, load::load_inputs, tree};
+use crate::config::{Loaded, Role, load::load_set, tree};
 
 use super::diags::Mapper;
 use super::ops::{self, Fresh};
@@ -54,9 +54,10 @@ pub fn check_docs(core: &Core, docs: &Docs) -> Checked {
     let path = core.store.path();
     let dir = crate::config::docs::folder_of(path);
     let state = core.store.state_dir();
-    let outcome = load_inputs(
-        (&dir, Some(&state)),
-        &docs.inputs(path, core.store.format()),
+    let outcome = load_set(
+        path,
+        (&dir, &state),
+        docs.inputs(path, core.store.format()),
         Some(Role::Server),
         &*core.env,
     );

@@ -190,12 +190,18 @@ pub fn load_file(
         || tree::parse(&src).ok().as_ref().and_then(detect_role) == Some(Role::Server),
         |r| r == Role::Server,
     );
-    let inputs = vec![Input {
+    let main = Input {
         name: path.display().to_string(),
         text: src,
         format,
-    }];
-    let mut outcome = load_with_drop_ins(path, (base, &state), inputs, role, server, env);
+    };
+    let mut outcome = if server {
+        let mut found = Vec::new();
+        let inputs = read_set(path, main, &mut found);
+        finish(load_set(path, (base, &state), inputs, role, env), found)
+    } else {
+        load_inputs((base, Some(&state)), &[main], role, env)
+    };
     if let Some(Loaded::Server(s, _)) = outcome.loaded.as_mut()
         && let Some(w) = s.web.as_mut()
     {
@@ -227,19 +233,25 @@ pub fn load_file(
     Ok(outcome)
 }
 
-pub fn load_with_drop_ins(
+pub fn load_set(
     main: &Path,
     (base, state): (&Path, &Path),
-    mut inputs: Vec<Input>,
+    inputs: Vec<Input>,
     role: Option<Role>,
-    server: bool,
     env: &dyn EnvSource,
 ) -> Outcome {
     let mut found = Vec::new();
-    if server {
-        drop_ins::add(main, &mut inputs, &mut found);
-    }
-    let mut outcome = load_inputs((base, Some(state)), &inputs, role, env);
+    drop_ins::checks(main, &inputs, &mut found);
+    finish(load_inputs((base, Some(state)), &inputs, role, env), found)
+}
+
+pub fn read_set(main: &Path, main_input: Input, found: &mut Vec<Diagnostic>) -> Vec<Input> {
+    let mut inputs = vec![main_input];
+    drop_ins::read(main, &mut inputs, found);
+    inputs
+}
+
+pub fn finish(mut outcome: Outcome, found: Vec<Diagnostic>) -> Outcome {
     if !found.is_empty() {
         found.into_iter().for_each(|d| outcome.report.push(d));
         outcome.report.sort();
