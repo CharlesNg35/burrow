@@ -391,7 +391,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
             let used = in_use_fp(&sec3, &nm2);
             match on {
                 Some(_) if used.as_ref().is_some_and(|u| *u != new_fp) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted" data-testid="old-secret"><burrow_ui_kit::Spinner/>{format!("{} is still connected with its old secret; it switches once its config has the new one.", nm2)}</p> }.into_any(),
-                Some(from) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-success" data-testid="connected-now"><span class="size-2 rounded-full bg-success"></span>{format!("{} connected from {from}", nm2)}</p> }.into_any(),
+                Some(from) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-success" data-testid="connected-now"><burrow_ui_kit::Dot tone=burrow_ui_kit::Tone::Success/>{format!("{} connected from {from}", nm2)}</p> }.into_any(),
                 None => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted"><burrow_ui_kit::Spinner/>{format!("Waiting for {} to connect…", nm2)}</p> }.into_any(),
             }
         };

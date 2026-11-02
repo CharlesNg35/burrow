@@ -23,7 +23,7 @@ mod toast;
 
 pub use bar::{StickyBar, bar_status, bar_top, view_height};
 pub use basic::{
-    CARD_VIEW, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, PageHeader, PillTabs,
+    CARD_VIEW, Card, Chip, Dot, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, PageHeader, PillTabs,
     SectionHead, Stat, Stats, StatusDot, TABLE_VIEW, TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY,
     card_head, chip_class,
 };

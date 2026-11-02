@@ -304,13 +304,13 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
                 <div class="flex flex-wrap gap-2 px-4 py-3">
                     {may.into_iter().map(|(n, up, udp)| {
                         let (dot, state) = match up {
-                            Some(true) => ("bg-success", "a client is online"),
-                            Some(false) => ("bg-transparent ring-[1.5px] ring-text-faint ring-inset", "no client online"),
-                            None => ("bg-text-faint", "status not known yet"),
+                            Some(true) => (Tone::Success, "a client is online"),
+                            Some(false) => (Tone::Neutral, "no client online"),
+                            None => (Tone::Neutral, "status not known yet"),
                         };
                         view! {
                             <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset hover:ring-border-strong">
-                                <span class=format!("size-2 rounded-full {dot}") aria-hidden="true"></span>
+                                <burrow_ui_kit::Dot tone=dot/>
                                 {n.clone()}
                                 {udp.then(|| view! { <span class=tag_class(Tone::Violet)>"UDP"</span> })}
                                 <span class="sr-only">{format!(", {state}")}</span>

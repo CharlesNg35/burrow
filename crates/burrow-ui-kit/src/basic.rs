@@ -119,6 +119,22 @@ pub fn Chip(
 }
 
 #[component]
+pub fn Dot(
+    #[prop(into)] tone: Signal<Tone>,
+    #[prop(default = "size-2")] class: &'static str,
+    #[prop(optional, into)] label: Option<String>,
+) -> impl IntoView {
+    let hidden = label.is_none().then_some("true");
+    view! {
+        <span
+            class=move || format!("shrink-0 rounded-full {class} {}", tone.get().dot())
+            aria-hidden=hidden
+            aria-label=label
+        ></span>
+    }
+}
+
+#[component]
 pub fn StatusDot(
     #[prop(into)] on: Signal<bool>,
     #[prop(into)] text: Signal<String>,
@@ -133,7 +149,7 @@ pub fn StatusDot(
     };
     view! {
         <span class="inline-flex items-center gap-2 text-sm whitespace-nowrap" data-on=move || on.get().to_string()>
-            <span class=move || format!("size-2 shrink-0 rounded-full {}", tone().dot()) aria-hidden="true"></span>
+            <Dot tone=Signal::derive(tone)/>
             <span>{move || text.get()}</span>
         </span>
     }

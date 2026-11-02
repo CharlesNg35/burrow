@@ -129,7 +129,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
                 hidden=Signal::derive(move || !exists.get())
                 actions={view! { {head_actions} }.into_any()}
             >
-                {title_dot}{name.clone()}{protocol_tag}
+                <span class="min-w-0">{title_dot}{name.clone()}</span>{protocol_tag}
             </burrow_ui_kit::PageHeader>
             <RenameEntity entity=ent_r name=name_r open=renaming/>
             <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
@@ -362,7 +362,7 @@ fn title_dot(section: &str, name: &str) -> impl IntoView + use<> {
     move || {
         (sec == CLIENTS).then(|| {
             let on = s.status.with(|st| st.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == nm)).is_some_and(|c| c.connected));
-            view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { burrow_admin_logic::wording::ONLINE } else { burrow_admin_logic::wording::OFFLINE }></span> }
+            view! { <burrow_ui_kit::Dot tone=if on { Tone::Success } else { Tone::Neutral } class="mr-2.5 mb-[0.2em] inline-block size-2.5 align-middle" label=if on { burrow_admin_logic::wording::ONLINE } else { burrow_admin_logic::wording::OFFLINE }/> }
         })
     }
 }
