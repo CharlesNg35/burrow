@@ -237,23 +237,32 @@ fn with_sources(base: Service, allow: &[&str], deny: &[&str]) -> Service {
     }
 }
 
+#[test]
+fn test_ports_lie_below_the_ports_a_port_zero_bind_is_given() {
+    let Some(first) = first_ephemeral_port() else {
+        return;
+    };
+    let port = free_port();
+    assert!(
+        port < first,
+        "test port {port} can also go to a port 0 bind, ephemeral ports start at {first}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ipv4_visitors_of_a_dual_stack_bind_match_ipv4_rules() {
     if std::net::TcpListener::bind("[::1]:0").is_err() {
         return;
     }
     let echo = echo_server().await;
-    let dual = Service {
-        bind: Some("[::]:0".parse().unwrap()),
-        ..service(echo, Protocol::Tcp)
+    let dual = |allow: &[&str], deny: &[&str]| Service {
+        bind: Some(free_dual_stack()),
+        ..with_sources(service(echo, Protocol::Tcp), allow, deny)
     };
     let t = tunnel(vec![
-        ("v4ok", with_sources(dual.clone(), &["127.0.0.0/8"], &[])),
-        (
-            "mappeddeny",
-            with_sources(dual.clone(), &[], &["::ffff:127.0.0.1"]),
-        ),
-        ("v6only", with_sources(dual, &["::1"], &[])),
+        ("v4ok", dual(&["127.0.0.0/8"], &[])),
+        ("mappeddeny", dual(&[], &["::ffff:127.0.0.1"])),
+        ("v6only", dual(&["::1"], &[])),
     ])
     .await;
     let at = |host: &str, name: &str| -> std::net::SocketAddr {
