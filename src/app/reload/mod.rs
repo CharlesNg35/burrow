@@ -1,7 +1,5 @@
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -13,11 +11,27 @@ use crate::config::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use crate::config::validate::startup_report;
 use crate::config::{Loaded, Role, load_file};
 
+mod watch;
+
+use watch::{Watch, Watching, fingerprint, renew_set};
+#[cfg(test)]
+use watch::{renew, watched_dirs};
+
 pub trait Watched: Clone + PartialEq + Send + 'static {
     const ROLE: Role;
     fn from_loaded(loaded: Loaded) -> Option<Self>;
     fn files(&self, config: &Path) -> Vec<PathBuf> {
         vec![config.to_path_buf()]
+    }
+    fn folders(&self, _config: &Path) -> Vec<PathBuf> {
+        Vec::new()
+    }
+}
+
+fn watching<S: Watched>(current: &S, config: &Path) -> Watching {
+    Watching {
+        files: current.files(config),
+        folders: current.folders(config),
     }
 }
 
@@ -117,7 +131,7 @@ pub async fn follow_nudged<S: Watched>(
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
     let worker = Worker::start();
     let watch = Watch::default();
-    let Some(mut watch) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
+    let Some(mut watch) = renewed(&worker, watch, watching(&current, &path), &trig_tx, false).await
     else {
         return;
     };
@@ -146,12 +160,12 @@ pub async fn follow_nudged<S: Watched>(
             } else {
                 "file changed"
             };
-            let files = current.files(&path);
+            let files = watching(&current, &path);
             let triggers = trig_tx.clone();
             let Some((back, now)) = worker
                 .run(move || {
                     let mut watch = watch;
-                    renew(&mut watch, &files, &triggers, event);
+                    renew_set(&mut watch, &files, &triggers, event);
                     let now = fingerprint(&files);
                     (watch, now)
                 })
@@ -242,7 +256,8 @@ pub async fn follow_nudged<S: Watched>(
                 info!("reloading config ({why})");
             }
             current = next.clone();
-            let Some(back) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
+            let Some(back) =
+                renewed(&worker, watch, watching(&current, &path), &trig_tx, false).await
             else {
                 return;
             };
@@ -328,98 +343,7 @@ fn say_rejected_report(
     report
 }
 
-fn fingerprint(files: &[PathBuf]) -> Vec<(PathBuf, Option<u64>)> {
-    use std::hash::{Hash, Hasher};
-    files
-        .iter()
-        .map(|f| {
-            let digest = std::fs::read(f).ok().map(|bytes| {
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                bytes.hash(&mut h);
-                h.finish()
-            });
-            (real(f), digest)
-        })
-        .collect()
-}
-
-fn by_hand() -> &'static str {
-    if cfg!(windows) {
-        "apply changes with: burrow service reload, or by restarting it"
-    } else {
-        "apply changes with SIGHUP or: burrow service reload"
-    }
-}
-
-fn dir_of(p: &Path) -> PathBuf {
-    p.parent()
-        .filter(|d| !d.as_os_str().is_empty())
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-}
-
-fn real(p: &Path) -> PathBuf {
-    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
-}
-
-fn watched_dirs(files: &[PathBuf]) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    for file in files {
-        let mut p = file.clone();
-        for _ in 0..16 {
-            dirs.push(real(&dir_of(&p)));
-            for linked in p.ancestors().skip(1) {
-                let holder = real(&dir_of(linked));
-                if holder.parent().is_some()
-                    && std::fs::symlink_metadata(linked).is_ok_and(|m| m.file_type().is_symlink())
-                {
-                    dirs.push(holder);
-                }
-            }
-            match std::fs::read_link(&p) {
-                Ok(t) if t.is_absolute() => p = t,
-                Ok(t) => p = dir_of(&p).join(t),
-                Err(_) => break,
-            }
-        }
-        dirs.push(dir_of(&real(file)));
-    }
-    dirs.sort();
-    dirs.dedup();
-    dirs
-}
-
-const KQUEUE: bool = cfg!(any(
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "dragonfly"
-));
-
 const RECHECK: Duration = Duration::from_secs(30);
-
-type Identity = Option<(u64, u64)>;
-
-fn identity(path: &Path) -> Identity {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        None
-    }
-}
-
-#[derive(Default)]
-struct Watch {
-    watcher: Option<notify::RecommendedWatcher>,
-    tried: Vec<(PathBuf, Identity)>,
-    stale: Arc<AtomicBool>,
-    failing: Vec<PathBuf>,
-    broken: bool,
-}
 
 struct Worker(Option<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>>);
 
@@ -458,104 +382,17 @@ impl Worker {
 async fn renewed(
     worker: &Worker,
     mut watch: Watch,
-    files: Vec<PathBuf>,
+    files: Watching,
     tx: &mpsc::Sender<&'static str>,
     event: bool,
 ) -> Option<Watch> {
     let tx = tx.clone();
     worker
         .run(move || {
-            renew(&mut watch, &files, &tx, event);
+            renew_set(&mut watch, &files, &tx, event);
             watch
         })
         .await
-}
-
-fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, event: bool) {
-    let dirs = watched_dirs(files);
-    let wanted: Vec<(PathBuf, Identity)> = dirs
-        .iter()
-        .chain(files)
-        .map(|p| (p.clone(), identity(p)))
-        .collect();
-    let stale = watch.stale.load(Ordering::Acquire);
-    if wanted == watch.tried && !(KQUEUE && event) && !stale {
-        return;
-    }
-    if std::thread::Builder::new()
-        .spawn(|| {})
-        .map(std::thread::JoinHandle::join)
-        .is_err()
-    {
-        return;
-    }
-    let (fresh, failed) = match watch_files(&dirs, files, tx.clone(), watch.stale.clone()) {
-        Ok(made) => made,
-        Err(e) => {
-            if !std::mem::replace(&mut watch.broken, true) {
-                warn!("cannot watch the config for changes ({e}); {}", by_hand());
-            }
-            return;
-        }
-    };
-    watch.broken = false;
-    watch.tried = wanted;
-    watch.stale.store(false, Ordering::Release);
-    for (dir, e) in &failed {
-        if !watch.failing.contains(dir) {
-            warn!(
-                "cannot watch {} for changes ({e}); {}",
-                dir.display(),
-                by_hand()
-            );
-        }
-    }
-    watch.failing = failed.into_iter().map(|(dir, _)| dir).collect();
-    if watch.failing.is_empty() || watch.watcher.is_none() {
-        watch.watcher = Some(fresh);
-    }
-}
-
-fn watch_files(
-    dirs: &[PathBuf],
-    files: &[PathBuf],
-    tx: mpsc::Sender<&'static str>,
-    stale: Arc<AtomicBool>,
-) -> Result<(notify::RecommendedWatcher, Vec<(PathBuf, notify::Error)>), notify::Error> {
-    use notify::{EventKind, RecursiveMode, Watcher};
-    let relevant_dirs = dirs.to_vec();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        let Ok(ev) = res else { return };
-        if !matches!(
-            ev.kind,
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-        ) {
-            return;
-        }
-        if matches!(ev.kind, EventKind::Remove(_))
-            && ev.paths.iter().any(|p| relevant_dirs.contains(p))
-        {
-            stale.store(true, Ordering::Release);
-        }
-        let relevant = ev.paths.iter().any(|p| {
-            p.parent()
-                .map(real)
-                .is_some_and(|d| relevant_dirs.contains(&d))
-        });
-        if relevant {
-            let _ = tx.try_send("file changed");
-        }
-    })?;
-    let mut failed = Vec::new();
-    for dir in dirs {
-        if let Err(e) = watcher.watch(dir, RecursiveMode::NonRecursive) {
-            failed.push((dir.clone(), e));
-        }
-    }
-    for file in files {
-        let _ = watcher.watch(file, RecursiveMode::NonRecursive);
-    }
-    Ok((watcher, failed))
 }
 
 #[cfg(test)]
@@ -634,6 +471,26 @@ mod tests {
             matches!(seen, Ok(Some(_))),
             "the working watcher was dropped"
         );
+    }
+
+    #[test]
+    fn a_file_added_to_a_watched_folder_changes_what_was_seen() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(&config, "a").unwrap();
+        let folder = dir.path().join("server.d");
+        let w = Watching {
+            files: vec![config],
+            folders: vec![folder.clone()],
+        };
+        let missing = fingerprint(&w);
+        std::fs::create_dir(&folder).unwrap();
+        let empty = fingerprint(&w);
+        std::fs::write(folder.join("a.yaml"), "x").unwrap();
+        let one = fingerprint(&w);
+        assert_ne!(missing, empty);
+        assert_ne!(empty, one);
+        assert_eq!(one, fingerprint(&w));
     }
 
     #[test]
