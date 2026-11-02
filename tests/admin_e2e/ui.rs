@@ -502,13 +502,19 @@ impl Ui {
 
     pub async fn png_of(&self, css: &str) -> Vec<u8> {
         self.wait_for(css, Duration::from_secs(10)).await;
-        let r: Vec<f64> = self
+        let _: bool = self
             .eval(&format!(
-                "(() => {{ const e = document.querySelector({}); e.scrollIntoView({{block: 'center'}}); const r = e.getBoundingClientRect(); return [r.left + scrollX, r.top + scrollY, r.width, r.height]; }})()",
+                "(() => {{ document.querySelector({}).scrollIntoView({{block: 'center'}}); return true; }})()",
                 js_str(css)
             ))
             .await;
         self.settle().await;
+        let r: Vec<f64> = self
+            .eval(&format!(
+                "(() => {{ const r = document.querySelector({}).getBoundingClientRect(); return [r.left + scrollX, r.top + scrollY, r.width, r.height]; }})()",
+                js_str(css)
+            ))
+            .await;
         self.page
             .screenshot(
                 ScreenshotParams::builder()
