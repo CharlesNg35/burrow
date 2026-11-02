@@ -14,7 +14,17 @@ struct Held {
     from: Visitor,
     ask: Ask,
     cutter: Cutter,
+    front: Option<Arc<Cut>>,
     epoch: u64,
+}
+
+impl Held {
+    fn cut(&self) {
+        self.cutter.cut();
+        if let Some(front) = &self.front {
+            front.trigger();
+        }
+    }
 }
 
 pub(crate) enum Cutter {
@@ -50,7 +60,7 @@ pub(crate) struct Cut {
 }
 
 impl Cut {
-    fn trigger(&self) {
+    pub(crate) fn trigger(&self) {
         self.done.store(true, Ordering::Release);
         self.notify.notify_waiters();
         let waker = self
@@ -159,7 +169,7 @@ impl Busy {
                 h.epoch = epoch;
                 if gone.contains(id) {
                     tracing::debug!(peer = %h.from.addr, "web: service \"{}\" no longer takes this visitor, closing its answer", h.service);
-                    h.cutter.cut();
+                    h.cut();
                 }
             }
         }
@@ -180,7 +190,7 @@ impl Pool {
         service: &Arc<str>,
         from: Visitor,
         ask: Ask,
-        cutter: Cutter,
+        (cutter, front): (Cutter, Option<Arc<Cut>>),
         epoch: u64,
     ) -> Ticket {
         let stream = match &cutter {
@@ -192,6 +202,7 @@ impl Pool {
             from,
             ask,
             cutter,
+            front,
             epoch,
         };
         Ticket {

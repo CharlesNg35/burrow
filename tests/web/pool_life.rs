@@ -238,6 +238,39 @@ async fn a_reload_that_no_longer_allows_a_visitor_cuts_a_fast_apps_answer_it_rea
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reload_that_no_longer_allows_a_visitor_closes_its_connection_while_it_reads_nothing() {
+    let secret = Secret::generate();
+    let mut svc = site(&["home"], big_app().await);
+    svc.sources.allow = vec!["203.0.113.0/24".parse().unwrap()];
+    let mut s = plain_server(&secret, &[("app", svc, &["app.example.com"])]);
+    s.web.as_mut().unwrap().trusted_proxies = vec!["127.0.0.1/32".parse().unwrap()];
+    let web = s.web.as_ref().unwrap().http.unwrap();
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    let mut v = tokio::net::TcpStream::connect(web).await.unwrap();
+    v.write_all(
+        b"GET /big HTTP/1.1\r\nHost: app.example.com\r\nX-Forwarded-For: 203.0.113.2\r\n\r\n",
+    )
+    .await
+    .unwrap();
+    let mut buf = vec![0u8; 64 * 1024];
+    assert!(v.read(&mut buf).await.unwrap() > 0);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut next: ServerSettings = s.clone();
+    next.services.get_mut("app").unwrap().sources.allow = vec!["203.0.113.3/32".parse().unwrap()];
+    t.server.reload_applied(next).await;
+    let closed = tokio::time::timeout(Duration::from_secs(10), async {
+        while v.write_all(b"X-Wait: 1\r\n").await.is_ok() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        closed.is_ok(),
+        "the server closes the connection without waiting for the visitor to read what it holds"
+    );
+}
+
 async fn silent_app() -> SocketAddr {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
