@@ -119,6 +119,7 @@ pub fn check_server(
         udp_max_peers: cfg.udp.max_peers as usize,
         metrics,
         self_allow,
+        service_files: BTreeMap::new(),
         web: super::web::settings(cfg, (https, http), sites, websocket.as_ref(), base_dir).map(
             |mut w| {
                 w.written = super::web::written(spans);

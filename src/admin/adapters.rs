@@ -219,10 +219,7 @@ impl Store for FileStore {
     }
 
     fn read(&self) -> std::io::Result<Docs> {
-        Ok(Docs::one(
-            main_name(&self.path),
-            std::fs::read_to_string(&self.path)?,
-        ))
+        crate::config::docs::read(&self.path)
     }
 
     fn write(&self, before: &Docs, after: &Docs) -> Result<(), WriteError> {

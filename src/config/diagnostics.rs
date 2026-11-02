@@ -272,7 +272,8 @@ impl Report {
                 }
             }
             None => {
-                let _ = writeln!(out, "{pad}{} {}", style.paint("1;34", "-->"), self.file());
+                let name = d.span.map_or(self.file(), |s| self.name_of(s.file));
+                let _ = writeln!(out, "{pad}{} {name}", style.paint("1;34", "-->"));
             }
         }
         if let Some(help) = &d.help {

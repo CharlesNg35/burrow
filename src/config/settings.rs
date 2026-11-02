@@ -51,6 +51,7 @@ pub struct ServerSettings {
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
     pub web: Option<WebSettings>,
+    pub service_files: BTreeMap<String, String>,
 }
 
 pub struct ListenClash {

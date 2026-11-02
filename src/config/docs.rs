@@ -44,7 +44,6 @@ impl Docs {
     }
 
     pub fn inputs(&self, main: &Path, format: Format) -> Vec<Input> {
-        let folder = folder_of(main);
         self.list
             .iter()
             .enumerate()
@@ -52,7 +51,7 @@ impl Docs {
                 name: if i == 0 {
                     main.display().to_string()
                 } else {
-                    folder.join(&d.name).display().to_string()
+                    path_of(main, &d.name).display().to_string()
                 },
                 text: d.text.clone(),
                 format: if i == 0 { format } else { Format::Yaml },
@@ -83,6 +82,116 @@ pub fn main_name(main: &Path) -> String {
     main.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "server.yaml".into())
+}
+
+pub fn drop_in_folder_name(main: &Path) -> String {
+    let stem = main
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "server".into());
+    format!("{stem}.d")
+}
+
+pub fn drop_in_folder(main: &Path) -> PathBuf {
+    folder_of(main).join(drop_in_folder_name(main))
+}
+
+pub fn path_of(main: &Path, name: &str) -> PathBuf {
+    if name == main_name(main) {
+        return main.to_path_buf();
+    }
+    name.split('/')
+        .fold(folder_of(main), |p, part| p.join(part))
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Listed {
+    pub names: Vec<String>,
+    pub ignored: Vec<String>,
+}
+
+pub fn list(main: &Path) -> std::io::Result<Option<Listed>> {
+    let folder = drop_in_folder(main);
+    let entries = match std::fs::read_dir(&folder) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let prefix = drop_in_folder_name(main);
+    let mut out = Listed::default();
+    for entry in entries {
+        let entry = entry?;
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if name.starts_with('.') || std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir()) {
+            continue;
+        }
+        let lower = name.to_ascii_lowercase();
+        if name.ends_with(".yaml") {
+            out.names.push(format!("{prefix}/{name}"));
+        } else if lower.ends_with(".yml") || lower.ends_with(".json") || lower.ends_with(".yaml") {
+            out.ignored.push(format!("{prefix}/{name}"));
+        }
+    }
+    out.names.sort();
+    out.ignored.sort();
+    Ok(Some(out))
+}
+
+pub fn read(main: &Path) -> std::io::Result<Docs> {
+    let mut docs = Docs::one(main_name(main), std::fs::read_to_string(main)?);
+    for name in list(main)?.map(|l| l.names).unwrap_or_default() {
+        let text = std::fs::read_to_string(path_of(main, &name))?;
+        docs.list.push(Doc { name, text });
+    }
+    Ok(docs)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadOnly {
+    Marked,
+    NotWritable,
+}
+
+impl ReadOnly {
+    pub fn why(self) -> &'static str {
+        match self {
+            ReadOnly::Marked if cfg!(windows) => "it has the read-only attribute",
+            ReadOnly::Marked => "it has no write permission",
+            ReadOnly::NotWritable => "burrow's user cannot write it",
+        }
+    }
+}
+
+pub fn read_only(path: &Path) -> Option<ReadOnly> {
+    let meta = std::fs::metadata(path).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o222 == 0 {
+            return Some(ReadOnly::Marked);
+        }
+    }
+    #[cfg(not(unix))]
+    if meta.permissions().readonly() {
+        return Some(ReadOnly::Marked);
+    }
+    (!crate::base::access::can_write(path)).then_some(ReadOnly::NotWritable)
+}
+
+pub fn open_to_others(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o002 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 impl Docs {

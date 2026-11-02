@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::env::EnvSource;
-use crate::config::load::load_str_at;
+use crate::config::load::{Input, load_with_drop_ins};
 use crate::config::{Format, Outcome, Role};
 
 pub fn check(
@@ -13,12 +13,17 @@ pub fn check(
 ) -> Outcome {
     let dir = original.parent().unwrap_or(Path::new("."));
     let state = crate::install::state_dir_for(original);
-    load_str_at(
-        (dir, Some(&state)),
-        &original.display().to_string(),
-        text,
+    let main = Input {
+        name: original.display().to_string(),
+        text: text.to_string(),
         format,
+    };
+    load_with_drop_ins(
+        original,
+        (dir, &state),
+        vec![main],
         Some(role),
+        role == Role::Server,
         env,
     )
 }

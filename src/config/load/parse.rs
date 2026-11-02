@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{
-    Format, Input, Loaded, Outcome, Role, detect_role, hide_secret_lines, json_syntax, merge,
-    schema_json,
+    Format, Input, Loaded, Outcome, Role, detect_role, file_items, hide_secret_lines, json_syntax,
+    merge, note_service_files, schema_json,
 };
 use crate::config::check::{
     Spans, check_client, check_refs, check_server, check_visitor, secret_spans,
@@ -103,6 +103,7 @@ pub fn load_inputs(
             report,
             role,
             loaded: None,
+            files: Vec::new(),
         }
     };
 
@@ -139,7 +140,10 @@ pub fn load_inputs(
         report.masked.extend(secret_spans(tree));
         expand(tree, input.body(), env, &mut env_diags);
     }
-    let root = merge::merge(trees);
+    let names: Vec<String> = inputs.iter().map(|i| i.name.clone()).collect();
+    let (root, merged) = merge::merge_with(trees, &names);
+    merged.into_iter().for_each(|d| report.push(d));
+    let files = file_items(&root, &names);
     let env_spans: Vec<Span> = env_diags.iter().filter_map(|d| d.span).collect();
     env_diags.into_iter().for_each(|d| report.push(d));
 
@@ -192,11 +196,13 @@ pub fn load_inputs(
     if report.has_errors() {
         loaded = None;
     }
+    note_service_files(&mut loaded, &files);
     report.sort();
     Outcome {
         report,
         role: Some(role),
         loaded,
+        files,
     }
 }
 

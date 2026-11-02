@@ -76,6 +76,7 @@ pub(crate) fn sample() -> Status {
                 entries: vec![],
                 web: vec![],
                 http: None,
+                file: None,
             },
             ServiceStatus {
                 name: "db".into(),
@@ -98,6 +99,7 @@ pub(crate) fn sample() -> Status {
                 entries: vec![],
                 web: vec![],
                 http: None,
+                file: None,
             },
         ],
         visitors: vec![
@@ -172,6 +174,21 @@ fn a_websites_responses_are_counted_by_class() {
     );
     assert!(
         text.contains("  db: visitors laptop, no web responses yet\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_service_from_a_drop_in_file_names_that_file() {
+    let mut s = sample();
+    s.services[1].file = Some("server.d/apps.yaml".into());
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains("  db: visitors laptop, in server.d/apps.yaml\n"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("web: balance, limit 5.0 MB/s, proxy protocol v2, source filter, in"),
         "{text}"
     );
 }
