@@ -10,6 +10,7 @@ use super::{
     BIND_RETRY, FREED_TRIES, MetricsTask, Server, Shared, Wanted, WsTask, bind_metrics,
     bind_with_retry, bind_ws_with_retry, fields, listen, log_service, spawn_service,
 };
+use crate::base::failure::Failure;
 use crate::config::settings::ServerSettings;
 use crate::config::settings::{Shares, WebSocketSettings};
 use crate::wire::protocol::{ByeReason, ServerMsg};
@@ -207,8 +208,8 @@ impl Server {
         current: &ServerSettings,
         next: &ServerSettings,
         released: &mut Vec<(Protocol, SocketAddr, u16)>,
-    ) -> Vec<String> {
-        let mut unbound: Vec<String> = Vec::new();
+    ) -> Vec<(String, Failure)> {
+        let mut unbound: Vec<(String, Failure)> = Vec::new();
         for (name, svc) in &next.services {
             if svc.bind.is_none() {
                 if current
@@ -264,8 +265,8 @@ impl Server {
                     self.services.insert(name.clone(), t);
                 }
                 Err(f) => {
-                    error!("{}", f.message);
-                    unbound.push(format!("\"{name}\""));
+                    error!("{}", why(&f));
+                    unbound.push((format!("\"{name}\""), f));
                 }
             }
         }
@@ -321,7 +322,7 @@ impl Server {
         &mut self,
         changed: &[(&'static str, fields::Applied)],
         next: &ServerSettings,
-        unbound: Vec<String>,
+        unbound: Vec<(String, Failure)>,
         web_wait: Option<PortWait>,
     ) {
         let (c, v) = (next.clients.len(), next.services.len());
@@ -344,13 +345,9 @@ impl Server {
         self.refresh_self();
         let mut lines: Vec<String> = unbound
             .iter()
-            .map(|name| {
-                format!(
-                    "service {name} could not listen; it tries again every {}s",
-                    BIND_RETRY.as_secs()
-                )
-            })
+            .map(|(_, f)| format!("{}; it tries again every {}s", why(f), BIND_RETRY.as_secs()))
             .collect();
+        let unbound: Vec<String> = unbound.into_iter().map(|(name, _)| name).collect();
         let mut names = unbound.clone();
         if let Some(w) = &web_wait {
             names.push(w.key.clone());
@@ -540,5 +537,32 @@ fn log_former_private_services(current: &ServerSettings, next: &ServerSettings) 
             }
             _ => {}
         }
+    }
+}
+
+fn why(f: &Failure) -> String {
+    match &f.hint {
+        Some(h) => format!("{} ({h})", f.message),
+        None => f.message.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_service_that_could_not_listen_is_reported_with_its_hint() {
+        let addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
+        let e = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let f =
+            crate::server::bind_error("service \"web\"", burrow_config::Protocol::Tcp, addr, &e);
+        let line = why(&f);
+        assert!(
+            line.starts_with("cannot bind service \"web\" on 0.0.0.0:80: permission denied ("),
+            "{line}"
+        );
+        assert!(line.contains(f.hint.as_deref().unwrap()), "{line}");
+        assert_eq!(why(&Failure::new("x")), "x");
     }
 }
