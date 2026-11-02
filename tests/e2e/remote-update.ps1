@@ -42,7 +42,7 @@ function WaitFor($what, [scriptblock]$ok) {
 function Ask($v) {
   $Ctl.WriteLine("latest $v"); $Ctl.Flush()
   WaitFor "the server to see $v" { param($c) $c.available -eq $v } | Out-Null
-  & $Probe ops.yaml call update_clients '{\"clients\":[\"home\"]}' | Out-Null
+  & $Probe ops.yaml call update_clients '{"clients":["home"]}' | Out-Null
   if ($LASTEXITCODE -ne 0) { Fail "ask $v" }
 }
 function Installed { & "$env:ProgramFiles\burrow\burrow.exe" version }
