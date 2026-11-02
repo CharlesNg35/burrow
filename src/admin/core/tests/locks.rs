@@ -8,6 +8,7 @@ use serde_json::json;
 
 use crate::admin::core::plan;
 use crate::admin::core::*;
+use crate::base::testkit::cert_pair;
 
 #[cfg(feature = "web")]
 use super::apply_now;
@@ -35,16 +36,11 @@ impl Site {
 }
 
 fn pair(dir: &std::path::Path, stem: &str) {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let params = rcgen::CertificateParams::new(
-        ["nas.example.com", "*.example.com", "example.com"]
-            .map(String::from)
-            .to_vec(),
-    )
-    .unwrap();
-    let cert = params.self_signed(&key).unwrap();
-    std::fs::write(dir.join(format!("{stem}.pem")), cert.pem()).unwrap();
-    std::fs::write(dir.join(format!("{stem}.key")), key.serialize_pem()).unwrap();
+    cert_pair(
+        dir,
+        stem,
+        &["nas.example.com", "*.example.com", "example.com"],
+    );
 }
 
 fn site() -> Site {

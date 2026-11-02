@@ -1,4 +1,4 @@
-use super::tests::{errors, load_in};
+use super::tests::{errors, load_in, svc};
 use crate::config::Outcome;
 
 pub(super) const TOP: &str =
@@ -22,10 +22,6 @@ pub(super) fn warnings(o: &Outcome) -> Vec<String> {
         .filter(|d| !d.is_error())
         .map(|d| d.message.clone())
         .collect()
-}
-
-fn svc(name: &str, web: &str) -> String {
-    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
 }
 
 #[test]

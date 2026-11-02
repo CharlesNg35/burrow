@@ -1,17 +1,7 @@
 use std::path::Path;
 
 use super::tests::load_in;
-
-fn pair(dir: &Path, stem: &str, names: &[&str]) {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let names = names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
-    let cert = rcgen::CertificateParams::new(names)
-        .unwrap()
-        .self_signed(&key)
-        .unwrap();
-    std::fs::write(dir.join(format!("{stem}.pem")), cert.pem()).unwrap();
-    std::fs::write(dir.join(format!("{stem}.key")), key.serialize_pem()).unwrap();
-}
+use crate::base::testkit::cert_pair as pair;
 
 fn file_errors(dir: &Path, rest: &str) -> Vec<String> {
     load_in(dir, rest)

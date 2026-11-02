@@ -1,15 +1,12 @@
 use std::path::Path;
 
+use crate::base::testkit::cert_pair;
 use crate::config::settings::{WebSettings, WebTls};
 use burrow_config::ServerConfig;
 use serde_json::json;
 
 fn pair(dir: &Path, stem: &str) {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let params = rcgen::CertificateParams::new(vec!["blog.example.com".to_string()]).unwrap();
-    let cert = params.self_signed(&key).unwrap();
-    std::fs::write(dir.join(format!("{stem}.pem")), cert.pem()).unwrap();
-    std::fs::write(dir.join(format!("{stem}.key")), key.serialize_pem()).unwrap();
+    cert_pair(dir, stem, &["blog.example.com"]);
 }
 
 fn web_in(dir: &Path) -> WebSettings {
