@@ -8,12 +8,20 @@ use crate::icon::Icon;
 
 use create::{Create, create_section};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComboOption {
     pub value: String,
     pub label: String,
     pub facet: String,
     pub dot: Option<Tone>,
+    pub blocked: Option<String>,
+}
+
+pub fn pickable(options: &[ComboOption], value: &str) -> bool {
+    options
+        .iter()
+        .find(|o| o.value == value)
+        .is_none_or(|o| o.blocked.is_none())
 }
 
 pub fn filter_options(options: &[ComboOption], query: &str) -> Vec<ComboOption> {
@@ -79,6 +87,9 @@ pub fn Combobox(
     let list_id = format!("{id}-list");
     let visible = Memo::new(move |_| options.with(|o| filter_options(o, &query.get())));
     let pick = move |value: String| {
+        if !options.with_untracked(|o| pickable(o, &value)) {
+            return;
+        }
         let next = toggle(&selected.get_untracked(), &value, multi);
         on_change.run(next);
         query.set(String::new());
@@ -314,12 +325,19 @@ fn option_rows(
             .map(|(i, o)| {
                 let on = sel.contains(&o.value);
                 let value = o.value.clone();
+                let off = o.blocked.is_some();
+                let tip = o.blocked.clone().unwrap_or_else(|| o.facet.clone());
                 view! {
                     <li
                         id=format!("{id}-opt-{i}")
                         role="option"
                         aria-selected=on.to_string()
-                        class="flex h-[34px] cursor-pointer items-center gap-2.5 rounded-input px-2.5 text-sm"
+                        aria-disabled=off.then_some("true")
+                        title=(!tip.is_empty()).then_some(tip)
+                        class="flex h-[34px] items-center gap-2.5 rounded-input px-2.5 text-sm"
+                        class:cursor-pointer=!off
+                        class:text-text-muted=off
+                        class:cursor-not-allowed=off
                         class:bg-surface-3=i == act
                         data-option=o.value.clone()
                         on:mousedown=move |e| e.prevent_default()
@@ -383,8 +401,7 @@ mod tests {
         ComboOption {
             value: v.into(),
             label: v.into(),
-            facet: String::new(),
-            dot: None,
+            ..ComboOption::default()
         }
     }
 
@@ -397,5 +414,15 @@ mod tests {
         assert_eq!(s, ["a", "b"]);
         assert_eq!(toggle(&s, "a", true), ["b"]);
         assert_eq!(toggle(&s, "c", false), ["c"]);
+    }
+
+    #[test]
+    fn a_blocked_option_cannot_be_picked() {
+        let mut off = opt("self");
+        off.blocked = Some("not on yet".into());
+        let all = vec![off, opt("home")];
+        assert!(!pickable(&all, "self"));
+        assert!(pickable(&all, "home"));
+        assert!(pickable(&all, "gone"));
     }
 }

@@ -2,7 +2,7 @@ use burrow_admin_logic::entries::{Row, rows, to_values};
 use burrow_admin_proto::schema::{Node, RefEntriesC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Mode, ServiceEntry};
-use burrow_ui_kit::{Combobox, Stepper};
+use burrow_ui_kit::Stepper;
 use leptos::prelude::*;
 
 use super::entry_summary::{summary, target_line};
@@ -11,6 +11,7 @@ use crate::app::{MenuItem, row_menu, row_menus};
 use burrow_admin_logic::wording::NOT_SET;
 
 type OpenMap = std::collections::BTreeMap<usize, Option<Value>>;
+use super::RefPicker;
 use crate::domain::{FieldCtx, set_checked};
 use crate::edit::diags_at;
 use crate::form::{Ctx, plain, ref_link};
@@ -239,10 +240,6 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
         }
     });
     let weight = Signal::derive(move || current().weight.as_ref().map(plain).unwrap_or_default());
-    let options = {
-        let (entity, reserved) = (c.entity.clone(), c.reserved.clone());
-        Signal::derive(move || super::picker::options_for(&entity, &reserved))
-    };
     let set_name = {
         let place = place.clone();
         Callback::new(move |picked: Vec<String>| {
@@ -293,6 +290,11 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
             expanded.set(Some(i));
         }
     });
+    let options = {
+        let (entity, field, reserved) =
+            (c.entity.clone(), place.fc.spath.clone(), c.reserved.clone());
+        Signal::derive(move || super::picker::options_for(&entity, &field, &reserved))
+    };
     let head = summary(&place, i, options, balance, expanded, phone_menu);
     let body = move || {
         if expanded.get() == Some(i) {
@@ -306,7 +308,7 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
         <div class="flex flex-col py-2" data-entry=i.to_string() data-chip=move || name.get().first().cloned().unwrap_or_default()>
             <div class=body>
                 <div class=format!("order-1 min-w-0 flex-1 @min-[560px]:flex-none {CLIENT_W}")>
-                    <Combobox id=format!("{id}-client") options=options selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
+                    <RefPicker id=format!("{id}-client") entity=c.entity.clone() field=place.fc.spath.clone() reserved=c.reserved.clone() selected=name on_change=set_name placeholder="Pick a client…" label="Client"/>
                 </div>
                 <div class="order-2 @max-[560px]:hidden @min-[560px]:order-4">{menu}</div>
                 <div class=format!("order-3 flex min-h-[38px] min-w-0 basis-full items-center gap-2 @min-[560px]:order-2 @min-[560px]:basis-0 {TARGET_W}")>
@@ -351,10 +353,6 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     let clear_weights = {
         let place = place.clone();
         move |_| place.edit(|all| all.iter_mut().for_each(|r| r.weight = None))
-    };
-    let options = {
-        let (entity, reserved) = (c.entity.clone(), c.reserved.clone());
-        Signal::derive(move || super::picker::options_for(&entity, &reserved))
     };
     let (create_label, on_create) = super::picker::create_for(&c.entity);
     let touched = fc.touched;
@@ -430,7 +428,7 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
                 </p>
             </Show>
             <div class="mt-2 max-w-[240px]" data-add-entry="">
-                <Combobox id=fc.id.clone() options=options selected=Signal::stored(Vec::new()) on_change=add placeholder="Add client…" label="Add client" create_label=create_label on_create=on_create/>
+                <RefPicker id=fc.id.clone() entity=c.entity.clone() field=fc.spath.clone() reserved=c.reserved.clone() selected=Signal::stored(Vec::new()) on_change=add placeholder="Add client…" label="Add client" create_label=create_label on_create=on_create/>
             </div>
         </div>
     }

@@ -48,6 +48,12 @@ pub(super) fn summary(
             .with(|o| o.iter().find(|x| x.value == n).and_then(|x| x.dot))
             .unwrap_or(Tone::Neutral)
     });
+    let shown = Signal::derive(move || {
+        let n = name.get();
+        options
+            .with(|o| o.iter().find(|x| x.value == n).map(|x| x.label.clone()))
+            .unwrap_or(n)
+    });
     let text = move || {
         current.with(|r| {
             let own = r.target.as_ref().map(target_value_shown);
@@ -66,7 +72,7 @@ pub(super) fn summary(
     view! {
         <div class="order-1 flex items-center gap-1 py-1 @min-[560px]:hidden" data-entry-summary="">
             <button type="button" class="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 py-1 text-left" aria-expanded=move || open.get().to_string() data-testid="entry-toggle" on:click=toggle>
-                <span class="text-sm font-semibold text-text"><StatusDot on=false text=name tone=tone/></span>
+                <span class="text-sm font-semibold text-text"><StatusDot on=false text=shown tone=tone/></span>
                 <span class="max-w-full text-xs [overflow-wrap:anywhere]" data-entry-sum="">{text}</span>
             </button>
             {menu}
