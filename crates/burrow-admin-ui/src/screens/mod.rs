@@ -126,7 +126,7 @@ impl Row {
 
 #[component]
 pub fn DetailPane(
-    #[prop(optional, into)] back: Option<Route>,
+    #[prop(default = None)] back: Option<Route>,
     children: Children,
 ) -> impl IntoView {
     view! {

@@ -116,7 +116,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     let (sec_d, name_d, plural_s) = (section.clone(), name.clone(), plural(&section));
     view! {
         <Provider value=mode>
-        <DetailPane back=crumb.clone()>
+        <DetailPane back=Some(crumb.clone())>
             {crate::screens::crumbs(
                 crumb,
                 plural_s.to_string(),
