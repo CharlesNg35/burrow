@@ -64,13 +64,60 @@ fn the_asked_id_lives_in_the_services_own_folder_not_in_the_shared_instance_fold
     )
     .unwrap();
     let shared = dir.path().join("update-asked-planted.json");
-    record::write(&shared, &record::Asked { id: 99, at: 0 }, 0o644).unwrap();
+    record::write(
+        &shared,
+        &record::Asked {
+            id: 99,
+            at: 0,
+            from: "0.2.2".into(),
+        },
+        0o644,
+    )
+    .unwrap();
     let own = dir.path().join("own-asked.json");
     assert_eq!(
         service_side::last_from(&result, &own).unwrap().id,
         0,
         "a planted file elsewhere is never read"
     );
-    record::write(&own, &record::Asked { id: 7, at: 0 }, 0o600).unwrap();
+    record::write(
+        &own,
+        &record::Asked {
+            id: 7,
+            at: 0,
+            from: "0.2.2".into(),
+        },
+        0o600,
+    )
+    .unwrap();
     assert_eq!(service_side::last_from(&result, &own).unwrap().id, 7);
+}
+
+#[test]
+fn a_result_of_the_job_before_is_not_taken_for_the_one_just_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    let own = dir.path().join("asked.json");
+    let config = PathBuf::from("/etc/burrow/nas/client.yaml");
+    record::write(
+        &own,
+        &record::Asked {
+            id: 2,
+            at: 0,
+            from: "0.2.2".into(),
+        },
+        0o600,
+    )
+    .unwrap();
+    let before = Record::new(0, "0.2.1", "0.2.2", &config).ended(Outcome::Done, "");
+    record::write(&result, &before, 0o644).unwrap();
+    assert_eq!(service_side::last_from(&result, &own).unwrap().id, 0);
+    assert!(!service_side::answers(
+        &before,
+        &record::read(&own).unwrap()
+    ));
+    let this = Record::new(0, "0.2.2", "0.2.3", &config).ended(Outcome::Failed, "checksum");
+    record::write(&result, &this, 0o644).unwrap();
+    assert_eq!(service_side::last_from(&result, &own).unwrap().id, 2);
+    assert!(service_side::answers(&this, &record::read(&own).unwrap()));
 }

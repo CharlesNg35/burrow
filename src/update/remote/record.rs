@@ -10,6 +10,8 @@ const MAX_RECORD: u64 = 16 * 1024;
 pub struct Asked {
     pub id: u32,
     pub at: u64,
+    #[serde(default)]
+    pub from: String,
 }
 
 pub fn now() -> u64 {

@@ -47,15 +47,20 @@ pub fn last(m: &Manifest) -> Option<LastUpdate> {
 pub(super) fn last_from(result: &std::path::Path, asked: &std::path::Path) -> Option<LastUpdate> {
     let mut r: Record = record::read(result)?;
     r.id = record::read::<Asked>(asked)
-        .filter(|a| r.at >= a.at)
+        .filter(|a| answers(&r, a))
         .map_or(0, |a| a.id);
     r.last()
+}
+
+pub(super) fn answers(r: &Record, a: &Asked) -> bool {
+    r.at >= a.at && r.from == a.from
 }
 
 pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String> {
     let asked = Asked {
         id: job.id,
         at: record::now(),
+        from: job.from.clone(),
     };
     let file = asked_file(m);
     record::write(&file, &asked, 0o600)
@@ -72,15 +77,15 @@ pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String
         format!("{} downloads the latest release", helper::helper_name(m)),
     );
     let m = m.clone();
-    std::thread::spawn(move || watch(&m, asked.at, &job, &busy));
+    std::thread::spawn(move || watch(&m, &asked, &job, &busy));
     Ok(())
 }
 
-fn watch(m: &Manifest, since: u64, job: &Job, busy: &AtomicBool) {
+fn watch(m: &Manifest, asked: &Asked, job: &Job, busy: &AtomicBool) {
     let until = Instant::now() + WATCH_FOR;
     while Instant::now() < until {
         std::thread::sleep(Duration::from_secs(2));
-        let Some(r) = result_of(m).filter(|r| r.at >= since) else {
+        let Some(r) = result_of(m).filter(|r| answers(r, asked)) else {
             continue;
         };
         match r.outcome() {
