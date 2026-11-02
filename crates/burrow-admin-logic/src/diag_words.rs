@@ -15,6 +15,9 @@ pub(crate) fn worded(code: &str, subject: &str) -> Option<String> {
             "Nothing reaches this service: turn on a public port, a website or visitors under Reached by".into()
         }
         AUTH_BOTH => "Use passwords or a login service on this website, not both".into(),
+        DUPLICATE_BIND if subject.is_empty() => {
+            "This port is already used by another service or listener; pick another port".into()
+        }
         DUPLICATE_BIND => format!("{subject} is already used by another service or listener; pick another port"),
         PUBLIC_PORT_SKIPS_LOGIN => {
             "The public port reaches the app without the website's login; turn the public port off, or keep it on a trusted network".into()

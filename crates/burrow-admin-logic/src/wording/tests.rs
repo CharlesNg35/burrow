@@ -381,3 +381,19 @@ fn an_invalid_entry_says_only_what_is_wrong_beside_its_field() {
         .unwrap();
     assert_eq!(diag_text(&d), "\"80\" is not an IP address or CIDR");
 }
+
+#[test]
+fn a_port_used_twice_reads_as_a_sentence_without_a_subject() {
+    let d: burrow_admin_proto::diag::Diag =
+        burrow_admin_proto::serde_json::from_value(burrow_admin_proto::serde_json::json!({
+            "severity": "error",
+            "code": burrow_admin_proto::codes::DUPLICATE_BIND,
+            "message": "web.http 127.0.0.1:80 is also web.https",
+            "path": ["web", "http"]
+        }))
+        .unwrap();
+    assert_eq!(
+        diag_text(&d),
+        "This port is already used by another service or listener; pick another port"
+    );
+}
