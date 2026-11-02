@@ -44,7 +44,7 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
             };
             format!(
                 "{}: valid server config ({} {}{visitors}, {} {}){warn}",
-                r.file,
+                r.file(),
                 s.clients.len(),
                 crate::config::diagnostics::plural(s.clients.len(), "client"),
                 s.services.len(),
@@ -52,18 +52,18 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
             )
         }
         Some(Loaded::Client(s, _)) if !(strict && w > 0) => {
-            format!("{}: valid client config for \"{}\"{warn}", r.file, s.name)
+            format!("{}: valid client config for \"{}\"{warn}", r.file(), s.name)
         }
         Some(Loaded::Visitor(s, _)) if !(strict && w > 0) => format!(
             "{}: valid visitor config for \"{}\" ({} {}){warn}",
-            r.file,
+            r.file(),
             s.name,
             s.forwards.len(),
             crate::config::diagnostics::plural(s.forwards.len(), "forward"),
         ),
         _ if strict && !r.has_errors() => format!(
             "{}: {w} {} (failing because of --strict)",
-            r.file,
+            r.file(),
             crate::config::diagnostics::plural(w, "warning")
         ),
         _ => r.summary(),

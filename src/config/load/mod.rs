@@ -1,3 +1,4 @@
+mod merge;
 mod parse;
 
 use std::path::Path;
@@ -7,7 +8,7 @@ use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
 use crate::config::diagnostics::{Diagnostic, Report};
 use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
-pub use parse::{load_str_at, load_str_in};
+pub use parse::{load_inputs, load_str_at, load_str_in};
 
 pub use crate::install::Role;
 
@@ -24,6 +25,19 @@ impl Format {
             "json" => Some(Format::Json),
             _ => None,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Input {
+    pub name: String,
+    pub text: String,
+    pub format: Format,
+}
+
+impl Input {
+    pub fn body(&self) -> &str {
+        self.text.strip_prefix('\u{feff}').unwrap_or(&self.text)
     }
 }
 
@@ -273,16 +287,22 @@ fn json_syntax(src: &str) -> Option<Diagnostic> {
 }
 
 fn hide_secret_lines(report: &mut Report) {
-    let lines: Vec<&str> = report.source.lines().collect();
-    for d in &mut report.diagnostics {
-        if let Some(s) = d.span {
-            let line = lines
-                .get(s.start.line.saturating_sub(1))
-                .copied()
-                .unwrap_or("");
-            if secret_line(line) {
-                d.snippet = false;
-            }
+    let secret_at = |report: &Report, s: Span| {
+        let line = report
+            .text_of(s.file)
+            .lines()
+            .nth(s.start.line.saturating_sub(1))
+            .unwrap_or("");
+        secret_line(line)
+    };
+    let hidden: Vec<bool> = report
+        .diagnostics
+        .iter()
+        .map(|d| d.span.is_some_and(|s| secret_at(report, s)))
+        .collect();
+    for (d, hide) in report.diagnostics.iter_mut().zip(hidden) {
+        if hide {
+            d.snippet = false;
         }
     }
 }
@@ -340,6 +360,39 @@ mod tests {
         std::fs::write(&config, "listen: 7835\n").unwrap();
         let fine = load_file(&config, Some(Role::Server), &nothing).unwrap();
         assert!(!codes(&fine).contains(&"edit-spare"));
+    }
+
+    #[test]
+    fn a_problem_in_a_second_source_is_shown_at_its_own_file_and_line() {
+        let nothing = |_: &str| None;
+        let input = |name: &str, text: &str| Input {
+            name: name.into(),
+            text: text.into(),
+            format: Format::Yaml,
+        };
+        let o = load_inputs(
+            (Path::new("."), None),
+            &[
+                input(
+                    "server.yaml",
+                    "listen: 7835\nclients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\n",
+                ),
+                input(
+                    "server.d/apps.yaml",
+                    "services:\n  web:\n    client: hom\n    target: 80\n    bind: 7900\n",
+                ),
+            ],
+            Some(Role::Server),
+            &nothing,
+        );
+        let shown = o
+            .report
+            .render_text(crate::base::style::Style { color: false });
+        assert!(shown.contains("--> server.d/apps.yaml:3:13"), "{shown}");
+        assert!(shown.contains("client: hom"), "{shown}");
+        let json = o.report.render_json();
+        assert_eq!(json["file"], "server.yaml");
+        assert_eq!(json["diagnostics"][0]["file"], "server.d/apps.yaml");
     }
 
     #[test]

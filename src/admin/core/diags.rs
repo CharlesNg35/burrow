@@ -71,8 +71,12 @@ impl Mapper {
         Mapper { places }
     }
 
-    fn path_at(&self, at: usize) -> Option<Vec<String>> {
-        let within = |s: Span| s.start.offset <= at && at < s.end.offset.max(s.start.offset + 1);
+    fn path_at(&self, at: Span) -> Option<Vec<String>> {
+        let within = |s: Span| {
+            s.file == at.file
+                && s.start.offset <= at.start.offset
+                && at.start.offset < s.end.offset.max(s.start.offset + 1)
+        };
         self.places
             .iter()
             .filter(|p| within(p.key) || within(p.value))
@@ -84,7 +88,7 @@ impl Mapper {
         let path = d
             .span
             .filter(|s| s.start.line > 0)
-            .and_then(|s| self.path_at(s.start.offset));
+            .and_then(|s| self.path_at(s));
         let also = also(d, path.as_deref());
         Diag {
             severity: match d.severity {
@@ -120,9 +124,18 @@ mod tests {
         let text = "services:\n  web:\n    bind: nonsense\n    target: 3000\n";
         let root = crate::config::tree::parse(text).unwrap();
         let m = Mapper::new(Some(&root));
-        let at = text.find("nonsense").unwrap();
-        assert_eq!(m.path_at(at).unwrap(), ["services", "web", "bind"]);
-        let at = text.find("web").unwrap();
-        assert_eq!(m.path_at(at).unwrap(), ["services", "web"]);
+        let at = |word: &str| {
+            let offset = text.find(word).unwrap();
+            Span::point(crate::config::tree::Pos {
+                offset,
+                line: 1,
+                col: 1,
+            })
+        };
+        assert_eq!(
+            m.path_at(at("nonsense")).unwrap(),
+            ["services", "web", "bind"]
+        );
+        assert_eq!(m.path_at(at("web")).unwrap(), ["services", "web"]);
     }
 }

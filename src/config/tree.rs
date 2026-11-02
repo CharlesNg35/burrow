@@ -7,8 +7,20 @@ pub struct Pos {
     pub col: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct FileId(pub u16);
+
+impl FileId {
+    pub const MAIN: FileId = FileId(0);
+
+    pub fn index(self) -> usize {
+        usize::from(self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Span {
+    pub file: FileId,
     pub start: Pos,
     pub end: Pos,
 }
@@ -16,9 +28,14 @@ pub struct Span {
 impl Span {
     pub fn point(pos: Pos) -> Self {
         Span {
+            file: FileId::MAIN,
             start: pos,
             end: pos,
         }
+    }
+
+    pub fn in_file(self, file: FileId) -> Self {
+        Span { file, ..self }
     }
 }
 
@@ -152,6 +169,10 @@ enum Frame {
 }
 
 pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
+    parse_in(src, FileId::MAIN)
+}
+
+pub fn parse_in(src: &str, file: FileId) -> Result<Node, Vec<ParseError>> {
     let mut stack: Vec<Frame> = Vec::new();
     let mut root: Option<Node> = None;
     let mut errors = Vec::new();
@@ -165,12 +186,13 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
                 let p = lines.pos(*e.marker());
                 errors.push(ParseError {
                     message: format!("invalid syntax: {}", e.info()),
-                    span: Span::point(p),
+                    span: Span::point(p).in_file(file),
                 });
                 return Err(errors);
             }
         };
         let span = Span {
+            file,
             start: lines.pos(span.start),
             end: lines.pos(span.end),
         };
@@ -217,6 +239,7 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
                 Some(Frame::Seq(items, start)) => Node {
                     value: Value::Seq(items),
                     span: Span {
+                        file,
                         start: start.start,
                         end: span.end,
                     },
@@ -230,6 +253,7 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
                 Some(Frame::Map(entries, start, _)) => Node {
                     value: Value::Map(entries),
                     span: Span {
+                        file,
                         start: start.start,
                         end: span.end,
                     },
@@ -282,7 +306,7 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
     }
     Ok(root.unwrap_or(Node {
         value: Value::Null,
-        span: Span::default(),
+        span: Span::default().in_file(file),
         quoted: false,
         env: FromEnv::No,
         raw: None,

@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use crate::base::style::Style;
-use crate::config::tree::Span;
+use crate::config::tree::{FileId, Span};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,10 +75,15 @@ impl Diagnostic {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Source {
+    pub name: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Report {
-    pub file: String,
-    pub source: String,
+    pub sources: Vec<Source>,
     pub masked: Vec<Span>,
     pub mask_tokens: bool,
     pub diagnostics: Vec<Diagnostic>,
@@ -138,13 +143,35 @@ pub fn mask_text(text: &str) -> String {
 
 impl Report {
     pub fn new(file: impl Into<String>, source: impl Into<String>) -> Self {
+        Report::of(vec![Source {
+            name: file.into(),
+            text: source.into(),
+        }])
+    }
+
+    pub fn of(sources: Vec<Source>) -> Self {
         Report {
-            file: file.into(),
-            source: source.into(),
+            sources,
             masked: Vec::new(),
             mask_tokens: false,
             diagnostics: Vec::new(),
         }
+    }
+
+    pub fn file(&self) -> &str {
+        self.name_of(FileId::MAIN)
+    }
+
+    pub fn name_of(&self, file: FileId) -> &str {
+        self.sources
+            .get(file.index())
+            .map_or("", |s| s.name.as_str())
+    }
+
+    pub fn text_of(&self, file: FileId) -> &str {
+        self.sources
+            .get(file.index())
+            .map_or("", |s| s.text.as_str())
     }
 
     pub fn push(&mut self, d: Diagnostic) {
@@ -156,6 +183,7 @@ impl Report {
     pub fn sort(&mut self) {
         self.diagnostics.sort_by_key(|d| {
             (
+                d.span.map_or(FileId::MAIN, |s| s.file),
                 d.span.map_or(0, |s| s.start.offset + 1),
                 d.severity,
                 d.span.map_or(0, |s| s.start.col),
@@ -188,7 +216,7 @@ impl Report {
         let (e, w) = (self.error_count(), self.warning_count());
         format!(
             "{}: {} {}, {} {}",
-            self.file,
+            self.file(),
             e,
             plural(e, "error"),
             w,
@@ -217,7 +245,7 @@ impl Report {
                     out,
                     "{pad}{} {}:{}:{}",
                     style.paint("1;34", "-->"),
-                    self.file,
+                    self.name_of(span.file),
                     span.start.line,
                     span.start.col
                 );
@@ -244,7 +272,7 @@ impl Report {
                 }
             }
             None => {
-                let _ = writeln!(out, "{pad}{} {}", style.paint("1;34", "-->"), self.file);
+                let _ = writeln!(out, "{pad}{} {}", style.paint("1;34", "-->"), self.file());
             }
         }
         if let Some(help) = &d.help {
@@ -256,19 +284,17 @@ impl Report {
         if span.start.line == 0 {
             return None;
         }
-        let mut at = span.start.offset.min(self.source.len());
-        while !self.source.is_char_boundary(at) {
+        let source = self.text_of(span.file);
+        let mut at = span.start.offset.min(source.len());
+        while !source.is_char_boundary(at) {
             at -= 1;
         }
-        let start = self.source[..at].rfind(['\n', '\r']).map_or(0, |i| i + 1);
-        let end = self.source[start..]
+        let start = source[..at].rfind(['\n', '\r']).map_or(0, |i| i + 1);
+        let end = source[start..]
             .find(['\n', '\r'])
-            .map_or(self.source.len(), |i| start + i);
-        let mut line: Vec<char> = self.source[start..end]
-            .trim_end_matches('\r')
-            .chars()
-            .collect();
-        for m in &self.masked {
+            .map_or(source.len(), |i| start + i);
+        let mut line: Vec<char> = source[start..end].trim_end_matches('\r').chars().collect();
+        for m in self.masked.iter().filter(|m| m.file == span.file) {
             if m.start.line > span.start.line || m.end.line < span.start.line {
                 continue;
             }
@@ -303,7 +329,7 @@ impl Report {
                     "severity": d.severity,
                     "code": d.code,
                     "message": d.message,
-                    "file": self.file,
+                    "file": d.span.map_or(self.file(), |s| self.name_of(s.file)),
                     "line": d.span.map(|s| s.start.line),
                     "column": d.span.map(|s| s.start.col),
                     "end_line": d.span.map(|s| s.end.line),
@@ -314,7 +340,7 @@ impl Report {
             })
             .collect();
         serde_json::json!({
-            "file": self.file,
+            "file": self.file(),
             "valid": !self.has_errors(),
             "errors": self.error_count(),
             "warnings": self.warning_count(),
@@ -351,6 +377,7 @@ mod tests {
 
     fn span(line: usize, col: usize, end_col: usize, offset: usize) -> Span {
         Span {
+            file: crate::config::tree::FileId::MAIN,
             start: Pos { offset, line, col },
             end: Pos {
                 offset: offset + end_col - col,
