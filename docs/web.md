@@ -127,6 +127,7 @@ Every website gets these without any setting:
   - A visitor who stops reading an answer counts as idle.
 - **TLS 1.2 and 1.3.** TLS 1.0 and 1.1 are retired (RFC 8996). Clients that only speak them cannot reach any site on the port, passthrough sites included.
 - Everything else a service does works for websites too: several clients with failover, balance, least_connections or ip_hash, health checks, `allow_from`, `max_connections`, `bandwidth`.
+- **An app next to the server** needs no client: `client: self` makes the server reach the app itself ([services.md](services.md#on-the-server-itself)). burrow admin's New website offers it as "This server".
 - **`allow_from` limits visitors, not Let's Encrypt:** burrow answers Let's Encrypt's checks before it looks at the site, so a site open only to `192.168.1.0/24` still gets its certificate. Behind a CDN or another proxy, `allow_from` sees the proxy's address, not the visitor's ([Behind a proxy](web/proxies.md)).
 
 ## Plain HTTP websites
