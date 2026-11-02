@@ -116,6 +116,15 @@ impl Drop for Hand {
         if let Some(s) = self.supervisor.take() {
             let _ = s.join();
         }
+        if cfg!(windows) {
+            let script = format!(
+                "Get-Process burrow -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -eq '{}' }} | Stop-Process -Force",
+                self.binary.display().to_string().replace('\'', "''")
+            );
+            let _ = Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .status();
+        }
     }
 }
 
