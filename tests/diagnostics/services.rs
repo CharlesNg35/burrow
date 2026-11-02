@@ -14,7 +14,7 @@ fn source_filters() {
        |                  ^^^^^^ expected an IP or CIDR
        = help: use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32
 
-    error: invalid allow_from entry for service "ssh": "10.0.0.1/8" has host bits set
+    error: invalid allow_from entry for service "ssh": "10.0.0.1/8" has host bits set: write 10.0.0.0/8 for the network, or 10.0.0.1/32 for this one address
       --> server.yaml:12:26
        |
     12 |     allow_from: [office, 10.0.0.1/8]

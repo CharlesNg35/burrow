@@ -57,10 +57,20 @@ async fn the_ninth_connection_is_turned_away_while_eight_stay_served() {
             "a held connection was not served: {got}"
         );
     }
-    let mut again = TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
-    again.write_all(full.as_bytes()).await.unwrap();
-    let (got, _) = answer(&mut again, Duration::from_secs(10)).await;
-    assert!(got.starts_with("HTTP/1.1 200"), "{got}");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let got = loop {
+        let mut again = TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
+        again.write_all(full.as_bytes()).await.unwrap();
+        let (got, _) = answer(&mut again, Duration::from_secs(10)).await;
+        if got.starts_with("HTTP/1.1 200") || Instant::now() > deadline {
+            break got;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(
+        got.starts_with("HTTP/1.1 200"),
+        "a slot is free again once the held connections closed: {got}"
+    );
     let _ = w.stop.send(true);
 }
 

@@ -81,7 +81,7 @@ fn warn_expiry(name: &str, path: &std::path::Path, expires: Option<u64>) -> bool
             "certificate for {name} ({}) has expired; replace the file",
             path.display()
         );
-    } else if burrow_syntax::web::expires_soon(at, now) {
+    } else if burrow_syntax::web::expiry_due(at, None, 0, now) {
         warn!(
             "certificate for {name} ({}) expires in {}; replace the file",
             path.display(),

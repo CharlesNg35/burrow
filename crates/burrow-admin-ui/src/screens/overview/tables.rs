@@ -28,7 +28,7 @@ fn names_cell(all: Vec<String>) -> impl IntoView {
     let (shown, more) = some_names(&all);
     let title = more.is_some().then(|| all.join(", "));
     view! {
-        <td class="text-text-muted" title=title data-names=all.len().to_string()>
+        <td class="whitespace-normal! text-text-muted [overflow-wrap:anywhere]" title=title data-names=all.len().to_string()>
             {shown}
             {more.map(|m| view! { <span class="ml-1.5 whitespace-nowrap" data-testid="names-more">{m}</span> })}
         </td>

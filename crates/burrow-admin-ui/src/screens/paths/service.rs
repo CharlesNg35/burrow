@@ -5,7 +5,7 @@ use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 
 use crate::form::plain;
 
-use super::{Problems, clients_of, online};
+use super::{Problems, clients_of};
 
 pub fn service(
     name: &str,
@@ -23,10 +23,8 @@ pub fn service(
     let clients = clients_of(svc);
     let local = |c: &String| reserved.contains(c);
     let on_server = !clients.is_empty() && clients.iter().all(local);
-    let up = clients
-        .iter()
-        .filter(|c| local(c) || online(status, c))
-        .count();
+    let count = super::health_count(name, svc, status, reserved);
+    let up = count.up;
     let shown: Vec<String> = clients
         .iter()
         .map(|c| match local(c) {
@@ -34,7 +32,6 @@ pub fn service(
             false => c.clone(),
         })
         .collect();
-    let healthy = st.map(|x| x.health.iter().filter(|h| h.up).count());
     let health_on = ServiceEntry::HEALTH_CHECK
         .get(svc)
         .is_some_and(|h| !h.is_null() && h != &Value::Bool(false));
@@ -58,12 +55,7 @@ pub fn service(
             shown.join(" · ")
         },
         dot: Some(ctone),
-        unit: match (health_on, healthy) {
-            (true, Some(h)) if st.is_some_and(|x| !x.health.is_empty()) => {
-                format!("{h} of {} healthy", clients.len())
-            }
-            _ => format!("{up} of {} online", clients.len()),
-        },
+        unit: count.fraction(),
         state: if problems.clients.is_some() {
             HopState::Warn
         } else if up == 0 && !editing {

@@ -2,7 +2,7 @@ use burrow_admin_logic::presence::{ClientInfo, Mood, of, ready_names, rollout_li
 use burrow_admin_proto::features::CLIENT_UPDATES;
 use burrow_admin_proto::msg::req::UPDATE_CLIENTS;
 use burrow_admin_proto::updates::{UpdateClients, UpdateClientsReply};
-use burrow_ui_kit::{Button, Card, Dialog, Fact, Facts, Tone, VersionTag};
+use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Card, Dialog, Fact, Facts, Tone, VersionTag};
 use leptos::prelude::*;
 
 use crate::store::{Store, store};
@@ -122,7 +122,7 @@ pub fn client_card(name: String) -> impl IntoView {
             let blocked = c.blocked.is_some();
             view! {
                 <div class="mt-4">
-                    <Button label=format!("Update to {to}") variant="primary" small=true icon="download" disabled=blocked reason=reason testid="client-update" on_click=move |_| open.set(true)/>
+                    <Button label=format!("Update to {to}") variant=ButtonLook::Primary size=ButtonSize::Small icon="download" disabled=blocked reason=reason testid="client-update" on_click=move |_| open.set(true)/>
                 </div>
             }
         })
@@ -137,7 +137,7 @@ pub fn client_card(name: String) -> impl IntoView {
             )}</p>
             <div class="mt-4 flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
-                <Button label=format!("Update to {target}") variant="primary" testid="client-update-confirm" on_click=move |_| {
+                <Button label=format!("Update to {target}") variant=ButtonLook::Primary testid="client-update-confirm" on_click=move |_| {
                     open.set(false);
                     ask(s, vec![who.clone()], false, Some(target.clone()));
                 }/>
@@ -180,7 +180,7 @@ pub fn update_all_bar() -> impl IntoView {
         (line.is_some() || button).then(|| view! {
             <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5" data-testid="updates-bar">
                 {line.map(|(t, m)| view! { <p class=format!("text-sm {}", tone(m).text()) data-testid="rollout">{t}</p> })}
-                {button.then(|| view! { <span class="ml-auto"><Button label=format!("Update all to {} ({n})", to()) variant="secondary" small=true icon="download" testid="update-all" on_click=move |_| open.set(true)/></span> })}
+                {button.then(|| view! { <span class="ml-auto"><Button label=format!("Update all to {} ({n})", to()) variant=ButtonLook::Secondary size=ButtonSize::Small icon="download" testid="update-all" on_click=move |_| open.set(true)/></span> })}
             </div>
         })
     };
@@ -198,7 +198,7 @@ pub fn update_all_bar() -> impl IntoView {
             )}</p>
             <div class="mt-4 flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
-                <Button label="Update all" variant="primary" testid="update-all-confirm" on_click=move |_| {
+                <Button label="Update all" variant=ButtonLook::Primary testid="update-all-confirm" on_click=move |_| {
                     open.set(false);
                     ask(s, Vec::new(), true, Some(to()));
                 }/>

@@ -11,7 +11,7 @@ use super::tables::view_all_link;
 fn service_link(service: String, rest: String) -> impl IntoView {
     let to = Route::Detail(ServiceEntry::section().into(), service.clone());
     view! {
-        <Link to=to class="font-semibold text-accent-ink no-underline hover:underline">{service}</Link>
+        <Link to=to class="relative font-semibold text-accent-ink no-underline after:absolute after:-inset-x-2 after:-inset-y-1 hover:underline">{service}</Link>
         {(!rest.is_empty()).then(|| view! { <span class="text-xs text-text-muted">" "{rest}</span> })}
     }
 }

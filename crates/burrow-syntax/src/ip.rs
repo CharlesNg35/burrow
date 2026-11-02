@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 pub fn parse_ip(text: &str) -> Result<IpAddr, String> {
     let t = text.trim();
@@ -66,8 +66,25 @@ pub fn show_with_port(ip: IpAddr, port: &str) -> String {
     }
 }
 
+pub fn peer_shown(addr: SocketAddr) -> String {
+    SocketAddr::new(addr.ip().to_canonical(), addr.port()).to_string()
+}
+
+pub fn ip_shown(ip: IpAddr) -> String {
+    ip.to_canonical().to_string()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_peer_on_a_dual_stack_socket_is_shown_as_the_ipv4_address_it_is() {
+        let mapped: std::net::SocketAddr = "[::ffff:203.0.113.7]:51234".parse().unwrap();
+        assert_eq!(super::peer_shown(mapped), "203.0.113.7:51234");
+        assert_eq!(super::ip_shown(mapped.ip()), "203.0.113.7");
+        let v6: std::net::SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+        assert_eq!(super::peer_shown(v6), "[2001:db8::1]:443");
+    }
+
     use super::*;
 
     #[test]

@@ -10,6 +10,16 @@ Clients tell the server which burrow they run, and a client that allows it can b
   - burrow admin: **Update** on a client's page and **Update all**, one client at a time, stopping at the first failure, with progress and results. `burrow mcp --allow-write`: the `update_clients` tool, which asks only when called again with `confirm`.
   - Protocol: the client's Report message and the server's Update message; older servers ignore Report, and older clients never get Update.
 
+## [Unreleased]
+
+- A network written with host bits set, like `127.0.0.1/24`, is refused with what to write instead: `127.0.0.0/24` for the network, or `127.0.0.1/32` for that one address (`/128` for IPv6). This holds everywhere networks are written: `allow`, `self.allow`, `allow_from`, `deny_from`, `reach`, `admin_from` and the web proxy's trusted ranges, in `burrow validate`, burrow admin and `burrow mcp`.
+- burrow admin: every client picker offers this server, from one shared list. New website and a visitor's reach show it too; reach shows it disabled until May reach on this server is set. Clients read "online · their address" or "offline", names stay on one line, and the dropdown grows to fit on wide screens.
+- burrow admin: a service's health is counted the same way everywhere, like "2 of 4 up", and a client that is offline reads offline in Health per client instead of "no health check".
+- burrow admin: certificates that burrow renews itself, like the local CA's 12-hour ones, are flagged only when their renewal is late, not whenever less than 14 days are left.
+- A client or admin connected to a dual-stack listener (`[::]:port`) shows its IPv4 address in status, burrow admin and the audit log, not `[::ffff:…]`.
+- `burrow validate` and the Websites tab say "shared file corp.pem" for a name served from `web.certificates`.
+- burrow admin layout: long names, addresses and website names wrap inside their cards on phones and tablets; figures sit in one row on wide screens; the server menu fits its addresses; search matches actions where a word starts; health tags use icons instead of text symbols.
+
 ## [0.2.0]
 
 Websites with automatic HTTPS, a reworked admin UI, load balancing with weights, and `burrow mcp` for AI apps. Existing configs work unchanged, and v0.1.x clients and visitors keep working with a v0.2.0 server.

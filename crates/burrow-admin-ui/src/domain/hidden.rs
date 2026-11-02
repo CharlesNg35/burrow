@@ -32,7 +32,7 @@ pub(super) fn hidden_or(fc: FieldCtx, edit: fn(FieldCtx) -> AnyView) -> AnyView 
                 view! {
                     <div class="flex flex-wrap items-start gap-2">
                         <div class="min-w-0 flex-1 max-sm:basis-full">{edit(fc.clone())}</div>
-                        <Button label="Keep the current value" small=true testid="keep-hidden" on_click=keep.clone()/>
+                        <Button label="Keep the current value" size=burrow_ui_kit::ButtonSize::Small testid="keep-hidden" on_click=keep.clone()/>
                     </div>
                 }
                 .into_any()
@@ -43,7 +43,7 @@ pub(super) fn hidden_or(fc: FieldCtx, edit: fn(FieldCtx) -> AnyView) -> AnyView 
                             <span class="shrink-0">{shown.clone()}</span>
                             <span class="min-w-0 truncate font-sans text-xs text-text-muted max-sm:sr-only">"hidden; kept unless you replace it"</span>
                         </div>
-                        <Button label="Replace" small=true testid="replace-hidden" on_click=move |()| replacing.set(true)/>
+                        <Button label="Replace" size=burrow_ui_kit::ButtonSize::Small testid="replace-hidden" on_click=move |()| replacing.set(true)/>
                     </div>
                 }
                 .into_any()

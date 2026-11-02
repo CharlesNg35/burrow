@@ -2,7 +2,7 @@ use burrow_admin_logic::logins::{config, kind_of, kinds, preset};
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{Value, json};
 use burrow_admin_proto::value::child;
-use burrow_config::{Entry, ForwardAuthConfig, ServiceEntry};
+use burrow_config::ForwardAuthConfig;
 use burrow_ui_kit::{Button, ChipInput, Dialog, Select, TextInput, Tone, field_message};
 use leptos::prelude::*;
 
@@ -108,9 +108,9 @@ fn services() -> Vec<(String, String)> {
     let doc = store().edit.doc();
     let mut out = vec![(String::new(), "Pick the login portal's service".to_string())];
     out.extend(
-        ServiceEntry::entries(&doc)
-            .map(|m| m.keys().map(|k| (k.clone(), k.clone())).collect::<Vec<_>>())
-            .unwrap_or_default(),
+        burrow_admin_logic::choices::service_choices(&doc, None)
+            .into_iter()
+            .map(|c| (c.name.clone(), c.name)),
     );
     out
 }
@@ -204,7 +204,7 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
                 <Button label="Cancel" on_click=move |_| shown.set(false)/>
                 <Button
                     label=Signal::derive(move || if adding.get() { "Add login service".to_string() } else { "Save".to_string() })
-                    variant="primary"
+                    variant=burrow_ui_kit::ButtonLook::Primary
                     testid="login-save"
                     disabled=Signal::derive(move || blocked.get().is_some())
                     reason=Signal::derive(move || blocked.get().unwrap_or_default())

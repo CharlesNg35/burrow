@@ -141,7 +141,7 @@ fn remove_dialog(removing: RwSignal<Option<String>>) -> impl IntoView {
             {warn}
             <div class="flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| shown.set(false)/>
-                <Button label="Remove" variant="danger" testid="login-remove-confirm" on_click=move |_| {
+                <Button label="Remove" variant=burrow_ui_kit::ButtonLook::Danger testid="login-remove-confirm" on_click=move |_| {
                     if let Some(n) = removing.get_untracked() {
                         e.set(&child(&base(), &n), None);
                     }
@@ -185,7 +185,7 @@ pub(crate) fn login_services(label: String, help: String, path: Path, spath: Pat
     let add = move || {
         ctl.editing.get().then(|| view! {
             <div class="mt-2">
-                <Button label="Add login service" icon="plus" variant="secondary" small=true testid="login-add" on_click=move |_| ctl.open.set(Open::Add)/>
+                <Button label="Add login service" icon="plus" variant=burrow_ui_kit::ButtonLook::Secondary size=burrow_ui_kit::ButtonSize::Small testid="login-add" on_click=move |_| ctl.open.set(Open::Add)/>
             </div>
         })
     };

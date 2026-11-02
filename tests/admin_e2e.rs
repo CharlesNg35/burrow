@@ -44,6 +44,8 @@ mod reverts;
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
 mod secrets;
+#[path = "admin_e2e/self_picker.rs"]
+mod self_picker;
 #[path = "admin_e2e/settings.rs"]
 mod settings;
 #[path = "admin_e2e/sheet.rs"]

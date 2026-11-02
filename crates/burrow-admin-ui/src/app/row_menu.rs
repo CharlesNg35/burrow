@@ -1,4 +1,4 @@
-use burrow_ui_kit::{Icon, MENU_ITEM, button_class, menu_class};
+use burrow_ui_kit::{Icon, MenuItem, Tone, button_class, menu_class};
 use leptos::prelude::*;
 
 const MENU: &str = "row-menu";
@@ -32,19 +32,19 @@ pub(crate) fn row_menu(
     let items = items
         .into_iter()
         .map(|it| {
-            let class = if it.danger {
-                format!("{MENU_ITEM} text-danger")
+            let tone = if it.danger {
+                Tone::Danger
             } else {
-                MENU_ITEM.to_string()
+                Tone::Neutral
             };
-            view! { <button type="button" class=class data-testid=it.testid on:click=move |_| it.run.run(())>{it.label}</button> }
+            view! { <MenuItem label=it.label tone=tone testid=it.testid on_click=it.run/> }
         })
         .collect_view();
     view! {
         <div class="relative">
             <button
                 type="button"
-                class=format!("{} w-9 px-0", button_class("ghost", false))
+                class=format!("{} w-9 px-0", button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Normal))
                 aria-label=label.clone()
                 title=label
                 aria-haspopup="true"

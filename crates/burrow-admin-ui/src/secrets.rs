@@ -170,8 +170,8 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                 {can.then(|| view! {
                     <Button
                         label=label
-                        variant="tinted"
-                        small=true
+                        variant=burrow_ui_kit::ButtonLook::Tinted
+                        size=burrow_ui_kit::ButtonSize::Small
                         icon="refresh"
                         testid="rotate"
                         disabled=Signal::derive(move || full.get() || granting.get())
@@ -391,7 +391,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
             let used = in_use_fp(&sec3, &nm2);
             match on {
                 Some(_) if used.as_ref().is_some_and(|u| *u != new_fp) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted" data-testid="old-secret"><burrow_ui_kit::Spinner/>{format!("{} is still connected with its old secret; it switches once its config has the new one.", nm2)}</p> }.into_any(),
-                Some(from) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-success" data-testid="connected-now"><span class="size-2 rounded-full bg-success"></span>{format!("{} connected from {from}", nm2)}</p> }.into_any(),
+                Some(from) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-success" data-testid="connected-now"><burrow_ui_kit::Dot tone=burrow_ui_kit::Tone::Success/>{format!("{} connected from {from}", nm2)}</p> }.into_any(),
                 None => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted"><burrow_ui_kit::Spinner/>{format!("Waiting for {} to connect…", nm2)}</p> }.into_any(),
             }
         };
@@ -408,14 +408,14 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                     <div class="flex h-[38px] min-w-0 flex-1 items-center rounded-input border border-border-strong bg-input px-2.5 font-mono text-[13px]" id="revealed-secret" data-testid="secret-value">
                         <pre class="truncate">{move || shown.get()}</pre>
                     </div>
-                    <button type="button" class=burrow_ui_kit::button_class("primary", false) on:click=move |_| {
+                    <button type="button" class=burrow_ui_kit::button_class(burrow_ui_kit::ButtonLook::Primary, burrow_ui_kit::ButtonSize::Normal) on:click=move |_| {
                         burrow_ui_kit::copy_text(&copy_value);
                         s.toast(Tone::Success, "Copied", None);
                     }>
                         <burrow_ui_kit::Icon name="copy" small=true/>
                         "Copy secret"
                     </button>
-                    <button type="button" class=burrow_ui_kit::button_class("secondary", false) on:click=move |_| hidden.update(|h| *h = !*h)>
+                    <button type="button" class=burrow_ui_kit::button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal) on:click=move |_| hidden.update(|h| *h = !*h)>
                         <burrow_ui_kit::Icon name="eye" small=true/>
                         {move || if hidden.get() { "Show" } else { "Hide" }}
                     </button>
@@ -430,7 +430,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                     <span class="ml-auto"></span>
                     <Button
                         label="Done"
-                        variant="primary"
+                        variant=burrow_ui_kit::ButtonLook::Primary
                         testid="close-shown-once"
                         disabled=Signal::derive(move || !saved.get())
                         reason=Signal::derive(move || if saved.get() { String::new() } else { "Tick I have saved the secret first".to_string() })

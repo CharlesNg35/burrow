@@ -13,6 +13,21 @@ pub fn clients_of(svc: &Value) -> Vec<String> {
     ServiceEntry::client_names(svc)
 }
 
+pub fn health_count(
+    name: &str,
+    svc: &Value,
+    status: Option<&Status>,
+    reserved: &[String],
+) -> burrow_admin_logic::health::Count {
+    use burrow_admin_logic::health;
+    let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
+    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
+    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
+    health::count(&health::entries(listed, clients_of(svc)), checks, |c| {
+        reserved.iter().any(|r| r == c) || online(status, c)
+    })
+}
+
 pub fn online(status: Option<&Status>, client: &str) -> bool {
     status
         .and_then(|s| s.clients.iter().find(|c| c.name == client))
@@ -295,6 +310,28 @@ mod tests {
     use burrow_admin_proto::serde_json::json;
 
     #[test]
+    fn clients_whose_health_check_fails_are_not_drawn_up() {
+        let svc =
+            json!({"clients": ["a", "b"], "health_check": true, "target": 8080, "bind": 9000});
+        let st: Status = burrow_admin_proto::serde_json::from_value(json!({
+            "version": "0.2.0", "uptime_secs": 10, "listening": [], "handshakes_refused": 0, "udp_peers": 0,
+            "clients": [{"name": "a", "connected": true}, {"name": "b", "connected": true}],
+            "services": [{"name": "web", "open": 0, "total": 0, "bytes_in": 0, "bytes_out": 0, "refused": 0,
+                "health": [{"client": "a", "up": false}, {"client": "b", "up": false}]}],
+            "visitors": []
+        }))
+        .unwrap();
+        let none = Problems {
+            source: None,
+            clients: None,
+            ports: None,
+        };
+        let p = service("web", &svc, Some(&st), &none, false, &[]);
+        assert_eq!(p.hops[2].unit, "0 of 2 up");
+        assert_ne!(p.hops[2].dot, Some(Tone::Success));
+    }
+
+    #[test]
     fn a_visitor_never_seen_has_a_hollow_dot_and_one_in_use_a_green_one() {
         let doc = json!({"visitors": {"v": {}}});
         let mut st: Status = burrow_admin_proto::serde_json::from_value(json!({
@@ -455,6 +492,6 @@ mod tests {
         let p = service("web", &mixed, None, &none, false, &reserved);
         assert_eq!(p.hops.len(), 4);
         assert_eq!(p.hops[2].value, "This server · home");
-        assert_eq!(p.hops[2].unit, "1 of 2 online");
+        assert_eq!(p.hops[2].unit, "1 of 2 up");
     }
 }

@@ -81,7 +81,7 @@ pub fn RenameEntity(entity: Entity, name: String, open: RwSignal<bool>) -> impl 
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
                 <Button
                     label="Rename"
-                    variant="primary"
+                    variant=burrow_ui_kit::ButtonLook::Primary
                     testid="rename"
                     disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty() || same.get())
                     reason=Signal::derive(move || if same.get() || to.get().is_empty() { "Type a new name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })

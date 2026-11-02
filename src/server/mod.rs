@@ -268,7 +268,7 @@ impl Shared {
             .map(|s| SessionInfo {
                 name: s.name.clone(),
                 secret_fp: s.secret.fingerprint(),
-                from: s.peer.to_string(),
+                from: burrow_syntax::ip::peer_shown(s.peer),
                 allow: s.allow(),
                 over_websocket: s.over_websocket,
             })
