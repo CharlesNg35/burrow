@@ -234,3 +234,62 @@ fn website_on_self(c: &mut Ctx) -> Flow<'_> {
 fn a_new_website_runs_on_this_server() {
     run("website-on-self", opts(), false, website_on_self);
 }
+
+fn far_opts() -> Options {
+    Options {
+        extra_services: format!(
+            "  far:\n    clients: [{LONG}, etiolles-ai-pve]\n    target: 8080\n    visitors: [laptop]\n"
+        ),
+        ..opts()
+    }
+}
+
+async fn tall_triggers(c: &Ctx) -> Vec<String> {
+    c.ui.eval(
+        "[...document.querySelectorAll('[data-entries] [data-entry] input[role=combobox]')].filter(i => i.offsetParent !== null).map(i => i.parentElement.getBoundingClientRect().height).filter(h => h > 44).map(String)",
+    )
+    .await
+}
+
+fn closed_pickers(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/far").await;
+        c.ui.wait_for("[role=tablist] [data-tab=settings]", SECS)
+            .await;
+        c.ui.click("[role=tablist] [data-tab=settings]").await;
+        edit_mode(c).await;
+        let mut problems = Vec::new();
+        for w in [1440, 1280, 768] {
+            c.ui.viewport(w, 900).await;
+            settle().await;
+            let tall = tall_triggers(c).await;
+            if !tall.is_empty() {
+                problems.push(format!("{w} px: closed pickers {tall:?} px tall"));
+            }
+        }
+        c.ui.viewport(1440, 900).await;
+        settle().await;
+        c.ui.shot("closed-pickers").await;
+        let list = open_row_picker(c).await;
+        let active: String = c
+            .ui
+            .eval(&format!(
+                "document.getElementById(document.querySelector(\"{ROW} input[role=combobox]\").getAttribute('aria-activedescendant'))?.dataset.option ?? ''"
+            ))
+            .await;
+        assert!(
+            c.ui.count(&format!("{list} [role=option]")).await > 2,
+            "the picker lists the clients"
+        );
+        c.ui.shot("picker-opens-at-the-selected-client").await;
+        assert_eq!(active, LONG, "opening starts at the selected client");
+        assert!(problems.is_empty(), "{problems:#?}");
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_closed_client_picker_is_one_line_and_opens_at_its_client() {
+    run("closed-pickers", far_opts(), false, closed_pickers);
+}
