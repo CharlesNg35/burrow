@@ -12,6 +12,9 @@
 - burrow admin: each Settings tab shows how many problems its settings have, and a service's problem list names nested fields by their own label.
 - A reinstall refused because another program holds a port no longer stops the running service; `burrow service status` without sudo says a file is not readable instead of missing.
 - burrow admin: Review waits for the check of the latest edit instead of showing the previous result, and New website says why a name is refused under the names.
+- burrow admin warns before saving when a service's client has sent an allow list that does not cover the service's target, so it would refuse the service; the hint says to add it or print the client's config again.
+- `burrow validate` warns when a service sets `mode` with only one client, where it has no effect.
+- burrow admin: a website's Let's Encrypt check can be changed only when Let's Encrypt gives the certificate (HTTPS: Automatic), as `burrow validate` requires; Review opened with edits not yet added says so and opens them; a public address shows its "up to 1000 ports" capacity only while Port range is on.
 - `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
 - Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
 
