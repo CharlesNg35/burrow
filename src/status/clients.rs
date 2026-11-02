@@ -1,5 +1,6 @@
 //! `burrow clients` on the server machine: lists the clients with their burrow and asks the server to update them.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -7,15 +8,18 @@ use std::time::{Duration, Instant};
 use burrow_admin_proto::updates::{UpdateClients, UpdateClientsReply};
 
 use super::call::{self, Fetch};
-use super::query::{Found, Pick, Scan, did_not_answer, fetch, scan};
+use super::query::{Found, Pick, Scan, did_not_answer, fetch, fetch_by, scan};
 use super::render::{Paint, versions};
-use super::watch::Watch;
+use super::watch::{Outcome, Watch};
 use crate::base::failure::Failure;
 use crate::base::prompt::Prompter;
 use crate::config::Role;
 use crate::instance::publish::UPDATE_PATH;
+use crate::metrics::Status;
 
 const POLL: Duration = Duration::from_secs(1);
+const POLL_DEADLINE: Duration = Duration::from_secs(5);
+const GIVE_UP: Duration = Duration::from_secs(60);
 const ASK_DEADLINE: Duration = Duration::from_secs(30);
 const FROM_A_VISITOR: &str =
     "from a visitor, update clients in burrow admin or with burrow mcp's update_clients";
@@ -197,6 +201,98 @@ fn plan(reply: &UpdateClientsReply) -> String {
     text
 }
 
+pub fn confirmation(u: &Update, preview: &UpdateClientsReply) -> UpdateClients {
+    UpdateClients {
+        clients: if u.all {
+            Vec::new()
+        } else {
+            preview.asked.clone()
+        },
+        all: u.all,
+        version: Some(preview.to.clone()),
+        dry_run: false,
+    }
+}
+
+pub fn outcome_json(reply: &UpdateClientsReply, results: &BTreeMap<String, Outcome>) -> String {
+    let results: serde_json::Map<String, serde_json::Value> = results
+        .iter()
+        .map(|(n, o)| {
+            (
+                n.clone(),
+                serde_json::json!({"state": o.state, "detail": o.detail}),
+            )
+        })
+        .collect();
+    let all = serde_json::json!({
+        "to": reply.to,
+        "asked": reply.asked,
+        "skipped": reply.skipped,
+        "results": results,
+    });
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&all).expect("result serializes")
+    )
+}
+
+#[derive(Default)]
+pub struct Polls {
+    since: Option<Instant>,
+}
+
+impl Polls {
+    pub fn answered(&mut self) {
+        self.since = None;
+    }
+
+    pub fn failed(&mut self, kind: Fetch, now: Instant) -> Option<String> {
+        if matches!(kind, Fetch::Gone) {
+            return Some("the server stopped while clients were updating".into());
+        }
+        let since = *self.since.get_or_insert(now);
+        (now.duration_since(since) >= GIVE_UP).then(|| {
+            format!(
+                "the server did not answer for {}; the update goes on there",
+                burrow_syntax::duration::span(GIVE_UP.as_secs())
+            )
+        })
+    }
+}
+
+fn follow(
+    server: &Found,
+    reply: &UpdateClientsReply,
+    before: &Status,
+    json: bool,
+    out: &mut dyn Write,
+) -> Result<Watch, Failure> {
+    let mut watch = Watch::new(&reply.to, &reply.asked, before);
+    let mut polls = Polls::default();
+    loop {
+        match fetch_by(&server.entry, Instant::now() + POLL_DEADLINE) {
+            Ok(st) => {
+                polls.answered();
+                let (lines, done) = watch.step(&st);
+                if !json {
+                    for l in lines {
+                        say(out, &format!("{}\n", super::query::clean(&l)))?;
+                    }
+                }
+                if done {
+                    return Ok(watch);
+                }
+            }
+            Err((kind, _)) => {
+                if let Some(why) = polls.failed(kind, Instant::now()) {
+                    return Err(Failure::new(why));
+                }
+            }
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
 fn update(
     server: Found,
     u: &Update,
@@ -211,18 +307,17 @@ fn update(
         dry_run: true,
     };
     let preview = ask(&server, &wanted)?;
-    if !json {
-        say(out, &plan(&preview))?;
+    if !json || !u.yes {
+        let shown = plan(&preview);
+        if json {
+            crate::say_err!("{shown}");
+        } else {
+            say(out, &shown)?;
+        }
     }
     if preview.asked.is_empty() {
         if json {
-            say(
-                out,
-                &format!(
-                    "{}\n",
-                    serde_json::json!({"to": preview.to, "asked": [], "skipped": preview.skipped, "results": {}})
-                ),
-            )?;
+            say(out, &outcome_json(&preview, &BTreeMap::new()))?;
         }
         return Ok(1);
     }
@@ -238,17 +333,11 @@ fn update(
     }
     let before =
         fetch(&server.entry).map_err(|why| Failure::new(did_not_answer(&server.entry, &why)))?;
-    let reply = ask(
-        &server,
-        &UpdateClients {
-            clients: preview.asked.clone(),
-            all: false,
-            version: Some(preview.to.clone()),
-            dry_run: false,
-        },
-    )?;
+    let reply = ask(&server, &confirmation(u, &preview))?;
     if reply.asked.is_empty() {
-        if !json {
+        if json {
+            say(out, &outcome_json(&reply, &BTreeMap::new()))?;
+        } else {
             say(out, &plan(&reply))?;
         }
         return Ok(1);
@@ -259,33 +348,9 @@ fn update(
             "Ctrl-C stops watching; the update goes on on the server\n",
         )?;
     }
-    let mut watch = Watch::new(&reply.to, &reply.asked, &before);
-    loop {
-        let st = fetch(&server.entry)
-            .map_err(|_| Failure::new("the server stopped while clients were updating"))?;
-        let (lines, done) = watch.step(&st);
-        if !json {
-            for l in lines {
-                say(out, &format!("{}\n", super::query::clean(&l)))?;
-            }
-        }
-        if done {
-            break;
-        }
-        std::thread::sleep(POLL);
-    }
+    let watch = follow(&server, &reply, &before, json, out)?;
     if json {
-        let results: serde_json::Map<String, serde_json::Value> = watch
-            .results
-            .iter()
-            .map(|(n, o)| {
-                (
-                    n.clone(),
-                    serde_json::json!({"state": o.state, "detail": o.detail}),
-                )
-            })
-            .collect();
-        say(out, &format!("{}\n", serde_json::to_string_pretty(&serde_json::json!({"to": reply.to, "asked": reply.asked, "skipped": preview.skipped, "results": results})).expect("result serializes")))?;
+        say(out, &outcome_json(&reply, &watch.results))?;
     }
     Ok(if watch.ok() { 0 } else { 1 })
 }

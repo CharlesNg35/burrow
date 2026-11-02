@@ -34,7 +34,7 @@ pub fn fetch(entry: &Entry) -> Result<Status, String> {
     fetch_by(entry, Instant::now() + DEADLINE).map_err(|(_, why)| why)
 }
 
-fn fetch_by(entry: &Entry, deadline: Instant) -> Result<Status, (Fetch, String)> {
+pub(super) fn fetch_by(entry: &Entry, deadline: Instant) -> Result<Status, (Fetch, String)> {
     let (code, body) = call::blocking(deadline, call::call(entry, "GET", "/status", Vec::new()))?;
     if code != 200 {
         return Err((Fetch::Failed, call::answered(code)));
