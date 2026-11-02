@@ -344,3 +344,22 @@ fn a_new_file_never_replaces_one_that_appeared_after_staging() {
     staged.discard();
     assert_eq!(listing(dir.path()).len(), 4, "no temporary file is left");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_new_file_is_still_placed_without_replacing_when_hard_links_fail() {
+    let (dir, main, _) = setup();
+    let path = dir.path().join("server.d/fresh.yaml");
+    super::super::unix::FAIL_LINK.with(|f| f.set(true));
+    let staged = super::super::platform::stage_create(&path, "visitors: {}\n", &main).unwrap();
+    let placed = staged.commit();
+    let late = dir.path().join("server.d/late.yaml");
+    let raced = super::super::platform::stage_create(&late, "visitors: {}\n", &main).unwrap();
+    std::fs::write(&late, "someone else\n").unwrap();
+    let refused = raced.commit();
+    super::super::unix::FAIL_LINK.with(|f| f.set(false));
+    placed.unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "visitors: {}\n");
+    assert!(refused.is_err());
+    assert_eq!(std::fs::read_to_string(&late).unwrap(), "someone else\n");
+}

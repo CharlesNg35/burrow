@@ -10,6 +10,7 @@ use super::{Refused, spare_prefix};
 #[cfg(test)]
 thread_local! {
     pub static FAIL_FSYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    pub static FAIL_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn sync_folder(dir: &OwnedFd) {
@@ -50,13 +51,7 @@ impl Pending {
                 &self.dir,
                 self.name.as_os_str(),
             ),
-            Kind::Create => rustix::fs::linkat(
-                &self.dir,
-                self.temp.as_str(),
-                &self.dir,
-                self.name.as_os_str(),
-                AtFlags::empty(),
-            ),
+            Kind::Create => self.link(),
         };
         if moved.is_err() || self.kind == Kind::Create {
             self.discard();
@@ -64,6 +59,54 @@ impl Pending {
         moved?;
         sync_folder(&self.dir);
         Ok(())
+    }
+
+    fn link(&self) -> rustix::io::Result<()> {
+        let linked = {
+            #[cfg(test)]
+            let failed = FAIL_LINK.with(|f| f.get());
+            #[cfg(not(test))]
+            let failed = false;
+            if failed {
+                Err(rustix::io::Errno::PERM)
+            } else {
+                rustix::fs::linkat(
+                    &self.dir,
+                    self.temp.as_str(),
+                    &self.dir,
+                    self.name.as_os_str(),
+                    AtFlags::empty(),
+                )
+            }
+        };
+        match linked {
+            Err(e) if e != rustix::io::Errno::EXIST => self.rename_no_replace(),
+            other => other,
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    fn rename_no_replace(&self) -> rustix::io::Result<()> {
+        rustix::fs::renameat_with(
+            &self.dir,
+            self.temp.as_str(),
+            &self.dir,
+            self.name.as_os_str(),
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    fn rename_no_replace(&self) -> rustix::io::Result<()> {
+        if rustix::fs::statat(&self.dir, self.name.as_os_str(), AtFlags::SYMLINK_NOFOLLOW).is_ok() {
+            return Err(rustix::io::Errno::EXIST);
+        }
+        rustix::fs::renameat(
+            &self.dir,
+            self.temp.as_str(),
+            &self.dir,
+            self.name.as_os_str(),
+        )
     }
 
     pub fn discard(&self) {

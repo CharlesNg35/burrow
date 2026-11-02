@@ -35,9 +35,14 @@ impl Pending {
                 std::fs::remove_file(&self.spare)
             }
             None => {
-                let linked = std::fs::hard_link(&self.spare, &self.real);
+                let placed = match std::fs::hard_link(&self.spare, &self.real) {
+                    Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                        copy_new(&self.spare, &self.real)
+                    }
+                    other => other,
+                };
                 let _ = std::fs::remove_file(&self.spare);
-                linked
+                placed
             }
         }
     }
@@ -60,6 +65,20 @@ fn spare_for(real: &Path) -> Result<PathBuf, Refused> {
         spare_prefix(&name.to_string_lossy()),
         std::process::id()
     )))
+}
+
+fn copy_new(from: &Path, to: &Path) -> std::io::Result<()> {
+    let text = std::fs::read(from)?;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)?;
+    let written = f.write_all(&text).and_then(|()| f.sync_all());
+    if written.is_err() {
+        drop(f);
+        let _ = std::fs::remove_file(to);
+    }
+    written
 }
 
 fn write_new(spare: &Path, text: &str) -> std::io::Result<()> {
