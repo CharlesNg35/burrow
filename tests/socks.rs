@@ -570,7 +570,8 @@ async fn an_ipv4_app_gets_an_ipv4_relay_from_a_dual_stack_socks_forward() {
         return;
     }
     let echo = udp_echo_server().await;
-    let p = proxy_at(&["home"], vec!["127.0.0.0/8"], |_| {}, "[::]:0").await;
+    let local = free_dual_stack().to_string();
+    let p = proxy_at(&["home"], vec!["127.0.0.0/8"], |_| {}, &local).await;
     let at = SocketAddr::from(([127, 0, 0, 1], p.addr.port()));
     let (_control, relay) = associate(at).await;
     assert_eq!(relay.ip(), std::net::Ipv4Addr::LOCALHOST);

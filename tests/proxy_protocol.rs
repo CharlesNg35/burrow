@@ -299,7 +299,7 @@ async fn ipv6_and_dual_stack_binds_send_the_right_family() {
         ..service(target, Protocol::Tcp)
     };
     let dual = Service {
-        bind: Some("[::]:0".parse().unwrap()),
+        bind: Some(free_dual_stack()),
         ..v6.clone()
     };
     let t = tunnel(vec![("v6", v6), ("dual", dual)]).await;

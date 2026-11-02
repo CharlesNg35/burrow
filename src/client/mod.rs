@@ -37,6 +37,12 @@ impl Drop for Waiting {
 const DATA_PATIENCE: Duration = Duration::from_secs(5);
 const LEAVE_TIMEOUT: Duration = Duration::from_secs(1);
 
+async fn drain(r: &mut (impl tokio::io::AsyncRead + Unpin)) {
+    use tokio::io::AsyncReadExt;
+    let mut sink = [0u8; 4096];
+    while matches!(r.read(&mut sink).await, Ok(n) if n > 0) {}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Connecting,
