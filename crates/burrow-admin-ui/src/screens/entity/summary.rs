@@ -217,7 +217,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                                     EntryHealth::Up => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
                                     EntryHealth::Down(why) => view! {
                                         <span class=tag_class(Tone::Danger)>"down"</span>
-                                        {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted" data-testid="health-reason">{w}</span> })}
+                                        {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted [overflow-wrap:anywhere] @max-[640px]:mt-1 @max-[640px]:ml-0 @max-[640px]:block" data-testid="health-reason">{w}</span> })}
                                     }.into_any(),
                                     EntryHealth::Offline => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
                                     EntryHealth::NoCheck => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{format::NO_CHECK}</span> }.into_any(),
