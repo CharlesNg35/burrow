@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.1]
+
+A polished admin UI, one way to read durations, and checks in the create screens. Clients and visitors from 0.2.0 work unchanged. A config that writes a network with host bits set, like `127.0.0.1/24`, is now refused and says what to write instead.
+
 - burrow admin: New client, New visitor and New website check their fields like the entry's own page does, with the error at the field: a maximum of 0, above 4,294,967,295 or not a number, a website target that is not an address or port, and an email like `a@b` keep Create off.
 - Durations read one way everywhere, like `2h 5m`, `45s` or `3d`: `burrow status`, burrow admin, client reconnect logs and the ranges in `burrow validate` messages (`between 1s and 1h`). `burrow status` says `online` and `offline` like burrow admin, and a client never seen since the server started reads "not seen since server start (2h 5m)".
 - On port 80, a passthrough site's names are sent to `https://` with `308`, where the app answers, instead of `404`. `https_redirect` is always on for a passthrough site: burrow admin shows it on with the reason, and `burrow validate` refuses `https_redirect: false` there with the code `passthrough-fixed` (it was `redirect-passthrough`).
