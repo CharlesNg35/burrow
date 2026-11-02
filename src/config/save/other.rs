@@ -35,10 +35,9 @@ impl Pending {
                 std::fs::remove_file(&self.spare)
             }
             None => {
-                if self.real.exists() {
-                    return Err(std::io::ErrorKind::AlreadyExists.into());
-                }
-                std::fs::rename(&self.spare, &self.real)
+                let linked = std::fs::hard_link(&self.spare, &self.real);
+                let _ = std::fs::remove_file(&self.spare);
+                linked
             }
         }
     }

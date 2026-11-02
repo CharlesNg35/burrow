@@ -27,22 +27,38 @@ fn sync_folder(dir: &OwnedFd) {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Replace,
+    Create,
+}
+
 pub struct Pending {
     dir: OwnedFd,
     temp: String,
     name: OsString,
     made: Option<std::path::PathBuf>,
+    kind: Kind,
 }
 
 impl Pending {
     pub fn commit(&self) -> std::io::Result<()> {
-        let moved = rustix::fs::renameat(
-            &self.dir,
-            self.temp.as_str(),
-            &self.dir,
-            self.name.as_os_str(),
-        );
-        if moved.is_err() {
+        let moved = match self.kind {
+            Kind::Replace => rustix::fs::renameat(
+                &self.dir,
+                self.temp.as_str(),
+                &self.dir,
+                self.name.as_os_str(),
+            ),
+            Kind::Create => rustix::fs::linkat(
+                &self.dir,
+                self.temp.as_str(),
+                &self.dir,
+                self.name.as_os_str(),
+                AtFlags::empty(),
+            ),
+        };
+        if moved.is_err() || self.kind == Kind::Create {
             self.discard();
         }
         moved?;
@@ -149,6 +165,7 @@ pub fn stage_replace(path: &Path, before: &str, text: &str) -> Result<Pending, R
         temp,
         name: name.to_os_string(),
         made: None,
+        kind: Kind::Replace,
     })
 }
 
@@ -212,6 +229,7 @@ pub fn stage_create(path: &Path, text: &str, like: &Path) -> Result<Pending, Ref
         temp,
         name: name.to_os_string(),
         made,
+        kind: Kind::Create,
     })
 }
 

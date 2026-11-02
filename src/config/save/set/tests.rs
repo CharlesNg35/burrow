@@ -329,3 +329,18 @@ fn a_folder_sync_that_fails_after_the_rename_does_not_undo_the_save() {
         "services: { x: {} }\n"
     );
 }
+
+#[test]
+fn a_new_file_never_replaces_one_that_appeared_after_staging() {
+    let (dir, main, _) = setup();
+    let path = dir.path().join("server.d/late.yaml");
+    let staged = super::super::platform::stage_create(&path, "visitors: {}\n", &main).unwrap();
+    std::fs::write(&path, "written by someone else\n").unwrap();
+    assert!(staged.commit().is_err());
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "written by someone else\n"
+    );
+    staged.discard();
+    assert_eq!(listing(dir.path()).len(), 4, "no temporary file is left");
+}
