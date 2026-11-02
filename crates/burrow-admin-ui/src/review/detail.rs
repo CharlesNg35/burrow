@@ -297,10 +297,11 @@ fn diff_section(
 ) -> impl IntoView + use<> {
     let secrets_in_diff = plan.secrets_in_diff.is_empty();
     view! {
-    <div class="mb-2 flex items-center gap-2">
-        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{burrow_admin_logic::wording::CHANGED_LINES}</h3>
+    <div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <h3 class="text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase">{burrow_admin_logic::wording::CHANGED_LINES}</h3>
         <span class="text-xs text-text-muted">{burrow_admin_logic::wording::diff_head(added, removed, !secrets_in_diff)}</span>
         <span class="ml-auto"></span>
+        <div class="max-sm:hidden">
         <Segmented
             name="diff-mode"
             label="Show the changed lines"
@@ -308,6 +309,7 @@ fn diff_section(
             value=Signal::derive(move || if split.get() { "split".to_string() } else { "unified".to_string() })
             on_change=Callback::new(move |v: String| split.set(v == "split"))
         />
+        </div>
     </div>
     <section class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
         {if lines.is_empty() {
