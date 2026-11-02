@@ -621,7 +621,7 @@ Sources, checked 2026-10-31: doc.rust-lang.org/cargo/reference/profiles.html; gi
 
 ## D61. Built-in login with OpenID Connect: `oauth2` and `jsonwebtoken` on AWS-LC, the login state in cookies
 
-Owner request for v0.2.1: log in with Google or a provider of your own without running a login service (2026-10-31).
+Owner request for v0.2.2: log in with Google or a provider of your own without running a login service (2026-10-31).
 
 - **Libraries.** The `openidconnect` crate (4.0.1) brings its own RustCrypto stack (`rsa`, `p256`, `p384`, `ed25519-dalek`). `oauth2` (5.0.0, without its HTTP clients) for the code flow and PKCE, with `jsonwebtoken` (11.1.0, `aws_lc_rs`, no PEM) for the ID token, verifies on the AWS-LC burrow already ships. Measured in a scratch binary with the release profile and burrow's other crates (tokio, serde_json, url, chrono, sha2, aws-lc-rs) as the base: `openidconnect` adds 808 KB, `oauth2` with `jsonwebtoken` adds 378 KB. The second is used. Discovery is a small serde struct over `/.well-known/openid-configuration`, and the issuer it names must equal the configured one (OpenID Connect Discovery 1.0, §4.3). HTTP goes through burrow's own hyper and rustls client (the ACME one) with the public roots; `http://` only to loopback and private addresses.
 - **The flow** follows RFC 9700 (OAuth 2.0 Security BCP, January 2025): authorization code with PKCE S256, a `state` and a `nonce` per login, exact redirect URIs (`https://<name>/.burrow/login/callback`). The ID token is checked for signature (asymmetric algorithms only; an unknown `kid` refetches the keys at most every 30 s), `iss`, `aud`, `exp` (60 s leeway), `nonce` and `azp` (OpenID Connect Core 1.0, §3.1.3.7). The token endpoint gets `client_secret_basic` unless the provider lists only `client_secret_post`. An email marked `email_verified: false` is refused, as oauth2-proxy does by default; one without the claim is taken.
@@ -632,7 +632,7 @@ Owner request for v0.2.1: log in with Google or a provider of your own without r
 
 ## D62. Notifications come from the status the server already keeps, with the mail password in a field of its own
 
-`notify:` (v0.2.1) tells the owner when a client goes offline, a certificate fails or a service's health check fails, and once when it is fixed.
+`notify:` (v0.2.2) tells the owner when a client goes offline, a certificate fails or a service's health check fails, and once when it is fixed.
 
 - **Where the events come from.** One task reads the server's own status snapshot every 5 seconds, only while `notify:` is set, and compares it with what it saw before. Clients, health checks and certificates are not changed; a later source (the country database of geo-blocking) adds its rows to the same comparison. A client offline is reported only after a minute, since a client that restarts or changes network is back within seconds; a client that has not connected since the server started is not reported. A service is down when its health check fails on every connected client; with no client connected, the client's own message says it.
 - **One message per problem and one per fix.** No reminders, as in Alertmanager's default without `repeat_interval` and Uptime Kuma's down/up messages. A problem that ends before it is reported sends nothing. A removed client or service is forgotten without a message.

@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.1]
+## [0.2.2]
 
 - **Built-in login (OIDC):** `web.oidc` providers like Google or Keycloak, picked per site with `oidc: <name>` and `allow_users`. See docs/web/access.md.
 - **Countries:** `allow_countries` and `deny_countries` per service, for public ports, websites and UDP. The free DB-IP Lite database is downloaded and kept up to date on its own, or `geoip:` names your own `.mmdb` file. See docs/services.md#by-country.
