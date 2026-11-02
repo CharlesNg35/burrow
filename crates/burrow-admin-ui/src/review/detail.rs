@@ -353,7 +353,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         <span class="sr-only" data-testid="apply-reason">{move || reason.get()}</span>
         {guard_view.clone().map(lockout_fixes)}
         {(!revert).then(|| view! {
-            <Button label="Discard all" variant="ghost" testid="discard" on_click=move |_| {
+            <Button label="Discard all" variant=burrow_ui_kit::ButtonLook::Ghost testid="discard" on_click=move |_| {
                 let to = match s.prev.get_untracked() {
                     Route::Detail(sec, name) => {
                         let name = e.draft.with_untracked(|d| d.renamed_from(&sec, &name)).unwrap_or(name);
@@ -369,14 +369,14 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         })}
         {if revert {
             view! {
-                <Button label="Cancel" variant="secondary" testid="cancel-revert" on_click=move |_| {
+                <Button label="Cancel" variant=burrow_ui_kit::ButtonLook::Secondary testid="cancel-revert" on_click=move |_| {
                     e.review.set(None);
                     back();
                 }/>
             }.into_any()
         } else {
             view! {
-                <Button label="Back" variant="secondary" testid="keep-editing" on_click=move |_| {
+                <Button label="Back" variant=burrow_ui_kit::ButtonLook::Secondary testid="keep-editing" on_click=move |_| {
                     e.review.set(None);
                     back();
                 }/>
@@ -386,7 +386,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
             ().into_any()
         } else if refused || !can {
             view! {
-                <button type="button" class=button_class("danger-pending", false) disabled=true data-testid="apply">
+                <button type="button" class=button_class(burrow_ui_kit::ButtonLook::DangerPending, burrow_ui_kit::ButtonSize::Normal) disabled=true data-testid="apply">
                     {refused.then(|| view! { <Icon name="lock" small=true/> })}
                     {if refused { "Apply refused" } else { "Apply" }}
                 </button>
@@ -395,7 +395,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
             view! {
                 <Button
                     label=if revert { "Apply the revert".to_string() } else { format!("Apply {}", burrow_admin_logic::wording::count_of(n, "change")) }
-                    variant=if destructive { "danger" } else { "primary" }
+                    variant=if destructive { burrow_ui_kit::ButtonLook::Danger } else { burrow_ui_kit::ButtonLook::Primary }
                     testid="apply"
                     busy=e.applying
                     disabled=Signal::derive(move || !missing.get().is_empty())

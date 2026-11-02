@@ -73,13 +73,13 @@ fn user_row(fc: FieldCtx, user: String, value: Value) -> impl IntoView {
                 <span class="font-mono text-[13px] font-semibold">{user.clone()}</span>
                 <span class="text-xs text-text-muted" data-testid="password-status">{status(&value)}</span>
                 <span class="ml-auto"></span>
-                <Button label="New password" small=true testid="password-change" on_click=Callback::new(move |_| changing.update(|c| *c = !*c))/>
-                <Button label="Remove" small=true variant="ghost-danger" testid="password-remove" on_click=remove/>
+                <Button label="New password" size=burrow_ui_kit::ButtonSize::Small testid="password-change" on_click=Callback::new(move |_| changing.update(|c| *c = !*c))/>
+                <Button label="Remove" size=burrow_ui_kit::ButtonSize::Small variant=burrow_ui_kit::ButtonLook::GhostDanger testid="password-remove" on_click=remove/>
             </div>
             {move || changing.get().then(|| view! {
                 <div class="flex items-center gap-2">
                     <TextInput id=format!("{id}-new") value=password on_input=move |v: String| password.set(v) label=label.clone() new_password=true/>
-                    <Button label="Set" small=true variant="primary" testid="password-set" on_click=save/>
+                    <Button label="Set" size=burrow_ui_kit::ButtonSize::Small variant=burrow_ui_kit::ButtonLook::Primary testid="password-set" on_click=save/>
                 </div>
             })}
             {move || note.get().map(|m| view! { <p class="text-xs text-danger" role="status">{m}</p> })}
@@ -155,7 +155,7 @@ pub fn passwords_editor(fc: FieldCtx) -> AnyView {
                         view! { <TextInput id=format!("{id}-password") value=secret on_input=move |v: String| secret.set(v) label="Password" placeholder="password" new_password=true/> }.into_any()
                     }}
                 </div>
-                <Button label="Add user" small=true disabled=!can testid="password-add" on_click=add/>
+                <Button label="Add user" size=burrow_ui_kit::ButtonSize::Small disabled=!can testid="password-add" on_click=add/>
             </div>
             {move || problem.get().or(note.get()).map(|m| view! { <p class="text-xs text-danger" role="status" data-testid="password-problem">{m}</p> })}
             <button type="button" class="self-start text-xs text-accent-ink hover:underline" data-testid="password-paste" on:click=move |_| { pasting.update(|p| *p = !*p); secret.set(String::new()); }>

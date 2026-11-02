@@ -96,26 +96,50 @@ pub const TABLE_VIEW: &str = "@max-[760px]:hidden";
 pub const CARD_VIEW: &str = "@min-[760px]:hidden";
 pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-text-faint";
 
-pub fn button_class(variant: &str, small: bool) -> String {
-    let look = match variant {
-        "primary" => {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonLook {
+    Primary,
+    #[default]
+    Secondary,
+    Ghost,
+    Danger,
+    DangerPending,
+    GhostDanger,
+    Tinted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonSize {
+    #[default]
+    Normal,
+    Small,
+}
+
+pub fn button_class(look: ButtonLook, size: ButtonSize) -> String {
+    let look = match look {
+        ButtonLook::Primary => {
             "border-accent bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:border-border disabled:bg-surface-3 disabled:text-text-faint disabled:opacity-100 disabled:hover:brightness-100"
         }
-        "danger" => {
+        ButtonLook::Danger => {
             "border-danger bg-danger text-danger-ink hover:brightness-95 dark:hover:brightness-110"
         }
-        "danger-pending" => "border-danger/45 bg-transparent text-danger",
-        "tinted" => "border-accent-line bg-accent-weak text-accent-ink hover:brightness-105",
-        "ghost" => {
+        ButtonLook::DangerPending => "border-danger/45 bg-transparent text-danger",
+        ButtonLook::Tinted => {
+            "border-accent-line bg-accent-weak text-accent-ink hover:brightness-105"
+        }
+        ButtonLook::Ghost => {
             "border-transparent bg-transparent text-text-muted hover:bg-surface-3 hover:text-text"
         }
-        "ghost-danger" => "border-transparent bg-transparent text-danger hover:bg-danger-weak",
-        _ => "border-border-strong bg-surface text-text hover:bg-surface-3 dark:bg-surface-2",
+        ButtonLook::GhostDanger => {
+            "border-transparent bg-transparent text-danger hover:bg-danger-weak"
+        }
+        ButtonLook::Secondary => {
+            "border-border-strong bg-surface text-text hover:bg-surface-3 dark:bg-surface-2"
+        }
     };
-    let size = if small {
-        "h-[26px] px-[9px] text-xs"
-    } else {
-        "h-9 px-3 text-sm"
+    let size = match size {
+        ButtonSize::Small => "h-[26px] px-[9px] text-xs",
+        ButtonSize::Normal => "h-9 px-3 text-sm",
     };
     format!(
         "inline-flex items-center justify-center gap-1.5 rounded-input border font-semibold whitespace-nowrap cursor-pointer no-underline transition-colors disabled:cursor-not-allowed disabled:opacity-55 {look} {size}"
@@ -125,8 +149,8 @@ pub fn button_class(variant: &str, small: bool) -> String {
 #[component]
 pub fn Button(
     #[prop(into)] label: Signal<String>,
-    #[prop(optional)] variant: &'static str,
-    #[prop(optional)] small: bool,
+    #[prop(optional)] variant: ButtonLook,
+    #[prop(optional)] size: ButtonSize,
     #[prop(optional)] icon: &'static str,
     #[prop(optional)] kbd: &'static str,
     #[prop(optional, into)] disabled: Signal<bool>,
@@ -139,7 +163,7 @@ pub fn Button(
         <span class="inline-flex" title=move || Some(reason.get()).filter(|r| !r.is_empty())>
         <button
             type="button"
-            class=move || button_class(if variant == "danger" && disabled.get() { "danger-pending" } else { variant }, small)
+            class=move || button_class(if variant == ButtonLook::Danger && disabled.get() { ButtonLook::DangerPending } else { variant }, size)
             disabled=move || disabled.get() || busy.get()
             aria-busy=move || busy.get().then_some("true")
             data-testid=(!testid.is_empty()).then_some(testid)

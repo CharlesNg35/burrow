@@ -345,7 +345,7 @@ fn rename_button(entity: Entity, name: &str) -> AnyView {
     view! {
         <button
             type="button"
-            class=button_class("ghost", true)
+            class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small)
             aria-label=format!("Rename {name}")
             data-testid="rename-key"
             disabled=!can

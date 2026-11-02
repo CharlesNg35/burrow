@@ -22,9 +22,10 @@ mod toast;
 
 pub use bar::{StickyBar, bar_status, bar_top, view_height};
 pub use basic::{
-    Button, CARD_VIEW, Card, Chip, Fact, Facts, IconButton, Kbd, Kpi, LABEL, LINK, LockLine,
-    MENU_ITEM, PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, TABLE_VIEW,
-    TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY, button_class, card_head, chip_class, menu_class,
+    Button, ButtonLook, ButtonSize, CARD_VIEW, Card, Chip, Fact, Facts, IconButton, Kbd, Kpi,
+    LABEL, LINK, LockLine, MENU_ITEM, PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats,
+    StatusDot, TABLE_VIEW, TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY, button_class, card_head,
+    chip_class, menu_class,
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};

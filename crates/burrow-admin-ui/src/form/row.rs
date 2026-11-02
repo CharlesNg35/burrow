@@ -326,7 +326,7 @@ fn field_body(
                         let path = path.clone();
                         let label = format!("Clear ({})", reason.replace("do not support", "do not use"));
                         view! {
-                            <button type="button" class=burrow_ui_kit::button_class("ghost", true) data-testid="clear-unused" on:click=move |_| e.set(&path, None)>{label}</button>
+                            <button type="button" class=burrow_ui_kit::button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) data-testid="clear-unused" on:click=move |_| e.set(&path, None)>{label}</button>
                         }
                     })
                 }

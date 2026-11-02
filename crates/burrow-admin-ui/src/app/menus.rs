@@ -27,7 +27,7 @@ pub(super) fn conn_state(s: Store, retry_open: RwSignal<bool>) -> impl Fn() -> A
                         <Show when=move || retry_open.get()>
                             <div class=burrow_ui_kit::menu_class("top-8 right-0 w-56", true) id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">
                                 <p class="mb-2 text-text-muted">"The connection to burrow admin dropped. It retries on its own."</p>
-                                <Button label="Retry now" small=true testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
+                                <Button label="Retry now" size=burrow_ui_kit::ButtonSize::Small testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
                             </div>
                         </Show>
                     </span>

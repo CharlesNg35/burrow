@@ -2,7 +2,7 @@ use leptos::html;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::basic::{Tone, button_class};
+use crate::basic::{ButtonLook, ButtonSize, Tone, button_class};
 use crate::icon::Icon;
 
 pub fn focus_first(root: &web_sys::HtmlElement) {
@@ -163,7 +163,7 @@ pub fn Dialog(
                     <p class="text-sm text-text-muted">{move || sub.get()}</p>
                 </div>
                 {dismissable.then(|| view! {
-                    <button type="button" class=format!("ml-auto {}", button_class("ghost", true)) aria-label="Close" on:click=move |_| open.set(false)>
+                    <button type="button" class=format!("ml-auto {}", button_class(ButtonLook::Ghost, ButtonSize::Small)) aria-label="Close" on:click=move |_| open.set(false)>
                         <Icon name="x"/>
                     </button>
                 })}

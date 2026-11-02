@@ -54,7 +54,7 @@ pub(super) fn head_actions(p: &Parts, can: bool) -> impl Fn() -> AnyView + use<>
                 on_click=move |_| start_edit()
             />
             <div class="relative" class:hidden=!can>
-                <button type="button" class=button_class("secondary", false) aria-label="More actions" aria-haspopup="true" aria-expanded=move || menu.get().to_string() aria-controls="entity-more-menu" id="entity-more" data-testid="more" on:click=move |_| menu.update(|m| *m = !*m)>
+                <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal) aria-label="More actions" aria-haspopup="true" aria-expanded=move || menu.get().to_string() aria-controls="entity-more-menu" id="entity-more" data-testid="more" on:click=move |_| menu.update(|m| *m = !*m)>
                     <Icon name="more"/>
                 </button>
                 <Show when=move || menu.get()>

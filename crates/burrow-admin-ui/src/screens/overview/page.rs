@@ -188,7 +188,7 @@ pub fn Overview() -> impl IntoView {
                     <h1 class="text-2xl font-bold tracking-[-0.015em]">"Overview"</h1>
                     <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub">{sub}</p>
                 </div>
-                <button type="button" class=button_class("secondary", false) data-testid="flow-open" on:click=move |_| s.flow_open.set(true)>
+                <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal) data-testid="flow-open" on:click=move |_| s.flow_open.set(true)>
                     <Icon name="network"/>
                     "Flow chart"
                     <Kbd text="F"/>

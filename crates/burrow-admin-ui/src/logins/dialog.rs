@@ -204,7 +204,7 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
                 <Button label="Cancel" on_click=move |_| shown.set(false)/>
                 <Button
                     label=Signal::derive(move || if adding.get() { "Add login service".to_string() } else { "Save".to_string() })
-                    variant="primary"
+                    variant=burrow_ui_kit::ButtonLook::Primary
                     testid="login-save"
                     disabled=Signal::derive(move || blocked.get().is_some())
                     reason=Signal::derive(move || blocked.get().unwrap_or_default())

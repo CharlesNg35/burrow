@@ -44,7 +44,7 @@ pub(crate) fn row_menu(
         <div class="relative">
             <button
                 type="button"
-                class=format!("{} w-9 px-0", button_class("ghost", false))
+                class=format!("{} w-9 px-0", button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Normal))
                 aria-label=label.clone()
                 title=label
                 aria-haspopup="true"

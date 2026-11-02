@@ -176,7 +176,7 @@ fn review_body(
             return view! {
                 {outcome_view()}
                 <EmptyState icon="check" title="Nothing to review" message="Your changes show up here before they are applied." testid="review-empty">
-                    <Link to=Route::Overview class=button_class("secondary", false)>"Go to the overview"</Link>
+                    <Link to=Route::Overview class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal)>"Go to the overview"</Link>
                 </EmptyState>
             }
             .into_any();
@@ -185,7 +185,7 @@ fn review_body(
             return view! {
                 {outcome_view()}
                 <EmptyState icon="check" title="Nothing to apply" message="Your changes leave the file as it is." testid="review-empty">
-                    <Link to=s.prev.get_untracked() class=button_class("secondary", false)>"Back"</Link>
+                    <Link to=s.prev.get_untracked() class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal)>"Back"</Link>
                 </EmptyState>
             }
             .into_any();
@@ -196,7 +196,7 @@ fn review_body(
             return view! {
                 <Callout tone=Tone::Warning title=format!("Based on the {}; the file is now the {}", s.version(&base), s.version(&now)) testid="review-stale">
                     <p class="mb-2.5">"The config changed on the server after you started. Your changes are kept; check them on the new version to see what they apply."</p>
-                    <Button label=super::REVIEW_ON_NEW variant="primary" icon="refresh" small=true on_click=move |_| recheck(s)/>
+                    <Button label=super::REVIEW_ON_NEW variant=burrow_ui_kit::ButtonLook::Primary icon="refresh" size=burrow_ui_kit::ButtonSize::Small on_click=move |_| recheck(s)/>
                 </Callout>
             }
             .into_any();
@@ -250,11 +250,11 @@ fn check_failed(s: Store, err: &ErrorBody) -> AnyView {
                 <p class="mb-1" data-testid="check-failed-reason">{text}</p>
                 <p class="mb-2.5 text-text-muted">{CHECK_FAILED_HINT}</p>
                 <div class="flex flex-wrap gap-2">
-                    <Button label="Back" variant="secondary" small=true testid="check-failed-back" on_click=move |_| {
+                    <Button label="Back" variant=burrow_ui_kit::ButtonLook::Secondary size=burrow_ui_kit::ButtonSize::Small testid="check-failed-back" on_click=move |_| {
                         e.review.set(None);
                         route::go(s.prev.get_untracked());
                     }/>
-                    <Button label="Check again" variant="primary" icon="refresh" small=true testid="check-again" on_click=move |_| e.open_review()/>
+                    <Button label="Check again" variant=burrow_ui_kit::ButtonLook::Primary icon="refresh" size=burrow_ui_kit::ButtonSize::Small testid="check-again" on_click=move |_| e.open_review()/>
                 </div>
             </Callout>
         </div>
@@ -390,19 +390,19 @@ pub fn ConflictDialog() -> impl IntoView {
             {move || (n_mine() > 0).then(|| view! { <h3 class=label>{format!("{} · {}", burrow_admin_logic::wording::capital(burrow_admin_logic::wording::YOUR_CHANGES), n_mine())}</h3> })}
             <ul class="mb-5 text-sm" data-testid="conflict-mine">{mine}</ul>
             <div class="flex flex-wrap items-center gap-2">
-                <Button label="Discard my changes" variant="ghost-danger" testid="conflict-discard" on_click=move |_| {
+                <Button label="Discard my changes" variant=burrow_ui_kit::ButtonLook::GhostDanger testid="conflict-discard" on_click=move |_| {
                     e.conflict_revert.set(None);
                     e.discard();
                     crate::api::load_state(s);
                 }/>
                 <span class="flex-1"></span>
-                <Button label=SEE_CHANGES variant="secondary" testid="conflict-view" on_click=move |_| {
+                <Button label=SEE_CHANGES variant=burrow_ui_kit::ButtonLook::Secondary testid="conflict-view" on_click=move |_| {
                     let rev = e.conflict.with_untracked(|c| c.as_ref().map(|c| c.current.clone()));
                     e.conflict_revert.set(None);
                     e.end_conflict();
                     route::go(Route::Activity(rev.and_then(|r| crate::screens::activity::entry_of_rev(&r))));
                 }/>
-                <Button label=super::REVIEW_ON_NEW variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| recheck(s)/>
+                <Button label=super::REVIEW_ON_NEW variant=burrow_ui_kit::ButtonLook::Primary icon="refresh" testid="conflict-recheck" on_click=move |_| recheck(s)/>
             </div>
         </Dialog>
     }

@@ -199,7 +199,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         <PageHeader actions={view! { {can_revert.then(|| view! {
                 <Button
                     label=revert_label
-                    variant="tinted"
+                    variant=burrow_ui_kit::ButtonLook::Tinted
                     icon="revert"
                     testid="revert"
                     disabled=matches

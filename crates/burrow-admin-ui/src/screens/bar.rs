@@ -53,10 +53,10 @@ pub fn save_bar(b: SaveBar) -> AnyView {
         <StickyBar danger=bad testid="save-bar">
             {status}
             <span class="ml-auto"></span>
-            <Button label=Signal::derive(move || if changed.get() == 0 { "Close".to_string() } else { "Discard".to_string() }) variant="ghost" testid="discard-edit" on_click=move |_| on_discard.run(())/>
+            <Button label=Signal::derive(move || if changed.get() == 0 { "Close".to_string() } else { "Discard".to_string() }) variant=burrow_ui_kit::ButtonLook::Ghost testid="discard-edit" on_click=move |_| on_discard.run(())/>
             <Button
                 label="Add to changes"
-                variant="primary"
+                variant=burrow_ui_kit::ButtonLook::Primary
                 testid="save"
                 disabled=Signal::derive(move || bad || changed.get() == 0 || blocker.get().is_some())
                 reason=Signal::derive(reason)

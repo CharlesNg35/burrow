@@ -399,10 +399,10 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             <burrow_ui_kit::StickyBar>
                 <span data-testid="new-website-service">{burrow_ui_kit::bar_status(Signal::derive(move || problem.get().unwrap_or_else(|| format!("Adds service {} to your changes", service.get()))))}</span>
                 <span class="ml-auto"></span>
-                <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); draft_name.set(String::new()); }/>
+                <Button label="Cancel" variant=burrow_ui_kit::ButtonLook::Ghost testid="create-cancel" on_click=move |_| { open.set(false); draft_name.set(String::new()); }/>
                 <Button
                     label="Add to changes"
-                    variant="primary"
+                    variant=burrow_ui_kit::ButtonLook::Primary
                     testid="create"
                     disabled=Signal::derive(move || problem.get().is_some())
                     reason=Signal::derive(move || problem.get().unwrap_or_default())
