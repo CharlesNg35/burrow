@@ -9,7 +9,7 @@ use crate::config::settings::{
 use crate::policy::allowlist::Cidr;
 use burrow_config::{
     AccessLogFormat, LoginPick, RedirectTarget, ServiceWeb, Target, TargetTls as TargetTlsKey,
-    WebConfig,
+    WebConfig, WebSite,
 };
 use burrow_syntax::web::{SingleLabel, host_name};
 
@@ -19,54 +19,70 @@ pub(super) fn options(
     target: &Target,
     base_dir: &Path,
 ) -> SiteOptions {
-    let mut o = SiteOptions {
-        hsts: top.hsts.unwrap_or(false),
-        compress: top.compress.unwrap_or(false),
-        max_body_size: top.max_body_size.as_deref().and_then(size),
-        response_header_timeout: secs(top.response_header_timeout_secs),
-        request_headers: headers(&top.request_headers, &BTreeMap::new()),
-        response_headers: headers(&top.response_headers, &BTreeMap::new()),
-        error_pages: top.error_pages.as_ref().map(|p| base_dir.join(p.trim())),
-        rate_limit: top.rate_limit.filter(|r| *r > 0),
-        ..SiteOptions::default()
-    };
-    let ServiceWeb::Site(s) = web else {
-        return o;
-    };
-    o.paths = s.paths.iter().map(|p| path(p)).collect();
-    o.app_path = s.app_path.as_deref().map(path);
-    o.redirect_from = s
-        .redirect_from
-        .iter()
-        .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
-        .collect();
-    o.redirects = s
-        .redirects
-        .iter()
-        .map(|(from, t)| PathRedirect {
-            from: path(from),
-            to: t.to().trim().to_string(),
-            permanent: t.permanent(),
-        })
-        .collect();
-    o.maintenance = s.maintenance;
-    o.target_http2 = s.target_http2;
-    o.basic_auth = s
-        .basic_auth
+    match web {
+        ServiceWeb::Site(s) => site_options(top, s, target, base_dir),
+        _ => site_options(top, &bare_site(), target, base_dir),
+    }
+}
+
+fn bare_site() -> WebSite {
+    WebSite {
+        hosts: Vec::new(),
+        paths: Vec::new(),
+        tls: None,
+        https_redirect: None,
+        challenge: None,
+        app_path: None,
+        redirect_from: Vec::new(),
+        redirects: BTreeMap::new(),
+        maintenance: false,
+        target_tls: None,
+        target_http2: false,
+        basic_auth: BTreeMap::new(),
+        forward_auth: None,
+        rate_limit: None,
+        client_auth: None,
+        hsts: None,
+        compress: None,
+        max_body_size: None,
+        response_header_timeout_secs: None,
+        request_headers: BTreeMap::new(),
+        response_headers: BTreeMap::new(),
+        error_pages: None,
+    }
+}
+
+fn site_options(top: &WebConfig, s: &WebSite, target: &Target, base_dir: &Path) -> SiteOptions {
+    let WebSite {
+        hosts: _,
+        tls: _,
+        https_redirect: _,
+        challenge: _,
+        paths,
+        app_path,
+        redirect_from,
+        redirects,
+        maintenance,
+        target_tls,
+        target_http2,
+        basic_auth,
+        forward_auth,
+        rate_limit,
+        client_auth,
+        hsts,
+        compress,
+        max_body_size,
+        response_header_timeout_secs,
+        request_headers,
+        response_headers,
+        error_pages,
+    } = s;
+    let mut basic_auth: Vec<(String, String)> = basic_auth
         .iter()
         .map(|(u, h)| (u.trim().to_string(), h.trim().to_string()))
         .collect();
-    o.basic_auth.sort();
-    o.forward_auth = match s.forward_auth.as_ref().map(|f| f.pick(&top.forward_auth)) {
-        Some(LoginPick::Found(_, f)) => Some(forward(f, top)),
-        _ => None,
-    };
-    o.rate_limit = s.rate_limit.or(top.rate_limit).filter(|r| *r > 0);
-    o.client_auth = s.client_auth.as_ref().map(|c| WebClientAuth {
-        ca: base_dir.join(c.ca.as_deref().unwrap_or_default().trim()),
-        crl: c.crl.as_ref().map(|p| base_dir.join(p.trim())),
-    });
-    o.target_tls = match &s.target_tls {
+    basic_auth.sort();
+    let target_tls = match target_tls {
         None | Some(TargetTlsKey::Checked(false)) => TargetTls::Off,
         Some(TargetTlsKey::Checked(true)) => TargetTls::PublicRoots,
         Some(TargetTlsKey::Ca(c)) => {
@@ -75,23 +91,54 @@ pub(super) fn options(
         Some(TargetTlsKey::Unchecked(u)) if u.insecure_skip_verify => TargetTls::Unchecked,
         Some(TargetTlsKey::Unchecked(_)) => TargetTls::PublicRoots,
     };
-    if o.target_tls != TargetTls::Off {
-        o.target_name = target_name(target);
+    SiteOptions {
+        paths: paths.iter().map(|p| path(p)).collect(),
+        app_path: app_path.as_deref().map(path),
+        redirect_from: redirect_from
+            .iter()
+            .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
+            .collect(),
+        redirects: redirects
+            .iter()
+            .map(|(from, t)| PathRedirect {
+                from: path(from),
+                to: t.to().trim().to_string(),
+                permanent: t.permanent(),
+            })
+            .collect(),
+        maintenance: *maintenance,
+        target_name: match target_tls {
+            TargetTls::Off => String::new(),
+            _ => target_name(target),
+        },
+        target_tls,
+        target_http2: *target_http2,
+        basic_auth,
+        forward_auth: match forward_auth.as_ref().map(|f| f.pick(&top.forward_auth)) {
+            Some(LoginPick::Found(_, f)) => Some(forward(f, top)),
+            _ => None,
+        },
+        rate_limit: rate_limit.or(top.rate_limit).filter(|r| *r > 0),
+        client_auth: client_auth.as_ref().map(|c| WebClientAuth {
+            ca: base_dir.join(c.ca.as_deref().unwrap_or_default().trim()),
+            crl: c.crl.as_ref().map(|p| base_dir.join(p.trim())),
+        }),
+        hsts: hsts.or(top.hsts).unwrap_or(false),
+        compress: compress.or(top.compress).unwrap_or(false),
+        max_body_size: max_body_size
+            .as_deref()
+            .or(top.max_body_size.as_deref())
+            .and_then(size),
+        response_header_timeout: secs(
+            response_header_timeout_secs.or(top.response_header_timeout_secs),
+        ),
+        request_headers: headers(&top.request_headers, request_headers),
+        response_headers: headers(&top.response_headers, response_headers),
+        error_pages: error_pages
+            .as_ref()
+            .or(top.error_pages.as_ref())
+            .map(|p| base_dir.join(p.trim())),
     }
-    o.hsts = s.hsts.unwrap_or(o.hsts);
-    o.compress = s.compress.unwrap_or(o.compress);
-    if let Some(m) = s.max_body_size.as_deref() {
-        o.max_body_size = size(m);
-    }
-    if let Some(t) = s.response_header_timeout_secs {
-        o.response_header_timeout = Duration::from_secs(t);
-    }
-    o.request_headers = headers(&top.request_headers, &s.request_headers);
-    o.response_headers = headers(&top.response_headers, &s.response_headers);
-    if let Some(p) = &s.error_pages {
-        o.error_pages = Some(base_dir.join(p.trim()));
-    }
-    o
 }
 
 pub(super) fn site_wide(top: &WebConfig, s: &mut WebSettings, base_dir: &Path) {
