@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
-use crate::basic::{SpinDot, Tone};
+use crate::basic::Tone;
+use crate::button::SpinDot;
 use crate::icon::Icon;
 
 fn banner_tone(tone: Tone) -> &'static str {

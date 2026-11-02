@@ -158,9 +158,9 @@ pub fn passwords_editor(fc: FieldCtx) -> AnyView {
                 <Button label="Add user" size=burrow_ui_kit::ButtonSize::Small disabled=!can testid="password-add" on_click=add/>
             </div>
             {move || problem.get().or(note.get()).map(|m| view! { <p class="text-xs text-danger" role="status" data-testid="password-problem">{m}</p> })}
-            <button type="button" class="self-start text-xs text-accent-ink hover:underline" data-testid="password-paste" on:click=move |_| { pasting.update(|p| *p = !*p); secret.set(String::new()); }>
+            <burrow_ui_kit::LinkButton testid="password-paste" class="self-start text-xs" on_click=move |_| { pasting.update(|p| *p = !*p); secret.set(String::new()); }>
                 {move || if pasting.get() { "Type a password instead" } else { "Paste a hash instead (from burrow passwd or htpasswd -B)" }}
-            </button>
+            </burrow_ui_kit::LinkButton>
             <p class="text-xs text-text-muted">"burrow keeps only a hash of each password; nobody can read a password back, here or in server.yaml."</p>
         </div>
     }

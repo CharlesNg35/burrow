@@ -2,7 +2,8 @@ use leptos::html;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::basic::{ButtonLook, ButtonSize, Tone, button_class};
+use crate::basic::Tone;
+use crate::button::{ButtonLook, ButtonSize, button_class};
 use crate::icon::Icon;
 
 pub fn focus_first(root: &web_sys::HtmlElement) {

@@ -76,9 +76,9 @@ pub(super) fn main_shown(place: &Place) -> Signal<Option<String>> {
     })
 }
 
-fn change_link(on: impl Fn() + 'static) -> impl IntoView {
+fn change_link(on: impl Fn() + Send + Sync + 'static) -> impl IntoView {
     view! {
-        <button type="button" class=format!("cursor-pointer text-sm font-semibold {}", burrow_ui_kit::LINK) data-testid="entry-change" on:click=move |_| on()>"Change"</button>
+        <burrow_ui_kit::LinkButton testid="entry-change" class="text-sm" on_click=move |_| on()>"Change"</burrow_ui_kit::LinkButton>
     }
 }
 

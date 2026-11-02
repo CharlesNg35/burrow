@@ -84,27 +84,26 @@ fn more_menu(
                 let path = path.clone();
                 let blocked = Memo::new(move |_| e.draft.with(|d| burrow_admin_proto::value::get(d.draft(), &path).is_some_and(|v| burrow_admin_logic::grant::would_grant(None, v))));
                 view! {
-                    <button
-                        type="button"
-                        class=move || if blocked.get() { "block w-full cursor-not-allowed rounded-md px-2 py-1.5 text-left text-sm opacity-55" } else { burrow_ui_kit::MENU_ITEM }
-                        data-testid="rename-open"
-                        disabled=move || blocked.get()
-                        title=move || if blocked.get() { burrow_admin_logic::grant::IN_THE_FILE } else { "" }
-                        on:click=move |_| renaming.set(true)
-                    >"Rename…"</button>
+                    <burrow_ui_kit::MenuItem
+                        label="Rename…"
+                        testid="rename-open"
+                        disabled=Signal::derive(move || blocked.get())
+                        reason=Signal::derive(move || if blocked.get() { burrow_admin_logic::grant::IN_THE_FILE.to_string() } else { String::new() })
+                        on_click=move |_| renaming.set(true)
+                    />
                     {move || blocked.get().then(|| view! { <div class="px-2 pb-1">{crate::grants::in_the_file()}</div> })}
                 }
             })}
             {can.then(|| {
                 let (path, back) = (path.clone(), back.clone());
-                view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm text-danger hover:bg-surface-3" data-testid="delete" on:click=move |_| {
+                view! { <burrow_ui_kit::MenuItem label=format!("Delete {}…", singular(&sec)) tone=Tone::Danger testid="delete" on_click=move |_| {
                     e.set(&path, None);
                     route::go(back.clone());
-                }>{format!("Delete {}…", singular(&sec))}</button> }
+                }/> }
             })}
             {
                 let nm = nm.clone();
-                view! { <button type="button" class=burrow_ui_kit::MENU_ITEM on:click=move |_| { copy_text(&nm); s.toast(Tone::Success, "Copied", None); }>"Copy name"</button> }
+                view! { <burrow_ui_kit::MenuItem label="Copy name" on_click=move |_| { copy_text(&nm); s.toast(Tone::Success, "Copied", None); }/> }
             }
         </div>
     }

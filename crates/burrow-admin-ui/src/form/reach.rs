@@ -179,7 +179,7 @@ fn website_row(sw: &Switch) -> impl IntoView + use<> {
         (None, true) => view! {
             <p class="mt-2 flex flex-wrap items-center gap-3 text-[13px] sm:ml-[46px]" data-testid="website-summary">
                 <span class="font-mono">{website_summary(e.value(&p).as_ref(), https_on.get())}</span>
-                <button type="button" class="cursor-pointer font-semibold text-accent-ink hover:underline" data-testid="edit-website" on:click=open>"Edit website ↓"</button>
+                <burrow_ui_kit::LinkButton testid="edit-website" on_click=open>"Edit website ↓"</burrow_ui_kit::LinkButton>
             </p>
         }
         .into_any(),
