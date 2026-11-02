@@ -139,9 +139,9 @@ fn plain_tables() {
         "burrow 9.9.9  ·  up 3d 4h  ·  clients on tcp 0.0.0.0:7835
 
 CLIENTS  1/2 online
-  NAME    STATE    SINCE        FROM            OPEN  IDLE
-  home    online   2h 13m       81.2.3.4:51234     3     4
-  office  offline  left 5m ago                     0     0
+  NAME    STATE    SINCE        VERSION  FROM            OPEN  IDLE
+  home    online   2h 13m       < 0.2.2  81.2.3.4:51234     3     4
+  office  offline  left 5m ago                              0     0
 
 SERVICES
   NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT
@@ -193,7 +193,7 @@ fn this_server_is_listed_as_local_and_not_counted_as_a_client() {
     let text = render(&s, Paint::PLAIN, None);
     assert!(text.contains("CLIENTS  1/2 online"), "{text}");
     assert!(
-        text.contains("  self    online   1m           this server        2     0"),
+        text.contains("  self    online   1m                    this server        2     0"),
         "{text}"
     );
 }
@@ -276,12 +276,12 @@ fn boxed_tables_in_a_terminal() {
     };
     let text = render(&sample(), boxed, None);
     let clients = "\
-╭────────┬───────────┬─────────────┬────────────────┬──────┬──────╮
-│ NAME   │ STATE     │ SINCE       │ FROM           │ OPEN │ IDLE │
-├────────┼───────────┼─────────────┼────────────────┼──────┼──────┤
-│ home   │ ● online  │ 2h 13m      │ 81.2.3.4:51234 │    3 │    4 │
-│ office │ ○ offline │ left 5m ago │                │    0 │    0 │
-╰────────┴───────────┴─────────────┴────────────────┴──────┴──────╯
+╭────────┬───────────┬─────────────┬─────────┬────────────────┬──────┬──────╮
+│ NAME   │ STATE     │ SINCE       │ VERSION │ FROM           │ OPEN │ IDLE │
+├────────┼───────────┼─────────────┼─────────┼────────────────┼──────┼──────┤
+│ home   │ ● online  │ 2h 13m      │ < 0.2.2 │ 81.2.3.4:51234 │    3 │    4 │
+│ office │ ○ offline │ left 5m ago │         │                │    0 │    0 │
+╰────────┴───────────┴─────────────┴─────────┴────────────────┴──────┴──────╯
 ";
     assert!(text.contains(clients), "{text}");
     assert!(
@@ -293,7 +293,7 @@ fn boxed_tables_in_a_terminal() {
         .filter(|l| l.starts_with(['╭', '│', '├', '╰']))
         .map(|l| l.chars().count())
         .collect();
-    assert_eq!(widths.iter().filter(|w| **w == 67).count(), 6, "{text}");
+    assert_eq!(widths.iter().filter(|w| **w == 77).count(), 6, "{text}");
     let colored = render(
         &sample(),
         Paint {
@@ -554,7 +554,7 @@ fn a_client_shows_its_server_its_run_mode_and_its_last_update() {
     };
     assert_eq!(
         render(&s, Paint::PLAIN, None),
-        "burrow 0.2.1  ·  client \"nas\" of tunnel.example.com:7835  ·  online for 2m
+        "burrow 0.2.1  ·  client \"nas\" of tunnel.example.com:7835  ·  online for 2m 5s
   runs            service on linux/arm64
   remote updates  allowed
 "
