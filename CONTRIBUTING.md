@@ -2,6 +2,8 @@
 
 These rules apply to all code in this repository, now and in the future. `cargo xtask arch-check`, clippy and CI check most of them.
 
+To build and test burrow, see [docs/development.md](docs/development.md).
+
 ## Code shape
 
 - A source file has at most 600 lines of code, not counting its inline test module. Aim for under 400.
@@ -34,19 +36,6 @@ The `burrow` crate is built in layers, from the bottom up:
 - One exception: a `//!` header of at most 3 lines, as the very first lines of each crate's `lib.rs` or `main.rs` (`burrow`, every crate in `crates/`, and `xtask`) and of each layer folder's `mod.rs` (`base`, `wire`, `policy`, `app`). Each of these files has one. It says what the unit is for and what it must not depend on.
 - `cargo xtask arch-check` enforces the comment rule.
 - Longer explanations belong in `docs/`, and the reasons for design choices in `docs/decisions.md`.
-
-## Building and testing
-
-```sh
-cargo build --release                                 # the burrow binary in target/release/
-cargo test                                            # unit, integration, security, diagnostics, init
-cargo test --release --test heavy -- --ignored --test-threads=1   # 10k connections, soak, chaos, churn and leak checks
-BURROW_TEST_TRANSPORT=ws cargo test --test integration   # the integration suite over WebSocket
-tests/e2e/proxies.sh                                  # wss:// through real nginx and Caddy containers (needs docker)
-cd fuzz && cargo fuzz run config                      # uses the nightly pinned in fuzz/rust-toolchain.toml; cargo fuzz list shows every target
-```
-
-`make help` lists the common commands (GNU make on Linux and macOS; on Windows use cargo and `cargo xtask` directly). The admin UI has its own guide: [docs/admin-ui-dev.md](docs/admin-ui-dev.md).
 
 ## Changes
 

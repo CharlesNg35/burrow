@@ -378,7 +378,8 @@ Each page lists the machine, the configs and how to run the benchmark yourself.
 
 burrow is written in Rust. To build it, run its tests or change it:
 
-- How to build and test, and the code rules: [CONTRIBUTING.md](CONTRIBUTING.md)
+- How to build and test: [docs/development.md](docs/development.md)
+- The code rules: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Design notes: [docs/decisions.md](docs/decisions.md) and [docs/research.md](docs/research.md)
 - The wire protocol: [docs/protocol.md](docs/protocol.md)
 - Working on the admin UI: [docs/admin-ui-dev.md](docs/admin-ui-dev.md)
