@@ -33,10 +33,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let node = node.clone();
         let entity = entity.clone();
         let schema = schema.clone();
-        Memo::new(move |_| {
-            e.draft
-                .with(|d| field_state(&node, &schema.root, d.draft(), &entity))
-        })
+        Memo::new(move |_| e.with_doc(|d| field_state(&node, &schema.root, d, &entity)))
     };
     let lock = schema.locked_paths().iter().any(|l| spath.starts_with(l));
     let lock_here = schema.locked_paths().contains(&spath);

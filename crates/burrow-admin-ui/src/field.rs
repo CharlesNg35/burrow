@@ -106,3 +106,27 @@ pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &C
         view! { <Chip text=name mono=true tone=Tone::Danger/> }.into_any()
     }
 }
+
+pub fn problem_at(root: &Node, spath: &[String], v: Option<&Value>, doc: &Value) -> Option<String> {
+    let node = root.at(spath)?;
+    match v.filter(|v| !v.is_null()) {
+        None if node.required && node.default.is_none() => {
+            Some(burrow_admin_logic::wording::required(&node.label))
+        }
+        None => None,
+        Some(x) => check_in(node, x, doc).err(),
+    }
+}
+
+pub fn concrete(spath: &[String], name: &str) -> Path {
+    spath
+        .iter()
+        .map(|s| {
+            if s == "*" {
+                name.to_string()
+            } else {
+                s.clone()
+            }
+        })
+        .collect()
+}

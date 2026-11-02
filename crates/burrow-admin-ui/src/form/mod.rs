@@ -192,6 +192,24 @@ impl Section<'_> {
     }
 }
 
+pub fn field_row(path: Path, spath: Path) -> AnyView {
+    let node = store()
+        .schema
+        .with_untracked(|sc| sc.as_ref().and_then(|sc| sc.root.at(&spath).cloned()));
+    let Some(node) = node else {
+        return ().into_any();
+    };
+    let key = spath.last().cloned().unwrap_or_default();
+    let entry = spath.get(1).is_some_and(|s| s == "*")
+        && burrow_config::entity_of_section(&spath[0]).is_some();
+    let entity = if entry {
+        path[..2].to_vec()
+    } else {
+        Vec::new()
+    };
+    row(Field { key, node }, path, spath, entity)
+}
+
 fn under(base: &[String], key: &str) -> Path {
     let mut p = base.to_vec();
     p.extend(key.split('/').map(str::to_string));

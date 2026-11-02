@@ -59,6 +59,8 @@ mod tables;
 mod ui;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
+#[path = "admin_e2e/wizards.rs"]
+mod wizards;
 #[path = "admin_e2e/world.rs"]
 mod world;
 

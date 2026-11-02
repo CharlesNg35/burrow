@@ -162,8 +162,8 @@ fn website_on_self(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-new=website]").await;
         c.ui.wait_for("[data-testid=new-website]", SECS).await;
         add_name(c, "own.example.com").await;
-        c.ui.click("#new-website-client").await;
-        c.ui.wait_for("#new-website-client-list [role=option]", SECS)
+        c.ui.click("#f-services--new-client").await;
+        c.ui.wait_for("#f-services--new-client-list [role=option]", SECS)
             .await;
         settle().await;
         c.ui.shot("new-website-client-picker").await;
@@ -171,17 +171,17 @@ fn website_on_self(c: &mut Ctx) -> Flow<'_> {
         settle().await;
         c.ui.shot("new-website-client-picker-phone").await;
         c.ui.viewport(1440, 900).await;
-        c.ui.wait_for("#new-website-client-list [data-option=self]", SECS)
+        c.ui.wait_for("#f-services--new-client-list [data-option=self]", SECS)
             .await;
         let label =
-            c.ui.text("#new-website-client-list [data-option=self]")
+            c.ui.text("#f-services--new-client-list [data-option=self]")
                 .await;
         assert!(label.contains("This server"), "{label}");
-        c.ui.click("#new-website-client-list [data-option=self]")
+        c.ui.click("#f-services--new-client-list [data-option=self]")
             .await;
         c.ui.wait_for("[data-testid=new-website] [data-chip=self]", SECS)
             .await;
-        c.ui.fill("#new-website-target", "8081").await;
+        c.ui.fill("#f-services--new-target", "8081").await;
         click_js(c, "[data-testid=new-website-tls] input[value=passthrough]").await;
         let path = c.ui.text("[data-testid=new-website-path]").await;
         assert!(
