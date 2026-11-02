@@ -9,6 +9,7 @@ use serde_json::json;
 use crate::admin::core::plan;
 use crate::admin::core::*;
 
+#[cfg(feature = "web")]
 use super::apply_now;
 #[cfg(feature = "web")]
 use super::one;
