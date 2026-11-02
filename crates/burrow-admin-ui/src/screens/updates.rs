@@ -37,6 +37,17 @@ pub fn version_cell(c: Option<ClientInfo>) -> AnyView {
     }
 }
 
+pub fn system_cell(c: Option<ClientInfo>) -> AnyView {
+    let Some(c) = c else {
+        return ().into_any();
+    };
+    let marker = c.refuses().then(|| view! { <span class="ml-1 text-text-faint" data-testid="client-updates-off">"· updates off"</span> });
+    view! {
+        <span class="text-[13px] whitespace-nowrap text-text-muted" title=c.summary() data-testid="client-system">{c.system_short()}{marker}</span>
+    }
+    .into_any()
+}
+
 fn ask(s: Store, clients: Vec<String>, all: bool, version: Option<String>) {
     let body = crate::api::body(&UpdateClients {
         clients,

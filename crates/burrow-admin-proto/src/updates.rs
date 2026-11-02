@@ -182,7 +182,7 @@ pub fn run_text(b: &ClientBuild) -> &'static str {
     match b.run {
         RunMode::Service => "service",
         RunMode::Container => "container",
-        RunMode::ByHand => "started by hand",
+        RunMode::ByHand => "by hand",
         RunMode::Unknown => "unknown",
     }
 }

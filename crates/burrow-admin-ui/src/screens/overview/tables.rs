@@ -168,7 +168,7 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> An
                     <td class="text-right tabular-nums">{move || c().map(|c| c.idle_channels).unwrap_or(0)}</td>
                     <td>{since}</td>
                     <td>{move || crate::screens::updates::version_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
-                    <td class=burrow_ui_kit::WIDE_ONLY><span class="text-[13px] text-text-muted">{move || c().map(|c| burrow_admin_logic::presence::info(&c).summary()).unwrap_or_default()}</span></td>
+                    <td class=burrow_ui_kit::WIDE_ONLY>{move || crate::screens::updates::system_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
                     {names_cell(serves)}
                 </tr>
             }

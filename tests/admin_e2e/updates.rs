@@ -67,6 +67,8 @@ fn start(c: &mut Ctx, name: &str, marks: &[&str], extra: &str) {
 
 async fn every_look(c: &mut Ctx, step: &str) {
     both_widths(c, step).await;
+    c.ui.viewport(1280, 900).await;
+    c.ui.shot(&format!("{step}-1280")).await;
     c.ui.viewport(390, 900).await;
     c.ui.shot(&format!("{step}-390")).await;
     c.ui.viewport(1440, 900).await;
@@ -101,6 +103,18 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             .text("[data-testid=overview-clients] tr[data-row=lab] [data-testid=client-version]")
             .await;
         assert_eq!(lab, "older than 0.2.2");
+        let row = |n: &str| {
+            format!("[data-testid=overview-clients] tr[data-row={n}] [data-testid=client-system]")
+        };
+        let home = c.ui.text(&row("home")).await;
+        assert!(home.ends_with(" · by hand"), "{home}");
+        let office = c.ui.text(&row("office")).await;
+        assert!(office.ends_with("updates off"), "{office}");
+        assert!(
+            c.ui.attr_of(&row("office"), "title")
+                .await
+                .ends_with("remote updates off in its config")
+        );
         let all = c.ui.text("[data-testid=update-all]").await;
         assert_eq!(
             all,

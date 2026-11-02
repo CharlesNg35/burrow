@@ -178,5 +178,5 @@ fn burrow_status_shows_a_running_client_and_its_remote_update_setting() {
     assert!(o.status.success(), "{shown}");
     assert!(shown.contains("client \"home\" of 127.0.0.1"), "{shown}");
     assert!(shown.contains("remote updates"), "{shown}");
-    assert!(shown.contains("started by hand"), "{shown}");
+    assert!(shown.contains("by hand on"), "{shown}");
 }

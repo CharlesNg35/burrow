@@ -1,7 +1,7 @@
 use burrow_admin_proto::status::{ClientStatus, Status};
 use burrow_admin_proto::updates::{
-    FIRST_REPORTING, Shown, UpdateState, UpdateStatus, hand_hint, platform_text, remote_text,
-    run_text, state_text, version, version_text,
+    FIRST_REPORTING, RemoteUpdates, Shown, UpdateState, UpdateStatus, hand_hint, platform_text,
+    remote_text, run_text, state_text, version, version_text,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +23,7 @@ pub struct ClientInfo {
     pub system: Option<String>,
     pub run: Option<&'static str>,
     pub remote: Option<String>,
+    pub allows: bool,
     pub available: Option<String>,
     pub blocked: Option<String>,
     pub update: Option<UpdateStatus>,
@@ -42,6 +43,10 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
         system: c.build.as_ref().map(platform_text),
         run: c.build.as_ref().map(run_text),
         remote: c.build.as_ref().map(remote_text),
+        allows: c
+            .build
+            .as_ref()
+            .is_some_and(|b| b.remote == RemoteUpdates::On),
         available: c.available.clone(),
         blocked: c.blocked.clone(),
         update: c.update.clone(),
@@ -66,11 +71,22 @@ impl ClientInfo {
         }
     }
 
-    pub fn summary(&self) -> String {
-        match (&self.system, self.run, &self.remote) {
-            (Some(s), Some(r), Some(u)) => format!("{s} · {r} · remote updates {u}"),
+    pub fn system_short(&self) -> String {
+        match (&self.system, self.run) {
+            (Some(s), Some(r)) => format!("{s} · {r}"),
             _ => String::new(),
         }
+    }
+
+    pub fn summary(&self) -> String {
+        match &self.remote {
+            Some(u) => format!("{} · remote updates {u}", self.system_short()),
+            None => String::new(),
+        }
+    }
+
+    pub fn refuses(&self) -> bool {
+        self.available.is_some() && self.remote.is_some() && !self.allows
     }
 
     pub fn older_note(&self) -> Option<String> {
@@ -144,7 +160,7 @@ pub fn rollout_line(st: &Status) -> Option<(String, Mood)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burrow_admin_proto::updates::{ClientBuild, RemoteUpdates, RolloutStatus, RunMode};
+    use burrow_admin_proto::updates::{ClientBuild, RolloutStatus, RunMode};
 
     fn status() -> Status {
         let build = |v: &str| ClientBuild {
@@ -170,6 +186,18 @@ mod tests {
                     build: Some(build("0.2.1")),
                     available: Some("0.2.2".into()),
                     blocked: Some("remote updates are off".into()),
+                    ..ClientStatus::default()
+                },
+                ClientStatus {
+                    name: "box".into(),
+                    connected: true,
+                    build: Some(ClientBuild {
+                        run: RunMode::ByHand,
+                        remote: RemoteUpdates::Off,
+                        ..build("0.2.1")
+                    }),
+                    available: Some("0.2.2".into()),
+                    blocked: Some("remote updates are off in its config".into()),
                     ..ClientStatus::default()
                 },
                 ClientStatus {
@@ -201,6 +229,25 @@ mod tests {
         assert!(old.older_note().unwrap().contains("sudo burrow update"));
         assert_eq!(of(None, "nas"), None);
         assert_eq!(ready_names(&st), ["nas"]);
+    }
+
+    #[test]
+    fn a_table_row_reads_short_and_marks_updates_off_only_when_one_is_waiting() {
+        let st = status();
+        let nas = of(Some(&st), "nas").unwrap();
+        assert_eq!(nas.system_short(), "linux/arm64 · service");
+        assert!(!nas.refuses());
+        let boxed = of(Some(&st), "box").unwrap();
+        assert_eq!(boxed.system_short(), "linux/arm64 · by hand");
+        assert_eq!(
+            boxed.summary(),
+            "linux/arm64 · by hand · remote updates off in its config"
+        );
+        assert!(boxed.refuses());
+        let mut quiet = st.clone();
+        quiet.clients[2].available = None;
+        assert!(!of(Some(&quiet), "box").unwrap().refuses());
+        assert_eq!(of(Some(&st), "old").unwrap().system_short(), "");
     }
 
     #[test]
