@@ -25,7 +25,7 @@ fn owner_and_mode(
     put: Put,
     (owner, group): (Option<(u32, u32)>, Option<u32>),
     writable: bool,
-) -> (Option<(u32, u32)>, u32) {
+) -> (Option<(u32, u32)>, rustix::fs::RawMode) {
     match put {
         Put::Locked if owner.is_some() => (Some((0, group.unwrap_or(0))), 0o440),
         Put::Locked => (None, 0o400),
