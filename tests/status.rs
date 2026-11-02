@@ -1,6 +1,8 @@
 mod common;
 
-use common::servers::{Running, server_config, start};
+#[cfg(unix)]
+use common::servers::Running;
+use common::servers::{server_config, start};
 use common::text;
 
 use std::io::{Read, Write};
