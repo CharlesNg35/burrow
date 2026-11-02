@@ -242,7 +242,10 @@ impl Board {
                 _ => false,
             };
             if late {
-                let why = format!("no word from it for {} s", waited.as_secs());
+                let why = format!(
+                    "no word from it for {}",
+                    burrow_syntax::duration::span(waited.as_secs())
+                );
                 warn!(
                     "client \"{client}\" did not update {} -> {}: {why}",
                     job.from, job.to

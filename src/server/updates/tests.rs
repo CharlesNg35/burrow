@@ -109,6 +109,10 @@ fn a_silent_client_times_out() {
     assert_eq!(b.job("pi", now).unwrap().state, UpdateState::Restarting);
     b.tick(now + COME_BACK + Duration::from_secs(1));
     assert_eq!(b.job("pi", now).unwrap().state, UpdateState::TimedOut);
+    assert_eq!(
+        b.job("pi", now).unwrap().detail,
+        "no word from it for 15m 1s"
+    );
 }
 
 #[test]
