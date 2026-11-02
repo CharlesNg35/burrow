@@ -10,6 +10,7 @@ mod overview;
 pub mod paths;
 pub mod placement;
 mod settings;
+pub mod updates;
 
 use burrow_ui_kit::{EmptyState, Icon, Tone, button_class};
 use leptos::prelude::*;

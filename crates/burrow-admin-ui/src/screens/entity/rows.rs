@@ -134,11 +134,19 @@ pub(super) fn client_row(
                 .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
                 .unwrap_or_default();
             let since = format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
-            if host.is_empty() {
+            let mut line = if host.is_empty() {
                 format!("for {since}")
             } else {
                 format!("{host} · for {since}")
+            };
+            if let Some(v) = c
+                .as_ref()
+                .map(burrow_admin_logic::presence::info)
+                .filter(|i| i.system.is_some())
+            {
+                line.push_str(&format!(" · {}", v.version));
             }
+            line
         } else {
             String::new()
         },

@@ -47,6 +47,7 @@ pub(super) fn body(
             <div class:hidden=move || editing.get()>
                 <PathDiagram data=path_data testid="path-diagram"/>
                 {overview(&sec, &nm, true)}
+                {(sec == <burrow_config::ClientEntry as burrow_config::Entry>::section()).then(|| crate::screens::updates::client_card(nm.clone()))}
             </div>
             {move || view! { <Tabs tabs=tab_list.get() active=tab counts=tab_counts errors=tab_errors/> }}
             <div data-testid="detail-settings">
