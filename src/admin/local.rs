@@ -1,5 +1,3 @@
-//! The server machine's own `burrow clients`: the local status endpoint shows the admin's view of the clients and passes update requests to the admin core's single entry point.
-
 use std::sync::Arc;
 
 use burrow_admin_proto::msg::ErrorCode;

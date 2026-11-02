@@ -1,5 +1,3 @@
-//! One request to a running burrow's local status endpoint with its token: GET /status for burrow status, POST /clients/update for burrow clients.
-
 use std::future::Future;
 use std::net::SocketAddr;
 use std::time::Instant;
