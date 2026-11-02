@@ -63,10 +63,11 @@ pub fn ListCard(
                     view! { <span class="line-clamp-2 block text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
                 })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
-                {(!row.tags.is_empty() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
+                {(!row.tags.is_empty() || row.health.is_some() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
                     <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
                         {row.pending.map(|p| view! { <span class=tag_class(Tone::Accent) data-pending=p>{p}</span> })}
                         {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
+                        {row.health.clone().map(crate::screens::entity::mark_view)}
                         {(!row.aside.is_empty()).then(|| view! { <span class="text-sm text-text-muted">{row.aside.clone()}</span> })}
                     </span>
                 })}

@@ -34,7 +34,6 @@ pub fn service(
             false => c.clone(),
         })
         .collect();
-    let healthy = st.map(|x| x.health.iter().filter(|h| h.up).count());
     let health_on = ServiceEntry::HEALTH_CHECK
         .get(svc)
         .is_some_and(|h| !h.is_null() && h != &Value::Bool(false));
@@ -58,12 +57,7 @@ pub fn service(
             shown.join(" · ")
         },
         dot: Some(ctone),
-        unit: match (health_on, healthy) {
-            (true, Some(h)) if st.is_some_and(|x| !x.health.is_empty()) => {
-                format!("{h} of {} healthy", clients.len())
-            }
-            _ => format!("{up} of {} online", clients.len()),
-        },
+        unit: super::health_count(name, svc, status, reserved).fraction(),
         state: if problems.clients.is_some() {
             HopState::Warn
         } else if up == 0 && !editing {

@@ -31,7 +31,6 @@ pub(crate) fn protocol_view(svc: &Value) -> impl IntoView + use<> {
 
 pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView + use<> {
     let s = crate::store::store();
-    let cs = clients_of(svc);
     let target = ServiceEntry::TARGET
         .get(svc)
         .map(burrow_admin_logic::web::target_value_shown)
@@ -68,13 +67,13 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
         }
     });
     let health = {
-        let name = name.clone();
+        let (name, svc) = (name.clone(), svc.clone());
         move || {
             s.status.with(|st| {
                 let status = st.as_deref();
-                let x = status.and_then(|st| st.services.iter().find(|y| y.name == name));
-                let up = status.map(|_| cs.iter().filter(|c| online(status, c)).count());
-                super::health_tag(up, cs.len(), x.map(|x| x.health.as_slice()).unwrap_or(&[]))
+                super::health_tag(
+                    status.map(|_| crate::screens::paths::health_count(&name, &svc, status, &[])),
+                )
             })
         }
     };
@@ -261,11 +260,8 @@ pub(super) fn service_row(
     let udp = Protocol::from_wire(&protocol) == Some(Protocol::Udp);
     let cs = clients_of(v);
     let up = cs.iter().filter(|c| online(status, c)).count();
-    let health_up = st
-        .as_ref()
-        .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()));
-    let problem =
-        status.is_some() && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
+    let count = status.map(|_| crate::screens::paths::health_count(name, v, status, &[]));
+    let problem = count.is_some_and(|c| c.level() != burrow_admin_logic::health::Level::Up);
     let mut tags = vec![protocol_tag(v)];
     if ways.public {
         tags.push(("public".into(), Tone::Neutral));
@@ -282,17 +278,13 @@ pub(super) fn service_row(
     if !(ways.public || ways.website || ways.visitors) {
         tags.push((burrow_admin_logic::web::NO_WAY_IN.into(), Tone::Warning));
     }
-    if up == 0 && status.is_some() {
-        tags.push(("✕ Down".into(), Tone::Danger));
-    } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {
-        tags.push((format!("⚠ {u} of {n} up"), Tone::Warning));
-    } else if status.is_some() && up < cs.len() {
-        tags.push((format!("⚠ {up} of {} up", cs.len()), Tone::Warning));
-    }
     Row {
         key: name.clone(),
         to,
         icon: if public { "globe" } else { "lock" },
+        health: count
+            .map(super::health_mark)
+            .filter(|m| m.1 != Tone::Success),
         dot: Some(if !problem {
             Tone::Success
         } else if up == 0 {

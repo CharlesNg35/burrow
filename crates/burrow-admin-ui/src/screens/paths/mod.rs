@@ -13,6 +13,21 @@ pub fn clients_of(svc: &Value) -> Vec<String> {
     ServiceEntry::client_names(svc)
 }
 
+pub fn health_count(
+    name: &str,
+    svc: &Value,
+    status: Option<&Status>,
+    reserved: &[String],
+) -> burrow_admin_logic::health::Count {
+    use burrow_admin_logic::health;
+    let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
+    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
+    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
+    health::count(&health::entries(listed, clients_of(svc)), checks, |c| {
+        reserved.iter().any(|r| r == c) || online(status, c)
+    })
+}
+
 pub fn online(status: Option<&Status>, client: &str) -> bool {
     status
         .and_then(|s| s.clients.iter().find(|c| c.name == client))
@@ -455,6 +470,6 @@ mod tests {
         let p = service("web", &mixed, None, &none, false, &reserved);
         assert_eq!(p.hops.len(), 4);
         assert_eq!(p.hops[2].value, "This server · home");
-        assert_eq!(p.hops[2].unit, "1 of 2 online");
+        assert_eq!(p.hops[2].unit, "1 of 2 up");
     }
 }

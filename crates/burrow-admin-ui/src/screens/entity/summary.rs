@@ -1,4 +1,5 @@
 use burrow_admin_logic::allow;
+use burrow_admin_logic::health::EntryHealth;
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::EntryStatus;
@@ -196,9 +197,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let t = en.target.clone();
                         let cs = st.as_ref().and_then(|x| x.clients.iter().find(|y| y.name == c)).cloned();
                         let on = cs.as_ref().is_some_and(|y| y.connected);
-                        let hs = health.iter().find(|h| h.client == c && h.target == t);
-                        let h = hs.map(|h| h.up);
-                        let why = hs.and_then(|h| h.reason.clone());
+                        let h = burrow_admin_logic::health::entry(&health, &c, t.as_deref(), on);
                         let set = format::skip_label(aside.iter().find(|a| a.client == c && a.target == t).map(|a| a.refused));
                         let (to, main) = match &t {
                             Some(t) => (format!("→\u{a0}{}", burrow_admin_logic::web::target_shown(t)), false),
@@ -208,19 +207,20 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let open = format::count(en.open);
                         view! {
                             <tr data-row=c.clone()>
-                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted [overflow-wrap:anywhere]" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
+                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted break-words" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
                                 <td class=burrow_ui_kit::WIDE_ONLY>{match cs.and_then(|y| y.from) {
                                     Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
                                     None => view! { <span class="text-[13px] text-text-faint" aria-label=burrow_admin_logic::wording::OFFLINE>{format::NONE_MARK}</span> }.into_any(),
                                 }}</td>
-                                <td>{match h {
-                                    Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
-                                    Some(false) => view! {
+                                <td class="whitespace-normal!">{match h {
+                                    EntryHealth::Up => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
+                                    EntryHealth::Down(why) => view! {
                                         <span class=tag_class(Tone::Danger)>"down"</span>
                                         {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted" data-testid="health-reason">{w}</span> })}
                                     }.into_any(),
-                                    None => view! { <span class="text-text-faint">{format::NO_CHECK}</span> }.into_any(),
+                                    EntryHealth::Offline => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
+                                    EntryHealth::NoCheck => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{format::NO_CHECK}</span> }.into_any(),
                                 }}</td>
                                 <td class=burrow_ui_kit::WIDE_ONLY>{set}</td>
                             </tr>
@@ -241,22 +241,25 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
     }
 }
 
-pub fn health_tag(
-    up: Option<usize>,
-    clients: usize,
-    health: &[burrow_admin_proto::status::HealthStatus],
-) -> AnyView {
-    let failing = health.iter().filter(|h| !h.up).count();
-    match up {
+pub type HealthMark = (String, Tone, &'static str);
+
+pub fn health_mark(c: burrow_admin_logic::health::Count) -> HealthMark {
+    use burrow_admin_logic::health::Level;
+    match c.level() {
+        Level::Down => (c.label(), Tone::Danger, "x"),
+        Level::Partial => (c.label(), Tone::Warning, "alert"),
+        Level::Up => (c.label(), Tone::Success, "check"),
+    }
+}
+
+pub fn mark_view((text, tone, icon): HealthMark) -> AnyView {
+    view! { <span class=tag_class(tone) data-health=tone.name()><Icon name=icon small=true/>{text}</span> }.into_any()
+}
+
+pub fn health_tag(c: Option<burrow_admin_logic::health::Count>) -> AnyView {
+    match c {
         None => view! { <span class="text-text-faint">"—"</span> }.into_any(),
-        Some(0) => view! { <span class=tag_class(Tone::Danger)><Icon name="x" small=true/>"Down"</span> }.into_any(),
-        Some(_) if failing > 0 => {
-            let n = health.len();
-            view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{} of {n} up", n - failing)}</span> }.into_any()
-        }
-        Some(u) if u < clients => view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{u} of {clients} up")}</span> }.into_any(),
-        Some(_) if !health.is_empty() => view! { <span class=tag_class(Tone::Success) title="Health checks pass"><Icon name="check" small=true/>"Healthy"</span> }.into_any(),
-        Some(_) => view! { <span class=tag_class(Tone::Success) title="A client is online; no health check is set"><Icon name="check" small=true/>"Up"</span> }.into_any(),
+        Some(c) => mark_view(health_mark(c)),
     }
 }
 

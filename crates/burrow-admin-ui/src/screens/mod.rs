@@ -100,6 +100,7 @@ pub struct Row {
     pub line3: String,
     pub aside: String,
     pub title_tag: Option<(String, Tone)>,
+    pub health: Option<entity::HealthMark>,
     pub terms: String,
 }
 
