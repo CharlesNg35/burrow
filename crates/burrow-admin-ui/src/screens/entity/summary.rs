@@ -109,135 +109,175 @@ fn entry_rows(
     }
 }
 
-pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
+fn client_stats(name: String) -> impl IntoView {
     let s = store();
-    let (section, name) = (section.to_string(), name.to_string());
+    let update = crate::screens::updates::ClientUpdate::new(name.clone());
+    let key = StoredValue::new(name);
+    let c = Memo::new(move |_| {
+        key.with_value(|n| {
+            s.status.with(|st| {
+                st.as_ref()
+                    .and_then(|x| x.clients.iter().find(|c| &c.name == n))
+                    .cloned()
+            })
+        })
+    });
+    let max = move || {
+        let doc = s.edit.doc();
+        key.with_value(|name| {
+            ClientEntry::MAX_CONNECTIONS
+                .at(&doc, name)
+                .and_then(Value::as_u64)
+                .or_else(|| {
+                    ServerConfig::LIMITS
+                        .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+                        .get(&doc)
+                        .and_then(Value::as_u64)
+                })
+                .unwrap_or(u64::from(Limits::default().max_connections_per_client))
+        })
+    };
+    let connected = move || c.with(|c| c.as_ref().and_then(|c| c.connected_secs));
+    let uptime = move || s.status.with(|st| st.as_ref().map_or(0, |s| s.uptime_secs));
+    let ready_label =
+        <burrow_config::Pool as burrow_config::admin_schema::AdminSchema>::node().label;
+    let open = move || {
+        c.with(|c| {
+            c.as_ref()
+                .map(|c| format::count(c.open))
+                .unwrap_or_else(|| "0".into())
+        })
+    };
+    let open_detail = move || {
+        if c.with(|c| c.as_ref().is_some_and(|c| c.at_limit)) {
+            "at the client's own limit".to_string()
+        } else {
+            format!("max {}", format::count(max()))
+        }
+    };
+    let ready = move || {
+        c.with(|c| {
+            c.as_ref()
+                .map(|c| c.idle_channels.to_string())
+                .unwrap_or_else(|| "0".into())
+        })
+    };
+    let since = move || match connected() {
+        Some(secs) => since_date(secs),
+        None => c.with(|c| {
+            c.as_ref()
+                .map(|c| key.with_value(|n| format::left_of(n, c.left_secs_ago, uptime())))
+                .unwrap_or_default()
+        }),
+    };
+    view! {
+        <Stats testid="live">
+            <Stat label="Open" value=Signal::derive(open) detail=Signal::derive(open_detail)/>
+            <Stat label=ready_label value=Signal::derive(ready) detail=Signal::derive(move || pool_range(&s.edit.doc()))/>
+            <Stat label="Connected" value=Signal::derive(move || connected().map(format::span).unwrap_or_else(|| "—".into())) detail=Signal::derive(since)/>
+            {update.stat()}
+        </Stats>
+        {update.below()}
+    }
+}
+
+pub(super) fn overview(section: &str, name: &str, stats: bool) -> AnyView {
+    match section {
+        CLIENTS if stats => client_stats(name.to_string()).into_any(),
+        CLIENTS | VISITORS => ().into_any(),
+        _ => entry_overview(name, stats).into_any(),
+    }
+}
+
+fn entry_overview(name: &str, stats: bool) -> impl IntoView {
+    let s = store();
+    let name = name.to_string();
     move || {
-        let (section, name) = (section.clone(), name.clone());
+        let name = name.clone();
         let st = s.status.get();
         let doc = s.edit.doc();
-        match section.as_str() {
-            CLIENTS => {
-                if !stats {
-                    return ().into_any();
-                }
-                let c = st
-                    .as_ref()
-                    .and_then(|x| x.clients.iter().find(|c| c.name == name))
-                    .cloned();
-                let max = ClientEntry::MAX_CONNECTIONS
-                    .at(&doc, &name)
-                    .and_then(Value::as_u64)
-                    .or_else(|| {
-                        ServerConfig::LIMITS
-                            .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
-                            .get(&doc)
-                            .and_then(Value::as_u64)
-                    })
-                    .unwrap_or(u64::from(Limits::default().max_connections_per_client));
-                let connected = c.as_ref().and_then(|c| c.connected_secs);
-                let ready_label =
-                    <burrow_config::Pool as burrow_config::admin_schema::AdminSchema>::node().label;
-                view! {
-                    <Stats testid="live">
-                        <Stat label="Open" value=c.as_ref().map(|c| format::count(c.open)).unwrap_or_else(|| "0".into()) detail=if c.as_ref().is_some_and(|c| c.at_limit) { "at the client's own limit".to_string() } else { format!("max {}", format::count(max)) }/>
-                        <Stat label={ready_label.clone()} value=c.as_ref().map(|c| c.idle_channels.to_string()).unwrap_or_else(|| "0".into()) detail=pool_range(&doc)/>
-                        <Stat
-                            label="Connected"
-                            value=connected.map(format::span).unwrap_or_else(|| "—".into())
-                            detail=connected.map(since_date).unwrap_or_else(|| c.as_ref().map(|c| format::left_of(&name, c.left_secs_ago, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0))).unwrap_or_default())
-                        />
-
-                    </Stats>
-                }
-                .into_any()
+        let x = st
+            .as_ref()
+            .and_then(|x| x.services.iter().find(|c| c.name == name))
+            .cloned();
+        if stats {
+            let r = s.rates.get().service(&name);
+            let (i, iu) = human_bits(r.bytes_in);
+            let (o, ou) = human_bits(r.bytes_out);
+            let limit = ServiceEntry::BANDWIDTH
+                .at(&doc, &name)
+                .map(|b| format!("limit {}", plain(b)));
+            return view! {
+                <Stats testid="live">
+                    <Stat label="Open" value=x.as_ref().map(|x| format::count(x.open)).unwrap_or_else(|| "0".into()) detail=x.as_ref().map(|x| format!("{} total", format::count(x.total))).unwrap_or_default()/>
+                    <Stat label="In" value=i unit=iu detail=limit.clone().unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_in)).unwrap_or_default())/>
+                    <Stat label="Out" value=o unit=ou detail=limit.unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_out)).unwrap_or_default())/>
+                    <Stat label="Refused by filters" value=x.as_ref().map(|x| format::count(x.refused)).unwrap_or_else(|| "0".into()) detail="by the allow and deny lists"/>
+                    {x.as_ref().and_then(|x| x.http.clone()).map(|h| {
+                        let total: u64 = h.responses.iter().sum();
+                        view! { <Stat label="Web answers" value=format::count(total) detail=by_class(&h.responses)/> }
+                    })}
+                </Stats>
             }
-            VISITORS => ().into_any(),
-            _ => {
-                let x = st
-                    .as_ref()
-                    .and_then(|x| x.services.iter().find(|c| c.name == name))
-                    .cloned();
-                if stats {
-                    let r = s.rates.get().service(&name);
-                    let (i, iu) = human_bits(r.bytes_in);
-                    let (o, ou) = human_bits(r.bytes_out);
-                    let limit = ServiceEntry::BANDWIDTH
-                        .at(&doc, &name)
-                        .map(|b| format!("limit {}", plain(b)));
-                    return view! {
-                        <Stats testid="live">
-                            <Stat label="Open" value=x.as_ref().map(|x| format::count(x.open)).unwrap_or_else(|| "0".into()) detail=x.as_ref().map(|x| format!("{} total", format::count(x.total))).unwrap_or_default()/>
-                            <Stat label="In" value=i unit=iu detail=limit.clone().unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_in)).unwrap_or_default())/>
-                            <Stat label="Out" value=o unit=ou detail=limit.unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_out)).unwrap_or_default())/>
-                            <Stat label="Refused by filters" value=x.as_ref().map(|x| format::count(x.refused)).unwrap_or_else(|| "0".into()) detail="by the allow and deny lists"/>
-                            {x.as_ref().and_then(|x| x.http.clone()).map(|h| {
-                                let total: u64 = h.responses.iter().sum();
-                                view! { <Stat label="Web answers" value=format::count(total) detail=by_class(&h.responses)/> }
-                            })}
-                        </Stats>
-                    }
-                    .into_any();
-                }
-                let svc = ServiceEntry::entry(&doc, &name)
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
-                let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
-                let reserved = crate::domain::reserved_clients();
-                let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
-                let default_target = ServiceEntry::TARGET
-                    .get(&svc)
-                    .map(burrow_admin_logic::web::target_value_shown)
-                    .unwrap_or_default();
-                let rows = listed
-                    .into_iter()
-                    .map(|en| {
-                        let c = en.client.clone();
-                        let t = en.target.clone();
-                        let cs = st.as_ref().and_then(|x| x.clients.iter().find(|y| y.name == c)).cloned();
-                        let on = cs.as_ref().is_some_and(|y| y.connected);
-                        let h = burrow_admin_logic::health::entry(&health, &c, t.as_deref(), on);
-                        let set = format::skip_label(aside.iter().find(|a| a.client == c && a.target == t).map(|a| a.refused));
-                        let (to, main) = match &t {
-                            Some(t) => (format!("→\u{a0}{}", burrow_admin_logic::web::target_shown(t)), false),
-                            None => (format!("→\u{a0}{default_target}"), true),
-                        };
-                        let label = burrow_admin_logic::choices::label_of(&c, &reserved);
-                        let open = format::count(en.open);
-                        view! {
-                            <tr data-row=c.clone()>
-                                <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted break-words" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
-                                <td class="tabular-nums" data-testid="client-open">{open}</td>
-                                <td class=burrow_ui_kit::WIDE_ONLY>{match cs.and_then(|y| y.from) {
-                                    Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
-                                    None => view! { <span class="text-[13px] text-text-faint" aria-label=burrow_admin_logic::wording::OFFLINE>{format::NONE_MARK}</span> }.into_any(),
-                                }}</td>
-                                <td class="whitespace-normal!">{match h {
-                                    EntryHealth::Up => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
-                                    EntryHealth::Down(why) => view! {
-                                        <span class=tag_class(Tone::Danger)>"down"</span>
-                                        {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted [overflow-wrap:anywhere] @max-[640px]:mt-1 @max-[640px]:ml-0 @max-[640px]:block" data-testid="health-reason">{w}</span> })}
-                                    }.into_any(),
-                                    EntryHealth::Offline => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
-                                    EntryHealth::NoCheck => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{format::NO_CHECK}</span> }.into_any(),
-                                }}</td>
-                                <td class=burrow_ui_kit::WIDE_ONLY>{set}</td>
-                            </tr>
-                        }
-                    })
-                    .collect_view();
-                let mode = mode_line(&svc);
-                view! {
-                    <div class="mb-4">
-                        <Card title="Health per client" sub=mode flush=true testid="health">
-                            <Table head=vec!["Client and target", "Open", "~Connected from", "Health", "~Skipped"]>{rows}</Table>
-                        </Card>
-                    </div>
-                }
-                .into_any()
-            }
+            .into_any();
         }
+        let svc = ServiceEntry::entry(&doc, &name)
+            .cloned()
+            .unwrap_or(Value::Null);
+        let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
+        let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
+        let reserved = crate::domain::reserved_clients();
+        let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
+        let default_target = ServiceEntry::TARGET
+            .get(&svc)
+            .map(burrow_admin_logic::web::target_value_shown)
+            .unwrap_or_default();
+        let rows = listed
+            .into_iter()
+            .map(|en| {
+                let c = en.client.clone();
+                let t = en.target.clone();
+                let cs = st.as_ref().and_then(|x| x.clients.iter().find(|y| y.name == c)).cloned();
+                let on = cs.as_ref().is_some_and(|y| y.connected);
+                let h = burrow_admin_logic::health::entry(&health, &c, t.as_deref(), on);
+                let set = format::skip_label(aside.iter().find(|a| a.client == c && a.target == t).map(|a| a.refused));
+                let (to, main) = match &t {
+                    Some(t) => (format!("→\u{a0}{}", burrow_admin_logic::web::target_shown(t)), false),
+                    None => (format!("→\u{a0}{default_target}"), true),
+                };
+                let label = burrow_admin_logic::choices::label_of(&c, &reserved);
+                let open = format::count(en.open);
+                view! {
+                    <tr data-row=c.clone()>
+                        <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted break-words" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
+                        <td class="tabular-nums" data-testid="client-open">{open}</td>
+                        <td class=burrow_ui_kit::WIDE_ONLY>{match cs.and_then(|y| y.from) {
+                            Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
+                            None => view! { <span class="text-[13px] text-text-faint" aria-label=burrow_admin_logic::wording::OFFLINE>{format::NONE_MARK}</span> }.into_any(),
+                        }}</td>
+                        <td class="whitespace-normal!">{match h {
+                            EntryHealth::Up => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
+                            EntryHealth::Down(why) => view! {
+                                <span class=tag_class(Tone::Danger)>"down"</span>
+                                {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted [overflow-wrap:anywhere] @max-[640px]:mt-1 @max-[640px]:ml-0 @max-[640px]:block" data-testid="health-reason">{w}</span> })}
+                            }.into_any(),
+                            EntryHealth::Offline => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
+                            EntryHealth::NoCheck => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{format::NO_CHECK}</span> }.into_any(),
+                        }}</td>
+                        <td class=burrow_ui_kit::WIDE_ONLY>{set}</td>
+                    </tr>
+                }
+            })
+            .collect_view();
+        let mode = mode_line(&svc);
+        view! {
+            <div class="mb-4">
+                <Card title="Health per client" sub=mode flush=true testid="health">
+                    <Table head=vec!["Client and target", "Open", "~Connected from", "Health", "~Skipped"]>{rows}</Table>
+                </Card>
+            </div>
+        }
+        .into_any()
     }
 }
 

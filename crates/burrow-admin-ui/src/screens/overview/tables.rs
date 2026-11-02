@@ -174,7 +174,7 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> An
             }
         })
         .collect_view();
-    view! { {crate::screens::updates::update_all_bar()} <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Version", "~System", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Version", "~System", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
 }
 
 pub(super) fn visitors_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {

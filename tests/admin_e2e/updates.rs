@@ -65,6 +65,13 @@ fn start(c: &mut Ctx, name: &str, marks: &[&str], extra: &str) {
     c.world.wait_client(name, true);
 }
 
+async fn every_look(c: &mut Ctx, step: &str) {
+    both_widths(c, step).await;
+    c.ui.viewport(390, 900).await;
+    c.ui.shot(&format!("{step}-390")).await;
+    c.ui.viewport(1440, 900).await;
+}
+
 fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
     Box::pin(async move {
         start(
@@ -100,35 +107,46 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             format!("Update all to {NEW} (2)"),
             "only home and spare can take it"
         );
-        both_widths(c, "clients-versions").await;
+        every_look(c, "clients-versions").await;
 
         c.ui.nav("/clients/office").await;
-        c.ui.wait_for(
-            "[data-testid=client-burrow] [data-testid=client-facts]",
-            SECS,
-        )
-        .await;
+        c.ui.wait_for("[data-testid=live] [data-testid=client-facts]", SECS)
+            .await;
+        assert_eq!(
+            c.ui.count("[data-testid=client-burrow]").await,
+            0,
+            "the client's burrow sits in its overview figures, not in a card of its own"
+        );
         assert!(
             !c.ui.enabled("[data-testid=client-update]").await,
             "office did not opt in"
         );
+        let why =
+            c.ui.eval::<String>(
+                "document.querySelector('[data-testid=client-update]').parentElement.title",
+            )
+            .await;
+        assert!(
+            why.contains("off in its config"),
+            "the reason shows on hover: {why}"
+        );
         let remote = c.ui.text("[data-testid=client-facts]").await;
         assert!(remote.contains("off in its config"), "{remote}");
-        both_widths(c, "client-not-allowed").await;
+        every_look(c, "client-not-allowed").await;
 
         c.ui.nav("/clients/lab").await;
         c.ui.wait_for("[data-testid=client-older]", SECS).await;
         let older = c.ui.text("[data-testid=client-older]").await;
         assert!(older.contains("sudo burrow update"), "{older}");
-        both_widths(c, "client-older").await;
+        every_look(c, "client-older").await;
 
         c.ui.nav("/clients/home").await;
         c.ui.wait_for("[data-testid=client-update]", SECS).await;
-        both_widths(c, "client-update-offer").await;
+        every_look(c, "client-update-offer").await;
         c.ui.click("[data-testid=client-update]").await;
         c.ui.wait_for("[data-testid=client-update-dialog]", SECS)
             .await;
-        both_widths(c, "client-update-dialog").await;
+        every_look(c, "client-update-dialog").await;
         c.ui.click("[data-testid=client-update-confirm]").await;
         c.ui.wait_text(
             "[data-testid=client-last-update]",
@@ -136,14 +154,14 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             Duration::from_secs(60),
         )
         .await;
-        let facts = c.ui.text("[data-testid=client-facts]").await;
-        assert!(facts.contains(NEW), "{facts}");
+        let shown = c.ui.text("[data-testid=live] [data-stat=burrow]").await;
+        assert!(shown.contains(NEW), "{shown}");
         assert_eq!(
             c.ui.count("[data-testid=client-update]").await,
             0,
             "nothing left to update"
         );
-        both_widths(c, "client-updated").await;
+        every_look(c, "client-updated").await;
 
         c.ui.nav("/").await;
         overview_tab(c, "clients").await;
@@ -164,7 +182,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         )
         .await;
         assert_eq!(c.ui.count("[data-testid=update-all]").await, 0);
-        both_widths(c, "update-all-done").await;
+        every_look(c, "update-all-done").await;
         c.ui.assert_no_errors();
     })
 }

@@ -443,6 +443,7 @@ pub fn Stat(
     #[prop(into)] value: Signal<String>,
     #[prop(optional, into)] unit: Signal<String>,
     #[prop(optional, into)] detail: Signal<String>,
+    #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let key = label.to_lowercase();
     view! {
@@ -453,6 +454,7 @@ pub fn Stat(
                 <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>
             </div>
             <div class="text-xs text-text-muted">{move || detail.get()}</div>
+            {children.map(|c| c())}
         </div>
     }
 }

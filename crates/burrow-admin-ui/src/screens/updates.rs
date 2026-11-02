@@ -1,8 +1,8 @@
 use burrow_admin_logic::presence::{ClientInfo, Mood, of, ready_names, rollout_line};
 use burrow_admin_proto::features::CLIENT_UPDATES;
 use burrow_admin_proto::msg::req::UPDATE_CLIENTS;
-use burrow_admin_proto::updates::{UpdateClients, UpdateClientsReply};
-use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Card, Dialog, Fact, Facts, Tone, VersionTag};
+use burrow_admin_proto::updates::{FIRST_REPORTING, UpdateClients, UpdateClientsReply};
+use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Dialog, Stat, Tone, VersionTag, tag_class};
 use leptos::prelude::*;
 
 use crate::store::{Store, store};
@@ -67,93 +67,125 @@ fn ask(s: Store, clients: Vec<String>, all: bool, version: Option<String>) {
     });
 }
 
-fn facts(c: ClientInfo, latest_known: bool) -> AnyView {
-    if let Some(note) = c.older_note() {
-        return view! { <p class="text-sm text-text-muted" data-testid="client-older">{note}</p> }
-            .into_any();
+fn shown_version(c: Option<&ClientInfo>) -> String {
+    match c {
+        Some(c) if !c.older && !c.version.is_empty() => c.version.clone(),
+        _ => "—".into(),
     }
-    if c.system.is_none() {
-        return view! { <p class="text-sm text-text-muted">"Shown once it connects."</p> }
-            .into_any();
-    }
-    let last = c.last_update();
-    let newer = match (&c.available, latest_known) {
-        (Some(v), _) => format!("{v} is available"),
-        (None, true) => "this is the latest release".into(),
-        (None, false) => "not known yet".into(),
-    };
-    view! {
-        <Facts testid="client-facts">
-            <Fact label="Version" mono=true>{c.version}</Fact>
-            <Fact label="System">{c.system.unwrap_or_default()}</Fact>
-            <Fact label="Runs as">{c.run.unwrap_or_default()}</Fact>
-            <Fact label="Remote updates">{c.remote.unwrap_or_default()}</Fact>
-            <Fact label="Newer release">{newer}</Fact>
-        </Facts>
-        {last.map(|(l, m)| view! { <p class=format!("mt-3 text-sm {}", tone(m).text()) data-testid="client-last-update">{l}</p> })}
-    }
-    .into_any()
 }
 
-pub fn client_card(name: String) -> impl IntoView {
-    let s = store();
-    let open = RwSignal::new(false);
-    let key = StoredValue::new(name);
-    let c = move || key.with_value(|n| info_of(s, n));
-    let latest_known = move || {
-        s.status.with(|st| {
-            st.as_ref()
-                .and_then(|st| st.latest.as_ref())
-                .is_some_and(|l| l.version.is_some())
-        })
+fn shown_detail(c: Option<&ClientInfo>) -> String {
+    match c {
+        None => "not seen since the server started".into(),
+        Some(c) if c.local => "this server".into(),
+        Some(c) if c.older => format!("older than {FIRST_REPORTING}"),
+        Some(c) if c.system.is_none() => "shown once it connects".into(),
+        Some(c) => c.summary(),
+    }
+}
+
+#[derive(Clone, PartialEq)]
+enum Action {
+    Nothing,
+    Tag(String, Mood),
+    Offer {
+        tag: String,
+        mood: Mood,
+        blocked: Option<String>,
+    },
+}
+
+fn action(c: Option<&ClientInfo>, offered: bool) -> Action {
+    let Some(c) = c else {
+        return Action::Nothing;
     };
-    let body = move || match c() {
-        Some(c) => facts(c, latest_known()),
-        None => {
-            view! { <p class="text-sm text-text-muted">"Not seen since the server started."</p> }
-                .into_any()
+    match c.tag() {
+        Some((t, Mood::Busy)) => Action::Tag(t, Mood::Busy),
+        Some((tag, mood)) if offered && c.available.is_some() => Action::Offer {
+            tag,
+            mood,
+            blocked: c.blocked.clone(),
+        },
+        Some((t, m)) => Action::Tag(t, m),
+        None => Action::Nothing,
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ClientUpdate {
+    info: Memo<Option<ClientInfo>>,
+    open: RwSignal<bool>,
+}
+
+impl ClientUpdate {
+    pub fn new(name: String) -> Self {
+        let s = store();
+        let key = StoredValue::new(name);
+        ClientUpdate {
+            info: Memo::new(move |_| key.with_value(|n| info_of(s, n))),
+            open: RwSignal::new(false),
         }
-    };
-    let button = move || {
-        let c = c()?;
-        let to = c.available.clone()?;
-        offered(s).then(|| {
-            let reason = c.blocked.clone().unwrap_or_default();
-            let blocked = c.blocked.is_some();
+    }
+
+    pub fn stat(self) -> impl IntoView {
+        let s = store();
+        let (info, open) = (self.info, self.open);
+        let act = Memo::new(move |_| info.with(|c| action(c.as_ref(), offered(s))));
+        let facts = move || info.with(|c| shown_detail(c.as_ref()));
+        let side = move || {
+            match act.get() {
+            Action::Nothing => ().into_any(),
+            Action::Tag(t, m) => view! { <span class=tag_class(tone(m)) data-testid="client-update-tag">{t}</span> }.into_any(),
+            Action::Offer { tag, mood, blocked } => view! {
+                <span class=tag_class(tone(mood)) data-testid="client-update-tag">{tag}</span>
+                <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" disabled=blocked.is_some() reason=blocked.unwrap_or_default() testid="client-update" on_click=move |_| open.set(true)/>
+            }.into_any(),
+        }
+        };
+        view! {
+            <Stat label="Burrow" value=Signal::derive(move || info.with(|c| shown_version(c.as_ref())))>
+                <div class="text-xs text-text-muted break-words" data-testid="client-facts">{facts}</div>
+                {move || (act.get() != Action::Nothing).then(|| view! { <div class="mt-2 flex flex-wrap items-center gap-2">{side}</div> })}
+            </Stat>
+        }
+    }
+
+    pub fn below(self) -> impl IntoView {
+        let s = store();
+        let (info, open) = (self.info, self.open);
+        let line = move || {
+            info.with(|c| {
+                let c = c.as_ref()?;
+                if let Some(note) = c.older_note() {
+                    return Some(view! { <p class="-mt-3 mb-5 text-sm text-text-muted" data-testid="client-older">{note}</p> }.into_any());
+                }
+                let (l, m) = c.last_update()?;
+                Some(view! { <p class=format!("-mt-3 mb-5 text-sm {}", tone(m).text()) data-testid="client-last-update">{l}</p> }.into_any())
+            })
+        };
+        let confirm = move || {
+            let c = info.get().unwrap_or_default();
+            let to = c.available.clone().unwrap_or_default();
+            let (who, from, target) = (c.name.clone(), c.version.clone(), to.clone());
             view! {
-                <div class="mt-4">
-                    <Button label=format!("Update to {to}") variant=ButtonLook::Primary size=ButtonSize::Small icon="download" disabled=blocked reason=reason testid="client-update" on_click=move |_| open.set(true)/>
+                <p class="text-sm">{format!(
+                    "{who} downloads {to} from the official releases, checks it against the published checksums and restarts with it. If {to} does not connect within a minute, {who} goes back to {from}."
+                )}</p>
+                <div class="mt-4 flex justify-end gap-2">
+                    <Button label="Cancel" on_click=move |_| open.set(false)/>
+                    <Button label=format!("Update to {target}") variant=ButtonLook::Primary testid="client-update-confirm" on_click=move |_| {
+                        open.set(false);
+                        ask(s, vec![who.clone()], false, Some(target.clone()));
+                    }/>
                 </div>
             }
-        })
-    };
-    let confirm = move || {
-        let c = c().unwrap_or_default();
-        let to = c.available.clone().unwrap_or_default();
-        let (who, from, target) = (c.name.clone(), c.version.clone(), to.clone());
+        };
         view! {
-            <p class="text-sm">{format!(
-                "{who} downloads {to} from the official releases, checks it against the published checksums and restarts with it. If {to} does not connect within a minute, {who} goes back to {from}."
-            )}</p>
-            <div class="mt-4 flex justify-end gap-2">
-                <Button label="Cancel" on_click=move |_| open.set(false)/>
-                <Button label=format!("Update to {target}") variant=ButtonLook::Primary testid="client-update-confirm" on_click=move |_| {
-                    open.set(false);
-                    ask(s, vec![who.clone()], false, Some(target.clone()));
-                }/>
-            </div>
-        }
-    };
-    view! {
-        <div class="mb-4">
-            <Card title="Burrow on this client" testid="client-burrow">
-                {body}
-                {button}
-            </Card>
-            <Dialog open=open title=Signal::derive(move || format!("Update {}?", key.get_value())) icon="download" testid="client-update-dialog">
+            {line}
+            <Dialog open=open title=Signal::derive(move || format!("Update {}?", info.with(|c| c.as_ref().map(|c| c.name.clone()).unwrap_or_default()))) icon="download" testid="client-update-dialog">
                 {confirm}
             </Dialog>
-        </div>
+        }
     }
 }
 
@@ -178,9 +210,9 @@ pub fn update_all_bar() -> impl IntoView {
         let n = ready().len();
         let button = offered(s) && n > 0;
         (line.is_some() || button).then(|| view! {
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5" data-testid="updates-bar">
-                {line.map(|(t, m)| view! { <p class=format!("text-sm {}", tone(m).text()) data-testid="rollout">{t}</p> })}
-                {button.then(|| view! { <span class="ml-auto"><Button label=format!("Update all to {} ({n})", to()) variant=ButtonLook::Secondary size=ButtonSize::Small icon="download" testid="update-all" on_click=move |_| open.set(true)/></span> })}
+            <div class="flex flex-wrap items-center gap-2" data-testid="updates-bar">
+                {line.map(|(t, m)| view! { <p class=format!("text-xs {}", tone(m).text()) data-testid="rollout">{t}</p> })}
+                {button.then(|| view! { <span><Button label=format!("Update all to {} ({n})", to()) variant=ButtonLook::Secondary size=ButtonSize::Small icon="download" testid="update-all" on_click=move |_| open.set(true)/></span> })}
             </div>
         })
     };
