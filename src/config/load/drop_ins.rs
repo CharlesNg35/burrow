@@ -63,17 +63,22 @@ pub fn checks(main: &Path, inputs: &[Input], out: &mut Vec<Diagnostic>) {
         .map(|l| l.ignored)
         .unwrap_or_default();
     for name in &ignored {
+        let why = if name.ends_with(".yaml") {
+            "names with : or \\ are not"
+        } else {
+            "only files ending in .yaml are"
+        };
         out.push(
             Diagnostic::warning(
                 codes::DROP_IN_IGNORED,
                 format!(
-                    "{} is not read: only files ending in .yaml are",
+                    "{} is not read: {why}",
                     folder
                         .join(name.rsplit('/').next().unwrap_or(name))
                         .display()
                 ),
             )
-            .help("rename it to end in .yaml to use it, or to end in .off to keep it switched off"),
+            .help("rename it to a plain name ending in .yaml to use it, or to end in .off to keep it switched off"),
         );
     }
     for (i, input) in inputs.iter().enumerate().skip(1) {

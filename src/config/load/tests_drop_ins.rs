@@ -342,3 +342,24 @@ fn an_edit_of_the_main_file_is_checked_together_with_the_folder() {
     assert!(!fine.report.has_errors(), "{}", shown(&fine));
     assert_eq!(services(&fine).len(), 2);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_yaml_name_burrow_cannot_use_is_warned_about_not_dropped() {
+    let d = Dir::new();
+    d.drop_in("team:prod.yaml", "services: {}\n");
+    d.drop_in("back\\slash.yaml", "services: {}\n");
+    let o = d.load();
+    let ignored: Vec<&str> = o
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == codes::DROP_IN_IGNORED)
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(ignored.len(), 2, "{}", shown(&o));
+    assert!(
+        ignored.iter().any(|m| m.contains("team:prod.yaml")),
+        "{ignored:?}"
+    );
+}

@@ -143,8 +143,9 @@ pub fn list(main: &Path) -> std::io::Result<Option<Listed>> {
             continue;
         }
         let lower = name.to_ascii_lowercase();
-        if name.ends_with(".yaml") {
-            out.names.push(format!("{prefix}/{name}"));
+        let full = format!("{prefix}/{name}");
+        if name.ends_with(".yaml") && burrow_config::drop_ins::file_in(&prefix, &full).is_some() {
+            out.names.push(full);
         } else if lower.ends_with(".yml") || lower.ends_with(".json") || lower.ends_with(".yaml") {
             out.ignored.push(format!("{prefix}/{name}"));
         }
