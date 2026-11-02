@@ -579,7 +579,7 @@ fn a_client_shows_its_server_its_run_mode_and_its_last_update() {
     assert!(text.contains("·  connecting\n"), "{text}");
     assert!(
         text.contains(
-            "  last update     0.2.1 -> 0.2.2: rolled back (0.2.2 did not connect within 60 s)\n"
+            "  last update     0.2.1 → 0.2.2: rolled back (0.2.2 did not connect within 60 s)\n"
         ),
         "{text}"
     );

@@ -148,7 +148,7 @@ fn burrow_clients_updates_a_client_through_the_same_job_the_admin_starts() {
     assert_eq!(o.status.code(), Some(0), "{shown}");
     assert!(shown.contains(&format!("update home to {NEW}")), "{shown}");
     assert!(
-        shown.contains(&format!("home: {OLD} → {NEW} updated")),
+        shown.contains(&format!("home: {OLD} → {NEW}: updated")),
         "{shown}"
     );
     let after = home().unwrap();

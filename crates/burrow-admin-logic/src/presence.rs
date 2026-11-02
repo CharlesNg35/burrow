@@ -2,8 +2,8 @@ use std::net::{IpAddr, SocketAddr};
 
 use burrow_admin_proto::status::{ClientStatus, OFFLINE, ONLINE, Status, away};
 use burrow_admin_proto::updates::{
-    FIRST_REPORTING, RemoteUpdates, Shown, UpdateState, UpdateStatus, hand_hint, platform_text,
-    remote_text, run_text, state_text, version, version_text,
+    FIRST_REPORTING, RemoteUpdates, Shown, UpdateState, UpdateStatus, hand_hint, job_text,
+    platform_text, remote_text, run_text, state_text, version, version_text,
 };
 
 use crate::wording::THIS_SERVER;
@@ -171,10 +171,7 @@ impl ClientInfo {
 
     pub fn last_update(&self) -> Option<(String, Mood)> {
         let u = self.update.as_ref()?;
-        let mut line = format!("{} → {}: {}", u.from, u.to, state_text(u.state));
-        if !u.detail.is_empty() && u.state.finished() {
-            line.push_str(&format!(" ({})", u.detail));
-        }
+        let mut line = job_text(u);
         if !u.by.is_empty() {
             line.push_str(&format!(", asked by {}", u.by));
         }

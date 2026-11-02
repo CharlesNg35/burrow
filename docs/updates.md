@@ -73,7 +73,7 @@ CLIENTS  latest release 0.2.3
 
 - With several servers on the machine, name one with `--service NAME` (short names work: `--service server`) or `-c FILE`. Listing shows them all; updating refuses until one is named.
 - It says first which clients it asks and why the others are not asked (offline, remote updates off, already on the latest release, older than 0.2.2), then asks for a confirmation unless `--yes` is given. Without a terminal and without `--yes` nothing is asked.
-- It follows each client and prints a line per step: `home: 0.2.2 → 0.2.3 updated`, `nas: rolled back: <reason>`, and `stopped: pi not updated` when an update of several stops at a failure.
+- It follows each client and prints a line per step: `home: 0.2.2 → 0.2.3: updated`, `nas: 0.2.2 → 0.2.3: rolled back (<reason>)`, and `stopped: pi not updated` when an update of several stops at a failure.
 - It exits 0 only when every client it asked has updated. Ctrl-C stops watching only; the update goes on on the server.
 - The server records it as "asked by burrow clients on the server", on the client's page in burrow admin and in its log.
 - It works only on the server machine, as the account that runs the server (root for a service). A visitor updates clients with burrow admin or `burrow mcp`'s `update_clients`.

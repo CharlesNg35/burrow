@@ -50,7 +50,10 @@ fn one_client_is_followed_until_it_reports_the_new_version() {
     ));
     assert_eq!(
         (lines, done),
-        (vec!["home: downloading and checking".to_string()], false)
+        (
+            vec!["home: 0.2.2 → 0.2.3: downloading and checking".to_string()],
+            false
+        )
     );
     let same = w.step(&status(
         &[("home", job(2, UpdateState::Downloading, ""))],
@@ -58,7 +61,7 @@ fn one_client_is_followed_until_it_reports_the_new_version() {
     ));
     assert_eq!(same, (vec![], false), "a state is said once");
     let (lines, done) = w.step(&status(&[("home", job(2, UpdateState::Done, ""))], None));
-    assert_eq!(lines, ["home: 0.2.2 → 0.2.3 updated"]);
+    assert_eq!(lines, ["home: 0.2.2 → 0.2.3: updated"]);
     assert!(done && w.ok());
 }
 
@@ -92,7 +95,7 @@ fn a_rollback_ends_with_its_reason_and_the_rest_are_named_as_not_updated() {
     assert_eq!(
         lines,
         [
-            "nas: rolled back: did not connect within a minute",
+            "nas: 0.2.2 → 0.2.3: rolled back (did not connect within a minute)",
             "stopped: pi not updated"
         ]
     );

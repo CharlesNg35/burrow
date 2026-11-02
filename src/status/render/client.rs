@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use burrow_admin_proto::updates::LocalClient;
-use burrow_admin_proto::updates::{platform_text, remote_text, run_text, state_text};
+use burrow_admin_proto::updates::{job_text, platform_text, remote_text, run_text};
 
 use super::{Paint, Tone};
 use burrow_admin_proto::status::ONLINE;
@@ -31,16 +31,7 @@ pub(super) fn render_local(out: &mut String, c: &LocalClient, version: &str, pai
         let _ = writeln!(out, "{}", paint.clip(&format!("  {label:<15} {value}")));
     }
     if let Some(u) = &c.last_update {
-        let mut line = format!(
-            "  {:<15} {} -> {}: {}",
-            "last update",
-            u.from,
-            u.to,
-            state_text(u.state)
-        );
-        if !u.detail.is_empty() {
-            line.push_str(&format!(" ({})", u.detail));
-        }
+        let line = format!("  {:<15} {}", "last update", job_text(u));
         let tone = if u.state.failed() {
             Tone::Warn
         } else {

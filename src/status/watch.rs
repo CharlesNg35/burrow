@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use burrow_admin_proto::updates::{UpdateState, UpdateStatus, state_text};
+use burrow_admin_proto::updates::{UpdateState, UpdateStatus, job_text};
 
 use crate::metrics::Status;
 
@@ -21,13 +21,7 @@ pub struct Watch {
 }
 
 fn line(name: &str, u: &UpdateStatus) -> String {
-    match u.state {
-        UpdateState::Done => format!("{name}: {} → {} updated", u.from, u.to),
-        s if s.failed() && !u.detail.is_empty() => {
-            format!("{name}: {}: {}", state_text(s), u.detail)
-        }
-        s => format!("{name}: {}", state_text(s)),
-    }
+    format!("{name}: {}", job_text(u))
 }
 
 impl Watch {

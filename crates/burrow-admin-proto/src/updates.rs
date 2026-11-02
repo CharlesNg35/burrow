@@ -213,6 +213,14 @@ pub fn hand_hint() -> String {
     )
 }
 
+pub fn job_text(u: &UpdateStatus) -> String {
+    let mut line = format!("{} → {}: {}", u.from, u.to, state_text(u.state));
+    if !u.detail.is_empty() && u.state.finished() {
+        line.push_str(&format!(" ({})", u.detail));
+    }
+    line
+}
+
 pub fn state_text(state: UpdateState) -> &'static str {
     match state {
         UpdateState::Asked => "asked",
@@ -231,6 +239,27 @@ pub fn state_text(state: UpdateState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_update_job_reads_as_one_line_everywhere() {
+        let mut u = UpdateStatus {
+            from: "0.2.2".into(),
+            to: "0.2.3".into(),
+            state: UpdateState::Downloading,
+            detail: "step 2".into(),
+            ..UpdateStatus::default()
+        };
+        assert_eq!(job_text(&u), "0.2.2 → 0.2.3: downloading and checking");
+        u.state = UpdateState::RolledBack;
+        u.detail = "did not connect within a minute".into();
+        assert_eq!(
+            job_text(&u),
+            "0.2.2 → 0.2.3: rolled back (did not connect within a minute)"
+        );
+        u.state = UpdateState::Done;
+        u.detail.clear();
+        assert_eq!(job_text(&u), "0.2.2 → 0.2.3: updated");
+    }
 
     #[test]
     fn a_connected_client_without_a_report_is_older_than_the_first_reporting_release() {
