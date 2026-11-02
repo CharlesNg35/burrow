@@ -85,13 +85,12 @@ async fn leave(
     ended: Option<CloseOnDrop>,
     waiting: &watch::Sender<usize>,
 ) -> SessionEnd {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
     drop(ended);
     let mut idle = waiting.subscribe();
     let control = async {
         if wr.shutdown().await.is_ok() {
-            let mut sink = [0u8; 4096];
-            while matches!(rd.read(&mut sink).await, Ok(n) if n > 0) {}
+            super::drain(&mut rd).await;
         }
     };
     let data = async {
