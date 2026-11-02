@@ -8,6 +8,7 @@ use burrow::metrics::Status;
 use burrow::wire::secret::Secret;
 use burrow_admin_proto::updates::{RemoteUpdates, RunMode};
 
+use common::releases::Releases;
 use common::{free_port, text};
 
 const BIN: &str = env!("CARGO_BIN_EXE_burrow");
@@ -47,12 +48,17 @@ impl Setup {
     }
 
     fn run(&self, role: &str, config: &Path) -> Running {
+        self.run_with(role, config, &[])
+    }
+
+    fn run_with(&self, role: &str, config: &Path, env: &[(&str, &str)]) -> Running {
         Running(
             Command::new(BIN)
                 .arg(role)
                 .arg("-c")
                 .arg(config)
                 .env("BURROW_INSTANCE_DIR", &self.instances)
+                .envs(env.iter().copied())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -179,4 +185,132 @@ fn burrow_status_shows_a_running_client_and_its_remote_update_setting() {
     assert!(shown.contains("client \"home\" of 127.0.0.1"), "{shown}");
     assert!(shown.contains("remote updates"), "{shown}");
     assert!(shown.contains("by hand on"), "{shown}");
+}
+
+fn clients(s: &Setup, args: &[&str]) -> (Option<i32>, String) {
+    let o = Command::new(BIN)
+        .arg("clients")
+        .args(args)
+        .env("BURROW_INSTANCE_DIR", &s.instances)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    (o.status.code(), text(&o))
+}
+
+fn reported(s: &Setup) {
+    s.wait_for("client report", |all| {
+        server_of(all).is_some_and(|st| st.clients.iter().any(|c| c.build.is_some()))
+    });
+}
+
+#[test]
+fn burrow_clients_lists_each_client_with_its_burrow_and_a_newer_release() {
+    let s = Setup::new();
+    let releases = Releases::start();
+    releases.publish("99.0.0", b"new", false);
+    let _server = s.run_with(
+        "server",
+        &s.server(),
+        &[("BURROW_UPDATE_URL", &releases.base)],
+    );
+    let _client = s.run("client", &s.client(""));
+    reported(&s);
+    let start = Instant::now();
+    let shown = loop {
+        let (code, shown) = clients(&s, &[]);
+        assert_eq!(code, Some(0), "{shown}");
+        if shown.contains("99.0.0 available") || start.elapsed() > Duration::from_secs(20) {
+            break shown;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    assert!(shown.contains("latest release 99.0.0"), "{shown}");
+    assert!(shown.contains(MINE), "{shown}");
+    assert!(shown.contains("by hand"), "{shown}");
+    assert!(
+        shown.contains("99.0.0 available, but remote updates are off in its config"),
+        "{shown}"
+    );
+    let (code, json) = clients(&s, &["--json"]);
+    assert_eq!(code, Some(0));
+    let list: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let names: Vec<&str> = list[0]["clients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["name"].as_str())
+        .collect();
+    assert_eq!(names, ["away", "home"]);
+    assert_eq!(list[0]["latest"]["version"], "99.0.0");
+}
+
+#[test]
+fn burrow_clients_update_says_why_each_client_is_not_asked_and_fails() {
+    let s = Setup::new();
+    let releases = Releases::start();
+    releases.publish("99.0.0", b"new", false);
+    let _server = s.run_with(
+        "server",
+        &s.server(),
+        &[("BURROW_UPDATE_URL", &releases.base)],
+    );
+    let _client = s.run("client", &s.client(""));
+    reported(&s);
+    let (code, shown) = clients(&s, &["update", "home", "nobody", "--yes"]);
+    assert_eq!(code, Some(1), "{shown}");
+    assert!(
+        shown.contains("nobody: not asked: there is no client with this name"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("home: not asked: remote updates are off in its config"),
+        "{shown}"
+    );
+    let (code, shown) = clients(&s, &["update", "away", "--json", "--yes"]);
+    assert_eq!(code, Some(1), "{shown}");
+    let reply: serde_json::Value = serde_json::from_str(&shown).unwrap();
+    assert_eq!(reply["skipped"][0]["why"], "it is offline");
+    let (code, shown) = clients(&s, &["update"]);
+    assert_eq!(code, Some(2), "a name or --all is needed: {shown}");
+}
+
+#[test]
+fn burrow_clients_update_needs_a_server_named_when_several_run_and_refuses_a_visitor() {
+    let s = Setup::new();
+    let one = s.server();
+    let _a = s.run("server", &one);
+    let other = s.write(
+        "other.yaml",
+        &format!(
+            "listen: 127.0.0.1:{}\nclients:\n  pi:\n    secret: {}\n",
+            free_port(),
+            Secret::generate().encode()
+        ),
+    );
+    let _b = s.run("server", &other);
+    s.wait_for("two servers", |all| all.len() == 2);
+    let (code, shown) = clients(&s, &["update", "--all", "--yes"]);
+    assert_eq!(code, Some(2), "{shown}");
+    assert!(
+        shown.contains(
+            "2 burrow servers run on this machine; pick one with --service NAME or -c FILE"
+        ),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("server.yaml") && shown.contains("other.yaml"),
+        "{shown}"
+    );
+    let (code, shown) = clients(&s, &[]);
+    assert_eq!(code, Some(0), "{shown}");
+    assert_eq!(shown.matches("== ").count(), 2, "{shown}");
+    let visitor = s.write(
+        "visitor.yaml",
+        "server: 127.0.0.1:7000\nname: ops\nsecret: x\nforwards:\n  web:\n    bind: 127.0.0.1:8080\n",
+    );
+    let (code, shown) = clients(&s, &["-c", visitor.to_str().unwrap(), "update", "--all"]);
+    assert_eq!(code, Some(2), "{shown}");
+    assert!(shown.contains("is a visitor"), "{shown}");
 }

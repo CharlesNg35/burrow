@@ -1,6 +1,9 @@
 mod certs;
 mod client;
 mod table;
+mod versions;
+
+pub use versions::versions;
 
 use std::collections::HashMap;
 use std::fmt::Write;

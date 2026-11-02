@@ -275,6 +275,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             &mut std::io::stdout().lock(),
         ),
         Command::Status(a) => status(a),
+        Command::Clients(a) => clients(a),
         Command::Ca {
             action: crate::app::cli::CaAction::Export(a),
         } => ca::export(&a, &mut std::io::stdout().lock()),
@@ -390,6 +391,28 @@ fn status(a: crate::app::cli::StatusArgs) -> Result<u8, Failure> {
         },
         &mut out,
     )
+}
+
+fn clients(a: crate::app::cli::ClientsArgs) -> Result<u8, Failure> {
+    use crate::app::cli::ClientsAction;
+    use crate::status::clients::{Options, Update, run};
+    use crate::status::query::Pick;
+    let pick = match (a.service, a.config) {
+        (Some(name), _) => Pick::Service(name),
+        (None, Some(config)) => Pick::Config(config),
+        (None, None) => Pick::All,
+    };
+    let update = a.action.map(|ClientsAction::Update(u)| Update {
+        names: u.names,
+        all: u.all,
+        yes: u.yes,
+    });
+    let opts = Options {
+        pick,
+        json: a.json,
+        update,
+    };
+    run(opts, &mut std::io::stdout().lock(), &mut TtyPrompt)
 }
 
 fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {

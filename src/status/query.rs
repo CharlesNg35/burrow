@@ -246,7 +246,7 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
     }
 }
 
-fn did_not_answer(entry: &Entry, why: &str) -> String {
+pub(super) fn did_not_answer(entry: &Entry, why: &str) -> String {
     format!(
         "the burrow process with pid {} ({}) did not answer: {why}",
         entry.pid,
@@ -344,6 +344,15 @@ fn json(scan: &Scan) -> String {
     )
 }
 
+pub fn screen(json: bool) -> Paint {
+    let tty = std::io::stdout().is_terminal();
+    Paint {
+        color: tty && crate::base::style::Style::detect(true).color,
+        boxed: tty && !json,
+        width: if tty { super::live::width() } else { None },
+    }
+}
+
 pub struct Options {
     pub pick: Pick,
     pub json: bool,
@@ -414,12 +423,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
         return Err(none_answered(&first, &opts.pick));
     }
     let tty = std::io::stdout().is_terminal();
-    let color = tty && crate::base::style::Style::detect(true).color;
-    let paint = || Paint {
-        color,
-        boxed: tty && !opts.json,
-        width: if tty { super::live::width() } else { None },
-    };
+    let paint = || screen(opts.json);
     let show = |scan: &Scan, rates: Option<&HashMap<u32, Rates>>| {
         if opts.json {
             json(scan)

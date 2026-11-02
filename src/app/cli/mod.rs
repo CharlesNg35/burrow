@@ -1,5 +1,6 @@
 mod args;
 mod ca;
+mod clients;
 mod service;
 
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ pub use args::{
 };
 pub use ca::{CaAction, CaExportArgs};
 use clap::{Parser, Subcommand, ValueEnum};
+pub use clients::{ClientsAction, ClientsArgs, ClientsUpdateArgs};
 pub use service::{
     ServiceAction, ServiceControlArgs, ServiceInstallArgs, ServiceLogsArgs, ServiceName,
     ServiceUninstallArgs, ServiceUpdateArgs,
@@ -102,6 +104,10 @@ pub enum Command {
         about = "Show the running burrow servers on this machine: clients, services, visitors and traffic"
     )]
     Status(StatusArgs),
+    #[command(
+        about = "On the server machine: list the clients with their burrow version, and update them"
+    )]
+    Clients(ClientsArgs),
     #[command(
         about = "Open a config in your editor, check it, save it and apply it: one in this folder, of an installed service or of a running instance"
     )]

@@ -79,3 +79,81 @@ fn the_update_route_needs_the_token_and_takes_only_a_post() {
     assert!(other("GET", "/config").starts_with("HTTP/1.1 404"));
     assert!(other("GET", "/status").starts_with("HTTP/1.1 200"));
 }
+
+#[cfg(feature = "admin-test-hooks")]
+#[test]
+fn burrow_clients_updates_a_client_through_the_same_job_the_admin_starts() {
+    use burrow::metrics::Status;
+    use burrow::wire::secret::Secret;
+    use common::hand::{Hand, NEW, OLD, build};
+    use common::servers::Running;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const BIN: &str = env!("CARGO_BIN_EXE_burrow");
+    let dir = tempfile::tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    let port = common::free_port();
+    let secret = Secret::generate();
+    let config = dir.path().join("server.yaml");
+    burrow::base::fs::write_private(
+        &config,
+        &format!(
+            "listen: 127.0.0.1:{port}\nclients:\n  home:\n    secret: {}\n",
+            secret.encode()
+        ),
+    )
+    .unwrap();
+    let mut hand = Hand::new(&format!("127.0.0.1:{port}"), &secret);
+    hand.releases
+        .publish(NEW, &build(&[("VERSION", NEW)]), false);
+    let _server = Running(
+        Command::new(BIN)
+            .args(["server", "-c"])
+            .arg(&config)
+            .env("BURROW_INSTANCE_DIR", &instances)
+            .env("BURROW_UPDATE_URL", &hand.releases.base)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    hand.supervise();
+    let home = || -> Option<burrow::metrics::ClientStatus> {
+        let o = Command::new(BIN)
+            .args(["status", "--json"])
+            .env("BURROW_INSTANCE_DIR", &instances)
+            .output()
+            .ok()?;
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&o.stdout).ok()?;
+        let st: Status = serde_json::from_value(list.first()?["status"].clone()).ok()?;
+        st.clients.into_iter().find(|c| c.name == "home")
+    };
+    let start = Instant::now();
+    while !home().is_some_and(|c| c.build.is_some_and(|b| b.version == OLD)) {
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "no report of {OLD}"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let o = Command::new(BIN)
+        .args(["clients", "update", "home", "--yes"])
+        .env("BURROW_INSTANCE_DIR", &instances)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let shown = common::text(&o);
+    assert_eq!(o.status.code(), Some(0), "{shown}");
+    assert!(shown.contains(&format!("update home to {NEW}")), "{shown}");
+    assert!(
+        shown.contains(&format!("home: {OLD} → {NEW} updated")),
+        "{shown}"
+    );
+    let after = home().unwrap();
+    assert_eq!(after.build.unwrap().version, NEW);
+    let job = after.update.unwrap();
+    assert_eq!(job.by, "burrow clients on the server");
+    assert_eq!(job.state, burrow_admin_proto::updates::UpdateState::Done);
+}
