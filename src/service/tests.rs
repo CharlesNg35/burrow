@@ -230,7 +230,7 @@ fn commands_that_interrupt_a_service_go_to_the_background() {
     assert_eq!(interrupts(Action::Reload), cfg!(windows));
 }
 
-struct Recorder(std::cell::RefCell<Vec<String>>, bool);
+pub(super) struct Recorder(pub(super) std::cell::RefCell<Vec<String>>, pub(super) bool);
 
 impl Recorder {
     fn note(&self, what: &str, m: &Manifest) -> Result<(), Failure> {
