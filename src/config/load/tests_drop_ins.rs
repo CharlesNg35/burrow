@@ -371,14 +371,11 @@ fn a_pipe_named_like_a_drop_in_is_skipped_with_a_warning_and_never_read() {
     let d = Dir::new();
     d.drop_in("apps.yaml", "services: {}\n");
     let pipe = d.main.parent().unwrap().join("server.d/pipe.yaml");
-    rustix::fs::mknodat(
-        rustix::fs::CWD,
-        &pipe,
-        rustix::fs::FileType::Fifo,
-        rustix::fs::Mode::from_bits_truncate(0o600),
-        0,
-    )
-    .unwrap();
+    let made = std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .unwrap();
+    assert!(made.success());
     let main = d.main.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
