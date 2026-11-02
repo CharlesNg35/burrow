@@ -295,12 +295,22 @@ pub async fn echo_server() -> SocketAddr {
     echo_on("127.0.0.1:0".parse().unwrap()).await
 }
 
+pub async fn accept_next(l: &tokio::net::TcpListener) -> Option<tokio::net::TcpStream> {
+    loop {
+        match l.accept().await {
+            Ok((s, _)) => return Some(s),
+            Err(e) if burrow::wire::transport::tcp::gone_before_accept(&e) => continue,
+            Err(_) => return None,
+        }
+    }
+}
+
 pub async fn echo_on(addr: SocketAddr) -> SocketAddr {
     let l = burrow::wire::transport::tcp::bind_tcp(addr).unwrap();
     let addr = l.local_addr().unwrap();
     tokio::spawn(async move {
         loop {
-            let Ok((mut s, _)) = l.accept().await else {
+            let Some(mut s) = accept_next(&l).await else {
                 return;
             };
             tokio::spawn(async move {
@@ -321,7 +331,7 @@ pub async fn tagged_tcp_targets(count: u16) -> u16 {
             .unwrap();
         tokio::spawn(async move {
             loop {
-                let Ok((mut s, _)) = l.accept().await else {
+                let Some(mut s) = accept_next(&l).await else {
                     return;
                 };
                 let port = s.local_addr().unwrap().port();

@@ -99,6 +99,17 @@ async fn reload_closes_connections_from_sources_no_longer_allowed() {
     panic!("an allowed source must reach the service again after reload");
 }
 
+#[tokio::test]
+async fn the_echo_target_outlives_a_connection_reset_before_it_is_accepted() {
+    let echo = echo_server().await;
+    let early = std::net::TcpStream::connect(echo).unwrap();
+    socket2::SockRef::from(&early)
+        .set_linger(Some(Duration::ZERO))
+        .unwrap();
+    drop(early);
+    assert!(reaches(echo).await);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn visitors_of_a_private_service_are_filtered_by_source_too() {
     let echo = echo_server().await;

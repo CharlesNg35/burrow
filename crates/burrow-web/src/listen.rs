@@ -295,19 +295,11 @@ fn warn_accept(e: &std::io::Error) {
     }
 }
 
-fn gone_before_accept(e: &std::io::Error) -> bool {
-    use std::io::ErrorKind as K;
-    matches!(
-        e.kind(),
-        K::ConnectionAborted | K::ConnectionReset | K::ConnectionRefused | K::Interrupted
-    )
-}
-
 pub(super) async fn accepted(listener: &TcpListener) -> (TcpStream, SocketAddr) {
     loop {
         match listener.accept().await {
             Ok(v) => return v,
-            Err(e) if gone_before_accept(&e) => {
+            Err(e) if burrow_io::accept::gone_before_accept(&e) => {
                 debug!("web: a connection was gone before it was accepted: {e}");
             }
             Err(e) => {
