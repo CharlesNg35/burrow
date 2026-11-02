@@ -292,3 +292,23 @@ async fn a_release_that_is_not_published_is_refused_by_the_client() {
     assert!(same(&hand.binary, &build(&[("VERSION", OLD)])));
     let _ = w.stop.send(true);
 }
+
+#[tokio::test]
+async fn a_release_that_does_not_accept_the_config_changes_nothing() {
+    let w = world().await;
+    let mut hand = Hand::new(&w);
+    hand.releases
+        .publish(NEW, &build(&[("VERSION", NEW), ("BREAK", "config")]), false);
+    let mut a = start(&mut hand, &w).await;
+    ask(&mut a).await;
+    let home = until(&mut a, "a failure", |c| c["update"]["state"] == "failed").await;
+    assert!(
+        home["update"]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("does not accept"),
+        "{home}"
+    );
+    assert!(same(&hand.binary, &build(&[("VERSION", OLD)])));
+    let _ = w.stop.send(true);
+}

@@ -39,12 +39,14 @@ mark v2 VERSION=9.0.0-test.2
 mark v3 VERSION=9.0.0-test.3
 mark v4 VERSION=9.0.0-test.4 BREAK=connect
 mark v5 VERSION=9.0.0-test.5 BREAK=start
+mark v6 VERSION=9.0.0-test.6 BREAK=config
 
 cd "$WORK"
-"$SERVE" 9.0.0-test.2 v2 good 9.0.0-test.3 v3 tampered 9.0.0-test.4 v4 good 9.0.0-test.5 v5 good > releases.url &
+"$SERVE" 9.0.0-test.2 v2 good 9.0.0-test.3 v3 tampered 9.0.0-test.4 v4 good 9.0.0-test.5 v5 good 9.0.0-test.6 v6 good > releases.url &
 PIDS+=($!)
-for _ in $(seq 1 50); do [ -s releases.url ] && break; sleep 0.1; done
+for _ in $(seq 1 600); do [ -s releases.url ] && break; sleep 0.2; done
 URL="$(cat releases.url)"
+[ -n "$URL" ] || fail "the release server did not start"
 
 HOME_SECRET="$("$OUT/burrow" gensecret)"
 OPS_SECRET="$("$OUT/burrow" gensecret)"
@@ -125,6 +127,13 @@ wait_for "the rollback" "['update']['state']" rolled-back
 wait_for "the old version back" "['build']['version']" 9.0.0-test.2
 installed | grep -q 9.0.0-test.2 || fail "the binary was not restored: $(installed)"
 check "crash loop: rolled back to 9.0.0-test.2"
+
+echo "== a version that does not accept the config changes nothing"
+ask 9.0.0-test.6
+wait_for "the failure" "['update']['state']" failed
+field "['update']['detail']" | grep -q "does not accept" || fail "no reason: $(home)"
+installed | grep -q 9.0.0-test.2 || fail "the binary changed: $(installed)"
+check "config refused by the new version: nothing changed"
 
 echo "== uninstall removes the updater"
 sudo ./v1 service uninstall "$NAME" --purge >/dev/null || fail "uninstall"

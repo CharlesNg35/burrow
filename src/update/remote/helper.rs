@@ -124,6 +124,14 @@ fn one(m: &Manifest, request: &Request, probe: Probe, out: &mut dyn Write) -> Re
         Ok(s) => s,
         Err(f) => return finish(out, m, r, Outcome::Failed, f.message),
     };
+    if let Err(why) = super::by_hand::accepts_config(
+        staged.binary(),
+        &m.config,
+        &request.version,
+        &crate::service::env_of(m),
+    ) {
+        return finish(out, m, r, Outcome::Failed, why);
+    }
     let check = |s: &Manifest| healthy(s, &request.version, probe);
     match crate::service::update_checked(&m.name, staged.binary(), &request.version, &check, out) {
         Ok(()) => finish(out, m, r, Outcome::Done, String::new()),

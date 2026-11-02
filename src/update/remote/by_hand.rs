@@ -151,7 +151,12 @@ pub fn start(shared: Shared, job: Job) {
 fn prepare(shared: &Shared, job: &Job) -> Result<(), String> {
     let staged =
         crate::update::fetch_verified(&job.to, &shared.me, &mut std::io::sink()).map_err(text)?;
-    accepts_config(staged.binary(), &shared.config, &job.to)?;
+    accepts_config(
+        staged.binary(),
+        &shared.config,
+        &job.to,
+        &Default::default(),
+    )?;
     let previous = previous_path(&shared.me);
     crate::service::copy_file(&shared.me, &previous, true).map_err(text)?;
     crate::service::copy_file(staged.binary(), &shared.me, true).map_err(text)?;
@@ -166,8 +171,14 @@ fn prepare(shared: &Shared, job: &Job) -> Result<(), String> {
     Ok(())
 }
 
-fn accepts_config(new: &Path, config: &Path, version: &str) -> Result<(), String> {
+pub(super) fn accepts_config(
+    new: &Path,
+    config: &Path,
+    version: &str,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
     let out = std::process::Command::new(new)
+        .envs(env)
         .arg("validate")
         .arg("-c")
         .arg(config)

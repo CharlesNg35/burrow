@@ -331,6 +331,9 @@ fn run(cli: Cli) -> Result<u8, Failure> {
 }
 
 fn validate(args: crate::app::cli::ValidateArgs, out_style: Style) -> Result<u8, Failure> {
+    if crate::base::build::test_mark("BREAK") == Some("config") {
+        return Err(Failure::new("error: this test build accepts no config"));
+    }
     let path = config_path(args.config, args.role.map(role))?;
     let v = match crate::config::validate::validate(
         &path,
