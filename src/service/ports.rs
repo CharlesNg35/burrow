@@ -11,6 +11,20 @@ pub struct PortUser {
     pub stop: Option<String>,
 }
 
+pub fn held_by(proto: Protocol, addr: SocketAddr, mine: Option<u32>) -> bool {
+    let kind = match proto {
+        Protocol::Tcp => socket2::Type::STREAM,
+        Protocol::Udp => socket2::Type::DGRAM,
+    };
+    match crate::wire::transport::udp::std_socket(addr, kind) {
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => match owner(proto, addr.port()) {
+            Some((_, pid)) => Some(pid) == mine,
+            None => mine.is_some(),
+        },
+        _ => false,
+    }
+}
+
 pub fn check_free(
     proto: Protocol,
     addr: SocketAddr,

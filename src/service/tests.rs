@@ -224,7 +224,7 @@ fn commands_that_interrupt_a_service_go_to_the_background() {
     assert_eq!(interrupts(Action::Reload), cfg!(windows));
 }
 
-struct Recorder(std::cell::RefCell<Vec<String>>, bool);
+pub(super) struct Recorder(pub(super) std::cell::RefCell<Vec<String>>, pub(super) bool);
 
 impl Recorder {
     fn note(&self, what: &str, m: &Manifest) -> Result<(), Failure> {
@@ -524,7 +524,7 @@ fn a_put_back_that_does_not_run_either_says_so() {
     assert!(f.message.contains("does not run either"), "{}", f.message);
 }
 
-fn record(p: Platform) -> Manifest {
+pub(super) fn record(p: Platform) -> Manifest {
     Manifest {
         name: "burrow-server".into(),
         role: Role::Server,
@@ -964,4 +964,27 @@ fn the_logs_retry_hint_leaves_out_the_default_line_count() {
         logs_again("burrow-home", 200, true),
         "service logs burrow-home -n 200 -f"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn status_tells_a_file_it_cannot_see_from_a_missing_one() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let locked = dir.path().join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    let file = locked.join("server.yaml");
+    std::fs::write(&file, "x").unwrap();
+    assert_eq!(super::uninstall::missing(&file), "");
+    assert_eq!(
+        super::uninstall::missing(&dir.path().join("gone.yaml")),
+        "  (missing!)"
+    );
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let hidden = std::fs::metadata(&file).is_err();
+    let shown = super::uninstall::missing(&file);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    if hidden {
+        assert_eq!(shown, "  (not readable by you; run with sudo to check it)");
+    }
 }
