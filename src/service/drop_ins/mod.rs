@@ -3,9 +3,19 @@ use std::path::Path;
 
 use super::Backend;
 use super::system;
+
+#[cfg(not(unix))]
+mod other;
+#[cfg(unix)]
+mod unix;
+
 use crate::base::failure::Failure;
 use crate::base::output::say;
 use crate::config::docs::{self, Doc, Docs, ReadOnly, drop_in_folder};
+#[cfg(not(unix))]
+use other as place;
+#[cfg(unix)]
+use unix as place;
 
 fn file_part(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
@@ -22,6 +32,32 @@ fn listed(main: &Path) -> Result<Vec<String>, Failure> {
         })
 }
 
+fn is_link_or_file(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const REPARSE_POINT: u32 = 0x400;
+        if meta.file_attributes() & REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    !meta.file_type().is_dir()
+}
+
+fn refuse_link(to: &Path) -> Result<(), Failure> {
+    if is_link_or_file(to) {
+        return Err(Failure::new(format!(
+            "{} is a link or a file, not a folder, so burrow will not install drop-in files there",
+            to.display()
+        ))
+        .hint("remove it, and run the install again"));
+    }
+    Ok(())
+}
+
 pub(super) fn copy(
     backend: &dyn Backend,
     (source, config): (&Path, &Path),
@@ -30,6 +66,7 @@ pub(super) fn copy(
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     let (from, to) = (drop_in_folder(source), drop_in_folder(config));
+    refuse_link(&to)?;
     let names = listed(source)?;
     let wanted: Vec<&str> = names.iter().map(|n| file_part(n)).collect();
     for old in listed(config)? {
@@ -51,16 +88,13 @@ pub(super) fn copy(
     if names.is_empty() {
         return Ok(());
     }
-    backend.config_folder(&to, config, account, writable)?;
+    let folder = place::Folder::open(backend, (config, &to), account, writable)?;
     for file in &wanted {
-        let (src, dst) = (from.join(file), to.join(file));
+        let src = from.join(file);
+        let text = std::fs::read(&src)
+            .map_err(|e| Failure::new(format!("cannot read {}: {e}", src.display())))?;
         let locked = docs::read_only(&src) == Some(ReadOnly::Marked);
-        writable_again(&dst);
-        system::copy_file(&src, &dst, false)?;
-        backend.secure_file(&dst, account)?;
-        if locked {
-            keep_read_only(&dst, account)?;
-        }
+        folder.put(file, &text, locked)?;
     }
     say(
         out,
@@ -89,35 +123,11 @@ fn writable_again(path: &Path) {
 #[cfg(not(windows))]
 fn writable_again(_path: &Path) {}
 
-#[cfg(unix)]
-fn keep_read_only(path: &Path, account: &str) -> Result<(), Failure> {
-    use std::os::unix::fs::PermissionsExt;
-    let root = rustix::process::geteuid().is_root();
-    let gid = root
-        .then(|| crate::base::process::account_ids(account).ok())
-        .flatten()
-        .map(|(_, g)| g);
-    let mode = if gid.is_some() { 0o440 } else { 0o400 };
-    if root {
-        std::os::unix::fs::chown(path, Some(0), gid)
-            .map_err(|e| Failure::new(format!("cannot give {} to root: {e}", path.display())))?;
-    }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-        .map_err(|e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())))
-}
-
-#[cfg(not(unix))]
-fn keep_read_only(path: &Path, _account: &str) -> Result<(), Failure> {
-    let mut perms = std::fs::metadata(path)
-        .map_err(|e| Failure::new(format!("cannot read {}: {e}", path.display())))?
-        .permissions();
-    perms.set_readonly(true);
-    std::fs::set_permissions(path, perms)
-        .map_err(|e| Failure::new(format!("cannot mark {} read-only: {e}", path.display())))
-}
-
 pub(super) fn installed(config: &Path, main: String) -> Docs {
     let mut docs = Docs::one(docs::main_name(config), main);
+    if is_link_or_file(&drop_in_folder(config)) {
+        return docs;
+    }
     for name in listed(config).unwrap_or_default() {
         if let Some(text) = docs::path_of(config, &name)
             .and_then(|p| system::read_plain_file(&p))
@@ -202,6 +212,13 @@ mod tests {
         assert!(!read_only(&to.join("apps.yaml")));
         let said = String::from_utf8(out).unwrap();
         assert!(said.contains("(2 files)"), "{said}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&to).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700, "the service may change the folder");
+        }
+        #[cfg(not(unix))]
         assert!(
             backend
                 .0
@@ -221,5 +238,72 @@ mod tests {
             perms.set_readonly(false);
             std::fs::set_permissions(&p, perms).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_installed_drop_in_folder_or_file_that_is_a_link_is_never_followed() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("mine.yaml");
+        std::fs::write(&source, "listen: 1\n").unwrap();
+        std::fs::create_dir(tmp.path().join("mine.d")).unwrap();
+        std::fs::write(tmp.path().join("mine.d/apps.yaml"), "services: {}\n").unwrap();
+        let victim = tmp.path().join("victim");
+        std::fs::create_dir(&victim).unwrap();
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(victim.join("important.yaml"), "keep\n").unwrap();
+        std::fs::write(victim.join("apps.yaml"), "victim\n").unwrap();
+        let folder = tmp.path().join("etc");
+        std::fs::create_dir(&folder).unwrap();
+        let config = folder.join("server.yaml");
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        std::os::unix::fs::symlink(&victim, folder.join("server.d")).unwrap();
+        let backend = crate::service::tests::Recorder(Default::default(), false);
+        let linked = copy(
+            &backend,
+            (&source, &config),
+            "burrow",
+            true,
+            &mut Vec::new(),
+        );
+        assert!(linked.is_err(), "a linked server.d is refused");
+        let victim_state = || {
+            (
+                std::fs::read_to_string(victim.join("important.yaml")).ok(),
+                std::fs::read_to_string(victim.join("apps.yaml")).ok(),
+                std::fs::metadata(&victim).unwrap().permissions().mode() & 0o777,
+            )
+        };
+        assert_eq!(
+            victim_state(),
+            (Some("keep\n".into()), Some("victim\n".into()), 0o755)
+        );
+        std::fs::remove_file(folder.join("server.d")).unwrap();
+        std::fs::create_dir(folder.join("server.d")).unwrap();
+        std::os::unix::fs::symlink(victim.join("apps.yaml"), folder.join("server.d/apps.yaml"))
+            .unwrap();
+        copy(
+            &backend,
+            (&source, &config),
+            "burrow",
+            true,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            victim_state(),
+            (Some("keep\n".into()), Some("victim\n".into()), 0o755)
+        );
+        assert!(
+            !std::fs::symlink_metadata(folder.join("server.d/apps.yaml"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            std::fs::read_to_string(folder.join("server.d/apps.yaml")).unwrap(),
+            "services: {}\n"
+        );
     }
 }
