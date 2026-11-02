@@ -118,10 +118,27 @@ pub fn valid_set(main: &Path, docs: &Docs) -> bool {
             .all(|d| path_of(main, &d.name).is_some())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Skip {
+    Extension,
+    Name,
+    NotRegular,
+}
+
+impl Skip {
+    pub fn why(self) -> &'static str {
+        match self {
+            Skip::Extension => "only files ending in .yaml are",
+            Skip::Name => "names with : or \\ or control characters are not",
+            Skip::NotRegular => "it is not a regular file",
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Listed {
     pub names: Vec<String>,
-    pub ignored: Vec<String>,
+    pub ignored: Vec<(String, Skip)>,
 }
 
 pub fn list(main: &Path) -> std::io::Result<Option<Listed>> {
@@ -144,15 +161,40 @@ pub fn list(main: &Path) -> std::io::Result<Option<Listed>> {
         }
         let lower = name.to_ascii_lowercase();
         let full = format!("{prefix}/{name}");
-        if name.ends_with(".yaml") && burrow_config::drop_ins::file_in(&prefix, &full).is_some() {
+        let regular = std::fs::metadata(entry.path()).is_ok_and(|m| m.is_file());
+        if !name.ends_with(".yaml") {
+            if lower.ends_with(".yml") || lower.ends_with(".json") || lower.ends_with(".yaml") {
+                out.ignored.push((full, Skip::Extension));
+            }
+        } else if burrow_config::drop_ins::file_in(&prefix, &full).is_none() {
+            out.ignored.push((full, Skip::Name));
+        } else if !regular {
+            out.ignored.push((full, Skip::NotRegular));
+        } else {
             out.names.push(full);
-        } else if lower.ends_with(".yml") || lower.ends_with(".json") || lower.ends_with(".yaml") {
-            out.ignored.push(format!("{prefix}/{name}"));
         }
     }
     out.names.sort();
     out.ignored.sort();
     Ok(Some(out))
+}
+
+pub fn read_regular(path: &Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open.custom_flags(rustix::fs::OFlags::NONBLOCK.bits() as i32);
+    }
+    let mut file = open.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other("it is not a regular file"));
+    }
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(text)
 }
 
 pub fn read(main: &Path) -> std::io::Result<Docs> {
@@ -161,7 +203,7 @@ pub fn read(main: &Path) -> std::io::Result<Docs> {
         let Some(path) = path_of(main, &name) else {
             continue;
         };
-        let text = std::fs::read_to_string(path)?;
+        let text = read_regular(&path)?;
         docs.list.push(Doc { name, text });
     }
     Ok(docs)

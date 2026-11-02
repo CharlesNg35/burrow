@@ -32,7 +32,7 @@ pub fn read(main: &Path, inputs: &mut Vec<Input>, out: &mut Vec<Diagnostic>) {
         let Some(path) = path_of(main, name) else {
             continue;
         };
-        match std::fs::read_to_string(&path) {
+        match docs::read_regular(&path) {
             Ok(text) => inputs.push(Input {
                 name: path.display().to_string(),
                 text,
@@ -62,20 +62,16 @@ pub fn checks(main: &Path, inputs: &[Input], out: &mut Vec<Diagnostic>) {
         .flatten()
         .map(|l| l.ignored)
         .unwrap_or_default();
-    for name in &ignored {
-        let why = if name.ends_with(".yaml") {
-            "names with : or \\ are not"
-        } else {
-            "only files ending in .yaml are"
-        };
+    for (name, skip) in &ignored {
         out.push(
             Diagnostic::warning(
                 codes::DROP_IN_IGNORED,
                 format!(
-                    "{} is not read: {why}",
+                    "{} is not read: {}",
                     folder
                         .join(name.rsplit('/').next().unwrap_or(name))
-                        .display()
+                        .display(),
+                    skip.why()
                 ),
             )
             .help("rename it to a plain name ending in .yaml to use it, or to end in .off to keep it switched off"),

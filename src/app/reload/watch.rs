@@ -22,7 +22,9 @@ pub(super) fn listing(folder: &Path) -> Option<u64> {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for path in names {
         path.file_name().hash(&mut h);
-        std::fs::read(&path).ok().hash(&mut h);
+        if let Ok(m) = std::fs::symlink_metadata(&path) {
+            (m.len(), m.modified().ok(), m.file_type().is_file()).hash(&mut h);
+        }
     }
     Some(h.finish())
 }
