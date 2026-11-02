@@ -6,6 +6,7 @@ pub mod older;
 pub mod output;
 pub mod ports;
 pub mod releases;
+pub mod servers;
 pub mod socks;
 
 #[allow(unused_imports)]
