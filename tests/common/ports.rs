@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
