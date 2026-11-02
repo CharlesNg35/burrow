@@ -8,6 +8,7 @@ pub struct Pending {
     spare: PathBuf,
     text: Option<String>,
     before: Option<String>,
+    made: Option<PathBuf>,
 }
 
 fn write_in_place(real: &Path, text: &str) -> std::io::Result<()> {
@@ -40,6 +41,10 @@ impl Pending {
                 std::fs::rename(&self.spare, &self.real)
             }
         }
+    }
+
+    pub fn made(&self) -> Option<&Path> {
+        self.made.as_deref()
     }
 
     pub fn discard(&self) {
@@ -80,6 +85,7 @@ pub fn stage_replace(path: &Path, before: &str, text: &str) -> Result<Pending, R
         spare,
         text: Some(text.to_string()),
         before: Some(before.to_string()),
+        made: None,
     })
 }
 
@@ -87,24 +93,34 @@ pub fn stage_create(path: &Path, text: &str, _like: &Path) -> Result<Pending, Re
     let parent = path
         .parent()
         .ok_or(Refused::Io(std::io::ErrorKind::InvalidInput.into()))?;
-    if let Err(e) = std::fs::create_dir(parent)
-        && e.kind() != std::io::ErrorKind::AlreadyExists
-    {
-        return Err(Refused::Io(e));
-    }
+    let made = if parent.exists() {
+        None
+    } else {
+        std::fs::create_dir(parent)?;
+        Some(std::fs::canonicalize(parent)?)
+    };
+    let undo_made = |e: Refused| {
+        if let Some(d) = &made {
+            let _ = std::fs::remove_dir(d);
+        }
+        e
+    };
     let name = path
         .file_name()
         .ok_or(Refused::Io(std::io::ErrorKind::InvalidInput.into()))?;
-    let real = std::fs::canonicalize(parent)?.join(name);
+    let real = std::fs::canonicalize(parent)
+        .map_err(|e| undo_made(e.into()))?
+        .join(name);
     if real.exists() {
-        return Err(Refused::Changed);
+        return Err(undo_made(Refused::Changed));
     }
-    let spare = spare_for(&real)?;
-    write_new(&spare, text)?;
+    let spare = spare_for(&real).map_err(undo_made)?;
+    write_new(&spare, text).map_err(|e| undo_made(e.into()))?;
     Ok(Pending {
         real,
         spare,
         text: None,
         before: None,
+        made,
     })
 }

@@ -11,6 +11,7 @@ pub struct Pending {
     dir: OwnedFd,
     temp: String,
     name: OsString,
+    made: Option<std::path::PathBuf>,
 }
 
 impl Pending {
@@ -31,6 +32,10 @@ impl Pending {
 
     pub fn discard(&self) {
         let _ = rustix::fs::unlinkat(&self.dir, self.temp.as_str(), AtFlags::empty());
+    }
+
+    pub fn made(&self) -> Option<&Path> {
+        self.made.as_deref()
     }
 }
 
@@ -123,7 +128,33 @@ pub fn stage_replace(path: &Path, before: &str, text: &str) -> Result<Pending, R
         dir,
         temp,
         name: name.to_os_string(),
+        made: None,
     })
+}
+
+fn make_folder(
+    parent: &Path,
+    model: &std::fs::Metadata,
+) -> Result<Option<std::path::PathBuf>, Refused> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    if parent.exists() {
+        return Ok(None);
+    }
+    let holder = parent.parent().unwrap_or(Path::new("."));
+    let mode = std::fs::metadata(holder)?.permissions().mode() & 0o750;
+    std::fs::create_dir(parent)?;
+    let made = std::fs::canonicalize(parent)?;
+    let set = std::fs::set_permissions(&made, std::fs::Permissions::from_mode(mode | 0o700));
+    let owned = if rustix::process::geteuid().is_root() {
+        std::os::unix::fs::chown(&made, Some(model.uid()), Some(model.gid()))
+    } else {
+        Ok(())
+    };
+    if let Err(e) = set.and(owned) {
+        let _ = std::fs::remove_dir(&made);
+        return Err(Refused::Io(e));
+    }
+    Ok(Some(made))
 }
 
 pub fn stage_create(path: &Path, text: &str, like: &Path) -> Result<Pending, Refused> {
@@ -132,18 +163,20 @@ pub fn stage_create(path: &Path, text: &str, like: &Path) -> Result<Pending, Ref
     let parent = path
         .parent()
         .ok_or(Refused::Io(std::io::ErrorKind::InvalidInput.into()))?;
-    if let Err(e) = std::fs::create_dir(parent)
-        && e.kind() != std::io::ErrorKind::AlreadyExists
-    {
-        return Err(Refused::Io(e));
-    }
-    let folder = std::fs::canonicalize(parent)?;
+    let made = make_folder(parent, &model)?;
+    let undo_made = |e: Refused| {
+        if let Some(d) = &made {
+            let _ = std::fs::remove_dir(d);
+        }
+        e
+    };
+    let folder = std::fs::canonicalize(parent).map_err(|e| undo_made(e.into()))?;
     let name = path
         .file_name()
         .ok_or(Refused::Io(std::io::ErrorKind::InvalidInput.into()))?;
-    let dir = open_folder(&folder)?;
+    let dir = open_folder(&folder).map_err(|e| undo_made(e.into()))?;
     if rustix::fs::statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW).is_ok() {
-        return Err(Refused::Changed);
+        return Err(undo_made(Refused::Changed));
     }
     let temp = temp_name(name);
     write_temp(
@@ -152,11 +185,13 @@ pub fn stage_create(path: &Path, text: &str, like: &Path) -> Result<Pending, Ref
         text,
         model.mode() & 0o666,
         (model.uid(), model.gid()),
-    )?;
+    )
+    .map_err(|e| undo_made(e.into()))?;
     Ok(Pending {
         dir,
         temp,
         name: name.to_os_string(),
+        made,
     })
 }
 
