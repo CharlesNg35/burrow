@@ -158,6 +158,7 @@ async fn answer<U: Upstream>(
         pool: &shared.pool,
         epoch,
         access: &shared.access,
+        logins: &shared.logins,
         table,
         site,
         visitor: &visitor,

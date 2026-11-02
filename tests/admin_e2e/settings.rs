@@ -279,3 +279,100 @@ fn websocket(c: &mut Ctx) -> Flow<'_> {
 fn websocket_is_turned_on_and_off_in_settings() {
     run("websocket", Options::default(), false, websocket);
 }
+
+const NOTIFY_TOP: &str = "notify:\n  - ntfy: https://ntfy.sh/burrow-e2e-topic\n    events: [client_offline, client_back]\n  - email:\n      to: ops@example.com\n      smtp: \"smtp://alerts@example.com@mail.example.com:587\"\n      password: ${SMTP_PASS}\n";
+
+async fn notify_card(c: &mut Ctx) {
+    c.ui.nav("/settings?tab=monitoring").await;
+    c.ui.wait_for("[data-testid=settings] [data-card=monitoring]", SECS)
+        .await;
+    let card = c.ui.text("[data-card=monitoring]").await;
+    assert!(card.contains("ntfy.sh/burrow-e2e-topic"), "{card}");
+    assert!(
+        card.contains("SMTP_PASS"),
+        "the password shows by name: {card}"
+    );
+    assert!(!card.contains("e2e-smtp-value"), "{card}");
+    let events =
+        c.ui.all_attrs(
+            "[data-card=monitoring] [data-testid=enum-list] > span",
+            "data-tone",
+        )
+        .await;
+    assert_eq!(events.len(), 2, "each event is a chip");
+    let shown =
+        c.ui.text("[data-card=monitoring] [data-testid=enum-list]")
+            .await;
+    assert!(
+        shown.contains("Client offline") && shown.contains("Client back"),
+        "{shown}"
+    );
+    both_widths(c, "settings-notify").await;
+}
+
+async fn notify_edit(c: &mut Ctx) {
+    edit_mode(c).await;
+    c.ui.wait_for("[data-item='0'] [data-testid=kind-choice]", SECS)
+        .await;
+    let first = c.ui.text("[data-card=monitoring] [data-item='0']").await;
+    assert!(first.contains("ntfy topic"), "{first}");
+    for other in [
+        "#f-notify-0-webhook",
+        "#f-notify-0-email",
+        "#f-notify-1-ntfy",
+    ] {
+        assert_eq!(c.ui.count(other).await, 0, "only its own kind: {other}");
+    }
+    assert_eq!(c.ui.count("#f-notify-0-ntfy").await, 1);
+    assert!(
+        first.contains("Client offline"),
+        "events by their labels: {first}"
+    );
+    assert!(!first.contains("client_offline"), "{first}");
+    let second = c.ui.text("[data-card=monitoring] [data-item='1']").await;
+    assert!(second.contains("Mail server"), "{second}");
+    c.ui.wait_for("#f-notify-1-email-to", SECS).await;
+    assert_eq!(
+        c.ui.count("#f-notify-1-email").await,
+        0,
+        "the kind is the choice, no email switch"
+    );
+    let font: String =
+        c.ui.eval(
+            "getComputedStyle(document.querySelector('[data-item=\"0\"] [data-chip]')).fontFamily",
+        )
+        .await;
+    assert!(
+        !font.to_lowercase().contains("mono"),
+        "event chips use the label font: {font}"
+    );
+    assert!(!second.contains("e2e-smtp-value"), "{second}");
+    both_widths(c, "settings-notify-edit").await;
+    click_js(c, "[data-item='0'] input[value=webhook]").await;
+    c.ui.wait_for("#f-notify-0-webhook", SECS).await;
+    let first = c.ui.text("[data-card=monitoring] [data-item='0']").await;
+    assert!(
+        !first.contains("ntfy.sh/burrow-e2e-topic"),
+        "switching kind clears the old one: {first}"
+    );
+    both_widths(c, "settings-notify-webhook").await;
+}
+
+fn notify(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        notify_card(c).await;
+        notify_edit(c).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn notifications_show_in_monitoring_with_the_mail_password_by_name() {
+    let opts = Options {
+        extra_top: NOTIFY_TOP.into(),
+        server_env: vec![("SMTP_PASS".into(), "e2e-smtp-value".into())],
+        ..Options::default()
+    };
+    run("settings-notify", opts, false, notify);
+}

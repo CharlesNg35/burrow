@@ -259,10 +259,10 @@ impl Shared {
             return Err(format!("client \"{client}\" no longer serves it"));
         }
         if let Some(from) = from
-            && !s.sources.permits(from)
+            && !self.admits(s, from).admitted()
         {
             return Err(format!(
-                "{from} is no longer allowed by allow_from or deny_from"
+                "{from} is no longer allowed by allow_from, deny_from or the country rules"
             ));
         }
         if index >= s.ports.max(1) {

@@ -240,7 +240,14 @@ struct PublicPort<'a> {
 
 impl Hooks for PublicPort<'_> {
     fn admit(&self, from: SocketAddr) -> bool {
-        self.config.borrow().sources.permits(from.ip())
+        let svc = self.config.borrow().clone();
+        let verdict = self.shared.admits(&svc, from.ip());
+        match verdict {
+            crate::policy::geo::Verdict::In => {}
+            crate::policy::geo::Verdict::Region => self.shared.metrics.refuse_country(self.name),
+            crate::policy::geo::Verdict::Address => {}
+        }
+        verdict.admitted()
     }
 
     fn max_peers(&self) -> usize {
@@ -319,7 +326,8 @@ impl Hooks for PublicPort<'_> {
                         return Interrupt::End(Ending::Done);
                     }
                     let svc = self.config.borrow().clone();
-                    return Interrupt::Retain(Box::new(move |addr| svc.sources.permits(addr.ip())));
+                    let shared = self.shared.clone();
+                    return Interrupt::Retain(Box::new(move |addr| shared.admits(&svc, addr.ip()).admitted()));
                 }
                 _ = self.session.closed() => return Interrupt::End(Ending::Done),
                 _ = self.stop.changed() => return Interrupt::End(Ending::Done),

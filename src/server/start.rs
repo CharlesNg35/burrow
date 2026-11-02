@@ -335,7 +335,10 @@ impl Server {
             entry_counts: Default::default(),
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
+            #[cfg(feature = "web")]
+            notifier: super::notify::Notifier::default(),
             web_wait: Mutex::new(None),
+            geo: super::geo::Geo::default(),
             standing: Mutex::new(standing::Standing::default()),
             wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(
@@ -358,9 +361,15 @@ impl Server {
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
         let web = super::web::WebTask::bind(&shared, &settings).await?;
         let health = tokio::spawn(health::run(shared.clone()));
+        #[cfg(feature = "web")]
+        let notify = tokio::spawn(super::notify::run(shared.clone()));
         let metrics = metrics_listener.map(|l| MetricsTask::start(&shared, l));
+        let geo = super::geo::start(&shared, settings.geoip.as_ref());
         let server = Server {
+            geo,
             health,
+            #[cfg(feature = "web")]
+            notify,
             metrics,
             shared,
             listener,

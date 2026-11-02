@@ -8,6 +8,8 @@ mod checks;
 mod chips;
 #[path = "admin_e2e/compat.rs"]
 mod compat;
+#[path = "admin_e2e/countries.rs"]
+mod countries;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
 #[path = "admin_e2e/edit_state.rs"]
@@ -28,6 +30,8 @@ mod hidden;
 mod logins;
 #[path = "admin_e2e/more.rs"]
 mod more;
+#[path = "admin_e2e/oidc.rs"]
+mod oidc;
 #[path = "common/older.rs"]
 mod older;
 #[path = "admin_e2e/passwords.rs"]

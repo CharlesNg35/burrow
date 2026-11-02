@@ -46,7 +46,7 @@ error: unknown field "trget" in service "web"
    |
  9 |     trget: 127.0.0.1:3000
    |     ^^^^^ unknown field
-   = help: did you mean "target"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
+   = help: did you mean "target"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, allow_countries, deny_countries, proxy_protocol, bandwidth, web
 
 server.yaml: 2 errors, 0 warnings
 ```
@@ -154,6 +154,8 @@ services:
 | `services.<name>.visitors` | none | visitors that may reach this service, TCP or UDP |
 | `services.<name>.allow_from` | everyone | only these source IPs or CIDRs may connect |
 | `services.<name>.deny_from` | nobody | these source IPs or CIDRs may never connect |
+| `services.<name>.allow_countries` | every country | only visitors from these countries (ISO codes like `[FR, BE]`) may connect to the public port, website and UDP. See [By country](services.md#by-country) |
+| `services.<name>.deny_countries` | none | visitors from these countries may never connect; one of the two per service |
 | `services.<name>.proxy_protocol` | off | `v1` or `v2`: send the real client address to the target |
 | `services.<name>.bandwidth` | unlimited | speed limit per direction, for example `40mbit` or `5MB` (per second) |
 | `services.<name>.max_connections` | unlimited | open connections for this TCP service |
@@ -171,6 +173,8 @@ services:
 | `services.<name>.web.target_tls` | off | HTTPS to the app: `true` (public CAs), `{ca: file}` (your CA) or `{insecure_skip_verify: true}` (not checked) |
 | `services.<name>.web.basic_auth` | none | `user: hash` pairs, the hashes from `burrow passwd USER`; visitors log in with a password. See [Who may visit](web/access.md#passwords) |
 | `services.<name>.web.forward_auth` | off | the name of a login service under `web.forward_auth`, or `true` when there is only one; not with `basic_auth`. See [Single sign-on](web/access.md#single-sign-on) |
+| `services.<name>.web.oidc` | off | log in with a provider under `web.oidc`: its name, a list of names, or `true` when there is only one; not with `basic_auth` or `forward_auth`. See [Log in with Google or your own provider](web/access.md#log-in-with-google-or-your-own-provider) |
+| `services.<name>.web.allow_users` | none | who may log in with `oidc`: emails, or `"@domain"` for everyone there; required with `oidc` |
 | `services.<name>.web.rate_limit` | `web.rate_limit` | requests per second per visitor address (IPv6 per /64), bursts of twice that; 429 above |
 | `services.<name>.web.client_auth` | off | `{ca, crl}`: only devices with a certificate from this CA get in. See [Device certificates](web/access.md#device-certificates) |
 | `services.<name>.web.hsts`, `compress`, `max_body_size`, `response_header_timeout_secs`, `request_headers`, `response_headers`, `error_pages` | from `web` | the site's own value of the `web` key of the same name |
@@ -202,9 +206,12 @@ services:
 | `web.response_header_timeout_secs` | `60` | how long the app may take to start its answer; 504 after |
 | `web.request_headers`, `web.response_headers` | none | `Name: value` set on requests to the app or on answers; `""` removes a header |
 | `web.forward_auth` | none | login services by name, each `{service, path, copy_headers}`, like `{authelia: {service: authelia, path: /api/authz/forward-auth}}`; `true` and `false` are not names |
+| `web.oidc` | none | login providers by name, each `{issuer, client_id, client_secret}`; the secret from `${VAR}` or `file:`; `true` and `false` are not names |
 | `web.rate_limit` | off | the default of every site's `rate_limit` |
 | `web.error_pages` | built in | a folder with any of `404.html`, `413.html`, `429.html`, `502.html`, `503.html`, `504.html`, `maintenance.html` |
+| `geoip` | `db-ip` when a service uses countries | where countries come from: `db-ip` (DB-IP Lite, downloaded monthly into the state folder) or the path of your own `.mmdb` file |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
+| `notify` | off | where to send a message when a client goes offline, a certificate fails or a service is down, and when it is fixed: a list of `{webhook: URL}`, `{ntfy: URL}` or `{email: {to, smtp, password, from}}`, each with optional `events`. See [monitoring.md](monitoring.md#notifications) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |
 | `limits.handshake_timeout_secs` | `5` | time a new connection has to authenticate |

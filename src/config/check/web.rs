@@ -352,7 +352,6 @@ pub(super) fn check_sites(
     internal::check_internal(cfg, spans, out);
     #[cfg(feature = "web")]
     letsencrypt::check_letsencrypt(cfg, base_dir, spans, out);
-    #[cfg(feature = "web")]
     dns_secrets::check_dns_secrets(cfg, base_dir, spans, out);
     #[cfg(feature = "web")]
     dns_entries::check_dns_entries(cfg, base_dir, spans, out);
@@ -403,7 +402,6 @@ mod challenge;
 mod choices;
 #[cfg(feature = "web")]
 mod dns_entries;
-#[cfg(feature = "web")]
 mod dns_secrets;
 mod fill;
 mod fill_dns;
@@ -416,6 +414,7 @@ mod internal;
 mod letsencrypt;
 mod logins;
 mod low;
+mod oidc;
 #[cfg(feature = "web")]
 mod pem;
 mod share;
@@ -450,6 +449,9 @@ mod tests_access;
 mod tests_logins;
 
 #[cfg(all(test, feature = "web"))]
+mod tests_oidc;
+
+#[cfg(all(test, feature = "web"))]
 mod tests_certs;
 
 #[cfg(all(test, feature = "web"))]
@@ -465,7 +467,7 @@ mod tests_dns_secrets;
 mod tests_dns_settings;
 
 #[cfg(all(test, feature = "web"))]
-mod tests_docs;
+pub(in crate::config::check) mod tests_docs;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_files;

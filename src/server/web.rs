@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use burrow_web::{
-    AcmeSettings, Ask, BoxIo, CertSettings, CertSource, Lease, ProxySettings, Refused, SharedFile,
-    Site, SiteTls, TunnelConn, TunnelMode, TunnelPort, TunnelSettings, Upstream, Visitor, Way,
+    AcmeSettings, Admission, Ask, BoxIo, CertSettings, CertSource, Lease, ProxySettings, Refused,
+    SharedFile, Site, SiteTls, TunnelConn, TunnelMode, TunnelPort, TunnelSettings, Upstream,
+    Visitor, Way,
 };
 use tokio::net::TcpStream;
 use tracing::debug;
@@ -14,6 +15,7 @@ use super::route::Outcome;
 use super::tcp::{Door, Entry, Refusal, Shape, admit, visit};
 use crate::config::settings::{ServerSettings, Shares, WebSettings, WebTls};
 use crate::forward::ForwardError;
+use crate::policy::geo::Verdict;
 use crate::wire::protocol::Status;
 
 pub(super) struct Doorway(Arc<Shared>);
@@ -37,12 +39,14 @@ impl Upstream for Doorway {
         self.0.refused_handshake();
     }
 
-    fn allowed(&self, service: &str, from: &Visitor) -> bool {
-        let ok = self.0.source_allowed(service, from.addr.ip());
-        if !ok {
-            self.0.metrics.refuse(service);
+    fn allowed(&self, service: &str, from: &Visitor) -> Admission {
+        match self.0.admission(service, from.addr.ip()) {
+            Verdict::In => Admission::In,
+            Verdict::Address => Admission::Refused,
+            Verdict::Region => Admission::Region {
+                credit: self.0.geo.credits(),
+            },
         }
-        ok
     }
 
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
@@ -53,7 +57,7 @@ impl Upstream for Doorway {
     }
 
     fn lease(&self, service: &str, from: &Visitor, ask: Ask) -> Result<(Way, Lease), Refused> {
-        if ask == Ask::Auth && !self.allowed(service, from) {
+        if ask == Ask::Auth && self.allowed(service, from) != Admission::In {
             return Err(Refused::NotAllowed);
         }
         lease::lease(&self.0, service, from)
@@ -89,9 +93,9 @@ fn open_door(
 ) -> Result<BoxIo, Refused> {
     let settings = shared.settings();
     let svc = settings.services.get(service).ok_or(Refused::Gone)?;
-    if !shared.source_allowed(service, from.addr.ip()) {
-        shared.metrics.refuse(service);
-        debug!(peer = %from.addr, "service \"{service}\": source address not allowed, closing");
+    let verdict = shared.admission(service, from.addr.ip());
+    if !verdict.admitted() {
+        debug!(peer = %from.addr, "service \"{service}\": {}, closing", super::tcp::refused_why(verdict));
         return Err(Refused::NotAllowed);
     }
     let source = super::share::web_source(from.addr);

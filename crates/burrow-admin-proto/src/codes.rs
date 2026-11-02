@@ -40,6 +40,11 @@ pub const FORWARD_AUTH: &str = "forward-auth";
 pub const FORWARD_AUTH_H2: &str = "forward-auth-h2";
 pub const UNKNOWN_LOGIN: &str = "unknown-login";
 pub const FORWARD_AUTH_UNUSED: &str = "forward-auth-unused";
+pub const OIDC: &str = "oidc";
+pub const UNKNOWN_OIDC: &str = "unknown-oidc";
+pub const OIDC_UNUSED: &str = "oidc-unused";
+pub const OIDC_SECRET: &str = "oidc-secret";
+pub const ALLOW_USERS: &str = "allow-users";
 pub const UNUSED_VISITOR: &str = "unused-visitor";
 pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
 pub const ENV_UNSET: &str = "env-unset";
@@ -69,6 +74,12 @@ pub const READ_ONLY_FS: &str = "read-only-fs";
 pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
 pub const OLDER_ADMIN: &str = "older-admin";
 pub const TLS_UNREADABLE: &str = "tls-unreadable";
+pub const COUNTRIES_BOTH: &str = "countries-both";
+pub const INVALID_COUNTRY: &str = "invalid-country";
+pub const COUNTRIES_UNUSED: &str = "countries-unused";
+pub const GEOIP_UNUSED: &str = "geoip-unused";
+pub const GEOIP_NOT_READY: &str = "geoip-not-ready";
+pub const GEOIP_INVALID: &str = "geoip-invalid";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,

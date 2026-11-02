@@ -34,7 +34,7 @@ pub use listen::{Listeners, Proxy};
 pub use permit::source_key;
 pub use site::{
     AccessLog, BasicUser, ClientAuth, ForwardAuth, Forwarding, HeaderRule, LogFormat, NameRedirect,
-    Redirect, SiteOptions, TargetTls,
+    OidcProvider, Redirect, SiteLogin, SiteOptions, TargetTls,
 };
 pub use tls::acme::dns01::{DnsEntry, DnsProvider, Secret, TsigAlgorithm};
 
@@ -52,6 +52,7 @@ pub struct ProxySettings {
     pub access_log: Option<AccessLog>,
     pub request_id: bool,
     pub http2: bool,
+    pub oidc: Vec<OidcProvider>,
 }
 
 impl Default for ProxySettings {
@@ -69,6 +70,7 @@ impl Default for ProxySettings {
             access_log: None,
             request_id: false,
             http2: true,
+            oidc: Vec::new(),
         }
     }
 }
@@ -191,6 +193,13 @@ pub struct Visitor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admission {
+    In,
+    Refused,
+    Region { credit: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
     NotAllowed,
     Full,
@@ -278,8 +287,8 @@ pub trait Upstream: Send + Sync + 'static {
         from: &Visitor,
     ) -> impl Future<Output = Result<BoxIo, Refused>> + Send;
 
-    fn allowed(&self, _service: &str, _from: &Visitor) -> bool {
-        true
+    fn allowed(&self, _service: &str, _from: &Visitor) -> Admission {
+        Admission::In
     }
 
     fn lease(&self, service: &str, from: &Visitor, ask: Ask) -> Result<(Way, Lease), Refused>;

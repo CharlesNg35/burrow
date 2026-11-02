@@ -4,6 +4,7 @@ pub mod bar;
 pub mod create;
 pub mod entity;
 pub mod flow;
+mod geoip;
 mod list;
 mod local_ca;
 mod overview;
@@ -49,7 +50,7 @@ pub fn entity_icon(section: &str) -> &'static str {
     match entity_of(section) {
         Entity::Client => "monitor",
         Entity::Visitor => "person",
-        Entity::Service | Entity::Login | Entity::Unknown(_) => "stack",
+        Entity::Service | Entity::Login | Entity::Oidc | Entity::Unknown(_) => "stack",
     }
 }
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.2]
+
+- **Built-in login (OIDC):** `web.oidc` providers like Google or Keycloak, picked per site with `oidc: <name>` and `allow_users`. See docs/web/access.md.
+- **Countries:** `allow_countries` and `deny_countries` per service, for public ports, websites and UDP. The free DB-IP Lite database is downloaded and kept up to date on its own, or `geoip:` names your own `.mmdb` file. See docs/services.md#by-country.
+- **Notifications:** `notify:` sends a message to a webhook, an ntfy topic or an email address when a client goes offline, a certificate fails or a service's health check fails, and once more when it is fixed. Off unless set; see docs/monitoring.md.
+
 ## [0.2.0]
 
 Websites with automatic HTTPS, a reworked admin UI, load balancing with weights, and `burrow mcp` for AI apps. Existing configs work unchanged, and v0.1.x clients and visitors keep working with a v0.2.0 server.

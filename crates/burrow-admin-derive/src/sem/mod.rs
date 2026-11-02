@@ -49,6 +49,7 @@ pub fn marker(t: &Term) -> Option<syn::Ident> {
         "server_address" => "ServerAddress",
         "cidr" => "Cidr",
         "cidr_rule" => "CidrRule",
+        "country" => "Country",
         "duration" => "Duration",
         "size" => "Size",
         "rate" => "Rate",
@@ -96,11 +97,13 @@ fn reserved(args: &[Term]) -> TokenStream {
 fn entity(t: Option<&Term>, span: Span, errors: &mut Errors) -> TokenStream {
     let p = crate::p();
     match t.and_then(Term::as_word) {
-        Some(w @ ("client" | "visitor" | "service" | "login")) => quote!(#p::Entity::parse(#w)),
+        Some(w @ ("client" | "visitor" | "service" | "login" | "oidc")) => {
+            quote!(#p::Entity::parse(#w))
+        }
         _ => {
             errors.push(
                 span,
-                "expected an entity: client, visitor, service or login",
+                "expected an entity: client, visitor, service, login or oidc",
             );
             quote!(#p::Entity::Client)
         }
@@ -234,6 +237,7 @@ fn scalar_sem(
         "server_address" => quote!(#p::SemType::ServerAddress),
         "cidr" => quote!(#p::SemType::Cidr),
         "cidr_rule" => quote!(#p::SemType::CidrRule),
+        "country" => quote!(#p::SemType::Country(#p::CountryC::default())),
         "rate" => quote!(#p::SemType::Rate),
         "url_path" => quote!(#p::SemType::UrlPath),
         "password_hash" => quote!(#p::SemType::PasswordHash(#p::PasswordHashC::default())),

@@ -78,6 +78,13 @@ web:
       path: /api/authz/forward-auth # where Authelia answers "may this visitor in?"
       copy_headers: [Remote-User, Remote-Groups] # passed to the app on a yes; visitors' own copies are removed
 
+  # Built-in logins: OpenID Connect providers by name; a site picks them with oidc: <name>
+  oidc:
+    google:
+      issuer: https://accounts.google.com
+      client_id: 1234.apps.googleusercontent.com
+      client_secret: ${GOOGLE_SECRET} # give Google https://photos.example.com/.burrow/login/callback as the redirect URI
+
   # Old names with no site any more: they only send visitors away
   redirect_names:
     old-blog.example.com: "https://example.com" # temporary (307): path and query kept
@@ -184,6 +191,15 @@ services:
     web:
       hosts: [wiki.example.com]
       forward_auth: authelia # asks web.forward_auth.authelia before each request
+
+  # Photos for the family's Google accounts, with burrow's own login
+  photos:
+    client: home
+    target: 2342
+    web:
+      hosts: [photos.example.com]
+      oidc: google # visitors log in with Google; /.burrow/logout logs out
+      allow_users: [alice@gmail.com, "@example.com"] # emails, or everyone at a domain
 
   # Shared files with a simple password instead
   files:

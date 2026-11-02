@@ -10,6 +10,7 @@ use tokio::time::Instant;
 use tracing::{debug, warn};
 
 use crate::auth::Access;
+use crate::auth::oidc::Logins;
 use crate::http::upstream::pool::{Pool, SWEEP as POOL_SWEEP};
 use crate::http::{Conn, Proto, serve};
 use crate::io::{Io, Prefixed};
@@ -36,6 +37,7 @@ pub(crate) struct Shared<U> {
     http2: AtomicBool,
     verifiers: Verifiers,
     pub(crate) access: Access,
+    pub(crate) logins: Logins,
     table: RwLock<Arc<Table>>,
     timing: RwLock<Timeouts>,
     log: RwLock<Option<(Arc<LogFile>, LogFormat)>>,
@@ -81,6 +83,7 @@ impl<U: Upstream> Proxy<U> {
             http2: AtomicBool::new(settings.http2),
             verifiers,
             access: Access::default(),
+            logins: Logins::new(settings.certs.state_dir.as_deref()),
             certs,
             https_port: https.map(|a| a.port()),
             table: RwLock::new(Arc::new(table)),
@@ -90,6 +93,7 @@ impl<U: Upstream> Proxy<U> {
             stop: stopped,
         });
         shared.open_log(settings.access_log.as_ref());
+        shared.logins.apply(&settings.oidc);
         let mut tasks = vec![
             tokio::spawn(sweep(shared.clone())),
             tokio::spawn(sweep_pool(shared.clone())),
@@ -131,6 +135,7 @@ impl<U: Upstream> Proxy<U> {
         self.shared.reload_pool(&table);
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.open_log(settings.access_log.as_ref());
+        self.shared.logins.apply(&settings.oidc);
         self.shared.permits.resize(settings.max_pending);
         self.shared.http2.store(settings.http2, Ordering::Release);
     }

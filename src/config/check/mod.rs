@@ -1,8 +1,11 @@
 mod client;
 mod connection;
 mod entries;
+pub mod geo;
 mod local;
+mod notify;
 pub mod ports;
+mod secret_ref;
 mod server;
 mod service;
 pub mod unix;

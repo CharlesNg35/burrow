@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::admin_schema::AdminSchema;
 
 use super::{
-    AccessLog, Bind, CertFile, ForwardAuthConfig, LetsEncrypt, RedirectTarget, SiteTls, WebSite,
+    AccessLog, Bind, CertFile, ForwardAuthConfig, LetsEncrypt, OidcConfig, RedirectTarget, SiteTls,
+    WebSite,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -68,6 +69,17 @@ pub struct WebConfig {
         empty_label = "None"
     )]
     pub forward_auth: BTreeMap<String, ForwardAuthConfig>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Built-in logins through OpenID Connect providers by name, each {issuer, client_id, client_secret}; a site picks them with oidc: <name>, for example {google: {issuer: https://accounts.google.com, client_id: ..., client_secret: ${GOOGLE_SECRET}}}"
+    )]
+    #[admin(
+        ty = map(oidc),
+        label = "Login providers",
+        help = "Accounts like Google, Microsoft or your own Keycloak that visitors log in with, each with a name that websites pick",
+        empty_label = "None"
+    )]
+    pub oidc: BTreeMap<String, OidcConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Default for every site: requests per second per visitor address (IPv6 per /64), bursts of twice that, 429 above"

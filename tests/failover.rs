@@ -8,6 +8,9 @@ mod health;
 mod http_check;
 #[path = "failover/ip_hash.rs"]
 mod ip_hash;
+#[cfg(feature = "web")]
+#[path = "failover/notify.rs"]
+mod notify;
 #[path = "failover/selection.rs"]
 mod selection;
 #[path = "failover/udp_moves.rs"]

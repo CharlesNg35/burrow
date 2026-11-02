@@ -1,6 +1,7 @@
 use burrow_web::{
     AccessLog, BasicUser, ClientAuth, DnsEntry, DnsProvider, ForwardAuth, Forwarding, HeaderRule,
-    LogFormat, NameRedirect, ProxySettings, Redirect, Secret, SiteOptions, TargetTls,
+    LogFormat, NameRedirect, OidcProvider, ProxySettings, Redirect, Secret, SiteLogin, SiteOptions,
+    TargetTls,
 };
 use http::{HeaderName, HeaderValue};
 
@@ -43,6 +44,10 @@ pub(super) fn site_options(o: &settings::SiteOptions) -> SiteOptions {
             copy_headers: header_names(&f.copy_headers),
             strip_headers: header_names(&f.strip_headers),
         }),
+        oidc: o.oidc.as_ref().map(|l| SiteLogin {
+            providers: l.providers.clone(),
+            allow_users: l.allow_users.clone(),
+        }),
         rate_limit: o.rate_limit.and_then(std::num::NonZeroU32::new),
         client_auth: o.client_auth.as_ref().map(|c| ClientAuth {
             ca: c.ca.clone(),
@@ -83,6 +88,19 @@ pub(super) fn site_wide(web: &WebSettings, p: &mut ProxySettings) {
     });
     p.request_id = web.request_id;
     p.http2 = web.http2;
+    p.oidc = web
+        .oidc
+        .iter()
+        .map(|o| OidcProvider {
+            name: o.name.clone(),
+            issuer: o.issuer.clone(),
+            client_id: o.client_id.clone(),
+            client_secret: o
+                .client_secret
+                .as_ref()
+                .map(|s| Secret::new(s.expose().to_string())),
+        })
+        .collect();
 }
 
 fn rules(list: &[(String, String)]) -> Vec<HeaderRule> {

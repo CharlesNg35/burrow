@@ -157,7 +157,11 @@ pub(in crate::server) fn open_pooled(
 }
 
 pub(in crate::server) fn keeps(shared: &Shared, service: &str, from: &Visitor, ask: Ask) -> bool {
-    shared.source_allowed(service, from.addr.ip())
+    let settings = shared.settings();
+    let Some(svc) = settings.services.get(service) else {
+        return false;
+    };
+    shared.admits(svc, from.addr.ip()).admitted()
         && match ask {
             Ask::Site => shared.still_on_web(service, &from.host).is_ok(),
             Ask::Auth => true,

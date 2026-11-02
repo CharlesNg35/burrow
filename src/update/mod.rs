@@ -1,5 +1,5 @@
 pub mod archive;
-pub mod http;
+use crate::wire::fetch;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -108,13 +108,13 @@ fn in_container() -> bool {
         && (Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists())
 }
 
-fn fetch(url: &str, limit: usize) -> Result<http::Fetched, http::FetchError> {
+fn fetch(url: &str, limit: usize) -> Result<fetch::Fetched, fetch::FetchError> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
     let env = |name: &str| std::env::var(name).ok();
-    rt.block_on(http::get(url, limit, &env))
+    rt.block_on(fetch::get(url, limit, &env))
 }
 
 struct Staged {
@@ -291,8 +291,8 @@ fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Fail
         None => format!("{base}/latest/download/SHA256SUMS"),
     };
     let sums = match fetch(&sums_url, MAX_SUMS) {
-        Ok(http::Fetched::Body(b)) => String::from_utf8_lossy(&b).into_owned(),
-        Ok(http::Fetched::NotFound) => {
+        Ok(fetch::Fetched::Body(b)) => String::from_utf8_lossy(&b).into_owned(),
+        Ok(fetch::Fetched::NotFound) => {
             let what = match wanted {
                 Some(v) => format!("burrow {v} is not released"),
                 None => "no burrow release was found".to_string(),
@@ -300,7 +300,7 @@ fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Fail
             return Err(Failure::new(format!("{what} at {base}"))
                 .hint(format!("see the releases at {base}")));
         }
-        Err(e @ http::FetchError::Insecure(_)) => {
+        Err(e @ fetch::FetchError::Insecure(_)) => {
             return Err(Failure::new(format!("cannot check for a new version: {e}")));
         }
         Err(e) => {
@@ -381,8 +381,8 @@ fn download(
     say(out, format!("downloading {}", asset.name))?;
     let url = format!("{base}/download/v{}/{}", asset.version, asset.name);
     let data = match fetch(&url, MAX_ASSET) {
-        Ok(http::Fetched::Body(b)) => b,
-        Ok(http::Fetched::NotFound) => {
+        Ok(fetch::Fetched::Body(b)) => b,
+        Ok(fetch::Fetched::NotFound) => {
             return Err(Failure::new(format!(
                 "{url} is listed in SHA256SUMS but does not exist"
             )));
@@ -475,9 +475,9 @@ fn update_services_with(me: &Path) -> String {
 }
 
 fn connect_hint(url: &str, env: &dyn Fn(&str) -> Option<String>) -> String {
-    let proxy = http::Url::parse(url)
+    let proxy = fetch::Url::parse(url)
         .ok()
-        .and_then(|u| http::proxy_from_env(&u, env).ok().flatten());
+        .and_then(|u| fetch::proxy_from_env(&u, env).ok().flatten());
     let mut hint = match proxy {
         Some(p) => format!("check the internet connection and the proxy {p:?}"),
         None => proxy_hint(env("SUDO_USER").is_some()),

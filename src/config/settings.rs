@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::policy::allowlist::{AllowList, Cidr, Sources};
+use crate::policy::geo::Countries;
 use crate::wire::protocol::VisitTarget;
 use crate::wire::proxy::ProxyConfig;
 use crate::wire::secret::Secret;
@@ -15,18 +16,22 @@ use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
 
 mod dns;
+mod geo;
+mod notify;
 mod site;
 mod web;
 
 pub use dns::{DNS_WAIT, DnsProvider, DnsSettings, SecretText};
+pub use geo::{DB_IP, DB_IP_CREDIT, DB_IP_FILE, DB_IP_FOLDER, DB_IP_SITE, GeoSource, STALE_AFTER};
+pub use notify::{EmailSettings, NotifyTarget, NotifyVia, SmtpSecurity};
 pub use site::{
-    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions,
-    TargetTls, WebClientAuth,
+    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOidc,
+    SiteOptions, TargetTls, WebClientAuth,
 };
 
 pub use web::{
-    CertFile, LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, WebSettings, WebSite,
-    WebTls, Written, digest_of,
+    CertFile, LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, OidcSettings, WebSettings,
+    WebSite, WebTls, Written, digest_of,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,7 +55,9 @@ pub struct ServerSettings {
     pub udp_max_peers: usize,
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
+    pub notify: Vec<NotifyTarget>,
     pub web: Option<WebSettings>,
+    pub geoip: Option<GeoSource>,
 }
 
 pub struct ListenClash {
@@ -227,6 +234,7 @@ pub struct Service {
     pub max_connections: Option<usize>,
     pub visitors: Vec<String>,
     pub sources: Sources,
+    pub countries: Option<Countries>,
     pub proxy_protocol: Option<burrow_config::ProxyVersion>,
     pub bandwidth: Option<u64>,
 }
@@ -245,6 +253,7 @@ impl Default for Service {
             max_connections: None,
             visitors: Vec::new(),
             sources: Sources::default(),
+            countries: None,
             proxy_protocol: None,
             bandwidth: None,
         }

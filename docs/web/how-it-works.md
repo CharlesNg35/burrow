@@ -44,7 +44,7 @@ A connection stops counting against the handshake budget once burrow's TLS is do
 request ──> headers, Host, path cleaned ──> route (longest path) ──> redirect
                                                   │
                                                   └─> service:
-   allow_from ─> maintenance ─> rate_limit ─> basic_auth ─> forward_auth ─> max_body_size
+   allow_from ─> maintenance ─> rate_limit ─> basic_auth ─> forward_auth ─> oidc ─> max_body_size
         ─> app_path ─> through the tunnel to the app ─> response_headers, hsts, X-Request-Id, compress
         ─> access log
 ```
@@ -61,7 +61,8 @@ Each check below can stop the request. Before the app has started its answer, bu
    3. `rate_limit`: over the budget gets `429` with `Retry-After`.
    4. `basic_auth`: no or a wrong password gets `401`; too many wrong passwords from one address get `429`.
    5. `forward_auth`: the login service decides; its own answer goes back to the visitor when it says no.
-   6. `max_body_size`: a body that says it is larger gets `413` at once; one that grows larger on the way is cut, and `413` is the answer.
+   6. `oidc`: no login sends a browser to the provider and gives others `401`; an account not in `allow_users` gets `403`.
+   7. `max_body_size`: a body that says it is larger gets `413` at once; one that grows larger on the way is cut, and `413` is the answer.
 6. **To the app.** `app_path` replaces the matched path ([Paths](routing.md#paths-several-apps-on-one-name)). burrow picks the client first, as the service's `mode` says, then takes an idle connection to the app from one pool that all visitors share, or opens a new one through the tunnel. It sends the request with `request_headers` and the `X-Forwarded-*` headers ([Headers, limits and pages](headers-limits-pages.md)). An app connection that stays idle for 60 seconds is closed, or after 5 seconds while the service or client is busy. A GET, HEAD, OPTIONS or TRACE without a body that fails on a connection that had been idle, before any byte of the answer arrived, is sent once more on a new connection; nothing else is sent twice. If it cannot:
 
    | Why | Answer |

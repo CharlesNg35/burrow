@@ -14,7 +14,7 @@ use crate::api;
 use crate::store::store;
 
 pub(crate) use new::NewEntity;
-pub(crate) use rename::{RenameEntity, problem_of};
+pub(crate) use rename::{RenameEntity, problem_of, what};
 pub(crate) use website::NewWebsite;
 
 pub fn singular(section: &str) -> &'static str {
@@ -31,6 +31,7 @@ pub(crate) fn name_example(entity: Option<&burrow_admin_proto::schema::Entity>) 
         Some(Entity::Client) => "home or office",
         Some(Entity::Visitor) => "laptop or phone",
         Some(Entity::Login) => "authelia or sso",
+        Some(Entity::Oidc) => "google or work",
         _ => "nas or home-ssh",
     }
 }

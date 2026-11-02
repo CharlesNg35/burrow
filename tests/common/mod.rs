@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod certs;
+pub mod geo;
 pub mod older;
 pub mod output;
 pub mod ports;
@@ -68,9 +69,11 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
         udp_max_peers: 4096,
+        notify: Vec::new(),
         metrics: None,
         self_allow: None,
         web: None,
+        geoip: None,
     }
 }
 

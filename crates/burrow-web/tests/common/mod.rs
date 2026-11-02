@@ -171,8 +171,12 @@ impl Upstream for Fake {
             .push((service.to_string(), status.as_u16()));
     }
 
-    fn allowed(&self, _service: &str, from: &Visitor) -> bool {
-        !self.denied.lock().unwrap().contains(&from.addr.ip())
+    fn allowed(&self, _service: &str, from: &Visitor) -> burrow_web::Admission {
+        if self.denied.lock().unwrap().contains(&from.addr.ip()) {
+            burrow_web::Admission::Refused
+        } else {
+            burrow_web::Admission::In
+        }
     }
 
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {

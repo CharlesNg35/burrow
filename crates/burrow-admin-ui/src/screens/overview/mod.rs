@@ -71,6 +71,7 @@ pub fn attention(
         }
         out.extend(own);
         out.extend(status.web_waiting.as_ref().map(web_wait_item));
+        out.extend(status.notify.iter().filter_map(notify_item));
         out.extend(certs::items(status, now));
     }
     out.sort_by_key(|i| rank(i.tone));
@@ -87,6 +88,18 @@ fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
         to: Some(Route::Settings),
         field: Some(field),
     }
+}
+
+fn notify_item(n: &burrow_admin_proto::status::NotifyStatus) -> Option<Item> {
+    Some(Item {
+        key: format!("notify:{}", n.name),
+        tone: Tone::Warning,
+        title: n.line()?,
+        detail: "Check the address and the login in Settings; messages wait and are sent again."
+            .into(),
+        to: Some(Route::Settings),
+        field: Some(burrow_config::ServerConfig::NOTIFY.path()),
+    })
 }
 
 fn state_items(st: &State, out: &mut Vec<Item>) {
@@ -588,6 +601,34 @@ mod tests {
         let d = chart(&full, &full, 900);
         assert_eq!(d.a.len(), 900);
         assert!(d.empty_note.is_none());
+    }
+
+    #[test]
+    fn a_failing_notification_destination_needs_attention_and_a_working_one_not() {
+        let mut st = status(&[], &[]);
+        st.notify = vec![
+            burrow_admin_proto::status::NotifyStatus {
+                name: "ntfy ntfy.sh".into(),
+                sent: 2,
+                ..Default::default()
+            },
+            burrow_admin_proto::status::NotifyStatus {
+                name: "email ops@example.com".into(),
+                failing: Some("connection refused".into()),
+                ..Default::default()
+            },
+        ];
+        let items = attention(&json!({}), None, Some(&st), 0);
+        let n: Vec<&Item> = items
+            .iter()
+            .filter(|i| i.key.starts_with("notify:"))
+            .collect();
+        assert_eq!(n.len(), 1);
+        assert_eq!(
+            n[0].title,
+            "Notifications to email ops@example.com fail: connection refused; burrow keeps trying"
+        );
+        assert_eq!(n[0].field.as_deref(), Some(&["notify".to_string()][..]));
     }
 
     #[test]

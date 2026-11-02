@@ -149,9 +149,15 @@ impl Server {
         info!("shutting down");
         let _ = self.shutdown_tx.send(true);
         self.health.abort();
+        #[cfg(feature = "web")]
+        {
+            self.notify.abort();
+            self.shared.notifier.sync(&[]);
+        }
         if let Some(m) = self.metrics.take() {
             m.task.abort();
         }
+        self.geo.take();
         if let Some(ws) = self.websocket.take() {
             ws.task.abort();
         }

@@ -74,7 +74,7 @@ async fn collapsed_and_remembered(c: &mut Ctx) {
     assert!(!expanded(c, ACCESS).await, "Who may connect starts closed");
     assert!(region_hidden(c, ACCESS).await);
     let text = c.ui.text(ACCESS).await;
-    assert_eq!(text, "More settings · 3 at their defaults");
+    assert_eq!(text, "More settings · 5 at their defaults");
     let carded: bool = c
         .ui
         .eval("[...document.querySelectorAll('[data-form-tab] section[data-group]')].every(s => s.classList.contains('rounded-card') && s.classList.contains('bg-surface'))")

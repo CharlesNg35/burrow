@@ -3,6 +3,7 @@ mod cache;
 pub mod forward;
 pub mod hash;
 pub mod limit;
+pub mod oidc;
 
 use std::collections::HashMap;
 use std::net::IpAddr;

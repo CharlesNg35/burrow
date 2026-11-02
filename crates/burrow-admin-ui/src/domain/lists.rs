@@ -1,7 +1,7 @@
 use burrow_admin_logic::check::check;
 use burrow_admin_logic::input::{parse_input, to_text};
 use burrow_admin_logic::tree::inner;
-use burrow_admin_proto::schema::{Entity, Node, SemType, UnionC};
+use burrow_admin_proto::schema::{Entity, EnumOption, Node, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::child;
 use burrow_config::ServiceEntry;
@@ -13,7 +13,7 @@ use crate::form::object_view;
 use crate::store::store;
 
 use super::basic::text_editor;
-use super::{FieldCtx, THIS_SERVER, cidr_size, editor, names_of, set_checked};
+use super::{FieldCtx, THIS_SERVER, cidr_size, country_name, editor, names_of, set_checked};
 
 fn facet(entity: &Entity, name: &str) -> String {
     let s = store();
@@ -41,6 +41,9 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     if matches!(inner(&item).sem, SemType::Object(_)) {
         return super::objects::object_list(fc, item);
     }
+    if let SemType::Enum(c) = &inner(&item).sem {
+        return enum_list_editor(fc, c.options.clone());
+    }
     let e = store().edit;
     let path = fc.path.clone();
     let items = Signal::derive(move || match e.value(&path) {
@@ -58,11 +61,13 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     let item3 = item.clone();
     let on_change = move |list: Vec<String>| {
         let v = (!list.is_empty()).then(|| {
-            Value::Array(
-                list.iter()
-                    .filter_map(|t| parse_input(&item3.sem, t))
-                    .collect(),
-            )
+            let mut parsed: Vec<Value> = Vec::new();
+            for v in list.iter().filter_map(|t| parse_input(&item3.sem, t)) {
+                if !parsed.contains(&v) {
+                    parsed.push(v);
+                }
+            }
+            Value::Array(parsed)
         });
         if crate::grants::refuses(&fc2.path, v.as_ref()) {
             store().edit.refuse(&fc2.path, true);
@@ -78,7 +83,20 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
         }
     };
     let cidr = matches!(item.sem, SemType::Cidr | SemType::CidrRule);
-    let meta = Callback::new(move |t: String| if cidr { cidr_size(&t) } else { String::new() });
+    let countries = matches!(item.sem, SemType::Country(_));
+    let meta = Callback::new(move |t: String| match () {
+        _ if cidr => cidr_size(&t),
+        _ if countries => country_name(&t),
+        _ => String::new(),
+    });
+    let suggestions: Vec<(String, String)> = if countries {
+        burrow_syntax::country::COUNTRIES
+            .iter()
+            .map(|(c, n)| (c.to_string(), n.to_string()))
+            .collect()
+    } else {
+        Vec::new()
+    };
     view! {
         <ChipInput
             id=fc.id.clone()
@@ -88,7 +106,97 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             placeholder="Type and press Enter; paste a list"
             empty_label=fc.node.empty_label.clone().unwrap_or_default()
             meta=meta
+            suggestions=suggestions
         />
+    }
+    .into_any()
+}
+
+fn enum_list_editor(fc: FieldCtx, options: Vec<EnumOption>) -> AnyView {
+    let e = store().edit;
+    let path = fc.path.clone();
+    let chosen = Memo::new(move |_| match e.value(&path) {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect(),
+        _ => Vec::<String>::new(),
+    });
+    let opts = StoredValue::new(options);
+    let label_of = move |v: &str| {
+        opts.with_value(|o| {
+            o.iter()
+                .find(|x| x.value == v)
+                .map_or_else(|| v.to_string(), |x| x.label.clone())
+        })
+    };
+    let value_of = move |t: &str| {
+        opts.with_value(|o| {
+            o.iter()
+                .find(|x| x.label.eq_ignore_ascii_case(t.trim()) || x.value == t.trim())
+                .map(|x| x.value.clone())
+        })
+    };
+    let items =
+        Signal::derive(move || chosen.get().iter().map(|v| label_of(v)).collect::<Vec<_>>());
+    let node = fc.node.clone();
+    let fc2 = fc.clone();
+    let save = move |values: Vec<String>| {
+        let v = (!values.is_empty())
+            .then(|| Value::Array(values.into_iter().map(Value::String).collect()));
+        set_checked(&fc2, &node, v);
+    };
+    let save2 = save.clone();
+    let on_change = move |labels: Vec<String>| {
+        save(labels.iter().filter_map(|l| value_of(l)).collect());
+    };
+    let check_one = Callback::new(move |t: String| {
+        value_of(&t).is_none().then(|| {
+            let names = opts.with_value(|o| {
+                o.iter()
+                    .map(|x| x.label.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            });
+            format!("pick one of {names}")
+        })
+    });
+    let left = Signal::derive(move || {
+        let now = chosen.get();
+        let mut o = vec![(
+            String::new(),
+            burrow_admin_logic::wording::ADD_PICK.to_string(),
+        )];
+        opts.with_value(|all| {
+            o.extend(
+                all.iter()
+                    .filter(|x| !now.contains(&x.value))
+                    .map(|x| (x.value.clone(), x.label.clone())),
+            )
+        });
+        o
+    });
+    let add = Callback::new(move |v: String| {
+        if v.is_empty() {
+            return;
+        }
+        let mut now = chosen.get_untracked();
+        now.push(v);
+        save2(now);
+    });
+    view! {
+        <div class="space-y-1.5">
+            <ChipInput
+                id=fc.id.clone()
+                items=items
+                on_change=on_change
+                check=check_one
+                placeholder="Type a name and press Enter"
+                empty_label=fc.node.empty_label.clone().unwrap_or_default()
+                labels=true
+            />
+            <Select id=format!("{}-add", fc.id) options=left value=Signal::derive(String::new) on_change=add small=true/>
+        </div>
     }
     .into_any()
 }
@@ -111,7 +219,10 @@ pub(super) fn map_editor(
     let reserved = fc.node.sem.reserved().to_vec();
     let candidates = Signal::derive(move || {
         let used = keys.get();
-        let mut o = vec![(String::new(), "Add…".to_string())];
+        let mut o = vec![(
+            String::new(),
+            burrow_admin_logic::wording::ADD_PICK.to_string(),
+        )];
         let self_ready = burrow_config::ServerConfig::SELF
             .then(burrow_config::SelfEntry::ALLOW)
             .get(&e.doc())
@@ -371,8 +482,9 @@ fn named_editor(fc: FieldCtx, branch: Node) -> AnyView {
     };
     let entity = r.entity.clone();
     let hint = move || {
-        (entity == Entity::Login && names_of(&entity).is_empty()).then(|| {
-            view! { <p class="mt-1 text-sm text-text-muted" data-testid="no-login-services">"Add a login service under Settings → Web first"</p> }
+        (matches!(entity, Entity::Login | Entity::Oidc) && names_of(&entity).is_empty()).then(|| {
+            let what = crate::screens::create::what(&entity);
+            view! { <p class="mt-1 text-sm text-text-muted" data-testid="no-login-services">{format!("Add a {what} under Settings → Web first")}</p> }
         })
     };
     view! {

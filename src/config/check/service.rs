@@ -84,6 +84,7 @@ pub(super) fn check_service<'a>(
         allow: sources(name, "allow_from", &svc.allow_from, spans, out),
         deny: sources(name, "deny_from", &svc.deny_from, spans, out),
     };
+    let countries = super::geo::countries(name, svc, spans, out);
     let listed = listed_visitors(name, svc, spans, out);
     let bandwidth = bandwidth(name, svc, spans, out);
     let listed_clients = super::entries::check_clients(name, svc, target.as_ref(), spans, out);
@@ -112,6 +113,7 @@ pub(super) fn check_service<'a>(
         max_connections: svc.max_connections.map(|m| m as usize),
         visitors: listed,
         sources,
+        countries,
         proxy_protocol: svc.proxy_protocol,
         bandwidth,
     })

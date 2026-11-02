@@ -212,6 +212,18 @@ fn service_families(f: &mut Family, s: &Status) {
         );
     }
     f.head(
+        "burrow_service_refused_country_total",
+        "counter",
+        "Connections and requests the service refused by the visitor's country",
+    );
+    for v in &s.services {
+        f.line(
+            "burrow_service_refused_country_total",
+            &[("service", &v.name)],
+            v.refused_country,
+        );
+    }
+    f.head(
         "burrow_service_bytes_total",
         "counter",
         "Bytes forwarded; in is from users to the target, out is back",
@@ -341,6 +353,9 @@ mod tests {
                 open: 12,
                 total: 153,
                 refused: 1,
+                refused_country: 0,
+                allowed_countries: Vec::new(),
+                denied_countries: Vec::new(),
                 bytes_in: 1_200_000_000,
                 bytes_out: 8_400_000_000,
                 health: vec![
@@ -393,6 +408,8 @@ mod tests {
             acme: None,
             local_ca: None,
             web_waiting: None,
+            geoip: None,
+            notify: Vec::new(),
         }
     }
 

@@ -2,11 +2,11 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::config::settings::{DNS_WAIT, DnsProvider, DnsSettings, SecretText};
+use crate::config::settings::{DNS_WAIT, DnsProvider, DnsSettings};
 use burrow_config::DnsEntry;
 use burrow_syntax::web::{SingleLabel, host_name};
 
-pub(super) const FILE_PREFIX: &str = "file:";
+pub(super) use crate::config::check::secret_ref::{FILE_PREFIX, read_secret as secret};
 const DNS_PORT: u16 = 53;
 
 pub(super) fn entries(list: &[DnsEntry], base_dir: &Path) -> Vec<DnsSettings> {
@@ -46,17 +46,6 @@ fn provider(e: &DnsEntry, base_dir: &Path) -> Option<DnsProvider> {
         }),
         _ => None,
     }
-}
-
-pub(super) fn secret(value: &str, base_dir: &Path) -> Option<SecretText> {
-    let text = match value.trim().strip_prefix(FILE_PREFIX) {
-        Some(path) => {
-            let read = std::fs::read_to_string(base_dir.join(path.trim())).ok()?;
-            zeroize::Zeroizing::new(read).trim().to_string()
-        }
-        None => value.trim().to_string(),
-    };
-    (!text.is_empty()).then(|| SecretText::new(text))
 }
 
 pub(super) fn secret_files(list: &[DnsEntry], base_dir: &Path) -> Vec<std::path::PathBuf> {

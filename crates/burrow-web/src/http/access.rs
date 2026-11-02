@@ -14,9 +14,10 @@ use super::upstream::pool::{Back, Key, Pool};
 use super::upstream::send::Asking;
 use super::upstream::{refusal_page, strip_hop_by_hop};
 use crate::auth::forward::{Asked, copy_granted, strip_visitor_copies, subrequest};
+use crate::auth::oidc::{Ask, Logins};
 use crate::auth::{Access, Verdict, basic, retry_after};
 use crate::route::Table;
-use crate::{Ask, ForwardAuth, Upstream, Visitor};
+use crate::{Admission, ForwardAuth, Upstream, Visitor};
 
 const AUTH_BODY: usize = 64 * 1024;
 const AUTH_DRAIN: Duration = Duration::from_secs(1);
@@ -26,6 +27,7 @@ pub(crate) struct Gate<'a, U> {
     pub pool: &'a Arc<Pool>,
     pub epoch: u64,
     pub access: &'a Access,
+    pub logins: &'a Logins,
     pub table: &'a Table,
     pub site: &'a SiteRun,
     pub visitor: &'a Visitor,
@@ -49,8 +51,11 @@ fn login(site: &SiteRun) -> Response<Body> {
 
 impl<U: Upstream> Gate<'_, U> {
     pub(crate) fn allowed(&self) -> Option<Response<Body>> {
-        let ok = self.up.allowed(&self.site.service, self.visitor);
-        (!ok).then(|| Page::Forbidden.response_from(&self.site.pages))
+        match self.up.allowed(&self.site.service, self.visitor) {
+            Admission::In => None,
+            Admission::Refused => Some(Page::Forbidden.response_from(&self.site.pages)),
+            Admission::Region { credit } => Some(Page::Region { credit }.response()),
+        }
     }
 
     pub(crate) async fn check(&self, req: &mut Request<Kept>) -> Option<Response<Body>> {
@@ -77,10 +82,17 @@ impl<U: Upstream> Gate<'_, U> {
                 Verdict::Busy => return Some(Page::Busy.response_from(&self.site.pages)),
             }
         }
-        match &self.site.options.forward_auth {
-            Some(fa) => self.forward_auth(fa, req).await,
-            None => None,
+        if let Some(fa) = &self.site.options.forward_auth {
+            return self.forward_auth(fa, req).await;
         }
+        let login = self.site.options.oidc.as_ref()?;
+        let ask = Ask {
+            logins: self.logins,
+            table: self.table,
+            host: &self.visitor.host,
+            login,
+        };
+        ask.check(req).await
     }
 
     async fn forward_auth(
@@ -133,7 +145,7 @@ async fn ask<U: Upstream>(
 ) -> Result<Response<Body>, Page> {
     let deadline = Instant::now() + wait;
     let (way, lease) = up
-        .lease(&fa.service, visitor, Ask::Auth)
+        .lease(&fa.service, visitor, crate::Ask::Auth)
         .map_err(refusal_page)?;
     let site = table.site(&fa.service);
     let hop = site.map_or(Hop::Plain, |s| s.hop.clone());
@@ -150,7 +162,7 @@ async fn ask<U: Upstream>(
         key,
         deadline,
         epoch,
-        ask: Ask::Auth,
+        ask: crate::Ask::Auth,
     };
     let (resp, home, ticket) = asking.send_h1(None, sub).await.map_err(|m| m.page)?;
     let lease = (asking.lease, ticket);

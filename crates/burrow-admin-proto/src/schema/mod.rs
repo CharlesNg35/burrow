@@ -8,8 +8,8 @@ use crate::Path;
 
 pub use relation::{Cond, Relation};
 pub use sem::{
-    DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
-    NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,
+    CountryC, DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC,
+    MapC, NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,
     RefMapC, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC, WEIGHT_MAX,
 };
 
@@ -282,6 +282,7 @@ pub enum Entity {
     Visitor,
     Service,
     Login,
+    Oidc,
     Unknown(String),
 }
 
@@ -292,6 +293,7 @@ impl Entity {
             Entity::Visitor => "visitor",
             Entity::Service => "service",
             Entity::Login => "login",
+            Entity::Oidc => "oidc",
             Entity::Unknown(s) => s,
         }
     }
@@ -301,6 +303,7 @@ impl Entity {
             Entity::Client => "Clients",
             Entity::Visitor => "Visitors",
             Entity::Login => "Login services",
+            Entity::Oidc => "Login providers",
             Entity::Service | Entity::Unknown(_) => "Services",
         }
     }
@@ -311,6 +314,7 @@ impl Entity {
             "visitor" => Entity::Visitor,
             "service" => Entity::Service,
             "login" => Entity::Login,
+            "oidc" => Entity::Oidc,
             other => Entity::Unknown(other.to_string()),
         }
     }
@@ -320,7 +324,7 @@ impl Entity {
             Entity::Client => "clients",
             Entity::Visitor => "visitors",
             Entity::Service => "services",
-            Entity::Login => "web",
+            Entity::Login | Entity::Oidc => "web",
             Entity::Unknown(s) => s,
         }
     }
@@ -398,6 +402,7 @@ mod tests {
     fn every_type_newer_than_v0_1_2_tells_older_uis_what_to_show() {
         for (s, tag) in [
             (SemType::HostName(HostNameC::default()), "host_name"),
+            (SemType::Country(CountryC::default()), "country"),
             (SemType::Upload(UploadC::new("pair")), "upload"),
             (
                 SemType::PasswordHash(PasswordHashC::default()),

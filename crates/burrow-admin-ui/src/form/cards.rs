@@ -114,7 +114,7 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
     out
 }
 
-fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
+fn scalar_card(c: &SettingsCard, border: &str, below: AnyView) -> AnyView {
     let all: Vec<&Field> = c.fields.iter().collect();
     let (essential, advanced) = split(&all, false);
     let one = |f: &Field| {
@@ -151,6 +151,7 @@ fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
             {head}
             <div class="divide-y divide-rowline px-4">{rows}</div>
+            {below}
         </section>
     }
     .into_any()
@@ -164,7 +165,7 @@ fn all_advanced(node: &Node) -> bool {
         && (node.advanced || inside.iter().all(|f| f.node.advanced))
 }
 
-pub fn settings_card(c: &SettingsCard) -> AnyView {
+pub fn settings_card(c: &SettingsCard, below: AnyView) -> AnyView {
     let locked_all = store().schema.with_untracked(|sc| {
         sc.as_ref().is_some_and(|sc| {
             let locked = sc.locked_paths();
@@ -180,7 +181,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         "border-border"
     };
     if !c.object {
-        return scalar_card(c, border);
+        return scalar_card(c, border, below);
     }
     let Some(f) = c.fields.first().cloned() else {
         return ().into_any();
@@ -261,6 +262,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
                     body.into_any()
                 }}
             </div>
+            {below}
         </section>
     }
     .into_any()
