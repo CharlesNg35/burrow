@@ -79,7 +79,7 @@ mod tests {
         m.env_file = Some(PathBuf::from("/etc/burrow/nas.env"));
         let path = render_path(&m, Path::new("/var/lib/burrow/nas"));
         assert!(
-            path.contains("PathChanged=/var/lib/burrow/nas/request.json\n"),
+            path.contains("PathExists=/var/lib/burrow/nas/request.json\n"),
             "{path}"
         );
         assert!(path.contains("Unit=burrow-nas-update.service\n"), "{path}");
