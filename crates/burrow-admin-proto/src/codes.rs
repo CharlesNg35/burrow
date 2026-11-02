@@ -99,3 +99,4 @@ pub const READ_BY_THE_CLI: [&str; 6] = [
     NO_CLIENTS,
     TLS_UNREADABLE,
 ];
+pub const INVALID_SOURCE: &str = "invalid-source";

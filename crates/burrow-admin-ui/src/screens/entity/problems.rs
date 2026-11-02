@@ -316,4 +316,18 @@ mod tests {
         );
         assert_eq!(merged(Vec::new(), vec![own[0].clone()]), own);
     }
+
+    #[test]
+    fn a_website_field_is_named_by_its_own_label() {
+        use burrow_config::admin_schema::AdminSchema;
+        let root = burrow_config::ServerConfig::node();
+        for (key, label) in [
+            ("paths", "Paths"),
+            ("hosts", "Names"),
+            ("app_path", "Path on the app"),
+        ] {
+            let at = p(&["services", "*", "web", key]);
+            assert_eq!(root.at(&at).map(|n| n.label.as_str()), Some(label), "{key}");
+        }
+    }
 }

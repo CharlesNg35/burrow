@@ -276,7 +276,7 @@ pub fn source_list(
                 at.push(&n);
                 out.push(
                     Diagnostic::error(
-                        "invalid-source",
+                        burrow_admin_proto::codes::INVALID_SOURCE,
                         format!("invalid {field} entry for {owner}: {}", e.describe()),
                     )
                     .at(spans.value(&at))
