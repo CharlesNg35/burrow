@@ -114,7 +114,7 @@ fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
                 .to_string(),
             "dash.lan.example.com: plain HTTP on [::]:80 only, unencrypted (tls: off) -> service intranet"
                 .to_string(),
-            format!("erp.corp.example.com: web.certificates[0] ({}) -> service erp", at("corp.pem")),
+            format!("erp.corp.example.com: shared file {} -> service erp", at("corp.pem")),
             "example.com: Let's Encrypt, TLS check -> service blog".to_string(),
             "nas.example.com: the app does its own HTTPS -> service nas".to_string(),
             format!("portal.example.com: file {} -> service portal", at("portal.pem")),
