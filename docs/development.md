@@ -108,6 +108,8 @@ cargo test -p xtask                            # the checks of cargo xtask
 cargo test -p burrow --lib tests_docs          # the YAML examples of docs/web.md, docs/web/ and docs/websocket.md are valid configs
 ```
 
+**Isolated from the machine.** `BURROW_INSTANCE_DIR` and `BURROW_SERVICE_DIR` move where burrow looks for running copies and for installed services. The suites set both to temporary folders, so a burrow installed on the machine running the tests never changes what they see.
+
 **Over WebSocket.** `BURROW_TEST_TRANSPORT=ws` runs the tunnel suites with clients and visitors on WebSocket instead of TCP. CI runs this list:
 
 ```sh
