@@ -24,7 +24,9 @@ impl Pending {
         if moved.is_err() {
             self.discard();
         }
-        Ok(moved?)
+        moved?;
+        rustix::fs::fsync(&self.dir)?;
+        Ok(())
     }
 
     pub fn discard(&self) {

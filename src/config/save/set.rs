@@ -11,6 +11,28 @@ pub enum Change {
     Remove { before: String },
 }
 
+fn items(text: &str) -> std::collections::BTreeSet<(String, String)> {
+    let (_, _, src) = crate::config::patch::split_text(text);
+    let mut out = std::collections::BTreeSet::new();
+    if let Ok(root) = crate::config::tree::parse(&src)
+        && let crate::config::tree::Value::Map(top) = root.value
+    {
+        for section in top
+            .into_iter()
+            .filter(|e| burrow_config::drop_ins::is_section(&e.key))
+        {
+            if let crate::config::tree::Value::Map(list) = section.value.value {
+                out.extend(list.into_iter().map(|i| (section.key.clone(), i.key)));
+            }
+        }
+    }
+    out
+}
+
+fn loses(before: &str, after: &str) -> bool {
+    !items(before).is_subset(&items(after))
+}
+
 pub fn changes(before: &Docs, after: &Docs) -> Vec<(String, Change)> {
     let mut out = Vec::new();
     for d in &after.list {
@@ -41,11 +63,11 @@ pub fn changes(before: &Docs, after: &Docs) -> Vec<(String, Change)> {
             ));
         }
     }
-    let main = before.main().name.clone();
-    out.sort_by_key(|(name, c)| match c {
-        Change::Create { .. } => 0,
-        Change::Replace { .. } if *name != main => 1,
-        Change::Replace { .. } => 2,
+    out.sort_by_key(|(_, c)| match c {
+        Change::Replace { before, after } if loses(before, after) => 0,
+        Change::Remove { before } if loses(before, "") => 0,
+        Change::Replace { .. } => 1,
+        Change::Create { .. } => 2,
         Change::Remove { .. } => 3,
     });
     out
@@ -249,6 +271,33 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_loses_an_item_is_written_before_the_file_that_gains_it() {
+        let before = docs(&[
+            ("server.yaml", "services:\n  web: {}\n  db: {}\n"),
+            ("server.d/a.yaml", "services:\n  blog: {}\n"),
+            ("server.d/b.yaml", "clients:\n  home: {}\n"),
+        ]);
+        let split = docs(&[
+            ("server.yaml", "services:\n  db: {}\n"),
+            ("server.d/a.yaml", "services:\n  blog: {}\n"),
+            ("server.d/b.yaml", "clients:\n  home: {}\n"),
+            ("server.d/web.yaml", "services:\n  web: {}\n"),
+        ]);
+        let order: Vec<String> = changes(&before, &split).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(order, ["server.yaml", "server.d/web.yaml"]);
+        let merge = docs(&[
+            ("server.yaml", "services:\n  web: {}\n  db: {}\n  blog: {}\n"),
+            ("server.d/a.yaml", "services: {}\n"),
+            ("server.d/b.yaml", "clients:\n  home: {}\n"),
+        ]);
+        let order: Vec<String> = changes(&before, &merge).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(order, ["server.d/a.yaml", "server.yaml"]);
+        let revert = docs(&[("server.yaml", "services:\n  web: {}\n  db: {}\n  blog: {}\n  x: {}\n")]);
+        let order: Vec<String> = changes(&before, &revert).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(order, ["server.d/a.yaml", "server.d/b.yaml", "server.yaml"]);
+    }
+
+    #[test]
     fn a_change_over_several_files_writes_creates_and_removes_them_together() {
         let (dir, main, before) = setup();
         let after = docs(&[
@@ -323,7 +372,7 @@ mod tests {
         let text = e.to_string();
         assert!(text.starts_with("could not restore 2 files: "), "{text}");
         assert!(
-            text.contains("new.yaml") && text.contains("a.yaml"),
+            text.contains("a.yaml") && text.contains("server.yaml"),
             "{text}"
         );
     }
