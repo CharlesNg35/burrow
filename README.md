@@ -14,6 +14,8 @@
 
 burrow is a fast, small and secure reverse tunnel. It makes an app on a machine behind a router or firewall (NAT) reachable through a public server, without opening any port at home. It can also serve your apps as websites with automatic HTTPS, open private services only to your own devices with `burrow visit`, and show it all in a web admin.
 
+It does the job of frp, rathole, ngrok or Pangolin, in one file you host yourself.
+
 ```
 user ──> server:7840 ══ encrypted tunnel ══ client (behind NAT) ──> your app on 127.0.0.1:3000
 ```
@@ -367,38 +369,16 @@ All traffic between the server, clients and visitors is encrypted. Each client a
 
 ## Benchmarks
 
-burrow against rathole, frp and chisel on one machine (i5-12600K, 10 vCPUs), all on loopback, measured with `bench/run.sh`:
+- **The tunnel** against rathole, frp and chisel: throughput, new connections per second, latency and memory for 10,000 connections. See [docs/benchmark.md](docs/benchmark.md).
+- **Websites** against nginx and Caddy on the same machine: requests per second, latency, CPU, memory and a burst. See [docs/web-benchmark.md](docs/web-benchmark.md).
 
-|                               | burrow (default)       | rathole 0.5 (noise) | frp 0.71 (default) | chisel 1.12 |
-| ----------------------------- | ---------------------- | ------------------- | ------------------ | ----------- |
-| throughput, 1 / 4 streams     | **12.6 / 33.4 Gbit/s** | 5.4 / 18.1          | 8.5 / 8.8          | 6.0 / 5.6   |
-| new connections/s             | **13.5k**              | 5.9k                | 10.0k              | 11.8k       |
-| p99 latency under load        | **549 µs**             | 769 µs              | 678 µs             | 1057 µs     |
-| RSS with 10k idle connections | **220 MiB**            | 2784 MiB            | 796 MiB            | 719 MiB     |
-
-With `cipher: aes-gcm`, burrow reaches 22.3 / 49.9 Gbit/s. Over WebSocket it does 11.8 / 31.1 Gbit/s with 391 MiB for 10k idle connections (chisel, also WebSocket: 6.0 / 5.6 Gbit/s, 719 MiB). Unencrypted, burrow moves 2.1x rathole's plain TCP throughput with one stream (1.3x with four), and opens 7% fewer connections per second (14.2k vs 15.3k).
-
-**Read more:** [docs/benchmark.md](docs/benchmark.md), with the full table, the machine and the exact commands.
+Each page lists the machine, the configs and how to run the benchmark yourself.
 
 ## Development
 
-burrow is written in Rust. These commands run the tests:
+burrow is written in Rust. To build it, run its tests or change it:
 
-```sh
-cargo test                                            # unit, integration, security, diagnostics, init
-cargo test --release --test heavy -- --ignored --test-threads=1   # 10k connections, soak, chaos, churn and leak checks
-cd fuzz && cargo +nightly fuzz run config            # cargo fuzz list shows every target
-tests/e2e/proxies.sh                                  # wss:// through real nginx and Caddy containers (needs docker)
-BURROW_TEST_TRANSPORT=ws cargo test --test integration   # run the integration suite over WebSocket
-```
-
-`make help` lists the common commands (GNU make on Linux and macOS; on Windows use cargo and `cargo xtask` directly).
-
-- Code rules: [CONTRIBUTING.md](CONTRIBUTING.md)
+- How to build and test, and the code rules: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Design notes: [docs/decisions.md](docs/decisions.md) and [docs/research.md](docs/research.md)
 - The wire protocol: [docs/protocol.md](docs/protocol.md)
 - Working on the admin UI: [docs/admin-ui-dev.md](docs/admin-ui-dev.md)
-
-## License
-
-MIT
