@@ -98,7 +98,7 @@ pub(super) fn Header() -> impl IntoView {
                     <Icon name="chevron-down" small=true/>
                 </button>
                 <Show when=move || menu_open.get()>
-                    <div class=burrow_ui_kit::menu_class("top-11 left-10 w-80", false) id="server-menu" tabindex="-1" data-testid="server-menu" on:click=move |_| menu_open.set(false)>
+                    <div class=burrow_ui_kit::menu_class("top-11 left-10 w-max min-w-80 max-w-[calc(100vw-72px)]", false) id="server-menu" tabindex="-1" data-testid="server-menu" on:click=move |_| menu_open.set(false)>
                         {facts}
                         <div class="border-t border-border p-1">
                             <Link to=Route::About class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm no-underline hover:bg-surface-3">"About this server"</Link>

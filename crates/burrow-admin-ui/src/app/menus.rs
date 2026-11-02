@@ -46,7 +46,7 @@ pub(super) fn facts(s: Store) -> impl IntoView + Copy + use<> {
         s.welcome.get()?;
         let st = s.state.get()?;
         Some(view! {
-            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-all [&_dd]:whitespace-pre-line">
+            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-words [&_dd]:whitespace-pre-line">
                 <dt>"Listening"</dt><dd>{s.status.get().map(|x| x.listening.join("\n")).unwrap_or_default()}</dd>
                 <dt>"Config"</dt><dd>{st.file.path.clone()}</dd>
             </dl>
