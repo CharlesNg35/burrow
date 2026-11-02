@@ -178,7 +178,7 @@ pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView 
         } else {
             view! {
                 <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 text-sm" data-main-target="">
-                    <span class="text-text-muted">{format!("{} · ", burrow_admin_logic::wording::MAIN_TARGET)}{move || match main.get() {
+                    <span class="min-w-0 truncate text-text-muted">{format!("{} · ", burrow_admin_logic::wording::MAIN_TARGET)}{move || match main.get() {
                         Some(m) => view! { <span class="font-mono text-[13px]">{m}</span> }.into_any(),
                         None => view! { <span class="font-semibold text-warning" data-main-unset="">{burrow_admin_logic::wording::NOT_SET}</span> }.into_any(),
                     }}</span>

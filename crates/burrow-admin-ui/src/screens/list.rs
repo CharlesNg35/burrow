@@ -60,7 +60,7 @@ pub fn ListCard(
                 </span>
                 {(!row.line2.is_empty()).then(|| {
                     let line2 = row.line2.clone();
-                    view! { <span class="line-clamp-2 block text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
+                    view! { <span class="line-clamp-2 text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
                 })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
                 {(!row.tags.is_empty() || row.health.is_some() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {

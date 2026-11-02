@@ -148,9 +148,9 @@ pub fn StatusDot(
         })
     };
     view! {
-        <span class="inline-flex items-center gap-2 text-sm whitespace-nowrap" data-on=move || on.get().to_string()>
+        <span class="inline-flex max-w-full items-center gap-2 text-sm whitespace-nowrap" data-on=move || on.get().to_string()>
             <Dot tone=Signal::derive(tone)/>
-            <span>{move || text.get()}</span>
+            <span class="min-w-0 truncate">{move || text.get()}</span>
         </span>
     }
 }

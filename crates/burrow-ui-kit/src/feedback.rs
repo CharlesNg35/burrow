@@ -69,7 +69,7 @@ pub fn Callout(
                 <span class=tone.text()><Icon name=tone.icon()/></span>
                 {title}
             </div>
-            <div>{children()}</div>
+            <div class="[overflow-wrap:anywhere]">{children()}</div>
         </div>
     }
 }

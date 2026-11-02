@@ -315,13 +315,13 @@ fn chips(
                 (false, false) => "",
             };
             view! {
-                <span class=format!("inline-flex h-[26px] min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {look}") data-chip=v.clone() title=text.clone()>
+                <span class=format!("inline-flex h-[26px] max-w-full min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {look}") data-chip=v.clone() title=text.clone()>
                     <Dot tone=dot.unwrap_or(Tone::Neutral)/>
                     <span class="truncate">{text.clone()}</span>
                     {removable.then(|| view! {
                         <button
                             type="button"
-                            class="flex size-[18px] cursor-pointer items-center justify-center rounded-xs text-text-faint hover:bg-border hover:text-text"
+                            class="relative flex size-[18px] cursor-pointer items-center justify-center rounded-xs text-text-faint after:absolute after:-inset-[3px] hover:bg-border hover:text-text"
                             aria-label=format!("Remove {text}")
                             data-remove=v2.clone()
                             on:mousedown=move |e| e.prevent_default()
