@@ -1,7 +1,10 @@
-use std::net::SocketAddr;
+use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+#[cfg(target_os = "freebsd")]
+const PORTS: std::ops::Range<u16> = 2_000..10_000;
+#[cfg(not(target_os = "freebsd"))]
 const PORTS: std::ops::Range<u16> = 20_000..32_000;
 const CLAIM_KEPT: Duration = Duration::from_secs(3600);
 
@@ -46,4 +49,28 @@ pub fn free_range(count: u16) -> u16 {
 
 pub fn free_port() -> u16 {
     free_range(1)
+}
+
+pub fn free_dual_stack() -> SocketAddr {
+    SocketAddr::from((Ipv6Addr::UNSPECIFIED, free_port()))
+}
+
+pub fn first_ephemeral_port() -> Option<u16> {
+    let text = if cfg!(target_os = "linux") {
+        std::fs::read_to_string("/proc/sys/net/ipv4/ip_local_port_range").ok()?
+    } else if cfg!(any(target_os = "freebsd", target_os = "macos")) {
+        let sysctl = if cfg!(target_os = "macos") {
+            "/usr/sbin/sysctl"
+        } else {
+            "/sbin/sysctl"
+        };
+        let out = std::process::Command::new(sysctl)
+            .args(["-n", "net.inet.ip.portrange.first"])
+            .output()
+            .ok()?;
+        String::from_utf8(out.stdout).ok()?
+    } else {
+        return None;
+    };
+    text.split_whitespace().next()?.parse().ok()
 }
