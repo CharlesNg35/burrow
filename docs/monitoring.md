@@ -44,7 +44,7 @@ SERVICES
 VISITORS
   NAME    LAST USED        OPEN  TOTAL
   laptop  now                 1     12
-  phone   2m ago              0      3
+  phone   2m 30s ago          0      3
   ops     not since start     0      0
 
 2 refused handshakes since start (wrong secret, unknown name or limits)
@@ -78,7 +78,7 @@ A failing certificate gets a line with the reason, and a link when Let's Encrypt
 - **at limit** after a client's state: in the last minute the client refused new connections because it reached its `max_connections`. In `--json`, `at_limit` is true, and `busy_total` counts those refusals since the server started.
 - **REFUSED:** connections the service refused: a blocked source address, a limit (the service's own, or a client that answered busy at its `max_connections`), or no client to serve it.
 - **IN:** bytes from users to the target. **OUT:** bytes back to users.
-- **LAST USED** of a visitor: `now` while it has connections open. Otherwise, how long ago it last opened or closed one, or a running `burrow visit` or `burrow init visitor` last checked in (`2m ago`); or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
+- **LAST USED** of a visitor: `now` while it has connections open. Otherwise, how long ago it last opened or closed one, or a running `burrow visit` or `burrow init visitor` last checked in (`2m 30s ago`); or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
 - **CLIENTS** of a service: whether each client can serve it now. `failing` or `refused` means the client could not reach the target or its `allow` list refused it, so it is skipped for a while.
 - **refused handshakes:** connections that failed to log in, because of a wrong secret, an unknown name or a limit.
 

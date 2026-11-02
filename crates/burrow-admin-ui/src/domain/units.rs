@@ -1,6 +1,6 @@
 use burrow_admin_logic::input::{rate_parts, rate_value};
 use burrow_admin_proto::serde_json::Value;
-use burrow_syntax::duration::{TimeUnit, best_unit, human, to_stored, units_for};
+use burrow_syntax::duration::{TimeUnit, best_unit, exact, to_stored, units_for};
 use burrow_syntax::rate::RateUnit;
 use burrow_ui_kit::{Segmented, Select, TextInput};
 use leptos::prelude::*;
@@ -69,7 +69,7 @@ pub(super) fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) 
         e.value(&p2)
             .and_then(|v| v.as_u64())
             .filter(|v| v.saturating_mul(stored.ms()) % unit.get().ms() != 0)
-            .map(|v| format!("= {}", human(v, stored)))
+            .map(|v| format!("= {}", exact(v, stored)))
     };
     let touched = fc.touched;
     let invalid = {

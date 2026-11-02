@@ -77,10 +77,6 @@ impl Outage {
     }
 }
 
-pub fn human(d: Duration) -> String {
-    burrow_syntax::duration::span(d.as_secs())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,13 +117,5 @@ mod tests {
         );
         assert_eq!(o.recovered(t0 + Duration::from_secs(121)), None);
         assert_eq!(o.failed(t0 + Duration::from_secs(200)), Report::First);
-    }
-
-    #[test]
-    fn human_durations() {
-        assert_eq!(human(Duration::from_secs(45)), "45s");
-        assert_eq!(human(Duration::from_secs(200)), "3m");
-        assert_eq!(human(Duration::from_secs(8040)), "2h 14m");
-        assert_eq!(human(Duration::from_secs(90000)), "1d 1h");
     }
 }

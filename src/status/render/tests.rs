@@ -150,7 +150,7 @@ SERVICES
 VISITORS
   NAME    LAST USED        OPEN  TOTAL
   laptop  now                 1     12
-  phone   2m ago              0      3
+  phone   2m 30s ago          0      3
   ops     not since start     0      0
 
 2 refused handshakes since start (wrong secret, unknown name or limits)

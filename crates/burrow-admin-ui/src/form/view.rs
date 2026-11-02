@@ -4,7 +4,7 @@ use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::schema::{ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
-use burrow_syntax::duration::human;
+use burrow_syntax::duration::exact;
 use burrow_ui_kit::{Chip, Tag, Tone};
 use leptos::prelude::*;
 
@@ -41,7 +41,7 @@ fn sem_text(sem: &SemType, v: &Value) -> String {
         }
         (SemType::Duration(c), Value::Number(n)) => n
             .as_u64()
-            .map(|n| human(n, time_unit(c.unit)))
+            .map(|n| exact(n, time_unit(c.unit)))
             .unwrap_or_else(|| plain(v)),
         (SemType::Size(c), _) => format!("{} {}", plain(v), c.unit),
         (SemType::Rate, _) => {

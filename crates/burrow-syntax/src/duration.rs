@@ -1,12 +1,5 @@
 pub const DAY_SECS: u64 = 86_400;
 
-pub fn days_left(at: u64, now: u64) -> String {
-    match at.saturating_sub(now) / DAY_SECS {
-        1 => "1 day".to_string(),
-        n => format!("{n} days"),
-    }
-}
-
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -100,14 +93,19 @@ fn suffix(u: TimeUnit) -> &'static str {
 }
 
 pub fn span(secs: u64) -> String {
-    let (d, h, m, s) = (secs / 86_400, secs / 3600 % 24, secs / 60 % 60, secs % 60);
-    match (d, h, m) {
-        (0, 0, 0) => format!("{s}s"),
-        (0, 0, _) => format!("{m}m"),
-        (0, _, 0) => format!("{h}h"),
-        (0, _, _) => format!("{h}h {m}m"),
-        (_, 0, _) => format!("{d}d"),
-        _ => format!("{d}d {h}h"),
+    let units = [
+        (secs / 86_400, "d"),
+        (secs / 3600 % 24, "h"),
+        (secs / 60 % 60, "m"),
+        (secs % 60, "s"),
+    ];
+    let Some(top) = units.iter().position(|(n, _)| *n > 0) else {
+        return "0s".into();
+    };
+    let (n, u) = units[top];
+    match units.get(top + 1) {
+        Some((m, v)) if *m > 0 => format!("{n}{u} {m}{v}"),
+        _ => format!("{n}{u}"),
     }
 }
 
@@ -119,7 +117,7 @@ pub fn ago(secs: u64) -> String {
     }
 }
 
-pub fn human(value: u64, stored: TimeUnit) -> String {
+pub fn exact(value: u64, stored: TimeUnit) -> String {
     let mut ms = value.saturating_mul(stored.ms());
     if ms == 0 {
         return format!("0{}", suffix(stored));
@@ -151,43 +149,42 @@ pub fn check_range(
         return Ok(());
     }
     Err(match (min, max) {
-        (Some(a), Some(b)) => format!("between {} and {}", human(a, stored), human(b, stored)),
-        (Some(a), None) => format!("at least {}", human(a, stored)),
-        (None, Some(b)) => format!("at most {}", human(b, stored)),
+        (Some(a), Some(b)) => format!("between {} and {}", exact(a, stored), exact(b, stored)),
+        (Some(a), None) => format!("at least {}", exact(a, stored)),
+        (None, Some(b)) => format!("at most {}", exact(b, stored)),
         (None, None) => String::new(),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn days_left_says_one_day_and_counts_the_rest() {
-        use super::{DAY_SECS, days_left};
-        assert_eq!(days_left(DAY_SECS + 5, 0), "1 day");
-        assert_eq!(days_left(2 * DAY_SECS + 5, 0), "2 days");
-        assert_eq!(days_left(100, 0), "0 days");
-    }
-
     use super::*;
 
     #[test]
     fn a_span_reads_like_2h_5m_with_its_two_largest_units() {
         assert_eq!(span(0), "0s");
-        assert_eq!(span(59), "59s");
-        assert_eq!(span(125), "2m");
-        assert_eq!(span(7500), "2h 5m");
-        assert_eq!(span(3 * 86_400 + 4 * 3600 + 59), "3d 4h");
+        assert_eq!(span(45), "45s");
+        assert_eq!(span(200), "3m 20s");
+        assert_eq!(span(180), "3m");
+        assert_eq!(span(8040), "2h 14m");
         assert_eq!(span(7200 + 59), "2h");
+        assert_eq!(span(90_000), "1d 1h");
         assert_eq!(span(60 * 86_400 + 1800), "60d");
         assert_eq!(ago(4), "just now");
         assert_eq!(ago(7500), "2h 5m ago");
     }
 
     #[test]
+    fn exact_writes_every_unit_while_span_keeps_the_two_largest() {
+        assert_eq!(exact(3 * 3600 + 25 * 60 + 7, TimeUnit::Secs), "3h 25m 7s");
+        assert_eq!(span(3 * 3600 + 25 * 60 + 7), "3h 25m");
+    }
+
+    #[test]
     fn conversions() {
-        assert_eq!(human(5400, TimeUnit::Secs), "1h 30m");
-        assert_eq!(human(0, TimeUnit::Secs), "0s");
-        assert_eq!(human(1500, TimeUnit::Ms), "1s 500ms");
+        assert_eq!(exact(5400, TimeUnit::Secs), "1h 30m");
+        assert_eq!(exact(0, TimeUnit::Secs), "0s");
+        assert_eq!(exact(1500, TimeUnit::Ms), "1s 500ms");
         assert_eq!(to_stored("2", TimeUnit::Mins, TimeUnit::Secs).unwrap(), 120);
         assert!(to_stored("x", TimeUnit::Secs, TimeUnit::Secs).is_err());
         assert!(to_stored("1500", TimeUnit::Ms, TimeUnit::Secs).is_err());

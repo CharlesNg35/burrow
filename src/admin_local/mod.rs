@@ -450,7 +450,7 @@ pub async fn serve_session(
             _ = tokio::time::sleep(idle_left), if shared.connected.load(Ordering::Acquire) == 0 => {
                 crate::say_errln!(
                     "no browser was connected for {}; burrow admin stopped (run it again, or pass a longer --idle-exit)",
-                    crate::client::reconnect::human(opts.idle_exit)
+                    burrow_syntax::duration::span(opts.idle_exit.as_secs())
                 );
                 last_touch(&session).await;
                 return Ok(());

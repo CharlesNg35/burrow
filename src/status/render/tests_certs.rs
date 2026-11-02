@@ -174,7 +174,7 @@ fn the_local_ca_shows_its_fingerprint_and_where_it_is_kept() {
         subject: "burrow local CA abc".into(),
         sha256: "AB:CD:EF".into(),
         root_path: "/home/u/.local/state/burrow/servers/server-1/ca/root.pem".into(),
-        warning: Some("the local CA expires in 20 days".into()),
+        warning: Some("the local CA expires in 20d".into()),
         ..crate::metrics::LocalCaStatus::default()
     });
     let text = shown(&s);
@@ -182,5 +182,5 @@ fn the_local_ca_shows_its_fingerprint_and_where_it_is_kept() {
         text.contains("Local CA burrow local CA abc, SHA-256 AB:CD:EF, kept in /home/u/.local/state/burrow/servers/server-1/ca/root.pem\n"),
         "{text}"
     );
-    assert!(text.contains("the local CA expires in 20 days\n"), "{text}");
+    assert!(text.contains("the local CA expires in 20d\n"), "{text}");
 }
