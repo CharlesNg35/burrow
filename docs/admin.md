@@ -70,7 +70,7 @@ What the pages do, and what stays a file edit:
 
 ## Client versions and updates
 
-The Overview's Clients tab shows each client's burrow version, system (like `linux/arm64`), how it runs and whether it allows remote updates, and marks the clients that have a newer release. A client's page has a **Burrow on this client** card with the same facts and, for a write admin, an **Update** button. **Update all** updates the clients that can take the newer release, one at a time, and stops at the first one that fails. The client downloads and checks the release itself, and goes back to its old version if the new one does not connect within a minute. Clients older than 0.2.2 show as "older than 0.2.2": update them by hand once. See [updates.md](updates.md).
+The Overview's Clients tab shows each client's burrow version and system with how it runs (like `linux/arm64 · service`, the full text on hover), marks the clients that have a newer release, and adds "updates off" where one waits but the client does not allow remote updates. A client's page shows its burrow next to its other figures and, for a write admin, an **Update** button. **Update all** updates the clients that can take the newer release, one at a time, and stops at the first one that fails. The client downloads and checks the release itself, and goes back to its old version if the new one does not connect within a minute. Clients older than 0.2.2 show as "older than 0.2.2": update them by hand once. See [updates.md](updates.md).
 
 ## Mixed versions
 

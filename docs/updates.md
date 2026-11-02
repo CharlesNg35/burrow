@@ -1,11 +1,12 @@
 # Updating clients from the server
 
-From 0.2.2 on, every client tells the server which burrow it runs: the release, the system (like `linux/arm64`), how it runs (a service, a container or started by hand) and whether it allows remote updates. burrow admin, `burrow status` and `burrow mcp` show this. A client that allows it can then be updated from burrow admin or `burrow mcp`. The server only asks it to update; the client finds the latest release itself, fetches it from the official releases, checks it, and goes back to its old version if the new one does not connect.
+From 0.2.2 on, every client tells the server which burrow it runs: the release, the system (like `linux/arm64`), how it runs (a service, a container or started by hand) and whether it allows remote updates. burrow admin, `burrow status`, `burrow clients` and `burrow mcp` show this. A client that allows it can then be updated in three ways: from burrow admin, with `burrow mcp`, or with `burrow clients update` on the server machine. The server only asks it to update; the client finds the latest release itself, fetches it from the official releases, checks it, and goes back to its old version if the new one does not connect.
 
 Back to the [README](../README.md). Updating the server or a client by hand: [service.md](service.md#update-burrow).
 
 - [Allow it on the client](#allow-it-on-the-client)
 - [Update from burrow admin](#update-from-burrow-admin)
+- [From the server's command line](#from-the-servers-command-line)
 - [What the client does](#what-the-client-does)
 - [Clients older than 0.2.2](#clients-older-than-022)
 - [What the server cannot do](#what-the-server-cannot-do)
@@ -41,12 +42,32 @@ A client that allows remote updates but cannot do them says why, for example "th
 ## Update from burrow admin
 
 - The Overview's Clients tab lists each client's version and system, marks the clients that have a newer release ("0.2.2 available") and shows **Update all to 0.2.2 (N)** for the clients that can take it.
-- A client's page has a **Burrow on this client** card: version, system, how it runs, remote updates, the newer release, and an **Update to 0.2.2** button. A disabled button says why on hover.
+- A client's page shows its burrow next to its other figures: version, system, how it runs, remote updates, a "0.2.3 available" tag and an **Update** button. A disabled button says why on hover.
 - Both ask for confirmation first. **Update all** updates one client at a time. The next client starts only after the one before it has connected again with the new version, and it stops at the first client that fails, says so and names the reason.
-- The result shows on the client's card ("0.2.2 → 0.2.3: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
+- The result shows under the client's figures ("0.2.2 → 0.2.3: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
 - burrow admin needs `admin: write`; read-only admins see versions but no buttons.
 
-The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while an admin looks at the status, and remembers it for 6 hours (15 minutes after a failed check). Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update. With `burrow mcp --allow-write`, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
+The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while someone looks at the status (burrow admin, `burrow status`, `burrow clients`), and remembers it for 6 hours (15 minutes after a failed check). Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update. With `burrow mcp --allow-write`, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
+
+## From the server's command line
+
+On the server machine, `burrow clients` lists the clients of the running server with their burrow, and `burrow clients update` asks them to update. It finds the server the way `burrow status` does, so it needs no config and no visitor:
+
+```sh
+sudo burrow clients                      # each client's version, system, how it runs, remote updates, a newer release
+sudo burrow clients update home nas      # ask home, then nas, after a confirmation
+sudo burrow clients update --all --yes   # every client that can take it, without asking
+sudo burrow clients update home --json   # the result as JSON, for scripts
+```
+
+- With several servers on the machine, name one with `--service NAME` (short names work: `--service server`) or `-c FILE`. Listing shows them all; updating refuses until one is named.
+- It says first which clients it asks and why the others are not asked (offline, remote updates off, already on the latest release, older than 0.2.2), then asks for a confirmation unless `--yes` is given. Without a terminal and without `--yes` nothing is asked.
+- It follows each client and prints a line per step: `home: 0.2.2 → 0.2.3 updated`, `nas: rolled back: <reason>`, and `stopped: pi not updated` when an update of several stops at a failure.
+- It exits 0 only when every client it asked has updated. Ctrl-C stops watching only; the update goes on on the server.
+- The server records it as "asked by burrow clients on the server", on the client's page in burrow admin and in its log.
+- It works only on the server machine, as the account that runs the server (root for a service). A visitor updates clients with burrow admin or `burrow mcp`'s `update_clients`.
+
+All three go through the same code on the server: the same choice of clients, the same reasons, the latest release checked before asking, one client at a time and a stop at the first failure. See [D79](decisions.md#d79-burrow-clients-updates-clients-from-the-server-machine-through-one-write-route-of-the-local-status-endpoint).
 
 ## What the client does
 
