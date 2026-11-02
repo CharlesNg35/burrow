@@ -398,3 +398,19 @@ fn a_pipe_named_like_a_drop_in_is_skipped_with_a_warning_and_never_read() {
     assert_eq!(listed.names, ["server.d/apps.yaml"]);
     std::fs::remove_file(&pipe).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn a_name_with_a_newline_is_not_read_and_history_stays_readable() {
+    let d = Dir::new();
+    d.drop_in("a\nb.yaml", "services: {}\n");
+    let o = d.load();
+    assert_eq!(o.report.sources.len(), 1, "{}", shown(&o));
+    assert!(
+        o.report.diagnostics.iter().any(|x| x.code == codes::DROP_IN_IGNORED),
+        "{}",
+        shown(&o)
+    );
+    let docs = crate::config::docs::read(&d.main).unwrap();
+    assert_eq!(crate::config::docs::Docs::unbundle(&d.main, &docs.bundle()), Some(docs));
+}

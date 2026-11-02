@@ -27,7 +27,8 @@ pub fn file_in<'a>(folder: &str, name: &'a str) -> Option<&'a str> {
         && file != "."
         && file != ".."
         && !file.starts_with('.')
-        && !file.contains(['/', '\\', '\0', ':'])
+        && !file.contains(['/', '\\', ':'])
+        && !file.chars().any(char::is_control)
         && file.ends_with(".yaml");
     plain.then_some(file)
 }
@@ -76,6 +77,9 @@ mod tests {
             "server.d/c:x.yaml",
             "other.d/x.yaml",
             "server.d",
+            "server.d/a\nb.yaml",
+            "server.d/a\tb.yaml",
+            "server.d/a\u{7f}b.yaml",
         ] {
             assert_eq!(file_in("server.d", bad), None, "{bad}");
         }
