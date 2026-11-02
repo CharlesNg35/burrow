@@ -236,7 +236,7 @@ allow:
   - unix:/run/postgresql/* # Unix sockets: one path, or every socket in a folder
 ```
 
-`allow` is the list of targets this client agrees to connect to; anything else is refused, even when the server asks for it. Each entry is an address range in CIDR form, optionally with `:port` or `:low-high`: `192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, and `/32` means one address. Host names are checked after they are resolved. `burrow client-config` writes this list from the server's services.
+`allow` is the list of targets this client agrees to connect to; anything else is refused, even when the server asks for it. Each entry is an address range in CIDR form, optionally with `:port` or `:low-high`: `192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, and `/32` means one address. A network starts at its first address: `192.168.1.5/24` is refused, so write `192.168.1.0/24` for the network or `192.168.1.5/32` for that one machine (`/128` for IPv6). The same holds wherever networks are written: `allow_from`, `deny_from`, `reach`, `admin_from` and `web.trusted_proxies`. Host names are checked after they are resolved. `burrow client-config` writes this list from the server's services.
 
 <details>
 <summary><b>All client.yaml keys</b></summary>
