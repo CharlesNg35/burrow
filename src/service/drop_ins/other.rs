@@ -52,4 +52,11 @@ impl<'a> Folder<'a> {
         }
         Ok(())
     }
+
+    pub(super) fn remove(&self, file: &str) -> Result<(), Failure> {
+        let gone = self.to.join(file);
+        writable_again(&gone);
+        std::fs::remove_file(&gone)
+            .map_err(|e| Failure::new(format!("cannot remove {}: {e}", gone.display())))
+    }
 }

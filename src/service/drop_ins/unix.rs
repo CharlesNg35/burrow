@@ -101,4 +101,9 @@ impl Folder {
         }
         Ok(())
     }
+
+    pub(super) fn remove(&self, file: &str) -> Result<(), Failure> {
+        rustix::fs::unlinkat(&self.dir, file, AtFlags::empty())
+            .map_err(|e| failed("remove", &self.shown.join(file), e))
+    }
 }

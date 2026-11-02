@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
@@ -58,6 +59,88 @@ fn refuse_link(to: &Path) -> Result<(), Failure> {
     Ok(())
 }
 
+const COPIED: &str = ".burrow-copied";
+
+fn copied_before(to: &Path) -> Vec<String> {
+    docs::read_regular(&to.join(COPIED))
+        .map(|t| t.lines().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+fn leftovers(source: &Path, config: &Path) -> Result<Vec<String>, Failure> {
+    let to = drop_in_folder(config);
+    refuse_link(&to)?;
+    let wanted: Vec<String> = listed(source)?
+        .iter()
+        .map(|n| file_part(n).to_string())
+        .collect();
+    let before = copied_before(&to);
+    Ok(listed(config)?
+        .iter()
+        .map(|n| file_part(n).to_string())
+        .filter(|f| !wanted.contains(f) && !before.contains(f))
+        .collect())
+}
+
+pub(super) fn check_leftovers(
+    source: &Path,
+    config: &Path,
+    env: &BTreeMap<String, String>,
+) -> Result<(), Failure> {
+    if crate::base::fs::canonical_or_same(source) == crate::base::fs::canonical_or_same(config) {
+        return Ok(());
+    }
+    let kept = leftovers(source, config)?;
+    if kept.is_empty() {
+        return Ok(());
+    }
+    let to = drop_in_folder(config);
+    let main = crate::config::load::Input {
+        name: source.display().to_string(),
+        text: std::fs::read_to_string(source).unwrap_or_default(),
+        format: crate::config::Format::from_path(source).unwrap_or(crate::config::Format::Yaml),
+    };
+    let mut found = Vec::new();
+    let mut inputs = crate::config::load::read_set(source, main, &mut found);
+    for file in &kept {
+        let path = to.join(file);
+        if let Ok(text) = docs::read_regular(&path) {
+            inputs.push(crate::config::load::Input {
+                name: path.display().to_string(),
+                text,
+                format: crate::config::Format::Yaml,
+            });
+        }
+    }
+    let lookup = |k: &str| env.get(k).cloned();
+    let dir = docs::folder_of(source);
+    let state = crate::install::state_dir_for(config);
+    let outcome = crate::config::load::finish(
+        crate::config::load::load_set(
+            source,
+            (&dir, &state),
+            inputs,
+            Some(crate::config::Role::Server),
+            &lookup,
+        ),
+        found,
+    );
+    let Some(first) = outcome.report.diagnostics.iter().find(|d| d.is_error()) else {
+        return Ok(());
+    };
+    let shown: Vec<String> = kept
+        .iter()
+        .map(|f| to.join(f).display().to_string())
+        .collect();
+    Err(Failure::new(format!(
+        "{} {} not from the source and would stay, but with it the installed config is invalid: {}",
+        shown.join(", "),
+        if shown.len() == 1 { "is" } else { "are" },
+        first.message
+    ))
+    .hint("burrow never deletes a drop-in file it did not copy; remove or fix it by hand, then install again"))
+}
+
 pub(super) fn copy(
     backend: &dyn Backend,
     (source, config): (&Path, &Path),
@@ -69,28 +152,47 @@ pub(super) fn copy(
     refuse_link(&to)?;
     let names = listed(source)?;
     let wanted: Vec<&str> = names.iter().map(|n| file_part(n)).collect();
-    for old in listed(config)? {
-        if !wanted.contains(&file_part(&old)) {
+    let installed = listed(config)?;
+    if names.is_empty() && installed.is_empty() {
+        return Ok(());
+    }
+    let folder = place::Folder::open(backend, (config, &to), account, writable)?;
+    let before = copied_before(&to);
+    for old in installed.iter().map(|n| file_part(n)) {
+        if wanted.contains(&old) {
+            continue;
+        }
+        let gone = to.join(old);
+        if before.iter().any(|b| b == old) {
+            folder.remove(old)?;
             say(
                 out,
                 format!(
-                    "left {} in place: {} does not have it, and burrow never deletes a drop-in file it did not get from the source",
-                    to.join(file_part(&old)).display(),
+                    "removed {}, which an earlier install copied and {} no longer has",
+                    gone.display(),
                     from.display()
+                ),
+            )?;
+        } else {
+            say(
+                out,
+                format!(
+                    "left {} in place: burrow did not copy it, and never deletes a drop-in file it did not copy",
+                    gone.display()
                 ),
             )?;
         }
     }
-    if names.is_empty() {
-        return Ok(());
-    }
-    let folder = place::Folder::open(backend, (config, &to), account, writable)?;
     for file in &wanted {
         let src = from.join(file);
         let text = std::fs::read(&src)
             .map_err(|e| Failure::new(format!("cannot read {}: {e}", src.display())))?;
         let locked = docs::read_only(&src) == Some(ReadOnly::Marked);
         folder.put(file, &text, locked)?;
+    }
+    folder.put(COPIED, wanted.join("\n").as_bytes(), false)?;
+    if wanted.is_empty() {
+        return Ok(());
     }
     say(
         out,
@@ -316,5 +418,98 @@ mod tests {
             said.contains("team.yaml") && said.contains("in place"),
             "{said}"
         );
+    }
+
+    const SECRET: &str = "yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=";
+
+    fn server(services: &str) -> String {
+        format!(
+            "listen: 127.0.0.1:7835\nclients:\n  home: {{ secret: \"{SECRET}\" }}\nservices:\n{services}"
+        )
+    }
+
+    struct Place {
+        _tmp: tempfile::TempDir,
+        source: std::path::PathBuf,
+        config: std::path::PathBuf,
+    }
+
+    fn place() -> Place {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("mine.yaml");
+        let folder = tmp.path().join("etc");
+        std::fs::create_dir(&folder).unwrap();
+        let config = folder.join("server.yaml");
+        Place {
+            _tmp: tmp,
+            source,
+            config,
+        }
+    }
+
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        crate::base::fs::write_private(path, text).unwrap();
+    }
+
+    #[test]
+    fn a_service_moved_back_into_the_main_file_removes_the_file_install_copied_before() {
+        let p = place();
+        let backend = crate::service::tests::Recorder(Default::default(), false);
+        let blog = "services:\n  blog: { client: home, target: 81, bind: 7901 }\n";
+        write(
+            &p.source,
+            &server("  web: { client: home, target: 80, bind: 7900 }\n"),
+        );
+        write(&p.source.with_file_name("mine.d/blog.yaml"), blog);
+        let none = BTreeMap::new();
+        check_leftovers(&p.source, &p.config, &none).unwrap();
+        copy(
+            &backend,
+            (&p.source, &p.config),
+            "burrow",
+            false,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        let installed = p.config.with_file_name("server.d/blog.yaml");
+        assert!(installed.exists());
+        std::fs::remove_file(p.source.with_file_name("mine.d/blog.yaml")).unwrap();
+        write(
+            &p.source,
+            &server(
+                "  web: { client: home, target: 80, bind: 7900 }\n  blog: { client: home, target: 81, bind: 7901 }\n",
+            ),
+        );
+        check_leftovers(&p.source, &p.config, &none).unwrap();
+        let mut out = Vec::new();
+        copy(&backend, (&p.source, &p.config), "burrow", false, &mut out).unwrap();
+        assert!(
+            !installed.exists(),
+            "the copied file the source dropped is removed"
+        );
+        let said = String::from_utf8(out).unwrap();
+        assert!(
+            said.contains("removed") && said.contains("blog.yaml"),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn a_hand_added_drop_in_that_clashes_with_the_source_refuses_the_install() {
+        let p = place();
+        write(
+            &p.source,
+            &server("  web: { client: home, target: 80, bind: 7900 }\n"),
+        );
+        let mine = p.config.with_file_name("server.d/mine.yaml");
+        write(
+            &mine,
+            "services:\n  web: { client: home, target: 82, bind: 7902 }\n",
+        );
+        let e = check_leftovers(&p.source, &p.config, &BTreeMap::new()).expect_err("refused");
+        assert!(e.message.contains("mine.yaml"), "{}", e.message);
+        assert!(e.message.contains("defined twice"), "{}", e.message);
+        assert!(mine.exists());
     }
 }

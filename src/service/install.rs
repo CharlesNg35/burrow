@@ -41,6 +41,23 @@ pub(super) fn installs_from(existing: &Manifest, source: &Path) -> bool {
         || crate::base::fs::canonical_or_same(&existing.config) == source
 }
 
+fn installed_config(
+    folder: &Path,
+    checked: &Checked,
+    source: &Path,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<PathBuf, Failure> {
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("yaml");
+    let config = folder.join(format!("{}.{ext}", checked.role.as_str()));
+    if checked.role == Role::Server {
+        super::drop_ins::check_leftovers(source, &config, env)?;
+    }
+    Ok(config)
+}
+
 pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     let platform = Platform::current();
@@ -54,15 +71,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .run_as
         .clone()
         .unwrap_or_else(|| platform.default_account(&name));
-    let ext = source
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("yaml");
     let short = crate::install::short_name(&name).to_string();
     let folder = platform.config_dir().join(&short);
     let writable =
         checked.role == Role::Server && (opts.admin_writable || !checked.admins.is_empty());
-    let config = folder.join(format!("{}.{ext}", checked.role.as_str()));
+    let config = installed_config(&folder, &checked, &source, &env)?;
     let env_file = (!env.is_empty()).then(|| platform.config_dir().join(format!("{short}.env")));
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
