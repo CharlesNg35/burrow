@@ -82,7 +82,9 @@ fn expires(c: &CertStatus, now: u64) -> (String, Level) {
     match c.expires {
         None => ("—".into(), Level::Info),
         Some(t) if t <= now => (ends(t, now), Level::Bad),
-        Some(t) if burrow_syntax::web::expires_soon(t, now) => (ends(t, now), Level::Warn),
+        Some(t) if burrow_syntax::web::expiry_due(t, c.next_renewal, c.failures, now) => {
+            (ends(t, now), Level::Warn)
+        }
         Some(t) => (ends(t, now), Level::Good),
     }
 }
@@ -202,7 +204,8 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
                 "Browsers refuse the site until it is renewed.".into(),
             )),
             Some(t)
-                if burrow_syntax::web::expires_soon(t, now) && c.state == CertStateStatus::Ok =>
+                if burrow_syntax::web::expiry_due(t, c.next_renewal, c.failures, now)
+                    && c.state == CertStateStatus::Ok =>
             {
                 out.push(notice(
                     Level::Warn,
@@ -306,7 +309,10 @@ mod tests {
     fn the_count_says_how_many_certificates_expire_soon_or_fail() {
         let ok = cert("a.example.com", CertStateStatus::Ok, Some(NOW + 60 * DAY));
         assert_eq!(count(&status(vec![ok.clone()]), NOW), "1");
-        let soon = cert("b.example.com", CertStateStatus::Ok, Some(NOW + 5 * DAY));
+        let soon = CertStatus {
+            next_renewal: Some(NOW - DAY),
+            ..cert("b.example.com", CertStateStatus::Ok, Some(NOW + 5 * DAY))
+        };
         let failing = cert(
             "c.example.com",
             CertStateStatus::Failing {
@@ -339,7 +345,10 @@ mod tests {
                 )
             },
             cert("old.example.com", CertStateStatus::Ok, Some(NOW - DAY)),
-            cert("soon.example.com", CertStateStatus::Ok, Some(NOW + 3 * DAY)),
+            CertStatus {
+                next_renewal: Some(NOW - DAY),
+                ..cert("soon.example.com", CertStateStatus::Ok, Some(NOW + 3 * DAY))
+            },
             cert(
                 "fine.example.com",
                 CertStateStatus::Ok,
@@ -372,5 +381,23 @@ mod tests {
             Some(&["web".to_string(), "letsencrypt".into(), "profile".into()][..]),
             "a profile the service does not offer links to the field"
         );
+    }
+
+    #[test]
+    fn a_short_lived_certificate_burrow_renews_on_time_needs_no_attention() {
+        let hour = DAY / 24;
+        let local = CertStatus {
+            source: CertSourceStatus::LocalCa,
+            check: None,
+            next_renewal: Some(NOW + hour),
+            ..cert("grafana.lan", CertStateStatus::Ok, Some(NOW + 11 * hour))
+        };
+        assert!(notices(&status(vec![local.clone()]), NOW).is_empty());
+        assert_eq!(count(&status(vec![local.clone()]), NOW), "1");
+        let late = CertStatus {
+            next_renewal: Some(NOW - hour),
+            ..local
+        };
+        assert_eq!(count(&status(vec![late]), NOW), "1 · 1 expiring");
     }
 }

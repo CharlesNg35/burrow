@@ -155,6 +155,17 @@ pub fn expires_soon(not_after: u64, now: u64) -> bool {
     not_after.saturating_sub(now) < EXPIRY_WARNING_SECS
 }
 
+pub const RENEWAL_GRACE_SECS: u64 = 15 * 60;
+
+pub fn expiry_due(not_after: u64, next_renewal: Option<u64>, failures: u64, now: u64) -> bool {
+    match next_renewal {
+        _ if not_after <= now => true,
+        None => expires_soon(not_after, now),
+        Some(_) if failures > 0 && expires_soon(not_after, now) => true,
+        Some(at) => at >= not_after || now > at.saturating_add(RENEWAL_GRACE_SECS),
+    }
+}
+
 pub const DNS_WAIT_SECS: u64 = 120;
 pub const DNS_WAIT: std::time::Duration = std::time::Duration::from_secs(DNS_WAIT_SECS);
 pub const DNS_WAIT_MIN_SECS: u64 = 10;
