@@ -36,7 +36,8 @@ fn render(name: &str, src: &str, role: Option<Role>) -> String {
     } else {
         Format::Yaml
     };
-    let o = load_str(name, src, format, role, &env);
+    let mut o = load_str(name, src, format, role, &env);
+    o.report.diagnostics.retain(|d| d.code != "low-port");
     let mut text = o.report.render_text(Style { color: false });
     text.push_str(&burrow::config::validate::summary_line(&o, false));
     for s in [SECRET, SECRET2] {

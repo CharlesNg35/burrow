@@ -59,13 +59,17 @@ fn rights() -> Rights {
 }
 
 pub(super) fn message(key: &str, port: u16, os: Os) -> String {
-    format!("web.{key}: port {port} needs {}", low_port_who(os))
+    format!("{key}: port {port} needs {}", low_port_who(os))
 }
 
-pub(super) fn help(port: u16, fix: &str) -> String {
-    format!(
-        "{fix}; Let's Encrypt checks only ports 443 and 80 from the internet, so to run burrow on a higher port, forward port {port} to it on the router (\"Port forwarding at home\" in docs/web/proxies.md)"
-    )
+pub(super) fn help(key: &[String], port: u16, fix: &str) -> String {
+    if key.first().is_some_and(|k| k == "web") {
+        format!(
+            "{fix}; Let's Encrypt checks only ports 443 and 80, so a higher port needs the router to forward {port} to it (docs/web/proxies.md)"
+        )
+    } else {
+        fix.to_string()
+    }
 }
 
 pub(crate) fn refused_here(addr: SocketAddr) -> bool {
@@ -73,19 +77,21 @@ pub(crate) fn refused_here(addr: SocketAddr) -> bool {
 }
 
 pub(in crate::config::check) fn check_low_ports(
-    (https, http): (Option<SocketAddr>, Option<SocketAddr>),
+    binds: &[(Vec<String>, SocketAddr)],
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
     let r = rights();
-    for (key, addr) in [("https", https), ("http", http)] {
-        let Some(addr) = addr.filter(|a| needs_rights(*a, r)) else {
-            continue;
-        };
+    for (path, addr) in binds.iter().filter(|(_, a)| needs_rights(*a, r)) {
+        let at: Vec<&str> = path.iter().map(String::as_str).collect();
         out.push(
-            Diagnostic::warning("low-port", message(key, addr.port(), r.os))
-                .at(spans.value(&["web", key]))
-                .help(help(addr.port(), &crate::base::ports::low_port_hint())),
+            Diagnostic::warning("low-port", message(&path.join("."), addr.port(), r.os))
+                .at(spans.value(&at))
+                .help(help(
+                    path,
+                    addr.port(),
+                    &crate::base::ports::low_port_hint(),
+                )),
         );
     }
 }
@@ -172,16 +178,21 @@ mod tests {
         assert!(needs_rights(any, r(Os::OtherUnix, false, false)));
         assert!(!needs_rights(any, r(Os::Windows, false, false)));
         assert_eq!(
-            message("https", 443, Os::Linux),
+            message("web.https", 443, Os::Linux),
             "web.https: port 443 needs root or CAP_NET_BIND_SERVICE"
         );
         assert_eq!(
-            message("http", 80, Os::OtherUnix),
-            "web.http: port 80 needs root"
+            message("services.ssh.bind", 22, Os::OtherUnix),
+            "services.ssh.bind: port 22 needs root"
         );
+        assert_eq!(help(&["listen".into()], 22, "fix"), "fix");
         assert_eq!(
-            help(80, "run burrow as root, or use a port above 1023"),
-            "run burrow as root, or use a port above 1023; Let's Encrypt checks only ports 443 and 80 from the internet, so to run burrow on a higher port, forward port 80 to it on the router (\"Port forwarding at home\" in docs/web/proxies.md)"
+            help(
+                &["web".into(), "http".into()],
+                80,
+                "run burrow as root, or use a port above 1023"
+            ),
+            "run burrow as root, or use a port above 1023; Let's Encrypt checks only ports 443 and 80, so a higher port needs the router to forward 80 to it (docs/web/proxies.md)"
         );
     }
 }

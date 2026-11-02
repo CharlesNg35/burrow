@@ -71,7 +71,7 @@ pub(crate) fn low_port_who(os: Os) -> &'static str {
 pub(crate) fn low_port_fix(os: Os, burrow: &str, exe: &str) -> String {
     match os {
         Os::Linux => format!(
-            "a burrow service installed with this port has it (run {burrow} service install again after adding one); for a server run by hand: sudo setcap cap_net_bind_service=+ep {exe} (again after each update); or use a port above 1023"
+            "a service gets it from {burrow} service install, run again after adding the port; by hand: sudo setcap cap_net_bind_service=+ep {exe}, again after each update; or use a port above 1023"
         ),
         Os::Mac => "listen on all addresses, use a port above 1023, or run burrow as root".into(),
         _ => "run burrow as root, or use a port above 1023".into(),
@@ -93,7 +93,7 @@ mod tests {
     fn a_low_port_hint_names_the_service_and_setcap_on_linux() {
         assert_eq!(
             low_port_fix(Os::Linux, "burrow", "/usr/local/bin/burrow"),
-            "a burrow service installed with this port has it (run burrow service install again after adding one); for a server run by hand: sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow (again after each update); or use a port above 1023"
+            "a service gets it from burrow service install, run again after adding the port; by hand: sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow, again after each update; or use a port above 1023"
         );
         assert_eq!(
             low_port_fix(Os::OtherUnix, "burrow", "/x"),
