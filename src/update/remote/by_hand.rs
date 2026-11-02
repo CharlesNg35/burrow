@@ -57,8 +57,10 @@ fn text(f: crate::base::failure::Failure) -> String {
 }
 
 impl Shared {
-    pub fn begin(&self) -> Option<Result<u8, String>> {
-        let r = self.trial.lock().expect("trial lock").clone()?;
+    pub fn begin(&self) -> Option<Result<(), String>> {
+        let found = trial_of(&self.me, &self.config);
+        *self.trial.lock().expect("trial lock") = found.clone();
+        let r = found?;
         if r.starts >= MAX_STARTS {
             let why = format!(
                 "{} stopped {} times before it connected to the server",
@@ -68,7 +70,8 @@ impl Shared {
             if let Err(e) = self.roll_back(&why) {
                 return Some(Err(e));
             }
-            return Some(restart(&self.me));
+            *self.after.lock().expect("after lock") = Some(self.me.clone());
+            return Some(Ok(()));
         }
         let me = self.clone_shared();
         std::thread::spawn(move || {

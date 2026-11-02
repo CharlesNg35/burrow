@@ -470,14 +470,16 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         )));
     };
     let updates = client_updates(path);
-    if let Some(done) = updates.before_start() {
-        return done.map_err(Failure::new);
+    let identity = Identity::client(&settings.endpoint.to_string(), &settings.name);
+    let lock = instance::acquire(&identity, path)?;
+    if let Some(back) = updates.before_start() {
+        drop(lock);
+        back.map_err(Failure::new)?;
+        return updates.after_stop().unwrap_or(Ok(0)).map_err(Failure::new);
     }
     if crate::base::build::test_mark("BREAK") == Some("start") {
         return Err(Failure::new("this test build stops at once"));
     }
-    let identity = Identity::client(&settings.endpoint.to_string(), &settings.name);
-    let lock = instance::acquire(&identity, path)?;
     init_logging(&logging)?;
     let started = std::time::Instant::now();
     let restarting = updates.clone();

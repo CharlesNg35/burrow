@@ -26,7 +26,7 @@ pub trait Updates: Send + Sync {
     fn stop_wanted(&self) -> Option<watch::Receiver<bool>> {
         None
     }
-    fn before_start(&self) -> Option<Result<u8, String>> {
+    fn before_start(&self) -> Option<Result<(), String>> {
         None
     }
     fn after_stop(&self) -> Option<Result<u8, String>> {

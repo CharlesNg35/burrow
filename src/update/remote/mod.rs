@@ -109,17 +109,13 @@ impl ClientUpdates {
     pub fn new(config: &Path) -> ClientUpdates {
         let config = crate::base::fs::canonical_or_same(config);
         let mode = Mode::detect(&config);
-        let trial = match &mode {
-            Mode::ByHand { binary: Some(me) } => by_hand::trial_of(me, &config),
-            _ => None,
-        };
         ClientUpdates {
             config,
             mode,
             busy: Arc::new(AtomicBool::new(false)),
             stop: Arc::new(watch::Sender::new(false)),
             after: Arc::new(Mutex::new(None)),
-            trial: Arc::new(Mutex::new(trial)),
+            trial: Arc::new(Mutex::new(None)),
             report_again: Arc::default(),
         }
     }
@@ -224,7 +220,7 @@ impl Updates for ClientUpdates {
         self.by_hand().map(|_| self.stop.subscribe())
     }
 
-    fn before_start(&self) -> Option<Result<u8, String>> {
+    fn before_start(&self) -> Option<Result<(), String>> {
         self.by_hand()?.begin()
     }
 
