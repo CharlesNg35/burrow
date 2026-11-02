@@ -74,10 +74,9 @@ fn target(
     fresh: bool,
 ) -> Result<String, ApiError> {
     let shown = status.latest.as_ref().and_then(|l| l.version.clone());
-    let latest = if fresh {
-        core.live.latest_now()
-    } else {
-        status.latest.clone().unwrap_or_else(|| core.live.latest())
+    let latest = match status.latest.clone() {
+        Some(known) if !fresh && known.version.is_some() => known,
+        _ => core.live.latest_now(),
     };
     let known = latest.version.ok_or_else(|| {
         ApiError::new(

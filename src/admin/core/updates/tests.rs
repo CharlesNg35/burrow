@@ -268,3 +268,44 @@ fn the_latest_release_is_checked_again_before_clients_are_asked() {
     );
     assert_eq!(asked.lock().unwrap()[0].1, "0.2.4");
 }
+
+#[test]
+fn a_preview_checks_the_latest_release_when_none_is_known_yet() {
+    let (core, asked, w) = setup_fresh(
+        None,
+        Some("0.2.4"),
+        vec![client("a", Some("0.2.1"), RemoteUpdates::On)],
+    );
+    let s = session(&w, AdminLevel::Write);
+    let dry = asking(&core, &s, &["a"], None, true).unwrap();
+    assert_eq!(dry.to, "0.2.4");
+    assert_eq!(dry.asked, ["a"]);
+    assert!(asked.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_server_command_line_asks_through_the_same_entry_point_under_its_own_name() {
+    let (core, asked, _) = setup(
+        Some("0.2.3"),
+        vec![
+            client("a", Some("0.2.1"), RemoteUpdates::On),
+            client("b", Some("0.2.1"), RemoteUpdates::Off),
+        ],
+    );
+    let r = ask_clients(
+        &core,
+        &UpdateClients {
+            all: true,
+            ..UpdateClients::default()
+        },
+        ON_THE_SERVER,
+    )
+    .unwrap();
+    assert_eq!(r.asked, ["a"]);
+    assert!(r.skipped[0].why.contains("off in its config"));
+    let asked = asked.lock().unwrap();
+    assert_eq!(
+        asked[0],
+        (vec!["a".to_string()], "0.2.3".into(), ON_THE_SERVER.into())
+    );
+}
