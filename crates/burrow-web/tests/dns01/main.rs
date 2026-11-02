@@ -4,7 +4,6 @@ mod cloudflare;
 #[allow(dead_code)]
 #[path = "../acme/pebble.rs"]
 mod pebble;
-#[allow(dead_code)]
 #[path = "../../../../tests/common/ports.rs"]
 mod ports;
 mod scenarios;
