@@ -71,18 +71,30 @@ pub(crate) fn low_port_who(os: Os) -> &'static str {
 pub(crate) fn low_port_fix(os: Os, burrow: &str, exe: &str) -> String {
     match os {
         Os::Linux => format!(
-            "a service gets it from {burrow} service install, run again after adding the port; by hand: sudo setcap cap_net_bind_service=+ep {exe}, again after each update; or use a port above 1023"
+            "by hand: sudo setcap cap_net_bind_service=+ep {exe}, again after each update; as a service, {burrow} service install grants it; or use a port above 1023"
         ),
         Os::Mac => "listen on all addresses, use a port above 1023, or run burrow as root".into(),
         _ => "run burrow as root, or use a port above 1023".into(),
     }
 }
 
-pub(crate) fn low_port_hint() -> String {
-    let exe = std::env::current_exe()
-        .map(|p| crate::base::failure::arg(&p.to_string_lossy()))
-        .unwrap_or_else(|_| "$(command -v burrow)".into());
-    low_port_fix(os(), crate::base::failure::command(), &exe)
+pub(crate) fn not_here_hint() -> String {
+    format!(
+        "use 0.0.0.0, ::, or an IP address assigned to this machine (see: {})",
+        crate::base::failure::addresses_cmd()
+    )
+}
+
+pub(crate) fn low_port_service_fix(os: Os, reinstall: &str) -> String {
+    match os {
+        Os::Linux => format!(
+            "this service was installed without it; install it again to grant it, nothing moves: {reinstall}; or use a port above 1023"
+        ),
+        Os::Mac => format!(
+            "listen on all addresses, use a port above 1023, or install it again as root: {reinstall} --run-as root"
+        ),
+        _ => "run burrow as root, or use a port above 1023".into(),
+    }
 }
 
 #[cfg(test)]
@@ -93,7 +105,14 @@ mod tests {
     fn a_low_port_hint_names_the_service_and_setcap_on_linux() {
         assert_eq!(
             low_port_fix(Os::Linux, "burrow", "/usr/local/bin/burrow"),
-            "a service gets it from burrow service install, run again after adding the port; by hand: sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow, again after each update; or use a port above 1023"
+            "by hand: sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow, again after each update; as a service, burrow service install grants it; or use a port above 1023"
+        );
+        assert_eq!(
+            low_port_service_fix(
+                Os::Linux,
+                "sudo burrow service install -c /etc/burrow/home/server.yaml"
+            ),
+            "this service was installed without it; install it again to grant it, nothing moves: sudo burrow service install -c /etc/burrow/home/server.yaml; or use a port above 1023"
         );
         assert_eq!(
             low_port_fix(Os::OtherUnix, "burrow", "/x"),

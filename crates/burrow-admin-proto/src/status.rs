@@ -1,6 +1,12 @@
 use burrow_syntax::duration::{ago, span};
 use serde::{Deserialize, Serialize};
 
+pub const RESTART_FAILS: &str = "a restart fails until it can";
+
+pub fn not_listening(why: &str) -> String {
+    format!("not listening: {why}; {RESTART_FAILS}")
+}
+
 pub const ONLINE: &str = "online";
 pub const OFFLINE: &str = "offline";
 
@@ -165,6 +171,8 @@ pub struct ServiceStatus {
     pub web: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<HttpCounts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_listening: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

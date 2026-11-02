@@ -167,16 +167,13 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
             format!(
                 "ports below 1024 need {}; {}",
                 crate::base::ports::low_port_who(crate::base::ports::os()),
-                crate::base::ports::low_port_hint()
+                crate::install::low_port_hint()
             )
         }),
         std::io::ErrorKind::AddrNotAvailable => Failure::new(format!(
             "cannot bind {what} on {addr}: address not available on this machine"
         ))
-        .hint(format!(
-            "use 0.0.0.0 or an IP address assigned to this machine (see: {})",
-            crate::base::failure::addresses_cmd()
-        )),
+        .hint(crate::base::ports::not_here_hint()),
         _ => Failure::new(format!(
             "cannot bind {what} on {addr}: {}",
             crate::base::failure::io_reason(e)
@@ -336,6 +333,7 @@ impl Server {
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
             web_wait: Mutex::new(None),
+            not_listening: Mutex::default(),
             standing: Mutex::new(standing::Standing::default()),
             wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(

@@ -148,6 +148,7 @@ mod tests {
             "forward-auth-h2",
             "low-port",
             "swapped-port",
+            "not-this-machine",
             "plain-ws-443",
             "access-log",
             "insecure-plaintext",

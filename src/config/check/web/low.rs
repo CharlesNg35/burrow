@@ -87,11 +87,7 @@ pub(in crate::config::check) fn check_low_ports(
         out.push(
             Diagnostic::warning("low-port", message(&path.join("."), addr.port(), r.os))
                 .at(spans.value(&at))
-                .help(help(
-                    path,
-                    addr.port(),
-                    &crate::base::ports::low_port_hint(),
-                )),
+                .help(help(path, addr.port(), &crate::install::low_port_hint())),
         );
     }
 }

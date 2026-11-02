@@ -69,7 +69,7 @@ fn a_low_web_port_the_server_may_not_open_gets_one_warning_with_its_fix() {
     assert!(
         d.help
             .as_deref()
-            .is_some_and(|h| h.contains(&crate::base::ports::low_port_hint())),
+            .is_some_and(|h| h.contains(&crate::install::low_port_hint())),
         "{d:?}"
     );
 }
@@ -196,4 +196,42 @@ fn a_web_port_shared_with_the_tunnel_stays_a_file_edit() {
     );
     let plan = plan_of(&core, &w, set(&["web", "http"], json!(8081)));
     assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
+}
+
+#[test]
+fn a_bind_on_an_address_this_server_lacks_is_a_warning_with_the_bind_hint() {
+    let w = with_web(PORTS);
+    let core = core_busy(&w.text, &w.text, Vec::new());
+    let plan = plan_of(
+        &core,
+        &w,
+        set(&["services", "web", "bind"], json!("192.0.2.7:9000")),
+    );
+    let d = plan
+        .diags
+        .iter()
+        .find(|d| d.code == burrow_admin_proto::codes::NOT_THIS_MACHINE)
+        .expect("a not-this-machine warning");
+    assert!(!d.is_error() && plan.valid, "{:?}", plan.diags);
+    assert_eq!(d.path, Some(p(&["services", "web", "bind"])));
+    assert_eq!(d.message, "services.web.bind: 192.0.2.7 is not an address of this server");
+    assert_eq!(d.help, Some(crate::base::ports::not_here_hint()));
+    let same = plan_of(&core, &w, set(&["services", "web", "bind"], json!("0.0.0.0:9000")));
+    assert!(same.diags.iter().all(|d| d.code != burrow_admin_proto::codes::NOT_THIS_MACHINE));
+}
+
+#[test]
+fn a_service_port_another_program_holds_is_refused_before_saving() {
+    let w = with_web(PORTS);
+    let core = core_busy(&w.text, &w.text, vec![9001, 9002]);
+    let mut ops = set(&["services", "web", "bind"], json!("9000-9003"));
+    ops.extend(set(&["services", "web", "target"], json!("3000-3003")));
+    let plan = plan_of(&core, &w, ops);
+    let found: Vec<_> = plan.diags.iter().filter(|d| d.code == PORT_IN_USE).collect();
+    assert_eq!(found.len(), 1, "one error for the range: {:?}", plan.diags);
+    assert!(!plan.valid);
+    assert_eq!(found[0].path, Some(p(&["services", "web", "bind"])));
+    assert!(found[0].message.contains("address already in use"), "{}", found[0].message);
+    let same = plan_of(&core, &w, set(&["services", "web", "target"], json!(3001)));
+    assert!(same.diags.iter().all(|d| d.code != PORT_IN_USE), "an unchanged bind is not probed");
 }

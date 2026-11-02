@@ -150,6 +150,7 @@ pub(super) fn judge(
             running,
             next,
         ));
+        clash.extend(guard::not_here(&|a| core.live.bind_probe(a), running, next));
         let how = applies(core, raw, &applied.target);
         let restart: Vec<String> = how
             .iter()
@@ -240,7 +241,7 @@ pub(super) fn assemble(
         plan: hash,
         base: base.to_string(),
         result_rev: text::rev(new_text),
-        valid: checked.valid && clash.is_empty(),
+        valid: checked.valid && !clash.iter().any(Diag::is_error),
         diags: checked
             .diags
             .into_iter()

@@ -100,3 +100,4 @@ pub const READ_BY_THE_CLI: [&str; 6] = [
     TLS_UNREADABLE,
 ];
 pub const INVALID_SOURCE: &str = "invalid-source";
+pub const NOT_THIS_MACHINE: &str = "not-this-machine";

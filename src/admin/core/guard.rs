@@ -2,6 +2,7 @@
 //! Start at `refusals`; the child modules check grants, web ports, reach and the WebSocket listener.
 
 mod effects;
+mod elsewhere;
 mod grants;
 mod reach;
 mod web_ports;
@@ -21,6 +22,7 @@ use crate::config::settings::{ServerSettings, Shares};
 use crate::wire::secret::Secret;
 
 pub use effects::impacts;
+pub use elsewhere::not_here;
 pub use web_ports::{busy as busy_web_ports, refusals as shared_web_port};
 
 pub struct Who<'a> {

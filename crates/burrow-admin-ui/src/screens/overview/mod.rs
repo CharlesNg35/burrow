@@ -73,10 +73,28 @@ pub fn attention(
         }
         out.extend(own);
         out.extend(status.web_waiting.as_ref().map(web_wait_item));
+        out.extend(status.services.iter().filter_map(not_listening_item));
         out.extend(certs::items(status, now));
     }
     out.sort_by_key(|i| rank(i.tone));
     out
+}
+
+fn not_listening_item(s: &burrow_admin_proto::status::ServiceStatus) -> Option<Item> {
+    let why = s.not_listening.as_ref()?;
+    Some(Item {
+        key: format!("not-listening:{}", s.name),
+        tone: Tone::Danger,
+        title: format!("Service {} is not listening", s.name),
+        detail: burrow_admin_logic::wording::capital(&burrow_admin_proto::status::not_listening(
+            why,
+        )),
+        to: Some(Route::Detail(
+            burrow_config::ServiceEntry::section().into(),
+            s.name.clone(),
+        )),
+        field: Some(burrow_config::ServiceEntry::BIND.of(&s.name)),
+    })
 }
 
 fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
@@ -575,6 +593,40 @@ mod tests {
         let d = chart(&full, &full, 900);
         assert_eq!(d.a.len(), 900);
         assert!(d.empty_note.is_none());
+    }
+
+    #[test]
+    fn a_service_that_is_not_listening_needs_attention_and_says_a_restart_fails() {
+        let mut st = status(&[], &[]);
+        st.services.push(burrow_admin_proto::status::ServiceStatus {
+            name: "echo".into(),
+            not_listening: Some(
+                "cannot bind service \"echo\" on 127.0.0.1:22: permission denied".into(),
+            ),
+            ..Default::default()
+        });
+        let items = attention(&json!({}), None, Some(&st), 0);
+        let i = items
+            .iter()
+            .find(|i| i.key == "not-listening:echo")
+            .expect("listed");
+        assert_eq!(i.title, "Service echo is not listening");
+        assert!(
+            i.detail.ends_with("a restart fails until it can"),
+            "{}",
+            i.detail
+        );
+        assert_eq!(i.tone, Tone::Danger);
+        assert_eq!(
+            i.field.as_deref(),
+            Some(
+                &[
+                    "services".to_string(),
+                    "echo".to_string(),
+                    "bind".to_string()
+                ][..]
+            )
+        );
     }
 
     #[test]

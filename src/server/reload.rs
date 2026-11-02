@@ -212,6 +212,7 @@ impl Server {
         let mut unbound: Vec<(String, Failure)> = Vec::new();
         for (name, svc) in &next.services {
             if svc.bind.is_none() {
+                self.shared.not_listening(name, None);
                 if current
                     .services
                     .get(name)
@@ -255,6 +256,7 @@ impl Server {
             let tries = if freed { FREED_TRIES } else { 1 };
             match bind_with_retry(name, svc, tries).await {
                 Ok(bound) => {
+                    self.shared.not_listening(name, None);
                     let t = spawn_service(&self.shared, name, svc, bound);
                     match current.services.get(name) {
                         None => info!("service \"{name}\" added"),
@@ -266,6 +268,7 @@ impl Server {
                 }
                 Err(f) => {
                     error!("{}", why(&f));
+                    self.shared.not_listening(name, Some(why(&f)));
                     unbound.push((format!("\"{name}\""), f));
                 }
             }
@@ -345,7 +348,14 @@ impl Server {
         self.refresh_self();
         let mut lines: Vec<String> = unbound
             .iter()
-            .map(|(_, f)| format!("{}; it tries again every {}s", why(f), BIND_RETRY.as_secs()))
+            .map(|(_, f)| {
+                format!(
+                    "{}; it tries again every {}s, and {}",
+                    why(f),
+                    BIND_RETRY.as_secs(),
+                    burrow_admin_proto::status::RESTART_FAILS
+                )
+            })
             .collect();
         let unbound: Vec<String> = unbound.into_iter().map(|(name, _)| name).collect();
         let mut names = unbound.clone();
@@ -358,9 +368,10 @@ impl Server {
             info!("{summary}");
         } else {
             warn!(
-                "{summary}, but service {} could not listen; trying again every {}s",
+                "{summary}, but service {} could not listen; trying again every {}s; {}",
                 unbound.join(", "),
-                BIND_RETRY.as_secs()
+                BIND_RETRY.as_secs(),
+                burrow_admin_proto::status::RESTART_FAILS
             );
         }
     }

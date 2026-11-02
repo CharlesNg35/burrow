@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use burrow_admin_proto::codes::{OPENS_PORT, PORT_IN_USE, STOPS_WEBSITES, WEB_PORT_SHARED};
 use burrow_admin_proto::diag::{Diag, Severity};
 use burrow_admin_proto::plan::{Impact, Level, Refusal};
-use burrow_config::{Protocol, ServerConfig, WebConfig, WebSocketConfig};
+use burrow_config::{Protocol, ServerConfig, ServiceEntry, WebConfig, WebSocketConfig};
 
 use crate::config::check::binds_conflict;
 use crate::config::settings::{ServerSettings, Shares, WebTls};
@@ -167,6 +167,17 @@ fn wanted(running: &ServerSettings, next: &ServerSettings) -> Vec<(Vec<String>, 
             addr,
         ));
     }
+    for (name, svc) in &next.services {
+        let before = running.services.get(name).map(|s| s.binds());
+        if svc.protocol != Protocol::Tcp || before.as_ref() == Some(&svc.binds()) {
+            continue;
+        }
+        out.extend(
+            svc.binds()
+                .into_iter()
+                .map(|(_, a)| (ServiceEntry::BIND.of(name), a)),
+        );
+    }
     out
 }
 
@@ -183,8 +194,9 @@ pub fn busy(
                 return None;
             }
             let e = probe(addr).err()?;
-            if e.kind() == std::io::ErrorKind::PermissionDenied
-                && crate::config::check::low_port_refused(addr)
+            if e.kind() == std::io::ErrorKind::AddrNotAvailable
+                || e.kind() == std::io::ErrorKind::PermissionDenied
+                    && crate::config::check::low_port_refused(addr)
             {
                 return None;
             }
@@ -203,5 +215,10 @@ pub fn busy(
                 before: false,
             })
         })
-        .collect()
+        .fold(Vec::new(), |mut out: Vec<Diag>, d| {
+            if out.last().is_none_or(|l| l.path != d.path) {
+                out.push(d);
+            }
+            out
+        })
 }
