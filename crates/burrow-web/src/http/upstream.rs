@@ -18,7 +18,7 @@ use super::pages::Page;
 use super::site::{Hop, SiteRun};
 use super::{Body, BoxError};
 use crate::{Ask, BoxIo, Io, Refused, Upstream, Visitor};
-use pool::{Back, H1, Key, Pool};
+use pool::{Back, Cut, H1, Key, Pool};
 use send::Asking;
 
 pub(crate) use pool::Ups;
@@ -38,6 +38,7 @@ pub(crate) struct Forward<'a> {
     pub prefix: Option<&'a str>,
     pub request_id: Option<&'a str>,
     pub activity: &'a Arc<Activity>,
+    pub front: Option<&'a Arc<Cut>>,
 }
 
 impl Forward<'_> {
@@ -64,6 +65,7 @@ impl Forward<'_> {
             deadline,
             epoch: self.epoch,
             ask: Ask::Site,
+            front: self.front,
         })
     }
 }
