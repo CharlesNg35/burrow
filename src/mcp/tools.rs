@@ -79,7 +79,9 @@ pub struct UpdateArgs {
     )]
     #[serde(default)]
     pub all: bool,
-    #[schemars(description = "A published release like 0.2.2; the latest release when omitted")]
+    #[schemars(
+        description = "Leave it out: clients update only to the latest release; when given it must be that release"
+    )]
     #[serde(default)]
     pub version: Option<String>,
     #[schemars(

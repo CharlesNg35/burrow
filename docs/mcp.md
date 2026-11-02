@@ -95,7 +95,7 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 claude mcp add burrow -- /home/me/bin/burrow mcp -c /home/me/ops-laptop.yaml --allow-write
 ```
 
-Updating clients also takes two steps: `update_clients` without `confirm` returns the release and which clients it would ask, with the reason for each client it skips; called again with `confirm: ["update"]`, it asks them, one at a time. Progress and results show in `get_status`, under each client's `update`. See [updates.md](updates.md).
+Updating clients also takes two steps: `update_clients` without `confirm` returns the latest release and which clients it would ask, with the reason for each client it skips; called again with `confirm: ["update"]`, it asks them, one at a time. Progress and results show in `get_status`, under each client's `update`. See [updates.md](updates.md).
 
 A change always takes two steps: `check_change` returns the diff and a plan id, and `apply_change` applies exactly that plan. Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, with at most 16 plans at a time.
 

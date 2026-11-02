@@ -1,6 +1,6 @@
 # Updating clients from the server
 
-From 0.2.1 on, every client tells the server which burrow it runs: the release, the system (like `linux/arm64`), how it runs (a service, a container or started by hand) and whether it allows remote updates. burrow admin, `burrow status` and `burrow mcp` show this. A client that allows it can then be updated from burrow admin or `burrow mcp`. The server only asks for a release number; the client fetches that release from the official releases, checks it, and goes back to its old version if the new one does not connect.
+From 0.2.1 on, every client tells the server which burrow it runs: the release, the system (like `linux/arm64`), how it runs (a service, a container or started by hand) and whether it allows remote updates. burrow admin, `burrow status` and `burrow mcp` show this. A client that allows it can then be updated from burrow admin or `burrow mcp`. The server only asks it to update; the client finds the latest release itself, fetches it from the official releases, checks it, and goes back to its old version if the new one does not connect.
 
 Back to the [README](../README.md). Updating the server or a client by hand: [service.md](service.md#update-burrow).
 
@@ -46,21 +46,23 @@ A client that allows remote updates but cannot do them says why, for example "th
 - The result shows on the client's card ("0.2.1 → 0.2.2: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
 - burrow admin needs `admin: write`; read-only admins see versions but no buttons.
 
-The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while an admin looks at the status, and remembers it for 6 hours (15 minutes after a failed check). A server that cannot reach GitHub shows versions but no "available" marks, and you can still name a release with `burrow mcp`. With `burrow mcp --allow-write`, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
+The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while an admin looks at the status, and remembers it for 6 hours (15 minutes after a failed check). Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update. With `burrow mcp --allow-write`, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
 
 ## What the client does
 
-When the server asks for release X:
+When the server asks a client to update:
 
-1. It refuses unless remote updates are on in its own config. It also refuses when X is not newer than what it runs (updates never go back), when another update is running, and when X is a pre-release while it runs a normal release.
-2. It downloads X for its own system from the official GitHub releases. It never uses a file or address from the server; a mirror set in the client machine's own `BURROW_UPDATE_URL` is used instead, as for `burrow update`.
-3. It checks the download against the release's `SHA256SUMS`, runs it to confirm it reports X, and checks that X accepts its config. If any check fails, nothing changes, and the server shows the reason.
+1. The client refuses unless remote updates are on in its own config, or while another update runs. A client started by hand does the steps below itself. A service only starts its updater, which runs as root (SYSTEM on Windows) and takes nothing from the client: no version, no file, no folder. The updater checks the opt-in again in the installed config, which root owns.
+2. It finds the latest release, X, in the official GitHub releases, or in a mirror set in the client machine's own `BURROW_UPDATE_URL`, as for `burrow update`. It goes on only when X is newer than what is installed (updates never go back), and takes a pre-release only when it already runs one.
+3. It downloads X for its own system, checks it against the release's `SHA256SUMS`, runs it to confirm it reports X, and checks that X accepts the config. If any check fails, nothing changes, and the server shows the reason.
 4. It keeps the old binary beside the new one, as `burrow.previous`, installs X and restarts.
-5. If X does not connect to the server and report itself within 60 seconds, the old binary is put back and started again. That is the service's updater for a service, and the new process itself for a client started by hand. The server shows "rolled back" with the reason. If X keeps crashing before it connects, the old one is put back too: a service's updater sees the restarts, and a client started by hand goes back on its third start.
+5. If X does not connect to the server and report itself within 60 seconds, the old binary is put back and started again. The server shows "rolled back" with the reason. For a service, only a report from the service's own process counts. If X keeps crashing before it connects, the old one is put back too: a service's updater sees the restarts, and a client started by hand goes back on its third start.
 
 60 seconds covers starting the service, one failed connection attempt (10 s by default), the next tries and the handshake, with room to spare. A server that is down for longer during the update also leads to a roll back; ask again once it is up.
 
-On Linux the updater is a pair of systemd units, `burrow-<name>-update.path` and `burrow-<name>-update.service`. On macOS it is a launchd job, `com.github.charlesng35.burrow-<name>-update`. On Windows it is a service, `burrow-<name>-update`, that only the client's own service account may start. `burrow service uninstall` removes it, and installing without `update.remote` removes it too.
+On Linux the updater is a pair of systemd units, `burrow-<name>-update.path` and `burrow-<name>-update.service`, started when the client creates the file `update-now` in its state folder. On macOS it is a launchd job, `com.github.charlesng35.burrow-<name>-update`, started by a file in its queue folder. The updater removes these files without opening them. On Windows it is a service, `burrow-<name>-update`, that only the client's own service account may start. The updater writes its result to `/var/lib/burrow/updates/<name>` (`/Library/Application Support/burrow/updates/<name>` on macOS, `%ProgramData%\burrow\updates\<name>` on Windows), which the client may read but not change. `burrow service uninstall` removes all of it, and installing without `update.remote` removes it too.
+
+A client started by hand will not replace a program that installed services use. Update those with `sudo burrow update`.
 
 ## Clients older than 0.2.1
 
@@ -71,7 +73,8 @@ Older clients send no version, so burrow admin shows them as "older than 0.2.1".
 Remote updates are built so that someone who controls the server, or an admin session, cannot run their own code on a client:
 
 - The client decides. Without `update.remote: true` in the client's own config, it refuses every request. A service's updater reads the installed config itself (owned by root), not what the client process says.
-- The server sends only a release number. The client downloads from the official releases (or its own mirror) and checks `SHA256SUMS` from the same place, so the server cannot point it at another file.
+- The server only asks. The client, or its updater, picks the latest official release itself and checks `SHA256SUMS` from the same place, so the server cannot point it at another file or version.
+- A service's updater takes no input from the client's account. The account can start it, and nothing else: the trigger is removed unread, and the updater writes only into a folder the account cannot change. Even a compromised client process therefore cannot make root run anything but the newest official release.
 - Updates never go back to an older release. That would let someone bring back a fixed bug.
 - On Windows, the client's service account may only start its updater, not stop, change or delete it.
 

@@ -92,7 +92,7 @@ A website is open to every browser, so burrow checks each request before it reac
 
 ## Client updates
 
-A client updates itself only when its own config has `update.remote: true`. The server sends nothing but a release number. The client downloads that release from the official releases, or from a mirror set on the client machine, checks it against the release's `SHA256SUMS`, and refuses anything that is not newer than what it runs. For a service, a small updater that runs as root does the replacing, and it reads the opt-in from the installed config itself. On Windows, the client's account may only start that updater. Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
+A client updates itself only when its own config has `update.remote: true`. The server only asks. The client, or its updater, finds the latest official release itself, or uses a mirror set on the client machine. It checks the release against its `SHA256SUMS` and refuses anything that is not newer than what it runs. For a service, a small updater that runs as root does the replacing, and it takes no input from the client's account. It reads the opt-in from the installed config itself. The account can only start it, by a trigger file that the updater removes without reading, or on Windows by starting the updater service. The updater writes its result only into a folder the account may read but not change. Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
 
 ## burrow admin
 
