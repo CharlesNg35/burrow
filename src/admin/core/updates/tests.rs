@@ -309,3 +309,16 @@ fn the_server_command_line_asks_through_the_same_entry_point_under_its_own_name(
         (vec!["a".to_string()], "0.2.3".into(), ON_THE_SERVER.into())
     );
 }
+
+#[test]
+fn a_name_given_twice_is_asked_once() {
+    let (core, asked, w) = setup(
+        Some("0.2.3"),
+        vec![client("a", Some("0.2.1"), RemoteUpdates::On)],
+    );
+    let s = session(&w, AdminLevel::Write);
+    let r = asking(&core, &s, &["a", "a", "nobody", "nobody"], None, false).unwrap();
+    assert_eq!(r.asked, ["a"]);
+    assert_eq!(r.skipped.len(), 1, "{:?}", r.skipped);
+    assert_eq!(asked.lock().unwrap()[0].0, ["a"]);
+}

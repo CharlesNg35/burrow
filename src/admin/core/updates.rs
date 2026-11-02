@@ -122,6 +122,17 @@ pub fn ask_clients(
     r: &UpdateClients,
     by: &str,
 ) -> Result<UpdateClientsReply, ApiError> {
+    let mut seen = std::collections::HashSet::new();
+    let unique = UpdateClients {
+        clients: r
+            .clients
+            .iter()
+            .filter(|n| seen.insert(n.as_str()))
+            .cloned()
+            .collect(),
+        ..r.clone()
+    };
+    let r = &unique;
     let status = core.status();
     let to = target(core, r.version.as_deref(), &status, !r.dry_run)?;
     let named: Vec<&ClientStatus> = if r.all {
