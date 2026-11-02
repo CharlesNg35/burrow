@@ -231,13 +231,15 @@ impl Store for FileStore {
 
     fn writable(&self) -> Result<(), WhyNot> {
         let folder = self.folder();
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let probe = folder.join(format!(
-            ".{}.burrow-probe-{}",
+            ".{}.burrow-probe-{}-{}",
             self.path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
-            std::process::id()
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let made = std::fs::OpenOptions::new()
             .write(true)
@@ -627,6 +629,28 @@ mod tests {
         )
         .await
         .expect("the refusal gives up on a peer that holds the socket");
+    }
+
+    #[test]
+    fn two_sessions_checking_at_once_both_see_a_writable_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        std::fs::write(&path, "listen: 1\n").unwrap();
+        let store = std::sync::Arc::new(FileStore::new(&path));
+        let leftover = dir
+            .path()
+            .join(format!(".server.yaml.burrow-probe-{}", std::process::id()));
+        std::fs::write(&leftover, "").unwrap();
+        let all: Vec<_> = (0..8)
+            .map(|_| {
+                let s = store.clone();
+                std::thread::spawn(move || (0..50).all(|_| s.writable().is_ok()))
+            })
+            .collect();
+        assert!(
+            all.into_iter().all(|t| t.join().unwrap()),
+            "every check sees the file writable"
+        );
     }
 
     #[test]
