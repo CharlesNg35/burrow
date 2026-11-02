@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- burrow admin: an address field's first choice says what a port alone listens on for that setting, like "All IPv4 and IPv6 (default)" for the web ports, instead of showing "All IPv6 (::)". `::` reads "All IPv4 and IPv6", which is what burrow opens. Picking an address before the port no longer marks the field invalid or sets it.
+- A port below 1024 that the server may not open gets one warning with one text, for every address it listens on (`listen`, `websocket.listen`, `metrics.listen`, the web ports and service binds) and for a port alone too: `burrow validate`, burrow admin and the error when the port cannot be opened say how to grant it (install the service again, or `sudo setcap cap_net_bind_service=+ep` for a server run by hand) or to use a port above 1023.
+- burrow admin shows a check's hint under its message, at the field and in Review; a web port that waits shows its hint in Needs attention, and `burrow status` prints it.
+- `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
+- Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
+
 ## [0.2.1]
 
 A polished admin UI, one way to read durations, and checks in the create screens. Clients and visitors from 0.2.0 work unchanged. A config that writes a network with host bits set, like `127.0.0.1/24`, is now refused and says what to write instead.

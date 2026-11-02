@@ -279,3 +279,49 @@ fn websocket(c: &mut Ctx) -> Flow<'_> {
 fn websocket_is_turned_on_and_off_in_settings() {
     run("websocket", Options::default(), false, websocket);
 }
+
+async fn the_host_says_what_a_port_alone_means(c: &mut Ctx) {
+    c.ui.nav("/settings?tab=proxy").await;
+    edit_mode(c).await;
+    c.ui.wait_for("#f-web-http-host", SECS).await;
+    let first: String =
+        c.ui.eval("document.querySelector('#f-web-http-host option').textContent")
+            .await;
+    assert_eq!(first, "All IPv4 and IPv6 (default)");
+    let picked: String =
+        c.ui.eval("document.getElementById('f-web-http-host').value")
+            .await;
+    assert_eq!(picked, "", "an unset port shows the default first");
+    c.ui.select("#f-web-http-host", "0.0.0.0").await;
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    super::edits::row_clean(c, "web/http").await;
+    c.ui.wait_for(
+        "[data-schema='web/http'] [data-testid=stored-none]:not(.hidden)",
+        SECS,
+    )
+    .await;
+    both_widths(c, "web-port-host-before-port").await;
+    c.ui.fill("#f-web-http", "443").await;
+    wait_checked(c).await;
+    c.ui.wait_for("[data-schema='web/http'] [data-testid=field-hint]", SECS)
+        .await;
+    let row = c.ui.text("[data-schema='web/http'] [aria-live]").await;
+    assert!(
+        !row.contains("web.http"),
+        "no key path in the field's message: {row}"
+    );
+    both_widths(c, "web-port-warning-with-hint").await;
+}
+
+fn web_ports(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        the_host_says_what_a_port_alone_means(c).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_web_port_host_reads_truthfully_and_its_warning_says_how_to_fix_it() {
+    run("settings-web-ports", opts(), false, web_ports);
+}
