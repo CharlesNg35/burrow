@@ -35,6 +35,19 @@ The `burrow` crate is built in layers, from the bottom up:
 - `cargo xtask arch-check` enforces the comment rule.
 - Longer explanations belong in `docs/`, and the reasons for design choices in `docs/decisions.md`.
 
+## Building and testing
+
+```sh
+cargo build --release                                 # the burrow binary in target/release/
+cargo test                                            # unit, integration, security, diagnostics, init
+cargo test --release --test heavy -- --ignored --test-threads=1   # 10k connections, soak, chaos, churn and leak checks
+BURROW_TEST_TRANSPORT=ws cargo test --test integration   # the integration suite over WebSocket
+tests/e2e/proxies.sh                                  # wss:// through real nginx and Caddy containers (needs docker)
+cd fuzz && cargo fuzz run config                      # uses the nightly pinned in fuzz/rust-toolchain.toml; cargo fuzz list shows every target
+```
+
+`make help` lists the common commands (GNU make on Linux and macOS; on Windows use cargo and `cargo xtask` directly). The admin UI has its own guide: [docs/admin-ui-dev.md](docs/admin-ui-dev.md).
+
 ## Changes
 
 - Every behaviour fix starts with a test that fails without it.
