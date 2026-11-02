@@ -139,7 +139,12 @@ pub(crate) async fn serve<W: Dials>(
             _ = ended.wait_for(|e| *e) => None,
         };
         let Some(rec) = rec else {
-            let _ = tokio::time::timeout(super::LEAVE_TIMEOUT, ch.stream.finish()).await;
+            let _ = tokio::time::timeout(super::LEAVE_TIMEOUT, async {
+                if ch.stream.finish().await.is_ok() {
+                    super::drain(&mut ch.stream).await;
+                }
+            })
+            .await;
             return false;
         };
         match rec {
