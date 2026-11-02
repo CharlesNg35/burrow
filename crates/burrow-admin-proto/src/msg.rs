@@ -198,6 +198,8 @@ pub enum AdminLevel {
 pub struct WelcomeRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub burrow: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub understands: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -312,6 +314,30 @@ pub struct FileInfo {
     pub why_not_history: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<ConfigFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ConfigFile {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_only: Option<String>,
+    #[serde(default)]
+    pub items: Vec<crate::Path>,
+}
+
+impl FileInfo {
+    pub fn file_of(&self, path: &[String]) -> Option<&ConfigFile> {
+        let item = path.get(..2)?;
+        self.files
+            .iter()
+            .find(|f| f.items.iter().any(|i| i.as_slice() == item))
+    }
+
+    pub fn main_file(&self) -> Option<&ConfigFile> {
+        self.files.first()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -480,6 +506,8 @@ pub struct HistoryReply {
     pub entries: Vec<AuditEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<crate::plan::Diff>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<crate::plan::FileDiff>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

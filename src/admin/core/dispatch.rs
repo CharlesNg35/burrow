@@ -21,7 +21,7 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
     match t {
         msg::req::WELCOME => {
             let r: msg::WelcomeRequest = parse(body).unwrap_or_default();
-            s.hello(r.burrow);
+            s.hello(r.burrow, r.understands);
             ok(core.welcome(s))
         }
         msg::req::SCHEMA => {

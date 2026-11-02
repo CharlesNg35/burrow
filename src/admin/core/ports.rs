@@ -33,6 +33,9 @@ pub trait Store: Send + Sync {
     fn version(&self, rev: &str) -> Option<Docs>;
     fn history_dir(&self) -> Option<PathBuf>;
     fn history_problem(&self) -> Option<String>;
+    fn read_only(&self, _name: &str) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

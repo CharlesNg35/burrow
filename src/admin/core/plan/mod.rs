@@ -23,7 +23,7 @@ use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
 use locks::{refuse_changed_locks, refuse_locked};
 use refs::refuse_new_references;
-use steps::{Draft, assemble, conflict, judge, new_document, parse_current};
+use steps::{Draft, assemble, conflict, judge, new_document, parse_current, refuse_files};
 
 pub struct Checked {
     pub raw: Option<Value>,
@@ -61,7 +61,7 @@ pub fn check_docs(core: &Core, docs: &Docs) -> Checked {
         &*core.env,
     );
     let parsed = positions(docs);
-    let mapper = Mapper::new(parsed.as_ref());
+    let mapper = Mapper::new(parsed.as_ref()).named(docs.names().map(str::to_string).collect());
     let diags: Vec<Diag> = outcome
         .report
         .diagnostics
@@ -198,6 +198,7 @@ pub fn compute(
     let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
         .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
     let (new_docs, reformat, kept) = new_document(core, &raw, &old_docs, &applied)?;
+    refuse_files(core, s, &old_docs, &new_docs)?;
     let checked = check_docs(core, &new_docs);
     let new_raw = new_docs.tree().map(|n| n.to_json()).unwrap_or(Value::Null);
     refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;

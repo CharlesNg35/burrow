@@ -90,6 +90,8 @@ mod tests {
             "folder-not-writable",
             "read-only-fs",
             "read-level",
+            "file-read-only",
+            "older-admin-files",
         ];
         let mut out = Vec::new();
         out.extend(impact.map(|c| (c, IMPACT)));
@@ -174,9 +176,15 @@ mod tests {
             "world-readable",
             "edit-spare",
             "env-syntax",
+            "drop-in-key",
+            "drop-in-section",
+            "drop-in-ignored",
+            "drop-in-unreadable",
+            "drop-in-unsafe",
         ];
         let plain = [
             "access-log",
+            "duplicate-name",
             "admin-shared",
             "allow-every-address",
             "bind-is-control-port",

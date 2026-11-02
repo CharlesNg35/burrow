@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+mod drop_ins;
 mod files;
 #[cfg(feature = "web")]
 mod headers;

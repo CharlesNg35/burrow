@@ -498,7 +498,7 @@ mod tests {
     async fn a_burst_of_ten_drop_in_files_is_applied_in_one_reload() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("server.yaml");
-        std::fs::write(
+        crate::base::fs::write_private(
             &config,
             "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nservices:\n  web: { client: home, target: 80, bind: 7900 }\n",
         )
@@ -514,9 +514,9 @@ mod tests {
         let folder = dir.path().join("server.d");
         std::fs::create_dir(&folder).unwrap();
         for i in 0..10 {
-            std::fs::write(
-                folder.join(format!("s{i}.yaml")),
-                format!(
+            crate::base::fs::write_private(
+                &folder.join(format!("s{i}.yaml")),
+                &format!(
                     "services:\n  s{i}: {{ client: home, target: 80, bind: {} }}\n",
                     7910 + i
                 ),

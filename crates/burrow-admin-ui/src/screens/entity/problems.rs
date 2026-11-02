@@ -338,6 +338,7 @@ mod tests {
             col: None,
             before: false,
             subjects: Vec::new(),
+            file: None,
         };
         let label = |_: &Path| "Main target".to_string();
         let server = server_problem(&entity, &d, &label);

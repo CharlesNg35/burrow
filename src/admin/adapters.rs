@@ -321,6 +321,14 @@ impl Store for FileStore {
     fn history_problem(&self) -> Option<String> {
         self.problem.lock().expect("problem lock").clone()
     }
+
+    fn read_only(&self, name: &str) -> Option<String> {
+        if name == main_name(&self.path) {
+            return None;
+        }
+        let path = crate::config::docs::path_of(&self.path, name);
+        crate::config::docs::read_only(&path).map(|r| r.why().to_string())
+    }
 }
 
 fn probe_bind(addr: SocketAddr) -> std::io::Result<()> {

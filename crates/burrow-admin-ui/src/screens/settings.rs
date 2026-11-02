@@ -482,6 +482,7 @@ mod tests {
             col: None,
             before: false,
             subjects: Vec::new(),
+            file: None,
         }
     }
 

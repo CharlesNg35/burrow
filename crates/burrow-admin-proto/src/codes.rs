@@ -76,7 +76,6 @@ pub const DROP_IN_UNSAFE: &str = "drop-in-unsafe";
 pub const DROP_IN_UNREADABLE: &str = "drop-in-unreadable";
 pub const DROP_IN_IGNORED: &str = "drop-in-ignored";
 pub const FILE_READ_ONLY: &str = "file-read-only";
-pub const FILE_CHANGED: &str = "file-changed";
 pub const OLDER_ADMIN_FILES: &str = "older-admin-files";
 
 pub const READ_BY_THE_UI: [&str; 18] = [

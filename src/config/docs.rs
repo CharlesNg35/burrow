@@ -27,6 +27,12 @@ impl Docs {
         }
     }
 
+    pub fn sort(&mut self) {
+        if let Some(rest) = self.list.get_mut(1..) {
+            rest.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+    }
+
     pub fn main(&self) -> &Doc {
         &self.list[0]
     }
@@ -152,6 +158,7 @@ pub fn read(main: &Path) -> std::io::Result<Docs> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadOnly {
     Marked,
+    Link,
     NotWritable,
 }
 
@@ -160,12 +167,16 @@ impl ReadOnly {
         match self {
             ReadOnly::Marked if cfg!(windows) => "it has the read-only attribute",
             ReadOnly::Marked => "it has no write permission",
+            ReadOnly::Link => "it is a link to another file",
             ReadOnly::NotWritable => "burrow's user cannot write it",
         }
     }
 }
 
 pub fn read_only(path: &Path) -> Option<ReadOnly> {
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Some(ReadOnly::Link);
+    }
     let meta = std::fs::metadata(path).ok()?;
     #[cfg(unix)]
     {

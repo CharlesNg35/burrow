@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::platform::{self, Pending};
 use super::{Refused, spare_prefix, write_back};
-use crate::config::docs::{Docs, folder_of};
+use crate::config::docs::{Docs, folder_of, read_only};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
@@ -130,7 +130,18 @@ pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused
     let mut staged: Vec<Staged> = Vec::new();
     for (name, change) in changes(before, after) {
         let path = path_of(main, before, &name);
-        match stage(main, &path, &change) {
+        let locked = (name != before.main().name && !matches!(change, Change::Create { .. }))
+            .then(|| read_only(&path))
+            .flatten();
+        let step = if let Some(why) = locked {
+            Err(Refused::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("{name} is read-only on disk: {}", why.why()),
+            )))
+        } else {
+            stage(main, &path, &change)
+        };
+        match step {
             Ok(step) => staged.push(Staged { path, change, step }),
             Err(e) => {
                 discard(&staged);
@@ -287,6 +298,60 @@ mod tests {
         ));
         assert_eq!(read(dir.path(), "server.yaml").unwrap(), "listen: 1\n");
         assert_eq!(listing(dir.path()).len(), 3, "no temporary file is left");
+    }
+
+    #[test]
+    fn a_drop_in_marked_read_only_is_never_replaced_even_when_the_folder_allows_it() {
+        let (dir, main, before) = setup();
+        let locked = dir.path().join("server.d/a.yaml");
+        let mut perms = std::fs::metadata(&locked).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&locked, perms).unwrap();
+        let mut after = before.clone();
+        after.list[0].text = "listen: 2\n".into();
+        after.list[1].text = "services: { x: {} }\n".into();
+        let r = write_set(&main, &before, &after);
+        assert!(
+            matches!(r, Err(Refused::Io(ref e)) if e.kind() == std::io::ErrorKind::PermissionDenied),
+            "{r:?}"
+        );
+        assert_eq!(read(dir.path(), "server.yaml").unwrap(), "listen: 1\n");
+        assert_eq!(
+            read(dir.path(), "server.d/a.yaml").unwrap(),
+            "services: {}\n"
+        );
+        let mut gone = before.clone();
+        gone.list.remove(1);
+        assert!(write_set(&main, &before, &gone).is_err());
+        assert!(locked.exists());
+        #[cfg(windows)]
+        {
+            let mut perms = std::fs::metadata(&locked).unwrap().permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perms.set_readonly(false);
+            std::fs::set_permissions(&locked, perms).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_drop_in_that_links_elsewhere_is_read_but_never_written() {
+        let (dir, main, before) = setup();
+        let outside = dir.path().join("outside.yaml");
+        std::fs::write(&outside, "services: {}\n").unwrap();
+        let link = dir.path().join("server.d/a.yaml");
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert_eq!(
+            crate::config::docs::read(&main)
+                .unwrap()
+                .text_of("server.d/a.yaml"),
+            Some("services: {}\n")
+        );
+        let mut after = before.clone();
+        after.list[1].text = "services: { x: {} }\n".into();
+        assert!(write_set(&main, &before, &after).is_err());
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "services: {}\n");
     }
 
     #[test]

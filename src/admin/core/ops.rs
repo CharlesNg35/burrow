@@ -23,6 +23,8 @@ pub struct Applied {
     pub fresh: Vec<Fresh>,
     pub passwords: Vec<String>,
     pub document: Option<Docs>,
+    pub places: Vec<(Path, String)>,
+    pub drops: Vec<String>,
 }
 
 pub trait Context {
@@ -84,8 +86,9 @@ fn path_of(op: &Op) -> Option<&Path> {
         | Op::SecretAdd { path, .. }
         | Op::SecretRemove { path, .. }
         | Op::PasswordSet { path, .. }
-        | Op::SetText { path, .. } => Some(path),
-        Op::ReplaceDocument { .. } => None,
+        | Op::SetText { path, .. }
+        | Op::Place { path, .. } => Some(path),
+        Op::ReplaceDocument { .. } | Op::DropFile { .. } => None,
     }
 }
 
@@ -102,8 +105,16 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
     let mut fresh = Vec::new();
     let mut passwords = Vec::new();
     let mut document = None;
+    let (mut places, mut drops) = (Vec::new(), Vec::new());
     for op in ops {
         match op {
+            Op::Place { path, file } => {
+                if path.len() != 2 {
+                    return Err(err("place needs the path of a service, client or visitor"));
+                }
+                places.push((path.clone(), file.clone()));
+            }
+            Op::DropFile { file } => drops.push(file.clone()),
             Op::Set { path, value } => {
                 let (last, parents) = path.split_last().ok_or_else(|| err("set needs a path"))?;
                 let value = checked_value(value)?;
@@ -182,6 +193,8 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
         fresh,
         passwords,
         document,
+        places,
+        drops,
     })
 }
 

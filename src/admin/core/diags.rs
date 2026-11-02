@@ -60,6 +60,7 @@ fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
 
 pub struct Mapper {
     places: Vec<Place>,
+    names: Vec<String>,
 }
 
 impl Mapper {
@@ -68,7 +69,15 @@ impl Mapper {
         if let Some(r) = root {
             collect(r, &mut Vec::new(), &mut places);
         }
-        Mapper { places }
+        Mapper {
+            places,
+            names: Vec::new(),
+        }
+    }
+
+    pub fn named(mut self, names: Vec<String>) -> Self {
+        self.names = names;
+        self
     }
 
     fn path_at(&self, at: Span) -> Option<Vec<String>> {
@@ -111,6 +120,10 @@ impl Mapper {
                 .map(|s| s.start.col as u32),
             before: false,
             subjects: d.subjects.clone(),
+            file: d
+                .span
+                .filter(|s| s.file != crate::config::tree::FileId::MAIN)
+                .and_then(|s| self.names.get(s.file.index()).cloned()),
         }
     }
 }

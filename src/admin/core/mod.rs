@@ -2,6 +2,7 @@ pub mod diags;
 pub mod diff;
 mod dispatch;
 pub mod guard;
+mod history;
 mod older;
 pub mod ops;
 pub mod passwords;
@@ -16,16 +17,16 @@ pub mod values;
 
 pub use dispatch::{dispatch, ok, parse};
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use burrow_admin_proto::msg::{
-    AdminLevel, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
-    HistoryRequest, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest,
-    Suggestions, Welcome, WhyNot, You,
+    AdminLevel, AuditEntry, ConfigFile, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, Limits,
+    Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest, Suggestions, Welcome,
+    WhyNot, You,
 };
 use burrow_admin_proto::schema::{Entity, Schema};
 use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry};
@@ -88,6 +89,7 @@ pub struct Session {
     pub via_websocket: bool,
     pub client: String,
     ui_version: Mutex<Option<String>>,
+    understands: Mutex<Vec<String>>,
     pending: Mutex<Vec<Pending>>,
     next_handle: AtomicU64,
 }
@@ -109,6 +111,7 @@ impl Session {
             via_websocket,
             client,
             ui_version: Mutex::new(None),
+            understands: Mutex::new(Vec::new()),
             pending: Mutex::new(Vec::new()),
             next_handle: AtomicU64::new(0),
         }
@@ -182,8 +185,17 @@ impl Session {
         self.level == AdminLevel::Write
     }
 
-    pub fn hello(&self, burrow: Option<String>) {
+    pub fn hello(&self, burrow: Option<String>, understands: Vec<String>) {
         *self.ui_version.lock().expect("ui version lock") = burrow;
+        *self.understands.lock().expect("understands lock") = understands;
+    }
+
+    pub fn understands(&self, feature: &str) -> bool {
+        self.understands
+            .lock()
+            .expect("understands lock")
+            .iter()
+            .any(|f| f == feature)
     }
 
     pub fn older_ui(&self) -> bool {
@@ -308,7 +320,7 @@ impl Core {
         })
     }
 
-    fn file_info(&self, s: &Session) -> FileInfo {
+    fn file_info(&self, s: &Session, docs: &Docs) -> FileInfo {
         let writable = self.store.writable();
         FileInfo {
             path: self.store.path().display().to_string(),
@@ -332,7 +344,29 @@ impl Core {
             source_differs: None,
             why_not_history: self.store.history_problem(),
             history_dir: self.store.history_dir().map(|d| d.display().to_string()),
+            files: self.config_files(docs),
         }
+    }
+
+    fn config_files(&self, docs: &Docs) -> Vec<ConfigFile> {
+        if docs.list.len() < 2 {
+            return Vec::new();
+        }
+        let owners = plan::files::Owners::of(docs);
+        docs.list
+            .iter()
+            .enumerate()
+            .map(|(i, d)| ConfigFile {
+                name: d.name.clone(),
+                read_only: self.store.read_only(&d.name),
+                items: owners
+                    .items
+                    .iter()
+                    .filter(|(_, at)| **at == i)
+                    .map(|((section, name), _)| vec![section.clone(), name.clone()])
+                    .collect(),
+            })
+            .collect()
     }
 
     pub fn seen_docs(&self, rev: &str) -> Option<Docs> {
@@ -397,7 +431,7 @@ impl Core {
         warnings.extend(notice);
         Ok(State {
             rev: rev.clone(),
-            file: self.file_info(s),
+            file: self.file_info(s, &docs),
             running: Running {
                 rev: self
                     .last_good
@@ -491,61 +525,6 @@ impl Core {
         entry.id = next_id(a.front(), entry.at);
         a.push_front(entry);
         a.truncate(AUDIT_RING);
-    }
-
-    pub fn history(&self, req: &HistoryRequest) -> Result<HistoryReply, ApiError> {
-        let limit = req.limit.unwrap_or(50).clamp(1, AUDIT_RING as u32) as usize;
-        let mut entries: Vec<AuditEntry> = self
-            .audit
-            .lock()
-            .expect("audit lock")
-            .iter()
-            .take(limit)
-            .cloned()
-            .collect();
-        let mut kept: HashMap<String, bool> = HashMap::new();
-        for e in &mut entries {
-            e.revertible = *kept
-                .entry(e.rev.clone())
-                .or_insert_with(|| self.store.version(&e.rev).is_some());
-        }
-        let missing = match (req.entry, &req.diff) {
-            (Some(id), _) => Some(format!("no history entry {id}")),
-            (None, Some(rev)) => Some(format!("no history entry for {rev}")),
-            (None, None) => None,
-        };
-        let wanted = |e: &AuditEntry| match (req.entry, &req.diff) {
-            (Some(id), _) => e.id == id,
-            (None, Some(rev)) => e.rev == *rev,
-            (None, None) => false,
-        };
-        let diff = match missing {
-            Some(missing) => {
-                let entry = self
-                    .audit
-                    .lock()
-                    .expect("audit lock")
-                    .iter()
-                    .find(|e| wanted(e))
-                    .cloned()
-                    .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, missing))?;
-                let after = self.store.version(&entry.rev);
-                let before = self.store.version(&entry.base);
-                match (before, after) {
-                    (Some(b), Some(a)) => {
-                        let (b, a) = (b.main().text.clone(), a.main().text.clone());
-                        let hashes = values::hashes_in(&[&b, &a], &self.schema().root);
-                        let headers = values::header_values_in(&[&b, &a]);
-                        Some(diff::unified(&b, &a, &|l| {
-                            text::mask_secrets(&values::veil_line(l, &hashes, &headers), &[])
-                        }))
-                    }
-                    _ => None,
-                }
-            }
-            None => None,
-        };
-        Ok(HistoryReply { entries, diff })
     }
 }
 
