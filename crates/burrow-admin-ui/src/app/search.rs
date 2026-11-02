@@ -288,6 +288,9 @@ pub(super) fn SearchPopover() -> impl IntoView {
         let list = hits.get();
         let needle = q.get().trim().to_lowercase();
         let act = active.get().min(list.len().saturating_sub(1));
+        if list.is_empty() {
+            return view! { <li class="px-2.5 py-3 text-sm text-text-muted" role="presentation">"Nothing matches"</li> }.into_any();
+        }
         let mut last = "";
         list.into_iter()
             .enumerate()
@@ -308,12 +311,13 @@ pub(super) fn SearchPopover() -> impl IntoView {
                             <span class="text-text-muted"><Icon name=h.icon/></span>
                             {marked(&h.label, &needle)}
                             <span class="ml-auto truncate text-xs text-text-muted">{h.facet.clone()}</span>
-                            {(i == act).then(|| view! { <Kbd text="↵"/> })}
+                            {(i == act).then(|| view! { <Kbd text="Enter"/> })}
                         </button>
                     </li>
                 }
             })
             .collect_view()
+            .into_any()
     };
     let keys = Callback::new(move |e: web_sys::KeyboardEvent| match e.key().as_str() {
         "ArrowDown" => {
@@ -366,7 +370,7 @@ pub(super) fn SearchPopover() -> impl IntoView {
                 <ul class="max-h-[60vh] overflow-y-auto p-1.5" role="listbox">{body}</ul>
                 <div class="flex items-center gap-3 border-t border-border px-4 py-2.5 text-xs text-text-muted">
                     <span>"↑↓ move"</span>
-                    <span>"↵ run"</span>
+                    <span>"Enter run"</span>
                     <span class="ml-auto">"Searches services, clients, visitors, settings and history"</span>
                 </div>
         </Modal>
