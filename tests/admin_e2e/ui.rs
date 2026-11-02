@@ -500,6 +500,33 @@ impl Ui {
         png
     }
 
+    pub async fn png_of(&self, css: &str) -> Vec<u8> {
+        self.wait_for(css, Duration::from_secs(10)).await;
+        let r: Vec<f64> = self
+            .eval(&format!(
+                "(() => {{ const e = document.querySelector({}); e.scrollIntoView({{block: 'center'}}); const r = e.getBoundingClientRect(); return [r.left + scrollX, r.top + scrollY, r.width, r.height]; }})()",
+                js_str(css)
+            ))
+            .await;
+        self.settle().await;
+        self.page
+            .screenshot(
+                ScreenshotParams::builder()
+                    .format(CaptureScreenshotFormat::Png)
+                    .capture_beyond_viewport(true)
+                    .clip(Viewport {
+                        x: r[0].floor(),
+                        y: r[1].floor(),
+                        width: r[2].ceil(),
+                        height: r[3].ceil(),
+                        scale: 1.0,
+                    })
+                    .build(),
+            )
+            .await
+            .expect("element screenshot")
+    }
+
     pub async fn shot(&mut self, step: &str) {
         let png = self.png().await;
         self.flow.save(step, &png);

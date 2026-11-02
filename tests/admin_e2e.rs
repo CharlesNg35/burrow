@@ -359,6 +359,21 @@ async fn ax_clean(c: &Ctx, screen: &str) {
     );
 }
 
+pub const ADORNMENTS: &str = "(() => { const bad = []; for (const i of document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea')) { const r = i.getBoundingClientRect(); if (!r.width || !r.height) continue; const cs = getComputedStyle(i); const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft); const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight); const around = i.closest('[data-adorned]') || i.parentElement; for (const a of around.querySelectorAll('*')) { if (a === i || a.contains(i)) continue; const pos = getComputedStyle(a).position; if (!a.hasAttribute('data-adornment') && pos !== 'absolute' && pos !== 'fixed') continue; const q = a.getBoundingClientRect(); if (!q.width || !q.height) continue; if (Math.min(right, q.right) - Math.max(left, q.left) > 0.5 && Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top) > 0.5) bad.push((i.id || i.name || 'input') + ': ' + (a.textContent || a.tagName).trim().slice(0, 40)); } } return bad; })()";
+
+pub async fn adornments_clear(c: &Ctx, at: &str) {
+    let bad: Vec<String> = c.ui.eval(ADORNMENTS).await;
+    assert!(
+        bad.is_empty(),
+        "{at}: a prefix, suffix or icon is drawn over the typed text: {bad:?}"
+    );
+}
+
+pub async fn baseline_of(c: &mut Ctx, name: &str, css: &str) {
+    let png = c.ui.png_of(css).await;
+    check_baseline(c, name, png);
+}
+
 async fn baseline(c: &mut Ctx, name: &str) {
     let _: bool = c
         .ui
@@ -369,6 +384,10 @@ async fn baseline(c: &mut Ctx, name: &str) {
         .ui
         .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } return true; })()")
         .await;
+    check_baseline(c, name, png);
+}
+
+fn check_baseline(c: &mut Ctx, name: &str, png: Vec<u8>) {
     match compare(name, &png, &c.chrome_version) {
         Baseline::Same | Baseline::Written => {}
         Baseline::Skipped(why) => println!("baseline {name}: {why}"),
