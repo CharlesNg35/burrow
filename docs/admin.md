@@ -86,7 +86,7 @@ When the server reads a folder of drop-in files ([configuration.md](configuratio
 
 ## Mixed versions
 
-An admin older than v0.2.1 can still change items in `server.yaml`; the server refuses its changes to items in drop-in files, with a message saying so.
+An admin older than v0.2.2 can still change items in `server.yaml`; the server refuses its changes to items in drop-in files, with a message saying so.
 
 The burrow on your machine and the one on the server don't need the same version. A newer burrow admin works with an older server: it says the server is older in Needs attention, and leaves out what that server cannot do. An older burrow admin, for example v0.1.2, can open a newer server too. When the config uses settings it doesn't know, such as clients with their own target or weight, websites or named login services, its Needs attention lists them ("This burrow admin is older than the server and cannot edit some settings here: …"), and it shows them as text instead of a form. Editing stays allowed, because the server checks every change. To edit those settings in forms, update burrow on your machine.
 

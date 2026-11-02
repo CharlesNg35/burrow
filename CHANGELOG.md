@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.1]
+## [0.2.2]
 
 Drop-in config files: a server can keep services, clients and visitors in `server.d/*.yaml` next to `server.yaml`. See docs/configuration.md.
 
