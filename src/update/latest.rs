@@ -23,7 +23,7 @@ pub fn version_in(sums: &str) -> Option<String> {
             let v = rest
                 .strip_suffix(&format!("-{asset}.tar.gz"))
                 .or_else(|| rest.strip_suffix(&format!("-{asset}.zip")))?;
-            crate::service::parse_version(v).map(|_| v.to_string())
+            super::release_version(v).map(|_| v.to_string())
         })
     })
 }

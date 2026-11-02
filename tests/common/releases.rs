@@ -18,6 +18,26 @@ pub enum Reply {
 pub struct Releases {
     pub base: String,
     routes: Arc<Mutex<HashMap<String, Reply>>>,
+    pub seen: Arc<Mutex<Vec<String>>>,
+}
+
+pub fn resolve_dots(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        match seg {
+            ".." => {
+                out.pop();
+            }
+            "." => {}
+            s => out.push(s),
+        }
+    }
+    let joined = out.join("/");
+    if joined.starts_with('/') {
+        joined
+    } else {
+        format!("/{joined}")
+    }
 }
 
 impl Releases {
@@ -26,10 +46,13 @@ impl Releases {
         let base = format!("http://{}/releases", listener.local_addr().unwrap());
         let routes: Arc<Mutex<HashMap<String, Reply>>> = Arc::default();
         let shared = routes.clone();
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let seen_all = seen.clone();
         std::thread::spawn(move || {
             for conn in listener.incoming() {
                 let Ok(mut conn) = conn else { continue };
                 let shared = shared.clone();
+                let shared_seen = seen_all.clone();
                 std::thread::spawn(move || {
                     let _ = conn.set_read_timeout(Some(Duration::from_secs(5)));
                     let mut req = Vec::new();
@@ -38,7 +61,8 @@ impl Releases {
                         req.push(byte[0]);
                     }
                     let text = String::from_utf8_lossy(&req);
-                    let path = text.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let path = resolve_dots(text.split_whitespace().nth(1).unwrap_or(""));
+                    shared_seen.lock().unwrap().push(path.clone());
                     let reply = shared.lock().unwrap().get(&path).cloned();
                     let head = |status: &str, extra: &str| {
                         format!("HTTP/1.1 {status}\r\n{extra}Connection: close\r\n\r\n")
@@ -74,7 +98,11 @@ impl Releases {
                 });
             }
         });
-        Releases { base, routes }
+        Releases { base, routes, seen }
+    }
+
+    pub fn route_at(&self, path: &str, reply: Reply) {
+        self.routes.lock().unwrap().insert(path.to_string(), reply);
     }
 
     pub fn route(&self, path: &str, reply: Reply) {

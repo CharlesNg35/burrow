@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use burrow::update::archive::{from_tar_gz, from_zip};
 use burrow::update::http::{Fetched, get};
 use output::text;
-use releases::{Releases, Reply};
+use releases::{Releases, Reply, archive};
 
 const MINE: &str = env!("CARGO_PKG_VERSION");
 
@@ -540,4 +540,62 @@ async fn malformed_chunked_bodies_are_errors() {
         chunked(b"3 ; ext\r\nabc\r\n0\r\n\r\n").await.unwrap(),
         b"abc"
     );
+}
+
+#[test]
+fn a_version_that_walks_out_of_the_release_folder_is_refused_before_any_download() {
+    let releases = Releases::start();
+    let (platform, ext) = burrow::update::platform().expect("a release platform");
+    let evil = "99.0.0+/../../../ATT/REPO/download/t";
+    let asset = format!("burrow-{evil}-{platform}.{ext}");
+    let binary = std::fs::read(env!("CARGO_BIN_EXE_burrow")).unwrap();
+    let bytes = archive("evil", &binary, ext);
+    let sum: String =
+        sha2::Digest::finalize(<sha2::Sha256 as sha2::Digest>::new_with_prefix(&bytes))
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+    releases.route_at(
+        "/ATT/REPO/download/t/SHA256SUMS",
+        Reply::Body(format!("{sum}  {asset}\n").into_bytes()),
+    );
+    releases.route_at(
+        &format!("/ATT/REPO/download/t/evil-{platform}.{ext}"),
+        Reply::Body(bytes),
+    );
+    assert_eq!(
+        releases::resolve_dots(&format!("/releases/download/v{evil}/SHA256SUMS")),
+        "/ATT/REPO/download/t/SHA256SUMS",
+        "the fixture resolves dot segments like GitHub does"
+    );
+    let i = install();
+    let out = update(&i.binary, &releases, &["--to", evil]);
+    assert!(!out.status.success(), "{}", text(&out));
+    assert!(
+        text(&out).contains("is not a release number"),
+        "{}",
+        text(&out)
+    );
+    assert!(
+        releases.seen.lock().unwrap().is_empty(),
+        "{:?}",
+        releases.seen.lock().unwrap()
+    );
+    assert_eq!(std::fs::read(&i.binary).unwrap(), i.original);
+    assert!(burrow::update::find_asset(&format!("{sum}  {asset}"), platform, ext).is_none());
+    assert!(burrow::update::latest::version_in(&format!("{sum}  {asset}")).is_none());
+    assert!(burrow::update::remote::allowed_target(evil, "0.2.1").is_err());
+    assert!(burrow::update::release_version("0.2.2").is_some());
+    assert!(burrow::update::release_version("0.2.2-rc.1").is_some());
+    for bad in [
+        "0.2.2+x",
+        "0.2.2 ",
+        " 0.2.2",
+        "v0.2.2",
+        "0.2.2-../x",
+        "0.2.02",
+        "0.2.2/x",
+    ] {
+        assert!(burrow::update::release_version(bad).is_none(), "{bad}");
+    }
 }

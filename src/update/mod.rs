@@ -70,7 +70,7 @@ pub fn find_asset(sums: &str, platform: &str, ext: &str) -> Option<Asset> {
         let hash = parts.next()?;
         let name = parts.next()?.trim_start_matches('*');
         let version = name.strip_prefix("burrow-")?.strip_suffix(&suffix)?;
-        parse_version(version)?;
+        release_version(version)?;
         (hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())).then(|| Asset {
             version: version.to_string(),
             name: name.to_string(),
@@ -183,8 +183,17 @@ fn stage(near: &Path, bytes: &[u8]) -> Result<Staged, Failure> {
     )))
 }
 
+pub fn release_version(v: &str) -> Option<semver::Version> {
+    let parsed = semver::Version::parse(v).ok()?;
+    (parsed.build.is_empty() && parsed.to_string() == v).then_some(parsed)
+}
+
 fn version_of(v: &str) -> Result<semver::Version, Failure> {
-    parse_version(v).ok_or_else(|| Failure::usage(format!("\"{v}\" is not a version like 1.2.3")))
+    release_version(v).ok_or_else(|| {
+        Failure::usage(format!(
+            "\"{v}\" is not a release number like 1.2.3 or 1.2.3-rc.1"
+        ))
+    })
 }
 
 pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
@@ -287,7 +296,7 @@ pub fn fetch_verified(version: &str, near: &Path, out: &mut dyn Write) -> Result
 }
 
 fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Failure> {
-    let sums_url = match wanted {
+    let sums_url = match wanted.map(version_of).transpose()? {
         Some(v) => format!("{base}/download/v{v}/SHA256SUMS"),
         None => format!("{base}/latest/download/SHA256SUMS"),
     };

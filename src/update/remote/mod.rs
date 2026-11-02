@@ -32,7 +32,7 @@ pub fn window() -> Duration {
 
 pub fn allowed_target(target: &str, mine: &str) -> Result<semver::Version, String> {
     let target = target.trim().trim_start_matches('v');
-    let wanted = crate::service::parse_version(target)
+    let wanted = super::release_version(target)
         .ok_or_else(|| format!("\"{target}\" is not a release number like 1.2.3"))?;
     let ours = crate::service::parse_version(mine)
         .ok_or_else(|| format!("this burrow reports \"{mine}\", which is not a release number"))?;
