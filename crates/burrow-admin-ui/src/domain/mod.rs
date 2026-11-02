@@ -17,7 +17,7 @@ use burrow_admin_logic::tree::{inner, names};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Entity, Node, SemType};
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{Field, HealthCheck, ServiceEntry};
+use burrow_config::{Field, HealthCheck};
 use leptos::prelude::*;
 
 use crate::form::object_view;
@@ -69,14 +69,7 @@ pub(super) fn choice_box(
     .into_any()
 }
 
-pub fn reserved_clients() -> Vec<String> {
-    store().schema.with(|s| {
-        s.as_ref()
-            .and_then(|s| s.root.at(&ServiceEntry::CLIENT.schema()))
-            .map(|n| n.sem.reserved().to_vec())
-            .unwrap_or_default()
-    })
-}
+pub use crate::format::reserved_clients;
 
 pub fn names_of(entity: &Entity) -> Vec<String> {
     let doc = store().edit.doc();

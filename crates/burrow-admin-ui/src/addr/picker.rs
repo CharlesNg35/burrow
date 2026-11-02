@@ -1,4 +1,5 @@
-use burrow_admin_logic::choices::{Presence, ServiceChoice, client_choices, service_choices};
+use burrow_admin_logic::choices::{ServiceChoice, client_choices, service_choices};
+use burrow_admin_logic::presence::Presence;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{ClientEntry, Entry, VisitorEntry};
@@ -42,11 +43,9 @@ fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
     client_choices(&doc, status.as_deref(), reserved, field)
         .into_iter()
         .map(|c| ComboOption {
-            dot: match c.presence {
-                _ if c.blocked.is_some() => Some(Tone::Neutral),
-                Presence::Here | Presence::Online => Some(Tone::Success),
-                Presence::Offline => Some(Tone::Neutral),
-                Presence::Unknown => None,
+            dot: match c.blocked {
+                Some(_) => Some(Tone::Neutral),
+                None => crate::format::tone_of(c.presence),
             },
             value: c.name,
             label: c.label,

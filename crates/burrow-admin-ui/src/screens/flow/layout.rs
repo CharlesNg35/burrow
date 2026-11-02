@@ -90,12 +90,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&s
     let mut lines = Vec::new();
     let offline: Vec<&String> = client_names
         .iter()
-        .filter(|c| {
-            status.is_some()
-                && !status
-                    .and_then(|s| s.clients.iter().find(|x| &x.name == *c))
-                    .is_some_and(|x| x.connected)
-        })
+        .filter(|c| status.is_some() && !format::presence_of(status, c).up())
         .collect();
     nodes.push(server_node(&svcs, status, rates, rows));
     let client_nodes = client_nodes(&client_names, &svcs, status, rows);
@@ -301,8 +296,8 @@ fn client_nodes(
         .iter()
         .enumerate()
         .map(|(j, c)| {
-            let cs = status.and_then(|s| s.clients.iter().find(|x| &x.name == c));
-            let on = cs.is_some_and(|x| x.connected);
+            let cs = status.and_then(|s| burrow_admin_logic::presence::client(s, c));
+            let on = format::presence_of(status, c).up();
             let slot = (rows as f64 * PITCH) / client_names.len().max(1) as f64;
             let y = TOP + (j as f64 + 0.5) * slot - 21.0;
             let involved = svcs.iter().any(|s| problem_svc(s) && s.clients.contains(c));

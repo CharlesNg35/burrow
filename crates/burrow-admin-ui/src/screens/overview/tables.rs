@@ -1,3 +1,4 @@
+use burrow_admin_logic::presence;
 use burrow_admin_logic::top::{some_names, top, view_all};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::ClientStatus;
@@ -70,17 +71,14 @@ pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
     let clients = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
-        let of = |name: &str| {
-            st.as_ref()
-                .and_then(|st| st.clients.iter().find(|c| c.name == name))
-        };
+        let of = |name: &str| st.as_ref().and_then(|st| presence::client(st, name));
         let serving = |name: &str| {
             ServiceEntry::entries(&v)
                 .is_some_and(|m| m.values().any(|x| clients_of(x).iter().any(|c| c == name)))
         };
         top(names(&v, ClientEntry::section()), |name| {
             let c = of(name);
-            let away = !c.is_some_and(|c| c.connected) && serving(name);
+            let away = !format::presence_of(st.as_deref(), name).up() && serving(name);
             (
                 away || c.is_some_and(|c| c.at_limit),
                 c.map_or(0, |c| c.open),
@@ -126,11 +124,7 @@ fn client_cells(s: Store, name: String) -> impl Fn() -> Option<ClientStatus> + C
     move || {
         s.status.with(|st| {
             st.as_ref()
-                .and_then(|st| {
-                    st.clients
-                        .iter()
-                        .find(|c| name.with_value(|n| &c.name == n))
-                })
+                .and_then(|st| name.with_value(|n| presence::client(st, n)))
                 .cloned()
         })
     }

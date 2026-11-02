@@ -1,5 +1,34 @@
+use burrow_admin_logic::presence::{self, Presence};
+use burrow_admin_proto::status::Status;
+use burrow_config::ServiceEntry;
 pub use burrow_syntax::duration::{ago, span};
 pub use burrow_syntax::size::bytes;
+use burrow_ui_kit::Tone;
+use leptos::prelude::*;
+
+pub fn reserved_clients() -> Vec<String> {
+    crate::store::try_store()
+        .and_then(|s| {
+            s.schema.with(|s| {
+                s.as_ref()
+                    .and_then(|s| s.root.at(&ServiceEntry::CLIENT.schema()))
+                    .map(|n| n.sem.reserved().to_vec())
+            })
+        })
+        .unwrap_or_default()
+}
+
+pub fn presence_of(status: Option<&Status>, name: &str) -> Presence {
+    presence::presence(status, &reserved_clients(), name)
+}
+
+pub fn tone_of(p: Presence) -> Option<Tone> {
+    match p {
+        Presence::Here | Presence::Online => Some(Tone::Success),
+        Presence::Offline => Some(Tone::Neutral),
+        Presence::Unknown => None,
+    }
+}
 
 pub fn left_of(client: &str, left_secs_ago: Option<u64>, uptime: u64) -> String {
     let added = crate::store::try_store().and_then(|s| {

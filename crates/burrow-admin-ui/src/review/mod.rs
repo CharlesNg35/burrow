@@ -264,16 +264,6 @@ fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
     burrow_admin_proto::serde_json::Map::new()
 }
 
-fn session_ip(from: &str) -> String {
-    let host = match from.rsplit_once(':') {
-        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !h.is_empty() => h,
-        _ => from,
-    };
-    host.trim_start_matches('[')
-        .trim_end_matches(']')
-        .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,8 +415,5 @@ mod tests {
             }],
         };
         assert_eq!(diff_counts(&d), (1, 2));
-        assert_eq!(session_ip("203.0.113.7:51000"), "203.0.113.7");
-        assert_eq!(session_ip("[2001:db8::1]:443"), "2001:db8::1");
-        assert_eq!(session_ip("203.0.113.7"), "203.0.113.7");
     }
 }
