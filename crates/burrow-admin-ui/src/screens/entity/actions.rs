@@ -96,7 +96,7 @@ fn more_menu(
             })}
             {can.then(|| {
                 let (path, back) = (path.clone(), back.clone());
-                view! { <burrow_ui_kit::MenuItem label=format!("Delete {}…", singular(&sec)) tone=Tone::Danger testid="delete" on_click=move |_| {
+                view! { <burrow_ui_kit::MenuItem label=format!("Delete {}", singular(&sec)) tone=Tone::Danger testid="delete" on_click=move |_| {
                     e.set(&path, None);
                     route::go(back.clone());
                 }/> }
