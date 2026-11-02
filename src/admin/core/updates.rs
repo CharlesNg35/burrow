@@ -100,6 +100,8 @@ fn target(
     }
 }
 
+pub const ON_THE_SERVER: &str = "burrow clients on the server";
+
 pub fn update_clients(
     core: &Core,
     s: &Session,
@@ -111,6 +113,14 @@ pub fn update_clients(
             "read access cannot update clients",
         ));
     }
+    ask_clients(core, r, &format!("{} ({})", s.visitor, s.peer.ip()))
+}
+
+pub fn ask_clients(
+    core: &Core,
+    r: &UpdateClients,
+    by: &str,
+) -> Result<UpdateClientsReply, ApiError> {
     let status = core.status();
     let to = target(core, r.version.as_deref(), &status, !r.dry_run)?;
     let named: Vec<&ClientStatus> = if r.all {
@@ -147,18 +157,15 @@ pub fn update_clients(
     if r.dry_run {
         return Ok(reply);
     }
-    let by = format!("{} ({})", s.visitor, s.peer.ip());
     let started = match reply.asked.as_slice() {
         [] => return Ok(reply),
-        [one] if !r.all => core.live.ask_update(one, &to, &by),
-        _ => core.live.update_all(reply.asked.clone(), &to, &by),
+        [one] if !r.all => core.live.ask_update(one, &to, by),
+        _ => core.live.update_all(reply.asked.clone(), &to, by),
     };
     started.map_err(|why| ApiError::new(ErrorCode::Conflict, why))?;
     tracing::info!(
         target: "burrow::admin",
-        visitor = %s.visitor,
-        from = %s.peer.ip(),
-        "asked {} to update to {to}",
+        "{by} asked {} to update to {to}",
         reply.asked.join(", ")
     );
     Ok(reply)
