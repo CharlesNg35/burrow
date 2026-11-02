@@ -138,6 +138,12 @@ impl Board {
         Ok(self.next_id)
     }
 
+    pub(crate) fn forget(&mut self, client: &str, id: u32) {
+        if self.jobs.get(client).is_some_and(|j| j.id == id) {
+            self.jobs.remove(client);
+        }
+    }
+
     pub(crate) fn stepped(
         &mut self,
         client: &str,
@@ -333,13 +339,18 @@ impl super::Shared {
                 .lock()
                 .expect("updates lock")
                 .begin(client, to, by, Instant::now())?;
-        session
-            .control
-            .try_send(ServerMsg::Update {
-                id,
-                version: to.to_string(),
-            })
-            .map_err(|_| "its connection is busy; try again".to_string())
+        let sent = session.control.try_send(ServerMsg::Update {
+            id,
+            version: to.to_string(),
+        });
+        if sent.is_err() {
+            self.updates
+                .lock()
+                .expect("updates lock")
+                .forget(client, id);
+            return Err("its connection is busy; try again".into());
+        }
+        Ok(())
     }
 
     pub fn update_all(&self, clients: Vec<String>, to: &str, by: &str) -> Result<(), String> {

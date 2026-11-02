@@ -149,3 +149,17 @@ fn update_all_stops_when_the_next_client_cannot_be_asked() {
     assert_eq!(b.rollout().unwrap().stopped_at.as_deref(), Some("gone"));
     assert_eq!(b.job("a", now), None);
 }
+
+#[test]
+fn a_request_that_could_not_be_sent_leaves_no_job_behind() {
+    let (mut b, now) = board(&["nas"]);
+    let id = b.begin("nas", "0.2.2", "ops", now).unwrap();
+    b.forget("nas", id + 1);
+    assert!(b.job("nas", now).is_some(), "another id is not this job");
+    b.forget("nas", id);
+    assert_eq!(b.job("nas", now), None);
+    assert!(
+        b.begin("nas", "0.2.2", "ops", now).is_ok(),
+        "a retry is not refused as already running"
+    );
+}
