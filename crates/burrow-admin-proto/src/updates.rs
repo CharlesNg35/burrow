@@ -126,7 +126,7 @@ pub struct LocalClient {
     pub last_update: Option<UpdateStatus>,
 }
 
-pub const FIRST_REPORTING: &str = "0.2.1";
+pub const FIRST_REPORTING: &str = "0.2.2";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct UpdateClients {
@@ -240,7 +240,7 @@ mod tests {
             ..ClientStatus::default()
         };
         assert_eq!(version(&old), Shown::Older);
-        assert_eq!(version_text(&old), "older than 0.2.1");
+        assert_eq!(version_text(&old), "older than 0.2.2");
         let gone = ClientStatus {
             connected: false,
             ..old.clone()

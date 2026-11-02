@@ -10,7 +10,7 @@ For clients and visitors, use `burrow service status` and `burrow service logs -
 
 ## burrow status
 
-`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network. A server lists each client's burrow version, or `< 0.2.1` for a client too old to say. On a client's machine, from 0.2.1 on, it shows the running client too: its server, whether it is connected, how it runs, whether it allows remote updates and its last update ([updates.md](updates.md)).
+`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network. A server lists each client's burrow version, or `< 0.2.2` for a client too old to say. On a client's machine, from 0.2.2 on, it shows the running client too: its server, whether it is connected, how it runs, whether it allows remote updates and its last update ([updates.md](updates.md)).
 
 Run it on the server machine:
 

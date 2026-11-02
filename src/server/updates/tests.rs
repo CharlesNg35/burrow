@@ -50,7 +50,7 @@ fn only_a_reporting_client_that_allows_it_is_asked_and_once_at_a_time() {
     assert!(
         b.begin("old", "0.2.2", "ops", now)
             .unwrap_err()
-            .contains("older than 0.2.1")
+            .contains("older than 0.2.2")
     );
     assert!(
         b.begin("off", "0.2.2", "ops", now)

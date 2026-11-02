@@ -1,13 +1,13 @@
 # Updating clients from the server
 
-From 0.2.1 on, every client tells the server which burrow it runs: the release, the system (like `linux/arm64`), how it runs (a service, a container or started by hand) and whether it allows remote updates. burrow admin, `burrow status` and `burrow mcp` show this. A client that allows it can then be updated from burrow admin or `burrow mcp`. The server only asks it to update; the client finds the latest release itself, fetches it from the official releases, checks it, and goes back to its old version if the new one does not connect.
+From 0.2.2 on, every client tells the server which burrow it runs: the release, the system (like `linux/arm64`), how it runs (a service, a container or started by hand) and whether it allows remote updates. burrow admin, `burrow status` and `burrow mcp` show this. A client that allows it can then be updated from burrow admin or `burrow mcp`. The server only asks it to update; the client finds the latest release itself, fetches it from the official releases, checks it, and goes back to its old version if the new one does not connect.
 
 Back to the [README](../README.md). Updating the server or a client by hand: [service.md](service.md#update-burrow).
 
 - [Allow it on the client](#allow-it-on-the-client)
 - [Update from burrow admin](#update-from-burrow-admin)
 - [What the client does](#what-the-client-does)
-- [Clients older than 0.2.1](#clients-older-than-021)
+- [Clients older than 0.2.2](#clients-older-than-022)
 - [What the server cannot do](#what-the-server-cannot-do)
 
 ## Allow it on the client
@@ -43,7 +43,7 @@ A client that allows remote updates but cannot do them says why, for example "th
 - The Overview's Clients tab lists each client's version and system, marks the clients that have a newer release ("0.2.2 available") and shows **Update all to 0.2.2 (N)** for the clients that can take it.
 - A client's page has a **Burrow on this client** card: version, system, how it runs, remote updates, the newer release, and an **Update to 0.2.2** button. A disabled button says why on hover.
 - Both ask for confirmation first. **Update all** updates one client at a time. The next client starts only after the one before it has connected again with the new version, and it stops at the first client that fails, says so and names the reason.
-- The result shows on the client's card ("0.2.1 → 0.2.2: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
+- The result shows on the client's card ("0.2.2 → 0.2.3: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
 - burrow admin needs `admin: write`; read-only admins see versions but no buttons.
 
 The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while an admin looks at the status, and remembers it for 6 hours (15 minutes after a failed check). Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update. With `burrow mcp --allow-write`, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
@@ -64,9 +64,9 @@ On Linux the updater is a pair of systemd units, `burrow-<name>-update.path` and
 
 A client started by hand will not replace a program that installed services use. Update those with `sudo burrow update`.
 
-## Clients older than 0.2.1
+## Clients older than 0.2.2
 
-Older clients send no version, so burrow admin shows them as "older than 0.2.1". Update each of them by hand once (`sudo burrow update` on that machine, see [service.md](service.md#update-burrow)). Then add `update: { remote: true }` if you want later updates from the server. Older clients and servers keep working with 0.2.1 in both directions.
+Older clients send no version, so burrow admin shows them as "older than 0.2.2". Update each of them by hand once (`sudo burrow update` on that machine, see [service.md](service.md#update-burrow)). Then add `update: { remote: true }` if you want later updates from the server. Older clients and servers keep working with this release in both directions.
 
 ## What the server cannot do
 

@@ -93,7 +93,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             .ui
             .text("[data-testid=overview-clients] tr[data-row=lab] [data-testid=client-version]")
             .await;
-        assert_eq!(lab, "older than 0.2.1");
+        assert_eq!(lab, "older than 0.2.2");
         let all = c.ui.text("[data-testid=update-all]").await;
         assert_eq!(
             all,

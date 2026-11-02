@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.1]
+## [0.2.2]
 
 Clients tell the server which burrow they run, and a client that allows it can be updated from burrow admin or `burrow mcp`, with automatic rollback. Older clients and servers keep working with this release in both directions.
 

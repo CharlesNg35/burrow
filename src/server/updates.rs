@@ -108,10 +108,12 @@ impl Board {
         by: &str,
         now: Instant,
     ) -> Result<u32, String> {
-        let report = self
-            .reports
-            .get(client)
-            .ok_or("it does not report its version, so it is offline or older than 0.2.1")?;
+        let report = self.reports.get(client).ok_or_else(|| {
+            format!(
+                "it does not report its version, so it is offline or older than {}",
+                burrow_admin_proto::updates::FIRST_REPORTING
+            )
+        })?;
         if report.remote != Remote::On {
             return Err("it does not allow remote updates".into());
         }

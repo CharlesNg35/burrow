@@ -140,7 +140,7 @@ fn plain_tables() {
 
 CLIENTS  1/2 connected
   NAME    STATE      SINCE           VERSION  FROM            OPEN  IDLE
-  home    connected  2 h 13 min      < 0.2.1  81.2.3.4:51234     3     4
+  home    connected  2 h 13 min      < 0.2.2  81.2.3.4:51234     3     4
   office  offline    left 5 min ago                              0     0
 
 SERVICES
@@ -279,7 +279,7 @@ fn boxed_tables_in_a_terminal() {
 ╭────────┬─────────────┬────────────────┬─────────┬────────────────┬──────┬──────╮
 │ NAME   │ STATE       │ SINCE          │ VERSION │ FROM           │ OPEN │ IDLE │
 ├────────┼─────────────┼────────────────┼─────────┼────────────────┼──────┼──────┤
-│ home   │ ● connected │ 2 h 13 min     │ < 0.2.1 │ 81.2.3.4:51234 │    3 │    4 │
+│ home   │ ● connected │ 2 h 13 min     │ < 0.2.2 │ 81.2.3.4:51234 │    3 │    4 │
 │ office │ ○ offline   │ left 5 min ago │         │                │    0 │    0 │
 ╰────────┴─────────────┴────────────────┴─────────┴────────────────┴──────┴──────╯
 ";
