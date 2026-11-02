@@ -52,7 +52,15 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
             )
         }
         Some(Loaded::Client(s, _)) if !(strict && w > 0) => {
-            format!("{}: valid client config for \"{}\"{warn}", r.file, s.name)
+            let remote = if s.remote_updates {
+                "; the server's admin may ask it to update to newer releases"
+            } else {
+                ""
+            };
+            format!(
+                "{}: valid client config for \"{}\"{remote}{warn}",
+                r.file, s.name
+            )
         }
         Some(Loaded::Visitor(s, _)) if !(strict && w > 0) => format!(
             "{}: valid visitor config for \"{}\" ({} {}){warn}",

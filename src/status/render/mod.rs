@@ -1,4 +1,5 @@
 mod certs;
+mod client;
 mod table;
 
 use std::collections::HashMap;
@@ -118,6 +119,10 @@ fn speed(bytes_per_sec: f64) -> Cell {
 
 pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     let mut out = String::new();
+    if let Some(c) = &s.client {
+        client::render_local(&mut out, c, &s.version, paint);
+        return out;
+    }
     render_head(&mut out, s, paint);
     render_clients(&mut out, s, paint);
     render_services(&mut out, s, paint, rates);
@@ -183,6 +188,7 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
                 cell(&c.name),
                 state,
                 since,
+                version_cell(c),
                 match c.local {
                     true => toned("this server", Tone::Dim),
                     false => cell(c.from.clone().unwrap_or_default()),
@@ -208,12 +214,25 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
             long("NAME", ALWAYS),
             col("STATE", 9),
             col("SINCE", 5),
+            col("VERSION", 3),
             long("FROM", 4),
             col("OPEN", 7),
             col("IDLE", 1),
         ],
         rows,
     );
+}
+
+fn version_cell(c: &crate::metrics::ClientStatus) -> Cell {
+    use burrow_admin_proto::updates::{Shown, version};
+    match version(c) {
+        Shown::Known(v) => cell(v),
+        Shown::Older if !c.local => toned(
+            format!("< {}", burrow_admin_proto::updates::FIRST_REPORTING),
+            Tone::Dim,
+        ),
+        _ => cell(String::new()),
+    }
 }
 
 fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Rates>) {

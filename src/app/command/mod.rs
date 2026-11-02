@@ -32,7 +32,21 @@ fn format(f: FileFormat) -> Format {
     }
 }
 
+fn connected_with(config: &std::path::Path, version: &str) -> bool {
+    let scan = crate::status::query::scan(&crate::instance::default_dir(), Some(config));
+    scan.found.iter().any(|f| {
+        f.status
+            .client
+            .as_ref()
+            .is_some_and(|c| c.connected && c.build.version == version)
+    })
+}
+
 pub fn main() -> ExitCode {
+    crate::admin::adapters::use_latest(crate::update::latest::cached);
+    crate::app::run::use_client_updates(|path| {
+        std::sync::Arc::new(crate::update::remote::ClientUpdates::new(path))
+    });
     let err_style = Style::detect(std::io::stderr().is_terminal());
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -199,6 +213,11 @@ fn service(action: ServiceAction, logging: crate::app::run::Logging) -> Result<u
             let _ = logging;
             service::run_service(n.name.as_deref().unwrap_or("burrow"))
         }
+        ServiceAction::RemoteUpdate(n) => crate::update::remote::helper::run(
+            n.name.as_deref().unwrap_or("burrow"),
+            &connected_with,
+            &mut out,
+        ),
     }
 }
 
@@ -240,7 +259,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             Ok(0)
         }
         Command::Version => {
-            print(&format!("burrow {}\n", env!("CARGO_PKG_VERSION")))?;
+            print(&format!("burrow {}\n", crate::base::build::version()))?;
             Ok(0)
         }
         Command::Edit(a) => crate::edit::run(
@@ -377,6 +396,7 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         secret: args.secret,
         env_secret: args.env_secret,
         update: args.update,
+        remote_updates: args.remote_updates,
         yes: args.yes,
         email: args.email,
         web: args.web.map(|domain| crate::init::WebInit {

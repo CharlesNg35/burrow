@@ -23,7 +23,13 @@ use acl::{
 };
 pub use dispatch::dispatch;
 
-const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
+pub(in crate::service) fn grant_update_folder(dir: &Path, account: &str) -> Result<(), Failure> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+    grant(dir, account, "(OI)(CI)M")
+}
+
+pub(in crate::service) const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
     .union(ServiceAccess::START)
     .union(ServiceAccess::STOP)
     .union(ServiceAccess::DELETE)
@@ -32,7 +38,7 @@ const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
 
 pub struct WindowsService;
 
-fn scm_error(what: &str, e: windows_service::Error) -> Failure {
+pub(in crate::service) fn scm_error(what: &str, e: windows_service::Error) -> Failure {
     let detail = match &e {
         windows_service::Error::Winapi(io) => io.to_string(),
         other => other.to_string(),
@@ -40,7 +46,7 @@ fn scm_error(what: &str, e: windows_service::Error) -> Failure {
     Failure::new(format!("cannot {what}: {detail}"))
 }
 
-fn manager(access: ServiceManagerAccess) -> Result<ServiceManager, Failure> {
+pub(in crate::service) fn manager(access: ServiceManagerAccess) -> Result<ServiceManager, Failure> {
     ServiceManager::local_computer(None::<&str>, access)
         .map_err(|e| scm_error("open the Windows service manager", e))
 }

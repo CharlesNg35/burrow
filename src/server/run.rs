@@ -71,7 +71,10 @@ impl Server {
                     }
                 },
                 Some(next) = reload.recv() => self.apply(next).await,
-                _ = retry.tick() => self.bind_waiting().await,
+                _ = retry.tick() => {
+                    self.shared.drive_updates();
+                    self.bind_waiting().await;
+                }
                 _ = tick.tick() => {
                     let n = self.shared.rejected.swap(0, Ordering::Relaxed);
                     if n > 0 {

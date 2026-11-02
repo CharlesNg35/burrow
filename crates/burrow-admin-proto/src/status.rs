@@ -28,6 +28,12 @@ pub struct Status {
     pub local_ca: Option<LocalCaStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_waiting: Option<PortWait>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<crate::updates::LocalClient>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout: Option<crate::updates::RolloutStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<crate::updates::LatestRelease>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -108,6 +114,14 @@ pub struct ClientStatus {
     pub at_limit: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<crate::updates::ClientBuild>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<crate::updates::UpdateStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

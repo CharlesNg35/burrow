@@ -325,6 +325,13 @@ fn probe_bind(addr: SocketAddr) -> std::io::Result<()> {
     crate::wire::transport::tcp::bind_tcp(addr).map(drop)
 }
 
+static LATEST: std::sync::OnceLock<fn() -> burrow_admin_proto::updates::LatestRelease> =
+    std::sync::OnceLock::new();
+
+pub fn use_latest(check: fn() -> burrow_admin_proto::updates::LatestRelease) {
+    let _ = LATEST.set(check);
+}
+
 pub struct ServerLive(pub Arc<Shared>);
 
 impl Live for ServerLive {
@@ -359,6 +366,18 @@ impl Live for ServerLive {
 
     fn bind_probe(&self, addr: SocketAddr) -> std::io::Result<()> {
         probe_bind(addr)
+    }
+
+    fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
+        LATEST.get().map(|check| check()).unwrap_or_default()
+    }
+
+    fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {
+        self.0.ask_update(client, to, by)
+    }
+
+    fn update_all(&self, clients: Vec<String>, to: &str, by: &str) -> Result<(), String> {
+        self.0.update_all(clients, to, by)
     }
 
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16> {

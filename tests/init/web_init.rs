@@ -285,3 +285,41 @@ fn the_printed_client_config_allows_the_websites_target_like_client_config_does(
         assert_eq!(allow_of(config), allow_of(&listed.text), "{target}");
     }
 }
+
+#[test]
+fn init_client_asks_about_remote_updates_and_leaves_them_off_by_default() {
+    use burrow::init::init_client;
+    let secret = burrow::wire::secret::Secret::generate().encode();
+    let write = |answers: Vec<&'static str>, flag: bool| {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("client.yaml");
+        let mut prompt = Script(answers, Vec::new());
+        let mut said = Vec::new();
+        init_client(
+            &InitOptions {
+                output: Some(path.clone()),
+                server: Some("example.com:7835".into()),
+                name: Some("home".into()),
+                secret: Some(secret.clone()),
+                remote_updates: flag,
+                ..Default::default()
+            },
+            &mut prompt,
+            &mut said,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        (text, prompt.1, String::from_utf8(said).unwrap())
+    };
+    let (text, asked, _) = write(vec![""], false);
+    assert!(!text.contains("update"), "{text}");
+    assert!(
+        asked.iter().any(|q| q.contains("update this client")),
+        "{asked:?}"
+    );
+    let (text, _, said) = write(vec!["y"], false);
+    assert!(text.contains("update:\n  remote: true"), "{text}");
+    assert!(said.contains("may update it"), "{said}");
+    let (text, _, _) = write(vec![], true);
+    assert!(text.contains("remote: true"), "{text}");
+}

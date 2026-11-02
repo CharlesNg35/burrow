@@ -11,6 +11,7 @@ pub mod snippets;
 mod status;
 pub mod summary;
 pub mod text;
+pub mod updates;
 pub mod uploads;
 pub mod values;
 

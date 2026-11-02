@@ -37,7 +37,13 @@ struct Swap {
 }
 
 pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<(), Failure> {
-    update_from(&this_binary()?, env!("CARGO_PKG_VERSION"), name, force, out)
+    update_from(
+        &this_binary()?,
+        crate::base::build::version(),
+        name,
+        force,
+        out,
+    )
 }
 
 pub fn update_from(
@@ -206,12 +212,70 @@ fn group(
     Ok(swaps)
 }
 
+type Settle<'a> = &'a dyn Fn(&dyn Backend, &[&Manifest], &mut Vec<String>);
+
 fn swap(
     backend: &dyn Backend,
     s: Swap,
     me: &Path,
     mine: &str,
     out: &mut dyn Write,
+) -> Result<(), Failure> {
+    swap_with(backend, s, me, mine, out, &steady)
+}
+
+pub fn update_checked(
+    name: &str,
+    from: &Path,
+    version: &str,
+    check: &dyn Fn(&Manifest) -> Result<(), String>,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let backend = system::backend()?;
+    system::require_admin()?;
+    let _operation = system::operation(&mut std::io::sink())?;
+    let mut said = Vec::new();
+    let swaps = plan(from, version, Some(name), false, &mut said)?;
+    let Some(s) = swaps.into_iter().next() else {
+        let said = String::from_utf8_lossy(&said).trim().to_string();
+        return Err(Failure::new(if said.is_empty() {
+            format!("{name} has nothing to update")
+        } else {
+            said
+        }));
+    };
+    let why = std::cell::RefCell::new(None);
+    let settle = |b: &dyn Backend, running: &[&Manifest], failed: &mut Vec<String>| {
+        steady(b, running, failed);
+        if !failed.is_empty() {
+            return;
+        }
+        if let Some(m) = running.iter().find(|m| m.name == name)
+            && let Err(reason) = check(m)
+        {
+            *why.borrow_mut() = Some(reason);
+            failed.push(m.name.clone());
+        }
+    };
+    swap_with(&*backend, s, from, version, out, &settle).map_err(|f| match why.take() {
+        Some(reason) => {
+            let outcome = f
+                .message
+                .split_once("; ")
+                .map_or(f.message.as_str(), |(_, o)| o);
+            Failure::new(format!("{reason}; {outcome}"))
+        }
+        None => f,
+    })
+}
+
+fn swap_with(
+    backend: &dyn Backend,
+    s: Swap,
+    me: &Path,
+    mine: &str,
+    out: &mut dyn Write,
+    settle: Settle,
 ) -> Result<(), Failure> {
     let Swap {
         binary,
@@ -246,7 +310,7 @@ fn swap(
             failed.push(m.name.clone());
         }
     }
-    steady(backend, &running, &mut failed);
+    settle(backend, &running, &mut failed);
     if !failed.is_empty() {
         for m in &running {
             let _ = backend.stop(m);
@@ -394,6 +458,7 @@ mod tests {
             version: "1.0.0".into(),
             admin_writable: false,
             web_state: None,
+            remote_updates: false,
         }
     }
 

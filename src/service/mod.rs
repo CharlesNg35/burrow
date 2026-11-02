@@ -1,9 +1,10 @@
 mod background;
 #[cfg(unix)]
 mod hand_over;
+pub mod helper;
 mod logview;
 pub(crate) mod ports;
-mod stray;
+pub(crate) mod stray;
 pub(crate) mod system;
 mod update;
 
@@ -38,7 +39,7 @@ pub use system::{binary_version, copy_file, is_admin};
 use uninstall::give_history;
 pub use uninstall::uninstall;
 use uninstall::{admin_history, delete_hint, is_source};
-pub use update::{update, update_from, worker as update_worker};
+pub use update::{update, update_checked, update_from, worker as update_worker};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -116,6 +117,19 @@ pub trait Backend {
         {
             std::fs::create_dir_all(dir)
                 .map(|()| Vec::new())
+                .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
+        }
+    }
+    fn update_folder(&self, m: &Manifest, dir: &Path) -> Result<(), Failure> {
+        #[cfg(unix)]
+        {
+            let owner = (m.account != "root").then_some(m.account.as_str());
+            system::make_dir(dir, 0o700, owner)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = m;
+            std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
         }
     }
@@ -198,6 +212,13 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
     }
     let name = crate::install::service_name(&clean);
     let short = crate::install::short_name(&name);
+    if short.ends_with(helper::SUFFIX) {
+        return Err(Failure::usage(format!(
+            "\"{short}\" cannot be used as a service name: names ending in {} are kept for the updaters of clients",
+            helper::SUFFIX
+        ))
+        .hint("pass --name with another name"));
+    }
     if OWN_FOLDERS.contains(&short) {
         let source = if given.is_some() {
             "--name"
@@ -212,7 +233,7 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
     Ok(name)
 }
 
-const OWN_FOLDERS: [&str; 5] = ["services", "jobs", "logs", "bin", "instances"];
+const OWN_FOLDERS: [&str; 6] = ["services", "jobs", "logs", "bin", "instances", "updates"];
 
 pub fn exposed(m: &Manifest) -> bool {
     let p = Platform::current();

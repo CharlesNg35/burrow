@@ -9,6 +9,9 @@ mod local_page;
 mod older;
 #[path = "admin/session.rs"]
 mod session;
+#[cfg(feature = "admin-test-hooks")]
+#[path = "admin/updates.rs"]
+mod updates;
 
 use std::time::Duration;
 

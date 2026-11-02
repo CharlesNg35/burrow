@@ -177,6 +177,9 @@ mod tests {
             acme: None,
             local_ca: None,
             web_waiting: None,
+            client: None,
+            rollout: None,
+            latest: None,
         }
     }
 

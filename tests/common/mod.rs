@@ -5,6 +5,7 @@ pub mod certs;
 pub mod older;
 pub mod output;
 pub mod ports;
+pub mod releases;
 pub mod socks;
 
 #[allow(unused_imports)]
@@ -109,6 +110,7 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
         udp_session_timeout: Duration::from_secs(30),
         max_connections: Limit::default_of(16384),
         max_udp_peers: Limit::default_of(8192),
+        remote_updates: false,
     }
 }
 

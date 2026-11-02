@@ -337,6 +337,7 @@ impl Server {
             probes: Mutex::new(HashMap::new()),
             web_wait: Mutex::new(None),
             standing: Mutex::new(standing::Standing::default()),
+            updates: Mutex::new(super::updates::Board::default()),
             wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(
                 &settings,

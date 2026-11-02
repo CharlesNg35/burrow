@@ -22,6 +22,7 @@ fn manifest(web_state: Option<&str>) -> Manifest {
         version: "0.1.0".into(),
         admin_writable: false,
         web_state: web_state.map(PathBuf::from),
+        remote_updates: false,
     }
 }
 

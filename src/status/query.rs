@@ -254,9 +254,9 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
         Pick::Config(p) => Some(canonical(p)),
         Pick::Service(name) => {
             let m = crate::service::resolve(Some(name))?;
-            if m.role != crate::install::Role::Server {
+            if m.role == crate::install::Role::Visitor {
                 return Err(Failure::usage(format!(
-                    "{} is a {} service, and burrow status shows servers only",
+                    "{} is a {} service, and burrow status shows servers and clients only",
                     m.name, m.role
                 ))
                 .hint(format!(
@@ -325,7 +325,7 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
 
 fn did_not_answer(entry: &Entry, why: &str) -> String {
     format!(
-        "the burrow server with pid {} ({}) did not answer: {why}",
+        "the burrow process with pid {} ({}) did not answer: {why}",
         entry.pid,
         clean(&entry.config.display().to_string())
     )
@@ -341,8 +341,8 @@ fn none_answered(scan: &Scan, pick: &Pick) -> Failure {
 
 fn none_running(pick: &Pick, hidden: usize) -> Failure {
     let what = match pick {
-        Pick::All => "no burrow server is running on this machine".to_string(),
-        Pick::Config(p) => format!("no running burrow server uses {}", p.display()),
+        Pick::All => "no burrow server or client is running on this machine".to_string(),
+        Pick::Config(p) => format!("no running burrow server or client uses {}", p.display()),
         Pick::Service(n) => format!("service {n} is not running"),
     };
     let hint = if hidden > 0 {
@@ -352,11 +352,11 @@ fn none_running(pick: &Pick, hidden: usize) -> Failure {
         )
     } else if crate::base::failure::SERVICES {
         format!(
-            "burrow status shows servers; on a client or visitor, see {} and its logs",
+            "burrow status shows servers and clients; for a visitor, see {} and its logs",
             crate::base::failure::cmd("service status")
         )
     } else {
-        "burrow status shows servers; a client or visitor reports in its own log".to_string()
+        "burrow status shows servers and clients; a visitor reports in its own log".to_string()
     };
     Failure::new(what).hint(hint)
 }

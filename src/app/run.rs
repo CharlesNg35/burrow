@@ -445,6 +445,21 @@ fn noting_state_folder(
     })
 }
 
+pub type UpdatesFor = fn(&Path) -> Arc<dyn crate::client::updates::Updates>;
+
+static CLIENT_UPDATES: std::sync::OnceLock<UpdatesFor> = std::sync::OnceLock::new();
+
+pub fn use_client_updates(make: UpdatesFor) {
+    let _ = CLIENT_UPDATES.set(make);
+}
+
+fn client_updates(path: &Path) -> Arc<dyn crate::client::updates::Updates> {
+    match CLIENT_UPDATES.get() {
+        Some(make) => make(path),
+        None => Arc::new(crate::client::updates::Fixed),
+    }
+}
+
 fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
     hold_hangup();
     let (stop, env) = split(hosted);
@@ -454,11 +469,20 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             path.display()
         )));
     };
+    let updates = client_updates(path);
+    if let Some(done) = updates.before_start() {
+        return done.map_err(Failure::new);
+    }
+    if crate::base::build::test_mark("BREAK") == Some("start") {
+        return Err(Failure::new("this test build stops at once"));
+    }
     let identity = Identity::client(&settings.endpoint.to_string(), &settings.name);
     let lock = instance::acquire(&identity, path)?;
     init_logging(&logging)?;
-    drive(async move {
-        let stop = stop_on_signal(stop);
+    let started = std::time::Instant::now();
+    let restarting = updates.clone();
+    let ended = drive(async move {
+        let stop = either(stop_on_signal(stop), updates.stop_wanted());
         let (reload_tx, reload_rx) = mpsc::channel(4);
         tokio::spawn(crate::app::reload::follow(
             path.to_path_buf(),
@@ -467,7 +491,20 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             same_tunnel_once(path.to_path_buf(), identity, lock),
             reload_tx,
         ));
-        match Client::new(*settings).with_reloads(reload_rx).run(stop).await {
+        let client = Client::new(*settings)
+            .with_reloads(reload_rx)
+            .with_updates(updates.clone());
+        let presence = client.presence();
+        let _status = crate::instance::publish::publish(
+            path,
+            Arc::new(move || crate::client::updates::local_status(&presence, &*updates, started)),
+        );
+        if crate::base::build::test_mark("BREAK") == Some("connect") {
+            let mut stop = stop;
+            let _ = stop.wait_for(|s| *s).await;
+            return Ok(0);
+        }
+        match client.run(stop).await {
             RunEnd::Stopped => Ok(0),
             RunEnd::GaveUp(down, why) => Err(Failure::new(format!(
                 "gave up after {} without a working connection to the server; last error: {why}",
@@ -477,7 +514,30 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             RunEnd::Rejected => Err(Failure::new("the server rejected this client")
                 .hint("check name and secret against the server config, or set reconnect.on_rejected: retry")),
         }
-    })
+    });
+    match restarting.after_stop() {
+        Some(done) => done.map_err(Failure::new),
+        None => ended,
+    }
+}
+
+fn either(
+    first: watch::Receiver<bool>,
+    second: Option<watch::Receiver<bool>>,
+) -> watch::Receiver<bool> {
+    let Some(mut second) = second else {
+        return first;
+    };
+    let mut first = first;
+    let (tx, rx) = watch::channel(false);
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = first.wait_for(|s| *s) => {}
+            _ = second.wait_for(|s| *s) => {}
+        }
+        let _ = tx.send(true);
+    });
+    rx
 }
 
 fn run_visitor(

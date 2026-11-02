@@ -125,6 +125,9 @@ pub(crate) fn sample() -> Status {
         acme: None,
         local_ca: None,
         web_waiting: None,
+        client: None,
+        rollout: None,
+        latest: None,
     }
 }
 
@@ -136,9 +139,9 @@ fn plain_tables() {
         "burrow 9.9.9  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
 
 CLIENTS  1/2 connected
-  NAME    STATE      SINCE           FROM            OPEN  IDLE
-  home    connected  2 h 13 min      81.2.3.4:51234     3     4
-  office  offline    left 5 min ago                     0     0
+  NAME    STATE      SINCE           VERSION  FROM            OPEN  IDLE
+  home    connected  2 h 13 min      < 0.2.1  81.2.3.4:51234     3     4
+  office  offline    left 5 min ago                              0     0
 
 SERVICES
   NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT
@@ -190,7 +193,7 @@ fn this_server_is_listed_as_local_and_not_counted_as_a_client() {
     let text = render(&s, Paint::PLAIN, None);
     assert!(text.contains("CLIENTS  1/2 connected"), "{text}");
     assert!(
-        text.contains("  self    connected  1 min           this server        2     0"),
+        text.contains("  self    connected  1 min                    this server        2     0"),
         "{text}"
     );
 }
@@ -273,12 +276,12 @@ fn boxed_tables_in_a_terminal() {
     };
     let text = render(&sample(), boxed, None);
     let clients = "\
-╭────────┬─────────────┬────────────────┬────────────────┬──────┬──────╮
-│ NAME   │ STATE       │ SINCE          │ FROM           │ OPEN │ IDLE │
-├────────┼─────────────┼────────────────┼────────────────┼──────┼──────┤
-│ home   │ ● connected │ 2 h 13 min     │ 81.2.3.4:51234 │    3 │    4 │
-│ office │ ○ offline   │ left 5 min ago │                │    0 │    0 │
-╰────────┴─────────────┴────────────────┴────────────────┴──────┴──────╯
+╭────────┬─────────────┬────────────────┬─────────┬────────────────┬──────┬──────╮
+│ NAME   │ STATE       │ SINCE          │ VERSION │ FROM           │ OPEN │ IDLE │
+├────────┼─────────────┼────────────────┼─────────┼────────────────┼──────┼──────┤
+│ home   │ ● connected │ 2 h 13 min     │ < 0.2.1 │ 81.2.3.4:51234 │    3 │    4 │
+│ office │ ○ offline   │ left 5 min ago │         │                │    0 │    0 │
+╰────────┴─────────────┴────────────────┴─────────┴────────────────┴──────┴──────╯
 ";
     assert!(text.contains(clients), "{text}");
     assert!(
@@ -290,7 +293,7 @@ fn boxed_tables_in_a_terminal() {
         .filter(|l| l.starts_with(['╭', '│', '├', '╰']))
         .map(|l| l.chars().count())
         .collect();
-    assert_eq!(widths.iter().filter(|w| **w == 72).count(), 6, "{text}");
+    assert_eq!(widths.iter().filter(|w| **w == 82).count(), 6, "{text}");
     let colored = render(
         &sample(),
         Paint {
@@ -519,6 +522,64 @@ fn a_web_proxy_waiting_for_its_port_is_named_even_while_it_is_off() {
     assert!(
         text.contains(
             "web.http 0.0.0.0:80 is in use; the web proxy stays off and tries again every 5s"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_client_shows_its_server_its_run_mode_and_its_last_update() {
+    use burrow_admin_proto::updates::{
+        ClientBuild, LocalClient, RemoteUpdates, RunMode, UpdateState, UpdateStatus,
+    };
+    let mut c = LocalClient {
+        name: "nas".into(),
+        server: "tunnel.example.com:7835".into(),
+        connected: true,
+        connected_secs: Some(125),
+        build: ClientBuild {
+            version: "0.2.1".into(),
+            os: "linux".into(),
+            arch: "arm64".into(),
+            run: RunMode::Service,
+            remote: RemoteUpdates::On,
+            why_not: None,
+        },
+        last_update: None,
+    };
+    let s = Status {
+        version: "0.2.1".into(),
+        client: Some(c.clone()),
+        ..Status::default()
+    };
+    assert_eq!(
+        render(&s, Paint::PLAIN, None),
+        "burrow 0.2.1  ·  client \"nas\" of tunnel.example.com:7835  ·  connected for 2 min
+  runs            service on linux/arm64
+  remote updates  allowed
+"
+    );
+    c.connected_secs = None;
+    c.last_update = Some(UpdateStatus {
+        id: 4,
+        from: "0.2.1".into(),
+        to: "0.2.2".into(),
+        state: UpdateState::RolledBack,
+        detail: "0.2.2 did not connect within 60 s".into(),
+        ..UpdateStatus::default()
+    });
+    let text = render(
+        &Status {
+            client: Some(c),
+            ..s
+        },
+        Paint::PLAIN,
+        None,
+    );
+    assert!(text.contains("·  connecting\n"), "{text}");
+    assert!(
+        text.contains(
+            "  last update     0.2.1 -> 0.2.2: rolled back (0.2.2 did not connect within 60 s)\n"
         ),
         "{text}"
     );

@@ -193,6 +193,7 @@ pub(super) struct Checked {
     pub(super) access_log: Option<PathBuf>,
     pub(super) admins: Vec<String>,
     pub(super) needs_state: bool,
+    pub(super) remote_updates: bool,
 }
 
 pub(super) fn check_config(
@@ -268,6 +269,7 @@ pub(super) fn check_config(
         needs_state,
     } = uses(loaded);
     let admins = admin_visitors(loaded);
+    let remote_updates = matches!(loaded, Loaded::Client(s, _) if s.remote_updates);
     refuse_relative(&files)?;
     Ok(Checked {
         role,
@@ -277,6 +279,7 @@ pub(super) fn check_config(
         access_log,
         admins,
         needs_state,
+        remote_updates,
     })
 }
 

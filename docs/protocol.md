@@ -101,6 +101,7 @@ Server → client (one message per record):
 | 3   | Ping     | (none)                                                                                        |
 | 4   | OpenData | `count:u16`: open this many data channels                                                     |
 | 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch, 6 duplicate) |
+| 6   | Update   | `id:u32 version:str8`: update to this published release (0.2.1 and later, see below)          |
 
 Client → server:
 
@@ -108,8 +109,12 @@ Client → server:
 | ------ | ------- | --------------------------------------------------------------------------------------- |
 | `0x81` | Pong    | (none)                                                                                  |
 | `0x82` | Allow   | `count:u8` (at most 64) then `rule:str8` each: the client's `allow` list, `any` for all |
+| `0x83` | Report  | `version:str8 os:str8 arch:str8 run:u8 remote:u8 why:str8 has_last:u8` then, if `has_last` is 1, `id:u32 outcome:u8 from:str8 to:str8 detail:str8` |
+| `0x84` | UpdateState | `id:u32 step:u8 detail:str8`: how the update asked with that id goes |
 
 A client sends Allow once after Welcome; the server keeps it for the session and shows it only to visitors with `reach` for that client (see section 9).
+
+A client from 0.2.1 on sends Report right after Allow, and again when `update.remote` changes on a reload. `run` is 0 started by hand, 1 a service, 2 a container; `remote` is 0 off, 1 on, 2 on in the config but not possible here, with the reason in `why`; `outcome` is 1 trying, 2 done, 3 rolled back, 4 failed. A server reads fields it does not know after these as a later version's and ignores them, so Report can grow. Older servers ignore Report, like any message they cannot decode. The server sends Update only to a client whose Report says `remote` 1, so older clients, which treat an unknown message as an error, never see it. `version` in Update is a release number; the client checks it is newer than its own and downloads it from the official releases itself. UpdateState `step` is 1 accepted, 2 refused (`detail` says why), 3 restarting, 4 failed before anything changed. After the restart the new or restored client reports the result in Report's last update. Strings in Report and UpdateState are at most 255 bytes, without control characters. See [D75](decisions.md#d75-the-servers-admin-may-ask-a-client-to-update-and-the-client-fetches-checks-and-rolls-back-itself).
 
 `str8` = `len:u8 bytes`. Unknown ids, truncated bodies and trailing bytes are errors for the client; the server ignores a client message it cannot decode, which still counts as a sign of life.
 

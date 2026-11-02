@@ -74,7 +74,24 @@ pub(super) fn service_main(_args: Vec<OsString>) {
     report(ServiceState::Stopped, code);
 }
 
+fn run_updater(base: &str) -> Result<u8, Failure> {
+    let me = crate::service::this_binary()?;
+    let status = std::process::Command::new(me)
+        .args(["service", "remote-update", base])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|e| Failure::new(format!("cannot run the updater of {base}: {e}")))?;
+    Ok(status.code().map_or(1, |c| u8::try_from(c).unwrap_or(1)))
+}
+
 fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Failure> {
+    if let Some(base) = name.strip_suffix(crate::service::helper::SUFFIX)
+        && crate::service::load_manifest(name).is_err()
+    {
+        return run_updater(base);
+    }
     let m = crate::service::load_manifest(name)?;
     crate::instance::running_as_service();
     if let Some(dir) = &m.web_state {

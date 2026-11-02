@@ -158,6 +158,7 @@ pub fn check_client(
             value: cfg.max_udp_peers,
             written: spans.has(&["max_udp_peers"]),
         },
+        remote_updates: cfg.update.remote,
     })
 }
 

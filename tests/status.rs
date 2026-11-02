@@ -131,7 +131,7 @@ fn several_servers_are_shown_and_picked_by_config() {
     );
     assert!(!o.status.success());
     assert!(
-        text(&o).contains("no running burrow server uses"),
+        text(&o).contains("no running burrow server or client uses"),
         "{}",
         text(&o)
     );
@@ -148,7 +148,7 @@ fn a_stopped_server_leaves_nothing_to_show() {
     let o = status(&instances, &[]);
     assert!(!o.status.success());
     assert!(
-        text(&o).contains("no burrow server is running"),
+        text(&o).contains("no burrow server or client is running"),
         "{}",
         text(&o)
     );
@@ -181,7 +181,10 @@ fn a_server_that_does_not_answer_is_named_rather_than_called_stopped() {
     assert!(!o.status.success());
     let shown = text(&o);
     assert!(shown.contains("did not answer"), "{shown}");
-    assert!(!shown.contains("no burrow server is running"), "{shown}");
+    assert!(
+        !shown.contains("no burrow server or client is running"),
+        "{shown}"
+    );
     let o = status(&instances, &["--json"]);
     assert!(!o.status.success());
     let list: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
@@ -595,7 +598,7 @@ fn status_json_keeps_its_exact_shape() {
         certificates: Vec::new(),
         acme: None,
         local_ca: None,
-        web_waiting: None,
+        ..Status::default()
     };
     let golden = r#"{
   "version": "0.1.0",
