@@ -44,7 +44,8 @@ burrow gets a certificate for `blog.example.com` from Let's Encrypt within a min
 ```text
 server.yaml: valid server config (1 client, 1 service)
 web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)
-certificates: Let's Encrypt (production) as ops@example.com
+certificates: Let's Encrypt (production) as ops@example.com; kept in /home/you/.local/state/burrow/servers/server-1a2b3c4d
+account: created on the first start; burrow status and validate then show its URL for a CAA accounturi record
 blog.example.com: Let's Encrypt, TLS check -> service blog
 http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered
 ```
@@ -110,7 +111,7 @@ The names of a site follow these rules:
 
 Every website gets these without any setting:
 
-- **Requests go to the app through the tunnel**, one connection per visitor connection. WebSocket upgrades work.
+- **Requests go to the app through the tunnel**, over connections to the app that all visitors share, as with nginx and Caddy; an idle one closes after at most 60 seconds. WebSocket upgrades work, each on a connection of its own.
 - **The app learns who asked:** burrow sets `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-Port` and `X-Real-IP`. A visitor's own `Forwarded` and `X-Forwarded-*` headers are removed first; only the proxies in `web.trusted_proxies` are believed ([Behind Cloudflare or a load balancer](web/proxies.md#behind-cloudflare-or-a-load-balancer)).
 - **The name must match:** a request whose `Host` differs from the name of the HTTPS connection gets `421`, and a request without `Host` gets `400`.
 - **Pages when something is wrong**, instead of a broken connection:

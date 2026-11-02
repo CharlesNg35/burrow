@@ -27,7 +27,7 @@ The words that burrow's docs, its messages and the admin UI use, each with one m
 | **`allow` list** | The client's own list of targets it agrees to connect to. It has the final say; nothing else is reached. |
 | **reach** | A visitor's permission to pick its own targets on a client, like `ssh -L`. |
 | **forward** | One local port a visitor opens on its own machine, leading to a service or a target. |
-| **failover, balance** | How a service with several clients picks one: the first one that is up, or spread over all of them. |
+| **failover, balance, least_connections, ip_hash** | How a service with several clients picks one (`mode`): the first one that is up, spread over all of them by weight, the one with the fewest open connections, or the same one for each visitor address. |
 | **health check** | The server asking through each client, every few seconds, whether the target answers. |
 
 ## Websites

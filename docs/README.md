@@ -50,5 +50,6 @@ Words like client, visitor, service and target have one meaning throughout; the 
 | [research.md](research.md) | what burrow learned from rathole, frp, bore, chisel and rtun |
 | [benchmark.md](benchmark.md) | the tunnel benchmark against rathole, frp and chisel, and how to reproduce it |
 | [web-benchmark.md](web-benchmark.md) | the web proxy benchmark against nginx and Caddy, and how to reproduce it |
+| [development.md](development.md) | building, testing, fuzzing and benchmarking burrow |
 | [admin-ui-dev.md](admin-ui-dev.md) | working on the admin UI |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | the code rules |

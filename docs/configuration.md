@@ -218,7 +218,7 @@ services:
 | `limits.max_handshakes` | `2048` | connections that have not finished authenticating yet; on the web ports, up to four times as many more wait for a slot |
 | `limits.max_connections_per_client` | `8192` | open forwarded connections per client, unless `clients.<name>.max_connections` sets its own |
 | `limits.max_pending` | `512` | connections waiting for a free channel, per client. Up to three times as many more wait in line and are refused as busy if no channel comes within 10 s; past that line, at once. One website visitor address gets a fair part of the line |
-| `pool.min_idle` / `pool.max_idle` | `4` / `64` | channels each client keeps open in advance, so a new connection starts at once |
+| `pool.min_idle` / `pool.max_idle` | `4` / `64` | channels each client keeps open in advance, so a new connection starts at once. The pool grows up to `max_idle` while connections find it empty; channels that no connection needed for a minute close, down to `min_idle` |
 | `tcp.nodelay` | `true` | send small writes at once (TCP_NODELAY) |
 | `tcp.keepalive_secs` | `30` | TCP keepalive idle time; `0` turns it off |
 | `udp.session_timeout_secs` | `120` | a UDP peer that sends nothing for this long is forgotten. Two minutes is the least a NAT should keep a UDP mapping (RFC 4787); a shorter value frees peers sooner for traffic like DNS, where each query may come from a new port |
