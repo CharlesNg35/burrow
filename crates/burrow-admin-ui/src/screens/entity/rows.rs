@@ -81,7 +81,7 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
         <tr data-row=name>
             <th scope="row"><Link to=to class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
             <td>{protocol_view(svc)}</td>
-            <td>{exposure}</td>
+            <td class="whitespace-normal! break-words">{exposure}</td>
             <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=target.clone() data-target=target.clone()>{format!("→ {target}")}</td>
             <td class="text-right tabular-nums" data-cell="open">{open}</td>
             {rate.map(|r| view! { <td class="text-right tabular-nums" data-cell="rate">{r}</td> })}
