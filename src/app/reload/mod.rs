@@ -55,6 +55,13 @@ impl Watched for ServerSettings {
         if let Some(web) = &self.web {
             files.extend(web.cert_files());
         }
+        let listed = crate::config::docs::list(config).ok().flatten();
+        files.extend(
+            listed
+                .into_iter()
+                .flat_map(|l| l.names)
+                .filter_map(|n| crate::config::docs::path_of(config, &n)),
+        );
         files
     }
 }
@@ -531,6 +538,38 @@ mod tests {
         assert_eq!(first.services.len(), 11);
         let again = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
         assert!(again.is_err(), "one reload for the whole burst");
+    }
+
+    #[tokio::test]
+    async fn an_in_place_write_to_a_drop_in_is_seen_without_waiting_for_the_recheck() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        crate::base::fs::write_private(
+            &config,
+            "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nservices:\n  web: { client: home, target: 80, bind: 7900 }\n",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("server.d")).unwrap();
+        let apps = dir.path().join("server.d/apps.yaml");
+        crate::base::fs::write_private(&apps, "services:\n").unwrap();
+        let loaded = load_file(&config, Some(Role::Server), &Env::default())
+            .unwrap()
+            .loaded
+            .unwrap();
+        let current = ServerSettings::from_loaded(loaded).unwrap();
+        assert!(current.files(&config).contains(&apps), "each drop-in is watched itself");
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(follow(config, current, Env::default(), accept(), tx));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        use std::io::Write as _;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&apps).unwrap();
+        f.write_all(b"  blog: { client: home, target: 81, bind: 7901 }\n").unwrap();
+        drop(f);
+        let next = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("an in-place write is applied before the 30 s recheck")
+            .unwrap();
+        assert_eq!(next.services.len(), 2);
     }
 
     #[test]
