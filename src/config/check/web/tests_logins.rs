@@ -1,4 +1,4 @@
-use super::tests::errors;
+use super::tests::{errors, svc};
 use super::tests_site_keys::{errs, run, warnings};
 
 const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$3Zrnt9ZV6D9A/Ed3Je/Hww$lg26ncNCHaoX2amIl0p8mWtR1BCyscvYzi1EmeCfbvg";
@@ -6,10 +6,6 @@ const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$3Zrnt9ZV6D9A/Ed3Je/Hww$lg26nc
 const ONE: &str = "  forward_auth:\n    authelia: { service: authelia, path: /api/authz/forward-auth, copy_headers: [Remote-User] }\n";
 
 const TWO: &str = "  forward_auth:\n    authelia: { service: authelia, path: /api/authz/forward-auth }\n    authelia-basic: { service: authelia, path: /api/authz/basic }\n";
-
-fn svc(name: &str, web: &str) -> String {
-    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
-}
 
 fn wiki(login: &str) -> String {
     svc(

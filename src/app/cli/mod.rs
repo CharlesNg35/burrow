@@ -1,3 +1,6 @@
+//! The command line definition: every command, flag and argument, parsed with clap.
+//! Start at `Cli` and its `Command` list.
+
 mod args;
 mod ca;
 mod service;

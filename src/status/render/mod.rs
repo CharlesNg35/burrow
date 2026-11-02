@@ -1,3 +1,6 @@
+//! Draws a status snapshot as a text table, with rates and optional color.
+//! Start at `render`.
+
 mod certs;
 mod table;
 
@@ -5,7 +8,9 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::metrics::Status;
-use crate::metrics::render::{bytes, duration};
+use burrow_admin_proto::status::{OFFLINE, ONLINE, away};
+use burrow_syntax::duration::{ago, span};
+use burrow_syntax::size::bytes;
 use table::{ALWAYS, Cell, address, cell, col, long, num, right, table, toned};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,7 +135,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
 
 fn render_head(out: &mut String, s: &Status, paint: Paint) {
     let title = format!("burrow {}", s.version);
-    let up = format!("up {}", duration(s.uptime_secs));
+    let up = format!("up {}", span(s.uptime_secs));
     let dot = paint.tone("  ·  ", Tone::Dim);
     let one_line = [title.clone(), up.clone()]
         .iter()
@@ -164,16 +169,12 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
         .map(|c| {
             let (mut state, since) = match (c.connected, c.connected_secs, c.left_secs_ago) {
                 (true, secs, _) => (
-                    paint.state("connected", true),
-                    cell(secs.map(duration).unwrap_or_default()),
+                    paint.state(ONLINE, true),
+                    cell(secs.map(span).unwrap_or_default()),
                 ),
-                (false, _, Some(ago)) => (
-                    paint.state("offline", false),
-                    toned(format!("left {} ago", duration(ago)), Tone::Dim),
-                ),
-                (false, _, None) => (
-                    paint.state("offline", false),
-                    toned("never seen", Tone::Dim),
+                (false, _, left) => (
+                    paint.state(OFFLINE, false),
+                    toned(away(left, s.uptime_secs, None), Tone::Dim),
                 ),
             };
             if c.at_limit {
@@ -200,7 +201,7 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
             "{}  {}",
             paint.bold("CLIENTS"),
             paint.tone(
-                &format!("{connected}/{remote} connected"),
+                &format!("{connected}/{remote} {ONLINE}"),
                 if all_in { Tone::Good } else { Tone::Warn }
             )
         ),
@@ -349,7 +350,7 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
             .map(|v| {
                 let last = match (v.open, v.last_seen_secs) {
                     (1.., _) => cell("now"),
-                    (0, Some(ago)) => cell(format!("{} ago", duration(ago))),
+                    (0, Some(secs)) => cell(ago(secs)),
                     (0, None) => toned("not since start", Tone::Dim),
                 };
                 vec![cell(&v.name), last, num(v.open), num(v.total)]

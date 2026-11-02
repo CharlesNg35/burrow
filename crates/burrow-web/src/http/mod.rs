@@ -1,3 +1,6 @@
+//! Serves HTTP/1.1 and HTTP/2 on ended-TLS and plain connections and forwards each request to its app.
+//! Start at `serve`; `pipeline` and `stages` take a request to its route, and `upstream` sends it to the app.
+
 mod access;
 pub mod compress;
 pub mod forwarded;

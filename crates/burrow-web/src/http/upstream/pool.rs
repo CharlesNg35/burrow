@@ -1,3 +1,7 @@
+//! The pool of idle app connections, keyed by service, way to the app, site and binding.
+//! A binding is shared, per visitor, or private after NTLM or Negotiate auth.
+//! `Pool` holds HTTP/1.1 and HTTP/2 stores; idle connections go after `IDLE`, sooner when a service is crowded.
+
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

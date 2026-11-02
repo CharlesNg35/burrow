@@ -1,3 +1,5 @@
+//! The screens of the admin UI and `screen`, which picks the one for each `Route`.
+
 mod about;
 pub mod activity;
 pub mod bar;
@@ -45,12 +47,7 @@ pub fn plural(section: &str) -> &'static str {
 }
 
 pub fn entity_icon(section: &str) -> &'static str {
-    use burrow_admin_proto::schema::Entity;
-    match entity_of(section) {
-        Entity::Client => "monitor",
-        Entity::Visitor => "person",
-        Entity::Service | Entity::Login | Entity::Unknown(_) => "stack",
-    }
+    burrow_admin_logic::entity::of_section(section).icon
 }
 
 pub fn screen(route: Route) -> AnyView {

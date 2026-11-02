@@ -1,30 +1,32 @@
-pub fn span(secs: u64) -> String {
-    let (d, h, m, s) = (secs / 86_400, secs / 3600 % 24, secs / 60 % 60, secs % 60);
-    match (d, h, m) {
-        (0, 0, 0) => format!("{s}s"),
-        (0, 0, _) => format!("{m}m"),
-        (0, _, _) => format!("{h}h {m}m"),
-        _ => format!("{d}d {h}h"),
-    }
+use burrow_admin_logic::presence::{self, Presence};
+use burrow_admin_proto::status::Status;
+use burrow_config::ServiceEntry;
+pub use burrow_syntax::duration::{ago, span};
+pub use burrow_syntax::size::bytes;
+use burrow_ui_kit::Tone;
+use leptos::prelude::*;
+
+pub fn reserved_clients() -> Vec<String> {
+    crate::store::try_store()
+        .and_then(|s| {
+            s.schema.with(|s| {
+                s.as_ref()
+                    .and_then(|s| s.root.at(&ServiceEntry::CLIENT.schema()))
+                    .map(|n| n.sem.reserved().to_vec())
+            })
+        })
+        .unwrap_or_default()
 }
 
-pub fn ago(secs: u64) -> String {
-    if secs < 5 {
-        "just now".into()
-    } else {
-        format!("{} ago", span(secs))
-    }
+pub fn presence_of(status: Option<&Status>, name: &str) -> Presence {
+    presence::presence(status, &reserved_clients(), name)
 }
 
-pub fn left_or_added(
-    left_secs_ago: Option<u64>,
-    uptime: u64,
-    added_secs_ago: Option<u64>,
-) -> String {
-    match (left_secs_ago, added_secs_ago) {
-        (Some(a), _) => format!("left {}", ago(a)),
-        (None, Some(a)) if a < uptime => format!("added {}, not connected yet", ago(a)),
-        (None, _) => format!("not seen since server start ({})", span(uptime)),
+pub fn tone_of(p: Presence) -> Option<Tone> {
+    match p {
+        Presence::Here | Presence::Online => Some(Tone::Success),
+        Presence::Offline => Some(Tone::Neutral),
+        Presence::Unknown => None,
     }
 }
 
@@ -35,7 +37,7 @@ pub fn left_of(client: &str, left_secs_ago: Option<u64>, uptime: u64) -> String 
             client,
         )
     });
-    left_or_added(left_secs_ago, uptime, added)
+    burrow_admin_proto::status::away(left_secs_ago, uptime, added)
 }
 
 pub fn visitor_use_short(open: u64, last_seen_secs: Option<u64>) -> String {
@@ -93,21 +95,6 @@ pub fn count(n: u64) -> String {
         out.push(c);
     }
     out
-}
-
-pub fn bytes(n: u64) -> String {
-    let units = ["B", "KB", "MB", "GB", "TB"];
-    let mut v = n as f64;
-    let mut i = 0;
-    while v >= 1000.0 && i + 1 < units.len() {
-        v /= 1000.0;
-        i += 1;
-    }
-    if i == 0 {
-        format!("{n} B")
-    } else {
-        format!("{v:.1} {}", units[i])
-    }
 }
 
 pub fn relative(unix: u64) -> String {
@@ -193,23 +180,5 @@ mod tests {
         assert_eq!(limit_tag(Some(&st), "office"), None);
         assert_eq!(limit_tag(Some(&st), "lab"), None);
         assert_eq!(limit_tag(None, "home"), None);
-    }
-
-    #[test]
-    fn a_client_added_after_the_server_started_is_not_called_unseen_since_start() {
-        assert_eq!(left_or_added(Some(120), 900, None), "left 2m ago");
-        assert_eq!(
-            left_or_added(None, 900, Some(2)),
-            "added just now, not connected yet"
-        );
-        assert_eq!(
-            left_or_added(None, 900, None),
-            "not seen since server start (15m)"
-        );
-        assert_eq!(
-            left_or_added(None, 60, Some(600)),
-            "not seen since server start (1m)",
-            "an add from before this server start does not count"
-        );
     }
 }

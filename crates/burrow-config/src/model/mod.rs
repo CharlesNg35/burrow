@@ -1,3 +1,6 @@
+//! The typed config model: `ServerConfig`, `ClientConfig` and `VisitorConfig` with their entries, options, websites, certificates and DNS providers.
+//! Each part lives in its own file and is re-exported here.
+
 mod access_keys;
 mod certs;
 mod client;

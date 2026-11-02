@@ -33,10 +33,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let node = node.clone();
         let entity = entity.clone();
         let schema = schema.clone();
-        Memo::new(move |_| {
-            e.draft
-                .with(|d| field_state(&node, &schema.root, d.draft(), &entity))
-        })
+        Memo::new(move |_| e.with_doc(|d| field_state(&node, &schema.root, d, &entity)))
     };
     let lock = schema.locked_paths().iter().any(|l| spath.starts_with(l));
     let lock_here = schema.locked_paths().contains(&spath);
@@ -334,12 +331,15 @@ fn field_body(
             view! {
                 <div class="flex min-h-[38px] flex-wrap items-center gap-3 text-[13px]" id=id.clone()>
                     {move || {
-                        let v = e.value(&path).or_else(|| {
-                            single
-                                .as_ref()
-                                .and_then(|s| e.value(s))
-                                .map(|c| Value::Array(vec![c]))
-                        });
+                        let v = e
+                            .value(&path)
+                            .or_else(|| {
+                                single
+                                    .as_ref()
+                                    .and_then(|s| e.value(s))
+                                    .map(|c| Value::Array(vec![c]))
+                            })
+                            .or_else(|| st.with(|s| s.fixed.clone()));
                         match ctx_now() {
                             Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &Ctx { path: path.clone(), ..c }),
                             None => ().into_any(),

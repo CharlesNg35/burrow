@@ -1,3 +1,6 @@
+//! The field editors of the admin UI, chosen by each field's semantic type, from plain values to lists, keyed maps, units, target TLS and websites.
+//! The entry point is `editor`, which takes a `FieldCtx`.
+
 mod basic;
 mod hidden;
 mod keyed;
@@ -7,14 +10,13 @@ mod target_tls;
 mod units;
 pub(crate) mod website;
 
-use burrow_admin_logic::check::{check_in, refs_exist};
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::input::{time_unit, to_text};
-use burrow_admin_logic::tree::{inner, names};
+use burrow_admin_logic::tree::inner;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Entity, Node, SemType};
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{Field, HealthCheck, ServiceEntry};
+use burrow_config::{Field, HealthCheck};
 use leptos::prelude::*;
 
 use crate::form::object_view;
@@ -25,18 +27,7 @@ use basic::{bool_editor, enum_editor, text_editor, yaml_editor};
 use lists::{list_editor, map_editor, union_editor};
 use units::{duration_editor, rate_editor};
 
-#[derive(Clone)]
-pub struct FieldCtx {
-    pub node: Node,
-    pub path: Path,
-    pub spath: Path,
-    pub entity: Path,
-    pub id: String,
-    pub msg_id: String,
-    pub touched: RwSignal<bool>,
-    pub inherited: Option<Value>,
-}
-
+pub use crate::field::{FieldCtx, names_of, set_checked};
 pub use burrow_admin_logic::wording::THIS_SERVER;
 
 pub(super) struct Choice {
@@ -66,47 +57,7 @@ pub(super) fn choice_box(
     .into_any()
 }
 
-pub fn reserved_clients() -> Vec<String> {
-    store().schema.with(|s| {
-        s.as_ref()
-            .and_then(|s| s.root.at(&ServiceEntry::CLIENT.schema()))
-            .map(|n| n.sem.reserved().to_vec())
-            .unwrap_or_default()
-    })
-}
-
-pub fn names_of(entity: &Entity) -> Vec<String> {
-    let doc = store().edit.doc();
-    names(&doc, &burrow_config::entity_path(entity))
-}
-
-pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
-    let e = store().edit;
-    if crate::grants::refuses(&fc.path, v.as_ref()) {
-        e.refuse(&fc.path, true);
-        return;
-    }
-    let problem = match &v {
-        None if node.required && node.default.is_none() => {
-            Some(burrow_admin_logic::wording::required(&node.label))
-        }
-        None => None,
-        Some(x) => check_in(node, x, &e.doc())
-            .err()
-            .or_else(|| refs_exist(node, x, &ref_names(node)).err()),
-    };
-    e.local_error(&fc.path, problem);
-    e.set(&fc.path, v);
-}
-
-fn ref_names(node: &Node) -> Vec<String> {
-    match &inner(node).sem {
-        SemType::Ref(r) => names_of(&r.entity),
-        SemType::RefList(r) => names_of(&r.entity),
-        SemType::RefEntries(r) => names_of(&r.entity),
-        _ => Vec::new(),
-    }
-}
+pub use crate::format::reserved_clients;
 
 fn picks_login(u: &burrow_admin_proto::schema::UnionC) -> bool {
     u.branches

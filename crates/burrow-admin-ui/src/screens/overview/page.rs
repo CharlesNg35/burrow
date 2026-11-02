@@ -131,11 +131,8 @@ pub fn Overview() -> impl IntoView {
     let refused_log = refused_log(s);
     let values = Memo::new(move |_| s.running());
     let online = move |name: &str| {
-        s.status.with(|st| {
-            st.as_ref()
-                .and_then(|st| st.clients.iter().find(|c| c.name == name))
-                .is_some_and(|c| c.connected)
-        })
+        s.status
+            .with(|st| format::presence_of(st.as_deref(), name).up())
     };
     let clients_now = Signal::derive(move || {
         let n = names(&values.get(), ClientEntry::section());

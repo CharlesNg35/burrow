@@ -83,7 +83,7 @@ pub(super) enum Dispatch {
 impl Dispatch {
     fn of(kind: &Kind) -> Dispatch {
         match kind {
-            Kind::Passthrough(service) => Dispatch::Passthrough(service.clone()),
+            Kind::Passthrough { service, .. } => Dispatch::Passthrough(service.clone()),
             Kind::Tunnel { path } => Dispatch::Tunnel(path.clone()),
             k if k.only_tunnel() => Dispatch::ByPath,
             Kind::Http { .. } | Kind::Plain { .. } => Dispatch::Terminate,

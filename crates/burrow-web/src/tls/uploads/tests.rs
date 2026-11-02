@@ -200,7 +200,7 @@ fn a_pair_that_does_not_fit_is_refused_with_its_reason() {
     );
     let (cert, key) = leaf(&["nas.example.com"], &issuer, NOW + 3 * 86_400);
     let (warnings, _) = check(&up(Kind::Pair, &format!("{cert}{key}"), &h, ""), NOW).unwrap();
-    assert_eq!(warnings, vec!["the certificate expires in 3 days"]);
+    assert_eq!(warnings, vec!["the certificate expires in 3d"]);
 }
 
 #[test]

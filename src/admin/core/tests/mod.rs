@@ -1,3 +1,6 @@
+//! Tests for the admin core, using an in-memory store and a fake running server.
+//! Build a `Core` with `core_for` and its siblings, and a signed-in `session`.
+
 #![cfg(test)]
 
 mod files;

@@ -1,3 +1,6 @@
+//! `burrow init`: writes a starter config for a server, client or visitor.
+//! Start at `init_server`, `init_client` and `init_visitor`.
+
 mod client;
 mod export;
 mod plan;

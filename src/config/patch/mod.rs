@@ -1,3 +1,6 @@
+//! Writes changed values back into a config file while keeping its comments and layout.
+//! Start at `patch`; a YAML result is read back and must give the wanted values.
+
 mod diff;
 mod yaml;
 

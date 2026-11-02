@@ -14,8 +14,8 @@ pub(crate) struct Item {
 
 pub(crate) fn row_menus() -> RwSignal<Option<String>> {
     let open: RwSignal<Option<String>> = RwSignal::new(None);
-    let shown = super::shown_while(open, Option::is_some, |o| *o = None);
-    super::popover(shown, BUTTON, MENU);
+    let shown = crate::shown::shown_while(open, Option::is_some, |o| *o = None);
+    crate::shown::popover(shown, BUTTON, MENU);
     open
 }
 

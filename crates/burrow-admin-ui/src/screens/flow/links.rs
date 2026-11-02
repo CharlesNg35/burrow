@@ -107,9 +107,8 @@ pub(super) fn service_nodes(
         problem,
     });
     for c in &s.clients {
-        let local = status
-            .and_then(|st| st.clients.iter().find(|x| &x.name == c))
-            .is_some_and(|x| x.local);
+        let local =
+            crate::format::presence_of(status, c) == burrow_admin_logic::presence::Presence::Here;
         if local {
             lines.push(Line {
                 d: curve(server_right, mid(&port), COLS[4].0, mid(&target)),
@@ -138,11 +137,8 @@ pub(super) fn client_lines(client_nodes: &[Node], status: Option<&Status>, lines
     let server_right = COLS[2].0 + COLS[2].1;
     for cn in client_nodes {
         let open = status
-            .and_then(|st| {
-                st.clients
-                    .iter()
-                    .find(|x| format!("client:{}", x.name) == cn.key)
-            })
+            .zip(cn.key.strip_prefix("client:"))
+            .and_then(|(st, name)| burrow_admin_logic::presence::client(st, name))
             .map(|x| x.open)
             .unwrap_or(0);
         lines.push(Line {

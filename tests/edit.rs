@@ -8,6 +8,7 @@ struct Setup {
     dir: tempfile::TempDir,
     locks: tempfile::TempDir,
     tmp: tempfile::TempDir,
+    services: tempfile::TempDir,
 }
 
 fn setup() -> Setup {
@@ -15,6 +16,7 @@ fn setup() -> Setup {
         dir: tempfile::tempdir().unwrap(),
         locks: tempfile::tempdir().unwrap(),
         tmp: tempfile::tempdir().unwrap(),
+        services: tempfile::tempdir().unwrap(),
     }
 }
 
@@ -62,6 +64,7 @@ fn command(s: &Setup, args: &[&str], editor: &str) -> Command {
     c.args(args)
         .current_dir(s.dir.path())
         .env("BURROW_INSTANCE_DIR", s.locks.path())
+        .env("BURROW_SERVICE_DIR", s.services.path())
         .env("TMPDIR", s.tmp.path())
         .env("TMP", s.tmp.path())
         .env("TEMP", s.tmp.path())
@@ -180,6 +183,41 @@ fn several_configs_without_a_terminal_are_listed_instead_of_guessed() {
     let shown = text(&out);
     assert!(
         shown.contains("client.yaml") && shown.contains("visitor.yaml"),
+        "{shown}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn installed_services_are_read_from_burrow_service_dir_and_not_the_machine() {
+    if !Path::new("/run/systemd/system").is_dir() {
+        return;
+    }
+    let s = setup();
+    write(&s.dir.path().join("client.yaml"), &client_yaml("home"));
+    let manifest = serde_json::json!({
+        "name": "burrow-edit-test",
+        "role": "client",
+        "config": "/etc/burrow/edit-test/client.yaml",
+        "source_config": "/etc/burrow/edit-test/client.yaml",
+        "env_file": null,
+        "binary": "/usr/local/bin/burrow",
+        "copied_binary": false,
+        "account": "burrow",
+        "created_account": false,
+        "low_ports": false,
+        "version": "0.2.0",
+        "admin_writable": false
+    });
+    write(
+        &s.services.path().join("burrow-edit-test.json"),
+        &manifest.to_string(),
+    );
+    let out = burrow(&s, &["edit"], KEEP);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    let shown = text(&out);
+    assert!(
+        shown.contains("/etc/burrow/edit-test/client.yaml") && shown.contains("client.yaml"),
         "{shown}"
     );
 }

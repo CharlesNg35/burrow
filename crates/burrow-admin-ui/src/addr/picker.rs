@@ -1,11 +1,12 @@
-use burrow_admin_logic::choices::{Presence, ServiceChoice, client_choices, service_choices};
+use burrow_admin_logic::choices::{ServiceChoice, client_choices, service_choices};
+use burrow_admin_logic::presence::Presence;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use burrow_ui_kit::{ComboOption, Combobox, Tone};
 use leptos::prelude::*;
 
-use crate::domain::{FieldCtx, names_of, set_checked};
+use crate::field::{FieldCtx, names_of, set_checked};
 use crate::store::store;
 
 pub(super) fn options_for(
@@ -42,11 +43,9 @@ fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
     client_choices(&doc, status.as_deref(), reserved, field)
         .into_iter()
         .map(|c| ComboOption {
-            dot: match c.presence {
-                _ if c.blocked.is_some() => Some(Tone::Neutral),
-                Presence::Here | Presence::Online => Some(Tone::Success),
-                Presence::Offline => Some(Tone::Neutral),
-                Presence::Unknown => None,
+            dot: match c.blocked {
+                Some(_) => Some(Tone::Neutral),
+                None => crate::format::tone_of(c.presence),
             },
             value: c.name,
             label: c.label,
@@ -76,7 +75,7 @@ fn visitor_option(n: String) -> ComboOption {
     let admin = store()
         .edit
         .peek(&VisitorEntry::ADMIN.of(&n))
-        .map(|v| crate::form::plain(&v));
+        .map(|v| crate::field::plain(&v));
     let mut parts: Vec<String> = Vec::new();
     if let Some(a) = admin {
         parts.push(format!("admin · {a}, uses burrow admin"));
@@ -132,14 +131,19 @@ pub fn create_for(entity: &Entity) -> (String, OnCreate) {
     };
     let can = store().can_write_now();
     let create_label = section
-        .map(|s| format!("New {}…", crate::screens::create::singular(s)))
+        .map(|s| {
+            format!(
+                "New {}…",
+                burrow_admin_logic::entity::of_section(s).singular
+            )
+        })
         .unwrap_or_default();
     let on_create = section.filter(|_| can).map(|sec| {
         Callback::new(move |name: String| {
-            if let Some(p) = crate::screens::create::name_problem(&name, sec, None) {
+            if let Some(p) = crate::entities::name_problem(&name, sec, None) {
                 return Some(p);
             }
-            crate::screens::create::create_with(sec, &name, None, None, &[]);
+            crate::entities::create_with(sec, &name, None, None, &[]);
             None
         })
     });

@@ -1,3 +1,6 @@
+//! Reads a config file or text, fills in environment variables, and turns it into settings with diagnostics.
+//! Start at `load_file` and `load_str`.
+
 mod parse;
 
 use std::path::Path;

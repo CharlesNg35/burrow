@@ -1,3 +1,6 @@
+//! Counts traffic, visitors and refusals for the status view and Prometheus.
+//! `Metrics` holds the counters; `serve` answers HTTP requests for them.
+
 mod counted;
 pub mod render;
 mod serve;

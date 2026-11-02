@@ -11,7 +11,7 @@ use leptos::prelude::*;
 
 use crate::store::store;
 
-use super::session_ip;
+use burrow_admin_logic::presence::from_ip;
 
 #[derive(Clone)]
 pub(super) struct Guard {
@@ -52,7 +52,7 @@ pub(super) fn guard(refusals: &[Refusal]) -> Guard {
     let now = list_at(e.peek(&path).as_ref());
     Guard {
         me,
-        ip: session_ip(&from),
+        ip: from_ip(&from),
         code,
         path,
         base,

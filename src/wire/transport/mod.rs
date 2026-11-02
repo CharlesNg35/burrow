@@ -1,3 +1,5 @@
+//! The connections a tunnel runs on, TCP, WebSocket or an in-process pipe, and `Channel`, which pairs one with its record reader and writer.
+
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};

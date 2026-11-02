@@ -1,3 +1,6 @@
+//! The web proxy value rules: host names and wildcards, certificate expiry and renewal timing, and the Let's Encrypt and DNS wait defaults.
+//! Child modules cover the certificate check of each site (`check`), settable header names (`headers`) and error page names (`pages`).
+
 use std::net::IpAddr;
 
 pub const MAX_HOST_LEN: usize = 253;

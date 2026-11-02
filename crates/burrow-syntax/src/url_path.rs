@@ -1,3 +1,5 @@
+//! URL path rules for web routes: normalizing request paths, matching them against route prefixes and checking route paths written in configs.
+
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

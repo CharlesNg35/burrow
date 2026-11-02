@@ -49,11 +49,13 @@ pub struct WebSite {
         label = "Send http:// to https://",
         help = "Send a visitor who types http://nas.example.com to https://nas.example.com, or answer plain HTTP too",
         none_label = "As the web proxy says",
+        fixed_if(
+            eq(tls, "passthrough"),
+            true,
+            "Always on: the app does its own HTTPS, and burrow sends http:// visitors to https://, where the app answers"
+        ),
         enabled_if(
-            all(
-                ne(tls, "passthrough"),
-                any(ne(tls, "off"), set("/web/trusted_proxies"))
-            ),
+            any(ne(tls, "off"), set("/web/trusted_proxies")),
             "This needs burrow to do the HTTPS, or Trusted proxies for a plain HTTP site"
         )
     )]

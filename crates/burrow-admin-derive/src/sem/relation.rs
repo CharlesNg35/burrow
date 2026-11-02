@@ -6,6 +6,19 @@ use crate::term::Term;
 
 use super::entity;
 
+fn lit(a: Option<&Term>) -> TokenStream {
+    let p = crate::p();
+    match a {
+        Some(Term::Str(s, _)) => quote!(#p::json!(#s)),
+        Some(Term::Int(i, _)) => quote!(#p::json!(#i)),
+        Some(Term::Word(w, _)) if w == "true" || w == "false" => {
+            let b = w == "true";
+            quote!(#p::json!(#b))
+        }
+        _ => quote!(#p::json!(null)),
+    }
+}
+
 fn cond(t: &Term, fields: &[String], owner: &syn::Ident, errors: &mut Errors) -> TokenStream {
     let p = crate::p();
     let field_ref = |a: Option<&Term>, errors: &mut Errors| -> String {
@@ -28,17 +41,6 @@ fn cond(t: &Term, fields: &[String], owner: &syn::Ident, errors: &mut Errors) ->
                 errors.push(t.span(), "missing field name");
                 String::new()
             }
-        }
-    };
-    let lit = |a: Option<&Term>| -> TokenStream {
-        match a {
-            Some(Term::Str(s, _)) => quote!(#p::json!(#s)),
-            Some(Term::Int(i, _)) => quote!(#p::json!(#i)),
-            Some(Term::Word(w, _)) if w == "true" || w == "false" => {
-                let b = w == "true";
-                quote!(#p::json!(#b))
-            }
-            _ => quote!(#p::json!(null)),
         }
     };
     let args = t.args();
@@ -135,6 +137,18 @@ pub fn relations(
                     out.push(quote!(#p::Relation::EnabledIf { cond: #c, reason: #reason.into() }));
                 }
                 _ => errors.push(t.span(), "enabled_if(condition, \"reason\")"),
+            },
+            Some("fixed_if") => match (
+                args.first(),
+                args.get(1),
+                args.get(2).and_then(Term::as_str),
+            ) {
+                (Some(c), Some(v), Some(reason)) => {
+                    let c = cond(c, fields, owner, errors);
+                    let v = lit(Some(v));
+                    out.push(quote!(#p::Relation::FixedIf { cond: #c, value: #v, reason: #reason.into() }));
+                }
+                _ => errors.push(t.span(), "fixed_if(condition, value, \"reason\")"),
             },
             Some("options_filter") => match args.first() {
                 Some(c) => {

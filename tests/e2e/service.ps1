@@ -91,7 +91,7 @@ try {
   Check "log file $log"
 
   $out = Burrow status burrow-e2e-server
-  if ($out -notmatch "home\s+connected") { Fail "burrow status does not show the client: $out" }
+  if ($out -notmatch "home\s+online") { Fail "burrow status does not show the client: $out" }
   if ($out -notmatch "web\s+tcp") { Fail "burrow status does not show the services: $out" }
   Check "burrow status reads the installed server"
 

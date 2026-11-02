@@ -131,14 +131,31 @@ async fn a_name_whose_certificate_is_pending_or_failing_gets_the_pending_page() 
 }
 
 #[tokio::test]
-async fn passthrough_tunnel_and_unknown_names_get_404_on_port_80() {
+async fn a_passthrough_name_is_sent_to_https_where_the_app_answers() {
     let s = setup().await;
     let http = s.proxy.http_addr().unwrap();
-    for host in [
-        "files.example.com",
-        "tunnel.example.com",
-        "other.example.com",
-    ] {
+    let https = s.proxy.https_addr().unwrap().port();
+    let r = over_plain(http, &get("files.example.com", "/a?b=1")).await;
+    assert!(r.starts_with("HTTP/1.1 308"), "{r}");
+    let want = format!("location: https://files.example.com:{https}/a?b=1\r\n");
+    assert!(r.to_ascii_lowercase().contains(&want), "{r}");
+    let old = over_plain(http, "GET /x HTTP/1.0\r\nHost: files.example.com\r\n\r\n").await;
+    assert!(old.starts_with("HTTP/1.0 308"), "{old}");
+    let want = format!("location: https://files.example.com:{https}/x\r\n");
+    assert!(old.to_ascii_lowercase().contains(&want), "{old}");
+    let no_host = over_plain(http, "GET / HTTP/1.1\r\nConnection: close\r\n\r\n").await;
+    assert!(no_host.starts_with("HTTP/1.1 400"), "{no_host}");
+    assert_eq!(
+        s.app.connections.load(std::sync::atomic::Ordering::SeqCst),
+        0
+    );
+}
+
+#[tokio::test]
+async fn the_tunnel_and_unknown_names_get_404_on_port_80() {
+    let s = setup().await;
+    let http = s.proxy.http_addr().unwrap();
+    for host in ["tunnel.example.com", "other.example.com"] {
         let r = over_plain(http, &get(host, "/")).await;
         assert!(r.starts_with("HTTP/1.1 404"), "{host}: {r}");
     }

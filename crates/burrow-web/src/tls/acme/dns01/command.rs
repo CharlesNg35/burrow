@@ -1,3 +1,6 @@
+//! A DNS-01 `Provider` that runs a user's command with `present` or `cleanup`, the name and the value.
+//! The command runs with a clean environment and a timeout; a failure shows the end of its output.
+
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;

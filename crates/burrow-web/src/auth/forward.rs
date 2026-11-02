@@ -1,3 +1,6 @@
+//! Builds the subrequest that forward auth sends to the auth service, and copies the granted headers back.
+//! The subrequest drops the visitor's hop-by-hop, framing, forwarded and X-Original-* headers and sets its own.
+
 use burrow_syntax::address::url_host;
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use http::{Method, Request};

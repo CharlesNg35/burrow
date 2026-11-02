@@ -1,3 +1,6 @@
+//! Checks the web parts of a server config: the HTTP and HTTPS listeners, sites, certificates and logins.
+//! Start at `check_https`, `check_http` and `check_sites`.
+
 use std::collections::BTreeMap;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::path::Path;

@@ -168,7 +168,7 @@ services:
       tls: passthrough
 ```
 
-On port 80, passthrough names get `404`: burrow cannot redirect a site whose HTTPS it does not do.
+On port 80, a passthrough name is sent to `https://` with `308`, where the app answers. `https_redirect` is always on for a passthrough site, so `https_redirect: false` is refused ([D77](decisions.md#d77-a-passthrough-sites-http-visitors-are-sent-to-https-where-the-app-answers)).
 
 ## More about websites
 

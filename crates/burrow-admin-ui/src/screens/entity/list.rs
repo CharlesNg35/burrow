@@ -4,8 +4,9 @@ use burrow_config::{Entry, Protocol, ServerConfig, ServiceEntry, WebConfig, enti
 use burrow_ui_kit::{EmptyState, Tone};
 use leptos::prelude::*;
 
+use crate::entities::singular;
 use crate::route::{self, Route};
-use crate::screens::create::{NewEntity, NewWebsite, singular};
+use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
 

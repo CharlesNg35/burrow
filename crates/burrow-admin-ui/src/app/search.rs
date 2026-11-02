@@ -168,23 +168,16 @@ fn entity_hits(doc: &Value, status: Option<&Status>, needle: &str, out: &mut Vec
 fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> String {
     match entity_of_section(sec) {
         Some(Entity::Client) => {
-            let c = status
-                .as_ref()
-                .and_then(|st| st.clients.iter().find(|c| c.name == n))
-                .cloned();
+            let c = burrow_admin_logic::presence::of(status, n);
             let secrets = match ClientEntry::SECRET.get(v) {
                 Some(Value::Array(a)) => a.len(),
                 Some(_) => 1,
                 None => 0,
             };
             match c {
-                Some(c) if c.connected => format!(
+                Some(c) if c.online => format!(
                     "{} · {}",
-                    c.from
-                        .unwrap_or_default()
-                        .rsplit_once(':')
-                        .map(|(h, _)| h.to_string())
-                        .unwrap_or_default(),
+                    c.from.unwrap_or_default(),
                     burrow_admin_logic::wording::count_of(secrets, ClientEntry::SECRET.key())
                 ),
                 _ => format!(

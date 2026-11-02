@@ -1,3 +1,6 @@
+//! Accepts connections on the HTTPS and HTTP ports and dispatches each to passthrough, a tunnel or HTTP.
+//! `Proxy` owns the listeners and the shared state; `apply` takes new settings without a restart.
+
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};

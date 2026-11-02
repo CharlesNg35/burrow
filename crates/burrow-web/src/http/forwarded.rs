@@ -1,3 +1,6 @@
+//! The X-Forwarded-* and related headers: who the client is (`Client`) and which incoming copies to strip.
+//! Values sent by a peer are believed only when that peer is in the trusted CIDR list.
+
 use std::borrow::Cow;
 use std::net::{IpAddr, SocketAddr};
 

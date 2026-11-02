@@ -1,5 +1,5 @@
 pub const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
-pub const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
+pub const PASSTHROUGH_FIXED: &str = "passthrough-fixed";
 pub const REDIRECT_PLAIN: &str = "redirect-plain";
 pub const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
 pub const NO_CERTIFICATE: &str = "no-certificate";
@@ -72,7 +72,7 @@ pub const TLS_UNREADABLE: &str = "tls-unreadable";
 
 pub const READ_BY_THE_UI: [&str; 18] = [
     PLAIN_NEEDS_HTTP,
-    REDIRECT_PASSTHROUGH,
+    PASSTHROUGH_FIXED,
     REDIRECT_PLAIN,
     REDIRECT_NEEDS_HTTP,
     NO_CERTIFICATE,

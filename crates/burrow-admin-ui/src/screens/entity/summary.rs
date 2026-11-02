@@ -1,5 +1,6 @@
 use burrow_admin_logic::allow;
 use burrow_admin_logic::health::EntryHealth;
+use burrow_admin_logic::presence;
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::EntryStatus;
@@ -100,7 +101,7 @@ fn entry_rows(
             .into_iter()
             .map(|c| EntryStatus {
                 open: st
-                    .and_then(|x| x.clients.iter().find(|y| y.name == c))
+                    .and_then(|x| presence::client(x, &c))
                     .map_or(0, |y| y.open),
                 client: c,
                 target: None,
@@ -123,7 +124,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                 }
                 let c = st
                     .as_ref()
-                    .and_then(|x| x.clients.iter().find(|c| c.name == name))
+                    .and_then(|x| presence::client(x, &name))
                     .cloned();
                 let max = ClientEntry::MAX_CONNECTIONS
                     .at(&doc, &name)
@@ -195,8 +196,8 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                     .map(|en| {
                         let c = en.client.clone();
                         let t = en.target.clone();
-                        let cs = st.as_ref().and_then(|x| x.clients.iter().find(|y| y.name == c)).cloned();
-                        let on = cs.as_ref().is_some_and(|y| y.connected);
+                        let from = presence::of(st.as_deref(), &c).and_then(|y| y.from);
+                        let on = format::presence_of(st.as_deref(), &c).up();
                         let h = burrow_admin_logic::health::entry(&health, &c, t.as_deref(), on);
                         let set = format::skip_label(aside.iter().find(|a| a.client == c && a.target == t).map(|a| a.refused));
                         let (to, main) = match &t {
@@ -209,7 +210,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                             <tr data-row=c.clone()>
                                 <th scope="row"><StatusDot on=on text=label/><span class="block pl-4 text-xs font-normal text-text-muted break-words" data-testid="entry-target"><span class="font-mono">{to}</span>{main.then(|| view! { <span class="ml-1 whitespace-nowrap">{format!("({})", burrow_admin_logic::wording::MAIN_TARGET)}</span> })}</span></th>
                                 <td class="tabular-nums" data-testid="client-open">{open}</td>
-                                <td class=burrow_ui_kit::WIDE_ONLY>{match cs.and_then(|y| y.from) {
+                                <td class=burrow_ui_kit::WIDE_ONLY>{match from {
                                     Some(f) => view! { <span class="font-mono text-[13px] text-text-muted">{f}</span> }.into_any(),
                                     None => view! { <span class="text-[13px] text-text-faint" aria-label=burrow_admin_logic::wording::OFFLINE>{format::NONE_MARK}</span> }.into_any(),
                                 }}</td>
@@ -282,7 +283,7 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
                         let up = st.as_ref().map(|st| {
                             clients_of(x)
                                 .iter()
-                                .any(|c| st.clients.iter().any(|y| &y.name == c && y.connected))
+                                .any(|c| format::presence_of(Some(st), c).up())
                         });
                         (n.clone(), up, crate::screens::paths::udp(x))
                     })
@@ -340,9 +341,7 @@ fn allow_line(name: String) -> impl IntoView {
                 .is_some_and(|w| w.has(burrow_admin_proto::features::CLIENT_ALLOW))
         });
         s.status.with(|st| {
-            let c = st
-                .as_ref()
-                .and_then(|st| st.clients.iter().find(|c| c.name == name));
+            let c = st.as_ref().and_then(|st| presence::client(st, &name));
             allow::shown(feature, c)
         })
     };

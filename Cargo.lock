@@ -528,6 +528,7 @@ dependencies = [
 name = "burrow-admin-proto"
 version = "0.2.0"
 dependencies = [
+ "burrow-syntax",
  "schemars",
  "serde",
  "serde_json",

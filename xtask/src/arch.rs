@@ -17,7 +17,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ),
     (
         "burrow-admin-proto",
-        &["serde", "serde_json", "schemars"],
+        &["burrow-syntax", "serde", "serde_json", "schemars"],
         &[],
     ),
     ("burrow-admin-derive", &["proc-macro2", "quote", "syn"], &[]),
@@ -134,6 +134,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     problems.extend(crate::layers::problems(root)?);
     problems.extend(crate::shape::problems(root)?);
     problems.extend(crate::lints::problems(root)?);
+    problems.extend(crate::once::problems(root)?);
     if problems.is_empty() {
         println!("arch-check: ok");
         Ok(())
