@@ -133,7 +133,7 @@ pub(super) fn map_editor(
                 let label = burrow_admin_logic::choices::label_of(&k, &shown_as);
                 let rename = renames.clone().map(|entity| rename_button(entity, &k));
                 view! {
-                    <div class="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-start gap-2 py-1" data-key=k.clone()>
+                    <div class="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-start gap-2 py-1 max-sm:grid-cols-1 max-sm:gap-1" data-key=k.clone()>
                         <div class="flex min-w-0 items-center gap-0.5 pt-1.5">
                             <span class="truncate font-mono text-sm">{label}</span>
                             <burrow_ui_kit::IconButton icon="x" label=format!("Remove {k}") testid="remove-key" on_click=move |_| e.remove_pruned(&p)/>
