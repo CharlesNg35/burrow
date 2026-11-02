@@ -256,8 +256,10 @@ async fn deadlines_pass(addr: SocketAddr, host: &str) {
             let status = resp.status().as_u16();
             let headers = resp.headers().clone();
             assert!(
-                headers.get("grpc-status").is_some_and(|v| v == "4"),
-                "{host}: DEADLINE_EXCEEDED, got status {status} {headers:?}"
+                headers
+                    .get("grpc-status")
+                    .is_some_and(|v| v == "4" || v == "1"),
+                "{host}: DEADLINE_EXCEEDED, or CANCELLED when grpc-go's deadline timer cancels first, got status {status} {headers:?}"
             );
         }
     }
