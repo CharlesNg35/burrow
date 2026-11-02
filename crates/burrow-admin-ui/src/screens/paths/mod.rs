@@ -310,6 +310,28 @@ mod tests {
     use burrow_admin_proto::serde_json::json;
 
     #[test]
+    fn clients_whose_health_check_fails_are_not_drawn_up() {
+        let svc =
+            json!({"clients": ["a", "b"], "health_check": true, "target": 8080, "bind": 9000});
+        let st: Status = burrow_admin_proto::serde_json::from_value(json!({
+            "version": "0.2.0", "uptime_secs": 10, "listening": [], "handshakes_refused": 0, "udp_peers": 0,
+            "clients": [{"name": "a", "connected": true}, {"name": "b", "connected": true}],
+            "services": [{"name": "web", "open": 0, "total": 0, "bytes_in": 0, "bytes_out": 0, "refused": 0,
+                "health": [{"client": "a", "up": false}, {"client": "b", "up": false}]}],
+            "visitors": []
+        }))
+        .unwrap();
+        let none = Problems {
+            source: None,
+            clients: None,
+            ports: None,
+        };
+        let p = service("web", &svc, Some(&st), &none, false, &[]);
+        assert_eq!(p.hops[2].unit, "0 of 2 up");
+        assert_ne!(p.hops[2].dot, Some(Tone::Success));
+    }
+
+    #[test]
     fn a_visitor_never_seen_has_a_hollow_dot_and_one_in_use_a_green_one() {
         let doc = json!({"visitors": {"v": {}}});
         let mut st: Status = burrow_admin_proto::serde_json::from_value(json!({
