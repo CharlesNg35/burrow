@@ -76,11 +76,21 @@ pub(super) fn service_main(_args: Vec<OsString>) {
 
 fn run_updater(base: &str) -> Result<u8, Failure> {
     let me = crate::service::this_binary()?;
+    let m = crate::service::load_manifest(base)?;
+    let log = crate::service::helper::dir(&m).join("updater.log");
+    let out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log)
+        .map_err(|e| Failure::new(format!("cannot write {}: {e}", log.display())))?;
+    let err = out
+        .try_clone()
+        .map_err(|e| Failure::new(format!("cannot write {}: {e}", log.display())))?;
     let status = std::process::Command::new(me)
         .args(["service", "remote-update", base])
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(out)
+        .stderr(err)
         .status()
         .map_err(|e| Failure::new(format!("cannot run the updater of {base}: {e}")))?;
     Ok(status.code().map_or(1, |c| u8::try_from(c).unwrap_or(1)))

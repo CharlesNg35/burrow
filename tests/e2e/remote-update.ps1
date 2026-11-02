@@ -23,6 +23,7 @@ function Check($msg) { Write-Host "  ok: $msg" }
 function Fail($msg) {
   Write-Host "FAIL: $msg"
   & "$Work/v1.exe" service logs $Name -n 40 2>&1 | Out-String | Write-Host
+  Get-Content "$env:ProgramData\burrow\updates\e2e-upd\updater.log" -ErrorAction SilentlyContinue | Write-Host
   throw $msg
 }
 function Mark($file, [string[]]$marks) {
