@@ -51,6 +51,25 @@ pub fn merge_with(trees: Vec<Node>, names: &[String]) -> (Node, Vec<Diagnostic>)
 
 fn append(root: &mut Node, more: Node, place: &dyn Fn(Span) -> String, out: &mut Vec<Diagnostic>) {
     let Value::Map(extra) = more.value else {
+        if !matches!(more.value, Value::Null) {
+            let at = more.span;
+            out.push(
+                Diagnostic::error(
+                    codes::DROP_IN_SECTION,
+                    "a drop-in file must hold services, clients or visitors by name",
+                )
+                .at(Span {
+                    file: at.file,
+                    start: crate::config::tree::Pos {
+                        offset: 0,
+                        line: 1,
+                        col: 1,
+                    },
+                    end: at.start,
+                })
+                .help("write it as\nservices:\n  name: { ... }"),
+            );
+        }
         return;
     };
     if matches!(root.value, Value::Null) {
@@ -213,6 +232,19 @@ mod tests {
             root.get("services").unwrap().get("web").unwrap().to_json(),
             serde_json::json!({"target": 80})
         );
+    }
+
+    #[test]
+    fn a_drop_in_that_is_not_a_mapping_is_an_error_at_its_first_line() {
+        for text in ["- services: {}\n", "just text\n", "[1, 2]\n"] {
+            let (_, d) = merged(&["listen: 7835\n", text]);
+            assert_eq!(d.len(), 1, "{text}: {d:?}");
+            assert_eq!(d[0].code, codes::DROP_IN_SECTION);
+            let s = d[0].span.unwrap();
+            assert_eq!((s.file, s.start.line), (FileId(1), 1), "{text}");
+        }
+        let (_, d) = merged(&["listen: 7835\n", "# nothing yet\n"]);
+        assert!(d.is_empty(), "an empty file is fine: {d:?}");
     }
 
     #[test]
