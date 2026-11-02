@@ -557,13 +557,20 @@ mod tests {
             .loaded
             .unwrap();
         let current = ServerSettings::from_loaded(loaded).unwrap();
-        assert!(current.files(&config).contains(&apps), "each drop-in is watched itself");
+        assert!(
+            current.files(&config).contains(&apps),
+            "each drop-in is watched itself"
+        );
         let (tx, mut rx) = mpsc::channel(16);
         tokio::spawn(follow(config, current, Env::default(), accept(), tx));
         tokio::time::sleep(Duration::from_millis(1500)).await;
         use std::io::Write as _;
-        let mut f = std::fs::OpenOptions::new().append(true).open(&apps).unwrap();
-        f.write_all(b"  blog: { client: home, target: 81, bind: 7901 }\n").unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&apps)
+            .unwrap();
+        f.write_all(b"  blog: { client: home, target: 81, bind: 7901 }\n")
+            .unwrap();
         drop(f);
         let next = tokio::time::timeout(Duration::from_secs(10), rx.recv())
             .await
