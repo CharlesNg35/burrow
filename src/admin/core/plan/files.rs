@@ -172,6 +172,15 @@ fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
         }
         let at = match base.iter().position(|d| d.name == *file) {
             Some(at) => at,
+            None if base.iter().any(|d| d.name.eq_ignore_ascii_case(file)) => {
+                let other = base
+                    .iter()
+                    .find(|d| d.name.eq_ignore_ascii_case(file))
+                    .map_or("", |d| d.name.as_str());
+                return Err(WriteError::Bad(format!(
+                    "{file} and {other} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name"
+                )));
+            }
             None if burrow_config::drop_ins::new_name_ok(moves.prefix, file) => {
                 base.push(Doc {
                     name: file.clone(),

@@ -33,19 +33,22 @@ pub fn file_in<'a>(folder: &str, name: &'a str) -> Option<&'a str> {
     plain.then_some(file)
 }
 
+pub fn is_device_name(stem: &str) -> bool {
+    let device = stem.split('.').next().unwrap_or("").to_ascii_uppercase();
+    ["CON", "PRN", "AUX", "NUL"].contains(&device.as_str())
+        || ((device.starts_with("COM") || device.starts_with("LPT"))
+            && device.len() == 4
+            && device.ends_with(|c: char| c.is_ascii_digit()))
+}
+
 pub fn new_name_ok(folder: &str, name: &str) -> bool {
     let Some(file) = file_in(folder, name) else {
         return false;
     };
     let stem = file.strip_suffix(".yaml").unwrap_or("");
-    let device = stem.split('.').next().unwrap_or("").to_ascii_uppercase();
-    let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&device.as_str())
-        || ((device.starts_with("COM") || device.starts_with("LPT"))
-            && device.len() == 4
-            && device.ends_with(|c: char| c.is_ascii_digit()));
     !stem.is_empty()
         && stem.len() <= 100
-        && !reserved
+        && !is_device_name(stem)
         && !stem.contains("..")
         && !stem.starts_with(['.', '-'])
         && !stem.ends_with('.')

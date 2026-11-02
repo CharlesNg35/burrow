@@ -510,3 +510,37 @@ fn review_shows_a_drop_in_anyone_can_change_and_nothing_is_written() {
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(set.read("server.yaml").unwrap(), set.w.text);
 }
+
+#[test]
+fn names_that_differ_only_in_case_are_refused_with_a_clear_message() {
+    let set = Set::new(&[("blog.yaml", BLOG)]);
+    let s = set.session(true);
+    for ops in [
+        vec![Op::Place {
+            path: p(&["services", "web"]),
+            file: "server.d/Blog.yaml".into(),
+        }],
+        vec![
+            Op::Add {
+                path: p(&["services", "Wiki"]),
+                value: json!({"client": "home", "bind": 7843, "target": 3003}),
+            },
+            Op::Place {
+                path: p(&["services", "Wiki"]),
+                file: "server.d/Wiki.yaml".into(),
+            },
+            Op::Place {
+                path: p(&["services", "web"]),
+                file: "server.d/wiki.yaml".into(),
+            },
+        ],
+    ] {
+        let e = set.plan(&s, &ops).err().unwrap();
+        assert_eq!(e.code, ErrorCode::BadRequest);
+        assert!(
+            e.message.contains("differ only in upper and lower case"),
+            "{}",
+            e.message
+        );
+    }
+}

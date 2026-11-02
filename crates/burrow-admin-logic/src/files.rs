@@ -72,15 +72,30 @@ pub fn own_file(info: &FileInfo, item: &str) -> String {
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') {
-                c
+                c.to_ascii_lowercase()
             } else {
                 '-'
             }
         })
         .collect();
     let safe = safe.trim_matches('-');
-    let safe = if safe.is_empty() { "items" } else { safe };
-    format!("{}/{safe}.yaml", folder_name(info))
+    let mut stem = if safe.is_empty() {
+        "items".to_string()
+    } else {
+        safe.to_string()
+    };
+    if burrow_config::drop_ins::is_device_name(&stem) {
+        stem.push_str("-1");
+    }
+    let folder = folder_name(info);
+    let taken = |name: &str| info.files.iter().any(|f| f.name.eq_ignore_ascii_case(name));
+    let mut name = format!("{folder}/{stem}.yaml");
+    let mut n = 2;
+    while taken(&name) {
+        name = format!("{folder}/{stem}-{n}.yaml");
+        n += 1;
+    }
+    name
 }
 
 pub fn file_of(info: &FileInfo, item: &[String]) -> String {
@@ -240,6 +255,15 @@ mod tests {
         assert_eq!(save_in_file(&i, OWN, "my blog"), "server.d/my-blog.yaml");
         assert_eq!(save_in_file(&i, "", "x"), "server.yaml");
         assert_eq!(item_count(&i.files[0]), "1 item");
+    }
+
+    #[test]
+    fn an_own_file_name_is_lower_case_free_and_never_a_device_name() {
+        let i = info(&[("server.yaml", None, &[]), ("server.d/web.yaml", None, &[])]);
+        assert_eq!(own_file(&i, "Web"), "server.d/web-2.yaml");
+        assert_eq!(own_file(&i, "Blog"), "server.d/blog.yaml");
+        assert_eq!(own_file(&i, "con"), "server.d/con-1.yaml");
+        assert_eq!(own_file(&i, "COM1"), "server.d/com1-1.yaml");
     }
 
     #[test]
