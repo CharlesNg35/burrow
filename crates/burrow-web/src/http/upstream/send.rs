@@ -26,6 +26,7 @@ pub(crate) struct Asking<'a, U> {
     pub deadline: Instant,
     pub epoch: u64,
     pub ask: Ask,
+    pub front: Option<&'a Arc<Cut>>,
 }
 
 pub(crate) type Sent = (Response<Incoming>, Home, Ticket);
@@ -241,7 +242,7 @@ impl<U: Upstream> Asking<'_, U> {
             self.service,
             self.from.clone(),
             self.ask,
-            cutter,
+            (cutter, self.front.cloned()),
             self.epoch,
         );
         ticket.waiting();
