@@ -64,9 +64,7 @@ pub fn main_name(info: &FileInfo) -> String {
 }
 
 pub fn folder_name(info: &FileInfo) -> String {
-    let main = main_name(info);
-    let stem = main.rsplit_once('.').map_or(main.as_str(), |(s, _)| s);
-    format!("{stem}.d")
+    burrow_config::drop_ins::folder_name(&main_name(info))
 }
 
 pub fn own_file(info: &FileInfo, item: &str) -> String {

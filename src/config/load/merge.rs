@@ -1,20 +1,10 @@
 use burrow_admin_proto::codes;
-use burrow_config::{ClientEntry, Entry as _, ServiceEntry, VisitorEntry};
 
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::{Entry, Node, Span, Value};
 
-fn sections() -> [(&'static str, &'static str); 3] {
-    [
-        (ServiceEntry::section(), "service"),
-        (ClientEntry::section(), "client"),
-        (VisitorEntry::section(), "visitor"),
-    ]
-}
-
-pub fn is_section(key: &str) -> bool {
-    sections().iter().any(|(s, _)| *s == key)
-}
+pub use burrow_config::drop_ins::is_section;
+use burrow_config::drop_ins::sections;
 
 fn empty() -> Node {
     Node {

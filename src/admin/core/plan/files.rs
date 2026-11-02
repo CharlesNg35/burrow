@@ -1,19 +1,15 @@
 use std::collections::BTreeMap;
 
 use burrow_admin_proto::plan::{Change, ChangeKind, FileChange, FileDiff};
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+use burrow_config::{Entry, ServiceEntry};
 use serde_json::{Map, Value};
 
 use crate::config::docs::{Doc, Docs};
 use crate::config::patch::{self, Patched, Rename};
 use crate::config::{Format, tree};
 
-pub fn sections() -> [&'static str; 3] {
-    [
-        ServiceEntry::section(),
-        ClientEntry::section(),
-        VisitorEntry::section(),
-    ]
+fn is_section(key: &str) -> bool {
+    burrow_config::drop_ins::is_section(key)
 }
 
 pub type Item = (String, String);
@@ -36,9 +32,7 @@ impl Owners {
             if let Value::Object(top) = &raw {
                 for (key, value) in top {
                     out.keys.entry(key.clone()).or_insert(i);
-                    if let (true, Value::Object(items)) =
-                        (sections().contains(&key.as_str()), value)
-                    {
+                    if let (true, Value::Object(items)) = (is_section(key), value) {
                         for name in items.keys() {
                             out.items.entry((key.clone(), name.clone())).or_insert(i);
                         }
@@ -85,7 +79,7 @@ pub fn split(
     };
     for (key, value) in top {
         let owner_of_key = || owners.keys.get(key).copied().unwrap_or(0).min(count - 1);
-        let (true, Value::Object(items)) = (sections().contains(&key.as_str()), value) else {
+        let (true, Value::Object(items)) = (is_section(key), value) else {
             outs[owner_of_key()].insert(key.clone(), value.clone());
             continue;
         };
@@ -117,7 +111,7 @@ fn renames_in(owners: &Owners, places: &Places, doc: usize, renames: &[Rename]) 
     renames
         .iter()
         .filter(|r| match r.path.as_slice() {
-            [section, name, ..] if sections().contains(&section.as_str()) => {
+            [section, name, ..] if is_section(section) => {
                 let moved = places
                     .get(&(section.clone(), r.to.clone()))
                     .is_some_and(|to| *to != doc);
@@ -130,7 +124,7 @@ fn renames_in(owners: &Owners, places: &Places, doc: usize, renames: &[Rename]) 
 }
 
 pub fn holds_items(target: &Value) -> bool {
-    sections().iter().any(|s| {
+    burrow_config::drop_ins::sections().iter().any(|(s, _)| {
         target
             .get(*s)
             .and_then(Value::as_object)
@@ -171,7 +165,7 @@ fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
                 "place needs a service, client or visitor".into(),
             ));
         };
-        if !sections().contains(&section.as_str()) {
+        if !is_section(section) {
             return Err(WriteError::Bad(format!(
                 "{section} items stay in the main file"
             )));
@@ -270,11 +264,10 @@ pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &
         if from == *file {
             continue;
         }
-        let kind = match section.as_str() {
-            s if s == ClientEntry::section() => ClientEntry::ENTITY,
-            s if s == VisitorEntry::section() => VisitorEntry::ENTITY,
-            _ => ServiceEntry::ENTITY,
-        };
+        let kind = burrow_config::drop_ins::sections()
+            .into_iter()
+            .find(|(s, _)| s == section)
+            .map_or(ServiceEntry::ENTITY, |(_, k)| k);
         let known = out.iter().any(|c| c.path == *path);
         out.push(Change {
             kind: ChangeKind::Other,
