@@ -23,6 +23,27 @@ use acl::{
 };
 pub use dispatch::dispatch;
 
+pub(in crate::service) fn own_folder(dir: &Path, account: &str) -> Result<(), Failure> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+    if is_link(dir) {
+        return Err(Failure::new(format!(
+            "{} must be a folder, not a link",
+            dir.display()
+        )));
+    }
+    icacls(
+        dir,
+        &[
+            "/inheritance:r",
+            "/grant:r",
+            &format!("{SYSTEM}:(OI)(CI)F"),
+            &format!("{ADMINS}:(OI)(CI)F"),
+        ],
+    )?;
+    grant(dir, account, "(OI)(CI)M")
+}
+
 pub(in crate::service) const RESULTS_RIGHTS: &str = "(OI)(CI)RX";
 
 pub(in crate::service) fn results_folder(dir: &Path, account: &str) -> Result<(), Failure> {

@@ -83,6 +83,13 @@ pub fn dir(m: &Manifest) -> PathBuf {
     base().join("updates").join(m.short())
 }
 
+pub fn own_dir(m: &Manifest) -> PathBuf {
+    match Platform::current() {
+        Platform::Linux | Platform::Other => base().join(m.short()),
+        _ => dir(m).join("own"),
+    }
+}
+
 pub fn result_file(m: &Manifest) -> PathBuf {
     dir(m).join(RESULT)
 }
@@ -103,11 +110,20 @@ fn results_folder(m: &Manifest) -> Result<(), Failure> {
         std::fs::create_dir_all(&base)
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", base.display())))?;
         super::nofollow::subfolder(&base, "updates", 0o755, None)?;
-        super::nofollow::subfolder(&base.join("updates"), m.short(), 0o755, None)
+        super::nofollow::subfolder(&base.join("updates"), m.short(), 0o755, None)?;
+        if cfg!(target_os = "macos") {
+            let owner = match m.account.as_str() {
+                "root" => None,
+                a => Some(crate::base::process::account_ids(a)?),
+            };
+            super::nofollow::subfolder(&dir(m), "own", 0o700, owner)?;
+        }
+        Ok(())
     }
     #[cfg(windows)]
     {
-        super::windows::results_folder(&dir(m), &m.account)
+        super::windows::results_folder(&dir(m), &m.account)?;
+        super::windows::own_folder(&own_dir(m), &m.account)
     }
     #[cfg(not(any(unix, windows)))]
     {

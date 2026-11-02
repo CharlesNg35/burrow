@@ -32,17 +32,8 @@ pub fn blocked(m: &Manifest) -> Option<String> {
     })
 }
 
-fn asked_file(m: &Manifest) -> PathBuf {
-    let key = hex::encode(sha2_short(m.config.to_string_lossy().as_bytes()));
-    crate::instance::default_dir().join(format!("update-asked-{key}.json"))
-}
-
-fn sha2_short(bytes: &[u8]) -> [u8; 8] {
-    use sha2::Digest;
-    let d = sha2::Sha256::digest(bytes);
-    let mut out = [0u8; 8];
-    out.copy_from_slice(&d[..8]);
-    out
+pub(super) fn asked_file(m: &Manifest) -> PathBuf {
+    helper::own_dir(m).join("asked.json")
 }
 
 fn result_of(m: &Manifest) -> Option<Record> {
@@ -50,8 +41,12 @@ fn result_of(m: &Manifest) -> Option<Record> {
 }
 
 pub fn last(m: &Manifest) -> Option<LastUpdate> {
-    let mut r = result_of(m)?;
-    r.id = record::read::<Asked>(&asked_file(m))
+    last_from(&helper::result_file(m), &asked_file(m))
+}
+
+pub(super) fn last_from(result: &std::path::Path, asked: &std::path::Path) -> Option<LastUpdate> {
+    let mut r: Record = record::read(result)?;
+    r.id = record::read::<Asked>(asked)
         .filter(|a| r.at >= a.at)
         .map_or(0, |a| a.id);
     r.last()

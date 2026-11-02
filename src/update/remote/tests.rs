@@ -1,4 +1,5 @@
 use super::*;
+use crate::wire::protocol::Outcome;
 
 #[test]
 fn only_a_newer_release_is_taken_and_prereleases_only_by_prereleases() {
@@ -37,4 +38,39 @@ fn a_failure_after_the_swap_counts_as_rolled_back() {
         Outcome::RolledBack
     );
     assert_eq!(outcome_of("cannot download x"), Outcome::Failed);
+}
+
+#[test]
+fn the_asked_id_lives_in_the_services_own_folder_not_in_the_shared_instance_folder() {
+    let mut m = crate::service::stray::bare("burrow-nas");
+    m.role = crate::install::Role::Client;
+    m.config = PathBuf::from("/etc/burrow/nas/client.yaml");
+    let asked = service_side::asked_file(&m);
+    assert!(
+        !asked.starts_with(crate::instance::default_dir()),
+        "{}",
+        asked.display()
+    );
+    assert_eq!(
+        asked.parent(),
+        Some(crate::service::helper::own_dir(&m).as_path())
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let result = dir.path().join("result.json");
+    record::write(
+        &result,
+        &Record::new(0, "0.2.2", "0.2.3", &m.config).ended(Outcome::Done, ""),
+        0o644,
+    )
+    .unwrap();
+    let shared = dir.path().join("update-asked-planted.json");
+    record::write(&shared, &record::Asked { id: 99, at: 0 }, 0o644).unwrap();
+    let own = dir.path().join("own-asked.json");
+    assert_eq!(
+        service_side::last_from(&result, &own).unwrap().id,
+        0,
+        "a planted file elsewhere is never read"
+    );
+    record::write(&own, &record::Asked { id: 7, at: 0 }, 0o600).unwrap();
+    assert_eq!(service_side::last_from(&result, &own).unwrap().id, 7);
 }
