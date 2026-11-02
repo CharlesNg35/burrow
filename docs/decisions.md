@@ -856,7 +856,7 @@ Sources, checked 2026-11-02: doc.traefik.io/traefik/reference/install-configurat
 - **Where they live.** The `burrow` crate may not use `burrow-admin-logic` (it is for the UI only), so the shared code sits in `burrow-syntax`, which depends on nothing, and `burrow-admin-proto`, which may now depend on `burrow-syntax`.
 - **What reads differently.** `burrow status` says "2h 13m" where it said "2 h 13 min", and certificate warnings say "expires in 3d" where they said "3 days". Help text that describes a setting in words ("kept in memory for 15 min") is prose, not a measured time, and stays as it is.
 
-## D79. Create wizards edit a scratch copy of the new entry with the same field editor as the entry's page
+## D80. Create wizards edit a scratch copy of the new entry with the same field editor as the entry's page
 
 The New client, New visitor and New website wizards built their own inputs for fields the config model already describes. They copied the labels and help, parsed numbers with `parse().ok()`, and checked emails with `contains('@')`. So `a@b` passed, a maximum of 0 or `abc` was accepted or dropped, and the website's target was never checked before Create.
 
