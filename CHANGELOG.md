@@ -5,6 +5,10 @@
 - burrow admin: an address field's first choice says what a port alone listens on for that setting, like "All IPv4 and IPv6 (default)" for the web ports, instead of showing "All IPv6 (::)". `::` reads "All IPv4 and IPv6", which is what burrow opens. Picking an address before the port no longer marks the field invalid or sets it.
 - A port below 1024 that the server may not open gets one warning with one text, for every address it listens on (`listen`, `websocket.listen`, `metrics.listen`, the web ports and service binds) and for a port alone too: `burrow validate`, burrow admin and the error when the port cannot be opened say how to grant it (install the service again, or `sudo setcap cap_net_bind_service=+ep` for a server run by hand) or to use a port above 1023.
 - burrow admin shows a check's hint under its message, at the field and in Review; a web port that waits shows its hint in Needs attention, and `burrow status` prints it.
+- The low-port hint fits how burrow runs: a burrow service says to install it again from its own config, which grants the permission without moving anything, and a burrow started by hand says `sudo setcap cap_net_bind_service=+ep` (a service's locked-down unit ignores `setcap`).
+- burrow admin warns before saving when a listen or bind address is not an address of this server, with the same hint as the error the server would give.
+- A `ws://` or `wss://` public address on a server without WebSocket says that WebSocket is off and where to turn it on.
+- burrow admin: Review waits for the check of the latest edit instead of showing the previous result, and New website says why a name is refused under the names.
 - `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
 - Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
 
