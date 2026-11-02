@@ -121,9 +121,11 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
             ),
             tone: Tone::Warning,
-            title: burrow_admin_logic::wording::diag_text(d),
-            detail: burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
-                .unwrap_or_default(),
+            title: burrow_admin_logic::wording::capital(&burrow_admin_logic::wording::diag_text(d)),
+            detail: burrow_admin_logic::wording::capital(
+                &burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
+                    .unwrap_or_default(),
+            ),
             to: d.path.as_deref().and_then(link_of),
             field: burrow_admin_logic::wording::field_for(&d.code),
         });
@@ -611,5 +613,25 @@ mod tests {
             Some(&["web".to_string(), "https".to_string()][..])
         );
         assert_eq!(w.tone, Tone::Warning);
+    }
+
+    #[test]
+    fn a_server_warning_reads_as_a_sentence_in_needs_attention() {
+        let d: burrow_admin_proto::diag::Diag = burrow_admin_proto::serde_json::from_value(json!({
+            "severity": "warning", "code": "custom", "message": "no clients are defined, so nobody can connect",
+            "help": "add one, for example home"
+        }))
+        .unwrap();
+        let st = State {
+            diags: vec![d],
+            ..State::default()
+        };
+        let items = attention(&json!({}), Some(&st), None, 0);
+        let w = items
+            .iter()
+            .find(|i| i.key.starts_with("diag:"))
+            .expect("the warning is listed");
+        assert!(w.title.starts_with("No clients"), "{}", w.title);
+        assert!(w.detail.starts_with("Add one"), "{}", w.detail);
     }
 }
