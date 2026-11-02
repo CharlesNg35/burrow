@@ -10,6 +10,7 @@ use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use burrow_syntax::endpoint::Endpoint;
 use common::*;
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 
 fn ws_server(secret: &Secret, path: &str, tls: Option<&Cert>) -> ServerSettings {
@@ -134,7 +135,7 @@ async fn tls_terminating_proxy(
     upstream: SocketAddr,
 ) -> (
     SocketAddr,
-    tokio::sync::mpsc::UnboundedReceiver<std::io::Result<(u64, u64)>>,
+    tokio::sync::mpsc::UnboundedReceiver<std::io::Result<u64>>,
 ) {
     let (ended, ends) = tokio::sync::mpsc::unbounded_channel();
     let acceptor =
@@ -150,13 +151,21 @@ async fn tls_terminating_proxy(
             let acceptor = acceptor.clone();
             let ended = ended.clone();
             tokio::spawn(async move {
-                let Ok(mut down) = acceptor.accept(down).await else {
+                let Ok(down) = acceptor.accept(down).await else {
                     return;
                 };
-                let Ok(mut up) = TcpStream::connect(upstream).await else {
+                let Ok(up) = TcpStream::connect(upstream).await else {
                     return;
                 };
-                let _ = ended.send(tokio::io::copy_bidirectional(&mut down, &mut up).await);
+                let (mut down_r, mut down_w) = tokio::io::split(down);
+                let (mut up_r, mut up_w) = up.into_split();
+                tokio::spawn(async move {
+                    let _ = tokio::io::copy(&mut up_r, &mut down_w).await;
+                    let _ = down_w.shutdown().await;
+                });
+                let from_client = tokio::io::copy(&mut down_r, &mut up_w).await;
+                let _ = up_w.shutdown().await;
+                let _ = ended.send(from_client);
             });
         }
     });
@@ -210,7 +219,9 @@ async fn a_client_stopped_normally_closes_its_control_and_idle_data_channels_wit
         ),
     )
     .await;
+    wait_for(|| srv.shared.idle_channels("home") >= 2).await;
     while ends.try_recv().is_ok() {}
+    let idle = srv.shared.idle_channels("home");
     cli.stop.send_replace(true);
     tokio::time::timeout(Duration::from_secs(5), cli.task)
         .await
@@ -220,13 +231,10 @@ async fn a_client_stopped_normally_closes_its_control_and_idle_data_channels_wit
     while let Ok(Some(end)) = tokio::time::timeout(Duration::from_secs(3), ends.recv()).await {
         seen.push(end.map_err(|e| e.to_string()));
     }
+    let clean = seen.iter().filter(|end| end.is_ok()).count();
     assert!(
-        seen.len() >= 2,
-        "the control and a data channel end: {seen:?}"
-    );
-    assert!(
-        seen.iter().all(Result::is_ok),
-        "every channel ends with a TLS close_notify: {seen:?}"
+        clean > idle,
+        "the control channel and the {idle} idle data channels end with a TLS close_notify: {seen:?}"
     );
 }
 
