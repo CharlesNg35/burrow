@@ -71,15 +71,11 @@ pub(super) fn copy(
     let wanted: Vec<&str> = names.iter().map(|n| file_part(n)).collect();
     for old in listed(config)? {
         if !wanted.contains(&file_part(&old)) {
-            let gone = to.join(file_part(&old));
-            writable_again(&gone);
-            std::fs::remove_file(&gone)
-                .map_err(|e| Failure::new(format!("cannot remove {}: {e}", gone.display())))?;
             say(
                 out,
                 format!(
-                    "removed {}, which {} no longer has",
-                    gone.display(),
+                    "left {} in place: {} does not have it, and burrow never deletes a drop-in file it did not get from the source",
+                    to.join(file_part(&old)).display(),
                     from.display()
                 ),
             )?;
@@ -107,21 +103,6 @@ pub(super) fn copy(
         ),
     )
 }
-
-#[cfg(windows)]
-fn writable_again(path: &Path) {
-    if let Ok(meta) = std::fs::metadata(path)
-        && meta.permissions().readonly()
-    {
-        let mut perms = meta.permissions();
-        #[allow(clippy::permissions_set_readonly_false)]
-        perms.set_readonly(false);
-        let _ = std::fs::set_permissions(path, perms);
-    }
-}
-
-#[cfg(not(windows))]
-fn writable_again(_path: &Path) {}
 
 pub(super) fn installed(config: &Path, main: String) -> Docs {
     let mut docs = Docs::one(docs::main_name(config), main);
@@ -204,14 +185,20 @@ mod tests {
             "clients: {}\n"
         );
         assert!(!to.join("notes.txt").exists());
-        assert!(
-            !to.join("old.yaml").exists(),
-            "a file the source no longer has is removed"
+        assert_eq!(
+            std::fs::read_to_string(to.join("old.yaml")).unwrap(),
+            "services: {}\n",
+            "a file the source does not have is left in place"
         );
         assert!(read_only(&to.join("tool.yaml")));
         assert!(!read_only(&to.join("apps.yaml")));
         let said = String::from_utf8(out).unwrap();
         assert!(said.contains("(2 files)"), "{said}");
+        assert!(
+            said.contains("left") && said.contains("old.yaml") && said.contains("in place"),
+            "{said}"
+        );
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -229,8 +216,11 @@ mod tests {
             backend.0.borrow()
         );
         let docs = installed(&config, "listen: 1\n".into());
-        assert_eq!(docs.list.len(), 3);
-        assert!(same_set(&source, &docs));
+        assert_eq!(docs.list.len(), 4);
+        assert!(
+            !same_set(&source, &docs),
+            "the kept file makes the sets differ"
+        );
         #[cfg(windows)]
         for p in [from.join("tool.yaml"), to.join("tool.yaml")] {
             let mut perms = std::fs::metadata(&p).unwrap().permissions();
@@ -304,6 +294,27 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(folder.join("server.d/apps.yaml")).unwrap(),
             "services: {}\n"
+        );
+    }
+
+    #[test]
+    fn a_source_without_a_folder_leaves_every_installed_drop_in_in_place() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("mine.yaml");
+        std::fs::write(&source, "listen: 1\n").unwrap();
+        let folder = tmp.path().join("etc");
+        std::fs::create_dir_all(folder.join("server.d")).unwrap();
+        let config = folder.join("server.yaml");
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        std::fs::write(folder.join("server.d/team.yaml"), "visitors: {}\n").unwrap();
+        let backend = crate::service::tests::Recorder(Default::default(), false);
+        let mut out = Vec::new();
+        copy(&backend, (&source, &config), "burrow", false, &mut out).unwrap();
+        assert!(folder.join("server.d/team.yaml").exists());
+        let said = String::from_utf8(out).unwrap();
+        assert!(
+            said.contains("team.yaml") && said.contains("in place"),
+            "{said}"
         );
     }
 }

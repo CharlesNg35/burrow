@@ -9,6 +9,17 @@ pub(super) struct Folder<'a> {
     account: String,
 }
 
+fn writable_again(path: &Path) {
+    if let Ok(meta) = std::fs::metadata(path)
+        && meta.permissions().readonly()
+    {
+        let mut perms = meta.permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+}
+
 impl<'a> Folder<'a> {
     pub(super) fn open(
         backend: &'a dyn Backend,
@@ -27,7 +38,7 @@ impl<'a> Folder<'a> {
 
     pub(super) fn put(&self, file: &str, text: &[u8], locked: bool) -> Result<(), Failure> {
         let dst = self.to.join(file);
-        super::writable_again(&dst);
+        writable_again(&dst);
         system::write_file_mode(&dst, text, 0o600)?;
         self.backend.secure_file(&dst, &self.account)?;
         if locked {
