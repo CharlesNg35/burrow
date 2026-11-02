@@ -109,7 +109,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         let home = c.ui.text(&row("home")).await;
         assert!(home.ends_with(" · by hand"), "{home}");
         let office = c.ui.text(&row("office")).await;
-        assert!(office.ends_with("updates off"), "{office}");
+        assert!(office.ends_with(" · by hand · updates off"), "{office}");
         assert!(
             c.ui.attr_of(&row("office"), "title")
                 .await
