@@ -363,3 +363,17 @@ fn a_new_file_is_still_placed_without_replacing_when_hard_links_fail() {
     assert!(refused.is_err());
     assert_eq!(std::fs::read_to_string(&late).unwrap(), "someone else\n");
 }
+
+#[test]
+fn a_create_that_loses_the_race_is_the_changed_on_disk_refusal() {
+    let (dir, main, before) = setup();
+    let mut after = before.clone();
+    after.list.push(Doc {
+        name: "server.d/late.yaml".into(),
+        text: "visitors: {}\n".into(),
+    });
+    RACE_CREATE.with(|f| f.replace(Some(dir.path().join("server.d/late.yaml"))));
+    let r = write_set(&main, &before, &after);
+    RACE_CREATE.with(|f| f.replace(None));
+    assert!(matches!(r, Err(Refused::Changed)), "{r:?}");
+}

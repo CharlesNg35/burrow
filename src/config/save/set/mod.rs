@@ -98,9 +98,14 @@ fn stage(main: &Path, path: &Path, change: &Change) -> Result<Step, Refused> {
 thread_local! {
     pub static FAIL_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
     pub static FAIL_UNDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    pub static RACE_CREATE: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
 fn commit(step: &Step, _at: usize) -> std::io::Result<()> {
+    #[cfg(test)]
+    if let Some(p) = RACE_CREATE.with(|f| f.borrow_mut().take()) {
+        std::fs::write(p, "written meanwhile\n")?;
+    }
     #[cfg(test)]
     if FAIL_AT.with(|f| f.get()) == Some(_at) {
         if let Step::Write(p) = step {
@@ -184,9 +189,16 @@ pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused
     for (at, s) in staged.iter().enumerate() {
         if let Err(e) = commit(&s.step, at) {
             discard(&staged[at + 1..]);
+            let raced = matches!(s.change, Change::Create { .. })
+                && e.kind() == std::io::ErrorKind::AlreadyExists;
             let refused = undo_all(&staged[..at], e);
             drop_made(&staged);
-            return Err(refused);
+            return Err(match refused {
+                Refused::Io(e) if raced && e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    Refused::Changed
+                }
+                other => other,
+            });
         }
     }
     for s in &staged {
