@@ -94,7 +94,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             crate::addr::Kind::Bind {
                 ranges: c.ranges,
                 max: c.max_range,
-                default_ip: c.default_ip.clone().unwrap_or_else(|| "0.0.0.0".into()),
+                default_ip: c.default_ip.clone(),
             },
         ),
         SemType::PortRange(c) => {

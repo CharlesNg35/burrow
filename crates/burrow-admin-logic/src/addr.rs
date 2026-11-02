@@ -79,7 +79,7 @@ pub fn join(p: &Parts) -> Option<Value> {
         return (!path.trim().is_empty()).then(|| Value::String(format!("unix:{}", path.trim())));
     }
     let (host, from, to) = (p.host.trim(), p.from.trim(), p.to.trim());
-    if host.is_empty() && from.is_empty() {
+    if from.is_empty() {
         return None;
     }
     let port = if to.is_empty() {
@@ -94,11 +94,61 @@ pub fn join(p: &Parts) -> Option<Value> {
         });
     }
     let host = burrow_syntax::address::url_host(host).into_owned();
-    Some(Value::String(if port.is_empty() {
-        host
-    } else {
-        format!("{host}:{port}")
-    }))
+    Some(Value::String(format!("{host}:{port}")))
+}
+
+const ANY_V4: &str = "0.0.0.0";
+const ANY: &str = "::";
+const LOOPBACK: &str = "127.0.0.1";
+
+fn reach(ip: &str) -> &str {
+    match ip {
+        ANY_V4 => "All IPv4",
+        ANY => "All IPv4 and IPv6",
+        LOOPBACK => "This machine only",
+        other => other,
+    }
+}
+
+pub fn port_alone(
+    path: &[String],
+    default_ip: Option<&str>,
+    at: impl Fn(&[String]) -> Option<Value>,
+) -> &'static str {
+    use burrow_config::{ServerConfig, WebConfig, WebSocketConfig};
+    let ws = ServerConfig::WEBSOCKET.then(WebSocketConfig::LISTEN).path();
+    let bare = |v: Option<Value>| v.and_then(|v| v.as_u64());
+    if path == ws.as_slice()
+        && let Some(port) = bare(at(path))
+        && [WebConfig::HTTPS, WebConfig::HTTP]
+            .into_iter()
+            .any(|k| bare(at(&ServerConfig::WEB.then(k).path())) == Some(port))
+    {
+        return ANY;
+    }
+    match default_ip {
+        Some(ANY) => ANY,
+        Some(LOOPBACK) => LOOPBACK,
+        _ => ANY_V4,
+    }
+}
+
+pub fn hosts(alone: &str, extra: &[String]) -> Vec<(String, String)> {
+    let mut o = vec![(String::new(), format!("{} (default)", reach(alone)))];
+    for ip in [ANY_V4, ANY, LOOPBACK]
+        .into_iter()
+        .map(str::to_string)
+        .chain(extra.iter().cloned())
+    {
+        if !o.iter().any(|(v, _)| *v == ip) {
+            let label = match reach(&ip) {
+                r if r == ip => ip.clone(),
+                r => format!("{r} ({ip})"),
+            };
+            o.push((ip, label));
+        }
+    }
+    o
 }
 
 pub fn count(p: &Parts) -> Option<u32> {
@@ -187,6 +237,62 @@ mod tests {
                 ..Parts::default()
             }),
             Some(json!("[::]:443"))
+        );
+    }
+
+    #[test]
+    fn a_host_without_a_port_leaves_the_field_unset() {
+        for host in ["0.0.0.0", "::", "10.0.0.5", ""] {
+            let p = Parts {
+                host: host.into(),
+                ..Parts::default()
+            };
+            assert_eq!(join(&p), None, "{host}");
+        }
+    }
+
+    #[test]
+    fn the_default_host_says_what_a_port_alone_listens_on() {
+        let none = |_: &[String]| None;
+        let web = burrow_config::ServerConfig::WEB
+            .then(burrow_config::WebConfig::HTTPS)
+            .path();
+        assert_eq!(port_alone(&web, Some("::"), none), "::");
+        assert_eq!(port_alone(&["listen".into()], None, none), "0.0.0.0");
+        assert_eq!(
+            port_alone(&["metrics".into()], Some("127.0.0.1"), none),
+            "127.0.0.1"
+        );
+        let ws = burrow_config::ServerConfig::WEBSOCKET
+            .then(burrow_config::WebSocketConfig::LISTEN)
+            .path();
+        let shared = |p: &[String]| {
+            Some(if p == ws.as_slice() || p == web.as_slice() {
+                json!(443)
+            } else {
+                json!(80)
+            })
+        };
+        assert_eq!(port_alone(&ws, None, shared), "::");
+        let own = |p: &[String]| {
+            Some(if p == ws.as_slice() {
+                json!(7836)
+            } else {
+                json!(443)
+            })
+        };
+        assert_eq!(port_alone(&ws, None, own), "0.0.0.0");
+        let h = hosts("::", &["10.0.0.5".into(), "::".into()]);
+        let shown: Vec<(&str, &str)> = h.iter().map(|(v, l)| (v.as_str(), l.as_str())).collect();
+        assert_eq!(
+            shown,
+            [
+                ("", "All IPv4 and IPv6 (default)"),
+                ("0.0.0.0", "All IPv4 (0.0.0.0)"),
+                ("::", "All IPv4 and IPv6 (::)"),
+                ("127.0.0.1", "This machine only (127.0.0.1)"),
+                ("10.0.0.5", "10.0.0.5"),
+            ]
         );
     }
 

@@ -6,18 +6,19 @@ use super::{Addr, Kind, SPECIFIC, base_hosts};
 
 pub(super) fn host_control(
     kind: Kind,
-    fc_id: String,
+    (fc_id, path): (String, burrow_admin_proto::Path),
     parts: RwSignal<addr::Parts>,
     specific: RwSignal<bool>,
-    implicit: bool,
     c_host: impl Fn() + Clone + Send + Sync + 'static,
 ) -> impl Fn() -> AnyView + Clone + Send + Sync {
     move || match &kind {
         Kind::Bind { default_ip, .. } => {
             let default_ip = default_ip.clone();
-            let d2 = default_ip.clone();
+            let path = path.clone();
             let opts = Signal::derive(move || {
-                let mut o = base_hosts();
+                let e = crate::store::store().edit;
+                let alone = addr::port_alone(&path, default_ip.as_deref(), |p| e.value(p));
+                let mut o = base_hosts(alone);
                 o.push((SPECIFIC.to_string(), "Specific…".to_string()));
                 o
             });
@@ -25,8 +26,7 @@ pub(super) fn host_control(
                 if specific.get() {
                     return SPECIFIC.to_string();
                 }
-                let h = parts.with(|p| p.host.clone());
-                if h.is_empty() { d2.clone() } else { h }
+                parts.with(|p| p.host.clone())
             });
             let host_id = format!("{}-host", fc_id);
             let host_id2 = host_id.clone();
@@ -45,8 +45,7 @@ pub(super) fn host_control(
                                 return;
                             }
                             specific.set(false);
-                            let host = if v == default_ip && implicit { String::new() } else { v };
-                            parts.update(|p| p.host = host);
+                            parts.update(|p| p.host = v);
                             c_host();
                         })
                     />
