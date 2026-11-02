@@ -17,7 +17,6 @@ impl Drop for Running {
     }
 }
 
-
 pub fn server_config(dir: &Path, file: &str) -> PathBuf {
     let config = dir.join(file);
     std::fs::write(
@@ -39,11 +38,16 @@ pub fn server_config(dir: &Path, file: &str) -> PathBuf {
 }
 
 pub fn start(instances: &Path, config: &Path) -> Running {
+    start_with(instances, config, &[])
+}
+
+pub fn start_with(instances: &Path, config: &Path, env: &[(&str, &str)]) -> Running {
     for _ in 0..5 {
         let child = Command::new(BIN)
             .args(["server", "-c"])
             .arg(config)
             .env("BURROW_INSTANCE_DIR", instances)
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

@@ -41,8 +41,13 @@ fn token() -> String {
     hex::encode(bytes)
 }
 
-fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Handler {
-    Arc::new(move |req: &hyper::Request<()>| {
+pub const UPDATE_PATH: &str = "/clients/update";
+
+pub type Snapshot = Arc<dyn Fn() -> Status + Send + Sync>;
+pub type Update = Arc<dyn Fn(&[u8]) -> (u16, String) + Send + Sync>;
+
+fn handler(token: String, snapshot: Snapshot, update: Option<Update>) -> Handler {
+    Arc::new(move |req: &hyper::Request<()>, body: &[u8]| {
         use subtle::ConstantTimeEq;
         let authorized = req.headers().get_all("authorization").iter().any(|v| {
             let v = v.as_bytes().trim_ascii();
@@ -60,23 +65,28 @@ fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Ha
                 "application/json",
                 serde_json::to_string(&snapshot()).expect("status serializes"),
             ),
-            ("GET", _) => (404, "text/plain", "not found\n".into()),
-            _ => (405, "text/plain", "only GET is supported\n".into()),
+            ("POST", UPDATE_PATH) if update.is_some() => {
+                let (code, text) = update.as_ref().map_or((404, String::new()), |u| u(body));
+                (code, "application/json", text)
+            }
+            (_, UPDATE_PATH) if update.is_some() => {
+                (405, "text/plain", "only POST is supported here\n".into())
+            }
+            (_, "/status") => (405, "text/plain", "only GET is supported here\n".into()),
+            _ => (404, "text/plain", "not found\n".into()),
         }
     })
 }
 
-pub fn publish(
-    config: &Path,
-    snapshot: Arc<dyn Fn() -> Status + Send + Sync>,
-) -> Option<Published> {
-    publish_in(&crate::instance::default_dir(), config, snapshot)
+pub fn publish(config: &Path, snapshot: Snapshot, update: Option<Update>) -> Option<Published> {
+    publish_in(&crate::instance::default_dir(), config, snapshot, update)
 }
 
 pub fn publish_in(
     dir: &Path,
     config: &Path,
-    snapshot: Arc<dyn Fn() -> Status + Send + Sync>,
+    snapshot: Snapshot,
+    update: Option<Update>,
 ) -> Option<Published> {
     let listener = match std::net::TcpListener::bind("127.0.0.1:0")
         .and_then(|l| l.set_nonblocking(true).map(|()| l))
@@ -108,7 +118,7 @@ pub fn publish_in(
         return None;
     }
     debug!("status for burrow status at {}", path.display());
-    let task = tokio::spawn(serve_with(listener, handler(token, snapshot)));
+    let task = tokio::spawn(serve_with(listener, handler(token, snapshot, update)));
     let fresh = crate::instance::keep_fresh(vec![path.clone()]);
     Some(Published {
         path,

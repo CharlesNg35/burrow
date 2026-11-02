@@ -400,12 +400,10 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     drive(async move {
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
-        let nudges = {
-            let (hub, nudges) = crate::admin::adapters::hub(&shared, path, env.clone());
-            shared.set_admin(hub);
-            Some(nudges)
-        };
-        let _status = crate::instance::publish::publish(path, Arc::new(move || shared.status()));
+        let (hub, nudges) = crate::admin::adapters::hub(&shared, path, env.clone());
+        let _status = crate::admin::local::publish(path, &hub);
+        shared.set_admin(hub);
+        let nudges = Some(nudges);
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
         tokio::spawn(crate::app::reload::follow_nudged(
@@ -500,6 +498,7 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         let _status = crate::instance::publish::publish(
             path,
             Arc::new(move || crate::client::updates::local_status(&presence, &*updates, started)),
+            None,
         );
         if crate::base::build::test_mark("BREAK") == Some("connect") {
             let mut stop = stop;
