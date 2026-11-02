@@ -151,5 +151,9 @@ case "$(uname)" in
   Darwin) [ ! -e "/Library/Application Support/burrow/updates/e2e-upd" ] || fail "the update folder is left" ;;
   *) [ ! -e /var/lib/burrow/e2e-upd ] && [ ! -e /var/lib/burrow/updates/e2e-upd ] || fail "the update folders are left" ;;
 esac
+if [ "$(uname)" = Linux ]; then
+  left="$(systemctl list-units --all --no-legend "$NAME*" 2>/dev/null)"
+  [ -z "$left" ] || fail "units are left: $left"
+fi
 check "updater removed"
 echo "remote-update e2e: all ok"

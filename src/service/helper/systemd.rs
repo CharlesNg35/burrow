@@ -63,6 +63,8 @@ impl Helper for PathUnit {
             }
         }
         run("systemctl", &["daemon-reload"])?;
+        let service = format!("{}.service", helper_name(m));
+        let _ = run("systemctl", &["reset-failed", &path, &service]);
         let _ = std::fs::remove_dir_all(state(m));
         Ok(())
     }
