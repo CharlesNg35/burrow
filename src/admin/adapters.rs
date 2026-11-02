@@ -329,6 +329,24 @@ type Check = fn() -> burrow_admin_proto::updates::LatestRelease;
 
 static LATEST: std::sync::OnceLock<(Check, Check)> = std::sync::OnceLock::new();
 
+const LATEST_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn within(check: Check, wait: std::time::Duration) -> burrow_admin_proto::updates::LatestRelease {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(check());
+    });
+    rx.recv_timeout(wait)
+        .unwrap_or_else(|_| burrow_admin_proto::updates::LatestRelease {
+            version: None,
+            error: Some(format!(
+                "could not check it within {}",
+                burrow_syntax::duration::span(wait.as_secs())
+            )),
+            checked_secs_ago: 0,
+        })
+}
+
 pub fn use_latest(cached: Check, fresh: Check) {
     let _ = LATEST.set((cached, fresh));
 }
@@ -374,7 +392,10 @@ impl Live for ServerLive {
     }
 
     fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
-        LATEST.get().map(|(_, fresh)| fresh()).unwrap_or_default()
+        LATEST
+            .get()
+            .map(|(_, fresh)| within(*fresh, LATEST_WAIT))
+            .unwrap_or_default()
     }
 
     fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {
@@ -600,6 +621,23 @@ mod tests {
     }
 
     use super::*;
+
+    fn slow_check() -> burrow_admin_proto::updates::LatestRelease {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        burrow_admin_proto::updates::LatestRelease {
+            version: Some("9.9.9".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_slow_release_check_answers_in_time_that_it_could_not_check() {
+        let slow = within(slow_check, std::time::Duration::from_millis(100));
+        assert_eq!(slow.version, None);
+        assert_eq!(slow.error.as_deref(), Some("could not check it within 0s"));
+        let fast = within(slow_check, std::time::Duration::from_secs(10));
+        assert_eq!(fast.version.as_deref(), Some("9.9.9"));
+    }
 
     #[cfg(unix)]
     thread_local! {
