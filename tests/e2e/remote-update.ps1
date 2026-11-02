@@ -85,7 +85,11 @@ try {
   if ($c.build.remote -ne "on" -or $c.build.run -ne "service") { Fail "not a service with remote updates: $($c | ConvertTo-Json -Compress)" }
   $acl = icacls "$env:ProgramData\burrow\updates\e2e-upd" | Out-String
   if ($acl -match "e2e-upd:\(OI\)\(CI\)\((M|F|W)" -or $acl -match "e2e-upd:\((M|F|W)") { Fail "the client account may change the updater's folder: $acl" }
-  Check "the client reports 9.0.0-test.1 as a service; it may only read the updater's folder"
+  $own = icacls "$env:ProgramData\burrow\updates\e2e-upd\own" | Out-String
+  $mine = ($own -split "`n") | Where-Object { $_ -match "e2e-upd:" }
+  if (-not ($mine -match "\(RX,WD,AD\)") -or -not ($mine -match "\(OI\)\(CI\)\(IO\)\(M\)")) { Fail "unexpected rights on its own folder: $own" }
+  if ($mine | Where-Object { $_ -notmatch "\(IO\)" -and $_ -match "\((M|F|DE)[,)]" }) { Fail "the client account may replace its own folder: $own" }
+  Check "the client reports 9.0.0-test.1 as a service; it may only read the updater's folder and fill, not replace, its own"
 
   Write-Host "== update to 9.0.0-test.2"
   Ask "9.0.0-test.2"

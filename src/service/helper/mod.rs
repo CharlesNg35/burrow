@@ -1,3 +1,4 @@
+pub mod acl;
 #[cfg(target_os = "macos")]
 mod launchd;
 #[cfg(target_os = "linux")]

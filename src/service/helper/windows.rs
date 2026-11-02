@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn the_client_account_may_only_read_what_the_updater_writes_and_writes_no_trigger() {
-        let rights = crate::service::windows::RESULTS_RIGHTS;
+        let rights = super::super::acl::RESULTS_RIGHTS;
         assert!(!rights.contains(['M', 'W', 'F', 'D']), "{rights}");
         let m = crate::service::stray::bare("burrow-nas");
         assert_eq!(StartableService.trigger(&m), None);

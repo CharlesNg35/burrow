@@ -23,48 +23,35 @@ use acl::{
 };
 pub use dispatch::dispatch;
 
-pub(in crate::service) fn own_folder(dir: &Path, account: &str) -> Result<(), Failure> {
+fn locked_folder(dir: &Path, account: &str, rights: &[&str]) -> Result<(), Failure> {
     std::fs::create_dir_all(dir)
         .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
-    if is_link(dir) {
-        return Err(Failure::new(format!(
-            "{} must be a folder, not a link",
-            dir.display()
-        )));
-    }
-    icacls(
-        dir,
-        &[
-            "/inheritance:r",
-            "/grant:r",
-            &format!("{SYSTEM}:(OI)(CI)F"),
-            &format!("{ADMINS}:(OI)(CI)F"),
-        ],
-    )?;
-    grant(dir, account, "(OI)(CI)M")
+    let real = || -> Result<(), Failure> {
+        if is_link(dir) || !dir.is_dir() {
+            return Err(Failure::new(format!(
+                "{} must be a folder, not a link",
+                dir.display()
+            )));
+        }
+        Ok(())
+    };
+    real()?;
+    let args = super::helper::acl::folder_acl(account, rights);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    icacls(dir, &args)?;
+    real()
 }
 
-pub(in crate::service) const RESULTS_RIGHTS: &str = "(OI)(CI)RX";
+pub(in crate::service) fn own_folder(dir: &Path, account: &str) -> Result<(), Failure> {
+    use super::helper::acl::{OWN_CHILD_RIGHTS, OWN_SELF_RIGHTS};
+    locked_folder(dir, account, &[OWN_SELF_RIGHTS, OWN_CHILD_RIGHTS])
+}
 
 pub(in crate::service) fn results_folder(dir: &Path, account: &str) -> Result<(), Failure> {
-    std::fs::create_dir_all(dir)
-        .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
-    if is_link(dir) {
-        return Err(Failure::new(format!(
-            "{} must be a folder, not a link",
-            dir.display()
-        )));
+    if let Some(updates) = dir.parent() {
+        locked_folder(updates, crate::base::windows::USERS, &["(RX)"])?;
     }
-    icacls(
-        dir,
-        &[
-            "/inheritance:r",
-            "/grant:r",
-            &format!("{SYSTEM}:(OI)(CI)F"),
-            &format!("{ADMINS}:(OI)(CI)F"),
-        ],
-    )?;
-    grant(dir, account, RESULTS_RIGHTS)
+    locked_folder(dir, account, &[super::helper::acl::RESULTS_RIGHTS])
 }
 
 pub(in crate::service) const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
