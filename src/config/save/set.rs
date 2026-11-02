@@ -87,6 +87,7 @@ fn stage(main: &Path, path: &Path, change: &Change) -> Result<Step, Refused> {
 #[cfg(test)]
 thread_local! {
     pub static FAIL_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    pub static FAIL_UNDO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn commit(step: &Step, _at: usize) -> std::io::Result<()> {
@@ -103,19 +104,42 @@ fn commit(step: &Step, _at: usize) -> std::io::Result<()> {
     }
 }
 
-fn undo(s: &Staged) {
-    match (&s.change, &s.step) {
-        (Change::Replace { before, after }, _) => {
-            let _ = write_back(&s.path, after, before);
-        }
-        (Change::Create { .. }, _) => {
-            let _ = std::fs::remove_file(&s.path);
-        }
-        (Change::Remove { .. }, Step::Hide { real, spare }) => {
-            let _ = std::fs::rename(spare, real);
-        }
-        (Change::Remove { .. }, Step::Write(_)) => {}
+fn undo(s: &Staged) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_UNDO.with(|f| f.get()) {
+        return Err(std::io::Error::other("injected undo failure"));
     }
+    match (&s.change, &s.step) {
+        (Change::Replace { before, after }, _) => match write_back(&s.path, after, before) {
+            Ok(()) => Ok(()),
+            Err(Refused::Changed) => Err(std::io::Error::other("it changed meanwhile")),
+            Err(Refused::Io(e)) => Err(e),
+        },
+        (Change::Create { .. }, _) => std::fs::remove_file(&s.path),
+        (Change::Remove { .. }, Step::Hide { real, spare }) => std::fs::rename(spare, real),
+        (Change::Remove { .. }, Step::Write(_)) => Ok(()),
+    }
+}
+
+fn undo_all(done: &[Staged], failed: std::io::Error) -> Refused {
+    let mut lost = Vec::new();
+    for s in done.iter().rev() {
+        if let Err(e) = undo(s) {
+            tracing::error!(
+                "could not put back {} after a failed save: {e}; the earlier version is kept in the history",
+                s.path.display()
+            );
+            lost.push(s.path.display().to_string());
+        }
+    }
+    if lost.is_empty() {
+        return Refused::Io(failed);
+    }
+    Refused::Io(std::io::Error::other(format!(
+        "could not restore {} files: {} (after: {failed}); the earlier version is kept in the history",
+        lost.len(),
+        lost.join(", ")
+    )))
 }
 
 pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused> {
@@ -149,9 +173,8 @@ pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused
     }
     for (at, s) in staged.iter().enumerate() {
         if let Err(e) = commit(&s.step, at) {
-            staged[..at].iter().rev().for_each(undo);
             discard(&staged[at + 1..]);
-            return Err(Refused::Io(e));
+            return Err(undo_all(&staged[..at], e));
         }
     }
     for s in &staged {
@@ -279,6 +302,30 @@ mod tests {
                 "step {at}: no file is added or left behind"
             );
         }
+    }
+
+    #[test]
+    fn a_failed_undo_is_reported_with_the_files_it_could_not_put_back() {
+        let (_dir, main, before) = setup();
+        let after = docs(&[
+            ("server.yaml", "listen: 2\n"),
+            ("server.d/a.yaml", "services: { x: {} }\n"),
+            ("server.d/new.yaml", "visitors: {}\n"),
+        ]);
+        FAIL_AT.with(|f| f.set(Some(2)));
+        FAIL_UNDO.with(|f| f.set(true));
+        let r = write_set(&main, &before, &after);
+        FAIL_AT.with(|f| f.set(None));
+        FAIL_UNDO.with(|f| f.set(false));
+        let Err(Refused::Io(e)) = r else {
+            panic!("{r:?}")
+        };
+        let text = e.to_string();
+        assert!(text.starts_with("could not restore 2 files: "), "{text}");
+        assert!(
+            text.contains("new.yaml") && text.contains("a.yaml"),
+            "{text}"
+        );
     }
 
     #[test]

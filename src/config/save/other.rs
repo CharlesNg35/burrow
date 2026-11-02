@@ -7,19 +7,30 @@ pub struct Pending {
     real: PathBuf,
     spare: PathBuf,
     text: Option<String>,
+    before: Option<String>,
+}
+
+fn write_in_place(real: &Path, text: &str) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(real)?;
+    f.write_all(text.as_bytes())?;
+    f.sync_all()
 }
 
 impl Pending {
     pub fn commit(&self) -> std::io::Result<()> {
         match &self.text {
             Some(text) => {
-                let mut f = std::fs::OpenOptions::new()
-                    .write(true)
-                    .truncate(true)
-                    .open(&self.real)?;
-                f.write_all(text.as_bytes())?;
-                f.sync_all()?;
-                drop(f);
+                if let Err(e) = write_in_place(&self.real, text) {
+                    if let Some(before) = &self.before
+                        && write_in_place(&self.real, before).is_ok()
+                    {
+                        let _ = std::fs::remove_file(&self.spare);
+                    }
+                    return Err(e);
+                }
                 std::fs::remove_file(&self.spare)
             }
             None => {
@@ -68,6 +79,7 @@ pub fn stage_replace(path: &Path, before: &str, text: &str) -> Result<Pending, R
         real,
         spare,
         text: Some(text.to_string()),
+        before: Some(before.to_string()),
     })
 }
 
@@ -93,5 +105,6 @@ pub fn stage_create(path: &Path, text: &str, _like: &Path) -> Result<Pending, Re
         real,
         spare,
         text: None,
+        before: None,
     })
 }
