@@ -4,11 +4,12 @@ use burrow_admin_proto::updates::LocalClient;
 use burrow_admin_proto::updates::{platform_text, remote_text, run_text, state_text};
 
 use super::{Paint, Tone};
-use crate::metrics::render::duration;
+use burrow_admin_proto::status::ONLINE;
+use burrow_syntax::duration::span;
 
 pub(super) fn render_local(out: &mut String, c: &LocalClient, version: &str, paint: Paint) {
     let state = match c.connected_secs {
-        Some(secs) => paint.tone(&format!("connected for {}", duration(secs)), Tone::Good),
+        Some(secs) => paint.tone(&format!("{ONLINE} for {}", span(secs)), Tone::Good),
         None => paint.tone("connecting", Tone::Warn),
     };
     let _ = writeln!(

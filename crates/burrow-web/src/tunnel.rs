@@ -1,3 +1,6 @@
+//! Burrow tunnels over HTTP: the WebSocket upgrade answer on the tunnel path and the handoff of the upgraded connection.
+//! Start at `answer`; `serve_by_path` and `take_over` pass the connection to `Upstream::tunnel`.
+
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 

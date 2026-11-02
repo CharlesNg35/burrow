@@ -1,3 +1,6 @@
+//! `burrow edit`: picks a config file, opens it in an editor, checks the result and reloads what runs it.
+//! Start at `run`.
+
 mod apply;
 mod draft;
 mod editor;

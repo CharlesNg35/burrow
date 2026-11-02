@@ -43,7 +43,7 @@ pub fn service(
         Tone::Success
     };
     let client_hop = Hop {
-        icon: "monitor",
+        icon: burrow_admin_logic::entity::CLIENT_ICON,
         head: if clients.len() > 1 {
             "Clients".into()
         } else {

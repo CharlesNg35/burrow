@@ -1,3 +1,5 @@
+//! Keeps one running copy per server config or client name with a lock file, and leaves a note so other commands can find each running copy.
+
 mod lock;
 mod note;
 mod own;

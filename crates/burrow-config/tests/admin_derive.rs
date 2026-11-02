@@ -1,3 +1,5 @@
+//! Compile tests for the `AdminSchema` derive: each case in `admin_derive/fail/` must fail to compile with the expected messages, and the `pass/` case must build and run.
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

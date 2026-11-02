@@ -1,3 +1,6 @@
+//! The address editors of the admin UI: bind, target, range and server addresses, entry lists and the reference picker.
+//! The entry points are `addr_editor` with a `Kind` and `server_editor`.
+
 mod entries;
 mod entry_summary;
 mod entry_target;
@@ -10,7 +13,7 @@ use burrow_admin_proto::Path;
 use burrow_ui_kit::{Segmented, TextInput};
 use leptos::prelude::*;
 
-use crate::domain::{FieldCtx, set_checked};
+use crate::field::{FieldCtx, set_checked};
 use crate::store::store;
 
 pub(crate) use entries::{entries, entries_view};
@@ -161,7 +164,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
         <div data-addr="">
             {mode}
             {move || if unix_mode.get() { unix().into_any() } else { network().into_any() }}
-            <p class="mt-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" class:hidden=move || stored.with(String::is_empty) data-testid="stored-as" data-stored=stored>
+            <p class="mt-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" class:hidden=move || stored.with(String::is_empty) || has_error.get() data-testid="stored-as" data-stored=stored>
                 {format!("{} ", burrow_admin_logic::wording::WRITTEN_AS)}
                 <code class="font-mono">{stored}</code>
                 {(ranges && max.is_some()).then(|| max.map(|m| format!(" · up to {m} ports")))}

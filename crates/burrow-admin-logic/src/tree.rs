@@ -3,12 +3,7 @@ use burrow_admin_proto::schema::{Entity, EntityInfo, Node, Schema, SemType};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::{self, as_env};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Lookup {
-    Value(Value),
-    Unset,
-    Unknown,
-}
+pub use burrow_admin_proto::schema::Lookup;
 
 fn resolve_path(base: &[String], rel: &str) -> Path {
     let (mut out, rest) = match rel.strip_prefix('/') {

@@ -1,3 +1,6 @@
+//! Checks a loaded config for mistakes and reports each one with its place in the file.
+//! Start at `check_server`, `check_client` and `check_visitor`; `Spans` maps a key path to its place in the file.
+
 mod client;
 mod connection;
 mod entries;

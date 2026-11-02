@@ -1,3 +1,5 @@
+//! Follows an update asked by `burrow clients` in the server's status, one line per step.
+
 use std::collections::{BTreeMap, HashMap};
 
 use burrow_admin_proto::updates::{UpdateState, UpdateStatus, state_text};

@@ -1,3 +1,6 @@
+//! Turns an `#[admin]` semantic type into the schema `Node` tokens and the compile-time type checks for one field.
+//! The entry point is `build`; `infer` picks the semantic type from the Rust type when none is given, and `relations` reads field relations.
+
 mod infer;
 mod relation;
 

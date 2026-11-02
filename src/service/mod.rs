@@ -1,3 +1,6 @@
+//! Installs, controls, updates and removes burrow as a system service on systemd, launchd or Windows.
+//! `Backend` is the trait each service system implements.
+
 mod background;
 #[cfg(unix)]
 mod hand_over;

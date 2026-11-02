@@ -1,3 +1,6 @@
+//! ACME tests against a Pebble server: issue, renew and keep certificates.
+//! They run only when BURROW_PEBBLE is set.
+
 #[path = "../common/mod.rs"]
 mod common;
 mod listener;

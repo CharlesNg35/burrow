@@ -9,7 +9,7 @@ use crate::form::plain;
 use crate::format;
 use crate::route::{Link, Route};
 use crate::screens::Row;
-use crate::screens::paths::{clients_of, online};
+use crate::screens::paths::clients_of;
 
 pub(crate) fn protocol_tag(svc: &Value) -> (String, Tone) {
     let p = ServiceEntry::PROTOCOL
@@ -99,9 +99,10 @@ pub(super) fn client_row(
 ) -> Row {
     let c = status
         .as_ref()
-        .and_then(|st| st.clients.iter().find(|c| &c.name == name))
+        .and_then(|st| burrow_admin_logic::presence::client(st, name))
         .cloned();
-    let on = c.as_ref().is_some_and(|c| c.connected);
+    let presence = format::presence_of(status, name);
+    let on = presence.up();
     let served: Vec<String> = ServiceEntry::entries(draft)
         .map(|m| {
             m.iter()
@@ -114,8 +115,8 @@ pub(super) fn client_row(
     Row {
         key: name.clone(),
         to,
-        icon: "monitor",
-        dot: Some(if on { Tone::Success } else { Tone::Neutral }),
+        icon: burrow_admin_logic::entity::CLIENT_ICON,
+        dot: format::tone_of(presence).or(Some(Tone::Neutral)),
         title: name.clone(),
         meta: match (&c, on) {
             (Some(c), true) => format!("{} open", c.open),
@@ -129,8 +130,8 @@ pub(super) fn client_row(
         } else if on {
             let host = c
                 .as_ref()
-                .and_then(|c| c.from.clone())
-                .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
+                .and_then(|c| c.from.as_deref())
+                .map(burrow_admin_logic::presence::from_ip)
                 .unwrap_or_default();
             let since = format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
             let mut line = if host.is_empty() {
@@ -267,7 +268,10 @@ pub(super) fn service_row(
         .unwrap_or_else(|| Protocol::default().wire().into());
     let udp = Protocol::from_wire(&protocol) == Some(Protocol::Udp);
     let cs = clients_of(v);
-    let up = cs.iter().filter(|c| online(status, c)).count();
+    let up = cs
+        .iter()
+        .filter(|c| format::presence_of(status, c).up())
+        .count();
     let count = status.map(|_| crate::screens::paths::health_count(name, v, status, &[]));
     let problem = count.is_some_and(|c| c.level() != burrow_admin_logic::health::Level::Up);
     let mut tags = vec![protocol_tag(v)];

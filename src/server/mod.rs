@@ -1,3 +1,6 @@
+//! The server role: accepts clients and visitors, routes visits to clients, and applies reloads.
+//! Start at `Server::run`; `Shared` holds the live state the tasks share.
+
 pub mod admin_hook;
 mod balance;
 #[cfg(feature = "web")]

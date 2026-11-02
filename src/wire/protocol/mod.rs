@@ -1,3 +1,5 @@
+//! The tunnel protocol: the channel preamble, control messages, visit requests and grants, and their encoding.
+
 mod control;
 mod grants;
 mod report;

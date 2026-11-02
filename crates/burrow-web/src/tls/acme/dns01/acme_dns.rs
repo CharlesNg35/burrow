@@ -1,3 +1,6 @@
+//! A DNS-01 `Provider` for acme-dns: sets the TXT value through its /update API.
+//! Its cleanup does nothing.
+
 use hickory_proto::rr::Name;
 use http::header::{CONTENT_TYPE, USER_AGENT};
 use http::{HeaderValue, Method, Request};

@@ -1,3 +1,6 @@
+//! Checks and routes the HTTP requests of the local admin web page, and builds its responses with strict security headers.
+//! Start at `check`, which returns a `Decision`.
+
 use burrow_admin_proto::local::{API_PATH, RUN_PREFIX};
 
 pub const MAX_HEAD: usize = 64 * 1024;

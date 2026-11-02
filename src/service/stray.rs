@@ -1,3 +1,5 @@
+//! Finds burrow services the system knows about but that have no usable install record.
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 

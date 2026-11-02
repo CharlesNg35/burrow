@@ -1,6 +1,7 @@
 #![cfg(feature = "web")]
 
 use super::*;
+use crate::base::testkit::cert_pair as pair;
 use crate::config::{Format, Loaded, Role, load::load_str_in};
 
 fn settings(dir: &std::path::Path, rest: &str) -> ServerSettings {
@@ -81,17 +82,6 @@ fn an_ipv4_port_without_names_says_so() {
         "listen: 7835\nservices:\n  x: { client: home, bind: 9000, target: 1 }\n",
     );
     assert!(summary(&off).is_none());
-}
-
-fn pair(dir: &std::path::Path, stem: &str, names: &[&str]) {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let names = names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
-    let cert = rcgen::CertificateParams::new(names)
-        .unwrap()
-        .self_signed(&key)
-        .unwrap();
-    std::fs::write(dir.join(format!("{stem}.pem")), cert.pem()).unwrap();
-    std::fs::write(dir.join(format!("{stem}.key")), key.serialize_pem()).unwrap();
 }
 
 #[test]

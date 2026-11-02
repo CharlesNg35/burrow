@@ -1,3 +1,6 @@
+//! End-to-end tests of the admin UI in Chrome against a running burrow, with accessibility checks and screenshot baselines.
+//! They skip when Chrome or the built UI is missing, unless `BURROW_E2E_REQUIRE=1`.
+
 #[path = "admin_e2e/access.rs"]
 mod access;
 #[path = "admin_e2e/check_failed.rs"]
@@ -60,6 +63,8 @@ mod ui;
 mod updates;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
+#[path = "admin_e2e/wizards.rs"]
+mod wizards;
 #[path = "admin_e2e/world.rs"]
 mod world;
 

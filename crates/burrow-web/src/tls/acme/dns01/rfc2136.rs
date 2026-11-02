@@ -1,3 +1,5 @@
+//! A DNS-01 `Provider` that sends TSIG-signed RFC 2136 dynamic updates to the zone's primary server.
+
 use std::net::SocketAddr;
 
 use base64::Engine as _;

@@ -37,8 +37,11 @@ fn status_works_without_a_metrics_endpoint() {
         out.starts_with(&format!("burrow {}  ·  up ", env!("CARGO_PKG_VERSION"))),
         "{out}"
     );
-    assert!(out.contains("CLIENTS  0/1 connected"), "{out}");
-    assert!(out.contains("home  offline  never seen"), "{out}");
+    assert!(out.contains("CLIENTS  0/1 online"), "{out}");
+    assert!(
+        out.contains("home  offline  not seen since server start"),
+        "{out}"
+    );
     assert!(out.contains("web: limit 5.0 MB/s"), "{out}");
     let o = status(&instances, &["-c", config.to_str().unwrap(), "--json"]);
     let list: Vec<serde_json::Value> = serde_json::from_slice(&o.stdout).unwrap();

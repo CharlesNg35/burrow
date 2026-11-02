@@ -16,7 +16,7 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
         Tone::Danger => "alert-circle",
         Tone::Warning => "alert",
         Tone::Info => "info",
-        _ => "monitor",
+        _ => burrow_admin_logic::entity::CLIENT_ICON,
     };
     let inner = view! {
         <span class=format!("mt-0.5 shrink-0 {}", tone.text())>
@@ -45,7 +45,7 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
                                 _ => crate::route::go(to.clone()),
                             }
                             let path = path.clone();
-                            set_timeout(move || crate::screens::entity::go_to_field(&path), std::time::Duration::from_millis(150));
+                            set_timeout(move || crate::form::go_to_field(&path), std::time::Duration::from_millis(150));
                         }>{inner}</a>
                     }
                     .into_any()

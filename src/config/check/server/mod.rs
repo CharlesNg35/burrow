@@ -1,3 +1,6 @@
+//! Checks a server config: listeners, clients, visitors, services and the references between them.
+//! Start at `check_server`, which returns `ServerSettings` when there are no errors.
+
 mod refs;
 mod secrets;
 

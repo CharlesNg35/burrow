@@ -1,3 +1,5 @@
+//! `burrow clients` on the server machine: lists the clients with their burrow and asks the server to update them.
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

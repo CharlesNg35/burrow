@@ -1,3 +1,6 @@
+//! The `Combobox` component: a searchable single or multi pick list with chips, keyboard navigation and a popover that opens where it fits.
+//! `create` adds making a new value from the typed text.
+
 mod create;
 
 use leptos::prelude::*;

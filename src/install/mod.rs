@@ -1,3 +1,5 @@
+//! Records which burrow services are installed: their manifests, names and folders on each platform.
+
 mod platform;
 mod role;
 mod state;

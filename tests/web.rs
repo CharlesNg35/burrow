@@ -1,3 +1,5 @@
+//! Tests of the web proxy: sites, routing, certificates, HTTP/2, pooling, health checks and reloads.
+
 #![cfg(feature = "web")]
 
 #[path = "web/busy_ports.rs"]

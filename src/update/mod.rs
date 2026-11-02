@@ -1,3 +1,6 @@
+//! `burrow update`: downloads a release for this platform, checks its SHA-256 sum and replaces the binary.
+//! Start at `run`.
+
 pub mod archive;
 pub mod http;
 pub mod latest;

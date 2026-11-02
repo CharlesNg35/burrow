@@ -1,3 +1,5 @@
+//! The root (SYSTEM on Windows) updater beside a client service: install, trigger and result files per service manager.
+
 pub mod acl;
 #[cfg(target_os = "macos")]
 mod launchd;

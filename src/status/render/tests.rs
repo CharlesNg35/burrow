@@ -136,12 +136,12 @@ fn plain_tables() {
     let text = render(&sample(), Paint::PLAIN, None);
     assert_eq!(
         text,
-        "burrow 9.9.9  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
+        "burrow 9.9.9  ·  up 3d 4h  ·  clients on tcp 0.0.0.0:7835
 
-CLIENTS  1/2 connected
-  NAME    STATE      SINCE           VERSION  FROM            OPEN  IDLE
-  home    connected  2 h 13 min      < 0.2.2  81.2.3.4:51234     3     4
-  office  offline    left 5 min ago                              0     0
+CLIENTS  1/2 online
+  NAME    STATE    SINCE        FROM            OPEN  IDLE
+  home    online   2h 13m       81.2.3.4:51234     3     4
+  office  offline  left 5m ago                     0     0
 
 SERVICES
   NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT
@@ -153,7 +153,7 @@ SERVICES
 VISITORS
   NAME    LAST USED        OPEN  TOTAL
   laptop  now                 1     12
-  phone   2 min ago           0      3
+  phone   2m 30s ago          0      3
   ops     not since start     0      0
 
 2 refused handshakes since start (wrong secret, unknown name or limits)
@@ -191,9 +191,9 @@ fn this_server_is_listed_as_local_and_not_counted_as_a_client() {
         ..ClientStatus::default()
     });
     let text = render(&s, Paint::PLAIN, None);
-    assert!(text.contains("CLIENTS  1/2 connected"), "{text}");
+    assert!(text.contains("CLIENTS  1/2 online"), "{text}");
     assert!(
-        text.contains("  self    connected  1 min                    this server        2     0"),
+        text.contains("  self    online   1m           this server        2     0"),
         "{text}"
     );
 }
@@ -209,7 +209,7 @@ fn a_client_at_its_limit_says_so_next_to_its_state() {
             .unwrap()
             .to_string()
     };
-    assert!(line("home").contains("connected, at limit"), "{text}");
+    assert!(line("home").contains("online, at limit"), "{text}");
     assert!(!line("office").contains("at limit"), "{text}");
     assert!(!render(&sample(), Paint::PLAIN, None).contains("at limit"));
 }
@@ -276,12 +276,12 @@ fn boxed_tables_in_a_terminal() {
     };
     let text = render(&sample(), boxed, None);
     let clients = "\
-╭────────┬─────────────┬────────────────┬─────────┬────────────────┬──────┬──────╮
-│ NAME   │ STATE       │ SINCE          │ VERSION │ FROM           │ OPEN │ IDLE │
-├────────┼─────────────┼────────────────┼─────────┼────────────────┼──────┼──────┤
-│ home   │ ● connected │ 2 h 13 min     │ < 0.2.2 │ 81.2.3.4:51234 │    3 │    4 │
-│ office │ ○ offline   │ left 5 min ago │         │                │    0 │    0 │
-╰────────┴─────────────┴────────────────┴─────────┴────────────────┴──────┴──────╯
+╭────────┬───────────┬─────────────┬────────────────┬──────┬──────╮
+│ NAME   │ STATE     │ SINCE       │ FROM           │ OPEN │ IDLE │
+├────────┼───────────┼─────────────┼────────────────┼──────┼──────┤
+│ home   │ ● online  │ 2h 13m      │ 81.2.3.4:51234 │    3 │    4 │
+│ office │ ○ offline │ left 5m ago │                │    0 │    0 │
+╰────────┴───────────┴─────────────┴────────────────┴──────┴──────╯
 ";
     assert!(text.contains(clients), "{text}");
     assert!(
@@ -293,7 +293,7 @@ fn boxed_tables_in_a_terminal() {
         .filter(|l| l.starts_with(['╭', '│', '├', '╰']))
         .map(|l| l.chars().count())
         .collect();
-    assert_eq!(widths.iter().filter(|w| **w == 82).count(), 6, "{text}");
+    assert_eq!(widths.iter().filter(|w| **w == 67).count(), 6, "{text}");
     let colored = render(
         &sample(),
         Paint {
@@ -446,7 +446,7 @@ fn a_long_header_goes_on_several_lines() {
     };
     let text = render(&s, paint, None);
     let mut lines = text.lines();
-    assert_eq!(lines.next(), Some("burrow 9.9.9  ·  up 3 d 4 h"));
+    assert_eq!(lines.next(), Some("burrow 9.9.9  ·  up 3d 4h"));
     assert_eq!(lines.next(), Some("clients on tcp 0.0.0.0:7835"));
     assert_eq!(
         lines.next(),
@@ -554,7 +554,7 @@ fn a_client_shows_its_server_its_run_mode_and_its_last_update() {
     };
     assert_eq!(
         render(&s, Paint::PLAIN, None),
-        "burrow 0.2.1  ·  client \"nas\" of tunnel.example.com:7835  ·  connected for 2 min
+        "burrow 0.2.1  ·  client \"nas\" of tunnel.example.com:7835  ·  online for 2m
   runs            service on linux/arm64
   remote updates  allowed
 "

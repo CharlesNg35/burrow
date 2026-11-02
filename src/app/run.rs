@@ -509,7 +509,7 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             RunEnd::Stopped => Ok(0),
             RunEnd::GaveUp(down, why) => Err(Failure::new(format!(
                 "gave up after {} without a working connection to the server; last error: {why}",
-                crate::client::reconnect::human(down)
+                burrow_syntax::duration::span(down.as_secs())
             ))
             .hint("raise or remove reconnect.give_up_after_secs to keep retrying")),
             RunEnd::Rejected => Err(Failure::new("the server rejected this client")

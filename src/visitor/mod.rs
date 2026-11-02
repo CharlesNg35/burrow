@@ -1,3 +1,6 @@
+//! The visitor role: listens on local ports and carries each connection to a service through the server.
+//! Also serves SOCKS and UDP forwards; `pick` chooses which forwards to run.
+
 mod forward;
 mod socks;
 pub mod socks_udp;

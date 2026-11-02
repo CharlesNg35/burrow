@@ -1,3 +1,5 @@
+//! Client updates in the admin core: which clients may take the latest release, and the one entry point that asks them.
+
 use burrow_admin_proto::msg::ErrorCode;
 use burrow_admin_proto::status::ClientStatus;
 use burrow_admin_proto::updates::{

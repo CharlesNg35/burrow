@@ -2,9 +2,9 @@ use std::fmt::Write;
 
 use super::table::{ALWAYS, Cell, cell, col, long, table, toned};
 use super::{Paint, Tone};
-use crate::metrics::render::duration;
 use crate::metrics::{CertSourceStatus, CertStateStatus, CertStatus, Status};
 use burrow_admin_proto::status::CertCheck;
+use burrow_syntax::duration::{ago, span};
 
 fn source(c: &CertStatus) -> String {
     let base = match &c.source {
@@ -36,15 +36,15 @@ fn when(at: Option<u64>, now: u64) -> Cell {
     match at {
         None => toned("-", Tone::Dim),
         Some(t) if t >= now && t - now >= 365 * 86_400 => cell(burrow_admin_proto::date::date(t)),
-        Some(t) if t >= now => cell(format!("in {}", duration(t - now))),
-        Some(t) => toned(format!("expired {} ago", duration(now - t)), Tone::Bad),
+        Some(t) if t >= now => cell(format!("in {}", span(t - now))),
+        Some(t) => toned(format!("expired {}", ago(now - t)), Tone::Bad),
     }
 }
 
 fn next(at: Option<u64>, now: u64) -> Cell {
     match at {
         None => toned("-", Tone::Dim),
-        Some(t) => cell(format!("in {}", duration(t.saturating_sub(now)))),
+        Some(t) => cell(format!("in {}", span(t.saturating_sub(now)))),
     }
 }
 

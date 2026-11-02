@@ -1,3 +1,6 @@
+//! The ACME worker that moves one certificate group a step: reuse a stored certificate, check ARI, or order a new one.
+//! Start at `Worker::step`.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

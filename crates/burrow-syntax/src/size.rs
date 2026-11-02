@@ -32,9 +32,27 @@ pub fn parse_size(text: &str) -> Result<u64, String> {
     Ok(bytes as u64)
 }
 
+pub fn bytes(n: u64) -> String {
+    let v = n as f64;
+    for (unit, size) in [("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3)] {
+        if v >= size {
+            return format!("{:.1} {unit}", v / size);
+        }
+    }
+    format!("{n} B")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_byte_count_reads_in_decimal_units_with_one_decimal() {
+        assert_eq!(bytes(999), "999 B");
+        assert_eq!(bytes(1000), "1.0 KB");
+        assert_eq!(bytes(3_100_000), "3.1 MB");
+        assert_eq!(bytes(2_500_000_000_000), "2.5 TB");
+    }
 
     #[test]
     fn sizes_read_like_bandwidth_with_decimal_and_binary_units() {

@@ -1,3 +1,6 @@
+//! The hyper builders and limits for HTTP/2 and HTTP/1.1 connections.
+//! `server` and `visitor_http1` face visitors; `client` and `app_http1` face apps.
+
 use std::time::Duration;
 
 use hyper_util::rt::{TokioExecutor, TokioTimer};

@@ -1,3 +1,6 @@
+//! The client role: keeps a session with the server, reconnects with backoff, takes reloads and serves visits.
+//! Start at `Client::run`; `data` carries the visits.
+
 pub(crate) mod data;
 #[cfg(unix)]
 pub(crate) use data::fit_to_open_files;
@@ -15,7 +18,8 @@ use tracing::{debug, error, info, warn};
 use crate::config::settings::ClientSettings;
 use crate::dialer::Dialer;
 use crate::wire::transport::resolve::Resolver;
-use reconnect::{Backoff, Outage, Report, human};
+use burrow_syntax::duration::span;
+use reconnect::{Backoff, Outage, Report};
 
 const STABLE_AFTER: Duration = Duration::from_secs(10);
 const REJECT_CONFIRM_ATTEMPTS: u32 = 3;
@@ -317,7 +321,7 @@ impl Client {
                     Some(limit) => warn!(
                         "{why}; retrying in {:.1}s, for up to {} (reconnect.give_up_after_secs)",
                         delay.as_secs_f64(),
-                        human(limit)
+                        span(limit.as_secs())
                     ),
                     None => warn!(
                         "{why}; retrying in {:.1}s, and will keep retrying",
@@ -327,7 +331,7 @@ impl Client {
                 Report::Summary { down_for, attempts } => warn!(
                     "still cannot reach {} after {} ({attempts} attempts); retrying every {}s at most. last error: {why}",
                     s.server,
-                    human(down_for),
+                    span(down_for.as_secs()),
                     s.reconnect_max.as_secs()
                 ),
                 Report::Quiet => debug!("{why}; retrying in {:.1}s", delay.as_secs_f64()),
@@ -338,7 +342,7 @@ impl Client {
                     error!(
                         "giving up: no working connection to {} for {} (reconnect.give_up_after_secs: {}); last error: {why}",
                         s.server,
-                        human(down),
+                        span(down.as_secs()),
                         limit.as_secs()
                     );
                     break RunEnd::GaveUp(down, why);

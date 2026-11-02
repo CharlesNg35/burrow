@@ -6,8 +6,9 @@ use burrow_ui_kit::PathData;
 use burrow_ui_kit::{Button, EmptyState, PathDiagram, Tabs, button_class};
 use leptos::prelude::*;
 
+use crate::entities::singular;
 use crate::route::{Link, Route};
-use crate::screens::create::singular;
+
 use crate::screens::placement;
 use crate::store::store;
 

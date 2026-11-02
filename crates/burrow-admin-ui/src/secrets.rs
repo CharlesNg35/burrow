@@ -383,10 +383,9 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
         let (sec3, new_fp) = (sec.clone(), sec_item.fp.clone());
         let waiting = move || {
             let on = s.status.with(|st| {
-                st.as_ref()
-                    .and_then(|st| st.clients.iter().find(|c| c.name == nm2))
-                    .filter(|c| c.connected)
-                    .map(|c| c.from.clone().unwrap_or_default())
+                burrow_admin_logic::presence::of(st.as_deref(), &nm2)
+                    .filter(|c| c.online)
+                    .map(|c| c.from.unwrap_or_default())
             });
             let used = in_use_fp(&sec3, &nm2);
             match on {

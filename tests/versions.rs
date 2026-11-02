@@ -156,7 +156,7 @@ fn the_server_shows_the_version_platform_and_run_mode_of_each_client() {
         .unwrap();
     let shown = text(&o);
     assert!(shown.contains("VERSION"), "{shown}");
-    assert!(shown.contains("connected"), "{shown}");
+    assert!(shown.contains("online"), "{shown}");
 }
 
 #[test]

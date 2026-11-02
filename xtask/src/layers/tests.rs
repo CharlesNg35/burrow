@@ -15,22 +15,22 @@ fn targets(src: &str, module: &str) -> Vec<String> {
 
 #[test]
 fn files_map_to_modules_and_units() {
-    assert_eq!(module_of("src/server/mod.rs").unwrap(), m("server"));
-    assert_eq!(module_of("src/base/fs.rs").unwrap(), m("base::fs"));
+    assert_eq!(ROOT.module_of("src/server/mod.rs").unwrap(), m("server"));
+    assert_eq!(ROOT.module_of("src/base/fs.rs").unwrap(), m("base::fs"));
     assert_eq!(
-        module_of("src/wire/transport/tcp.rs").unwrap(),
+        ROOT.module_of("src/wire/transport/tcp.rs").unwrap(),
         m("wire::transport::tcp")
     );
-    assert!(module_of("src/lib.rs").unwrap().is_empty());
+    assert!(ROOT.module_of("src/lib.rs").unwrap().is_empty());
     assert_eq!(
-        unit_of(&m("wire::transport::tcp")).unwrap(),
+        ROOT.unit_of(&m("wire::transport::tcp")).unwrap(),
         "wire::transport"
     );
-    assert_eq!(unit_of(&m("server::visit")).unwrap(), "server");
-    assert_eq!(unit_of(&m("say_errln")).unwrap(), "base::failure");
-    assert_eq!(unit_of(&m("base")), None);
+    assert_eq!(ROOT.unit_of(&m("server::visit")).unwrap(), "server");
+    assert_eq!(ROOT.unit_of(&m("say_errln")).unwrap(), "base::failure");
+    assert_eq!(ROOT.unit_of(&m("base")), None);
     for (unit, _) in UNITS {
-        assert_eq!(unit_of(&m(unit)).as_deref(), Some(*unit));
+        assert_eq!(ROOT.unit_of(&m(unit)).as_deref(), Some(*unit));
     }
 }
 
@@ -79,7 +79,7 @@ fn a_bare_layer_folder_or_crate_root_import_is_found_and_has_no_unit() {
     ] {
         let found = scan_source(src, &m("server")).unwrap().targets;
         assert_eq!(found.len(), 1, "{src}: {found:?}");
-        assert_eq!(unit_of(&found[0]), None, "{src}");
+        assert_eq!(ROOT.unit_of(&found[0]), None, "{src}");
     }
     assert!(targets("pub struct P(pub(in crate::wire) ());\n", "wire::noise").is_empty());
 }
@@ -97,7 +97,7 @@ fn burrow_paths_are_scanned_like_crate_paths() {
 fn super_crosses_into_a_sibling_unit_of_a_layer_folder() {
     let found = targets("use super::failure::Failure;\n", "base::fs");
     assert_eq!(found, ["base::failure::Failure"]);
-    assert_eq!(unit_of(&m(&found[0])).unwrap(), "base::failure");
+    assert_eq!(ROOT.unit_of(&m(&found[0])).unwrap(), "base::failure");
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn an_upward_import_and_a_cycle_are_problems() {
     g.entry("server".into())
         .or_default()
         .insert("client".into());
-    let up = upward(&g);
+    let up = upward_in(&ROOT, &g);
     assert_eq!(up.len(), 1, "{up:?}");
     assert!(up[0].starts_with("wire::noise (Wire) imports config (Config)"));
     let c = cycles(&g);
@@ -133,7 +133,7 @@ fn an_upward_import_and_a_cycle_are_problems() {
         .or_default()
         .insert("client".into());
     assert!(cycles(&line).is_empty());
-    assert!(upward(&line).is_empty());
+    assert!(upward_in(&ROOT, &line).is_empty());
 }
 
 #[test]
@@ -143,8 +143,29 @@ fn the_tree_follows_the_layers_and_keeps_its_guards() {
         .expect("root");
     let found = problems(root).unwrap();
     assert!(found.is_empty(), "{found:#?}");
-    let (edges, _) = graph(root).unwrap();
+    let (edges, _) = graph_in(root, &ROOT).unwrap();
     assert!(edges.len() > 20);
+    let (ui, _) = graph_in(root, &UI).unwrap();
+    assert!(upward_in(&UI, &ui).is_empty());
+    assert!(
+        ui.get("addr")
+            .is_some_and(|to| !to.contains("screens") && !to.contains("domain"))
+    );
+}
+
+#[test]
+fn a_ui_control_may_not_import_a_page_but_units_of_one_layer_may_import_each_other() {
+    let g: Graph = [
+        ("addr", vec!["screens"]),
+        ("domain", vec!["form"]),
+        ("form", vec!["domain"]),
+    ]
+    .into_iter()
+    .map(|(a, b)| (a.to_string(), b.into_iter().map(String::from).collect()))
+    .collect();
+    assert_eq!(upward_in(&UI, &g).len(), 1);
+    assert_eq!(UI.cycles, Cycles::WithinALayer);
+    assert_eq!(ROOT.cycles, Cycles::Refused);
 }
 
 #[test]

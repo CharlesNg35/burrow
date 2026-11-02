@@ -35,6 +35,18 @@ fn https_redirect_is_taken_from_the_site_then_from_web() {
 }
 
 #[test]
+fn a_passthrough_site_always_sends_http_to_https() {
+    for top in ["", ", https_redirect: false"] {
+        let o = load(&format!(
+            "listen: 7835\nweb: {{ https: 443, http: 80{top} }}\n{NAS}"
+        ));
+        assert!(errors(&o).is_empty(), "{top}: {:?}", errors(&o));
+        let web = settings(o).web.unwrap();
+        assert!(web.site_of("nas").unwrap().https_redirect, "{top}");
+    }
+}
+
+#[test]
 fn a_passthrough_site_keeps_the_defaults_of_every_new_setting() {
     let web = settings(load(&format!("listen: 7835\nweb: {{ https: 443 }}\n{NAS}")))
         .web

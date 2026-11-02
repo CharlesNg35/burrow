@@ -18,6 +18,10 @@ fn tls_dir() -> tempfile::TempDir {
     dir
 }
 
+pub(super) fn svc(name: &str, web: &str) -> String {
+    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
+}
+
 pub(super) fn load_in(dir: &Path, rest: &str) -> Outcome {
     let text = format!("clients:\n  home: {{ secret: \"{SECRET}\" }}\n{rest}");
     load_str_in(

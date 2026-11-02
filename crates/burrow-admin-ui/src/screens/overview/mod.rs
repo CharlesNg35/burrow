@@ -1,3 +1,5 @@
+//! The overview screen of the admin UI: what needs attention, service health, traffic charts, certificates and websites.
+
 mod attention;
 mod certs;
 mod page;
@@ -136,13 +138,7 @@ fn service_items(
     values: &Value,
     status: &Status,
 ) -> (std::collections::BTreeMap<String, Hits>, Vec<Item>) {
-    let online = |c: &str| {
-        status
-            .clients
-            .iter()
-            .find(|x| x.name == c)
-            .is_some_and(|x| x.connected)
-    };
+    let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
     let mut by_client: std::collections::BTreeMap<String, Hits> = std::collections::BTreeMap::new();
     let mut own = Vec::new();
     if let Some(services) = ServiceEntry::entries(values) {
@@ -259,11 +255,7 @@ fn client_item(
     }
     let when = format::left_of(
         &c,
-        status
-            .clients
-            .iter()
-            .find(|x| x.name == c)
-            .and_then(|x| x.left_secs_ago),
+        burrow_admin_logic::presence::client(status, &c).and_then(|x| x.left_secs_ago),
         status.uptime_secs,
     );
     Item {
@@ -293,13 +285,7 @@ pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String,
     let Some(status) = status else {
         return Vec::new();
     };
-    let online = |c: &str| {
-        status
-            .clients
-            .iter()
-            .find(|x| x.name == c)
-            .is_some_and(|x| x.connected)
-    };
+    let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
     let mut out: Vec<(String, Problem)> = ServiceEntry::entries(values)
         .map(|m| {
             m.iter()
@@ -354,8 +340,8 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     names(values, ClientEntry::section())
         .into_iter()
         .filter_map(|c| {
-            let st = status.clients.iter().find(|x| x.name == c);
-            if st.is_some_and(|x| x.connected) {
+            let st = burrow_admin_logic::presence::client(status, &c);
+            if burrow_admin_logic::presence::online(Some(status), &[], &c) {
                 return None;
             }
             let serves: Vec<String> = ServiceEntry::entries(values)
@@ -389,26 +375,21 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
 pub fn x_ticks(window: usize) -> Vec<String> {
     match window {
         60 => vec![
-            "−60 s".into(),
-            "−45 s".into(),
-            "−30 s".into(),
-            "−15 s".into(),
+            "−60s".into(),
+            "−45s".into(),
+            "−30s".into(),
+            "−15s".into(),
             "now".into(),
         ],
         300 => vec![
-            "−5 min".into(),
-            "−4 min".into(),
-            "−3 min".into(),
-            "−2 min".into(),
-            "−1 min".into(),
+            "−5m".into(),
+            "−4m".into(),
+            "−3m".into(),
+            "−2m".into(),
+            "−1m".into(),
             "now".into(),
         ],
-        _ => vec![
-            "−15 min".into(),
-            "−10 min".into(),
-            "−5 min".into(),
-            "now".into(),
-        ],
+        _ => vec!["−15m".into(), "−10m".into(), "−5m".into(), "now".into()],
     }
 }
 
@@ -534,7 +515,7 @@ mod tests {
         assert_eq!(titles, ["Client b is offline", "Service both is down"]);
         assert_eq!(
             items[0].detail,
-            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d 0h ago"
+            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d ago"
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");

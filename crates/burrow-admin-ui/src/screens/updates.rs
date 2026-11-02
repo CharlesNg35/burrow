@@ -231,8 +231,8 @@ pub fn update_all_bar() -> impl IntoView {
         {bar}
         <Dialog open=open title=Signal::derive(move || {
             let n = ready().len();
-            let what = burrow_admin_proto::schema::Entity::Client;
-            format!("Update {} to {}?", burrow_admin_logic::wording::count_of(n, what.as_str()), to())
+            let one = burrow_admin_logic::entity::info(&burrow_admin_proto::schema::Entity::Client).singular;
+            format!("Update {} to {}?", burrow_admin_logic::wording::count_of(n, one), to())
         }) icon="download" testid="update-all-dialog">
             <p class="text-sm">{move || format!(
                 "One at a time: {}. Each downloads {} from the official releases, checks it and restarts. The next one starts only after the one before has connected again, and the update stops at the first client that does not come back.",

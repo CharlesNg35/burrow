@@ -1,3 +1,6 @@
+//! Summarizes a server's web settings, such as its listeners, sites and certificates, as data and as text.
+//! Start at `summary` and `text`.
+
 use std::net::SocketAddr;
 
 use crate::config::settings::DnsProvider;

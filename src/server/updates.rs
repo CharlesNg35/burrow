@@ -1,3 +1,5 @@
+//! The server's board of client reports and update jobs: one job per client, one rollout at a time, with timeouts.
+
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 

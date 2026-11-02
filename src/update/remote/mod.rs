@@ -1,3 +1,5 @@
+//! Remote updates on the client: whether it may take one, and the by-hand and service ways to run it.
+
 mod by_hand;
 pub mod helper;
 mod record;

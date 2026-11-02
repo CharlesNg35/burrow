@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Semaphore, watch};
 use tracing::{info, warn};
 
-use super::reconnect::{Backoff, human};
+use super::reconnect::Backoff;
 use super::{Client, DATA_PATIENCE, LEAVE_TIMEOUT, MAX_OPENING, SessionEnd, State, Waiting, data};
 use crate::base::failure::io_reason;
 use crate::dialer::DialError;
@@ -12,6 +12,7 @@ use crate::wire::protocol::{
     ByeReason, ChannelKind, ClientMsg, Hello, ServerMsg, ServiceInfo, Step, TOKEN_LEN, VERSION,
 };
 use crate::wire::transport::{Channel, OwnedReadHalf, OwnedWriteHalf};
+use burrow_syntax::duration::span;
 
 const STRAYS: usize = 3;
 
@@ -115,7 +116,7 @@ impl Client {
                 "connected to {} as \"{}\" (back after {}, {attempts} attempts)",
                 s.server,
                 s.name,
-                human(down)
+                span(down.as_secs())
             ),
             _ => info!("connected to {} as \"{}\"", s.server, s.name),
         }

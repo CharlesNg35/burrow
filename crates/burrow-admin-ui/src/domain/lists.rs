@@ -353,7 +353,7 @@ fn rename_button(entity: Entity, name: &str) -> AnyView {
         >
             "Rename"
         </button>
-        <crate::screens::create::RenameEntity entity=entity name=name.to_string() open=open/>
+        <crate::rename::RenameEntity entity=entity name=name.to_string() open=open/>
     }
     .into_any()
 }

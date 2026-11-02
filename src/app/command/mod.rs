@@ -1,3 +1,5 @@
+//! Runs the parsed command line: `main` parses it, runs the chosen command and prints any failure.
+
 mod ca;
 #[cfg(feature = "web")]
 mod passwd;

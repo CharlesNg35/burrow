@@ -6,8 +6,8 @@ use burrow_syntax::passwd::valid_user;
 use burrow_ui_kit::{Button, TextInput};
 use leptos::prelude::*;
 
-use crate::domain::FieldCtx;
 use crate::edit::Edit;
+use crate::field::FieldCtx;
 use crate::store::store;
 
 fn status(v: &Value) -> String {

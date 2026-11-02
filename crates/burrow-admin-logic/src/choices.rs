@@ -1,20 +1,11 @@
-use std::net::SocketAddr;
-
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, SelfEntry, ServerConfig, ServiceEntry, VisitorEntry};
 
-use crate::wording::{OFFLINE, ONLINE, THIS_SERVER};
+use crate::presence::{self, Presence};
+use crate::wording::THIS_SERVER;
 
 pub const SELF_REACH_OFF: &str = "first set May reach on this server, in Settings, Server";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Presence {
-    Here,
-    Online,
-    Offline,
-    Unknown,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientChoice {
@@ -41,11 +32,6 @@ pub fn label_of(name: &str, reserved: &[String]) -> String {
     }
 }
 
-pub fn peer_ip(from: &str) -> String {
-    from.parse::<SocketAddr>()
-        .map_or_else(|_| from.to_string(), |a| a.ip().to_string())
-}
-
 pub fn default_client(doc: &Value, reserved: &[String]) -> Option<String> {
     ClientEntry::names(doc)
         .into_iter()
@@ -68,26 +54,12 @@ pub fn client_choices(
         presence: Presence::Here,
         blocked,
     });
-    let remote = ClientEntry::names(doc).into_iter().map(|n| {
-        let seen = status.map(|s| s.clients.iter().find(|c| c.name == n));
-        let (presence, detail) = match seen {
-            None => (Presence::Unknown, String::new()),
-            Some(Some(c)) if c.connected => (
-                Presence::Online,
-                c.from.as_deref().map_or_else(
-                    || ONLINE.to_string(),
-                    |f| format!("{ONLINE} · {}", peer_ip(f)),
-                ),
-            ),
-            Some(_) => (Presence::Offline, OFFLINE.to_string()),
-        };
-        ClientChoice {
-            label: n.clone(),
-            name: n,
-            detail,
-            presence,
-            blocked: None,
-        }
+    let remote = ClientEntry::names(doc).into_iter().map(|n| ClientChoice {
+        label: n.clone(),
+        detail: presence::detail(status, &[], &n),
+        presence: presence::presence(status, &[], &n),
+        name: n,
+        blocked: None,
     });
     local.chain(remote).collect()
 }
@@ -101,11 +73,7 @@ pub struct ServiceChoice {
 }
 
 pub fn service_choices(doc: &Value, status: Option<&Status>) -> Vec<ServiceChoice> {
-    let online = |c: &String| {
-        status
-            .and_then(|s| s.clients.iter().find(|x| &x.name == c))
-            .is_some_and(|x| x.connected)
-    };
+    let online = |c: &String| presence::online(status, &[], c);
     ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
@@ -273,12 +241,9 @@ mod tests {
     }
 
     #[test]
-    fn labels_and_addresses_read_plainly() {
+    fn labels_read_plainly() {
         assert_eq!(label_of("self", &reserved()), "This server");
         assert_eq!(label_of("home", &reserved()), "home");
         assert_eq!(label_of("self", &[]), "self");
-        assert_eq!(peer_ip("10.0.0.1:9"), "10.0.0.1");
-        assert_eq!(peer_ip("[::1]:9"), "::1");
-        assert_eq!(peer_ip("not an address"), "not an address");
     }
 }

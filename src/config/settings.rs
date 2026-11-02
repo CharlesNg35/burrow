@@ -1,3 +1,6 @@
+//! The checked, ready-to-run settings for each role, built from a loaded config.
+//! `ServerSettings`, `ClientSettings` and `VisitorSettings` are the main types; `dns`, `site` and `web` hold the web proxy parts.
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};

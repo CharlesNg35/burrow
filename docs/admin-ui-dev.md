@@ -4,6 +4,49 @@ How to build, run and test the admin UI while you change it. Using burrow admin:
 
 The UI is Rust compiled to WebAssembly (`crates/burrow-admin-ui`, Leptos), styled with Tailwind CSS v4 utility classes. No Node.js is needed.
 
+## How the admin UI is built
+
+The UI never hard-codes the config. The server sends its **schema** (built by `#[derive(AdminSchema)]` from the model in `crates/burrow-config/src/model/`), its **config** and its **status**; the UI renders forms from the schema, keeps the user's edits in a draft, and asks the server to check and apply them. The server's check is the only judge: the UI shows its answers next to the fields.
+
+| where | what it holds |
+| --- | --- |
+| `crates/burrow-config/src/model/` | the config model: every key, its label, help, units, examples, groups and relations (`#[admin(...)]`), and typed field paths such as `ServiceEntry::TARGET` |
+| `crates/burrow-admin-logic` | the logic without a browser: checks that mirror the server's (`check`), choice lists for pickers (`choices`), relations (`relations`), "More settings" (`more`), wording (`wording`), the changeset (`changeset`) |
+| `crates/burrow-ui-kit` | generic components: buttons, link buttons, inputs, pickers (`combo`), dialogs, tabs and scroll rows, charts, path diagrams |
+| `crates/burrow-admin-ui/src/store.rs`, `api.rs`, `route.rs` | the one store (schema, config, status, the draft), the connection to `burrow admin`, the routes |
+| `edit/` | the draft: changes, local errors, validation by the server after each pause, the plan to apply and its change groups |
+| `entities.rs` | adding a client, visitor or service to the draft (`create_with`), and the name check of a new one |
+| `format.rs` | how times, sizes and counts read, and a client's presence with this server's reserved names |
+| `field.rs` | what every control gets: `FieldCtx`, `set_checked` (sets a value after the shared check), plain values and links to entries |
+| `addr/` | address, target and client-entry controls, and the client and service pickers (`addr/picker.rs`) |
+| `shown.rs`, `row_menu.rs` | the one popover behaviour (focus, Escape, click outside) and the ··· row menu |
+| `domain/` | one field: `domain::editor(FieldCtx)` picks the control for a schema node by its semantic type (text, number, duration, rate, list, map, address, reference) |
+| `form/` | a whole object: cards and sections, "More settings", read-only view mode, "Reached by", groups of fields that do not apply |
+| `rename.rs` | the rename dialog and the name input of every create and rename |
+| `screens/` | the pages: overview, the services, clients and visitors lists and pages (`entity/`), create wizards (`create/`), paths and flow diagrams, settings, activity; `screens/placement.rs` puts each field on a tab |
+| `review/` | the Review page and its guards |
+| `app/` | the shell: header, search, menus |
+
+These folders are in layers (model, controls, editor, pages; see [CONTRIBUTING.md](../CONTRIBUTING.md#layers)): a control never imports a page, and `cargo xtask arch-check` enforces it. Entity facts (name, icon, examples, wording) are in `burrow_admin_logic::entity`, a client's online state and address in `burrow_admin_logic::presence`, and the lists of choices in `burrow_admin_logic::choices`.
+
+**Which tests guard what.**
+
+- `screens/placement.rs`: every field of the live schema lands on exactly one tab, every server field has help, and fields whose format is not obvious show an example.
+- `src/admin/core/agree.rs` (in the `burrow` crate): the UI's checks and the server's check agree on every value of every semantic type.
+- `src/config/check/tests_codes.rs`: every diagnostic code the UI reads is one validate emits.
+- `crates/burrow-admin-logic/src/diag_words.rs`: every diagnostic reads as plain words.
+- `tests/admin_e2e/`: the browser flows, with screenshots and visual baselines.
+
+### Recipes
+
+**Add a config key.** Add the field to the model in `crates/burrow-config/src/model/` with its `#[admin(...)]` label, help (with an example when the format is not obvious) and, if it does not always apply, its relation. Add the server's check in `src/config/check/` and the runtime setting; the code that turns the model into settings destructures the struct, so the compiler shows where. The UI needs nothing more: the field appears on its entity's tab through `domain::editor`. `placement.rs` and `agree.rs` tell you if the help, the tab or a check is missing. Add the key to the docs; their YAML blocks are tested.
+
+**Add a picker.** Never build a list of options in a screen. Get the choices from `burrow_admin_logic::choices` (extend it there, with a unit test, if it lacks a case), and show them through the shared picker in `addr/picker.rs` or `burrow_ui_kit::Combo`. Whether a client is online, is the server itself, or where it connects from comes from `burrow_admin_logic::presence` (or `format::presence_of`, which adds this server's reserved names), never from a lookup in the screen; arch-check refuses `clients.iter().find(` elsewhere.
+
+**Add a screen.** Add a variant to `Route` in `route.rs` (with its `parse` and `path`), a module in `screens/`, and its arm in `screens::screen`; add it to the header in `app/header.rs` if it is a top-level page. Build it from `burrow-ui-kit` components and the shared `form/` and `domain/` controls; a schema field on the screen goes through `domain::editor`, never a hand-made input. Add a browser flow in `tests/admin_e2e/` that opens it, and record its baselines.
+
+## Build and run
+
 One-time setup:
 
 ```bash

@@ -226,17 +226,6 @@ async fn a_connection_opened_while_a_slow_reload_is_applied_is_still_filtered() 
     );
 }
 
-fn with_sources(base: Service, allow: &[&str], deny: &[&str]) -> Service {
-    let parse = |l: &[&str]| l.iter().map(|s| s.parse::<Cidr>().unwrap()).collect();
-    Service {
-        sources: Sources {
-            allow: parse(allow),
-            deny: parse(deny),
-        },
-        ..base
-    }
-}
-
 #[test]
 fn test_ports_lie_below_the_ports_a_port_zero_bind_is_given() {
     let Some(first) = first_ephemeral_port() else {
@@ -257,7 +246,7 @@ async fn ipv4_visitors_of_a_dual_stack_bind_match_ipv4_rules() {
     let echo = echo_server().await;
     let dual = |allow: &[&str], deny: &[&str]| Service {
         bind: Some(free_dual_stack()),
-        ..with_sources(service(echo, Protocol::Tcp), allow, deny)
+        ..filtered(service(echo, Protocol::Tcp), allow, deny)
     };
     let t = tunnel(vec![
         ("v4ok", dual(&["127.0.0.0/8"], &[])),
@@ -304,7 +293,7 @@ async fn reload_stops_udp_peers_no_longer_allowed_and_readmits_them() {
     assert!(still_echoes(&s).await);
     let mut next = settings;
     next.services
-        .insert("dns".into(), with_sources(dns.clone(), &[], &["127.0.0.1"]));
+        .insert("dns".into(), filtered(dns.clone(), &[], &["127.0.0.1"]));
     t.server.reload(next.clone()).await;
     let shared = t.server.shared.clone();
     wait_for(|| !shared.settings_snapshot().services["dns"].sources.is_open()).await;
@@ -315,7 +304,7 @@ async fn reload_stops_udp_peers_no_longer_allowed_and_readmits_them() {
     {}
     assert!(!still_echoes(&s).await, "a denied peer is dropped at once");
     next.services
-        .insert("dns".into(), with_sources(dns, &["127.0.0.0/8"], &[]));
+        .insert("dns".into(), filtered(dns, &["127.0.0.0/8"], &[]));
     t.server.reload(next).await;
     let mut back = false;
     for _ in 0..20 {
@@ -348,7 +337,7 @@ async fn reload_closes_a_visit_from_a_source_no_longer_allowed() {
     let conn = open_echo(v.addr("db")).await;
     let mut next = server;
     next.services
-        .insert("db".into(), with_sources(db, &[], &["127.0.0.0/8"]));
+        .insert("db".into(), filtered(db, &[], &["127.0.0.0/8"]));
     t.server.reload(next).await;
     assert_cut(conn).await;
     assert!(try_roundtrip(v.addr("db"), b"hi").await.as_deref() != Some(&b"hi"[..]));

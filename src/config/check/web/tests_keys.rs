@@ -89,9 +89,9 @@ fn a_redirect_choice_that_cannot_work_is_refused() {
         "{hosts: [nas.example.com], tls: passthrough, https_redirect: false}",
     );
     assert_eq!(
-        found(&pass, "redirect-passthrough"),
+        found(&pass, "passthrough-fixed"),
         [
-            "services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); on web.http its names get 404"
+            "services.nas.web.https_redirect: false does not apply to a passthrough service (tls: passthrough); it is always true there, so remove https_redirect"
         ]
     );
     let plain = site_with(

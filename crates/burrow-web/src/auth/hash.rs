@@ -1,3 +1,6 @@
+//! Checks and verifies the bcrypt and Argon2 password hashes of basic auth users.
+//! New hashes are Argon2id; `HashProblem` says why a hash cannot be used.
+
 use std::fmt;
 
 use argon2::password_hash::phc::PasswordHash;
