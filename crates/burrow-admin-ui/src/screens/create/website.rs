@@ -324,6 +324,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         burrow_admin_logic::web::site_name_problem(&t, plain.get_untracked())
     });
     let (svc_name, service, name_issue) = service_name_of(names);
+    let save_in = RwSignal::new(String::new());
     Effect::new(move |_| {
         let n = if names.with(Vec::is_empty) {
             String::new()
@@ -374,6 +375,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                 Some(json!({ LetsEncrypt::EMAIL.key(): email.get_untracked().trim() })),
             );
         }
+        super::save_in::place_new(ServiceEntry::section(), &name, &save_in.get_untracked());
         open.set(false);
         draft_name.set(String::new());
         go(Route::Detail(ServiceEntry::section().into(), name));
@@ -392,6 +394,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="new-website-name">
                 {step(5, "Service name", "A short name for lists, commands and Review.")}
                 {super::name_input("new-website-service", "Service name", svc_name, name_issue, true, "blog or shop")}
+                {super::save_in::save_in_field(svc_name, save_in)}
             </section>
             {move || asks_email.get().then(|| email_step(email))}
             {move || problem.get().filter(|_| !names.with(Vec::is_empty)).map(|m| view! {

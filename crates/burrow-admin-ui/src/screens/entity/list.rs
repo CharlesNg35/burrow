@@ -75,6 +75,19 @@ fn one_row(
     if let Some(m) = mark {
         row.tags.insert(0, m);
     }
+    if let Some((file, locked)) = super::file::file_label(&entity_path) {
+        row.terms.push('\n');
+        row.terms.push_str(&file);
+        let main = s.with_files(burrow_admin_logic::files::main_name);
+        if locked || main.as_deref() != Some(file.as_str()) {
+            let text = if locked {
+                format!("read-only · {file}")
+            } else {
+                file
+            };
+            row.tags.push((text, Tone::Neutral));
+        }
+    }
     row
 }
 

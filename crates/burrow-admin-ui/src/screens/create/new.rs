@@ -23,6 +23,7 @@ pub fn NewEntity(
     let what = singular(&section);
     let name = draft_name.unwrap_or_else(|| RwSignal::new(String::new()));
     let max = RwSignal::new(String::new());
+    let save_in = RwSignal::new(String::new());
     let links: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
     let secret: RwSignal<Option<(String, String)>> = RwSignal::new(None);
     if section != ServiceEntry::section() {
@@ -51,6 +52,7 @@ pub fn NewEntity(
         let m = max.get_untracked().trim().parse::<u64>().ok();
         let clean = !untrack(|| e.dirty());
         create_with(&sec, &n, secret.get_untracked(), m, &links.get_untracked());
+        super::save_in::place_new(&sec, &n, &save_in.get_untracked());
         open.set(false);
         name.set(String::new());
         go(Route::Detail(sec.clone(), n));
@@ -89,6 +91,7 @@ pub fn NewEntity(
                 <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
                 {super::name_input("new-name", "Name", name, problem, true, super::name_example(entity_of_section(&section).as_ref()))}
                 {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
+                {super::save_in::save_in_field(name, save_in)}
             </section>
             {(what != ServiceEntry::ENTITY).then(|| limits_section(what, name, max, placeholder_max, options, links))}
             <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>

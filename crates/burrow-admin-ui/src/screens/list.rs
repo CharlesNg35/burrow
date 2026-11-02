@@ -111,7 +111,8 @@ pub fn ListPane(
     #[prop(optional)] query: Option<RwSignal<String>>,
     #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
 ) -> impl IntoView {
-    let q = query.unwrap_or_else(|| RwSignal::new(String::new()));
+    let q = query
+        .unwrap_or_else(|| RwSignal::new(route::query(route::SEARCH_QUERY).unwrap_or_default()));
     let asked = route::query(route::FILTER_QUERY);
     let first = filters
         .iter()

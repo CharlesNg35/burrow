@@ -1,5 +1,6 @@
 mod new;
 mod rename;
+mod save_in;
 mod website;
 
 use burrow_admin_proto::msg::{self, GeneratedSecret};

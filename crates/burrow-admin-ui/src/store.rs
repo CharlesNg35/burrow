@@ -151,6 +151,38 @@ impl Store {
         self.status_at.set(now_ms);
     }
 
+    pub fn files_on(&self) -> bool {
+        self.welcome.with(|w| {
+            w.as_ref()
+                .is_some_and(|w| w.has(burrow_admin_proto::features::CONFIG_FILES))
+        })
+    }
+
+    pub fn with_files<T>(
+        &self,
+        f: impl FnOnce(&burrow_admin_proto::msg::FileInfo) -> T,
+    ) -> Option<T> {
+        self.state.with(|s| s.as_ref().map(|s| f(&s.file)))
+    }
+
+    pub fn item_file(&self, item: &[String]) -> Option<String> {
+        if !self.files_on() {
+            return None;
+        }
+        let item = item.get(..2)?;
+        let placed = self.edit.files.with(|f| f.placed(item).map(str::to_string));
+        placed.or_else(|| self.with_files(|i| burrow_admin_logic::files::file_of(i, item)))
+    }
+
+    pub fn item_locked(&self, item: &[String]) -> Option<String> {
+        let item = item.get(..2)?;
+        self.with_files(|i| {
+            burrow_admin_logic::files::locked_file(i, item)
+                .map(burrow_admin_logic::files::read_only_line)
+        })
+        .flatten()
+    }
+
     pub fn can_write_now(&self) -> bool {
         untrack(|| self.can_write())
     }

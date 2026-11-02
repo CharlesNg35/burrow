@@ -3,6 +3,7 @@ pub mod activity;
 pub mod bar;
 pub mod create;
 pub mod entity;
+pub mod files;
 pub mod flow;
 mod list;
 mod local_ca;

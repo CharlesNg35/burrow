@@ -304,11 +304,12 @@ pub(super) fn assemble(
         crate::admin::core::diff::unified(&old_docs.main().text, &new_docs.main().text, &mask);
     let file_diffs = files::diffs(old_docs, new_docs, &mask);
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
-    let changes = summary::changes(
+    let mut changes = summary::changes(
         &values::veil_value(&old_shown, &hashes),
         &values::veil_value(&new_shown, &hashes),
         &applied.renames,
     );
+    files::note_moves(old_docs, applied, &mut changes);
     let impacts_json =
         serde_json::to_vec(&impacts.iter().map(impact_key).collect::<Vec<_>>()).unwrap_or_default();
     let refusals_json = serde_json::to_vec(&refusals).unwrap_or_default();

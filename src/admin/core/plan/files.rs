@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use burrow_admin_proto::plan::{FileChange, FileDiff};
+use burrow_admin_proto::plan::{Change, ChangeKind, FileChange, FileDiff};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use serde_json::{Map, Value};
 
@@ -277,6 +277,48 @@ pub fn write(
         docs: Docs { list },
         reformat,
     })
+}
+
+pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &mut Vec<Change>) {
+    let owners = Owners::of(old);
+    let name_of = |at: usize| {
+        old.list
+            .get(at)
+            .map_or_else(|| old.main().name.clone(), |d| d.name.clone())
+    };
+    for (path, file) in &applied.places {
+        let [section, name] = path.as_slice() else {
+            continue;
+        };
+        let from = name_of(owners.file_of(section, &was_named(&applied.renames, section, name)));
+        if from == *file {
+            continue;
+        }
+        let kind = match section.as_str() {
+            s if s == ClientEntry::section() => ClientEntry::ENTITY,
+            s if s == VisitorEntry::section() => VisitorEntry::ENTITY,
+            _ => ServiceEntry::ENTITY,
+        };
+        let known = out.iter().any(|c| c.path == *path);
+        out.push(Change {
+            kind: ChangeKind::Other,
+            path: path.clone(),
+            summary: if old.get(file).is_some() || file == &old.main().name {
+                format!("moves {kind} {name} from {from} to {file}")
+            } else {
+                format!("moves {kind} {name} from {from} to a new file, {file}")
+            },
+            part_of: known.then(|| path.clone()),
+        });
+    }
+    for file in &applied.drops {
+        out.push(Change {
+            kind: ChangeKind::Other,
+            path: Vec::new(),
+            summary: format!("deletes {file}, which holds nothing any more"),
+            part_of: None,
+        });
+    }
 }
 
 pub fn diffs(old: &Docs, new: &Docs, mask: &dyn Fn(&str) -> String) -> Vec<FileDiff> {
