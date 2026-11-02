@@ -135,24 +135,29 @@ pub fn impacts(old: &ServerSettings, new: &ServerSettings) -> Vec<Impact> {
     out
 }
 
-fn held(s: &ServerSettings) -> Vec<SocketAddr> {
-    let mut out: Vec<SocketAddr> = s.listen.into_iter().chain(s.metrics).collect();
-    out.extend(s.websocket.as_ref().map(|w| w.listen));
-    out.extend(Port::BOTH.into_iter().filter_map(|p| p.of(s)));
+fn held(s: &ServerSettings) -> Vec<(Protocol, SocketAddr)> {
+    let mut out: Vec<(Protocol, SocketAddr)> = s
+        .listen
+        .into_iter()
+        .chain(s.metrics)
+        .chain(s.websocket.as_ref().map(|w| w.listen))
+        .chain(Port::BOTH.into_iter().filter_map(|p| p.of(s)))
+        .map(|a| (Protocol::Tcp, a))
+        .collect();
     for svc in s.services.values() {
-        if svc.protocol == Protocol::Tcp {
-            out.extend(svc.binds().into_iter().map(|(_, a)| a));
-        }
+        out.extend(svc.binds().into_iter().map(|(_, a)| (svc.protocol, a)));
     }
     out
 }
 
-fn wanted(running: &ServerSettings, next: &ServerSettings) -> Vec<(Vec<String>, SocketAddr)> {
-    let mut out: Vec<(Vec<String>, SocketAddr)> = Port::BOTH
+type Wanted = (Vec<String>, Protocol, SocketAddr);
+
+fn wanted(running: &ServerSettings, next: &ServerSettings) -> Vec<Wanted> {
+    let mut out: Vec<Wanted> = Port::BOTH
         .into_iter()
         .filter_map(|p| {
             let addr = p.of(next).filter(|a| p.of(running) != Some(*a))?;
-            Some((p.path(), addr))
+            Some((p.path(), Protocol::Tcp, addr))
         })
         .collect();
     let own = |s: &ServerSettings| {
@@ -164,43 +169,47 @@ fn wanted(running: &ServerSettings, next: &ServerSettings) -> Vec<(Vec<String>, 
     if let Some(addr) = own(next).filter(|a| own(running) != Some(*a)) {
         out.push((
             ServerConfig::WEBSOCKET.then(WebSocketConfig::LISTEN).path(),
+            Protocol::Tcp,
             addr,
         ));
     }
     for (name, svc) in &next.services {
-        let before = running.services.get(name).map(|s| s.binds());
-        if svc.protocol != Protocol::Tcp || before.as_ref() == Some(&svc.binds()) {
+        let before = running.services.get(name).map(|s| (s.protocol, s.binds()));
+        if before == Some((svc.protocol, svc.binds())) {
             continue;
         }
         out.extend(
             svc.binds()
                 .into_iter()
-                .map(|(_, a)| (ServiceEntry::BIND.of(name), a)),
+                .map(|(_, a)| (ServiceEntry::BIND.of(name), svc.protocol, a)),
         );
     }
     out
 }
 
 pub fn busy(
-    probe: &dyn Fn(SocketAddr) -> std::io::Result<()>,
+    probe: &dyn Fn(Protocol, SocketAddr) -> std::io::Result<()>,
     running: &ServerSettings,
     next: &ServerSettings,
 ) -> Vec<Diag> {
     let ours = held(running);
     wanted(running, next)
         .into_iter()
-        .filter_map(|(path, addr)| {
-            if ours.iter().any(|h| binds_conflict(addr, *h)) {
+        .filter_map(|(path, proto, addr)| {
+            if ours
+                .iter()
+                .any(|(p, h)| *p == proto && binds_conflict(addr, *h))
+            {
                 return None;
             }
-            let e = probe(addr).err()?;
+            let e = probe(proto, addr).err()?;
             if e.kind() == std::io::ErrorKind::AddrNotAvailable
                 || e.kind() == std::io::ErrorKind::PermissionDenied
                     && crate::config::check::low_port_refused(addr)
             {
                 return None;
             }
-            let f = crate::server::bind_error(&path.join("."), Protocol::Tcp, addr, &e);
+            let f = crate::server::bind_error(&path.join("."), proto, addr, &e);
             Some(Diag {
                 severity: Severity::Error,
                 code: PORT_IN_USE.into(),

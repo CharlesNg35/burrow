@@ -321,8 +321,11 @@ impl Store for FileStore {
     }
 }
 
-fn probe_bind(addr: SocketAddr) -> std::io::Result<()> {
-    crate::wire::transport::tcp::bind_tcp(addr).map(drop)
+fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
+    match proto {
+        burrow_config::Protocol::Tcp => crate::wire::transport::tcp::bind_tcp(addr).map(drop),
+        burrow_config::Protocol::Udp => crate::wire::transport::udp::bind_udp_now(addr).map(drop),
+    }
 }
 
 pub struct ServerLive(pub Arc<Shared>);
@@ -357,8 +360,8 @@ impl Live for ServerLive {
             .collect()
     }
 
-    fn bind_probe(&self, addr: SocketAddr) -> std::io::Result<()> {
-        probe_bind(addr)
+    fn bind_probe(&self, proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
+        probe_bind(proto, addr)
     }
 
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16> {
@@ -568,11 +571,17 @@ mod tests {
     async fn the_web_port_probe_never_keeps_the_port() {
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = held.local_addr().unwrap();
-        let busy = super::probe_bind(addr).unwrap_err();
+        let busy = super::probe_bind(burrow_config::Protocol::Tcp, addr).unwrap_err();
         assert_eq!(busy.kind(), std::io::ErrorKind::AddrInUse);
         drop(held);
-        super::probe_bind(addr).unwrap();
+        super::probe_bind(burrow_config::Protocol::Tcp, addr).unwrap();
         std::net::TcpListener::bind(addr).expect("free again right after the probe");
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let at = udp.local_addr().unwrap();
+        let busy = super::probe_bind(burrow_config::Protocol::Udp, at).unwrap_err();
+        assert_eq!(busy.kind(), std::io::ErrorKind::AddrInUse);
+        drop(udp);
+        super::probe_bind(burrow_config::Protocol::Udp, at).unwrap();
     }
 
     use super::*;

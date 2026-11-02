@@ -147,7 +147,11 @@ impl Live for FakeLive {
     fn free_port(&self, near: u16, _: u16, _: bool) -> Option<u16> {
         (!self.busy.contains(&near)).then_some(near)
     }
-    fn bind_probe(&self, addr: std::net::SocketAddr) -> std::io::Result<()> {
+    fn bind_probe(
+        &self,
+        _proto: burrow_config::Protocol,
+        addr: std::net::SocketAddr,
+    ) -> std::io::Result<()> {
         if addr.ip().to_string().starts_with("192.0.2.") {
             return Err(std::io::ErrorKind::AddrNotAvailable.into());
         }

@@ -146,11 +146,15 @@ pub(super) fn judge(
             clash.push(listen_clash(c));
         }
         clash.extend(guard::busy_web_ports(
-            &|a| core.live.bind_probe(a),
+            &|p, a| core.live.bind_probe(p, a),
             running,
             next,
         ));
-        clash.extend(guard::not_here(&|a| core.live.bind_probe(a), running, next));
+        clash.extend(guard::not_here(
+            &|a| core.live.bind_probe(burrow_config::Protocol::Tcp, a),
+            running,
+            next,
+        ));
         let how = applies(core, raw, &applied.target);
         let restart: Vec<String> = how
             .iter()
