@@ -90,6 +90,10 @@ A website is open to every browser, so burrow checks each request before it reac
   - Instead of a file path, a write admin may upload a certificate, CA or revocation list. burrow checks it, keeps it private in its state folder, and never sends a key back ([Uploading files](web/certificates.md#uploading-files-in-the-admin-ui)).
 - **The local CA (`tls: internal`)** may sign only LAN names and addresses (X.509 name constraints in its root). Its key stays in the state folder, readable only by the service account, and the admin UI offers its certificate, never the key.
 
+## Client updates
+
+A client updates itself only when its own config has `update.remote: true`. The server sends nothing but a release number. The client downloads that release from the official releases, or from a mirror set on the client machine, checks it against the release's `SHA256SUMS`, and refuses anything that is not newer than what it runs. For a service, a small updater that runs as root does the replacing, and it reads the opt-in from the installed config itself. On Windows, the client's account may only start that updater. Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
+
 ## burrow admin
 
 The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).

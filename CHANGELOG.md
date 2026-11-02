@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.1]
+
+Clients tell the server which burrow they run, and a client that allows it can be updated from burrow admin or `burrow mcp`, with automatic rollback. Older clients and servers keep working with this release in both directions.
+
+- **Client versions:** each client reports its release, system, how it runs (service, container or started by hand) and whether it allows remote updates. `burrow status` on the server has a VERSION column, burrow admin shows Version and System columns and a card on each client's page, and clients too old to report show as such. `burrow status` on a client's machine now shows the running client too.
+- **Updates from the server:** `update: { remote: true }` in client.yaml (off by default; `burrow init client` asks, `--remote-updates` turns it on) lets the server's admin ask for a newer published release. The client downloads it from the official releases itself, checks `SHA256SUMS`, its version and the config, keeps the old binary and restarts. If the new version does not connect within 60 s, or keeps crashing, the old one comes back. Never a downgrade, and never a file or address from the server. See docs/updates.md.
+  - Services get a small updater that runs as root when installed with `update.remote` on: a systemd path unit, a launchd job, or a Windows service that only the client's account may start. Clients started by hand replace their own binary and start again. Containers are told to update the image.
+  - burrow admin: **Update** on a client's page and **Update all**, one client at a time, stopping at the first failure, with progress and results. `burrow mcp --allow-write`: the `update_clients` tool, which asks only when called again with `confirm`.
+  - Protocol: the client's Report message and the server's Update message; older servers ignore Report, and older clients never get Update.
+
 ## [0.2.0]
 
 Websites with automatic HTTPS, a reworked admin UI, load balancing with weights, and `burrow mcp` for AI apps. Existing configs work unchanged, and v0.1.x clients and visitors keep working with a v0.2.0 server.
