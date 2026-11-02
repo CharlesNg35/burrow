@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use super::platform::{self, Pending};
-use super::{Refused, spare_prefix, write_back};
+use super::platform::{self, Hidden, Pending};
+use super::{Refused, write_back};
 use crate::config::docs::{Docs, read_only};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,7 +75,7 @@ pub fn changes(before: &Docs, after: &Docs) -> Vec<(String, Change)> {
 
 enum Step {
     Write(Pending),
-    Hide { real: PathBuf, spare: PathBuf },
+    Hide(Hidden),
 }
 
 struct Staged {
@@ -90,19 +90,7 @@ fn stage(main: &Path, path: &Path, change: &Change) -> Result<Step, Refused> {
             Ok(Step::Write(platform::stage_replace(path, before, after)?))
         }
         Change::Create { after } => Ok(Step::Write(platform::stage_create(path, after, main)?)),
-        Change::Remove { before } => {
-            let real = std::fs::canonicalize(path)?;
-            if std::fs::read_to_string(&real)? != *before {
-                return Err(Refused::Changed);
-            }
-            let name = real.file_name().map(|n| n.to_string_lossy().into_owned());
-            let spare = real.with_file_name(format!(
-                "{}{}",
-                spare_prefix(&name.unwrap_or_default()),
-                std::process::id()
-            ));
-            Ok(Step::Hide { real, spare })
-        }
+        Change::Remove { before } => Ok(Step::Hide(platform::stage_remove(path, before)?)),
     }
 }
 
@@ -122,7 +110,7 @@ fn commit(step: &Step, _at: usize) -> std::io::Result<()> {
     }
     match step {
         Step::Write(p) => p.commit(),
-        Step::Hide { real, spare } => std::fs::rename(real, spare),
+        Step::Hide(h) => h.commit(),
     }
 }
 
@@ -138,7 +126,7 @@ fn undo(s: &Staged) -> std::io::Result<()> {
             Err(Refused::Io(e)) => Err(e),
         },
         (Change::Create { .. }, _) => std::fs::remove_file(&s.path),
-        (Change::Remove { .. }, Step::Hide { real, spare }) => std::fs::rename(spare, real),
+        (Change::Remove { .. }, Step::Hide(h)) => h.undo(),
         (Change::Remove { .. }, Step::Write(_)) => Ok(()),
     }
 }
@@ -202,8 +190,8 @@ pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused
         }
     }
     for s in &staged {
-        if let Step::Hide { spare, .. } = &s.step {
-            let _ = std::fs::remove_file(spare);
+        if let Step::Hide(h) = &s.step {
+            h.finish();
         }
     }
     Ok(())

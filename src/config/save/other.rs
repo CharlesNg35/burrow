@@ -124,3 +124,31 @@ pub fn stage_create(path: &Path, text: &str, _like: &Path) -> Result<Pending, Re
         made,
     })
 }
+
+pub struct Hidden {
+    real: PathBuf,
+    spare: PathBuf,
+}
+
+impl Hidden {
+    pub fn commit(&self) -> std::io::Result<()> {
+        std::fs::rename(&self.real, &self.spare)
+    }
+
+    pub fn undo(&self) -> std::io::Result<()> {
+        std::fs::rename(&self.spare, &self.real)
+    }
+
+    pub fn finish(&self) {
+        let _ = std::fs::remove_file(&self.spare);
+    }
+}
+
+pub fn stage_remove(path: &Path, before: &str) -> Result<Hidden, Refused> {
+    let real = std::fs::canonicalize(path)?;
+    if std::fs::read_to_string(&real)? != before {
+        return Err(Refused::Changed);
+    }
+    let spare = spare_for(&real)?;
+    Ok(Hidden { real, spare })
+}

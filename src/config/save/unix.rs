@@ -195,6 +195,59 @@ pub fn stage_create(path: &Path, text: &str, like: &Path) -> Result<Pending, Ref
     })
 }
 
+pub struct Hidden {
+    dir: OwnedFd,
+    name: OsString,
+    spare: String,
+}
+
+impl Hidden {
+    pub fn commit(&self) -> std::io::Result<()> {
+        rustix::fs::renameat(
+            &self.dir,
+            self.name.as_os_str(),
+            &self.dir,
+            self.spare.as_str(),
+        )?;
+        Ok(rustix::fs::fsync(&self.dir)?)
+    }
+
+    pub fn undo(&self) -> std::io::Result<()> {
+        rustix::fs::renameat(
+            &self.dir,
+            self.spare.as_str(),
+            &self.dir,
+            self.name.as_os_str(),
+        )?;
+        Ok(rustix::fs::fsync(&self.dir)?)
+    }
+
+    pub fn finish(&self) {
+        let _ = rustix::fs::unlinkat(&self.dir, self.spare.as_str(), AtFlags::empty());
+    }
+}
+
+pub fn stage_remove(path: &Path, before: &str) -> Result<Hidden, Refused> {
+    let real = std::fs::canonicalize(path)?;
+    let (folder, name) = split(&real)?;
+    let dir = open_folder(folder)?;
+    let stat =
+        rustix::fs::statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW).map_err(std::io::Error::from)?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+        return Err(Refused::Io(std::io::Error::other(
+            "the file is no longer a regular file",
+        )));
+    }
+    if read_at(&dir, name)? != before {
+        return Err(Refused::Changed);
+    }
+    Ok(Hidden {
+        spare: temp_name(name),
+        name: name.to_os_string(),
+        dir,
+    })
+}
+
 pub fn open_folder(folder: &Path) -> std::io::Result<OwnedFd> {
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     if !rustix::process::geteuid().is_root() {
