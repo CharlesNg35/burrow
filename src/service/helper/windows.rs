@@ -69,6 +69,37 @@ fn info(m: &Manifest) -> ServiceInfo {
     }
 }
 
+enum Started {
+    Now,
+    Busy,
+}
+
+const ALREADY_RUNNING: i32 = 1056;
+
+fn start(name: &str) -> Result<Started, String> {
+    let scm = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
+        .map_err(|e| format!("cannot reach the service manager: {e}"))?;
+    let s = scm
+        .open_service(name, ServiceAccess::START | ServiceAccess::QUERY_STATUS)
+        .map_err(|e| format!("cannot open {name}: {e}"))?;
+    match s.start::<&OsStr>(&[]) {
+        Ok(()) => Ok(Started::Now),
+        Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(ALREADY_RUNNING) => {
+            Ok(Started::Busy)
+        }
+        Err(e) => Err(format!("cannot start {name}: {e}")),
+    }
+}
+
+fn again_when_stopped(name: &str) {
+    for _ in 0..1200 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if let Ok(Started::Now) = start(name) {
+            return;
+        }
+    }
+}
+
 impl Helper for StartableService {
     fn install(&self, m: &Manifest) -> Result<(), Failure> {
         let scm = crate::service::windows::manager(
@@ -119,17 +150,13 @@ impl Helper for StartableService {
     }
 
     fn fire(&self, m: &Manifest) -> Result<(), String> {
-        let scm = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
-            .map_err(|e| format!("cannot reach the service manager: {e}"))?;
-        let s = scm
-            .open_service(helper_name(m), ServiceAccess::START)
-            .map_err(|e| format!("cannot open {}: {e}", helper_name(m)))?;
-        const ALREADY_RUNNING: i32 = 1056;
-        match s.start::<&OsStr>(&[]) {
-            Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(ALREADY_RUNNING) => {
+        let name = helper_name(m);
+        match start(&name)? {
+            Started::Now => Ok(()),
+            Started::Busy => {
+                std::thread::spawn(move || again_when_stopped(&name));
                 Ok(())
             }
-            other => other.map_err(|e| format!("cannot start {}: {e}", helper_name(m))),
         }
     }
 }
