@@ -103,7 +103,9 @@ sudo burrow edit                       # pick an installed service's config, edi
 sudo nano /etc/burrow/server/server.yaml   # or edit the file directly
 ```
 
-`burrow edit` refuses a change that the service could not run after a restart, such as a port below 1024 it was not installed for.
+`burrow edit` refuses a change that the service could not run after a restart, such as a port below 1024 it was not installed for. It edits `server.yaml` and checks it together with the drop-in files next to it.
+
+**Drop-in files.** A server's `server.d/` folder ([configuration.md](configuration.md#drop-in-files)) is copied with the config: `service install -c ./home.yaml` copies `./home.d/*.yaml` to `/etc/burrow/home/server.d/`. Writable files get the same owner and mode as `server.yaml`; a file that is read-only in the source stays read-only (owned by root, readable by the service's group, `0440`; the read-only attribute on Windows). A file the source no longer has is removed, after the installed set is kept as a version in Activity. With `--admin-writable`, the service may also change `server.d/`. Add files to `/etc/burrow/<name>/server.d/` by hand later; the service picks them up on save.
 
 **Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only. Its hint gives the exact command: `install the service again so it may change its config; nothing moves: sudo burrow service install -c /etc/burrow/server/server.yaml --admin-writable`. Add the admin visitor to the installed config, then install again from that file:
 

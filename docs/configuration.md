@@ -94,6 +94,60 @@ You never need to restart burrow to change what it does: saving a config applies
 
 burrow also checks the file every 30 seconds, so changes through a Docker file mount or a network share apply too.
 
+burrow waits until the files have been quiet for half a second before it reloads, so an editor that saves through a temporary file, or a tool that writes several files, causes one reload. A config with an error is never applied: the server keeps running the last good one and logs each error with its file and line.
+
+## Drop-in files
+
+A server can keep services, clients and visitors in more files, in a folder next to its config named after it: `server.yaml` reads `server.d/`. Use it to let a tool (Ansible, a script, another team) own its own file, or to keep each site in a file of its own.
+
+```yaml
+# server.d/blog.yaml
+services:
+  blog:
+    client: home
+    target: 3000
+    web: blog.example.com
+```
+
+- **Off until the folder exists.** Only the server reads one; clients and visitors keep one file. For an installed service the folder is `/etc/burrow/<name>/server.d/` (Windows: next to `server.yaml` in the same folder); in Docker, `/etc/burrow/server.d/` next to `/etc/burrow/server.yaml`.
+- **Which files.** Every file ending in `.yaml`, in name order. Hidden files and other names are skipped, so rename a file to `blog.yaml.off` to switch it off. A `.yml` or `.json` file gets a warning that it is not read.
+- **What goes in them.** Only `services`, `clients` and `visitors`. Server-wide settings (`listen`, `web`, `limits` …) belong in `server.yaml`; one in a drop-in file is an error at its line.
+- **One name, one place.** The same service, client or visitor name in two files is an error that names both places. Nothing is merged or overridden.
+- **Permissions.** A file or folder that every user on the machine can change (`chmod o+w`) is refused, as burrow refuses to run such a config. `${VAR}` works as in `server.yaml`.
+- **Errors** show the file and line they are in. `burrow validate` lists the files it read, each one's services, clients and visitors, and which are read-only; `burrow status` names the file of a service that comes from a drop-in.
+
+```text
+$ burrow validate -c /etc/burrow/server/server.yaml
+read 3 files:
+  server.yaml: clients home; services web
+  server.d/blog.yaml: services blog
+  server.d/team.yaml (read-only: it has no write permission): visitors anna, ben
+/etc/burrow/server/server.yaml: valid server config (1 client, 2 visitors, 2 services)
+```
+
+### Who may change a file
+
+Each file has one owner. burrow admin edits every item in the file it came from, keeps its comments, and can move an item into a file of its own or back into `server.yaml` ([admin.md](admin.md#drop-in-files)). A file that is **read-only on disk** stays read-only in the admin, even when burrow runs as root or as a Windows service:
+
+- it has no write permission for anyone (`chmod 0440`), or it is the Windows read-only attribute (`attrib +R`);
+- or burrow's user cannot write it (for example `root:burrow 0640` while burrow runs as `burrow`);
+- or it is a link to a file elsewhere.
+
+A tool that writes the file sets this in one line, for example with Ansible:
+
+```yaml
+# playbook.yml
+- name: services managed by Ansible
+  ansible.builtin.copy:
+    src: team.yaml
+    dest: /etc/burrow/server/server.d/team.yaml
+    owner: root
+    group: burrow-server
+    mode: "0440"
+```
+
+The admin shows such a file's items with a lock and "Read-only on disk", and never writes, moves or deletes the file. A version restored from the admin's history puts every writable file back and names the read-only ones, for their tool to restore.
+
 ## server.yaml
 
 The server's file holds the port clients connect to, the clients and visitors with their secrets, and the services. This one has a public web app, a public UDP service and a private database:
