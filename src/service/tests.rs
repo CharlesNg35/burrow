@@ -88,7 +88,13 @@ fn a_config_changed_by_burrow_admin_is_kept_before_a_reinstall_replaces_it() {
     let store = crate::admin::adapters::FileStore::new(&config);
     let rev = crate::admin::core::text::rev(changed);
     assert!(store.versions().iter().any(|v| v.rev == rev));
-    assert_eq!(store.version(&rev).as_deref(), Some(changed));
+    assert_eq!(
+        store
+            .version(&rev)
+            .map(|d| d.main().text.clone())
+            .as_deref(),
+        Some(changed)
+    );
 
     let m = Manifest {
         config: config.clone(),

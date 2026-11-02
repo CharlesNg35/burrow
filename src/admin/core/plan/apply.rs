@@ -79,15 +79,15 @@ pub fn apply_begin(
             confirm: missing.iter().map(|c| c.to_string()).collect(),
         })));
     }
-    if computed.new_text == computed.old_text {
+    if computed.new_docs == computed.old_docs {
         return Ok(Begun {
             computed,
             wrote: false,
             address: req.address.clone(),
         });
     }
-    core.store.keep(&computed.plan.base, &computed.old_text);
-    match core.store.write(&computed.old_text, &computed.new_text) {
+    core.store.keep(&computed.plan.base, &computed.old_docs);
+    match core.store.write(&computed.old_docs, &computed.new_docs) {
         Ok(()) => {}
         Err(WriteError::Changed) => {
             return Err(ApiError::new(
@@ -108,7 +108,7 @@ pub fn apply_begin(
         }
     }
     core.store
-        .keep(&computed.plan.result_rev, &computed.new_text);
+        .keep(&computed.plan.result_rev, &computed.new_docs);
     Ok(Begun {
         computed,
         wrote: true,
@@ -140,7 +140,7 @@ pub fn restore(core: &Core, begun: &Begun) -> bool {
     begun.wrote
         && core
             .store
-            .write(&begun.computed.new_text, &begun.computed.old_text)
+            .write(&begun.computed.new_docs, &begun.computed.old_docs)
             .is_ok()
 }
 

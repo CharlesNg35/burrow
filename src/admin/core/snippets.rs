@@ -3,7 +3,7 @@ use burrow_admin_proto::plan::{Command, Snippets};
 use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use serde_json::Value;
 
-use super::plan::{Computed, check_text};
+use super::plan::{Computed, check_docs};
 use super::{ApiError, Core};
 use crate::config::Format;
 use crate::config::emit::render;
@@ -162,8 +162,8 @@ pub fn build(
 }
 
 pub fn connect_info(core: &Core, req: &ConnectInfo) -> Result<Snippets, ApiError> {
-    let text = core.read()?;
-    let checked = check_text(core, &text);
+    let docs = core.docs()?;
+    let checked = check_docs(core, &docs);
     let Some(settings) = checked.settings else {
         return Err(ApiError::new(
             ErrorCode::Invalid,
@@ -180,7 +180,7 @@ pub fn connect_info(core: &Core, req: &ConnectInfo) -> Result<Snippets, ApiError
 }
 
 pub fn after_apply(core: &Core, c: &Computed, address: Option<&str>) -> Vec<Snippets> {
-    let checked = check_text(core, &c.new_text);
+    let checked = check_docs(core, &c.new_docs);
     let Some(settings) = checked.settings else {
         return Vec::new();
     };

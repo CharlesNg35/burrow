@@ -8,6 +8,7 @@ use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
 use crate::config::diagnostics::{Diagnostic, Report};
 use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
+pub use merge::merge;
 pub use parse::{load_inputs, load_str_at, load_str_in};
 
 pub use crate::install::Role;

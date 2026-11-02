@@ -1,3 +1,4 @@
+use crate::config::docs::Docs;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use serde_json::{Map, Value};
@@ -21,13 +22,13 @@ pub struct Applied {
     pub renames: Vec<Rename>,
     pub fresh: Vec<Fresh>,
     pub passwords: Vec<String>,
-    pub document: Option<String>,
+    pub document: Option<Docs>,
 }
 
 pub trait Context {
     fn secret(&self, handle: &str) -> Option<(String, String)>;
     fn password(&self, handle: &str) -> Option<String>;
-    fn history(&self, rev: &str) -> Option<String>;
+    fn history(&self, rev: &str) -> Option<Docs>;
     fn env(&self) -> &dyn EnvSource;
 }
 
@@ -146,14 +147,14 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                 passwords.push(handle.clone());
             }
             Op::ReplaceDocument { from_history } => {
-                let text = cx
+                let docs = cx
                     .history(from_history)
                     .ok_or_else(|| err(format!("version {from_history} is not in the history")))?;
-                let (_, _, src) = crate::config::patch::split_text(&text);
-                target = crate::config::tree::parse(&src)
+                target = docs
+                    .tree()
                     .map_err(|_| err("that version does not parse"))?
                     .to_json();
-                document = Some(text);
+                document = Some(docs);
             }
             Op::SetText { path, text } => {
                 let (last, parents) = path
@@ -311,8 +312,8 @@ mod tests {
         fn secret(&self, handle: &str) -> Option<(String, String)> {
             (handle == "s1").then(|| (self.0.encode(), self.0.fingerprint()))
         }
-        fn history(&self, rev: &str) -> Option<String> {
-            (rev == "b2s:old").then(|| "listen: 1\n".to_string())
+        fn history(&self, rev: &str) -> Option<Docs> {
+            (rev == "b2s:old").then(|| Docs::one("server.yaml", "listen: 1\n"))
         }
         fn env(&self) -> &dyn EnvSource {
             &|_: &str| None

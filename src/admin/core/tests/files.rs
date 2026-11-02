@@ -13,6 +13,7 @@ use crate::admin::core::*;
 use crate::config::settings::ServerSettings;
 use crate::metrics::Status;
 
+use super::one;
 use super::{MemStore, World, apply_now, core_for, core_running, p, session, settings_of, world};
 
 #[test]
@@ -264,7 +265,7 @@ fn an_invalid_file_does_not_let_a_revert_bring_power_back() {
         )
     });
     let core = core_running(&read, &b.running);
-    core.store.keep(&text::rev(&b.running), &b.running);
+    core.store.keep(&text::rev(&b.running), &one(&b.running));
     let s = session(&b.w, AdminLevel::Write);
     let ops = [Op::ReplaceDocument {
         from_history: text::rev(&b.running),

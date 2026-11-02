@@ -2,6 +2,7 @@ pub mod admin_schema;
 pub mod check;
 pub mod diagnostics;
 pub mod discover;
+pub mod docs;
 pub mod emit;
 pub mod env;
 pub mod grants;

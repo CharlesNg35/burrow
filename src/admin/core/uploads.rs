@@ -8,8 +8,7 @@ use super::{ApiError, Core, Session};
 use crate::server::uploads::{self as files, MAX_KEPT};
 
 fn saved_config(core: &Core) -> Option<burrow_config::ServerConfig> {
-    let text = core.read().ok()?;
-    let tree = crate::config::tree::parse(&text).ok()?;
+    let tree = core.docs().ok()?.tree().ok()?;
     serde_json::from_value(tree.to_json()).ok()
 }
 

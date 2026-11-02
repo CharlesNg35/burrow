@@ -32,6 +32,7 @@ use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, Vi
 use serde_json::Value;
 use zeroize::Zeroizing;
 
+use crate::config::docs::Docs;
 use crate::wire::secret::Secret;
 use ports::{Env, Live, Store};
 
@@ -199,7 +200,7 @@ pub struct Core {
     schema: Schema,
     audit: Mutex<VecDeque<AuditEntry>>,
     last_good: Mutex<Option<String>>,
-    seen: Mutex<VecDeque<(String, String)>>,
+    seen: Mutex<VecDeque<(String, Docs)>>,
     started: Instant,
 }
 
@@ -289,7 +290,12 @@ impl Core {
         }
     }
 
+    #[cfg(test)]
     pub fn read(&self) -> Result<String, ApiError> {
+        self.docs().map(|d| d.main().text.clone())
+    }
+
+    pub fn docs(&self) -> Result<Docs, ApiError> {
         self.store.read().map_err(|e| {
             ApiError::new(
                 ErrorCode::Internal,
@@ -329,7 +335,7 @@ impl Core {
         }
     }
 
-    pub fn seen_text(&self, rev: &str) -> Option<String> {
+    pub fn seen_docs(&self, rev: &str) -> Option<Docs> {
         self.seen
             .lock()
             .expect("seen lock")
@@ -339,16 +345,16 @@ impl Core {
     }
 
     pub fn state(&self, s: &Session) -> Result<State, ApiError> {
-        let text = self.read()?;
-        let rev = text::rev(&text);
+        let docs = self.docs()?;
+        let rev = text::docs_rev(&docs);
         {
             let mut seen = self.seen.lock().expect("seen lock");
             if !seen.iter().any(|(r, _)| *r == rev) {
-                seen.push_front((rev.clone(), text.clone()));
+                seen.push_front((rev.clone(), docs.clone()));
                 seen.truncate(SEEN);
             }
         }
-        let checked = plan::check_text(self, &text);
+        let checked = plan::check_docs(self, &docs);
         if checked.valid {
             *self.last_good.lock().expect("last good lock") = Some(rev.clone());
         }
@@ -436,8 +442,8 @@ impl Core {
                     .clamp(1024, 65535) as u16;
                 let count = req.count.unwrap_or(1).clamp(1, 1000) as u16;
                 let udp = req.proto.as_deref().and_then(Protocol::from_wire) == Some(Protocol::Udp);
-                let text = self.read()?;
-                let used = plan::used_ports(self, &text);
+                let docs = self.docs()?;
+                let used = plan::used_ports(self, &docs);
                 let mut at = near;
                 for _ in 0..200 {
                     match self.live.free_port(at, count, udp) {
@@ -453,8 +459,8 @@ impl Core {
                 Ok(Suggestions { values: Vec::new() })
             }
             burrow_admin_proto::msg::suggest::NAME => {
-                let text = self.read()?;
-                let checked = plan::check_text(self, &text);
+                let docs = self.docs()?;
+                let checked = plan::check_docs(self, &docs);
                 let section = match req.entity.as_deref().map(Entity::parse) {
                     Some(Entity::Client) => ClientEntry::section(),
                     Some(Entity::Visitor) => VisitorEntry::section(),
@@ -527,6 +533,7 @@ impl Core {
                 let before = self.store.version(&entry.base);
                 match (before, after) {
                     (Some(b), Some(a)) => {
+                        let (b, a) = (b.main().text.clone(), a.main().text.clone());
                         let hashes = values::hashes_in(&[&b, &a], &self.schema().root);
                         let headers = values::header_values_in(&[&b, &a]);
                         Some(diff::unified(&b, &a, &|l| {

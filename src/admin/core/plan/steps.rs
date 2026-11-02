@@ -7,24 +7,21 @@ use serde_json::Value;
 
 use crate::admin::core::ops;
 use crate::admin::core::{ApiError, Core, Session, guard, summary, text, values};
+use crate::config::docs::Docs;
+use crate::config::patch;
 use crate::config::settings::ServerSettings;
-use crate::config::{patch, tree};
 
 use super::locks::keep_locked;
-use super::{Checked, applies, impact_key};
+use super::{Checked, applies, files, impact_key};
 
-pub(super) fn conflict(core: &Core, base: &str, old_text: &str, current: String) -> ApiError {
+pub(super) fn conflict(core: &Core, base: &str, old_docs: &Docs, current: String) -> ApiError {
     let theirs = core
         .store
         .version(base)
-        .or_else(|| core.seen_text(base))
+        .or_else(|| core.seen_docs(base))
         .and_then(|b| {
-            let (_, _, a) = patch::split_text(&b);
-            let (_, _, c) = patch::split_text(old_text);
-            let (before, after) = values::hide_headers(
-                &tree::parse(&a).ok()?.to_json(),
-                &tree::parse(&c).ok()?.to_json(),
-            );
+            let (before, after) =
+                values::hide_headers(&b.tree().ok()?.to_json(), &old_docs.tree().ok()?.to_json());
             Some(summary::changes(&before, &after, &[]))
         });
     let body = Conflict {
@@ -39,8 +36,8 @@ pub(super) fn conflict(core: &Core, base: &str, old_text: &str, current: String)
     .with(serde_json::to_value(body).unwrap_or_default())
 }
 
-pub(super) fn parse_current(src: &str) -> Result<Value, ApiError> {
-    tree::parse(src)
+pub(super) fn parse_current(docs: &Docs) -> Result<Value, ApiError> {
+    docs.tree()
         .map_err(|e| {
             ApiError::new(
                 ErrorCode::Invalid,
@@ -56,48 +53,44 @@ pub(super) fn parse_current(src: &str) -> Result<Value, ApiError> {
 pub(super) fn new_document(
     core: &Core,
     raw: &Value,
-    old_text: &str,
+    old_docs: &Docs,
     applied: &ops::Applied,
 ) -> Result<
     (
-        String,
+        Docs,
         Option<patch::Reformat>,
         Vec<burrow_admin_proto::plan::Impact>,
     ),
     ApiError,
 > {
+    let internal = |e: patch::PatchError| ApiError::new(ErrorCode::Internal, e.to_string());
+    let format = core.store.format();
     let mut kept = Vec::new();
-    let (new_text, reformat) = match &applied.document {
+    let (new_docs, reformat) = match &applied.document {
         Some(doc) => {
             let (target, notes) = keep_locked(&core.schema, raw, &applied.target);
             kept = notes;
             if kept.is_empty() {
                 (doc.clone(), None)
             } else {
-                let p = patch::patch(doc, core.store.format(), &target, &[])
-                    .map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))?;
-                (p.text, None)
+                let w = files::write(doc, format, &target, &[]).map_err(internal)?;
+                (w.docs, None)
             }
         }
         None => {
-            let p = patch::patch(
-                old_text,
-                core.store.format(),
-                &applied.target,
-                &applied.renames,
-            )
-            .map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))?;
-            (p.text, p.reformat)
+            let w = files::write(old_docs, format, &applied.target, &applied.renames)
+                .map_err(internal)?;
+            (w.docs, w.reformat)
         }
     };
-    Ok((new_text, reformat, kept))
+    Ok((new_docs, reformat, kept))
 }
 
 pub(super) struct Draft<'a> {
     pub(super) raw: &'a Value,
     pub(super) new_raw: &'a Value,
-    pub(super) old_text: &'a str,
-    pub(super) new_text: &'a str,
+    pub(super) old_docs: &'a Docs,
+    pub(super) new_docs: &'a Docs,
     pub(super) applied: &'a ops::Applied,
 }
 
@@ -201,8 +194,8 @@ pub(super) fn assemble(
     v: Verdict,
     reformat: Option<patch::Reformat>,
 ) -> Plan {
-    let (old_text, new_text, raw, new_raw, applied) =
-        (d.old_text, d.new_text, d.raw, d.new_raw, d.applied);
+    let (old_docs, new_docs, raw, new_raw, applied) =
+        (d.old_docs, d.new_docs, d.raw, d.new_raw, d.applied);
     let Verdict {
         refusals,
         impacts,
@@ -220,7 +213,8 @@ pub(super) fn assemble(
         values::header_values(v, &mut headers);
     }
     let mask = |l: &str| text::mask_secrets(&values::veil_line(l, &hashes, &headers), &fresh_pairs);
-    let diff = crate::admin::core::diff::unified(old_text, new_text, &mask);
+    let diff =
+        crate::admin::core::diff::unified(&old_docs.main().text, &new_docs.main().text, &mask);
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let changes = summary::changes(
         &values::veil_value(&old_shown, &hashes),
@@ -232,14 +226,14 @@ pub(super) fn assemble(
     let refusals_json = serde_json::to_vec(&refusals).unwrap_or_default();
     let hash = text::hash_parts(&[
         base.as_bytes(),
-        new_text.as_bytes(),
+        new_docs.bundle().as_bytes(),
         &impacts_json,
         &refusals_json,
     ]);
     Plan {
         plan: hash,
         base: base.to_string(),
-        result_rev: text::rev(new_text),
+        result_rev: text::docs_rev(new_docs),
         valid: checked.valid && clash.is_empty(),
         diags: checked
             .diags

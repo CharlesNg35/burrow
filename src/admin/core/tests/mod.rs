@@ -31,6 +31,7 @@ use std::sync::{Arc, Mutex};
 use burrow_admin_proto::msg::{AdminLevel, Apply};
 use burrow_admin_proto::ops::Op;
 
+use crate::config::docs::Docs;
 use crate::config::settings::ServerSettings;
 use crate::config::{Format, Loaded, Role, load_str};
 use crate::metrics::Status;
@@ -47,6 +48,10 @@ pub struct MemStore {
     pub asked: Arc<AtomicUsize>,
 }
 
+pub fn one(text: &str) -> Docs {
+    Docs::one("server.yaml", text)
+}
+
 impl Store for MemStore {
     fn path(&self) -> &Path {
         Path::new("server.yaml")
@@ -57,15 +62,15 @@ impl Store for MemStore {
     fn format(&self) -> Format {
         Format::Yaml
     }
-    fn read(&self) -> std::io::Result<String> {
-        Ok(self.text.lock().unwrap().clone())
+    fn read(&self) -> std::io::Result<Docs> {
+        Ok(Docs::one("server.yaml", self.text.lock().unwrap().clone()))
     }
-    fn write(&self, before: &str, after: &str) -> Result<(), WriteError> {
+    fn write(&self, before: &Docs, after: &Docs) -> Result<(), WriteError> {
         let mut t = self.text.lock().unwrap();
-        if *t != before {
+        if *t != before.main().text {
             return Err(WriteError::Changed);
         }
-        *t = after.to_string();
+        *t = after.main().text.clone();
         Ok(())
     }
     fn writable(&self) -> Result<(), WhyNot> {
@@ -78,7 +83,8 @@ impl Store for MemStore {
         }
         Ok(())
     }
-    fn keep(&self, rev: &str, text: &str) {
+    fn keep(&self, rev: &str, docs: &Docs) {
+        let text = docs.main().text.as_str();
         let mut k = self.kept.lock().unwrap();
         if !k.iter().any(|(v, _)| v.rev == rev) {
             let at = k.len() as u64;
@@ -103,14 +109,14 @@ impl Store for MemStore {
             .map(|(v, _)| v.clone())
             .collect()
     }
-    fn version(&self, rev: &str) -> Option<String> {
+    fn version(&self, rev: &str) -> Option<Docs> {
         self.asked.fetch_add(1, Ordering::Relaxed);
         self.kept
             .lock()
             .unwrap()
             .iter()
             .find(|(v, _)| v.rev == rev)
-            .map(|(_, t)| t.clone())
+            .map(|(_, t)| Docs::one("server.yaml", t.clone()))
     }
     fn history_dir(&self) -> Option<PathBuf> {
         Some(self.state.path().join(".server.yaml.history")).filter(|d| d.is_dir())

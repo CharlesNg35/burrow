@@ -422,7 +422,8 @@ pub(super) fn keep_admin_copy(source: &Path, config: &Path) -> Result<Kept, Fail
         return Ok(Kept::Nothing);
     }
     let store = crate::admin::adapters::FileStore::new(config);
-    store.keep(&crate::admin::core::text::rev(&installed), &installed);
+    let docs = crate::config::docs::Docs::one(crate::config::docs::main_name(config), installed);
+    store.keep(&crate::admin::core::text::docs_rev(&docs), &docs);
     match store.history_problem() {
         None => Ok(Kept::Version),
         Some(why) => Err(Failure::new(format!(

@@ -9,8 +9,9 @@ use serde_json::json;
 use crate::admin::core::plan;
 use crate::admin::core::*;
 
-#[cfg(feature = "web")]
 use super::apply_now;
+#[cfg(feature = "web")]
+use super::one;
 use super::{World, core_for, p, session, world};
 
 const BEFORE_P2: [&[&str]; 7] = [
@@ -72,7 +73,7 @@ fn refused(core: &Core, s: &Session, ops: &[Op]) -> Vec<String> {
             e.message.split(' ').take(1).map(str::to_string).collect()
         }
         Err(e) => panic!("refused for another reason: {}", e.message),
-        Ok(c) => panic!("not refused: {}", c.new_text),
+        Ok(c) => panic!("not refused: {}", c.new_docs.main().text),
     }
 }
 
@@ -216,7 +217,9 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
         .unwrap()
         .replace(&site.file("a.pem"), &site.file("b.pem"))
         .replace(&site.file("a.key"), &site.file("b.key"));
-    core.store.write(&core.read().unwrap(), &edited).unwrap();
+    core.store
+        .write(&one(&core.read().unwrap()), &one(&edited))
+        .unwrap();
     let edit = plan::compute(
         &core,
         &s,
@@ -236,19 +239,21 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
         }],
     )
     .unwrap();
-    let doc = crate::config::tree::parse(&crate::config::patch::split_text(&reverted.new_text).2)
-        .unwrap()
-        .to_json();
+    let doc = crate::config::tree::parse(
+        &crate::config::patch::split_text(&reverted.new_docs.main().text).2,
+    )
+    .unwrap()
+    .to_json();
     assert_eq!(
         doc["services"]["nas"]["web"]["tls"]["cert"],
         json!(site.file("b.pem")),
         "{}",
-        reverted.new_text
+        reverted.new_docs.main().text
     );
     assert!(
-        reverted.new_text.contains("target: 443"),
+        reverted.new_docs.main().text.contains("target: 443"),
         "{}",
-        reverted.new_text
+        reverted.new_docs.main().text
     );
     assert!(
         reverted
@@ -422,10 +427,17 @@ fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
         }],
     )
     .unwrap();
-    let doc = crate::config::tree::parse(&crate::config::patch::split_text(&reverted.new_text).2)
-        .unwrap()
-        .to_json();
-    assert_eq!(doc["web"]["certificates"], list, "{}", reverted.new_text);
+    let doc = crate::config::tree::parse(
+        &crate::config::patch::split_text(&reverted.new_docs.main().text).2,
+    )
+    .unwrap()
+    .to_json();
+    assert_eq!(
+        doc["web"]["certificates"],
+        list,
+        "{}",
+        reverted.new_docs.main().text
+    );
 }
 
 #[cfg(feature = "web")]

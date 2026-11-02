@@ -22,6 +22,19 @@ pub fn rev(text: &str) -> String {
     rev_of(&blake2::Blake2s256::digest(text.as_bytes()))
 }
 
+pub fn docs_rev(docs: &crate::config::docs::Docs) -> String {
+    match docs.list.as_slice() {
+        [one] => rev(&one.text),
+        many => {
+            let parts: Vec<&[u8]> = many
+                .iter()
+                .flat_map(|d| [d.name.as_bytes(), d.text.as_bytes()])
+                .collect();
+            hash_parts(&parts)
+        }
+    }
+}
+
 pub fn hash_parts(parts: &[&[u8]]) -> String {
     let mut h = blake2::Blake2s256::new();
     for p in parts {
