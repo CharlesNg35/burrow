@@ -8,7 +8,7 @@
   <a href="https://github.com/CharlesNg35/burrow/actions/workflows/ci.yml"><img src="https://github.com/CharlesNg35/burrow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/CharlesNg35/burrow/releases/latest"><img src="https://img.shields.io/github/v/release/CharlesNg35/burrow" alt="latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-informational" alt="Linux, macOS, Windows">
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20FreeBSD-informational" alt="Linux, macOS, Windows, FreeBSD">
   <a href="docs/service.md#docker"><img src="https://img.shields.io/badge/docker-ghcr.io%2Fcharlesng35%2Fburrow-2496ED?logo=docker&amp;logoColor=white" alt="Docker image"></a>
 </p>
 
