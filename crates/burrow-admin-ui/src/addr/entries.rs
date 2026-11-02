@@ -352,7 +352,7 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
     let stray = Signal::derive(move || weighted.get() && !is_balance.get());
     let clear_weights = {
         let place = place.clone();
-        move |_| place.edit(|all| all.iter_mut().for_each(|r| r.weight = None))
+        Callback::new(move |()| place.edit(|all| all.iter_mut().for_each(|r| r.weight = None)))
     };
     let (create_label, on_create) = super::picker::create_for(&c.entity);
     let touched = fc.touched;
@@ -424,7 +424,7 @@ pub fn entries(fc: FieldCtx, c: RefEntriesC) -> AnyView {
             <Show when=move || stray.get()>
                 <p class="mt-1 flex flex-wrap items-baseline gap-x-2 text-sm text-warning" data-stray-weights="">
                     {burrow_admin_logic::wording::WEIGHTS_NEED_BALANCE}
-                    <button type="button" class=format!("cursor-pointer font-semibold {}", burrow_ui_kit::LINK) data-testid="clear-weights" on:click=clear_weights.clone()>"Clear weights"</button>
+                    <burrow_ui_kit::LinkButton testid="clear-weights" on_click=clear_weights>"Clear weights"</burrow_ui_kit::LinkButton>
                 </p>
             </Show>
             <div class="mt-2 max-w-[240px]" data-add-entry="">
