@@ -35,12 +35,29 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.select("#f-services-web-bind-host", "127.0.0.1").await;
         row_clean(c, bind).await;
 
+        super::adornments_clear(c, "the service form").await;
         let target = "services/*/target";
+        let row = "[data-schema='services/*/target']";
         click_js(c, "[data-schema='services/*/target'] input[value=unix]").await;
+        let long = "/var/run/burrow/apps/a-rather-long-folder-name/for-the-app/app-socket.sock";
+        c.ui.fill("#f-services-web-target", long).await;
+        stored_as(c, target, &format!("unix:{long}")).await;
+        super::adornments_clear(c, "a long Unix socket path").await;
+        c.ui.shot("target-unix-socket").await;
+        super::baseline_of(c, "target-unix-socket-desktop", row).await;
+        c.ui.fill("#f-services-web-target", "relative/app.sock")
+            .await;
+        let err = row_error(c, target).await;
+        assert!(!err.is_empty(), "a relative socket path is refused inline");
+        super::baseline_of(c, "target-unix-socket-invalid-desktop", row).await;
+        c.ui.viewport(390, 844).await;
+        c.ui.fill("#f-services-web-target", long).await;
+        super::adornments_clear(c, "a long Unix socket path at 390 px").await;
+        super::baseline_of(c, "target-unix-socket-phone", row).await;
+        c.ui.viewport(1440, 900).await;
         c.ui.fill("#f-services-web-target", "/tmp/burrow-e2e.sock")
             .await;
-        stored_as(c, "services/*/target", "unix:/tmp/burrow-e2e.sock").await;
-        c.ui.shot("target-unix-socket").await;
+        stored_as(c, target, "unix:/tmp/burrow-e2e.sock").await;
         click_js(c, "[data-schema='services/*/target'] input[value=network]").await;
         c.ui.fill("#f-services-web-target-host", "127.0.0.1").await;
         c.ui.fill("#f-services-web-target", "abc").await;
