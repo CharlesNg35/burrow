@@ -78,7 +78,7 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
             .is_some_and(|b| b.remote == RemoteUpdates::On),
         available: c.available.clone(),
         blocked: c.blocked.clone(),
-        update: c.update.clone(),
+        update: c.update.clone().map(|u| UpdateStatus { secs_ago: 0, ..u }),
     }
 }
 
@@ -323,6 +323,23 @@ mod tests {
         quiet.clients[2].available = None;
         assert!(!of(Some(&quiet), "box").unwrap().refuses());
         assert_eq!(of(Some(&st), "old").unwrap().system_short(), "");
+    }
+
+    #[test]
+    fn a_status_push_that_only_ages_an_update_leaves_the_client_view_unchanged() {
+        let job = |secs_ago| UpdateStatus {
+            id: 1,
+            from: "0.2.1".into(),
+            to: "0.2.2".into(),
+            state: UpdateState::Done,
+            secs_ago,
+            ..UpdateStatus::default()
+        };
+        let mut a = status();
+        a.clients[0].update = Some(job(3));
+        let mut b = status();
+        b.clients[0].update = Some(job(4));
+        assert_eq!(of(Some(&a), "nas"), of(Some(&b), "nas"));
     }
 
     #[test]
