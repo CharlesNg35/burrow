@@ -201,9 +201,10 @@ fn review_body(
             }
             .into_any();
         }
-        match (plan.get(), e.check_error.get()) {
-            (None, Some(err)) => check_failed(s, &err),
-            (None, None) => view! {
+        let pending = !revert.get() && e.checking.get();
+        match (plan.get().filter(|_| !pending), e.check_error.get()) {
+            (None, Some(err)) if !pending => check_failed(s, &err),
+            (None, _) => view! {
                 <div data-testid="review-loading">
                     {outcome_view()}
                     <p class="mb-2 text-text-muted">"Checking your change on the server…"</p>
