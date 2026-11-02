@@ -113,7 +113,7 @@ services:
 - **Which files.** Every file ending in `.yaml`, in name order. Hidden files and other names are skipped, so rename a file to `blog.yaml.off` to switch it off. A `.yml` or `.json` file gets a warning that it is not read.
 - **What goes in them.** Only `services`, `clients` and `visitors`. Server-wide settings (`listen`, `web`, `limits` …) belong in `server.yaml`; one in a drop-in file is an error at its line.
 - **One name, one place.** The same service, client or visitor name in two files is an error that names both places. Nothing is merged or overridden.
-- **Permissions.** A file or folder that every user on the machine can change (`chmod o+w`) is refused, as burrow refuses to run such a config. `${VAR}` works as in `server.yaml`.
+- **Permissions.** A drop-in file, or the folder, that every user on the machine can change (`chmod o+w`) is refused with an error, so the server does not load the set. A drop-in that every user can read gets the same warning as `server.yaml`. `${VAR}` works as in `server.yaml`.
 - **Errors** show the file and line they are in. `burrow validate` lists the files it read, each one's services, clients and visitors, and which are read-only; `burrow status` names the file of a service that comes from a drop-in.
 
 ```text
