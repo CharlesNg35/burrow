@@ -35,6 +35,7 @@ pub(super) fn copy(
     for old in listed(config)? {
         if !wanted.contains(&file_part(&old)) {
             let gone = to.join(file_part(&old));
+            writable_again(&gone);
             std::fs::remove_file(&gone)
                 .map_err(|e| Failure::new(format!("cannot remove {}: {e}", gone.display())))?;
             say(
@@ -54,6 +55,7 @@ pub(super) fn copy(
     for file in &wanted {
         let (src, dst) = (from.join(file), to.join(file));
         let locked = docs::read_only(&src) == Some(ReadOnly::Marked);
+        writable_again(&dst);
         system::copy_file(&src, &dst, false)?;
         backend.secure_file(&dst, account)?;
         if locked {
@@ -71,6 +73,21 @@ pub(super) fn copy(
         ),
     )
 }
+
+#[cfg(windows)]
+fn writable_again(path: &Path) {
+    if let Ok(meta) = std::fs::metadata(path)
+        && meta.permissions().readonly()
+    {
+        let mut perms = meta.permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        let _ = std::fs::set_permissions(path, perms);
+    }
+}
+
+#[cfg(not(windows))]
+fn writable_again(_path: &Path) {}
 
 #[cfg(unix)]
 fn keep_read_only(path: &Path, account: &str) -> Result<(), Failure> {
@@ -159,6 +176,14 @@ mod tests {
         let backend = crate::service::tests::Recorder(Default::default(), false);
         let mut out = Vec::new();
         copy(&backend, (&source, &config), "burrow", true, &mut out).unwrap();
+        copy(
+            &backend,
+            (&source, &config),
+            "burrow",
+            true,
+            &mut Vec::new(),
+        )
+        .expect("a second install replaces the read-only copy");
         let to = folder.join("server.d");
         assert_eq!(
             std::fs::read_to_string(to.join("apps.yaml")).unwrap(),
