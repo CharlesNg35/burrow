@@ -61,6 +61,8 @@ jobs:
         run: bash tests/e2e/service.sh
       - name: Clients started by hand update themselves when the admin asks, and roll back
         run: cargo test --locked --features admin-test-hooks --test admin updates
+      - name: A client service updates through systemd when the admin asks, and rolls back
+        run: bash tests/e2e/remote-update.sh
 
   pebble:
     runs-on: ubuntu-latest
