@@ -389,7 +389,10 @@ fn reached_at(bind_port: u16, ports: u16) -> String {
 mod tests {
     #[test]
     fn a_service_without_a_server_port_is_not_called_visitors_only() {
-        assert_eq!(super::reached_at(0, 1), "no server port (a website or visitors)");
+        assert_eq!(
+            super::reached_at(0, 1),
+            "no server port (a website or visitors)"
+        );
         assert_eq!(super::reached_at(8080, 1), "server port 8080");
     }
 }
