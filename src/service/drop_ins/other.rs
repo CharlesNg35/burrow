@@ -36,12 +36,12 @@ impl<'a> Folder<'a> {
         })
     }
 
-    pub(super) fn put(&self, file: &str, text: &[u8], locked: bool) -> Result<(), Failure> {
+    pub(super) fn put(&self, file: &str, text: &[u8], put: super::Put) -> Result<(), Failure> {
         let dst = self.to.join(file);
         writable_again(&dst);
         system::write_file_mode(&dst, text, 0o600)?;
         self.backend.secure_file(&dst, &self.account)?;
-        if locked {
+        if put == super::Put::Locked {
             let mut perms = std::fs::metadata(&dst)
                 .map_err(|e| Failure::new(format!("cannot read {}: {e}", dst.display())))?
                 .permissions();

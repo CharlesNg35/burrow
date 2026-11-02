@@ -4,6 +4,7 @@ use std::path::Path;
 use rustix::fd::OwnedFd;
 use rustix::fs::{AtFlags, Mode, OFlags};
 
+use super::Put;
 use crate::base::failure::Failure;
 use crate::service::Backend;
 
@@ -17,6 +18,20 @@ pub(super) struct Folder {
     shown: std::path::PathBuf,
     owner: Option<(u32, u32)>,
     group: Option<u32>,
+    writable: bool,
+}
+
+fn owner_and_mode(
+    put: Put,
+    (owner, group): (Option<(u32, u32)>, Option<u32>),
+    writable: bool,
+) -> (Option<(u32, u32)>, u32) {
+    match put {
+        Put::Locked if owner.is_some() => (Some((0, group.unwrap_or(0))), 0o440),
+        Put::Locked => (None, 0o400),
+        Put::Note if !writable => (owner.map(|_| (0, 0)), 0o644),
+        Put::Note | Put::Config => (owner, 0o600),
+    }
 }
 
 fn failed(what: &str, path: &Path, e: impl std::fmt::Display) -> Failure {
@@ -67,18 +82,15 @@ impl Folder {
             shown: to.to_path_buf(),
             owner: root.then(|| ids.unwrap_or((0, 0))),
             group: ids.map(|(_, g)| g),
+            writable,
         })
     }
 
-    pub(super) fn put(&self, file: &str, text: &[u8], locked: bool) -> Result<(), Failure> {
+    pub(super) fn put(&self, file: &str, text: &[u8], put: Put) -> Result<(), Failure> {
         let shown = self.shown.join(file);
         let temp = format!(".{file}.burrow-new");
         let _ = rustix::fs::unlinkat(&self.dir, temp.as_str(), AtFlags::empty());
-        let (owner, mode) = match (locked, self.owner) {
-            (true, Some(_)) => (Some((0, self.group.unwrap_or(0))), 0o440),
-            (true, None) => (None, 0o400),
-            (false, owner) => (owner, 0o600),
-        };
+        let (owner, mode) = owner_and_mode(put, (self.owner, self.group), self.writable);
         let written = (|| -> std::io::Result<()> {
             let mut f = std::fs::File::from(rustix::fs::openat(
                 &self.dir,
@@ -105,5 +117,35 @@ impl Folder {
     pub(super) fn remove(&self, file: &str) -> Result<(), Failure> {
         rustix::fs::unlinkat(&self.dir, file, AtFlags::empty())
             .map_err(|e| failed("remove", &self.shown.join(file), e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_copy_note_belongs_to_root_unless_the_service_may_change_its_config() {
+        let account = Some((1000, 1001));
+        assert_eq!(
+            owner_and_mode(Put::Note, (account, Some(1001)), false),
+            (Some((0, 0)), 0o644)
+        );
+        assert_eq!(
+            owner_and_mode(Put::Note, (account, Some(1001)), true),
+            (account, 0o600)
+        );
+        assert_eq!(
+            owner_and_mode(Put::Config, (account, Some(1001)), false),
+            (account, 0o600)
+        );
+        assert_eq!(
+            owner_and_mode(Put::Locked, (account, Some(1001)), false),
+            (Some((0, 1001)), 0o440)
+        );
+        assert_eq!(
+            owner_and_mode(Put::Note, (None, None), false),
+            (None, 0o644)
+        );
     }
 }
