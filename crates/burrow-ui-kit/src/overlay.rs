@@ -183,3 +183,43 @@ pub fn Tooltip(x: f64, y: f64, #[prop(into)] text: String) -> impl IntoView {
         <div class=TIP role="tooltip" data-testid="tooltip" style:left=format!("{x:.0}px") style:top=format!("{y:.0}px")>{text}</div>
     }
 }
+
+const CUT: &str = ".truncate, [class*=line-clamp-]";
+const AUTO: &str = "data-auto-title";
+
+pub fn cut_text(el: &web_sys::Element) -> Option<String> {
+    let cut =
+        el.scroll_width() > el.client_width() + 1 || el.scroll_height() > el.client_height() + 1;
+    let text = el.text_content().unwrap_or_default();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (cut && !text.is_empty()).then_some(text)
+}
+
+pub fn auto_titles() {
+    if let Some(root) = document().document_element() {
+        let _ = root.set_attribute(AUTO, "");
+    }
+    let listen = window_event_listener(leptos::ev::mouseover, |e| {
+        let Some(el) = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .and_then(|t| t.closest(CUT).ok().flatten())
+        else {
+            return;
+        };
+        if el.has_attribute("title") && !el.has_attribute(AUTO) {
+            return;
+        }
+        match cut_text(&el) {
+            Some(text) => {
+                let _ = el.set_attribute("title", &text);
+                let _ = el.set_attribute(AUTO, "");
+            }
+            None if el.has_attribute(AUTO) => {
+                let _ = el.remove_attribute("title");
+            }
+            None => {}
+        }
+    });
+    std::mem::forget(listen);
+}

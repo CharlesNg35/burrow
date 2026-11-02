@@ -42,7 +42,7 @@ pub use input::{
     split_entries,
 };
 pub use overlay::{
-    Dialog, Modal, Tooltip, active as active_element, focus_first, trap as trap_focus,
+    Dialog, Modal, Tooltip, active as active_element, auto_titles, focus_first, trap as trap_focus,
 };
 pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
 pub use radio::{RadioList, RadioOption};

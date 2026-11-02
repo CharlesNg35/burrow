@@ -113,6 +113,7 @@ pub fn App() -> impl IntoView {
     let s = Store::new(route::current());
     provide_context(s);
     apply_theme(&saved_theme());
+    burrow_ui_kit::auto_titles();
     let on_pop = Closure::<dyn FnMut()>::new(move || {
         s.route.set(route::current());
         s.query_seen.update(|n| *n += 1);
