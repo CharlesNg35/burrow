@@ -152,6 +152,8 @@ mod tests {
             "low-port",
             "swapped-port",
             "not-this-machine",
+            "target-not-allowed",
+            "mode-one-client",
             "plain-ws-443",
             "access-log",
             "insecure-plaintext",

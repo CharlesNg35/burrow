@@ -150,6 +150,7 @@ pub(super) fn judge(
             running,
             next,
         ));
+        clash.extend(guard::not_allowed(&core.live.allows(), running, next));
         clash.extend(guard::not_here(
             &|a| core.live.bind_probe(burrow_config::Protocol::Tcp, a),
             running,

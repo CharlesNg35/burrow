@@ -151,3 +151,22 @@ fn every_low_bind_gets_the_same_low_port_warning_once() {
         "{low:?}"
     );
 }
+
+#[test]
+fn a_mode_with_one_client_says_it_has_no_effect() {
+    let one = found(
+        "services:\n  db: { client: home, mode: balance, bind: 127.0.0.1:45100, target: 22 }\n",
+        "mode-one-client",
+    );
+    assert_eq!(
+        one,
+        [
+            "services.db.mode: balance applies only with two or more clients; with one it has no effect"
+        ]
+    );
+    let default = found(
+        "services:\n  db: { client: home, bind: 127.0.0.1:45100, target: 22 }\n",
+        "mode-one-client",
+    );
+    assert!(default.is_empty());
+}

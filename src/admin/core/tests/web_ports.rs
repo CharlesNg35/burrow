@@ -282,3 +282,52 @@ fn a_udp_service_port_in_use_is_refused_before_saving_with_the_udp_hint() {
         "{d:?}"
     );
 }
+
+#[test]
+fn moving_a_service_to_a_client_whose_allow_list_lacks_the_target_is_a_warning() {
+    let mut w = world();
+    let office = crate::wire::secret::Secret::generate();
+    w.text = w.text.replace(
+        "\n\nvisitors:\n",
+        &format!(
+            "\n  office:\n    secret: {}\n\nvisitors:\n",
+            office.encode()
+        ),
+    );
+    let mut core = core_running(&w.text, &w.text);
+    core.live = Box::new(FakeLive {
+        text: std::sync::Arc::new(std::sync::Mutex::new(w.text.clone())),
+        status: std::sync::Mutex::new(crate::metrics::Status::default()),
+        sessions: std::sync::Mutex::new(Vec::new()),
+        busy: Vec::new(),
+        allows: std::collections::BTreeMap::from([
+            ("home".to_string(), vec!["any".to_string()]),
+            ("office".to_string(), vec!["10.0.0.0/8".to_string()]),
+        ]),
+    });
+    let plan = plan_of(
+        &core,
+        &w,
+        set(&["services", "web", "client"], json!("office")),
+    );
+    let d = plan
+        .diags
+        .iter()
+        .find(|d| d.code == burrow_admin_proto::codes::TARGET_NOT_ALLOWED)
+        .unwrap_or_else(|| panic!("a warning: {:?}", plan.diags));
+    assert!(!d.is_error());
+    assert_eq!(
+        d.message,
+        "services.web.target: client \"office\" does not allow 127.0.0.1:3000, so it refuses this service"
+    );
+    let same = plan_of(
+        &core,
+        &w,
+        set(&["services", "web", "client"], json!("home")),
+    );
+    assert!(
+        same.diags
+            .iter()
+            .all(|d| d.code != burrow_admin_proto::codes::TARGET_NOT_ALLOWED)
+    );
+}
