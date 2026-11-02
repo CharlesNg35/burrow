@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- A network written with host bits set, like `127.0.0.1/24`, is refused with what to write instead: `127.0.0.0/24` for the network, or `127.0.0.1/32` for that one address (`/128` for IPv6). This holds everywhere networks are written: `allow`, `self.allow`, `allow_from`, `deny_from`, `reach`, `admin_from` and the web proxy's trusted ranges, in `burrow validate`, burrow admin and `burrow mcp`.
+
 ## [0.2.0]
 
 Websites with automatic HTTPS, a reworked admin UI, load balancing with weights, and `burrow mcp` for AI apps. Existing configs work unchanged, and v0.1.x clients and visitors keep working with a v0.2.0 server.

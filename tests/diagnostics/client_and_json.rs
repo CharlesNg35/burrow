@@ -35,7 +35,7 @@ fn client_bad_cidr() {
        |     ^^^^^^^^^ not a valid CIDR
        = help: allow entries are IP ranges, not host names; resolve the host and add its address, for example 192.168.1.10/32
 
-    error: invalid allow entry: "192.168.1.1/24" has host bits set
+    error: invalid allow entry: "192.168.1.1/24" has host bits set: write 192.168.1.0/24 for the network, or 192.168.1.1/32 for this one address
       --> client.yaml:7:5
        |
      7 |   - 192.168.1.1/24
