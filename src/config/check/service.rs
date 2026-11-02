@@ -96,7 +96,10 @@ pub(super) fn check_service<'a>(
         spans,
         out,
     );
-    if listed_clients.entries.len() < 2 && spans.has(&["services", name, "mode"]) {
+    if svc.client.iter().count() + svc.clients.len() == 1
+        && svc.mode != Mode::Failover
+        && spans.has(&["services", name, "mode"])
+    {
         out.push(
             Diagnostic::warning(
                 "mode-one-client",
