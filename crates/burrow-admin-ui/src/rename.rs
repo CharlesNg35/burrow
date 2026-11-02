@@ -1,14 +1,14 @@
 use burrow_admin_proto::schema::Entity;
 use burrow_config::{RESERVED_LOGIN_NAMES, entity_path};
-use burrow_syntax::name::check_name;
-use burrow_ui_kit::{Button, Dialog};
+use burrow_syntax::name::{MAX_NAME_LEN, check_name};
+use burrow_ui_kit::{Button, Dialog, TextInput};
 use leptos::prelude::*;
 
 use crate::domain::names_of;
 use crate::route::{Route, go};
 use crate::store::store;
 
-use super::{name_input, name_problem};
+use crate::entities::name_problem;
 
 fn what(entity: &Entity) -> String {
     burrow_admin_logic::entity::info(entity)
@@ -79,5 +79,40 @@ pub fn RenameEntity(entity: Entity, name: String, open: RwSignal<bool>) -> impl 
                 />
             </div>
         </Dialog>
+    }
+}
+
+pub(crate) fn name_input(
+    id: &'static str,
+    label: &'static str,
+    name: RwSignal<String>,
+    problem: Signal<Option<String>>,
+    available: bool,
+    example: &'static str,
+) -> impl IntoView {
+    let msg = format!("{id}-msg");
+    let ok = move || available && !name.get().is_empty() && problem.get().is_none();
+    view! {
+    <div>
+        <label class="mb-1.5 block text-sm font-semibold" for=id>{label}</label>
+        <div class="relative">
+            <TextInput
+                id=id
+                value=name
+                on_input=move |t: String| name.set(t)
+                invalid=Signal::derive(move || problem.get().is_some())
+                described_by=msg.clone()
+                mono=true
+            />
+            {move || ok().then(|| view! {
+                <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 text-xs font-semibold text-success"><burrow_ui_kit::Icon name="check" small=true/>"available"</span>
+            })}
+        </div>
+        <p id=msg class="mt-1.5 text-xs text-danger">{move || problem.get()}</p>
+        <p class="text-xs text-text-muted">
+            {move || ok().then(|| view! { <span class="sr-only" data-testid="name-available">"available"</span> })}
+            {format!("For example {example}. Letters, digits, dot, dash, underscore; up to {MAX_NAME_LEN} characters.")}
+        </p>
+    </div>
     }
 }

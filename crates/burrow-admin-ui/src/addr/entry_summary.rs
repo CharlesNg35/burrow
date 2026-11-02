@@ -5,7 +5,7 @@ use leptos::prelude::*;
 
 use super::entries::Place;
 use super::entry_target::main_shown;
-use crate::form::plain;
+use crate::field::plain;
 
 fn rest(main: bool, weight: Option<&str>) -> String {
     let mut tail = String::new();

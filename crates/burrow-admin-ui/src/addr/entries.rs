@@ -7,14 +7,14 @@ use leptos::prelude::*;
 
 use super::entry_summary::{summary, target_line};
 use super::entry_target::{Open, focus_soon, input_id, shifted, swapped, target_cell, to_main};
-use crate::app::{MenuItem, row_menu, row_menus};
+use crate::row_menu::{Item as MenuItem, row_menu, row_menus};
 use burrow_admin_logic::wording::NOT_SET;
 
 type OpenMap = std::collections::BTreeMap<usize, Option<Value>>;
 use super::RefPicker;
-use crate::domain::{FieldCtx, set_checked};
 use crate::edit::diags_at;
-use crate::form::{Ctx, plain, ref_link};
+use crate::field::{Ctx, plain, ref_link};
+use crate::field::{FieldCtx, set_checked};
 use crate::store::store;
 
 pub(super) fn sibling(path: &[String], key: Vec<String>) -> Vec<String> {

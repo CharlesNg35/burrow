@@ -30,6 +30,17 @@ The `burrow` crate is built in layers, from the bottom up:
 - Each crate in `crates/` has a fixed list of crates it may depend on.
 - A new module gets its row in `xtask/src/layers.rs`, and a new crate in `xtask/src/arch.rs`, in the same change.
 
+The admin UI crate (`crates/burrow-admin-ui`) has its own layers, from the bottom up:
+
+| Layer | What it holds |
+|---|---|
+| model | the store, the draft (`edit`), the API, routes, formatting, adding and naming entries (`entities`) |
+| controls | one control at a time: a field's context (`field`), addresses and pickers (`addr`), passwords, secrets, row menus, popovers (`shown`) |
+| editor | the field editor (`domain`) and the object form (`form`), logins, uploads, the rename dialog |
+| pages | the screens, Review and the app shell |
+
+- A lower layer never imports a higher one. Units in one layer may use each other: the field editor and the form call each other for nested objects.
+
 ## Comments
 
 - No code comments: no `//`, no `///` and no `/* */`.
@@ -73,5 +84,7 @@ burrow has one config model shared by the server, the CLI and the admin UI. Most
 - **Validate with the shared rules.** UI checks call the same `burrow-syntax` and `burrow-admin-logic` functions the server uses. No inline `contains('@')` or `parse().ok()`.
 - **A relation lives in the model.** If a field does not apply in some case, the model says so (for example with `enabled_if`), and the server check and the UI both read that one rule; never a second hand-written list.
 - **New model fields are checked by the compiler all the way to the runtime.** Code that turns the model into runtime settings destructures the model struct without `..`, so a new field cannot be forgotten.
+- **Entity facts live in the entity descriptor.** The name, icon, name example and wording of each entity kind sit in one table, `burrow_admin_logic::entity`; a screen never matches on `Entity` to pick one of them.
+- **Controls do not import screens.** Shared controls (fields, pickers, cards) may use the store and the logic crates, never page modules. `cargo xtask arch-check` enforces the order.
 - **Test helpers are shared.** Before you write a helper in a test file, look in the test kits (`tests/common`, `src/base/testkit.rs`, the crate's own kit). A second copy moves into the kit.
 - **When you add a variant, find every list of variants.** Add or extend a test that walks all of them (schema fields, entity kinds, choice lists, diagnostic codes), so the next person cannot miss one.

@@ -142,7 +142,7 @@ impl Switch {
                         }
                         if way != Way::Website {
                             let path = path.clone();
-                            request_animation_frame(move || crate::screens::entity::go_to_field(&path));
+                            request_animation_frame(move || crate::form::go_to_field(&path));
                         }
                     } else {
                         kept.set_value(e.peek(&path));
@@ -262,7 +262,7 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
     let no_way = move || {
         none.get().then(|| {
             let tone = if touched.get() { Tone::Danger } else { Tone::Info };
-            view! { <div data-testid="no-way-in">{field_message(tone, crate::screens::paths::PICK_VISITORS.to_string())}</div> }
+            view! { <div data-testid="no-way-in">{field_message(tone, burrow_admin_logic::wording::PICK_VISITORS.to_string())}</div> }
         })
     };
     view! {

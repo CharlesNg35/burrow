@@ -2,6 +2,7 @@
 
 mod service;
 
+use burrow_admin_logic::wording::PICK_VISITORS;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
@@ -288,9 +289,6 @@ pub fn udp(svc: &Value) -> bool {
         .and_then(Protocol::from_wire)
         == Some(Protocol::Udp)
 }
-
-pub const PICK_VISITORS: &str =
-    "Turn on a way in: Public port, Website, or Visitors with at least one visitor";
 
 pub fn add_blocker(svc: &Value) -> Option<&'static str> {
     let public = burrow_admin_logic::web::is_public(svc);

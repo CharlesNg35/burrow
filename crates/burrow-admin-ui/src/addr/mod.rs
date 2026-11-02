@@ -13,7 +13,7 @@ use burrow_admin_proto::Path;
 use burrow_ui_kit::{Segmented, TextInput};
 use leptos::prelude::*;
 
-use crate::domain::{FieldCtx, set_checked};
+use crate::field::{FieldCtx, set_checked};
 use crate::store::store;
 
 pub(crate) use entries::{entries, entries_view};

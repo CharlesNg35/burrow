@@ -4,66 +4,15 @@ mod detail;
 mod guard;
 mod page;
 
-use burrow_admin_proto::plan::{Change, ChangeKind, Diff, Level, Plan};
+use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan};
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Entry, ServiceEntry};
 use burrow_ui_kit::{EdgeState, HopState, PathData, Tone};
 
 use crate::screens::paths::{self, Problems};
 
+pub(crate) use crate::edit::{Group, change_groups};
 pub(crate) use page::{ConflictDialog, ReviewPage, recheck, stale};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Group {
-    pub head: Change,
-    pub parts: Vec<Change>,
-}
-
-pub fn change_groups(plan: &Plan) -> Vec<Group> {
-    let mut out: Vec<Group> = plan
-        .changes
-        .iter()
-        .filter(|c| {
-            c.part_of
-                .as_ref()
-                .is_none_or(|g| !plan.changes.iter().any(|h| h.path == *g))
-        })
-        .map(|c| Group {
-            head: c.clone(),
-            parts: Vec::new(),
-        })
-        .collect();
-    for c in &plan.changes {
-        if let Some(g) = c
-            .part_of
-            .as_ref()
-            .and_then(|g| out.iter_mut().find(|x| x.head.path == *g))
-        {
-            g.parts.push(c.clone());
-        }
-    }
-    let entity = |g: &Group| {
-        g.head
-            .path
-            .first()
-            .is_some_and(|s| crate::route::SECTIONS.contains(&s.as_str()))
-    };
-    let settings: Vec<Group> = out.iter().filter(|g| !entity(g)).cloned().collect();
-    if settings.len() > 1 {
-        out.retain(entity);
-        let names: Vec<String> = settings.iter().map(|g| g.head.path.join(".")).collect();
-        out.push(Group {
-            head: Change {
-                kind: ChangeKind::Set,
-                path: vec!["settings".into()],
-                summary: format!("Server settings: {}", names.join(", ")),
-                part_of: None,
-            },
-            parts: settings.into_iter().map(|g| g.head).collect(),
-        });
-    }
-    out
-}
 
 pub const REVIEW_ON_NEW: &str = "Review my changes on the new version";
 
@@ -263,6 +212,7 @@ fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burrow_admin_proto::plan::Change;
 
     #[test]
     fn a_diagnostic_says_where_in_the_words_of_the_form() {

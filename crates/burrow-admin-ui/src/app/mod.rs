@@ -2,9 +2,7 @@
 
 mod header;
 mod menus;
-mod row_menu;
 mod search;
-mod shown;
 
 use burrow_admin_proto::msg::{FileDiagnostics, UiDiagnostics};
 use burrow_admin_proto::serde_json;
@@ -21,10 +19,7 @@ use crate::screens;
 use crate::store::{Conn, Store, store};
 
 use header::Header;
-pub(crate) use header::popover;
-pub(crate) use row_menu::{Item as MenuItem, row_menu, row_menus};
 use search::SearchPopover;
-pub(crate) use shown::shown_while;
 
 const THEME_KEY: &str = "burrow-admin-theme";
 

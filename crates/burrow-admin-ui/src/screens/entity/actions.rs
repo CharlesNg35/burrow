@@ -2,8 +2,9 @@ use burrow_admin_proto::Path;
 use burrow_ui_kit::{Button, Icon, Tone, button_class, copy_text, tag_class};
 use leptos::prelude::*;
 
+use crate::entities::singular;
 use crate::route::{self, Route};
-use crate::screens::create::singular;
+
 use crate::screens::placement;
 use crate::store::store;
 

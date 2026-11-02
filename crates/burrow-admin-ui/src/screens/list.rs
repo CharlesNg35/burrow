@@ -238,7 +238,7 @@ pub struct NewChoice {
 
 fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl IntoView {
     let open = RwSignal::new(false);
-    crate::app::popover(open, "new-menu-button", "new-menu");
+    crate::shown::popover(open, "new-menu-button", "new-menu");
     let items = menu
         .into_iter()
         .map(|c| {

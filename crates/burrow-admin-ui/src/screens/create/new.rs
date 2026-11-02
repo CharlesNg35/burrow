@@ -9,7 +9,8 @@ use crate::api;
 use crate::route::{Route, go};
 use crate::store::{Store, store};
 
-use super::{create_with, name_problem, new_path, services_for, singular};
+use super::{new_path, services_for};
+use crate::entities::{create_with, name_problem, singular};
 
 #[component]
 pub fn NewEntity(
@@ -78,7 +79,7 @@ pub fn NewEntity(
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
                 <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
-                {super::name_input("new-name", "Name", name, problem, true, burrow_admin_logic::entity::of_section(&section).name_example)}
+                {crate::rename::name_input("new-name", "Name", name, problem, true, burrow_admin_logic::entity::of_section(&section).name_example)}
                 {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
             </section>
             {(what != ServiceEntry::ENTITY).then(|| limits_section(what, name, max, placeholder_max, options, links))}

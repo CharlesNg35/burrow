@@ -11,8 +11,8 @@ use burrow_config::{Entry, entity_path};
 use burrow_ui_kit::{Button, Dialog, FieldRow, Tone};
 use leptos::prelude::*;
 
-use crate::app::{MenuItem, row_menu, row_menus};
 use crate::route::{Link, Route};
+use crate::row_menu::{Item as MenuItem, row_menu, row_menus};
 use crate::store::store;
 
 pub(crate) use site::site_editor;
@@ -122,7 +122,7 @@ struct Controls {
 
 fn remove_dialog(removing: RwSignal<Option<String>>) -> impl IntoView {
     let e = store().edit;
-    let shown = crate::app::shown_while(removing, Option::is_some, |o| *o = None);
+    let shown = crate::shown::shown_while(removing, Option::is_some, |o| *o = None);
     let title = Signal::derive(move || {
         format!(
             "Remove login service {}",
@@ -155,11 +155,11 @@ fn remove_dialog(removing: RwSignal<Option<String>>) -> impl IntoView {
 }
 
 fn rename_dialog(renaming: RwSignal<Option<String>>) -> impl IntoView {
-    let open = crate::app::shown_while(renaming, Option::is_some, |o| *o = None);
+    let open = crate::shown::shown_while(renaming, Option::is_some, |o| *o = None);
     move || {
         renaming
             .get()
-            .map(|name| view! { <crate::screens::create::RenameEntity entity=Entity::Login name=name open=open/> })
+            .map(|name| view! { <crate::rename::RenameEntity entity=Entity::Login name=name open=open/> })
     }
 }
 

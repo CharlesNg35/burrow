@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use crate::route::{Route, go};
 use crate::store::store;
 
-use super::{name_problem, taken};
+use crate::entities::{name_problem, taken};
 
 const TERMS: &str = "https://letsencrypt.org/repository/";
 
@@ -387,7 +387,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             {steps(names, check_name, client, target, tls, p)}
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="new-website-name">
                 {step(5, "Service name", "A short name for lists, commands and Review.")}
-                {super::name_input("new-website-service", "Service name", svc_name, name_issue, true, "blog or shop")}
+                {crate::rename::name_input("new-website-service", "Service name", svc_name, name_issue, true, "blog or shop")}
             </section>
             {move || asks_email.get().then(|| email_step(email))}
             {move || problem.get().filter(|_| !names.with(Vec::is_empty)).map(|m| view! {

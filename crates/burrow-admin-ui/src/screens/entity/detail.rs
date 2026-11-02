@@ -8,11 +8,12 @@ use burrow_ui_kit::{Icon, Tone, tag_class};
 use leptos::context::Provider;
 use leptos::prelude::*;
 
+use crate::entities::singular;
 use crate::form::{EditMode, plain};
 use crate::format;
+use crate::rename::RenameEntity;
 use crate::route::{self, Route};
 use crate::screens::DetailPane;
-use crate::screens::create::{RenameEntity, singular};
 use crate::screens::paths;
 use crate::screens::placement;
 use crate::store::store;
@@ -51,7 +52,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     let mode = EditMode(Signal::derive(move || editing.get()));
     let renaming = RwSignal::new(false);
     let menu = RwSignal::new(false);
-    crate::app::popover(menu, "entity-more", "entity-more-menu");
+    crate::shown::popover(menu, "entity-more", "entity-more-menu");
     let what = singular(&section);
     if section == ClientEntry::section()
         && let Ok(h) = set_interval_with_handle(

@@ -10,7 +10,7 @@ pub struct Info {
 }
 
 const CLIENT: Info = Info {
-    singular: "client",
+    singular: <burrow_config::ClientEntry as burrow_config::Entry>::ENTITY,
     icon: "monitor",
     name_example: "home or office",
     intro: "A machine that dials out to this server and reaches targets for your services.",
@@ -18,7 +18,7 @@ const CLIENT: Info = Info {
 };
 
 const VISITOR: Info = Info {
-    singular: "visitor",
+    singular: <burrow_config::VisitorEntry as burrow_config::Entry>::ENTITY,
     icon: "person",
     name_example: "laptop or phone",
     intro: "A person or machine that reaches services with burrow visit.",
@@ -26,7 +26,7 @@ const VISITOR: Info = Info {
 };
 
 const SERVICE: Info = Info {
-    singular: "service",
+    singular: <burrow_config::ServiceEntry as burrow_config::Entry>::ENTITY,
     icon: "stack",
     name_example: "nas or home-ssh",
     intro: "A port on this server, a website, or a service for your visitors, reached through one of your clients.",

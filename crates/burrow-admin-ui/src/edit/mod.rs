@@ -2,6 +2,7 @@
 
 mod check;
 mod diags;
+mod groups;
 mod session;
 
 use std::collections::BTreeMap;
@@ -19,6 +20,7 @@ use leptos::prelude::*;
 
 use diags::related_errors;
 pub(crate) use diags::{diags_at, severity_tone};
+pub(crate) use groups::{Group, change_groups};
 
 pub const VALIDATE_AFTER: Duration = Duration::from_millis(400);
 
@@ -180,7 +182,7 @@ impl Edit {
 
     pub fn review_count(&self) -> usize {
         match self.review_plan() {
-            Some(p) => crate::review::change_groups(&p).len(),
+            Some(p) => crate::edit::change_groups(&p).len(),
             None => self.pending(),
         }
     }
@@ -418,7 +420,7 @@ pub fn landing(
 ) -> Option<crate::route::Route> {
     use crate::route::Route;
     use burrow_admin_proto::plan::ChangeKind;
-    let head = crate::review::change_groups(plan).into_iter().next()?.head;
+    let head = crate::edit::change_groups(plan).into_iter().next()?.head;
     match head.path.as_slice() {
         [sec, name] if crate::route::SECTIONS.contains(&sec.as_str()) => Some(match head.kind {
             ChangeKind::Remove => Route::List(sec.clone()),

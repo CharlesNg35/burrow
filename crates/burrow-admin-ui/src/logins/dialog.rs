@@ -6,7 +6,7 @@ use burrow_config::ForwardAuthConfig;
 use burrow_ui_kit::{Button, ChipInput, Dialog, Select, TextInput, Tone, field_message};
 use leptos::prelude::*;
 
-use crate::screens::create::{name_input, problem_of};
+use crate::rename::{name_input, problem_of};
 use crate::store::store;
 
 use super::{Open, base};
@@ -131,7 +131,7 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
         let now = open.get();
         untrack(|| d.fill(&now));
     });
-    let shown = crate::app::shown_while(open, |o| *o != Open::Closed, |o| *o = Open::Closed);
+    let shown = crate::shown::shown_while(open, |o| *o != Open::Closed, |o| *o = Open::Closed);
     let adding = Signal::derive(move || open.get() == Open::Add);
     let name_problem = Signal::derive(move || {
         if !adding.get() {
