@@ -43,6 +43,9 @@ impl Watched for ServerSettings {
             _ => None,
         }
     }
+    fn folders(&self, config: &Path) -> Vec<PathBuf> {
+        vec![crate::config::docs::drop_in_folder(config)]
+    }
     fn files(&self, config: &Path) -> Vec<PathBuf> {
         let mut files = vec![config.to_path_buf()];
         if let Some(tls) = self.websocket.as_ref().and_then(|w| w.tls.as_ref()) {
@@ -309,11 +312,27 @@ async fn gather(
     nudges: &mut Option<mpsc::Receiver<Nudge>>,
     waiting: &mut Vec<tokio::sync::oneshot::Sender<ReloadOutcome>>,
 ) -> (bool, bool) {
-    if first != "admin" {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
     let mut asked = first == "SIGHUP" || first == "admin";
     let mut event = first == "file changed";
+    if first != "admin" {
+        let until = tokio::time::Instant::now() + SETTLE_AT_MOST;
+        loop {
+            let quiet = tokio::time::sleep(SETTLE);
+            tokio::select! {
+                more = trig.recv() => match more {
+                    Some(more) => {
+                        asked |= more == "SIGHUP";
+                        event |= more == "file changed";
+                        if tokio::time::Instant::now() >= until {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                () = quiet => break,
+            }
+        }
+    }
     while let Ok(more) = trig.try_recv() {
         asked |= more == "SIGHUP";
         event |= more == "file changed";
@@ -344,6 +363,8 @@ fn say_rejected_report(
 }
 
 const RECHECK: Duration = Duration::from_secs(30);
+const SETTLE: Duration = Duration::from_millis(500);
+const SETTLE_AT_MOST: Duration = Duration::from_secs(5);
 
 struct Worker(Option<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>>);
 
@@ -471,6 +492,45 @@ mod tests {
             matches!(seen, Ok(Some(_))),
             "the working watcher was dropped"
         );
+    }
+
+    #[tokio::test]
+    async fn a_burst_of_ten_drop_in_files_is_applied_in_one_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(
+            &config,
+            "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nservices:\n  web: { client: home, target: 80, bind: 7900 }\n",
+        )
+        .unwrap();
+        let loaded = load_file(&config, Some(Role::Server), &Env::default())
+            .unwrap()
+            .loaded
+            .unwrap();
+        let current = ServerSettings::from_loaded(loaded).unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(follow(config, current, Env::default(), accept(), tx));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let folder = dir.path().join("server.d");
+        std::fs::create_dir(&folder).unwrap();
+        for i in 0..10 {
+            std::fs::write(
+                folder.join(format!("s{i}.yaml")),
+                format!(
+                    "services:\n  s{i}: {{ client: home, target: 80, bind: {} }}\n",
+                    7910 + i
+                ),
+            )
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        let first = tokio::time::timeout(Duration::from_secs(8), rx.recv())
+            .await
+            .expect("the burst is applied")
+            .unwrap();
+        assert_eq!(first.services.len(), 11);
+        let again = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
+        assert!(again.is_err(), "one reload for the whole burst");
     }
 
     #[test]

@@ -16,11 +16,14 @@ pub(super) fn listing(folder: &Path) -> Option<u64> {
     let mut names: Vec<_> = std::fs::read_dir(folder)
         .ok()?
         .flatten()
-        .map(|e| e.file_name())
+        .map(|e| e.path())
         .collect();
     names.sort();
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    names.hash(&mut h);
+    for path in names {
+        path.file_name().hash(&mut h);
+        std::fs::read(&path).ok().hash(&mut h);
+    }
     Some(h.finish())
 }
 
