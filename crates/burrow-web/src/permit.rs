@@ -1,3 +1,6 @@
+//! Admission control for incoming connections: a fixed number of handshake slots and a capped waiting room.
+//! Waiting and stalled handshakes are shared per source address, so one source cannot fill them.
+
 use std::future::Future;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

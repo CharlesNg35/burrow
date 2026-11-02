@@ -1,3 +1,5 @@
+//! DNS lookups for DNS-01 checks: asks resolvers, follows CNAMEs and finds a name's zone and nameservers.
+
 use std::net::{IpAddr, SocketAddr};
 
 use hickory_proto::op::{Message, ResponseCode};

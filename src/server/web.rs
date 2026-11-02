@@ -1,3 +1,5 @@
+//! Connects the web proxy to the server: `Doorway` opens tunnel connections for sites, `proxy_settings` builds its settings.
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

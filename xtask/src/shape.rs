@@ -1,10 +1,11 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
 pub const MAX_CODE: usize = 600;
 pub const MAX_INLINE_TESTS: usize = 300;
 pub const MAX_TEST_FILE: usize = 1000;
-pub const MAX_HEADER: usize = 3;
+pub const MAX_HEADER: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -12,28 +13,25 @@ pub enum Kind {
     Test,
 }
 
-pub fn header_files(root: &Path) -> Vec<String> {
-    let mut out = vec!["src/lib.rs".to_string(), "src/main.rs".to_string()];
-    for g in crate::layers::GROUPS {
-        out.push(format!("src/{g}/mod.rs"));
-    }
-    out.push("xtask/src/main.rs".to_string());
-    if let Ok(rd) = std::fs::read_dir(root.join("crates")) {
-        let mut crates: Vec<String> = rd
-            .flatten()
-            .filter(|e| e.path().is_dir())
-            .filter_map(|e| e.file_name().to_str().map(str::to_string))
-            .collect();
-        crates.sort();
-        for c in crates {
-            for f in ["lib.rs", "main.rs"] {
-                if root.join("crates").join(&c).join("src").join(f).exists() {
-                    out.push(format!("crates/{c}/src/{f}"));
-                }
-            }
-        }
-    }
-    out
+pub fn module_roots(files: &[String]) -> BTreeSet<String> {
+    let folders: BTreeSet<&str> = files
+        .iter()
+        .filter_map(|f| f.rsplit_once('/').map(|(d, _)| d))
+        .collect();
+    let has_folder = |stem: &str| {
+        folders
+            .iter()
+            .any(|d| *d == stem || d.strip_prefix(stem).is_some_and(|r| r.starts_with('/')))
+    };
+    files
+        .iter()
+        .filter(|f| {
+            let name = f.rsplit_once('/').map_or(f.as_str(), |(_, n)| n);
+            matches!(name, "lib.rs" | "main.rs" | "mod.rs")
+                || f.strip_suffix(".rs").is_some_and(has_folder)
+        })
+        .cloned()
+        .collect()
 }
 
 pub fn kind_of(path: &str, src: &str) -> Kind {
@@ -43,7 +41,7 @@ pub fn kind_of(path: &str, src: &str) -> Kind {
         || path.ends_with("/tests.rs");
     let test_only = src
         .lines()
-        .find(|l| !l.trim().is_empty())
+        .find(|l| !l.trim().is_empty() && !l.starts_with("//!"))
         .is_some_and(|l| l.trim() == "#![cfg(test)]");
     if test_path || test_only {
         Kind::Test
@@ -253,9 +251,9 @@ fn lines_with(code: &str, needle: &str) -> Vec<usize> {
         .collect()
 }
 
-pub fn comment_problems(path: &str, src: &str, header_allowed: bool) -> Vec<String> {
+pub fn comment_problems(path: &str, src: &str, root: bool) -> Vec<String> {
     let lexed = lex(src);
-    let header_lines = if header_allowed {
+    let header_lines = if root {
         src.lines().take_while(|l| l.starts_with("//!")).count()
     } else {
         0
@@ -270,9 +268,12 @@ pub fn comment_problems(path: &str, src: &str, header_allowed: bool) -> Vec<Stri
             }
             continue;
         }
-        out.push(format!(
-            "{path}:{line}: a comment; code has no comments, only a //! header at the top of a crate root or layer mod.rs"
-        ));
+        let rule = if root {
+            "code has no comments, only the //! header at the top"
+        } else {
+            "code has no comments, and only a module root (lib.rs, main.rs, mod.rs, or foo.rs with a foo/ folder) has a //! header"
+        };
+        out.push(format!("{path}:{line}: a comment; {rule}"));
     }
     for at in lines_with(&lexed.code, "#[doc=")
         .into_iter()
@@ -282,12 +283,26 @@ pub fn comment_problems(path: &str, src: &str, header_allowed: bool) -> Vec<Stri
             "{path}:{at}: a doc attribute; code has no comments or docs"
         ));
     }
-    if header_allowed && header_lines == 0 {
-        out.push(format!(
-            "{path}: needs a //! header of at most {MAX_HEADER} lines saying what it is for and what it must not depend on"
-        ));
+    if root {
+        out.extend(header_shape(path, src, header_lines));
     }
     out
+}
+
+fn header_shape(path: &str, src: &str, header_lines: usize) -> Option<String> {
+    let first = src.lines().next().unwrap_or_default();
+    let summary = first.trim_start_matches("//!").trim();
+    if header_lines == 0 {
+        Some(format!(
+            "{path}: a module root needs a //! header of at most {MAX_HEADER} lines, its first line a one-sentence summary"
+        ))
+    } else if !summary.ends_with('.') {
+        Some(format!(
+            "{path}:1: the //! header's first line is a whole sentence of its own, ending with a full stop"
+        ))
+    } else {
+        None
+    }
 }
 
 pub(crate) fn tracked(root: &Path) -> Result<Vec<String>, String> {
@@ -310,14 +325,15 @@ pub(crate) fn tracked(root: &Path) -> Result<Vec<String>, String> {
 }
 
 pub fn problems(root: &Path) -> Result<Vec<String>, String> {
-    let headers = header_files(root);
+    let files = tracked(root)?;
+    let roots = module_roots(&files);
     let mut out = Vec::new();
-    for path in tracked(root)? {
+    for path in files {
         let Ok(src) = std::fs::read_to_string(root.join(&path)) else {
             continue;
         };
         out.extend(size_problems(&path, &src));
-        out.extend(comment_problems(&path, &src, headers.contains(&path)));
+        out.extend(comment_problems(&path, &src, roots.contains(&path)));
     }
     Ok(out)
 }
@@ -472,36 +488,68 @@ mod tests {
     }
 
     #[test]
-    fn a_crate_root_or_layer_mod_has_a_header_of_at_most_three_lines() {
-        let ok = "//! one\n//! two\n//! three\n\nmod a;\n";
+    fn a_module_root_has_a_header_of_at_most_five_lines_led_by_a_sentence() {
+        let ok = "//! One.\n//! two\n//! three\n//! four\n//! five\n\nmod a;\n";
         assert!(comment_problems("src/lib.rs", ok, true).is_empty());
-        let long = "//! one\n//! two\n//! three\n//! four\nmod a;\n";
+        let long = "//! One.\n//! two\n//! three\n//! four\n//! five\n//! six\nmod a;\n";
         assert_eq!(comment_problems("src/lib.rs", long, true).len(), 1);
         let missing = "mod a;\n";
         assert_eq!(comment_problems("src/lib.rs", missing, true).len(), 1);
-        let late = "mod a;\n//! late\n";
+        let late = "mod a;\n//! Late.\n";
         assert_eq!(comment_problems("src/lib.rs", late, true).len(), 2);
-        let other = "//! one\n// plain\nmod a;\n";
+        let other = "//! One.\n// plain\nmod a;\n";
         assert_eq!(comment_problems("src/lib.rs", other, true).len(), 1);
+        let cut = "//! One sentence cut\n//! in two.\nmod a;\n";
+        assert_eq!(comment_problems("src/lib.rs", cut, true).len(), 1);
     }
 
     #[test]
-    fn the_header_files_are_the_crate_roots_and_the_layer_folders() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let h = header_files(root);
+    fn a_header_above_cfg_test_keeps_the_file_a_test_file() {
+        let src = "//! Shared test helpers.\n\n#![cfg(test)]\nfn t() {}\n";
+        assert_eq!(kind_of("src/a/kit.rs", src), Kind::Test);
+    }
+
+    #[test]
+    fn module_roots_are_lib_main_mod_and_files_with_a_folder() {
+        let files: Vec<String> = [
+            "src/lib.rs",
+            "src/main.rs",
+            "src/base/mod.rs",
+            "src/base/fs.rs",
+            "src/config/web.rs",
+            "src/config/web/fill.rs",
+            "src/config/webby.rs",
+            "tests/admin.rs",
+            "tests/admin/flows.rs",
+            "tests/common/mod.rs",
+            "tests/plain.rs",
+            "crates/c/src/lib.rs",
+            "crates/c/tests/h2/main.rs",
+            "xtask/src/main.rs",
+        ]
+        .map(String::from)
+        .to_vec();
+        let roots = module_roots(&files);
         for f in [
             "src/lib.rs",
             "src/main.rs",
             "src/base/mod.rs",
-            "src/wire/mod.rs",
-            "src/policy/mod.rs",
-            "src/app/mod.rs",
+            "src/config/web.rs",
+            "tests/admin.rs",
+            "tests/common/mod.rs",
+            "crates/c/src/lib.rs",
+            "crates/c/tests/h2/main.rs",
             "xtask/src/main.rs",
-            "crates/burrow-config/src/lib.rs",
-            "crates/burrow-admin-ui/src/main.rs",
         ] {
-            assert!(h.iter().any(|x| x == f), "{f} in {h:?}");
+            assert!(roots.contains(f), "{f} in {roots:?}");
         }
-        assert!(!h.iter().any(|x| x == "src/config/mod.rs"));
+        for f in [
+            "src/base/fs.rs",
+            "src/config/webby.rs",
+            "src/config/web/fill.rs",
+            "tests/plain.rs",
+        ] {
+            assert!(!roots.contains(f), "{f} is a leaf");
+        }
     }
 }

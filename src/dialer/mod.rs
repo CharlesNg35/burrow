@@ -1,3 +1,6 @@
+//! Connects a client or visitor to the server and opens encrypted channels on that connection.
+//! Start at `Dialer::connect` and `Dialer::open`; `admin` opens the admin link.
+
 pub mod admin;
 pub(crate) mod fetch;
 

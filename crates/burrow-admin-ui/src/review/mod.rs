@@ -1,3 +1,5 @@
+//! The review page of the admin UI: the server's plan of changes grouped for reading, the refusals of the lockout guard and the conflict dialog.
+
 mod detail;
 mod guard;
 mod page;

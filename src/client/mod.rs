@@ -1,3 +1,6 @@
+//! The client role: keeps a session with the server, reconnects with backoff, takes reloads and serves visits.
+//! Start at `Client::run`; `data` carries the visits.
+
 pub(crate) mod data;
 #[cfg(unix)]
 pub(crate) use data::fit_to_open_files;

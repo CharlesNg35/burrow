@@ -1,3 +1,5 @@
+//! The shared kit of the integration tests: settings builders, running servers and clients, echo targets, free ports, certificates and wait helpers.
+
 #![allow(dead_code)]
 
 pub mod admin;

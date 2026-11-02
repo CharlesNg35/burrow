@@ -1,3 +1,5 @@
+//! The path diagrams of the admin UI: the hops from clients and visitors through the server to a service's target.
+
 mod service;
 
 use burrow_admin_proto::serde_json::Value;

@@ -1,3 +1,5 @@
+//! Tests of `burrow init`: the generated server, client, visitor and web configs and their printed output.
+
 #[path = "init/client_config.rs"]
 mod client_config;
 mod common;

@@ -1,3 +1,6 @@
+//! The local CA: issues short-lived certificates for internal names from a root kept in the state folder.
+//! Start at `Internal::step`; it creates or opens the CA and renews each group's leaf.
+
 mod ca;
 
 use std::collections::{BTreeMap, HashMap};

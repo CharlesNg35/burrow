@@ -1,3 +1,5 @@
+//! Builds the server config schema that the admin UI edits, and its hash.
+
 use burrow_admin_proto::schema::Schema;
 use burrow_config::admin_schema::{AdminSchema, entities};
 

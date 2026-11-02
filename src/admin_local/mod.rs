@@ -1,3 +1,6 @@
+//! Serves the admin web UI on 127.0.0.1 and bridges each browser session to the server through the visitor link.
+//! Start at `listen` and `serve`; `bridge` relays the WebSocket, `session` keeps sign-ins, `launch` opens the browser.
+
 pub mod assets;
 pub mod bridge;
 pub mod http;

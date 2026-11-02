@@ -1,3 +1,6 @@
+//! Lingering close for HTTP/1: once hyper ends a connection, the write side is shut and leftover request bytes are read and dropped for a bounded time, so the client reads the answer instead of a reset.
+//! `serve` wraps a hyper connection in `Lingering`; `probe` (tests and the `probe` feature) sends large bodies to check it.
+
 use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;

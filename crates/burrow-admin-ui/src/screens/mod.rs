@@ -1,3 +1,5 @@
+//! The screens of the admin UI and `screen`, which picks the one for each `Route`.
+
 mod about;
 pub mod activity;
 pub mod bar;

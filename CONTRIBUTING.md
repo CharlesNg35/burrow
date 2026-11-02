@@ -32,10 +32,14 @@ The `burrow` crate is built in layers, from the bottom up:
 
 ## Comments
 
-- No code comments: no `//` and no `///`.
-- One exception: a `//!` header of at most 3 lines, as the very first lines of each crate's `lib.rs` or `main.rs` (`burrow`, every crate in `crates/`, and `xtask`) and of each layer folder's `mod.rs` (`base`, `wire`, `policy`, `app`). Each of these files has one. It says what the unit is for and what it must not depend on.
-- `cargo xtask arch-check` enforces the comment rule.
-- Longer explanations belong in `docs/`, and the reasons for design choices in `docs/decisions.md`.
+- No code comments: no `//`, no `///` and no `/* */`.
+- One exception: every module root starts with a `//!` header of at most 5 lines. A module root is a `lib.rs`, `main.rs` or `mod.rs`, or a `foo.rs` that has a `foo/` folder beside it; this includes test crates and the test kits under `tests/`.
+  - Line 1 is one whole sentence that says what the module is for, and still reads right on its own.
+  - The other lines are optional: where to start reading (the entry point or key type), what the module must not depend on, or a short reason for its shape.
+  - Write it from the code, and change it when the module changes.
+- Other files (leaf modules) have no header; their module root and their names say what they hold.
+- `cargo xtask arch-check` enforces all of this.
+- Longer explanations belong in `docs/`, and the reasons for design choices in `docs/decisions.md`. The map of the code is in [docs/development.md](docs/development.md#code-map).
 
 ## Changes
 

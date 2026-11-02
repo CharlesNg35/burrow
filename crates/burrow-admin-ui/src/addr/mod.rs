@@ -1,3 +1,6 @@
+//! The address editors of the admin UI: bind, target, range and server addresses, entry lists and the reference picker.
+//! The entry points are `addr_editor` with a `Kind` and `server_editor`.
+
 mod entries;
 mod entry_summary;
 mod entry_target;

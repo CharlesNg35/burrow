@@ -1,3 +1,6 @@
+//! The lint setup check: no silenced lints or extra clippy configs, every crate on the workspace lints, and no lint-loosening flags in cargo config or CI.
+//! It also refuses crate aliases in `src/` and picker options built outside `addr/picker.rs`.
+
 use std::path::Path;
 use std::process::Command;
 

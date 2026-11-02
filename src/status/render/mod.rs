@@ -1,3 +1,6 @@
+//! Draws a status snapshot as a text table, with rates and optional color.
+//! Start at `render`.
+
 mod certs;
 mod table;
 

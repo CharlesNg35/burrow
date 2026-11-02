@@ -1,3 +1,6 @@
+//! The routing table: maps a TLS name or Host and a path to passthrough, a tunnel, a service or a redirect.
+//! Start at `Table::build`; `pick` chooses by SNI and `route` by Host and path.
+
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::IpAddr;

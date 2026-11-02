@@ -1,3 +1,6 @@
+//! Forwards a request to the app over a pooled HTTP/1.1 connection; HTTP/2 and upgrades are in submodules.
+//! Start at `forward`; this file also holds the hop-by-hop and X-Forwarded-* rewrites and the TLS hop to the app.
+
 use std::sync::Arc;
 
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};

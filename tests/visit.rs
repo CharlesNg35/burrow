@@ -1,3 +1,5 @@
+//! Tests of visitors: reaching private services over TCP and UDP, grants, secrets and requests.
+
 mod common;
 #[path = "visit/requests.rs"]
 mod requests;

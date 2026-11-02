@@ -1,3 +1,5 @@
+//! The create and rename dialogs for entries and websites, with their name checks and the path preview of a new entry.
+
 mod new;
 mod rename;
 mod website;

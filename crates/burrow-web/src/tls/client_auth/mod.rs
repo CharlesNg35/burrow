@@ -1,3 +1,6 @@
+//! Client certificate checks (mTLS) for sites: loads each CA and optional CRL into a verifier and its TLS configs.
+//! `Verifiers` reloads them when the files change and notes expired CRLs.
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};

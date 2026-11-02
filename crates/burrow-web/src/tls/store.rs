@@ -1,3 +1,6 @@
+//! The certificate store: one slot per name, filled from a file, ACME or the local CA, and picked at each TLS handshake.
+//! `Store` implements `Certificates` and starts the ACME manager and the local CA task when needed.
+
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::PathBuf;

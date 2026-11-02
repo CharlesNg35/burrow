@@ -1,3 +1,5 @@
+//! Tests of config diagnostics: what loading a bad server, client or visitor config reports in text and JSON, and that secrets never leak.
+
 #[path = "diagnostics/client_and_json.rs"]
 mod client_and_json;
 #[path = "diagnostics/limits.rs"]

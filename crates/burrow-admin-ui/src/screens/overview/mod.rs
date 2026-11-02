@@ -1,3 +1,5 @@
+//! The overview screen of the admin UI: what needs attention, service health, traffic charts, certificates and websites.
+
 mod attention;
 mod certs;
 mod page;

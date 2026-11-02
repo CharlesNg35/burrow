@@ -1,3 +1,5 @@
+//! `burrow mcp`: an MCP server, over stdio or HTTP, whose tools check and apply config changes.
+
 pub mod http;
 pub mod plans;
 pub mod setup;

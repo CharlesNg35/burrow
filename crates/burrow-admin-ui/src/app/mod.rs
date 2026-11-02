@@ -1,3 +1,5 @@
+//! The admin UI shell: the `App` root component with its header, banners, menus, search and the current screen.
+
 mod header;
 mod menus;
 mod row_menu;

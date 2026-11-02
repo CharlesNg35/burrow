@@ -1,3 +1,6 @@
+//! The field editors of the admin UI, chosen by each field's semantic type, from plain values to lists, keyed maps, units, target TLS and websites.
+//! The entry point is `editor`, which takes a `FieldCtx`.
+
 mod basic;
 mod hidden;
 mod keyed;

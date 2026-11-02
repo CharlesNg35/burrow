@@ -1,3 +1,6 @@
+//! Gzip compression of responses when the visitor accepts gzip and the content type is worth compressing.
+//! Start at `respond`; it also adds `Vary: accept-encoding` and weakens the ETag.
+
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};

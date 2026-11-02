@@ -1,3 +1,5 @@
+//! The admin UI's edit session: the `Edit` state that holds the draft, checks it with the server, shows the review and applies it.
+
 mod check;
 mod diags;
 mod session;

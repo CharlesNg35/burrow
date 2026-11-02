@@ -1,3 +1,6 @@
+//! Finds admin changes that must be refused, such as ones that would lock the signed-in visitor out.
+//! Start at `refusals`; the child modules check grants, web ports, reach and the WebSocket listener.
+
 mod effects;
 mod grants;
 mod reach;

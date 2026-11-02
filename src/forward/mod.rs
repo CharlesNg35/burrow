@@ -1,3 +1,6 @@
+//! Relays bytes between a local connection and a tunnel channel, with limits, metering and clean closing.
+//! Start at `relay` and `pump_tcp`; `open` makes the TCP connection to a target.
+
 mod early;
 mod incoming;
 mod linger;

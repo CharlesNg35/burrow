@@ -1,3 +1,6 @@
+//! Uploaded PEM files: checks certificate pairs, CA bundles and CRLs, then stores them in the state folder under a content ID.
+//! `prune` removes uploads that no setting keeps and that are not new.
+
 mod crl;
 
 use std::path::{Path, PathBuf};

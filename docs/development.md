@@ -2,6 +2,7 @@
 
 How to build burrow, run its tests, fuzz it and measure it. The code rules are in [CONTRIBUTING.md](../CONTRIBUTING.md), and working on the admin UI has its own page: [admin-ui-dev.md](admin-ui-dev.md).
 
+- [Code map](#code-map)
 - [What you need](#what-you-need)
 - [Build](#build)
 - [Cross builds](#cross-builds)
@@ -14,6 +15,30 @@ How to build burrow, run its tests, fuzz it and measure it. The code rules are i
 - [make](#make)
 - [Benchmarks](#benchmarks)
 - [CI](#ci)
+
+## Code map
+
+burrow is one binary built from a library crate in `src/`, plus a few crates in `crates/` that the binary, the web proxy and the admin UI share. Each module root opens with a `//!` line that says what it holds; start there.
+
+**Bird's eye.** The config model (`burrow-config`) describes every file burrow reads. `burrow validate`, the server, the CLI, `burrow mcp` and the admin UI all read the same model, so a config key is defined once. The server accepts clients and visitors over the tunnel protocol (`src/wire`), forwards ports, and hands web traffic to the web proxy (`burrow-web`). `burrow admin` serves the admin UI, a WebAssembly app that talks to the server over the admin protocol (`burrow-admin-proto`).
+
+| folder | what it holds |
+| --- | --- |
+| `src/` | the `burrow` library and binary, in layers from the bottom up: `base` (errors, output, files), `wire` (secrets, Noise, records, transports), `config` (loading, checks, settings, `policy`, metrics), roles (`server`, `client`, `visitor`, `forward`, `dialer`, `udp`), and ops (`app` for the CLI, `admin`, `mcp`, `service`, `update`, `edit`, `init`, `status`). `xtask/src/layers.rs` lists the layer of every module |
+| `crates/burrow-syntax` | the value syntaxes (addresses, ports, targets, rules, rates, durations, sizes) and how they read back; depends on nothing, so every other crate can use it |
+| `crates/burrow-config` | the config model with `#[derive(AdminSchema)]`, typed field paths and the admin schema; `burrow-admin-derive` is its derive macro |
+| `crates/burrow-admin-proto` | the admin protocol: messages, plans, status and the schema types, shared by the server and the UI |
+| `crates/burrow-admin-logic` | the admin UI's logic that runs without a browser: changesets, checks, choices, wording; tested with plain `cargo test` |
+| `crates/burrow-ui-kit` | generic Leptos components (buttons, inputs, pickers, dialogs, charts) that know nothing of burrow |
+| `crates/burrow-admin-ui` | the admin UI app, built to WebAssembly and embedded in the binary ([admin-ui-dev.md](admin-ui-dev.md)) |
+| `crates/burrow-web` | the web proxy: routing by name, TLS and certificates (files, ACME, local CA), HTTP/1.1 and HTTP/2 to services; it knows nothing of the config |
+| `crates/burrow-io` | small I/O helpers shared by the tunnel and the web proxy |
+| `tests/` | the integration suites, each against real burrow processes; `tests/common` is their kit, `tests/admin_e2e` the browser flows |
+| `xtask/` | `cargo xtask`: arch-check, the UI build, the browser flows, tools, sizes and the compat run |
+| `fuzz/`, `benches/`, `bench/` | fuzz targets, micro-benchmarks, and the benchmark against other tunnels |
+| `docs/` | the user docs, this page, and the reasons for design choices in [decisions.md](decisions.md) |
+
+**How they relate.** `burrow-syntax` is at the bottom; `burrow-config` and `burrow-admin-proto` build on it; `burrow-admin-logic`, `burrow-ui-kit` and `burrow-admin-ui` are for the UI only, and the `burrow` crate never depends on them. `burrow-web` does not know the config: the `burrow` crate turns the config into `burrow-web`'s own options. `cargo xtask arch-check` enforces these edges (`xtask/src/arch.rs`).
 
 ## What you need
 

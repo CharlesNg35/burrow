@@ -1,3 +1,5 @@
+//! Integration tests for `burrow admin`: the admin protocol, grants, the launch page, older UI versions and sessions.
+
 mod common;
 #[path = "admin/grants.rs"]
 mod grants;

@@ -1,3 +1,5 @@
+//! The Windows service backend: installs and controls burrow through the service manager, and runs it as a service.
+
 mod acl;
 mod dispatch;
 

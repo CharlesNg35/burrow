@@ -1,3 +1,5 @@
+//! The entry screens of the admin UI: the list of a section's entries and the detail pane of the selected one.
+
 mod actions;
 mod body;
 mod detail;

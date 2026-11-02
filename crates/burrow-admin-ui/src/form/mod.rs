@@ -1,3 +1,6 @@
+//! The schema-driven forms of the admin UI: settings cards, rows and controls that show a schema `Node` as fields.
+//! The entry point is `object_view`.
+
 mod cards;
 mod controls;
 mod more;

@@ -1,3 +1,5 @@
+//! Tests of `burrow mcp`: the stdio and HTTP transports, the token and origin checks, limits and the docs it serves.
+
 mod common;
 #[path = "mcp/docs.rs"]
 mod docs;

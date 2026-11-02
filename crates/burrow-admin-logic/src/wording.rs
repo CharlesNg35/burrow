@@ -1,3 +1,5 @@
+//! The user-facing words of the admin UI: labels, counts, help for diagnostic codes and links to the docs and releases.
+
 use burrow_admin_proto::codes::{
     BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, MISSING_FIELD,
     NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PLAIN_HTTP, PLAIN_NEEDS_HTTP,

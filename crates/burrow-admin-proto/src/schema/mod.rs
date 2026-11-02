@@ -1,3 +1,6 @@
+//! The admin schema, a tree of `Node`s that gives each config field its semantic type, editability and relations.
+//! The key type is `Schema`, which also lists the entities and the locked and reduce-only paths.
+
 mod relation;
 mod sem;
 

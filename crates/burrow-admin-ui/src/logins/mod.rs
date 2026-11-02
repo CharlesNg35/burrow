@@ -1,3 +1,5 @@
+//! The logins editor of the admin UI: the list of logins, the add and edit dialog, and the login field of a website.
+
 mod dialog;
 mod site;
 

@@ -1,3 +1,6 @@
+//! The layer check of the burrow crate: it maps each `src` module to a layer and reports imports that go up a layer.
+//! It builds the module graph by scanning `use` paths with proc-macro2 tokens, and also checks macro homes and guarded items.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
