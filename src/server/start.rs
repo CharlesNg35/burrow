@@ -218,11 +218,15 @@ pub(super) async fn bind_with_retry(
     crate::base::ports::retry(tries, || bind_service(name, svc)).await
 }
 
-pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
-    let at = addr.or(svc.bind).map_or_else(
-        || "private".to_string(),
+fn service_at(svc: &Service, addr: Option<SocketAddr>) -> String {
+    addr.or(svc.bind).map_or_else(
+        || crate::config::check::ports::NO_SERVER_PORT.to_string(),
         |a| crate::config::check::ports::show_addr(a, svc.ports),
-    );
+    )
+}
+
+pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
+    let at = service_at(svc, addr);
     let mut extras = Vec::new();
     if !svc.visitors.is_empty() {
         extras.push(format!("visitors: {}", svc.visitors.join(", ")));
@@ -401,4 +405,21 @@ pub(crate) fn private_write(path: &std::path::Path, bytes: &[u8]) -> std::io::Re
 fn certificate_store() -> Arc<burrow_web::tls::Store> {
     burrow_web::tls::acme::storage::use_private_writer(Arc::new(private_write));
     burrow_web::tls::Store::new()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_service_without_a_server_port_is_logged_as_a_website_or_visitors_service() {
+        let svc = crate::config::settings::Service::default();
+        assert_eq!(
+            super::service_at(&svc, None),
+            "no server port (a website or visitors)"
+        );
+        let bound = crate::config::settings::Service {
+            bind: Some("127.0.0.1:8080".parse().unwrap()),
+            ..Default::default()
+        };
+        assert_eq!(super::service_at(&bound, None), "127.0.0.1:8080");
+    }
 }

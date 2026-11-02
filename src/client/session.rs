@@ -376,7 +376,7 @@ impl Client {
 
 fn reached_at(bind_port: u16, ports: u16) -> String {
     match bind_port {
-        0 => "no server port (a website or visitors)".to_string(),
+        0 => crate::config::check::ports::NO_SERVER_PORT.to_string(),
         p if ports > 1 => format!(
             "server ports {}",
             crate::config::check::ports::show(p, ports)
