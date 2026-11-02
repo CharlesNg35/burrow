@@ -1,7 +1,7 @@
 use std::path::Path;
 
-pub const WASM_GZ_BUDGET: u64 = 1_048_576;
-pub const TOTAL_BUDGET: u64 = 1_258_291;
+pub const WASM_GZ_BUDGET: u64 = 2_097_152;
+pub const TOTAL_BUDGET: u64 = 2_516_582;
 
 pub fn warn_at(budget: u64) -> u64 {
     budget / 10 * 9

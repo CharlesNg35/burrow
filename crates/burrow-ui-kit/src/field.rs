@@ -30,7 +30,7 @@ pub fn field_message(tone: Tone, m: impl IntoView + 'static) -> AnyView {
     view! {
         <p class=format!("mt-1.5 flex items-start gap-1.5 text-xs {class}") data-tone=tone.name()>
             <Icon name=icon small=true/>
-            <span>{m}</span>
+            <span class="min-w-0 [overflow-wrap:anywhere]">{m}</span>
         </p>
     }
     .into_any()
@@ -90,7 +90,7 @@ pub fn FieldRow(
         .then(|| {
             let help = help.clone();
             let id = help_id.clone();
-            view! { <p class="mt-1.5 text-xs text-text-muted" id=id>{help}</p> }
+            view! { <p class="mt-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" id=id>{help}</p> }
         })
     };
     view! {

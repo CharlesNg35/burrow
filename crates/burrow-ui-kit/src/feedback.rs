@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
-use crate::basic::{SpinDot, Tone};
+use crate::basic::Tone;
+use crate::button::SpinDot;
 use crate::icon::Icon;
 
 fn banner_tone(tone: Tone) -> &'static str {
@@ -68,7 +69,7 @@ pub fn Callout(
                 <span class=tone.text()><Icon name=tone.icon()/></span>
                 {title}
             </div>
-            <div>{children()}</div>
+            <div class="[overflow-wrap:anywhere]">{children()}</div>
         </div>
     }
 }

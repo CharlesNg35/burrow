@@ -826,3 +826,13 @@ Under steady load, every opened channel carried a connection in both builds (1,2
 `src/server/session.rs` tests that 64 unused channels go back to 4 after a minute but not before, and that a pool whose connections take 12 of 16 channels each time keeps 12.
 
 Sources, checked 2026-11-01: nginx.org ngx_http_upstream_module (`keepalive`, `keepalive_timeout`); go.dev/src/net/http/transport.go (`DefaultTransport`, `IdleConnTimeout`); github.com/brettwooldridge/HikariCP README (`idleTimeout`, `minimumIdle`); github.com/fatedier/frp `conf/frpc_full_example.toml` (`transport.poolCount`) and `conf/frps_full_example.toml` (`transport.maxPoolCount`).
+
+## D76. A certificate burrow renews itself needs attention only once its renewal is late
+
+The admin UI flagged every certificate with less than 14 days left, so the local CA's 12-hour certificates and Let's Encrypt's short-lived ones read "expires in 11 hours" all the time although burrow renews them on schedule. One rule, `burrow_syntax::web::expiry_due`, now decides for the server's log, uploads and the admin UI:
+
+- a file burrow does not renew (`tls: {cert, key}`, `web.certificates`, uploads): less than 14 days left, as before;
+- a certificate burrow renews (Let's Encrypt, the local CA): its planned renewal (`next_renewal`, from `crates/burrow-web/src/tls/acme/schedule.rs` `renew_at`: half the lifetime for short-lived certificates, two thirds otherwise, and `internal::leaf_renew_at` for the local CA) passed more than 15 minutes ago, the next try comes after the expiry, or a renewal failed and less than 14 days are left;
+- an expired certificate always.
+
+Let's Encrypt's integration guide ("When to Renew", letsencrypt.org/docs/integration-guide, checked 2026-11-02) asks clients to follow ACME Renewal Information, else renew with a third of the lifetime left, and halfway through for certificates valid less than 10 days; a fixed 14-day warning cannot fit both, so the warning follows burrow's own plan instead.

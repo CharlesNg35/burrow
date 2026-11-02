@@ -204,7 +204,7 @@ fn borders_and_the_accent_meet_three_to_one_in_both_themes() {
 
 #[test]
 fn hover_darkens_solid_buttons_in_light_and_brightens_them_in_dark() {
-    let kit = include_str!("../../burrow-ui-kit/src/basic.rs");
+    let kit = include_str!("../../burrow-ui-kit/src/button.rs");
     assert!(!kit.contains(" hover:brightness-110"));
     assert!(kit.contains("hover:brightness-95 dark:hover:brightness-110"));
 }

@@ -91,7 +91,7 @@ fn rejects_bad() {
     ));
     assert!(matches!(
         "10.0.0.1/8".parse::<Rule>(),
-        Err(RuleError::HostBits(_))
+        Err(RuleError::HostBits(..))
     ));
     assert!(matches!(
         "10.0.0.0/8:0".parse::<Rule>(),

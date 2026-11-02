@@ -209,7 +209,7 @@ pub fn upload_editor(fc: FieldCtx, kind: String) -> AnyView {
         <div id=fc.id.clone() class="flex flex-col gap-1.5" data-testid="file-upload" data-kind=kind.clone()>
             {current}
             <div class="flex items-center gap-2">
-                <Button label=label small=true icon="arrow-up" disabled=blocked busy=busy testid="upload-pick" on_click=pick/>
+                <Button label=label size=burrow_ui_kit::ButtonSize::Small icon="arrow-up" disabled=blocked busy=busy testid="upload-pick" on_click=pick/>
                 <input
                     node_ref=input
                     type="file"

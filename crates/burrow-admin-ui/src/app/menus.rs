@@ -27,7 +27,7 @@ pub(super) fn conn_state(s: Store, retry_open: RwSignal<bool>) -> impl Fn() -> A
                         <Show when=move || retry_open.get()>
                             <div class=burrow_ui_kit::menu_class("top-8 right-0 w-56", true) id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">
                                 <p class="mb-2 text-text-muted">"The connection to burrow admin dropped. It retries on its own."</p>
-                                <Button label="Retry now" small=true testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
+                                <Button label="Retry now" size=burrow_ui_kit::ButtonSize::Small testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
                             </div>
                         </Show>
                     </span>
@@ -46,7 +46,7 @@ pub(super) fn facts(s: Store) -> impl IntoView + Copy + use<> {
         s.welcome.get()?;
         let st = s.state.get()?;
         Some(view! {
-            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-all [&_dd]:whitespace-pre-line">
+            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-words [&_dd]:whitespace-pre-line">
                 <dt>"Listening"</dt><dd>{s.status.get().map(|x| x.listening.join("\n")).unwrap_or_default()}</dd>
                 <dt>"Config"</dt><dd>{st.file.path.clone()}</dd>
             </dl>

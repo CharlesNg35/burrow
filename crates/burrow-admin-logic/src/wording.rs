@@ -146,6 +146,7 @@ pub fn rewritten(place: &str, reason: &str) -> String {
 }
 pub const OFFLINE: &str = "offline";
 pub const ONLINE: &str = "online";
+pub const THIS_SERVER: &str = "This server";
 pub const SESSION_ENDED_HINT: &str = "Run burrow admin again; it opens a new tab.";
 pub const VERSION_GONE: &str = "The details of this change are no longer kept.";
 pub const TYPE_NAME_FIRST: &str = "Type a name first";

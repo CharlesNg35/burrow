@@ -52,4 +52,6 @@ cargo test -p burrow-config -p burrow-admin-logic -p burrow-ui-kit -p burrow-adm
 cargo xtask ui --release && cargo xtask size --budget                                     # the release build and its size gate
 ```
 
+The size gate allows 2 MiB of gzipped WebAssembly and 2.4 MiB for all UI assets with the fonts, and warns above 90 % of either (owner, 2026-11-02). The room is for necessary improvements, not a reason to add code.
+
 On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).

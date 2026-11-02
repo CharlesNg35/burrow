@@ -278,16 +278,16 @@ pub fn ChipInput(
                         };
                         view! {
                             <span
-                                class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 font-mono text-xs font-semibold {chip}")
+                                class=format!("inline-flex h-[26px] max-w-full min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 font-mono text-xs font-semibold {chip}")
                                 title=title
                                 data-chip=item.clone()
                                 data-invalid=problem.is_some().then_some("true")
                             >
-                                {item.clone()}
+                                <span class="min-w-0 truncate">{item.clone()}</span>
                                 {note.map(|n| view! { <span class="font-sans text-[11px] font-normal text-text-muted">{n}</span> })}
                                 <button
                                     type="button"
-                                    class="flex size-[18px] cursor-pointer items-center justify-center rounded text-text-faint hover:text-danger"
+                                    class="relative flex size-[18px] cursor-pointer items-center justify-center rounded text-text-faint after:absolute after:-inset-[3px] hover:text-danger"
                                     aria-label=label
                                     on:click=move |_| {
                                         let mut l = items.get_untracked();

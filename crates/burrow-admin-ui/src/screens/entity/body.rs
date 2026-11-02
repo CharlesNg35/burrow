@@ -70,8 +70,8 @@ fn missing(sec: &str, nm: &str, path: &Path) -> AnyView {
             let p2 = path.clone();
             view! {
                 <EmptyState icon="trash" title=if removed { format!("{} {nm} is removed in your changes", capital(singular(&sec))) } else { format!("No {} named {nm}", singular(&sec)) } message=if removed { "It goes when you apply. Undo keeps it." } else { "It may have been removed or renamed." } testid="detail-missing">
-                    {removed.then(|| view! { <Button label="Undo the removal" variant="secondary" icon="revert" testid="undo-remove" on_click=move |_| e.set(&p2, was.clone())/> })}
-                    <Link to=back class=button_class("secondary", false)>{format!("Back to {}", plural(&sec))}</Link>
+                    {removed.then(|| view! { <Button label="Undo the removal" variant=burrow_ui_kit::ButtonLook::Secondary icon="revert" testid="undo-remove" on_click=move |_| e.set(&p2, was.clone())/> })}
+                    <Link to=back class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal)>{format!("Back to {}", plural(&sec))}</Link>
                 </EmptyState>
             }
         }

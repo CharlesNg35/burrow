@@ -20,7 +20,7 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
     };
     let inner = view! {
         <span class=format!("mt-0.5 shrink-0 {}", tone.text())>
-            {if icon { view! { <Icon name=glyph/> }.into_any() } else { view! { <span class="mt-1 block size-2 rounded-full bg-text-faint" aria-hidden="true"></span> }.into_any() }}
+            {if icon { view! { <Icon name=glyph/> }.into_any() } else { view! { <burrow_ui_kit::Dot tone=Tone::Neutral class="mt-1 block size-2"/> }.into_any() }}
         </span>
         <span class="min-w-0">
             <span class="block text-sm font-semibold">{i.title.clone()}</span>

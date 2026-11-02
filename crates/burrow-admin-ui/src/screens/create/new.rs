@@ -105,10 +105,10 @@ pub fn NewEntity(
                     }
                 }))}
                 <span class="ml-auto"></span>
-                <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
+                <Button label="Cancel" variant=burrow_ui_kit::ButtonLook::Ghost testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
                 <Button
                     label=if what == ServiceEntry::ENTITY { "Add and edit".to_string() } else { "Add to changes".to_string() }
-                    variant=if what == ServiceEntry::ENTITY { "primary" } else { "secondary" }
+                    variant=if what == ServiceEntry::ENTITY { burrow_ui_kit::ButtonLook::Primary } else { burrow_ui_kit::ButtonLook::Secondary }
                     testid="create"
                     disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some())
                     reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
@@ -117,7 +117,7 @@ pub fn NewEntity(
                 {(what != ServiceEntry::ENTITY).then(|| view! {
                     <Button
                         label="Create and apply"
-                        variant="primary"
+                        variant=burrow_ui_kit::ButtonLook::Primary
                         testid="create-apply"
                         disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some() || secret.get().is_none())
                         reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })

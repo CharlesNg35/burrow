@@ -170,3 +170,14 @@ fn the_tree_keeps_its_lint_rules() {
     let found = problems(root).unwrap();
     assert!(found.is_empty(), "{found:#?}");
 }
+
+#[test]
+fn picker_options_are_built_in_one_place() {
+    let ui = "crates/burrow-admin-ui/src/screens/x.rs";
+    let lit = "fn f() -> Vec<ComboOption> { vec![ComboOption { value: v, ..Default::default() }] }";
+    assert_eq!(choice_problems(ui, lit).len(), 1);
+    assert!(choice_problems(CHOICE_BUILDER, lit).is_empty());
+    assert!(choice_problems("crates/burrow-ui-kit/src/combo/mod.rs", lit).is_empty());
+    assert!(choice_problems(ui, "fn f(c: Choice) -> ComboOption { make(c) }").is_empty());
+    assert!(choice_problems(ui, "let s = \"ComboOption { }\";").is_empty());
+}

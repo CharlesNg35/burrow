@@ -108,7 +108,7 @@ fn ranges(key: &str, list: &[String], open: &str, spans: &Spans, out: &mut Vec<D
             Err(e) => out.push(
                 Diagnostic::error(
                     "invalid-range",
-                    format!("web.{key}: \"{}\" {}", text.trim(), e.describe()),
+                    format!("web.{key}: {}", e.describe()),
                 )
                 .at(at)
                 .help(

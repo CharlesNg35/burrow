@@ -153,7 +153,7 @@ pub fn FlowModal() -> impl IntoView {
                             />
                         }
                     }}
-                    <button type="button" class=button_class("ghost", true) aria-label="Close" data-testid="flow-close" on:click=move |_| close()>
+                    <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) aria-label="Close" data-testid="flow-close" on:click=move |_| close()>
                         <Icon name="x"/>
                     </button>
                 </div>

@@ -113,7 +113,7 @@ pub enum RuleError {
     Address(String),
     Prefix(String),
     Port(String),
-    HostBits(String),
+    HostBits(String, Cidr),
     Socket(String),
 }
 
@@ -123,7 +123,11 @@ impl RuleError {
             RuleError::Address(a) => format!("\"{a}\" is not an IP address or CIDR"),
             RuleError::Prefix(p) => format!("\"{p}\" is not a valid prefix length"),
             RuleError::Port(p) => format!("\"{p}\" is not a valid port or port range"),
-            RuleError::HostBits(net) => format!("\"{net}\" has host bits set"),
+            RuleError::HostBits(net, cidr) => format!(
+                "\"{net}\" has host bits set: write {} for the network, or {} for this one address",
+                cidr.network(),
+                Cidr::host(cidr.addr())
+            ),
             RuleError::Socket(why) => why.clone(),
         }
     }
@@ -186,7 +190,7 @@ impl FromStr for NetRule {
                 .ok_or_else(|| RuleError::Prefix(p.to_string()))?,
         };
         if cidr.has_host_bits() {
-            return Err(RuleError::HostBits(net.to_string()));
+            return Err(RuleError::HostBits(net.to_string(), cidr));
         }
         let ports = ports.map(parse_ports).transpose()?;
         Ok(NetRule { net: cidr, ports })
@@ -301,8 +305,17 @@ mod tests {
         ));
         assert!(matches!(
             "10.0.0.1/8".parse::<Rule>(),
-            Err(RuleError::HostBits(_))
+            Err(RuleError::HostBits(..))
         ));
+        let said = |s: &str| s.parse::<Rule>().unwrap_err().describe();
+        assert_eq!(
+            said("127.0.0.1/24"),
+            "\"127.0.0.1/24\" has host bits set: write 127.0.0.0/24 for the network, or 127.0.0.1/32 for this one address"
+        );
+        assert_eq!(
+            said("[2001:db8::1/64]:22"),
+            "\"2001:db8::1/64\" has host bits set: write 2001:db8::/64 for the network, or 2001:db8::1/128 for this one address"
+        );
         assert!(matches!(
             "10.0.0.0/8:0".parse::<Rule>(),
             Err(RuleError::Port(_))

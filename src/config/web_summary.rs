@@ -49,10 +49,7 @@ fn automatic(web: &WebSettings, name: &str, choice: Option<Challenge>) -> (Strin
         .enumerate();
     if let Ok(Some(i)) = entry_for(entries, name) {
         return (
-            format!(
-                "web.certificates[{i}] ({})",
-                web.certificates[i].cert.display()
-            ),
+            format!("shared file {}", web.certificates[i].cert.display()),
             String::new(),
         );
     }
