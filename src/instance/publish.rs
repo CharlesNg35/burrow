@@ -6,7 +6,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 use crate::metrics::Status;
-use crate::metrics::{Handler, serve_with};
+use crate::metrics::{Body, Handler, serve_with};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
@@ -46,8 +46,12 @@ pub const UPDATE_PATH: &str = "/clients/update";
 pub type Snapshot = Arc<dyn Fn() -> Status + Send + Sync>;
 pub type Update = Arc<dyn Fn(&[u8]) -> (u16, String) + Send + Sync>;
 
+fn refused(why: &str) -> String {
+    serde_json::json!({ "error": why }).to_string()
+}
+
 fn handler(token: String, snapshot: Snapshot, update: Option<Update>) -> Handler {
-    Arc::new(move |req: &hyper::Request<()>, body: &[u8]| {
+    Arc::new(move |req: &hyper::Request<()>, body: Body| {
         use subtle::ConstantTimeEq;
         let authorized = req.headers().get_all("authorization").iter().any(|v| {
             let v = v.as_bytes().trim_ascii();
@@ -66,7 +70,11 @@ fn handler(token: String, snapshot: Snapshot, update: Option<Update>) -> Handler
                 serde_json::to_string(&snapshot()).expect("status serializes"),
             ),
             ("POST", UPDATE_PATH) if update.is_some() => {
-                let (code, text) = update.as_ref().map_or((404, String::new()), |u| u(body));
+                let (code, text) = match body {
+                    Ok(body) => update.as_ref().map_or((404, String::new()), |u| u(body)),
+                    Err(413) => (413, refused("the request is too large")),
+                    Err(code) => (code, refused("the request came too slowly")),
+                };
                 (code, "application/json", text)
             }
             (_, UPDATE_PATH) if update.is_some() => {

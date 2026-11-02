@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 use super::{Status, prometheus};
 
 const MAX_HEAD: usize = 8 * 1024;
-const MAX_BODY: usize = 4 * 1024;
+const MAX_BODY: usize = 64 * 1024;
 const MAX_OPEN: usize = 64;
 const MAX_WAITING: usize = 256;
 const READ_TIMEOUT: Duration = Duration::from_secs(1);
@@ -19,7 +19,8 @@ const HANDLER_TIMEOUT: Duration = Duration::from_secs(20);
 const WAIT_FOR_SLOT: Duration = Duration::from_secs(2);
 
 pub type Snapshot = Arc<dyn Fn() -> Status + Send + Sync>;
-pub type Handler = Arc<dyn Fn(&Request<()>, &[u8]) -> (u16, &'static str, String) + Send + Sync>;
+pub type Body<'a> = Result<&'a [u8], u16>;
+pub type Handler = Arc<dyn Fn(&Request<()>, Body) -> (u16, &'static str, String) + Send + Sync>;
 
 pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
     let handler: Handler = Arc::new(move |req, _| respond(req, snapshot.as_ref()));
@@ -136,11 +137,13 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
             )
             .await;
             let body = match read {
-                Ok(Ok(b)) => b.to_bytes(),
-                _ => bytes::Bytes::new(),
+                Ok(Ok(b)) => Ok(b.to_bytes()),
+                Ok(Err(_)) => Err(413),
+                Err(_) => Err(408),
             };
             let req = Request::from_parts(parts, ());
-            let run = tokio::task::spawn_blocking(move || handler(&req, &body));
+            let run =
+                tokio::task::spawn_blocking(move || handler(&req, body.as_deref().map_err(|c| *c)));
             let (code, kind, body) = match tokio::time::timeout(HANDLER_TIMEOUT, run).await {
                 Ok(Ok(answer)) => answer,
                 _ => (

@@ -65,6 +65,26 @@ fn the_update_route_needs_the_token_and_takes_only_a_post() {
         "{answer}"
     );
     assert!(post(&auth, "{not json").starts_with("HTTP/1.1 400"));
+    let names: Vec<String> = (0..500)
+        .map(|i| format!("\"client-number-{i:04}\""))
+        .collect();
+    let many = format!(r#"{{"clients":[{}],"dry_run":true}}"#, names.join(","));
+    assert!(many.len() > 8 * 1024);
+    let answer = post(&auth, &many);
+    assert!(
+        answer.starts_with("HTTP/1.1 200"),
+        "{}",
+        &answer[..answer.len().min(300)]
+    );
+    assert!(answer.contains("client-number-0499"));
+    let huge = format!(r#"{{"clients":["{}"]}}"#, "x".repeat(70 * 1024));
+    let answer = post(&auth, &huge);
+    assert!(
+        answer.starts_with("HTTP/1.1 413"),
+        "{}",
+        &answer[..answer.len().min(300)]
+    );
+    assert!(answer.contains("too large"), "{answer}");
     let other = |method: &str, path: &str| {
         raw(
             port,

@@ -12,7 +12,7 @@ use std::time::{Instant, SystemTime};
 
 pub use counted::Counted;
 pub use render::prometheus;
-pub use serve::{Handler, Snapshot, serve, serve_with};
+pub use serve::{Body, Handler, Snapshot, serve, serve_with};
 
 #[derive(Debug, Default)]
 pub struct Traffic {
