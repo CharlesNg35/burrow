@@ -344,15 +344,17 @@ struct Fields {
     at: [StoredValue<Path>; 2],
 }
 
-fn problem_of(f: Fields) -> Memo<Option<String>> {
+fn problem_of(f: Fields) -> (Memo<Option<String>>, Memo<bool>) {
     let s = store();
     let e = s.edit;
-    Memo::new(move |_| {
-        let local = e.local.with(|l| {
+    let local = Memo::new(move |_| {
+        e.local.with(|l| {
             l.iter()
                 .find(|(p, _)| f.at.iter().any(|a| p.starts_with(&a.get_value())))
                 .map(|(_, m)| m.clone())
-        });
+        })
+    });
+    let problem = Memo::new(move |_| {
         let i = Inputs {
             web_on: f.web_on.get(),
             https_in: f.https_in.get(),
@@ -364,13 +366,15 @@ fn problem_of(f: Fields) -> Memo<Option<String>> {
             email: f.email.get(),
             service: f.service.get(),
             name_issue: f.name_issue.get(),
-            local,
+            local: local.get(),
         };
         s.schema.with(|sc| {
             sc.as_ref()
                 .and_then(|sc| website_problem(&i, &sc.root, &e.doc()))
         })
-    })
+    });
+    let at_field = Memo::new(move |_| problem.get().is_some() && problem.get() == local.get());
+    (problem, at_field)
 }
 
 #[component]
@@ -425,7 +429,14 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
     let asks_email = Memo::new(move |_| {
         tls.get() == TlsMode::Auto.wire() && needs_letsencrypt(&names.get(), &web.get())
     });
-    let problem = problem_of(Fields {
+    Effect::new(move |_| {
+        let m = asks_email
+            .get()
+            .then(|| email_problem(&email.get()))
+            .flatten();
+        e.local_error(&email_path(), m);
+    });
+    let (problem, at_field) = problem_of(Fields {
         web_on,
         https_in,
         http_in,
@@ -483,7 +494,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                 {crate::rename::name_input("new-website-service", "Service name", svc_name, name_issue, true, "blog or shop")}
             </section>
             {move || asks_email.get().then(email_step)}
-            {move || problem.get().filter(|_| !names.with(Vec::is_empty)).map(|m| view! {
+            {move || problem.get().filter(|_| !names.with(Vec::is_empty) && !at_field.get()).map(|m| view! {
                 <p class="mb-2 flex items-center gap-1.5 text-sm text-danger" data-testid="new-website-problem">
                     <burrow_ui_kit::Icon name="alert-circle" small=true/>
                     {m}

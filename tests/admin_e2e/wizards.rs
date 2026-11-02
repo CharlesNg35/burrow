@@ -1,6 +1,6 @@
 use super::edits::{Flow, row_error};
 use super::world::Options;
-use super::{Ctx, SECS, both_widths, open, run};
+use super::{Ctx, SECS, both_widths, edit_mode, open, run};
 
 const MAX: &str = "[data-testid=new-max] input";
 const PORT: &str = "#f-services--new-target";
@@ -20,6 +20,24 @@ async fn refused(c: &mut Ctx, field: &str, schema: &str, value: &str, step: &str
         "{value}: Create stays off"
     );
     both_widths(c, step).await;
+}
+
+async fn said_once(c: &Ctx, schema: &str) {
+    let hidden: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.querySelector(\"[data-schema='{schema}'] [data-testid=stored-as]\"); return !e || e.offsetParent === null; }})()"
+        ))
+        .await;
+    assert!(
+        hidden,
+        "{schema}: no Saved as hint under a value with an error"
+    );
+    assert_eq!(
+        c.ui.count("[data-testid=new-website-problem]").await,
+        0,
+        "{schema}: the error at the field is not repeated above the save bar"
+    );
 }
 
 async fn new_client(c: &mut Ctx) {
@@ -69,6 +87,7 @@ async fn new_website(c: &mut Ctx) {
         (PORT, "abc", "website-port-text"),
     ] {
         refused(c, field, schema, v, step).await;
+        said_once(c, schema).await;
     }
     c.ui.fill(PORT, "8081").await;
     refused(c, HOST, schema, "bad host!", "website-host-bad").await;
@@ -76,15 +95,36 @@ async fn new_website(c: &mut Ctx) {
     c.ui.wait_for("[data-testid=new-website-email]", SECS).await;
     c.ui.fill("[data-testid=new-website-email] input", "a@b")
         .await;
-    c.ui.wait_text(
-        "[data-testid=new-website-problem]",
-        "is not an email address",
-        SECS,
-    )
-    .await;
+    let _: bool =
+        c.ui.eval(
+            "(() => { if (document.activeElement) document.activeElement.blur(); return true; })()",
+        )
+        .await;
+    let err = row_error(c, "web/letsencrypt/email").await;
+    assert!(err.contains("is not an email address"), "{err}");
+    assert_eq!(c.ui.count("[data-testid=new-website-problem]").await, 0);
     assert!(!c.ui.enabled("[data-testid=create]").await);
     both_widths(c, "website-email-bad").await;
     c.ui.click("[data-testid=create-cancel]").await;
+}
+
+async fn service_page(c: &mut Ctx) {
+    c.ui.nav("/services/web?tab=settings").await;
+    edit_mode(c).await;
+    refused_on_page(c).await;
+}
+
+async fn refused_on_page(c: &mut Ctx) {
+    c.ui.fill("#f-services-web-target", "70000").await;
+    let _: bool =
+        c.ui.eval(
+            "(() => { if (document.activeElement) document.activeElement.blur(); return true; })()",
+        )
+        .await;
+    let err = row_error(c, "services/*/target").await;
+    assert!(err.contains("70000"), "{err}");
+    said_once(c, "services/*/target").await;
+    both_widths(c, "service-port-above-65535").await;
 }
 
 fn wizards(c: &mut Ctx) -> Flow<'_> {
@@ -92,6 +132,7 @@ fn wizards(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         new_client(c).await;
         new_website(c).await;
+        service_page(c).await;
         c.ui.assert_no_errors();
     })
 }
