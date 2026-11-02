@@ -468,3 +468,19 @@ fn a_history_version_naming_a_file_outside_the_folder_is_never_restored() {
         assert!(!outside.exists());
     }
 }
+
+#[test]
+fn a_new_file_that_sorts_first_gives_the_rev_read_back_from_disk() {
+    let set = Set::new(&[("zz.yaml", BLOG)]);
+    let s = set.session(true);
+    let applied = set
+        .apply(
+            &s,
+            &[Op::Place {
+                path: p(&["services", "web"]),
+                file: "server.d/aa.yaml".into(),
+            }],
+        )
+        .unwrap();
+    assert_eq!(applied.rev, set.base());
+}

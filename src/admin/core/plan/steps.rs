@@ -138,6 +138,8 @@ pub(super) fn new_document(
             (w.docs, w.reformat)
         }
     };
+    let mut new_docs = new_docs;
+    new_docs.sort();
     Ok((new_docs, reformat, kept))
 }
 
