@@ -8,6 +8,9 @@
 - The low-port hint fits how burrow runs: a burrow service says to install it again from its own config, which grants the permission without moving anything, and a burrow started by hand says `sudo setcap cap_net_bind_service=+ep` (a service's locked-down unit ignores `setcap`).
 - burrow admin warns before saving when a listen or bind address is not an address of this server, with the same hint as the error the server would give.
 - A `ws://` or `wss://` public address on a server without WebSocket says that WebSocket is off and where to turn it on.
+- burrow admin checks a changed service port, TCP or UDP, before saving, as it does for the web ports; a service that cannot listen after a change shows why in Needs attention and `burrow status`, and that a restart fails until it can.
+- burrow admin: each Settings tab shows how many problems its settings have, and a service's problem list names nested fields by their own label.
+- A reinstall refused because another program holds a port no longer stops the running service; `burrow service status` without sudo says a file is not readable instead of missing.
 - burrow admin: Review waits for the check of the latest edit instead of showing the previous result, and New website says why a name is refused under the names.
 - `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
 - Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
