@@ -129,7 +129,8 @@ fn a_server_wide_setting_in_a_drop_in_is_refused_at_its_file_and_line() {
         text.contains("\"listen\" cannot be set in a drop-in file"),
         "{text}"
     );
-    assert!(text.contains("server.d/apps.yaml:2:1"), "{text}");
+    let place = format!("server.d{}apps.yaml:2:1", std::path::MAIN_SEPARATOR);
+    assert!(text.contains(&place), "{text}");
     assert!(text.contains("belong in the main config file"), "{text}");
 }
 
