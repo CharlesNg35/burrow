@@ -25,23 +25,33 @@ fn latest(version: &str) {
 
 async fn ask(c: &mut Ctx, to: &str, step: &str) {
     c.ui.wait_text(
-        "[data-testid=server-burrow] [data-testid=client-update-tag]",
+        "[data-testid=server-update-tag]",
         &format!("{to} available"),
         Duration::from_secs(60),
     )
     .await;
     c.ui.wait_for("[data-testid=server-update]:not([disabled])", SECS)
         .await;
+    assert_eq!(
+        c.ui.attr_of("[data-testid=server-whats-new]", "href").await,
+        format!("https://github.com/CharlesNg35/burrow/releases/tag/v{to}")
+    );
+    let line = c.ui.text("[data-testid=server-burrow]").await;
+    assert!(
+        line.starts_with(&format!("{to} available · What's new ↗")),
+        "{line}"
+    );
     every_look(c, &format!("{step}-offer")).await;
     c.ui.click("[data-testid=server-update]").await;
     c.ui.wait_for("[data-testid=server-update-dialog]", SECS)
         .await;
+    super::updates::whats_new(c, "server-update-dialog", to).await;
     let said = c.ui.text("[data-testid=server-update-dialog]").await;
     assert!(said.contains("pause for a few seconds"), "{said}");
     every_look(c, &format!("{step}-dialog")).await;
     c.ui.click("[data-testid=server-update-confirm]").await;
     c.ui.wait_text(
-        "[data-testid=server-burrow] [data-testid=client-update-tag]",
+        "[data-testid=server-update-state]",
         "updating, the server restarts",
         SECS,
     )
@@ -63,29 +73,38 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         c.ui.goto(&url).await;
         c.ui.wait_gone("[data-testid=loading]", Duration::from_secs(30))
             .await;
-        c.ui.wait_for("[data-testid=server-burrow]", SECS).await;
-        let remote = c.ui.text("[data-testid=server-update-remote]").await;
-        assert_eq!(remote, "updates from burrow admin on");
+        c.ui.wait_for("[data-testid=overview-sub]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=server-burrow]").await,
+            0,
+            "nothing newer yet: the header is as in 0.2.2"
+        );
+        every_look(c, "nothing-to-say").await;
         latest("9.0.0-test.2");
         ask(c, "9.0.0-test.2", "update").await;
-        c.ui.wait_text("[data-testid=server-update-last]", "updated", RESTART)
-            .await;
+        c.ui.wait_text(
+            "[data-testid=server-update-state]",
+            "updated 9.0.0-test.1 → 9.0.0-test.2",
+            RESTART,
+        )
+        .await;
         c.ui.wait_text("[data-testid=toasts]", "updated", SECS)
             .await;
-        let last = c.ui.text("[data-testid=server-update-last]").await;
-        assert!(last.contains("9.0.0-test.1 → 9.0.0-test.2"), "{last}");
-        assert!(last.contains("asked by ops"), "{last}");
-        let version =
-            c.ui.text("[data-testid=server-burrow] [data-testid=client-version]")
+        let why =
+            c.ui.attr_of("[data-testid=server-update-state]", "title")
                 .await;
-        assert_eq!(version, "9.0.0-test.2");
+        assert!(why.contains("asked by ops"), "{why}");
+        let sub = c.ui.text("[data-testid=overview-sub]").await;
+        assert!(sub.starts_with("v9.0.0-test.2 · "), "{sub}");
         every_look(c, "updated").await;
         latest("9.0.0-test.6");
         ask(c, "9.0.0-test.6", "health").await;
-        c.ui.wait_text("[data-testid=server-update-last]", "rolled back", RESTART)
-            .await;
-        let last = c.ui.text("[data-testid=server-update-last]").await;
-        assert!(last.contains("rolled back: "), "{last}");
+        c.ui.wait_text(
+            "[data-testid=server-update-state]",
+            "rolled back: ",
+            RESTART,
+        )
+        .await;
         every_look(c, "rolled-back").await;
     })
 }

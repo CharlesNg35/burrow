@@ -74,6 +74,22 @@ async fn every_look(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
+pub async fn whats_new(c: &Ctx, dialog: &str, version: &str) {
+    let link = format!("[data-testid={dialog}] [data-testid=whats-new]");
+    assert_eq!(c.ui.text(&link).await, format!("What's new in {version} ↗"));
+    assert_eq!(
+        c.ui.attr_of(&link, "href").await,
+        format!("https://github.com/CharlesNg35/burrow/releases/tag/v{version}")
+    );
+    assert_eq!(c.ui.attr_of(&link, "target").await, "_blank");
+    assert_eq!(c.ui.attr_of(&link, "rel").await, "noopener noreferrer");
+    let fetched: f64 = c
+        .ui
+        .eval("performance.getEntriesByType('resource').filter(e => e.name.includes('github')).length")
+        .await;
+    assert_eq!(fetched, 0.0, "the page fetches nothing from GitHub");
+}
+
 fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
     Box::pin(async move {
         start(
@@ -91,21 +107,14 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             "update:\n  remote: true\n",
         );
         open(c, "ops").await;
-        c.ui.wait_for("[data-testid=server-burrow]", SECS).await;
-        let remote = c.ui.text("[data-testid=server-update-remote]").await;
-        assert_eq!(remote, "updates from burrow admin not possible");
-        assert!(
-            c.ui.attr_of("[data-testid=server-update-remote]", "title")
-                .await
-                .contains("sudo burrow update"),
-            "a server started by hand says how to update it"
-        );
+        c.ui.wait_for("[data-testid=overview-sub]", SECS).await;
         assert_eq!(
-            c.ui.count("[data-testid=server-update]").await,
+            c.ui.count("[data-testid=server-burrow]").await,
             0,
-            "no newer release for the server, so no button"
+            "no newer release for the server: the header says nothing more"
         );
-        every_look(c, "server-by-hand").await;
+        let sub = c.ui.text("[data-testid=overview-sub]").await;
+        assert!(sub.starts_with('v') && !sub.contains("available"), "{sub}");
         overview_tab(c, "clients").await;
         c.ui.wait_text(
             "[data-testid=overview-clients] tr[data-row=home] [data-testid=client-update-tag]",
@@ -175,6 +184,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         c.ui.click("[data-testid=client-update]").await;
         c.ui.wait_for("[data-testid=client-update-dialog]", SECS)
             .await;
+        whats_new(c, "client-update-dialog", NEW).await;
         every_look(c, "client-update-dialog").await;
         c.ui.click("[data-testid=client-update-confirm]").await;
         c.ui.wait_text(
@@ -202,6 +212,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         .await;
         c.ui.click("[data-testid=update-all]").await;
         c.ui.wait_for("[data-testid=update-all-dialog]", SECS).await;
+        whats_new(c, "update-all-dialog", NEW).await;
         both_widths(c, "update-all-dialog").await;
         c.ui.click("[data-testid=update-all-confirm]").await;
         c.ui.wait_text(

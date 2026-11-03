@@ -1,4 +1,4 @@
-use burrow_admin_logic::own_update::figure;
+use burrow_admin_logic::own_update::{ServerFigure, figure};
 use burrow_admin_logic::presence::{ClientInfo, Mood, of, ready_names, rollout_line};
 use burrow_admin_proto::features::{CLIENT_UPDATES, SERVER_UPDATES};
 use burrow_admin_proto::msg::req::{UPDATE_CLIENTS, UPDATE_SERVER};
@@ -29,6 +29,12 @@ fn offered(s: Store) -> bool {
 
 pub fn info_of(s: Store, name: &str) -> Option<ClientInfo> {
     s.status.with(|st| of(st.as_deref(), name))
+}
+
+fn whats_new(version: &str) -> impl IntoView + use<> {
+    burrow_admin_logic::wording::release_notes(version).map(|(v, url)| view! {
+        <a href=url target="_blank" rel="noopener noreferrer" class="mr-auto text-xs font-semibold text-accent-ink" data-testid="whats-new">{format!("What's new in {v} ↗")}</a>
+    })
 }
 
 pub fn version_cell(c: Option<ClientInfo>) -> AnyView {
@@ -146,7 +152,12 @@ impl ClientUpdate {
         let s = store();
         let (info, open) = (self.info, self.open);
         let act = Memo::new(move |_| info.with(|c| action(c.as_ref(), offered(s))));
-        let facts = move || info.with(|c| shown_detail(c.as_ref()));
+        let facts = move || match act.get() {
+            Action::Offer { blocked: None, .. } => {
+                info.with(|c| c.as_ref().map(ClientInfo::system_short).unwrap_or_default())
+            }
+            _ => info.with(|c| shown_detail(c.as_ref())),
+        };
         let side = move || {
             match act.get() {
             Action::Nothing => ().into_any(),
@@ -186,7 +197,8 @@ impl ClientUpdate {
                 <p class="text-sm">{format!(
                     "{who} downloads {to} from the official releases, checks it against the published checksums and restarts with it. If {to} does not connect within a minute, {who} goes back to {from}."
                 )}</p>
-                <div class="mt-4 flex justify-end gap-2">
+                <div class="mt-4 flex items-center justify-end gap-2">
+                    {whats_new(&target)}
                     <Button label="Cancel" on_click=move |_| open.set(false)/>
                     <Button label=format!("Update to {target}") variant=ButtonLook::Primary testid="client-update-confirm" on_click=move |_| {
                         open.set(false);
@@ -243,7 +255,8 @@ pub fn update_all_bar() -> impl IntoView {
                 ready().join(", "),
                 to()
             )}</p>
-            <div class="mt-4 flex justify-end gap-2">
+            <div class="mt-4 flex items-center justify-end gap-2">
+                {move || whats_new(&to())}
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
                 <Button label="Update all" variant=ButtonLook::Primary testid="update-all-confirm" on_click=move |_| {
                     open.set(false);
@@ -285,46 +298,68 @@ fn ask_server(s: Store) {
     });
 }
 
-pub fn server_figure() -> impl IntoView {
-    let s = store();
-    let open = RwSignal::new(false);
-    let fig = Memo::new(move |_| s.status.with(|st| st.as_deref().and_then(figure)));
-    let line = move || {
-        let f = fig.get()?;
-        let tag = f.tag.clone().map(|(t, m)| (t, tone(m)));
-        let button = (server_offered(s) && f.to.is_some() && !s.server_updating.get().busy()).then(|| {
-            let why = f.why_not.clone().filter(|_| !f.can_ask).unwrap_or_default();
-            view! { <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" disabled=!f.can_ask reason=why testid="server-update" on_click=move |_| open.set(true)/> }
-        });
-        let why = f.why_not.clone().map(|w| view! { <span class="text-xs text-text-faint" data-testid="server-update-why">{w}</span> });
-        let last = f.last.clone().map(|(l, m)| view! { <span class=format!("text-xs {}", tone(m).text()) data-testid="server-update-last">{l}</span> });
-        Some(view! {
-            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-muted" data-testid="server-burrow">
-                <span class="max-sm:hidden">"Burrow on this server"</span>
-                <span class="sm:hidden">"Burrow"</span>
-                <VersionTag text=f.version.clone() tag=tag/>
-                {button}
-                <span class="text-xs text-text-faint" title=f.why_not.clone().unwrap_or_default() data-testid="server-update-remote">{f.remote}</span>
-            </div>
-            {(why.is_some() || last.is_some()).then(|| view! { <div class="mt-0.5 flex flex-col gap-0.5">{why}{last}</div> })}
-        })
-    };
-    let to = move || fig.with(|f| f.as_ref().and_then(|f| f.to.clone()).unwrap_or_default());
-    view! {
-        {line}
-        <Dialog open=open title=Signal::derive(move || format!("Update burrow on this server to {}?", to())) icon="download" testid="server-update-dialog">
-            <p class="text-sm">{move || format!(
-                "A root updater on the server downloads {} from the official releases and checks it against the published checksums. {SERVER_UPDATE_NOTE}",
-                to()
-            )}</p>
-            <div class="mt-4 flex justify-end gap-2">
-                <Button label="Cancel" on_click=move |_| open.set(false)/>
-                <Button label="Update the server" variant=ButtonLook::Primary testid="server-update-confirm" on_click=move |_| {
-                    open.set(false);
-                    ask_server(s);
-                }/>
-            </div>
-        </Dialog>
+#[derive(Clone, Copy)]
+pub struct ServerUpdate {
+    fig: Memo<Option<ServerFigure>>,
+    open: RwSignal<bool>,
+}
+
+impl ServerUpdate {
+    pub fn new() -> Self {
+        let s = store();
+        ServerUpdate {
+            fig: Memo::new(move |_| s.status.with(|st| st.as_deref().and_then(figure))),
+            open: RwSignal::new(false),
+        }
+    }
+
+    pub fn line(self) -> impl IntoView {
+        let s = store();
+        let (fig, open) = (self.fig, self.open);
+        move || {
+            let f = fig.get().filter(ServerFigure::says_something)?;
+            let lead = f.state.is_some();
+            let state = f.state.clone().map(|(t, m)| view! {
+                <span class=tone(m).text() title=f.detail.clone() data-testid="server-update-state">{t}</span>
+            });
+            let available = f.available.clone().map(|(t, m)| view! {
+                {lead.then_some(" · ")}
+                <span class=tone(m).text() title=f.why_not.clone().unwrap_or_default() data-testid="server-update-tag">{t}</span>
+                {f.to.as_deref().and_then(burrow_admin_logic::wording::release_notes).map(|(_, url)| view! {
+                    " · "
+                    <a href=url target="_blank" rel="noopener noreferrer" class="font-semibold text-accent-ink" data-testid="server-whats-new">"What's new ↗"</a>
+                })}
+            });
+            let button = (server_offered(s) && f.can_ask && !s.server_updating.get().busy()).then(|| view! {
+                " · "
+                <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" testid="server-update" on_click=move |_| open.set(true)/>
+            });
+            Some(
+                view! { <p class="mt-1 text-sm text-text-muted" data-testid="server-burrow">{state}{available}{button}</p> },
+            )
+        }
+    }
+
+    pub fn dialog(self) -> impl IntoView {
+        let s = store();
+        let (fig, open) = (self.fig, self.open);
+        let to = move || fig.with(|f| f.as_ref().and_then(|f| f.to.clone()).unwrap_or_default());
+        view! {
+            <Dialog open=open title=Signal::derive(move || format!("Update burrow on this server to {}?", to())) icon="download" testid="server-update-dialog">
+                <p class="text-sm">{move || format!(
+                    "A root updater on the server downloads {} from the official releases and checks it against the published checksums. {SERVER_UPDATE_NOTE}",
+                    to()
+                )}</p>
+                <div class="mt-4 flex items-center justify-end gap-2">
+                    {move || whats_new(&to())}
+                    <Button label="Cancel" on_click=move |_| open.set(false)/>
+                    <Button label="Update the server" variant=ButtonLook::Primary testid="server-update-confirm" on_click=move |_| {
+                        open.set(false);
+                        ask_server(s);
+                    }/>
+                </div>
+            </Dialog>
+        }
     }
 }
 
