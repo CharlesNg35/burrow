@@ -316,10 +316,7 @@ impl ServerUpdate {
                 })}
             });
             let button = (server_offered(s) && f.can_ask && !s.server_updating.get().busy()).then(|| view! {
-                <span class=item>
-                    "·"
-                    <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" testid="server-update" on_click=move |_| open.set(true)/>
-                </span>
+                <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Inline icon="download" testid="server-update" on_click=move |_| open.set(true)/>
             });
             Some(view! {
                 <div class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-text-muted" data-testid="server-burrow">{state}{available}{button}</div>
