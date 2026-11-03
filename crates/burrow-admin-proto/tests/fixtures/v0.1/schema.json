@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:cb75fd87ea24fac6",
+  "hash": "b2s:b11ec27c82713814",
   "root": {
     "label": "Server",
     "sem": {
@@ -1507,13 +1507,11 @@
                 "groups": [
                   {
                     "key": "admin",
-                    "label": "Admin access",
-                    "sub": "May this visitor run burrow admin against this server?"
+                    "label": "Admin access"
                   },
                   {
                     "key": "access",
-                    "label": "Direct access",
-                    "sub": "Clients this visitor may reach directly, with burrow visit."
+                    "label": "Direct access"
                   },
                   {
                     "key": "traffic",
@@ -3135,7 +3133,7 @@
                   {
                     "key": "reach",
                     "label": "Reached by",
-                    "sub": "The ways in to this service; any mix of them works."
+                    "sub": "The ways in; any mix of them works."
                   },
                   {
                     "key": "website",
@@ -3145,7 +3143,7 @@
                   {
                     "key": "access",
                     "label": "Who may connect",
-                    "sub": "All ways in: the addresses that may connect, and limits."
+                    "sub": "Addresses and limits, for all ways in."
                   },
                   {
                     "key": "traffic",

@@ -36,8 +36,8 @@ pub struct ClientEntry {
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(entity = visitor, label = "Visitor", groups(
-    admin = "Admin access | May this visitor run burrow admin against this server?",
-    access = "Direct access | Clients this visitor may reach directly, with burrow visit.",
+    admin = "Admin access",
+    access = "Direct access",
     traffic = "Traffic | Limits for this visitor."
 ))]
 pub struct VisitorEntry {
@@ -177,9 +177,9 @@ impl Secrets {
     groups(
         exposure = "Target | The protocol, and where connections lead.",
         who = "Where it runs | Clients that reach the target.",
-        reach = "Reached by | The ways in to this service; any mix of them works.",
+        reach = "Reached by | The ways in; any mix of them works.",
         website = "Website | How the web proxy reaches it.",
-        access = "Who may connect | All ways in: the addresses that may connect, and limits.",
+        access = "Who may connect | Addresses and limits, for all ways in.",
         traffic = "What the target sees | Whether the target learns the visitor's address."
     )
 )]
