@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod check;
 pub mod codes;
 pub mod date;
 pub mod diag;
@@ -46,6 +47,7 @@ pub mod features {
     pub const CLIENT_ALLOW: &str = "client.allow";
     pub const CLIENT_UPDATES: &str = "client.updates";
     pub const CONFIG_VIEW: &str = "config.view";
+    pub const CHECK_TEXT: &str = "config.check-text";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -64,5 +66,6 @@ pub mod features {
         CLIENT_ALLOW,
         CLIENT_UPDATES,
         CONFIG_VIEW,
+        CHECK_TEXT,
     ];
 }

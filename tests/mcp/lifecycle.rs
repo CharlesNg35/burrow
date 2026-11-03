@@ -110,6 +110,14 @@ async fn an_unreachable_server_still_answers_the_handshake_and_each_call_says_wh
         assert!(hint.contains("tries again on the next call"), "{why}");
         assert_eq!(why["mcp_link"]["state"], "down", "{why}");
     }
+    let (failed, checked) = a
+        .call("validate_config", json!({ "config": "listen: nowhere\n" }))
+        .await;
+    assert!(!failed && checked["valid"] == false, "{checked}");
+    assert_eq!(checked["checked_by"], "local", "{checked}");
+    let note = checked["note"].as_str().unwrap_or_default();
+    assert!(note.contains("could not be reached"), "{checked}");
+    assert!(note.contains("on this computer"), "{checked}");
     stop(&mut a, Stop::StdinClosed).await;
     let _ = w.stop.send(true);
 }

@@ -223,6 +223,21 @@ async fn burrow_mcp_reads_and_changes_an_older_server() {
     assert!(tools.iter().any(|t| t == "apply_change"), "{tools:?}");
     let (failed, status) = call(&c, "get_status", json!({})).await;
     assert!(!failed && status["version"] == "0.1.2", "{status}");
+    let (failed, checked) = call(
+        &c,
+        "validate_config",
+        json!({ "config": "listen: nowhere\n" }),
+    )
+    .await;
+    assert!(!failed && checked["valid"] == false, "{checked}");
+    assert_eq!(checked["checked_by"], "local", "{checked}");
+    assert!(
+        checked["note"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("the server runs burrow 0.1.2 and may differ"),
+        "{checked}"
+    );
     let (failed, cfg) = call(&c, "get_config", json!({})).await;
     assert!(!failed && cfg["rev"].is_string(), "{cfg}");
     let set = json!({ "ops": [{ "op": "set", "path": ["services", "web", "target"], "value": format!("127.0.0.1:{}", target + 1) }] });

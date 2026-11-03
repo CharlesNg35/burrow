@@ -1,6 +1,7 @@
 //! The admin API core: reads, checks and applies config changes for `burrow admin` sessions.
 //! Start at `Core` and `dispatch`; the `Store`, `Live` and `Env` traits in `ports` connect it to files and the running server.
 
+mod check_text;
 pub mod diags;
 pub mod diff;
 mod dispatch;

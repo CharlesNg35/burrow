@@ -2,7 +2,7 @@ use burrow_admin_proto::msg::{self, ErrorCode, HistoryRequest, Suggest};
 use burrow_admin_proto::view::ShownRequest;
 use serde_json::Value;
 
-use super::{ApiError, Core, Reply, Session, passwords, plan, snippets, uploads, view};
+use super::{ApiError, Core, Reply, Session, check_text, passwords, plan, snippets, uploads, view};
 
 pub fn ok<T: serde::Serialize>(v: T) -> Reply {
     serde_json::to_value(v).map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))
@@ -46,6 +46,10 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
                 ));
             }
             ok(plan::compute(core, s, &r.base, &r.ops)?.plan)
+        }
+        msg::req::CHECK_TEXT => {
+            let r: burrow_admin_proto::check::CheckText = parse(body)?;
+            check_text::check(core, &r)
         }
         msg::req::GENERATE_SECRET => ok(core.generate_secret(s)?),
         msg::req::SUGGEST => {

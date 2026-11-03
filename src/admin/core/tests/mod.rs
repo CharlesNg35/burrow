@@ -3,6 +3,7 @@
 
 #![cfg(test)]
 
+mod check_text;
 mod files;
 #[cfg(feature = "web")]
 mod headers;

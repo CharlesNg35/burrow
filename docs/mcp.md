@@ -127,13 +127,13 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 | `get_config` | the config and its version; secrets only as fingerprints or `${ENV}` names. `show: with_defaults` adds every default in effect, as burrow admin's Config file tab does | always |
 | `describe_settings` | what each key means: type, default, help with examples, essential or advanced, locked | always |
 | `list_versions` | the kept versions, who changed what, which can be reverted | always |
-| `validate_config` | checks a config or a fragment, like a `web:` section, with burrow's own validation, as `burrow validate` does; writes nothing and sends nothing to the server | always |
+| `validate_config` | checks a config or a fragment, like a `web:` section: the server checks it with its own validation, environment variables and files, as `burrow validate` does there (`checked_by: server`); writes nothing | always |
 | `check_change` | validates a change and returns its diff, problems, impact and a plan id; writes nothing | `admin: write` |
 | `revert_to_version` | the plan to go back to a kept version; writes nothing | `admin: write` and `--allow-write` |
 | `apply_change` | applies a checked plan | `admin: write` and `--allow-write` |
 | `update_clients` | asks clients to update burrow to a newer release, one at a time; without `confirm` it only says which clients it would ask | `admin: write` and `--allow-write` |
 
-In every mode, the instructions tell the AI to check a config example with `validate_config` (or read the exact keys with `describe_settings`) before it shows you one, and never to present an unchecked example as correct. `validate_config` checks a fragment as part of a larger config, so a missing `listen`, clients or services is not reported; give `"scope": "whole"` to check a complete file. It runs on your computer, so `${VAR}` values and files named in the config are not checked; long values and secrets are never echoed back.
+In every mode, the instructions tell the AI to check a config example with `validate_config` (or read the exact keys with `describe_settings`) before it shows you one, and never to present an unchecked example as correct. `validate_config` checks a fragment as part of a larger config, so a missing `listen`, clients or services is not reported; give `"scope": "whole"` to check a complete file. The server checks it, with the rules of the burrow it runs and its own `${VAR}` values and files, and the result says `checked_by: server`; it takes up to 64 KiB and 10 seconds, also for `admin: read`. With a server older than v0.2.3, or when the server cannot be reached, burrow mcp checks it on your computer instead: the result says `checked_by: local`, and its note names both versions or why the server was not reached, since `${VAR}` values and files are then not checked. Secrets, the values of `${VAR}`s and long values are never echoed back.
 
 Each session has one of three modes, and the instructions burrow mcp gives the AI say which, so the AI does not promise what it cannot do:
 
