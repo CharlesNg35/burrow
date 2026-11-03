@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-`burrow mcp` starts reliably from any AI app, stops at once, says what went wrong, and tells the AI what this session may do.
+## [0.2.3]
+
+`burrow mcp` starts reliably from any AI app and checks examples with the server's own validation, the server can be updated from burrow admin with automatic rollback, and burrow admin shows the config file it runs. Clients, visitors and configs from 0.2.2 work unchanged.
 
 - **Stops at once:** Ctrl-C, SIGTERM or the app closing stdin stop `burrow mcp` within a second, also before an app spoke to it (Ctrl-C was ignored there) and while a call waits for the server.
 - **Handshake first:** it answers the app's MCP handshake at once and connects to the server in the background. If the link fails or drops, each tool says where and what to do ("burrow mcp on this computer could not connect to …: could not look up … (DNS: …)"), and the next call connects again with a fresh DNS lookup and a backoff of up to 8 s. `get_status` shows the link under `mcp_link`. A DNS failure now reads "could not look up HOST (DNS: …)" in the client and visitor logs too.
