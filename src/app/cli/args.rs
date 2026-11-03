@@ -98,7 +98,7 @@ pub struct McpArgs {
     pub service: Option<String>,
     #[arg(
         long,
-        help = "Offer the tools that change the config (apply_change, revert_to_version); the visitor also needs admin: write"
+        help = "Offer the tools that change the config (apply_change, revert_to_version, update_clients); the visitor also needs admin: write"
     )]
     pub allow_write: bool,
     #[arg(
@@ -139,9 +139,16 @@ pub struct McpArgs {
         long,
         value_enum,
         value_name = "APP",
-        help = "Print a ready setup for this AI app, and exit; over stdio, or over HTTP with --http"
+        num_args = 0..=1,
+        help = "Print the standard MCP config for any AI app, with full paths, and exit; or the ready setup for one app; for HTTP with --http"
     )]
-    pub print_config: Option<McpApp>,
+    pub print_config: Option<Option<McpApp>>,
+    #[arg(
+        long,
+        conflicts_with_all = ["print_config", "print_token", "http"],
+        help = "Start as an AI app would, then report the config, the server, the admin level and the tools, and exit; 0 means ready"
+    )]
+    pub check: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

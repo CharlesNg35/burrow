@@ -16,6 +16,7 @@ pub mod schema;
 pub mod status;
 pub mod updates;
 pub mod value;
+pub mod view;
 pub mod web;
 
 pub use serde;
@@ -45,6 +46,7 @@ pub mod features {
     pub const CLIENT_ALLOW: &str = "client.allow";
     pub const CLIENT_UPDATES: &str = "client.updates";
     pub const SERVER_UPDATES: &str = "server.updates";
+    pub const CONFIG_VIEW: &str = "config.view";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -63,5 +65,6 @@ pub mod features {
         CLIENT_ALLOW,
         CLIENT_UPDATES,
         SERVER_UPDATES,
+        CONFIG_VIEW,
     ];
 }

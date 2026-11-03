@@ -48,9 +48,13 @@ pub fn open_message(client: &str) -> AdminOpen {
 }
 
 pub fn failure(e: &AdminOpenError, settings: &VisitorSettings) -> Failure {
+    explained(e, settings).1
+}
+
+pub fn explained(e: &AdminOpenError, settings: &VisitorSettings) -> (Reason, Failure) {
     let (reason, message) = explain(e, &settings.name, &settings.server);
     let f = Failure::new(message);
-    match reason {
+    let f = match reason {
         Reason::Forbidden => f.hint(format!(
             "add \"admin: write\" (or \"admin: read\") to visitors.{} in server.yaml on the server",
             settings.name
@@ -58,7 +62,8 @@ pub fn failure(e: &AdminOpenError, settings: &VisitorSettings) -> Failure {
         Reason::Rejected => f.hint("check name and secret against visitors in the server config"),
         Reason::NoAdmin => f.hint("update burrow on the server"),
         _ => f,
-    }
+    };
+    (reason, f)
 }
 
 pub async fn open(
@@ -66,11 +71,21 @@ pub async fn open(
     settings: &VisitorSettings,
     client: &str,
 ) -> Result<(AdminRx, AdminTx), Failure> {
+    open_explained(dialer, settings, client)
+        .await
+        .map_err(|(_, f)| f)
+}
+
+pub async fn open_explained(
+    dialer: &Dialer,
+    settings: &VisitorSettings,
+    client: &str,
+) -> Result<(AdminRx, AdminTx), (Reason, Failure)> {
     dialer
         .open_admin(&open_message(client))
         .await
         .map(|(rx, tx, _)| (rx, tx))
-        .map_err(|e| failure(&e, settings))
+        .map_err(|e| explained(&e, settings))
 }
 
 pub async fn check_access(settings: &VisitorSettings, client: &str) -> Result<(), Failure> {

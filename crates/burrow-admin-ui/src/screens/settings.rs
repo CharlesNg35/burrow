@@ -281,6 +281,12 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
         let skip = burrow_admin_logic::tree::entity_sections(&schema);
         let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
         let now = tab.get();
+        if !now.holds_fields() {
+            return Some(
+                view! { <div data-tab-panel=now.key()><super::config_file::ConfigFile/></div> }
+                    .into_any(),
+            );
+        }
         let shown = shown.get();
         let web_on = web_on.get();
         let mut cards = settings_cards(&schema.root, &skip)
@@ -298,14 +304,17 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
         let web_note = (now == Tab::Web && !web_on).then(|| {
             view! { <p class="mb-3 text-sm text-text-muted" data-testid="web-off-note">"Turn the web proxy on to serve websites."</p> }
         });
-        Some(view! {
-            <div data-tab-panel=now.key()>
-                {web_note}
-                {cards.iter().map(settings_card).collect_view()}
-                {(now == Tab::Web && web_on).then(super::local_ca::local_ca_card)}
-                {empty}
-            </div>
-        })
+        Some(
+            view! {
+                <div data-tab-panel=now.key()>
+                    {web_note}
+                    {cards.iter().map(settings_card).collect_view()}
+                    {(now == Tab::Web && web_on).then(super::local_ca::local_ca_card)}
+                    {empty}
+                </div>
+            }
+            .into_any(),
+        )
     }
 }
 
@@ -389,7 +398,7 @@ pub fn Settings() -> impl IntoView {
                 kicker="Settings"
                 sub="Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."
                 actions={view! {
-                    {move || (!editing.get()).then(|| view! {
+                    {move || (!editing.get() && tab.get().holds_fields()).then(|| view! {
                         <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, None) } on_click=start/>
                     })}
                 }.into_any()}
@@ -397,7 +406,7 @@ pub fn Settings() -> impl IntoView {
                 "Server settings"
             </burrow_ui_kit::PageHeader>
             {tab_bar(rows, tab, look, search_box(look.query, "Search settings".into(), Signal::stored(false)).into_any())}
-            <div class="mb-4" data-testid="settings-search">
+            <div class="mb-4" class:hidden=move || !tab.get().holds_fields() data-testid="settings-search">
                 {filter_chips(filters, look.filter, plain_rows, true, Signal::stored(false))}
             </div>
             <div data-testid="settings">{tab_cards(tab, look, rows)}</div>

@@ -43,10 +43,20 @@ pub fn main() -> ExitCode {
         std::sync::Arc::new(crate::update::remote::ClientUpdates::new(path))
     });
     let err_style = Style::detect(std::io::stderr().is_terminal());
+    if let Some(j) = crate::app::cli::joined(&std::env::args_os().collect::<Vec<_>>()) {
+        let f = if j.command == crate::app::cli::MCP_COMMAND {
+            crate::mcp::startup::failed(j.failure, None)
+        } else {
+            j.failure
+        };
+        crate::say_errln!("{}", f.render(err_style));
+        return ExitCode::from(f.exit);
+    }
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
-            match crate::app::cli::service_word(&e, &std::env::args_os().collect::<Vec<_>>()) {
+            let args = std::env::args_os().collect::<Vec<_>>();
+            match crate::app::cli::service_word(&e, &args) {
                 Some(f) => {
                     crate::say_errln!("{}", f.render(err_style));
                     return ExitCode::from(f.exit);
@@ -512,32 +522,47 @@ fn admin(args: crate::app::cli::AdminArgs) -> Result<u8, Failure> {
 
 fn mcp(args: crate::app::cli::McpArgs) -> Result<u8, Failure> {
     use crate::app::cli::McpApp;
-    use crate::mcp::setup::App;
-    let config_given = args.config.is_some();
+    use crate::mcp::{Task, setup::App};
+    let task = if args.check {
+        Task::Check
+    } else if let Some(app) = args.print_config {
+        Task::PrintConfig(app.map(|a| match a {
+            McpApp::Claude => App::Claude,
+            McpApp::Codex => App::Codex,
+            McpApp::Cursor => App::Cursor,
+        }))
+    } else if args.print_token {
+        Task::PrintToken
+    } else {
+        Task::Serve
+    };
+    let given = args.config.clone();
     let chosen = crate::admin_link::find::visitor(
         args.config,
         args.service.as_deref(),
         crate::app::cli::MCP_COMMAND,
         crate::service::saved_env,
-    )?;
+    )
+    .map_err(|f| match task {
+        Task::Serve => crate::mcp::startup::failed(f, given.as_deref()),
+        Task::PrintConfig(_) | Task::PrintToken | Task::Check => f,
+    })?;
     if let Some(note) = &chosen.note {
         crate::say_errln!("{note}");
     }
     let opts = crate::mcp::Options {
-        allow_write: args.allow_write,
+        writes: if args.allow_write {
+            crate::mcp::mode::Writes::Allowed
+        } else {
+            crate::mcp::mode::Writes::Off
+        },
         http: args.http.then_some(crate::mcp::HttpOptions {
             port: args.port.unwrap_or(burrow_syntax::ports::MCP_PORT),
             show_token: !args.no_print_token,
         }),
         token_file: args.token_file,
         new_token: args.new_token,
-        print_token: args.print_token,
-        print_config: args.print_config.map(|a| match a {
-            McpApp::Claude => App::Claude,
-            McpApp::Codex => App::Codex,
-            McpApp::Cursor => App::Cursor,
-        }),
-        config_given,
+        task,
     };
     crate::app::run::mcp(&chosen.path, chosen.env, opts)
 }

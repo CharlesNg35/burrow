@@ -175,6 +175,14 @@ fn check_env_name(name: &str) -> Result<(), Failure> {
     }
 }
 
+pub fn already_exists(path: &Path) -> Failure {
+    Failure::new(format!(
+        "{} already exists, not overwriting it",
+        path.display()
+    ))
+    .hint("pass --force to replace it, or -o to write somewhere else")
+}
+
 pub fn write_new(path: &Path, contents: &str, force: bool) -> Result<(), Failure> {
     if force {
         return crate::base::fs::write_private(path, contents).map_err(|e| {
@@ -190,11 +198,7 @@ pub fn write_new(path: &Path, contents: &str, force: bool) -> Result<(), Failure
         opts.mode(0o600);
     }
     let mut file = opts.open(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::AlreadyExists => Failure::new(format!(
-            "{} already exists, not overwriting it",
-            path.display()
-        ))
-        .hint("pass --force to replace it, or -o to write somewhere else"),
+        std::io::ErrorKind::AlreadyExists => already_exists(path),
         _ => Failure::new(format!("cannot write {}: {e}", path.display()))
             .hint("check that the directory exists and is writable"),
     })?;
@@ -245,11 +249,7 @@ fn ask_login(
     prompt: &mut dyn Prompter,
 ) -> Result<Login, Failure> {
     if path.exists() && !opts.force {
-        return Err(Failure::new(format!(
-            "{} already exists, not overwriting it",
-            path.display()
-        ))
-        .hint("pass --force to replace it, or -o to write somewhere else"));
+        return Err(already_exists(path));
     }
     let missing = |what: &str, flag: &str| {
         Failure::usage(format!("missing {what}")).hint(format!(

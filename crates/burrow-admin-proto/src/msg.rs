@@ -24,6 +24,7 @@ pub mod req {
     pub const HASH_PASSWORD: &str = "hash_password";
     pub const UPDATE_CLIENTS: &str = "update_clients";
     pub const UPDATE_SERVER: &str = "update_server";
+    pub const CONFIG_VIEW: &str = "config_view";
 
     pub const ALL: &[&str] = &[
         WELCOME,
@@ -43,6 +44,7 @@ pub mod req {
         HASH_PASSWORD,
         UPDATE_CLIENTS,
         UPDATE_SERVER,
+        CONFIG_VIEW,
     ];
 }
 
@@ -237,6 +239,7 @@ pub fn needed_for(request: &str) -> Option<&'static str> {
         req::LOCAL_CA => Some(f::LOCAL_CA),
         req::UPDATE_CLIENTS => Some(f::CLIENT_UPDATES),
         req::UPDATE_SERVER => Some(f::SERVER_UPDATES),
+        req::CONFIG_VIEW => Some(f::CONFIG_VIEW),
         _ => None,
     }
 }

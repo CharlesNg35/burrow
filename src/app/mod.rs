@@ -3,5 +3,6 @@
 
 pub mod cli;
 pub mod command;
+mod drive;
 pub mod reload;
 pub mod run;

@@ -35,9 +35,38 @@ impl std::fmt::Display for LookupTimedOut {
 
 impl std::error::Error for LookupTimedOut {}
 
+#[derive(Debug)]
+pub struct LookupFailed {
+    host: String,
+    why: String,
+}
+
+impl LookupFailed {
+    pub fn new(host_port: &str, e: &io::Error) -> LookupFailed {
+        let host = burrow_syntax::hostport::parse_host_port(host_port)
+            .map_or_else(|_| host_port.to_string(), |(host, _)| host);
+        LookupFailed {
+            host,
+            why: crate::base::failure::io_reason(e),
+        }
+    }
+}
+
+impl std::fmt::Display for LookupFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "could not look up {} (DNS: {})", self.host, self.why)
+    }
+}
+
+impl std::error::Error for LookupFailed {}
+
 pub fn lookup_timed_out(e: &io::Error) -> bool {
     e.get_ref()
         .is_some_and(|inner| inner.is::<LookupTimedOut>())
+}
+
+pub fn lookup_failed(e: &io::Error) -> bool {
+    lookup_timed_out(e) || e.get_ref().is_some_and(|inner| inner.is::<LookupFailed>())
 }
 
 pub async fn dial_tcp(
@@ -64,6 +93,7 @@ pub async fn dial_tcp_ordered(
                 .map_err(|_| {
                     io::Error::new(io::ErrorKind::TimedOut, LookupTimedOut::new(&host, timeout))
                 })?
+                .map_err(|e| io::Error::new(e.kind(), LookupFailed::new(&host, &e)))
         }
     };
     match proxy {
@@ -248,6 +278,37 @@ mod lookup_tests {
         assert!(lookup_timed_out(&err));
         assert!(!lookup_timed_out(&io::Error::from(io::ErrorKind::TimedOut)));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    struct Failing;
+
+    impl Resolver for Failing {
+        fn resolve<'a>(&'a self, _: &'a str) -> Resolved<'a> {
+            Box::pin(std::future::ready(Err(io::Error::other(
+                "failed to lookup address information: Name or service not known",
+            ))))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_lookup_that_fails_is_named_as_dns() {
+        let err = dial_tcp(
+            "myserver.example.com:7835",
+            None,
+            Duration::from_secs(1),
+            &Failing,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "could not look up myserver.example.com (DNS: failed to lookup address information: Name or service not known)"
+        );
+        assert!(lookup_failed(&err));
+        assert!(!lookup_timed_out(&err));
+        assert!(!lookup_failed(&io::Error::from(
+            io::ErrorKind::ConnectionRefused
+        )));
     }
 }
 

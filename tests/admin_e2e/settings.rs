@@ -44,7 +44,7 @@ async fn pick(c: &Ctx, tab: &str) {
     .await;
 }
 
-async fn the_four_tabs(c: &mut Ctx) {
+async fn the_five_tabs(c: &mut Ctx) {
     c.ui.nav("/settings").await;
     c.ui.wait_for(
         &format!("{TABS} [data-tab=server][aria-selected=true]"),
@@ -54,7 +54,7 @@ async fn the_four_tabs(c: &mut Ctx) {
     assert_eq!(
         c.ui.all_attrs(&format!("{TABS} [role=tab]"), "data-tab")
             .await,
-        ["server", "connections", "proxy", "monitoring"]
+        ["server", "connections", "proxy", "monitoring", "file"]
     );
     c.ui.wait_for("[data-testid=settings] [data-schema=listen]", SECS)
         .await;
@@ -132,7 +132,7 @@ async fn a_change_shows_on_its_pill(c: &mut Ctx) {
 fn tabs(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
-        the_four_tabs(c).await;
+        the_five_tabs(c).await;
         search_finds_every_tab(c).await;
         a_change_shows_on_its_pill(c).await;
         c.ui.assert_no_errors();
@@ -140,7 +140,7 @@ fn tabs(c: &mut Ctx) -> Flow<'_> {
 }
 
 #[test]
-fn settings_has_four_tabs_that_search_and_links_reach() {
+fn settings_has_five_tabs_that_search_and_links_reach() {
     run("settings-tabs", opts(), false, tabs);
 }
 
