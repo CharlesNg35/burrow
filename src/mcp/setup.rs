@@ -357,10 +357,11 @@ mod tests {
     fn the_hints_name_the_full_command_for_any_app_one_app_and_the_check() {
         let config = Path::new("/srv/ops laptop.yaml");
         let h = hints(Path::new(PROGRAM), config, Writes::Allowed, None);
+        let shown = absolute(config).display().to_string();
         let c = if cfg!(windows) {
-            "& \"/opt/my burrow/burrow\" mcp -c \"/srv/ops laptop.yaml\" --allow-write"
+            format!("& \"/opt/my burrow/burrow\" mcp -c \"{shown}\" --allow-write")
         } else {
-            "'/opt/my burrow/burrow' mcp -c '/srv/ops laptop.yaml' --allow-write"
+            format!("'/opt/my burrow/burrow' mcp -c '{shown}' --allow-write")
         };
         assert_eq!(
             h,
