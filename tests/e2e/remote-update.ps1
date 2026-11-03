@@ -55,6 +55,7 @@ try {
   Mark "v3.exe" @("VERSION=9.0.0-test.3")
   Mark "v4.exe" @("VERSION=9.0.0-test.4", "BREAK=connect")
   Mark "v5.exe" @("VERSION=9.0.0-test.5", "BREAK=start")
+  Mark "srv.exe" @("VERSION=9.9.9")
   $psi = New-Object Diagnostics.ProcessStartInfo $Serve
   $psi.Arguments = "9.0.0-test.2 v2.exe good 9.0.0-test.3 v3.exe tampered 9.0.0-test.4 v4.exe good 9.0.0-test.5 v5.exe good"
   $psi.WorkingDirectory = $Work
@@ -74,7 +75,7 @@ try {
   Set-Content e2e-upd.yaml "server: 127.0.0.1:27975`nname: home`nsecret: `${E2E_SECRET}`nallow: [127.0.0.1/32]`nheaders:`n  X-Releases: `${BURROW_UPDATE_URL}`n  X-Window: `${BURROW_ADMIN_TEST_UPDATE_WINDOW}`nupdate:`n  remote: true"
   $env:BURROW_UPDATE_URL = $Url
   $env:BURROW_ADMIN_TEST_LATEST_SECS = "0"
-  $Procs += Start-Process -FilePath (Join-Path $Out "burrow.exe") -ArgumentList "server","-c","server.yaml" -PassThru -WindowStyle Hidden -RedirectStandardError server.err
+  $Procs += Start-Process -FilePath (Join-Path $Work "srv.exe") -ArgumentList "server","-c","server.yaml" -PassThru -WindowStyle Hidden -RedirectStandardError server.err
 
   Write-Host "== install the client as a service that allows remote updates"
   $env:E2E_SECRET = $HomeSecret

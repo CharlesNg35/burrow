@@ -9,8 +9,8 @@ static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static LAB: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static SPARE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-const OLD: &str = "9.0.0-test.1";
-const NEW: &str = "9.0.0-test.2";
+const OLD: &str = "0.0.1-test.1";
+const NEW: &str = "0.0.1-test.2";
 
 fn marked(marks: &[&str]) -> Vec<u8> {
     let mut b = std::fs::read(BIN).unwrap();

@@ -230,7 +230,9 @@ fn burrow_clients_lists_each_client_with_its_burrow_and_a_newer_release() {
     assert!(shown.contains(MINE), "{shown}");
     assert!(shown.contains("by hand"), "{shown}");
     assert!(
-        shown.contains("99.0.0 available, but remote updates are off in its config"),
+        shown.contains(&format!(
+            "99.0.0 available, but the server runs {MINE}; update the server first to 99.0.0"
+        )),
         "{shown}"
     );
     let (code, json) = clients(&s, &["--json"]);
@@ -265,7 +267,9 @@ fn burrow_clients_update_says_why_each_client_is_not_asked_and_fails() {
         "{shown}"
     );
     assert!(
-        shown.contains("home: not asked: remote updates are off in its config"),
+        shown.contains(&format!(
+            "home: not asked: the server runs {MINE}; update the server first to 99.0.0"
+        )),
         "{shown}"
     );
     let (code, shown) = clients(&s, &["update", "away", "--json", "--yes"]);

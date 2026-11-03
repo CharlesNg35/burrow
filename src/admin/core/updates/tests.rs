@@ -82,6 +82,8 @@ fn client(name: &str, version: Option<&str>, remote: RemoteUpdates) -> ClientSta
     }
 }
 
+const SERVER: &str = "0.2.9";
+
 fn setup(
     latest: Option<&str>,
     clients: Vec<ClientStatus>,
@@ -94,6 +96,15 @@ fn setup_fresh(
     fresh: Option<&str>,
     clients: Vec<ClientStatus>,
 ) -> (Core, Asked, crate::admin::core::tests::World) {
+    setup_on(SERVER, latest, fresh, clients)
+}
+
+fn setup_on(
+    server: &str,
+    latest: Option<&str>,
+    fresh: Option<&str>,
+    clients: Vec<ClientStatus>,
+) -> (Core, Asked, crate::admin::core::tests::World) {
     let w = world();
     let mut core = core_running(&w.text, &w.text);
     let asked: Asked = Arc::default();
@@ -101,6 +112,7 @@ fn setup_fresh(
         inner: FakeLive {
             text: Arc::new(Mutex::new(w.text.clone())),
             status: Mutex::new(Status {
+                version: server.into(),
                 clients,
                 ..Status::default()
             }),
@@ -321,4 +333,110 @@ fn a_name_given_twice_is_asked_once() {
     assert_eq!(r.asked, ["a"]);
     assert_eq!(r.skipped.len(), 1, "{:?}", r.skipped);
     assert_eq!(asked.lock().unwrap()[0].0, ["a"]);
+}
+
+fn all(core: &Core, by: &str) -> UpdateClientsReply {
+    ask_clients(
+        core,
+        &UpdateClients {
+            all: true,
+            ..UpdateClients::default()
+        },
+        by,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_client_is_never_offered_a_release_newer_than_the_server() {
+    let (core, asked, w) = setup_on(
+        "0.2.2",
+        Some("0.2.3"),
+        None,
+        vec![
+            client("nas", Some("0.2.1"), RemoteUpdates::On),
+            client("pi", Some("0.2.1"), RemoteUpdates::Off),
+        ],
+    );
+    let why = "the server runs 0.2.2; update the server first to 0.2.3";
+    let st = core.status();
+    let nas = st.clients.iter().find(|c| c.name == "nas").unwrap();
+    assert_eq!(nas.available.as_deref(), Some("0.2.3"));
+    assert_eq!(nas.blocked.as_deref(), Some(why));
+    let pi = st.clients.iter().find(|c| c.name == "pi").unwrap();
+    assert_eq!(
+        pi.blocked.as_deref(),
+        Some(why),
+        "the server is the first fix"
+    );
+    let s = session(&w, AdminLevel::Write);
+    let one = asking(&core, &s, &["nas"], None, false).unwrap();
+    assert!(one.asked.is_empty());
+    assert_eq!(one.skipped[0].why, why);
+    let every = all(&core, ON_THE_SERVER);
+    assert!(every.asked.is_empty(), "update all skips them");
+    assert_eq!(every.skipped.len(), 2);
+    let (code, body) = crate::admin::local::answer(&core, br#"{"clients":["nas"]}"#);
+    assert_eq!(code, 200);
+    assert!(body.contains(why), "{body}");
+    assert!(asked.lock().unwrap().is_empty(), "no path asks anyone");
+}
+
+#[test]
+fn a_release_equal_to_or_older_than_the_server_is_offered() {
+    for server in ["0.2.3", "0.2.4", "0.3.0-rc.1"] {
+        let (core, asked, w) = setup_on(
+            server,
+            Some("0.2.3"),
+            None,
+            vec![client("nas", Some("0.2.1"), RemoteUpdates::On)],
+        );
+        let st = core.status();
+        assert_eq!(st.clients[0].blocked, None, "server {server}");
+        let s = session(&w, AdminLevel::Write);
+        assert_eq!(
+            asking(&core, &s, &["nas"], None, false).unwrap().asked,
+            ["nas"]
+        );
+        assert_eq!(all(&core, ON_THE_SERVER).asked, ["nas"]);
+        assert_eq!(asked.lock().unwrap()[0].1, "0.2.3", "server {server}");
+    }
+}
+
+#[test]
+fn pre_releases_compare_as_semver_against_the_server() {
+    let cases = [
+        ("0.2.3-rc.1", "0.2.3", true),
+        ("0.2.3-rc.1", "0.2.3-rc.2", true),
+        ("0.2.3-rc.1", "0.2.3-rc.1", false),
+        ("0.2.3", "0.2.3-rc.1", false),
+        ("0.2.2", "0.2.3-rc.1", true),
+        ("0.2.4", "0.2.3-rc.1", false),
+        ("", "0.2.3", true),
+        ("0.2.2", "not-a-version", true),
+    ];
+    for (server, latest, refused) in cases {
+        assert_eq!(
+            past_the_server(latest, server).is_some(),
+            refused,
+            "server {server}, latest {latest}"
+        );
+    }
+    let mut c = client("t", Some("0.2.3-rc.0"), RemoteUpdates::On);
+    c.build.as_mut().unwrap().run = RunMode::Service;
+    assert!(
+        why_not(&c, "0.2.3-rc.1", "0.2.2")
+            .unwrap()
+            .contains("update the server first to 0.2.3-rc.1")
+    );
+    assert_eq!(why_not(&c, "0.2.3-rc.1", "0.2.3-rc.1"), None);
+}
+
+#[test]
+fn a_client_already_on_the_release_says_so_even_past_the_server() {
+    let c = client("nas", Some("0.2.3"), RemoteUpdates::On);
+    assert_eq!(
+        why_not(&c, "0.2.3", "0.2.2").as_deref(),
+        Some("it already runs 0.2.3")
+    );
 }

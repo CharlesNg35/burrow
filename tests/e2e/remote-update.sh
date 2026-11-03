@@ -40,6 +40,7 @@ mark v3 VERSION=9.0.0-test.3
 mark v4 VERSION=9.0.0-test.4 BREAK=connect
 mark v5 VERSION=9.0.0-test.5 BREAK=start
 mark v6 VERSION=9.0.0-test.6 BREAK=config
+mark srv VERSION=9.9.9
 
 cd "$WORK"
 mkfifo releases.ctl
@@ -79,7 +80,7 @@ update:
   remote: true
 YAML
 chmod 600 server.yaml ops.yaml e2e-upd.yaml
-BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_LATEST_SECS=0 "$OUT/burrow" server -c server.yaml > server.log 2>&1 &
+BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_LATEST_SECS=0 ./srv server -c server.yaml > server.log 2>&1 &
 PIDS+=($!)
 
 home() { "$PROBE" ops.yaml status 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); c=[c for c in s["clients"] if c["name"]=="home"][0]; print(json.dumps(c))'; }

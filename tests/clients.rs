@@ -37,7 +37,7 @@ fn the_update_route_needs_the_token_and_takes_only_a_post() {
     let instances = dir.path().join("instances");
     let config = server_config(dir.path(), "server.yaml");
     let releases = Releases::start();
-    releases.publish("9.0.0", b"new", false);
+    releases.publish("0.0.1", b"new", false);
     let server = start_with(
         &instances,
         &config,
