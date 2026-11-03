@@ -1,4 +1,6 @@
-# Updating clients from the server
+# Updating clients and the server remotely
+
+From 0.2.3 on, burrow admin and `burrow mcp` can also update the server itself, when root turned that on: see [Update the server from burrow admin](#update-the-server-from-burrow-admin).
 
 From 0.2.2 on, every client tells the server which burrow it runs: the release, the system (like `linux/arm64`), how it runs (a service, a container or started by hand) and whether it allows remote updates. burrow admin, `burrow status`, `burrow clients` and `burrow mcp` show this. A client that allows it can then be updated in three ways: from burrow admin, with `burrow mcp`, or with `burrow clients update` on the server machine. The server only asks it to update; the client finds the latest release itself, fetches it from the official releases, checks it, and goes back to its old version if the new one does not connect.
 
@@ -9,7 +11,9 @@ Back to the [README](../README.md). Updating the server or a client by hand: [se
 - [From the server's command line](#from-the-servers-command-line)
 - [What the client does](#what-the-client-does)
 - [Clients older than 0.2.2](#clients-older-than-022)
+- [Clients never go past the server](#clients-never-go-past-the-server)
 - [What the server cannot do](#what-the-server-cannot-do)
+- [Update the server from burrow admin](#update-the-server-from-burrow-admin)
 
 ## Allow it on the client
 
@@ -47,6 +51,8 @@ A client that allows remote updates but cannot do them says why, for example "th
 - The result shows under the client's figures ("0.2.2 → 0.2.3: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
 - burrow admin needs `admin: write`; read-only admins see versions but no buttons.
 
+A client is offered an update only when the latest release is not newer than the server: see [Clients never go past the server](#clients-never-go-past-the-server).
+
 The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while someone looks at the status (burrow admin, `burrow status`, `burrow clients`), and remembers it for 6 hours (15 minutes after a failed check). Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update. With `burrow mcp --allow-write`, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
 
 ## From the server's command line
@@ -73,7 +79,7 @@ CLIENTS  latest release 0.2.3
 
 - With several servers on the machine, name one with `--service NAME` (short names work: `--service server`) or `-c FILE`. Listing shows them all; updating refuses until one is named.
 - It says first which clients it asks and why the others are not asked (offline, remote updates off, already on the latest release, older than 0.2.2), then asks for a confirmation unless `--yes` is given. Without a terminal and without `--yes` nothing is asked.
-- It follows each client and prints a line per step: `home: 0.2.2 → 0.2.3: updated`, `nas: 0.2.2 → 0.2.3: rolled back (<reason>)`, and `stopped: pi not updated` when an update of several stops at a failure.
+- It follows each client and prints a line per step: `home: 0.2.2 → 0.2.3: updated`, `nas: 0.2.2 → 0.2.3: rolled back: <reason>`, and `stopped: pi not updated` when an update of several stops at a failure.
 - It exits 0 only when every client it asked has updated. It keeps watching through a slow answer from the server, and stops only when the server is gone or has not answered for a minute. Ctrl-C stops watching only; the update goes on on the server.
 - The server records it as "asked by burrow clients on the server", on the client's page in burrow admin and in its log.
 - It works only on the server machine, as the account that runs the server (root for a service). A visitor updates clients with burrow admin or `burrow mcp`'s `update_clients`.
@@ -100,6 +106,12 @@ A client started by hand will not replace a program that installed services use.
 
 Older clients send no version, so burrow admin shows them as "older than 0.2.2". Update each of them by hand once (`sudo burrow update` on that machine, see [service.md](service.md#update-burrow)). Then add `update: { remote: true }` if you want later updates from the server. Older clients and servers keep working with this release in both directions.
 
+## Clients never go past the server
+
+The server asks a client to update only when the latest release is the same as, or older than, the server's own version. A client asked by the server always installs the latest release (it takes no version from the server), so this keeps every client at or behind its server.
+
+When a newer release exists than the server runs, burrow admin, `update_clients` in `burrow mcp` and `burrow clients` show those clients as not offered, with the reason "the server runs 0.2.2; update the server first to 0.2.3", and **Update all** skips them. Update the server first, from burrow admin ([below](#update-the-server-from-burrow-admin)) or with `sudo burrow update` on the server machine, then the clients. Versions compare as semver, so a server on `0.2.3-rc.1` does not offer `0.2.3`. `burrow update` run by hand on a client machine is not limited.
+
 ## What the server cannot do
 
 Remote updates are built so that someone who controls the server, or an admin session, cannot run their own code on a client:
@@ -111,3 +123,53 @@ Remote updates are built so that someone who controls the server, or an admin se
 - On Windows, the client's service account may only start its updater, not stop, change or delete it.
 
 What is left is the trust you already give the release on GitHub, the same as for `burrow update`. See [security.md](security.md#client-updates) and [D75](decisions.md#d75-the-servers-admin-may-ask-a-client-to-update-and-the-client-fetches-checks-and-rolls-back-itself).
+
+## Update the server from burrow admin
+
+From 0.2.3 on, a server installed as a service can be updated to the latest release from burrow admin or `burrow mcp`. It is off until root turns it on, and the admin cannot turn it on.
+
+### Turn it on, as root
+
+```yaml
+# server.yaml
+update:
+  remote: true # let burrow admin and burrow mcp update this server; counts only after sudo burrow service install
+```
+
+```sh
+burrow init server --remote-updates           # a new server.yaml with update.remote: true
+sudo burrow service install -c server.yaml    # records the opt-in where the server cannot change it, adds the updater
+```
+
+- `sudo burrow service install` writes the opt-in into the service's install record (`/var/lib/burrow/services/<name>.json`, owned by root), and adds the same root updater a client gets: a systemd path unit, a launchd job or a Windows service.
+- The updater trusts only that record. It never reads server.yaml, which the server's account may be allowed to change (`--admin-writable`). `update.remote: true` written into the installed server.yaml by anyone else does nothing until root runs `service install` again; burrow admin then says "server.yaml has update.remote: true, but it counts only once root installs the service again".
+- burrow admin shows the setting locked under Settings, with this reason.
+- Install again without `update.remote` to turn it off; the updater is removed.
+
+### What happens
+
+1. In burrow admin, the Overview's header shows **Burrow on this server**: its version, "0.2.3 available" when a newer release exists, and whether updates from burrow admin are on. A write admin gets an **Update** button; when updates are off or not possible, the button is disabled and the reason shows below it.
+2. **Update** asks for confirmation. The server restarts with the new release, so clients, visitors and websites pause for a few seconds and reconnect on their own.
+3. The server only starts its root updater. Like a client's, the updater takes nothing from the server: no version, no file, no path. It checks the opt-in in the install record, finds the latest official release itself (or the mirror in `BURROW_UPDATE_URL` of the service's environment), refuses anything that is not newer, takes a pre-release only when the server already runs one, checks `SHA256SUMS` and the binary's version, keeps the old binary as `burrow.previous`, and restarts the service.
+4. Within 60 seconds the new server must be healthy: the service manager reports it running and not restarting, its local status endpoint answers with the new version, and no listener that worked before is now not listening. Otherwise the old binary is put back and started, and the result says "rolled back" with the reason.
+5. burrow admin shows "updating, the server restarts" and a banner while the connection is down, reconnects on its own, and then shows the result: "0.2.2 → 0.2.3: updated, asked by ops (203.0.113.7)" with how many clients connected again, or "rolled back: <reason>". Clients reconnecting is reported but never causes a roll back.
+
+One update runs at a time, and none starts while a config change is being applied. The server's log names who asked. `burrow mcp --allow-write` has the `update_server` tool, which goes through the same entry point ([mcp.md](mcp.md#what-the-ai-can-do)).
+
+### When it is refused
+
+| the server runs | burrow admin says |
+| --- | --- |
+| started by hand (`burrow server`) | update it with `sudo burrow update` |
+| in a container | update the image instead |
+| as a service installed without the opt-in | turn it on with `update.remote: true` in server.yaml, then `sudo burrow service install -c server.yaml` |
+| as a service sharing its binary with a service that did not opt in | the updater refuses and names the other service; update them all with `sudo burrow update` |
+| already on the latest release | it already runs that release |
+
+### What the server and the admin cannot do
+
+- Turn the opt-in on: only root's `service install` records it, and the updater reads nothing else.
+- Choose the version or the file: the updater picks the newest official release and checks its checksum, and never goes back to an older one.
+- Write the binary: the server's account still cannot write `/usr/local/bin/burrow` (or the Program Files copy); only the root updater replaces it, the same way `sudo burrow update` does.
+
+Supported on Linux (systemd), macOS (launchd) and Windows services. See [security.md](security.md#server-updates) and [D83](decisions.md#d83-burrow-admin-may-update-the-server-when-root-opted-it-in-and-a-root-updater-checks-its-health-and-rolls-back).

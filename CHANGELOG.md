@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **Update the server from burrow admin:** `update: { remote: true }` in server.yaml (`burrow init server --remote-updates` writes it) lets burrow admin and `burrow mcp` update the server to the latest release, once `sudo burrow service install` recorded the opt-in in the root-owned install record; the admin cannot turn it on, and Settings shows it locked. The server only starts the root updater (the same systemd path unit, launchd job or Windows service clients use), which trusts that record alone, never reads server.yaml, takes no version or file from the server, checks `SHA256SUMS`, keeps `burrow.previous` and restarts the service. The new server must be running, answer on its local status endpoint with the new version and keep every listener within 60 s, or the old one comes back ("rolled back: <reason>"). One update at a time, never during a config apply; the log and the result name who asked, and the result counts the clients that connected again. A server started by hand is told to use `sudo burrow update`, a container to update the image. See docs/updates.md and D83.
+  - burrow admin: a compact **Burrow on this server** figure in the Overview's header with the version, a newer release, whether updates from burrow admin are on and why not, an **Update** button with a confirmation that says clients and websites pause for a few seconds, an "updating, the server restarts" banner while the tab reconnects on its own, and the result.
+  - `burrow mcp --allow-write`: the `update_server` tool, a preview without `confirm` and the update with it, through the same entry point.
+- **Clients never go past the server:** burrow admin, `update_clients` and `burrow clients update` offer a client the latest release only when it is not newer than the server; otherwise they say "the server runs 0.2.2; update the server first to 0.2.3", and **Update all** skips the client. A rolled back or failed update now reads "rolled back: <reason>".
+
 ## [0.2.2]
 
 Clients tell the server which burrow they run, and a client that allows it can be updated from burrow admin or `burrow mcp`, with automatic rollback. burrow admin also checks far more before you apply (ports, addresses, allow lists) and explains what to do. Older clients and servers keep working with this release in both directions.

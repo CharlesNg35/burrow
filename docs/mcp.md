@@ -87,6 +87,7 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 | `revert_to_version` | the plan to go back to a kept version; writes nothing | `admin: write` and `--allow-write` |
 | `apply_change` | applies a checked plan | `admin: write` and `--allow-write` |
 | `update_clients` | asks clients to update burrow to a newer release, one at a time; without `confirm` it only says which clients it would ask | `admin: write` and `--allow-write` |
+| `update_server` | updates the server itself to the latest release through its root updater; without `confirm` it only says from which version to which, or why it cannot | `admin: write` and `--allow-write`, and a server installed with `update.remote: true` |
 
 `burrow mcp` is read-only unless you start it with `--allow-write`, and the visitor also needs `admin: write`. To allow writing in Claude Code:
 
@@ -96,6 +97,8 @@ claude mcp add burrow -- /home/me/bin/burrow mcp -c /home/me/ops-laptop.yaml --a
 ```
 
 Updating clients also takes two steps: `update_clients` without `confirm` returns the latest release and which clients it would ask, with the reason for each client it skips; called again with `confirm: ["update"]`, it asks them, one at a time. Progress and results show in `get_status`, under each client's `update`. See [updates.md](updates.md).
+
+Updating the server works the same way: `update_server` without `confirm` returns the server's version, the latest release and, when it cannot update, why (started by hand, a container, or a service installed without `update.remote: true`); called again with `confirm: ["update"]`, the server's root updater installs the release and the server restarts. Clients, visitors and the `burrow mcp` session pause for a few seconds and reconnect. The result shows in `get_status` under `server_update.last`, "rolled back" with the reason if the new release was not healthy within a minute. It is the same entry point as burrow admin's **Update** button ([updates.md](updates.md#update-the-server-from-burrow-admin)).
 
 A change always takes two steps: `check_change` returns the diff and a plan id, and `apply_change` applies exactly that plan. Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, with at most 16 plans at a time.
 
@@ -163,7 +166,7 @@ For an AI app on another machine, forward the port with `ssh -L 7838:127.0.0.1:7
 An AI app that can change your server must not be able to do harm by mistake or by a trick in the data it reads. These rules hold:
 
 - **Read-only by default.** Writes need `--allow-write` on your machine and `admin: write` on the server.
-- **Client updates need your OK too.** `update_clients` asks nobody until it is called again with `confirm`, and the clients fetch the release from the official releases themselves; the AI cannot name a download.
+- **Client and server updates need your OK too.** `update_clients` asks nobody and `update_server` changes nothing until called again with `confirm`, and the clients and the server's root updater fetch the release from the official releases themselves; the AI cannot name a download or a version, and cannot turn server updates on.
 - **Only checked changes are applied.** `apply_change` takes a plan id from `check_change`; the server refuses another change or a config that changed since, and impacts that need confirming must be named.
 - **Secrets never reach the AI.** Results show secrets as fingerprints or `${ENV}` names, and the AI cannot generate secrets or ask for connect snippets.
 - **The server's rules from [admin.md](admin.md#security-notes) apply unchanged:** admin access can be lowered but never granted or widened, and the last 20 versions are kept and can be reverted.
