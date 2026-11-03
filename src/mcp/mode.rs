@@ -1,6 +1,6 @@
 use burrow_admin_proto::msg::AdminLevel;
 
-use super::tools::{APPLY, CHECK, REVERT, UPDATE};
+use super::tools::{APPLY, CHECK, REVERT, UPDATE, UPDATE_SERVER};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Writes {
@@ -21,9 +21,9 @@ const DATA: &str = "burrow mcp reads one burrow server through its admin channel
 
 const READ_ONLY: &str = "This session is read-only: the visitor has admin: read on the server, so changes cannot be checked or applied here. Never say that a change was or will be made from this session. To change the config, tell the user to give this visitor admin: write in the server's config and to start burrow mcp with --allow-write.";
 
-const CHECK_ONLY: &str = "This session is check-only: burrow mcp was started without --allow-write, so changes can be checked but cannot be applied, and clients cannot be updated. check_change validates a change and returns its diff and impacts without writing anything; show them to the user. Never say that a change was or will be applied from this session. To apply changes, tell the user to add --allow-write to burrow mcp's arguments in the AI app's settings and to restart it.";
+const CHECK_ONLY: &str = "This session is check-only: burrow mcp was started without --allow-write, so changes can be checked but cannot be applied, and clients and the server cannot be updated. check_change validates a change and returns its diff and impacts without writing anything; show them to the user. Never say that a change was or will be applied from this session. To apply changes, tell the user to add --allow-write to burrow mcp's arguments in the AI app's settings and to restart it.";
 
-const WRITE: &str = "This session can change the config. To change it, call check_change, show the user the diff and the impacts, and call apply_change with the plan id only after the user agreed. To update clients, call update_clients without confirm, show the user which clients it would ask, and call it again with confirm only after they agreed.";
+const WRITE: &str = "This session can change the config. To change it, call check_change, show the user the diff and the impacts, and call apply_change with the plan id only after the user agreed. To update clients, call update_clients without confirm, show the user which clients it would ask, and call it again with confirm only after they agreed. To update the server itself, call update_server without confirm, tell the user what it says (the versions, or why it cannot, and that clients and websites pause for a few seconds while the server restarts), and call it again with confirm only after they agreed.";
 
 const NOT_UP: &str = "The link to the server is not up yet: a tool that needs it says why, and burrow mcp tries again on each call.";
 
@@ -53,7 +53,7 @@ impl Mode {
     pub fn allows(self, tool: &str) -> bool {
         match tool {
             CHECK => self != Mode::ReadOnly,
-            APPLY | REVERT | UPDATE => self == Mode::Write,
+            APPLY | REVERT | UPDATE | UPDATE_SERVER => self == Mode::Write,
             _ => true,
         }
     }
@@ -82,7 +82,7 @@ mod tests {
     use super::super::tools::VALIDATE;
     use super::*;
 
-    const TOOLS: [&str; 9] = [
+    const TOOLS: [&str; 10] = [
         "get_status",
         "get_config",
         "describe_settings",
@@ -92,6 +92,7 @@ mod tests {
         APPLY,
         REVERT,
         UPDATE,
+        UPDATE_SERVER,
     ];
 
     #[test]
@@ -127,7 +128,7 @@ mod tests {
             TOOLS.iter().filter(|t| Mode::CheckOnly.allows(t)).count(),
             6
         );
-        assert_eq!(TOOLS.iter().filter(|t| Mode::Write.allows(t)).count(), 9);
+        assert_eq!(TOOLS.iter().filter(|t| Mode::Write.allows(t)).count(), 10);
         assert_eq!(Mode::CheckOnly.apply_note(), Some(NOT_APPLIED));
         assert_eq!(Mode::Write.apply_note(), None);
         assert_eq!(Mode::ReadOnly.apply_note(), None);

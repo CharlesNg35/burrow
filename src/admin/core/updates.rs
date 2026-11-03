@@ -21,7 +21,15 @@ pub fn newer(target: &str, than: &str) -> bool {
     }
 }
 
-pub fn why_not(c: &ClientStatus, target: &str) -> Option<String> {
+pub fn past_the_server(target: &str, server: &str) -> Option<String> {
+    let past = match (version(target), version(server)) {
+        (Some(t), Some(s)) => t > s,
+        _ => true,
+    };
+    past.then(|| format!("the server runs {server}; update the server first to {target}"))
+}
+
+pub fn why_not(c: &ClientStatus, target: &str, server: &str) -> Option<String> {
     if c.local {
         return Some("it is this server".into());
     }
@@ -37,6 +45,12 @@ pub fn why_not(c: &ClientStatus, target: &str) -> Option<String> {
     if b.run == RunMode::Container {
         return Some("it runs in a container: update its image".into());
     }
+    if !newer(target, &b.version) {
+        return Some(format!("it already runs {}", b.version));
+    }
+    if let Some(why) = past_the_server(target, server) {
+        return Some(why);
+    }
     match b.remote {
         RemoteUpdates::On => {}
         RemoteUpdates::Off => {
@@ -48,9 +62,6 @@ pub fn why_not(c: &ClientStatus, target: &str) -> Option<String> {
     }
     if c.update.as_ref().is_some_and(|u| !u.state.finished()) {
         return Some("an update is already running".into());
-    }
-    if !newer(target, &b.version) {
-        return Some(format!("it already runs {}", b.version));
     }
     None
 }
@@ -65,7 +76,10 @@ pub fn offer(status: &mut Status) {
             .as_ref()
             .filter(|b| newer(&latest, &b.version))
             .map(|_| latest.clone());
-        c.blocked = c.available.as_ref().and_then(|v| why_not(c, v));
+        c.blocked = c
+            .available
+            .as_ref()
+            .and_then(|v| why_not(c, v, &status.version));
     }
 }
 
@@ -158,7 +172,7 @@ pub fn ask_clients(
         });
     }
     for c in named {
-        match why_not(c, &to) {
+        match why_not(c, &to, &status.version) {
             None => reply.asked.push(c.name.clone()),
             Some(why) => reply.skipped.push(Skipped {
                 client: c.name.clone(),

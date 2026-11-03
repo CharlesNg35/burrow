@@ -1,8 +1,11 @@
-//! Remote updates on the client: whether it may take one, and the by-hand and service ways to run it.
+//! Remote updates of clients and servers: whether one may take one, the by-hand and service ways to run it, and the root updater's checks.
 
 mod by_hand;
+pub mod health;
 pub mod helper;
 mod record;
+mod root_env;
+mod server;
 mod service_side;
 
 use std::path::{Path, PathBuf};
@@ -17,8 +20,9 @@ use crate::config::settings::ClientSettings;
 use crate::install::Manifest;
 use crate::wire::protocol::{LastUpdate, Outcome, Remote, Report, RunMode};
 pub use record::{Asked, Record};
+pub use server::ServerUpdates;
 
-pub const WINDOW: Duration = Duration::from_secs(60);
+pub const WINDOW: Duration = Duration::from_secs(burrow_admin_proto::updates::ROLLBACK_SECS);
 pub const MAX_STARTS: u32 = 3;
 pub const WINDOW_ENV: &str = "BURROW_ADMIN_TEST_UPDATE_WINDOW";
 
@@ -26,8 +30,7 @@ pub fn window() -> Duration {
     if !cfg!(feature = "admin-test-hooks") {
         return WINDOW;
     }
-    std::env::var(WINDOW_ENV)
-        .ok()
+    crate::update::var(WINDOW_ENV)
         .and_then(|v| v.parse().ok())
         .map_or(WINDOW, Duration::from_secs)
 }
@@ -58,14 +61,14 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub fn detect(config: &Path) -> Mode {
+    pub fn detect(config: &Path, role: crate::install::Role) -> Mode {
         if super::in_container() {
             return Mode::Container;
         }
         let me = crate::service::this_binary().ok();
         let config = crate::base::fs::canonical_or_same(config);
         let mine = crate::install::all_manifests().into_iter().find(|m| {
-            m.role == crate::install::Role::Client
+            m.role == role
                 && crate::base::fs::canonical_or_same(&m.config) == config
                 && me.as_ref().is_some_and(|b| *b == m.binary)
         });
@@ -112,7 +115,7 @@ pub struct ClientUpdates {
 impl ClientUpdates {
     pub fn new(config: &Path) -> ClientUpdates {
         let config = crate::base::fs::canonical_or_same(config);
-        let mode = Mode::detect(&config);
+        let mode = Mode::detect(&config, crate::install::Role::Client);
         ClientUpdates {
             config,
             mode,

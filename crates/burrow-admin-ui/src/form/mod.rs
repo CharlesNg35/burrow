@@ -50,6 +50,11 @@ const SITE_HOSTS: &str = burrow_config::WebSite::HOSTS.key();
 const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
 
 pub fn locked_hint(n: &Node) -> String {
+    if let Editable::No { reason } = &n.editable
+        && !reason.is_empty()
+    {
+        return reason.clone();
+    }
     match n.applies {
         Some(Applies::Restart) => burrow_admin_logic::wording::CHANGE_IN_FILE_THEN_RESTART.into(),
         _ => burrow_admin_logic::wording::CHANGE_IN_FILE.into(),

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -9,13 +8,11 @@ use burrow_admin_proto::frame::{self, AdminOpen};
 use tracing::{debug, warn};
 
 use super::Hub;
-use super::core::ports::{Live, LiveSession, Store, Version, WhyNot, WriteError};
+use super::core::ports::{Store, Version, WhyNot, WriteError};
 use super::core::{Core, Session, text};
 use super::transport::{self, Access};
 use crate::config::Format;
 use crate::config::save::{Refused, write_back};
-use crate::config::settings::ServerSettings;
-use crate::metrics::Status;
 use crate::policy::throttle::Throttle;
 use crate::server::Shared;
 use crate::server::admin_hook::{AdminHook, Opened, answer};
@@ -323,7 +320,7 @@ impl Store for FileStore {
     }
 }
 
-fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
+pub(super) fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
     match proto {
         burrow_config::Protocol::Tcp => crate::wire::transport::tcp::bind_tcp(addr).map(drop),
         burrow_config::Protocol::Udp => crate::wire::transport::udp::bind_udp_now(addr).map(drop),
@@ -331,78 +328,6 @@ fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Resu
 }
 
 pub use super::latest::use_latest;
-
-pub struct ServerLive(pub Arc<Shared>);
-
-impl Live for ServerLive {
-    fn status(&self) -> Status {
-        self.0.status()
-    }
-
-    fn settings(&self) -> Arc<ServerSettings> {
-        self.0.current_settings()
-    }
-
-    fn sessions(&self) -> Vec<LiveSession> {
-        self.0
-            .client_sessions()
-            .into_iter()
-            .map(|s| LiveSession {
-                client: s.name,
-                secret_fp: s.secret_fp,
-                from: s.from,
-                over_websocket: s.over_websocket,
-            })
-            .collect()
-    }
-
-    fn allows(&self) -> BTreeMap<String, Vec<String>> {
-        self.0
-            .client_sessions()
-            .into_iter()
-            .filter_map(|s| s.allow.map(|a| (s.name, a)))
-            .collect()
-    }
-
-    fn bind_probe(&self, proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
-        probe_bind(proto, addr)
-    }
-
-    fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
-        super::latest::cached()
-    }
-
-    fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
-        super::latest::fresh()
-    }
-
-    fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {
-        self.0.ask_update(client, to, by)
-    }
-
-    fn update_all(&self, clients: Vec<String>, to: &str, by: &str) -> Result<(), String> {
-        self.0.update_all(clients, to, by)
-    }
-
-    fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16> {
-        let mut p = near.max(1024);
-        while p.checked_add(count)?.checked_sub(1).is_some() {
-            let all = (0..count).all(|i| {
-                let addr = SocketAddr::from(([0, 0, 0, 0], p + i));
-                if udp {
-                    std::net::UdpSocket::bind(addr).is_ok()
-                } else {
-                    std::net::TcpListener::bind(addr).is_ok()
-                }
-            });
-            if all {
-                return Some(p);
-            }
-            p = p.checked_add(count)?;
-        }
-        None
-    }
-}
 
 #[cfg(unix)]
 fn hand_over(fd: impl std::os::fd::AsFd, (uid, gid): (u32, u32)) -> std::io::Result<()> {
@@ -426,7 +351,10 @@ pub fn hub(
     let (tx, rx) = tokio::sync::mpsc::channel(4);
     let core = Core::new(
         Box::new(FileStore::new(path)),
-        Box::new(ServerLive(shared.clone())),
+        Box::new(super::live::ServerLive::new(
+            shared.clone(),
+            super::own_update::for_config(path),
+        )),
         Box::new(env),
     );
     (Hub::new(core, tx), rx)

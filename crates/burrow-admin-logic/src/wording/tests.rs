@@ -397,3 +397,32 @@ fn a_port_used_twice_reads_as_a_sentence_without_a_subject() {
         "This port is already used by another service or listener; pick another port"
     );
 }
+
+#[test]
+fn release_notes_link_only_a_strict_release_number_to_the_official_release_page() {
+    assert_eq!(
+        release_notes("0.2.3"),
+        Some((
+            "0.2.3".to_string(),
+            "https://github.com/CharlesNg35/burrow/releases/tag/v0.2.3".to_string()
+        ))
+    );
+    assert_eq!(
+        release_notes("v0.2.4-rc.1").unwrap().1,
+        "https://github.com/CharlesNg35/burrow/releases/tag/v0.2.4-rc.1"
+    );
+    for bad in [
+        "",
+        "latest",
+        "../../x",
+        "0.2.3/../../evil",
+        "0.2.3+build",
+        "99.0.0+/../..",
+        "0.2.3?x=1",
+        "0.2.3#x",
+        "<script>",
+        "0.2",
+    ] {
+        assert_eq!(release_notes(bad), None, "{bad}");
+    }
+}

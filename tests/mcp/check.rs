@@ -36,7 +36,7 @@ async fn check_reports_what_an_app_would_get() {
     let (out, text, err) = check(&ops, &["--allow-write"]).await;
     assert!(out.status.success(), "{text}{err}");
     assert!(text.contains("writes:  allowed"), "{text}");
-    assert!(text.contains("tools:   9 "), "{text}");
+    assert!(text.contains("tools:   10 "), "{text}");
     let viewer = visitor(&w, "viewer", &w.viewer);
     let (out, text, err) = check(&viewer, &["--allow-write"]).await;
     assert!(out.status.success(), "{text}{err}");

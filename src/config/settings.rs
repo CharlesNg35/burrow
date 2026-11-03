@@ -54,6 +54,7 @@ pub struct ServerSettings {
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
     pub web: Option<WebSettings>,
+    pub remote_updates: bool,
 }
 
 pub struct ListenClash {

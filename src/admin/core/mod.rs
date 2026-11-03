@@ -12,6 +12,7 @@ pub mod passwords;
 pub mod plan;
 pub mod ports;
 mod runtime;
+pub mod server_update;
 pub mod snippets;
 mod status;
 pub mod summary;
@@ -259,7 +260,7 @@ impl Core {
         let name_hint = settings.public_address.clone().unwrap_or_default();
         Welcome {
             server: ServerInfo {
-                version: crate::admin::hooks::version(env!("CARGO_PKG_VERSION")),
+                version: crate::admin::hooks::version(crate::base::build::version()),
                 target: env!("BURROW_TARGET").into(),
                 uptime_secs: self.started.elapsed().as_secs(),
                 name_hint,

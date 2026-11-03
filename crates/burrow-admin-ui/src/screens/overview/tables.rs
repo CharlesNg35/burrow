@@ -36,6 +36,16 @@ fn names_cell(all: Vec<String>) -> impl IntoView {
     }
 }
 
+fn count_cell(all: Vec<String>, one: &str) -> impl IntoView {
+    let shown = match all.len() {
+        0 => "—".to_string(),
+        n => burrow_admin_logic::wording::count_of(n, one),
+    };
+    view! {
+        <td class="text-text-muted" title=(!all.is_empty()).then(|| all.join(", ")) data-names=all.len().to_string()>{shown}</td>
+    }
+}
+
 fn footer(section: &'static str, kept: &[String], total: usize) -> impl IntoView {
     view! {
         {mobile_cards(section, kept)}
@@ -159,16 +169,15 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> An
                     <th scope="row"><Link to=Route::Detail(ClientEntry::section().into(), name.clone()) class="text-text no-underline hover:underline"><StatusDot on=on text=label/></Link></th>
                     <td class="font-mono text-[13px]">{move || c().and_then(|c| c.from).unwrap_or_default()}</td>
                     <td class="text-right tabular-nums">{move || c().map(|c| c.open).unwrap_or(0)}</td>
-                    <td class="text-right tabular-nums">{move || c().map(|c| c.idle_channels).unwrap_or(0)}</td>
                     <td>{since}</td>
                     <td>{move || crate::screens::updates::version_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
                     <td class=burrow_ui_kit::WIDE_ONLY>{move || crate::screens::updates::system_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
-                    {names_cell(serves)}
+                    {count_cell(serves, burrow_admin_logic::entity::info(&burrow_admin_proto::schema::Entity::Service).singular)}
                 </tr>
             }
         })
         .collect_view();
-    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Version", "~System", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", "Since", "Version", "~System", "Services"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
 }
 
 pub(super) fn visitors_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {

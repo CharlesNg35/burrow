@@ -199,6 +199,7 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
             p(&["heartbeat", "interval_secs"]),
             p(&["limits", "handshake_timeout_secs"]),
             p(&["limits", "max_handshakes"]),
+            p(&["update", "remote"]),
         ]
     );
 }

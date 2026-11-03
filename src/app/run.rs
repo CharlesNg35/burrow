@@ -334,15 +334,15 @@ pub fn client_until(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Re
 }
 
 fn split(hosted: Option<Hosted>) -> (Option<watch::Receiver<bool>>, Env) {
-    match hosted {
-        Some(h) => (h.stop, h.env),
-        None => (None, Env::default()),
-    }
+    let (stop, env) = hosted.map_or((None, Env::default()), |h| (h.stop, h.env));
+    crate::config::env::note_run_env(&env);
+    (stop, env)
 }
 
 fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
     hold_hangup();
     let (stop, env) = split(hosted);
+    crate::base::build::test_break_at_start().map_or(Ok(()), Err)?;
     let Loaded::Server(settings, _) = load(path, Role::Server, &env, &[])? else {
         return Err(Failure::new(format!(
             "{} is not a server config",
@@ -357,7 +357,8 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
         let (hub, nudges) = crate::admin::adapters::hub(&shared, path, env.clone());
-        let _status = crate::admin::local::publish(path, &hub);
+        let _status = (crate::base::build::test_mark("BREAK") != Some("status"))
+            .then(|| crate::admin::local::publish(path, &hub));
         shared.set_admin(hub);
         let nudges = Some(nudges);
         let stop = stop_on_signal(stop);
@@ -431,9 +432,7 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         back.map_err(Failure::new)?;
         return updates.after_stop().unwrap_or(Ok(0)).map_err(Failure::new);
     }
-    if crate::base::build::test_mark("BREAK") == Some("start") {
-        return Err(Failure::new("this test build stops at once"));
-    }
+    crate::base::build::test_break_at_start().map_or(Ok(()), Err)?;
     init_logging(&logging)?;
     let started = std::time::Instant::now();
     let restarting = updates.clone();

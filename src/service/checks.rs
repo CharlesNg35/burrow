@@ -269,7 +269,11 @@ pub(super) fn check_config(
         needs_state,
     } = uses(loaded);
     let admins = admin_visitors(loaded);
-    let remote_updates = matches!(loaded, Loaded::Client(s, _) if s.remote_updates);
+    let remote_updates = match loaded {
+        Loaded::Client(s, _) => s.remote_updates,
+        Loaded::Server(_, cfg) => cfg.update.remote,
+        Loaded::Visitor(..) => false,
+    };
     refuse_relative(&files)?;
     Ok(Checked {
         role,

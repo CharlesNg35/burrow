@@ -216,6 +216,7 @@ services:
 | `tcp.keepalive_secs` | `30` | TCP keepalive idle time; `0` turns it off |
 | `udp.session_timeout_secs` | `120` | a UDP peer that sends nothing for this long is forgotten. Two minutes is the least a NAT should keep a UDP mapping (RFC 4787); a shorter value frees peers sooner for traffic like DNS, where each query may come from a new port |
 | `udp.max_peers` | `4096` | most UDP peers one service port keeps at once, 1 to 1000000; a datagram from a new peer beyond it is dropped. A change applies at once to new peers |
+| `update.remote` | `false` | let burrow admin and `burrow mcp` update this server to the latest release ([updates.md](updates.md#update-the-server-from-burrow-admin)). Counts only for a service and only after `sudo burrow service install`, which records it where the server cannot change it; burrow admin shows it locked. `burrow init server --remote-updates` writes it |
 
 </details>
 

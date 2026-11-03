@@ -162,6 +162,7 @@ pub fn Overview() -> impl IntoView {
             service_problems(&v, st.as_deref()),
         )
     });
+    let own = crate::screens::updates::ServerUpdate::new();
     let sub = move || {
         let st = s.status.get();
         let w = s.welcome.get();
@@ -184,6 +185,8 @@ pub fn Overview() -> impl IntoView {
                 <div class="min-w-0 flex-1">
                     <h1 class="text-2xl font-bold tracking-[-0.015em]">"Overview"</h1>
                     <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub">{sub}</p>
+                    {own.line()}
+                    {own.dialog()}
                 </div>
                 <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal) data-testid="flow-open" on:click=move |_| s.flow_open.set(true)>
                     <Icon name="network"/>

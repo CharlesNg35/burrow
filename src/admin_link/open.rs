@@ -42,7 +42,7 @@ pub fn open_message(client: &str) -> AdminOpen {
     AdminOpen {
         min: burrow_admin_proto::PROTOCOL_MIN,
         max: burrow_admin_proto::PROTOCOL_MAX,
-        client: format!("{client}/{}", env!("CARGO_PKG_VERSION")),
+        client: format!("{client}/{}", crate::base::build::version()),
         features: Vec::new(),
     }
 }

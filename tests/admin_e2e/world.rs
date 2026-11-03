@@ -247,8 +247,12 @@ impl World {
     }
 
     pub fn open_admin_on(&mut self, visitor: &str, port: u16) -> String {
-        let port = port.to_string();
         let file = self.visitor_file(visitor);
+        self.open_admin_with(&file, visitor, port)
+    }
+
+    pub fn open_admin_with(&mut self, file: &str, visitor: &str, port: u16) -> String {
+        let port = port.to_string();
         let url_file = self.file(&format!("url-{visitor}"));
         let url_arg = url_file.display().to_string();
         let name = format!("admin-{visitor}");
@@ -259,7 +263,7 @@ impl World {
             &[
                 "admin",
                 "-c",
-                &file,
+                file,
                 "--no-open",
                 "--port",
                 &port,

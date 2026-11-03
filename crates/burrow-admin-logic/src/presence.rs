@@ -55,6 +55,7 @@ pub struct ClientInfo {
     pub available: Option<String>,
     pub blocked: Option<String>,
     pub update: Option<UpdateStatus>,
+    pub update_recent: bool,
 }
 
 pub fn client<'a>(status: &'a Status, name: &str) -> Option<&'a ClientStatus> {
@@ -79,6 +80,10 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
         available: c.available.clone(),
         blocked: c.blocked.clone(),
         update: c.update.clone().map(|u| UpdateStatus { secs_ago: 0, ..u }),
+        update_recent: c
+            .update
+            .as_ref()
+            .is_some_and(|u| u.secs_ago < crate::own_update::shown_for(u.state)),
     }
 }
 
@@ -182,6 +187,78 @@ impl ClientInfo {
         };
         Some((line, mood))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Card {
+    pub tag: Option<(String, Mood, String)>,
+    pub can_ask: bool,
+}
+
+impl ClientInfo {
+    pub fn card(&self, offered: bool) -> Card {
+        let ready = offered && self.ready();
+        let job = |u: &UpdateStatus| {
+            let mut line = job_text(u);
+            if !u.by.is_empty() {
+                line.push_str(&format!(", asked by {}", u.by));
+            }
+            line
+        };
+        use crate::own_update::{Say, say};
+        let says = say(
+            self.update.as_ref().is_some_and(|u| !u.state.finished()),
+            self.update
+                .as_ref()
+                .map(|u| (u.state, if self.update_recent { 0 } else { u64::MAX })),
+            self.available.is_some(),
+        );
+        let tag = |t: String, m: Mood| Card {
+            tag: Some((t, m, self.update.as_ref().map(job).unwrap_or_default())),
+            can_ask: false,
+        };
+        match (says, &self.update, &self.available) {
+            (Say::Running, ..) => tag("updating…".into(), Mood::Busy),
+            (Say::Failed, Some(u), _) => Card {
+                tag: Some((
+                    state_text(u.state).into(),
+                    Mood::Offer,
+                    crate::update_words::trouble(u, Some(&self.name))
+                        .map(|t| format!("{} See Needs attention.", t.sentence))
+                        .unwrap_or_default(),
+                )),
+                can_ask: false,
+            },
+            (Say::Available, _, Some(v)) => Card {
+                tag: Some((
+                    format!("{v} available"),
+                    if self.blocked.is_some() {
+                        Mood::Quiet
+                    } else {
+                        Mood::Offer
+                    },
+                    self.blocked.clone().unwrap_or_default(),
+                )),
+                can_ask: ready,
+            },
+            (Say::Done, Some(u), _) => tag(state_text(u.state).into(), Mood::Good),
+            _ => Card::default(),
+        }
+    }
+}
+
+pub fn skipped(status: &Status) -> Vec<(String, String)> {
+    status
+        .clients
+        .iter()
+        .filter(|c| !c.local && c.connected)
+        .map(info)
+        .filter_map(|c| match (&c.available, &c.blocked) {
+            (Some(_), Some(why)) => Some((c.name, why.clone())),
+            (None, _) if c.older => Some((c.name, format!("older than {FIRST_REPORTING}"))),
+            _ => None,
+        })
+        .collect()
 }
 
 pub fn ready_names(status: &Status) -> Vec<String> {
@@ -310,10 +387,10 @@ mod tests {
         assert_eq!(nas.system_short(), "linux/arm64 · service");
         assert!(!nas.refuses());
         let boxed = of(Some(&st), "box").unwrap();
-        assert_eq!(boxed.system_short(), "linux/arm64 · by hand");
+        assert_eq!(boxed.system_short(), "linux/arm64 · started by hand");
         assert_eq!(
             boxed.summary(),
-            "linux/arm64 · by hand · remote updates off in its config"
+            "linux/arm64 · started by hand · remote updates off in its config"
         );
         assert!(boxed.refuses());
         let mut quiet = st.clone();
@@ -440,5 +517,71 @@ mod tests {
         let home = of(Some(&st), "home").unwrap();
         assert!(home.online && !home.local);
         assert_eq!(home.from.as_deref(), Some("2001:db8::1"));
+    }
+
+    #[test]
+    fn a_clients_card_offers_a_button_only_when_the_update_is_possible() {
+        let mut c = ClientInfo {
+            name: "nas".into(),
+            version: "0.2.2".into(),
+            available: Some("0.2.3".into()),
+            ..ClientInfo::default()
+        };
+        let card = c.card(true);
+        assert!(card.can_ask);
+        assert_eq!(card.tag.unwrap().0, "0.2.3 available");
+        assert!(!c.card(false).can_ask, "a read admin gets no button");
+        c.blocked = Some("remote updates are off in its config".into());
+        let off = c.card(true);
+        assert!(!off.can_ask, "no disabled button");
+        let (t, m, why) = off.tag.unwrap();
+        assert_eq!((t.as_str(), m), ("0.2.3 available", Mood::Quiet));
+        assert!(
+            why.contains("off in its config"),
+            "the reason is the tooltip"
+        );
+        c.blocked = None;
+        c.update_recent = true;
+        c.update = Some(UpdateStatus {
+            from: "0.2.2".into(),
+            to: "0.2.3".into(),
+            state: UpdateState::Downloading,
+            ..UpdateStatus::default()
+        });
+        let busy = c.card(true);
+        assert_eq!(busy.tag.unwrap().0, "updating…");
+        assert!(!busy.can_ask);
+        c.update.as_mut().unwrap().state = UpdateState::RolledBack;
+        c.update.as_mut().unwrap().detail = "did not connect".into();
+        let back = c.card(true);
+        let (t, m, why) = back.tag.unwrap();
+        assert_eq!((t.as_str(), m), ("rolled back", Mood::Offer));
+        assert!(
+            why.contains("didn't connect to the server within a minute, so nas went back to 0.2.2"),
+            "{why}"
+        );
+        assert!(!back.can_ask, "one message at a time: the result first");
+        c.update.as_mut().unwrap().state = UpdateState::Done;
+        c.available = None;
+        let done = c.card(true);
+        assert_eq!(done.tag.unwrap().0, "updated");
+        assert!(!done.can_ask);
+        let quiet = ClientInfo {
+            version: "0.2.3".into(),
+            ..ClientInfo::default()
+        };
+        assert_eq!(quiet.card(true), Card::default(), "nothing to say");
+    }
+
+    #[test]
+    fn update_all_names_the_clients_it_skips_and_why() {
+        let st = status();
+        let names: Vec<String> = skipped(&st).into_iter().map(|(n, _)| n).collect();
+        for n in &names {
+            assert!(
+                !ready_names(&st).contains(n),
+                "{n} is both asked and skipped"
+            );
+        }
     }
 }
