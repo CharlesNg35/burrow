@@ -288,3 +288,76 @@ fn a_result_from_earlier_in_the_same_second_does_not_answer_a_new_request() {
     after.at_ms = 1_000_950;
     assert!(service_side::answers(&after, &asked));
 }
+
+#[test]
+fn the_root_updater_reads_the_env_file_only_when_root_alone_may_change_it() {
+    use root_env::{Owned, judge, trusted};
+    let root = |mode| Owned { uid: 0, mode };
+    assert_eq!(judge(root(0o100600), root(0o40755)), Ok(()));
+    let theirs = judge(
+        Owned {
+            uid: 997,
+            mode: 0o100600,
+        },
+        root(0o40755),
+    )
+    .unwrap_err();
+    assert!(theirs.contains("does not belong to root"), "{theirs}");
+    assert!(
+        judge(root(0o100620), root(0o40755)).is_err(),
+        "group-writable"
+    );
+    assert!(
+        judge(root(0o100602), root(0o40755)).is_err(),
+        "world-writable"
+    );
+    assert!(
+        judge(
+            root(0o100600),
+            Owned {
+                uid: 997,
+                mode: 0o40755
+            }
+        )
+        .is_err()
+    );
+    assert!(judge(root(0o100600), root(0o40775)).is_err());
+    let mut env = std::collections::BTreeMap::new();
+    env.insert(
+        "BURROW_UPDATE_URL".to_string(),
+        "https://evil.example/r".to_string(),
+    );
+    assert!(trusted(&env, Err("x".into())).is_err());
+    env.insert(root_env::TRUST_ENV.to_string(), "1".to_string());
+    assert_eq!(
+        trusted(&env, Err("x".into())).is_ok(),
+        cfg!(feature = "admin-test-hooks"),
+        "only a test build may skip the check"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_env_file_the_service_account_owns_is_ignored_with_a_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = dir.path().join("hub.env");
+    std::fs::write(&env, "BURROW_UPDATE_URL=https://evil.example/r\n").unwrap();
+    let mut m = service("burrow-hub", crate::install::Role::Server, true);
+    m.env_file = Some(env);
+    let mut out = Vec::new();
+    let got = root_env::for_root(&m, &mut out);
+    if nix_is_root() {
+        return;
+    }
+    assert!(got.is_empty(), "{got:?}");
+    let said = String::from_utf8(out).unwrap();
+    assert!(
+        said.contains("does not belong to root") && said.contains("official releases"),
+        "{said}"
+    );
+}
+
+#[cfg(unix)]
+fn nix_is_root() -> bool {
+    rustix::process::geteuid().is_root()
+}

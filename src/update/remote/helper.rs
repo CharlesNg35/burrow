@@ -102,7 +102,7 @@ pub fn run(name: &str, out: &mut dyn Write) -> Result<u8, Failure> {
         )));
     };
     helper::take_trigger(&m);
-    crate::update::use_env(crate::service::env_of(&m));
+    crate::update::use_env(super::root_env::for_root(&m, out));
     let installed = crate::service::binary_version(&m.binary);
     let mut r = Record::new(0, &installed, "", &m.config);
     if let Err(why) = opted_in(&m) {

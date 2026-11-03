@@ -21,8 +21,8 @@ PIDS=()
 NAME=burrow-e2e-srv
 OTHER=burrow-e2e-srvmate
 case "$(uname)" in
-  Darwin) STATE="/Library/Application Support/burrow" ;;
-  *) STATE=/var/lib/burrow ;;
+  Darwin) STATE="/Library/Application Support/burrow"; TRUST=1 ;;
+  *) STATE=/var/lib/burrow; TRUST=0 ;;
 esac
 
 cleanup() {
@@ -80,6 +80,7 @@ web:
     X-Releases: \${BURROW_UPDATE_URL}
     X-Window: \${BURROW_ADMIN_TEST_UPDATE_WINDOW}
     X-Latest: \${BURROW_ADMIN_TEST_LATEST_SECS}
+    X-Trust: \${BURROW_ADMIN_TEST_TRUST_ENV}
 $1
 YAML
 }
@@ -99,7 +100,7 @@ chmod 600 ops.yaml home.yaml
 chmod 644 e2e-srv.yaml
 
 install() {
-  sudo E2E_HOME="$HOME_SECRET" E2E_OPS="$OPS_SECRET" BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_UPDATE_WINDOW=20 BURROW_ADMIN_TEST_LATEST_SECS=0 \
+  sudo E2E_HOME="$HOME_SECRET" E2E_OPS="$OPS_SECRET" BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_UPDATE_WINDOW=20 BURROW_ADMIN_TEST_LATEST_SECS=0 BURROW_ADMIN_TEST_TRUST_ENV=$TRUST \
     "$@" 2>&1
 }
 own() { "$PROBE" ops.yaml status 2>/dev/null | python3 2>/dev/null -c 'import json,sys; s=json.load(sys.stdin); print(json.dumps({"version": s.get("version"), "u": s.get("server_update"), "latest": (s.get("latest") or {}).get("version")}))'; }
@@ -189,6 +190,19 @@ for case in "9.0.0-test.3:config refused" "9.0.0-test.4:a port that cannot bind"
   installed | grep -q 9.0.0-test.2 || fail "the binary was not restored: $(installed)"
   check "$what: rolled back to 9.0.0-test.2 ($(field "['u']['last']['detail']" | cut -c1-90))"
 done
+
+if [ "$(uname)" = Linux ]; then
+  echo "== an env file the server account could change is not read by the root updater"
+  ENVF="$(sudo cat "$(binary_of)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["env_file"])')"
+  sudo stat -c '%U %a' "$ENVF" | grep -q '^root 600$' || fail "the env file is not root's alone: $(sudo stat -c '%U %a' "$ENVF")"
+  sudo chown burrow "$ENVF"
+  sudo ./s1 service remote-update "$NAME" > helper.out 2>&1 || true
+  sudo chown root "$ENVF"
+  grep -q "not reading $ENVF for the update: it does not belong to root" helper.out || fail "the root updater read it: $(cat helper.out)"
+  grep -q "$URL" helper.out && fail "the root updater used the mirror: $(cat helper.out)"
+  installed | grep -q 9.0.0-test.2 || fail "the binary changed: $(installed)"
+  check "a server-owned env file is ignored: official releases only"
+fi
 
 echo "== uninstall removes the updater"
 sudo ./s1 service uninstall "$NAME" --purge > /dev/null || fail "uninstall"

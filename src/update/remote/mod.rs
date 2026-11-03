@@ -4,6 +4,7 @@ mod by_hand;
 pub mod health;
 pub mod helper;
 mod record;
+mod root_env;
 mod server;
 mod service_side;
 

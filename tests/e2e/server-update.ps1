@@ -51,7 +51,7 @@ function Ask { $r = & $Probe ops.yaml call update_server '{}' 2>&1 | Out-String;
 function Manifest { Get-Content "$env:ProgramData\burrow\services\$Name.json" | ConvertFrom-Json }
 function Installed { & (Manifest).binary version }
 function ServerYaml($extra) {
-  "listen: 127.0.0.1:27985`nclients:`n  home:`n    secret: `${E2E_HOME}`nvisitors:`n  ops:`n    secret: `${E2E_OPS}`n    admin: write`nservices:`n  app: { client: home, bind: 127.0.0.1:27986, target: 127.0.0.1:27987 }`nweb:`n  https: 127.0.0.1:27988`n  request_headers:`n    X-Releases: `${BURROW_UPDATE_URL}`n    X-Window: `${BURROW_ADMIN_TEST_UPDATE_WINDOW}`n    X-Latest: `${BURROW_ADMIN_TEST_LATEST_SECS}`n$extra"
+  "listen: 127.0.0.1:27985`nclients:`n  home:`n    secret: `${E2E_HOME}`nvisitors:`n  ops:`n    secret: `${E2E_OPS}`n    admin: write`nservices:`n  app: { client: home, bind: 127.0.0.1:27986, target: 127.0.0.1:27987 }`nweb:`n  https: 127.0.0.1:27988`n  request_headers:`n    X-Releases: `${BURROW_UPDATE_URL}`n    X-Window: `${BURROW_ADMIN_TEST_UPDATE_WINDOW}`n    X-Latest: `${BURROW_ADMIN_TEST_LATEST_SECS}`n    X-Trust: `${BURROW_ADMIN_TEST_TRUST_ENV}`n$extra"
 }
 
 try {
@@ -86,6 +86,7 @@ try {
   $env:BURROW_UPDATE_URL = $Url
   $env:BURROW_ADMIN_TEST_UPDATE_WINDOW = "20"
   $env:BURROW_ADMIN_TEST_LATEST_SECS = "0"
+  $env:BURROW_ADMIN_TEST_TRUST_ENV = "1"
 
   Write-Host "== a server installed without the opt-in refuses, with how to turn it on"
   $out = & "$Work/s1.exe" service install -c e2e-srv.yaml 2>&1 | Out-String
