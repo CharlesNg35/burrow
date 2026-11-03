@@ -60,7 +60,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
 
         super::adornments_clear(c, "the service form").await;
         let target = "services/*/target";
-        let row = "[data-schema='services/*/target']";
+        let row = "[data-schema='services/*/target'] [data-adorned]";
         click_js(c, "[data-schema='services/*/target'] input[value=unix]").await;
         let long = "/var/run/burrow/apps/a-rather-long-folder-name/for-the-app/app-socket.sock";
         c.ui.fill("#f-services-web-target", long).await;
