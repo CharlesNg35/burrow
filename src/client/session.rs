@@ -4,14 +4,15 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Semaphore, watch};
 use tracing::{info, warn};
 
-use super::reconnect::{Backoff, human};
+use super::reconnect::Backoff;
 use super::{Client, DATA_PATIENCE, LEAVE_TIMEOUT, MAX_OPENING, SessionEnd, State, Waiting, data};
 use crate::base::failure::io_reason;
 use crate::dialer::DialError;
 use crate::wire::protocol::{
-    ByeReason, ChannelKind, ClientMsg, Hello, ServerMsg, ServiceInfo, TOKEN_LEN, VERSION,
+    ByeReason, ChannelKind, ClientMsg, Hello, ServerMsg, ServiceInfo, Step, TOKEN_LEN, VERSION,
 };
 use crate::wire::transport::{Channel, OwnedReadHalf, OwnedWriteHalf};
+use burrow_syntax::duration::span;
 
 const STRAYS: usize = 3;
 
@@ -103,6 +104,7 @@ async fn leave(
 impl Client {
     fn note_connected(&self, s: &crate::config::settings::ClientSettings) {
         *self.welcomed.lock().expect("welcomed lock") = Some(Instant::now());
+        *self.since.lock().expect("since lock") = Some(Instant::now());
         let _ = self.state.send(State::Connected);
         match self
             .outage
@@ -114,7 +116,7 @@ impl Client {
                 "connected to {} as \"{}\" (back after {}, {attempts} attempts)",
                 s.server,
                 s.name,
-                human(down)
+                span(down.as_secs())
             ),
             _ => info!("connected to {} as \"{}\"", s.server, s.name),
         }
@@ -167,9 +169,16 @@ impl Client {
         self.note_connected(&s);
 
         let allow = ClientMsg::Allow(s.allow.describe());
-        if writer.send(&mut wr, &allow.encode()).await.is_err() {
+        self.updates.connected();
+        let report = ClientMsg::Report(self.updates.report(&s));
+        let reports = crate::base::build::test_mark("REPORT") != Some("none");
+        if writer.send(&mut wr, &allow.encode()).await.is_err()
+            || (reports && writer.send(&mut wr, &report.encode()).await.is_err())
+        {
             return SessionEnd::Lost(format!("connection to {} lost", s.server));
         }
+        let (progress, mut steps) = tokio::sync::mpsc::unbounded_channel();
+        let mut nudged = self.nudge.subscribe();
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
         let (ended, session_ended) = watch::channel(false);
         let ended = CloseOnDrop(opening.clone(), ended);
@@ -178,6 +187,20 @@ impl Client {
         loop {
             let next = tokio::select! {
                 r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => r,
+                Some((id, step, detail)) = steps.recv() => {
+                    let state = ClientMsg::UpdateState { id, step, detail };
+                    if writer.send(&mut wr, &state.encode()).await.is_err() {
+                        return SessionEnd::Lost(format!("connection to {} lost", s.server));
+                    }
+                    continue;
+                }
+                Ok(()) = nudged.changed() => {
+                    let report = ClientMsg::Report(self.updates.report(&self.live.settings()));
+                    if writer.send(&mut wr, &report.encode()).await.is_err() {
+                        return SessionEnd::Lost(format!("connection to {} lost", s.server));
+                    }
+                    continue;
+                }
                 _ = stop.changed() => return leave(rd, wr, Some(ended), &waiting).await,
                 _ = strays.seen.notified() => {
                     return SessionEnd::Lost(format!(
@@ -246,6 +269,15 @@ impl Client {
                 ServerMsg::Services(list) => self.report_services(&list),
                 ServerMsg::Bye { reason } => return bye(reason),
                 ServerMsg::Welcome { .. } => {}
+                ServerMsg::Update { id, version } => {
+                    if let Err(why) =
+                        self.updates
+                            .ask(&self.live.settings(), id, &version, progress.clone())
+                    {
+                        info!("the server asked to update to {version}; not updating: {why}");
+                        let _ = progress.send((id, Step::Refused, why));
+                    }
+                }
             }
         }
     }
@@ -256,14 +288,7 @@ impl Client {
         }
         for svc in list {
             let ports = svc.ports.max(1);
-            let at = match svc.bind_port {
-                0 => "private, for visitors".to_string(),
-                p if ports > 1 => format!(
-                    "server ports {}",
-                    crate::config::check::ports::show(p, ports)
-                ),
-                p => format!("server port {p}"),
-            };
+            let at = reached_at(svc.bind_port, ports);
             let target = match crate::config::check::parse_host_port(&svc.target) {
                 Ok((_, p)) if ports > 1 => format!(
                     "{}:{}",
@@ -299,6 +324,9 @@ impl Client {
             reloads: None,
             instance: self.instance,
             welcomed: self.welcomed.clone(),
+            updates: self.updates.clone(),
+            nudge: self.nudge.clone(),
+            since: self.since.clone(),
         };
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
@@ -377,5 +405,28 @@ impl Client {
                 }
             }
         }
+    }
+}
+
+fn reached_at(bind_port: u16, ports: u16) -> String {
+    match bind_port {
+        0 => crate::config::check::ports::NO_SERVER_PORT.to_string(),
+        p if ports > 1 => format!(
+            "server ports {}",
+            crate::config::check::ports::show(p, ports)
+        ),
+        p => format!("server port {p}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_service_without_a_server_port_is_not_called_visitors_only() {
+        assert_eq!(
+            super::reached_at(0, 1),
+            "no server port (a website or visitors)"
+        );
+        assert_eq!(super::reached_at(8080, 1), "server port 8080");
     }
 }

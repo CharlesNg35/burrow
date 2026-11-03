@@ -45,6 +45,27 @@ impl Cidr {
         }
     }
 
+    pub fn network(&self) -> Cidr {
+        let addr = match self.addr {
+            IpAddr::V4(a) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                IpAddr::V4((u32::from(a) & mask).into())
+            }
+            IpAddr::V6(a) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                IpAddr::V6((u128::from(a) & mask).into())
+            }
+        };
+        Cidr {
+            addr,
+            prefix: self.prefix,
+        }
+    }
+
     pub fn has_host_bits(&self) -> bool {
         match self.addr {
             IpAddr::V4(a) => {

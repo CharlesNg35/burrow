@@ -1,4 +1,9 @@
+//! Finds admin changes that must be refused, such as ones that would lock the signed-in visitor out.
+//! Start at `refusals`; the child modules check grants, web ports, reach and the WebSocket listener.
+
+mod allowed;
 mod effects;
+mod elsewhere;
 mod grants;
 mod reach;
 mod web_ports;
@@ -17,7 +22,9 @@ use crate::config::patch::Rename;
 use crate::config::settings::{ServerSettings, Shares};
 use crate::wire::secret::Secret;
 
+pub use allowed::not_allowed;
 pub use effects::impacts;
+pub use elsewhere::not_here;
 pub use web_ports::{busy as busy_web_ports, refusals as shared_web_port};
 
 pub struct Who<'a> {

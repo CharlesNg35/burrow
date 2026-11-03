@@ -83,6 +83,11 @@ pub enum Relation {
         cond: Cond,
         reason: String,
     },
+    FixedIf {
+        cond: Cond,
+        value: Value,
+        reason: String,
+    },
     OneOf {
         group: String,
     },
@@ -110,6 +115,11 @@ impl Serialize for Relation {
             Relation::EnabledIf { cond, reason } => {
                 json!({ "r": "enabled_if", "cond": cond, "reason": reason })
             }
+            Relation::FixedIf {
+                cond,
+                value,
+                reason,
+            } => json!({ "r": "fixed_if", "cond": cond, "value": value, "reason": reason }),
             Relation::OneOf { group } => json!({ "r": "one_of", "group": group }),
             Relation::OptionsFilter(c) => json!({ "r": "options_filter", "cond": c }),
             Relation::Inverse {
@@ -140,6 +150,14 @@ impl<'de> Deserialize<'de> for Relation {
                 cond,
                 reason: s("reason").unwrap_or_default(),
             }),
+            Some("fixed_if") => match (cond(), v.get("value")) {
+                (Some(cond), Some(value)) => Some(Relation::FixedIf {
+                    cond,
+                    value: value.clone(),
+                    reason: s("reason").unwrap_or_default(),
+                }),
+                _ => None,
+            },
             Some("one_of") => s("group").map(|group| Relation::OneOf { group }),
             Some("options_filter") => cond().map(Relation::OptionsFilter),
             Some("inverse") => match (v.get("entity"), s("field")) {
@@ -167,4 +185,76 @@ impl<'de> Deserialize<'de> for Relation {
         };
         Ok(r.unwrap_or(Relation::Unknown(v)))
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Lookup {
+    Value(Value),
+    Unset,
+    Unknown,
+}
+
+fn same(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(n), Value::String(s)) | (Value::String(s), Value::Number(n)) => {
+            s.trim().parse::<f64>().ok() == n.as_f64()
+        }
+        _ => a == b,
+    }
+}
+
+fn len(v: &Value) -> u64 {
+    match v {
+        Value::Array(a) => a.len() as u64,
+        Value::Object(m) => m.len() as u64,
+        Value::Null => 0,
+        _ => 1,
+    }
+}
+
+pub fn decide(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> Option<bool> {
+    match c {
+        Cond::Eq(p, x) => match get(p) {
+            Lookup::Value(v) => Some(same(&v, x)),
+            Lookup::Unset => Some(x.is_null()),
+            Lookup::Unknown => None,
+        },
+        Cond::Ne(p, x) => decide(&Cond::Eq(p.clone(), x.clone()), get).map(|b| !b),
+        Cond::LenGe(p, n) => match get(p) {
+            Lookup::Value(v) => Some(len(&v) >= *n),
+            Lookup::Unset => Some(*n == 0),
+            Lookup::Unknown => None,
+        },
+        Cond::Set(p) => match get(p) {
+            Lookup::Value(v) => Some(!v.is_null()),
+            Lookup::Unset => Some(false),
+            Lookup::Unknown => None,
+        },
+        Cond::All(cs) => {
+            let r: Vec<Option<bool>> = cs.iter().map(|c| decide(c, get)).collect();
+            if r.contains(&Some(false)) {
+                Some(false)
+            } else if r.iter().all(Option::is_some) {
+                Some(true)
+            } else {
+                None
+            }
+        }
+        Cond::Any(cs) => {
+            let r: Vec<Option<bool>> = cs.iter().map(|c| decide(c, get)).collect();
+            if r.contains(&Some(true)) {
+                Some(true)
+            } else if r.iter().all(Option::is_some) {
+                Some(false)
+            } else {
+                None
+            }
+        }
+        Cond::Not(c) => decide(c, get).map(|b| !b),
+        Cond::Unknown(_) => None,
+    }
+}
+
+pub fn holds(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> bool {
+    decide(c, get).unwrap_or(true)
 }

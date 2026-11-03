@@ -1,8 +1,10 @@
+//! The user-facing words of the admin UI: labels, counts, help for diagnostic codes and links to the docs and releases.
+
 use burrow_admin_proto::codes::{
-    BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, MISSING_FIELD,
-    NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PLAIN_HTTP, PLAIN_NEEDS_HTTP,
-    PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PASSTHROUGH, REDIRECT_PLAIN,
-    UNUSED_VISITOR, WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
+    BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, INVALID_SOURCE, MAX_CONNECTIONS_TCP_ONLY,
+    MISSING_FIELD, NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PASSTHROUGH_FIXED, PLAIN_HTTP,
+    PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PLAIN, UNUSED_VISITOR,
+    WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
@@ -146,8 +148,10 @@ pub fn rewritten(place: &str, reason: &str) -> String {
         rewrite_reason(reason)
     )
 }
-pub const OFFLINE: &str = "offline";
-pub const ONLINE: &str = "online";
+pub use burrow_admin_proto::status::{OFFLINE, ONLINE};
+pub const THIS_SERVER: &str = "This server";
+pub const PICK_VISITORS: &str =
+    "Turn on a way in: Public port, Website, or Visitors with at least one visitor";
 pub const SESSION_ENDED_HINT: &str = "Run burrow admin again; it opens a new tab.";
 pub const VERSION_GONE: &str = "The details of this change are no longer kept.";
 pub const TYPE_NAME_FIRST: &str = "Type a name first";
@@ -248,12 +252,30 @@ pub fn diag_text(d: &burrow_admin_proto::diag::Diag) -> String {
         }
         (WRONG_TYPE, Some(l), Some(key)) => format!("{}: {l}", field_name(path, key)),
         _ => crate::diag_words::worded(&d.code, d.subjects.first().map_or("", String::as_str))
-            .unwrap_or_else(|| shown(&d.code, &d.message, &d.subjects)),
+            .unwrap_or_else(|| shown(&d.code, own_key(d).unwrap_or(&d.message), &d.subjects)),
+    }
+}
+
+fn own_key(d: &burrow_admin_proto::diag::Diag) -> Option<&str> {
+    let path = d.path.as_ref()?.join(".");
+    d.message.strip_prefix(&format!("{path}: "))
+}
+
+pub fn diag_title(d: &burrow_admin_proto::diag::Diag) -> String {
+    let text = diag_text(d);
+    let keyed = own_key(d).is_some()
+        || d.message
+            .split_once(": ")
+            .is_some_and(|(head, _)| key_path(head));
+    match d.path.as_deref().and_then(burrow_config::label_of) {
+        Some(label) if keyed => format!("{label}: {text}"),
+        _ => capital(&text),
     }
 }
 
 #[cfg(test)]
-pub(crate) const SHOWN_CODES: [&str; 17] = [
+pub(crate) const SHOWN_CODES: [&str; 18] = [
+    INVALID_SOURCE,
     WEIGHT_NOT_BALANCE,
     UNUSED_VISITOR,
     NO_HTTP,
@@ -264,7 +286,7 @@ pub(crate) const SHOWN_CODES: [&str; 17] = [
     NO_CERTIFICATE,
     WILDCARD_NEEDS_DNS,
     PLAIN_HTTP,
-    REDIRECT_PASSTHROUGH,
+    PASSTHROUGH_FIXED,
     REDIRECT_PLAIN,
     WEB_TCP_ONLY,
     PROXY_PROTOCOL_TCP_ONLY,
@@ -322,8 +344,8 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
             "{service} is served as plain HTTP: anyone on the path can read and change its traffic"
         );
     }
-    if code == REDIRECT_PASSTHROUGH {
-        return "the app does its own HTTPS, so burrow cannot also answer plain HTTP for it; remove this choice in server.yaml (burrow edit)".into();
+    if code == PASSTHROUGH_FIXED {
+        return "the app does its own HTTPS, so this setting is fixed on this website; remove this choice in server.yaml (burrow edit)".into();
     }
     if code == REDIRECT_PLAIN {
         return "a plain HTTP website cannot send visitors to https:// in this build; remove this choice in server.yaml (burrow edit)".into();
@@ -333,6 +355,11 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
             "{} only works for TCP services; set Protocol to TCP, or choose Failover",
             mode_label(message)
         );
+    }
+    if code == INVALID_SOURCE
+        && let Some((_, reason)) = message.split_once(": ")
+    {
+        return reason.to_string();
     }
     if let Some((_, text)) = TCP_ONLY.iter().find(|(c, _)| *c == code) {
         return (*text).into();

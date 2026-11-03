@@ -1,3 +1,6 @@
+//! The server role: accepts clients and visitors, routes visits to clients, and applies reloads.
+//! Start at `Server::run`; `Shared` holds the live state the tasks share.
+
 pub mod admin_hook;
 mod balance;
 #[cfg(feature = "web")]
@@ -23,6 +26,7 @@ mod start;
 mod status;
 mod tcp;
 mod udp;
+mod updates;
 pub mod uploads;
 mod via;
 mod visit;
@@ -84,7 +88,9 @@ pub struct Shared {
     #[cfg(feature = "web")]
     notifier: notify::Notifier,
     web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
+    not_listening: Mutex<std::collections::BTreeMap<String, String>>,
     standing: Mutex<standing::Standing>,
+    updates: Mutex<updates::Board>,
     wheels: Mutex<balance::Wheels>,
     local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,
@@ -265,7 +271,7 @@ impl Shared {
             .map(|s| SessionInfo {
                 name: s.name.clone(),
                 secret_fp: s.secret.fingerprint(),
-                from: s.peer.to_string(),
+                from: burrow_syntax::ip::peer_shown(s.peer),
                 allow: s.allow(),
                 over_websocket: s.over_websocket,
             })
@@ -339,6 +345,22 @@ impl Shared {
 
     pub fn udp_peers(&self) -> usize {
         self.udp_peers.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn not_listening(&self, name: &str, why: Option<String>) {
+        let mut map = self.not_listening.lock().expect("not listening lock");
+        match why {
+            Some(w) => map.insert(name.to_string(), w),
+            None => map.remove(name),
+        };
+    }
+
+    pub(crate) fn not_listening_of(&self, name: &str) -> Option<String> {
+        self.not_listening
+            .lock()
+            .expect("not listening lock")
+            .get(name)
+            .cloned()
     }
 
     pub fn waiting_visitors(&self) -> usize {

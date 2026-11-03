@@ -4,10 +4,12 @@ use std::path::Path;
 use super::{Served, Spans};
 use crate::base::failure::file_reason;
 use crate::config::diagnostics::Diagnostic;
+use burrow_config::applies::{OnPassthrough, on_passthrough};
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, Target, TargetTls, WebSite};
 use burrow_syntax::url_path::{route_key, route_path};
 use burrow_syntax::web::pages::ERROR_PAGES as PAGES;
 use burrow_syntax::web::{SingleLabel, host_name, is_ip, is_wildcard};
+use serde_json::Value;
 
 pub(super) struct At<'a> {
     pub spans: &'a Spans,
@@ -128,43 +130,39 @@ pub(super) fn check_site_keys(
 }
 
 fn passthrough(site: &WebSite, at: &At<'_>, out: &mut Vec<Diagnostic>) {
-    let set: [(&str, bool); 20] = [
-        ("paths", !site.paths.is_empty()),
-        ("basic_auth", !site.basic_auth.is_empty()),
-        ("forward_auth", site.forward_auth.is_some()),
-        ("oidc", site.oidc.is_some()),
-        ("allow_users", !site.allow_users.is_empty()),
-        ("rate_limit", site.rate_limit.is_some()),
-        ("client_auth", site.client_auth.is_some()),
-        ("target_http2", site.target_http2),
-        ("app_path", site.app_path.is_some()),
-        ("redirect_from", !site.redirect_from.is_empty()),
-        ("redirects", !site.redirects.is_empty()),
-        ("maintenance", site.maintenance),
-        ("target_tls", site.target_tls.is_some()),
-        ("hsts", site.hsts.is_some()),
-        ("compress", site.compress.is_some()),
-        ("max_body_size", site.max_body_size.is_some()),
-        (
-            "response_header_timeout_secs",
-            site.response_header_timeout_secs.is_some(),
-        ),
-        ("request_headers", !site.request_headers.is_empty()),
-        ("response_headers", !site.response_headers.is_empty()),
-        ("error_pages", site.error_pages.is_some()),
-    ];
-    for (key, _) in set.iter().filter(|(_, on)| *on) {
-        out.push(
-            Diagnostic::error(
-                "passthrough-key",
-                format!(
-                    "{}: burrow cannot see the requests of a passthrough service (tls: passthrough); remove {key}, or let burrow handle TLS",
-                    at.name(&[key])
-                ),
-            )
-            .at(at.key(&[key]))
-            .help("with tls: passthrough the app keeps its own HTTPS, so only hosts and tls apply"),
-        );
+    let Ok(Value::Object(set)) = serde_json::to_value(site) else {
+        return;
+    };
+    for (key, rule) in on_passthrough() {
+        let Some(given) = set.get(&key).filter(|v| !v.is_null()) else {
+            continue;
+        };
+        match rule {
+            OnPassthrough::Refused if key == WebSite::CHALLENGE.key() => {}
+            OnPassthrough::Refused => out.push(
+                Diagnostic::error(
+                    "passthrough-key",
+                    format!(
+                        "{}: burrow cannot see the requests of a passthrough service (tls: passthrough); remove {key}, or let burrow handle TLS",
+                        at.name(&[&key])
+                    ),
+                )
+                .at(at.key(&[&key]))
+                .help("with tls: passthrough the app keeps its own HTTPS, so only hosts and tls apply"),
+            ),
+            OnPassthrough::Fixed(fixed) if *given != fixed => out.push(
+                Diagnostic::error(
+                    super::choices::PASSTHROUGH_FIXED,
+                    format!(
+                        "{}: {given} does not apply to a passthrough service (tls: passthrough); it is always {fixed} there, so remove {key}",
+                        at.name(&[&key])
+                    ),
+                )
+                .at(at.value(&[&key]))
+                .help(format!("remove {key}")),
+            ),
+            OnPassthrough::Fixed(_) => {}
+        }
     }
 }
 

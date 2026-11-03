@@ -1,10 +1,13 @@
+//! Turns status snapshots into problem and fixed messages: clients offline, failing certificates, health checks and the country database.
+//! Start at `Watch::step`.
+
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use burrow_admin_proto::status::{CertStateStatus, Status};
 use burrow_config::NotifyEvent;
 
-use crate::metrics::render::duration;
+use burrow_syntax::duration::span;
 
 const CLIENT_GRACE: Duration = Duration::from_secs(60);
 
@@ -113,7 +116,7 @@ fn problem((kind, name): &(Kind, String), detail: &str) -> Message {
             format!("Client {name} is offline"),
             format!(
                 "Client \"{name}\" lost its connection and has not come back for {}.",
-                duration(CLIENT_GRACE.as_secs())
+                span(CLIENT_GRACE.as_secs())
             ),
         ),
         Kind::Service => (
@@ -142,7 +145,7 @@ fn problem((kind, name): &(Kind, String), detail: &str) -> Message {
 }
 
 fn resolved((kind, name): &(Kind, String), detail: &str, after: Duration) -> Message {
-    let after = duration(after.as_secs());
+    let after = span(after.as_secs());
     let (title, text) = match kind {
         Kind::Client => (
             format!("Client {name} is back"),

@@ -1,3 +1,6 @@
+//! OIDC login for sites: sends a visitor to their provider, checks the answer and keeps them signed in with a sealed cookie.
+//! Start at `Ask::check`; `Logins` holds the providers, `provider` fetches discovery and keys, `token` redeems the code with PKCE.
+
 mod cookies;
 mod pages;
 mod provider;

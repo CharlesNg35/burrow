@@ -1,3 +1,7 @@
+//! Basic auth for sites: checks a visitor's credentials against the site's users.
+//! Start at `Access::check`: it caches recent successes, verifies hashes on a few blocking slots and blocks an address after repeated wrong passwords.
+//! Forward auth headers are in `forward`, hashes in `hash` and rate limits in `limit`.
+
 pub mod basic;
 mod cache;
 pub mod forward;

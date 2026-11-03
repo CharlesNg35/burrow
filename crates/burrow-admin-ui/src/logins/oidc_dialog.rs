@@ -7,7 +7,7 @@ use burrow_syntax::web::oidc::{CALLBACK_PATH, issuer_problem};
 use burrow_ui_kit::{Button, Dialog, TextInput, Tone, field_message};
 use leptos::prelude::*;
 
-use crate::screens::create::{name_input, problem_of};
+use crate::rename::{name_input, problem_of};
 use crate::store::store;
 
 use super::{Kind, Open};
@@ -163,7 +163,7 @@ pub(super) fn oidc_dialog(open: RwSignal<Open>) -> impl IntoView {
         let now = open.get();
         untrack(|| d.fill(&now));
     });
-    let shown = crate::app::shown_while(open, |o| *o != Open::Closed, |o| *o = Open::Closed);
+    let shown = crate::shown::shown_while(open, |o| *o != Open::Closed, |o| *o = Open::Closed);
     let adding = Signal::derive(move || open.get() == Open::Add);
     let name_problem = Signal::derive(move || {
         adding
@@ -190,7 +190,7 @@ pub(super) fn oidc_dialog(open: RwSignal<Open>) -> impl IntoView {
     view! {
         <Dialog open=shown title=title testid="oidc-dialog" wide=true>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {move || adding.get().then(|| name_input("oidc-name", "Name", d.name, name_problem, true, crate::screens::create::name_example(Some(&Entity::Oidc))))}
+                {move || adding.get().then(|| name_input("oidc-name", "Name", d.name, name_problem, true, burrow_admin_logic::entity::info(&Entity::Oidc).name_example))}
                 {labelled("oidc-issuer", "Issuer", input("oidc-issuer", d.issuer, "https://accounts.google.com"), "The provider's address, for example https://accounts.google.com or https://sso.example.com/realms/home".to_string())}
                 {labelled("oidc-client-id", "Client ID", input("oidc-client-id", d.client_id, "1234.apps.googleusercontent.com"), "The client ID you got when you registered burrow with the provider, for example 1234.apps.googleusercontent.com".to_string())}
                 {move || if d.locked {
@@ -205,7 +205,7 @@ pub(super) fn oidc_dialog(open: RwSignal<Open>) -> impl IntoView {
                 <Button label="Cancel" on_click=move |_| shown.set(false)/>
                 <Button
                     label=Signal::derive(move || if adding.get() { "Add login provider".to_string() } else { "Save".to_string() })
-                    variant="primary"
+                    variant=burrow_ui_kit::ButtonLook::Primary
                     testid="oidc-save"
                     disabled=Signal::derive(move || blocked.get().is_some())
                     reason=Signal::derive(move || blocked.get().unwrap_or_default())

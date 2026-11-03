@@ -1,3 +1,5 @@
+//! Encrypted records over a byte stream: `RecordWriter` seals, `RecordReader` opens, and the pumps relay between them.
+
 use std::future::Future;
 use std::io;
 

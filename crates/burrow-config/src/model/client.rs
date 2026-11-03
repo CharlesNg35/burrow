@@ -80,6 +80,22 @@ pub struct ClientConfig {
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
     pub udp: ClientUdpOptions,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub update: ClientUpdate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct ClientUpdate {
+    #[serde(skip_serializing_if = "is_false")]
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "Let the server's admin ask this client to update to a newer published release; the client downloads and checks it itself"
+        )
+    )]
+    pub remote: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

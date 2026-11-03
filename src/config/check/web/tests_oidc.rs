@@ -183,8 +183,8 @@ fn a_provider_needs_an_issuer_url_a_client_id_and_a_secret_kept_out_of_the_file(
     assert_eq!(
         e,
         [
-            "web.oidc.google.issuer must start with https://",
-            "web.oidc.google.client_id is empty",
+            "web.oidc.google.issuer: must start with https://",
+            "web.oidc.google.client_id: a login provider needs its client ID",
             "web.oidc.google.client_secret is written in the file; use ${OIDC_SECRET} or file: so it stays out of the config",
         ]
     );
@@ -195,7 +195,7 @@ fn a_provider_needs_an_issuer_url_a_client_id_and_a_secret_kept_out_of_the_file(
     assert_eq!(
         notes(&o),
         [
-            "web.oidc.home.issuer is plain http://; burrow reaches it only on loopback or private addresses, and the client secret travels unencrypted"
+            "web.oidc.home.issuer: plain http://; burrow reaches it only on loopback or private addresses, and the client secret travels unencrypted"
         ]
     );
     let o = load(

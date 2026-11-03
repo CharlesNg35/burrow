@@ -499,9 +499,10 @@ fn new_website(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-new=website]").await;
         c.ui.wait_for("[data-testid=new-website]", SECS).await;
         add_name(c, "new-website-names", "shop.example.com").await;
-        c.ui.fill("#new-website-target", "8081").await;
+        c.ui.fill("#f-services--new-target", "8081").await;
         c.ui.wait_for("[data-testid=new-website-email]", SECS).await;
-        c.ui.fill("#new-website-email", "ops@example.com").await;
+        c.ui.fill("[data-testid=new-website-email] input", "ops@example.com")
+            .await;
         let problem = c.ui.text("[data-testid=new-website-problem]").await;
         assert!(
             problem.contains("Let's Encrypt cannot check shop.example.com"),
@@ -568,7 +569,7 @@ fn new_website_web_off(c: &mut Ctx) -> Flow<'_> {
         c.ui.fill("#new-website-http", &format!("127.0.0.1:{http}"))
             .await;
         add_name(c, "new-website-names", "shop.example.com").await;
-        c.ui.fill("#new-website-target", "8081").await;
+        c.ui.fill("#f-services--new-target", "8081").await;
         click_js(c, "[data-testid=new-website-tls] input[value=passthrough]").await;
         both_widths(c, "new-website-web-ports").await;
         c.ui.click("[data-testid=create]").await;

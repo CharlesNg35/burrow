@@ -1,3 +1,5 @@
+//! Webhook notifications: posts each message as a small JSON body to the configured URL.
+
 use ::http::header::CONTENT_TYPE;
 use burrow_web::tls::acme::http::Client;
 

@@ -1,3 +1,5 @@
+//! The logins editor of the admin UI: the list of logins, the add and edit dialog, and the login field of a website.
+
 mod dialog;
 mod kind;
 mod oidc;
@@ -11,8 +13,8 @@ use burrow_config::Entry;
 use burrow_ui_kit::{Button, Dialog, FieldRow, Tone};
 use leptos::prelude::*;
 
-use crate::app::{MenuItem, row_menu, row_menus};
 use crate::route::{Link, Route};
+use crate::row_menu::{Item as MenuItem, row_menu, row_menus};
 use crate::store::store;
 
 pub(crate) use kind::Kind;
@@ -135,7 +137,7 @@ struct Controls {
 fn remove_dialog(kind: Kind, removing: RwSignal<Option<String>>) -> impl IntoView {
     let e = store().edit;
     let ids = kind.ids();
-    let shown = crate::app::shown_while(removing, Option::is_some, |o| *o = None);
+    let shown = crate::shown::shown_while(removing, Option::is_some, |o| *o = None);
     let title = Signal::derive(move || {
         format!(
             "Remove {} {}",
@@ -157,7 +159,7 @@ fn remove_dialog(kind: Kind, removing: RwSignal<Option<String>>) -> impl IntoVie
             {warn}
             <div class="flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| shown.set(false)/>
-                <Button label="Remove" variant="danger" testid=ids.remove_confirm on_click=move |_| {
+                <Button label="Remove" variant=burrow_ui_kit::ButtonLook::Danger testid=ids.remove_confirm on_click=move |_| {
                     if let Some(n) = removing.get_untracked() {
                         e.set(&child(&kind.base(), &n), None);
                     }
@@ -169,11 +171,11 @@ fn remove_dialog(kind: Kind, removing: RwSignal<Option<String>>) -> impl IntoVie
 }
 
 fn rename_dialog(kind: Kind, renaming: RwSignal<Option<String>>) -> impl IntoView {
-    let open = crate::app::shown_while(renaming, Option::is_some, |o| *o = None);
+    let open = crate::shown::shown_while(renaming, Option::is_some, |o| *o = None);
     move || {
         renaming
             .get()
-            .map(|name| view! { <crate::screens::create::RenameEntity entity=kind.entity() name=name open=open/> })
+            .map(|name| view! { <crate::rename::RenameEntity entity=kind.entity() name=name open=open/> })
     }
 }
 
@@ -209,7 +211,7 @@ pub(crate) fn login_services(
     let add = move || {
         ctl.editing.get().then(|| view! {
             <div class="mt-2">
-                <Button label=ids.add_label icon="plus" variant="secondary" small=true testid=ids.add on_click=move |_| ctl.open.set(Open::Add)/>
+                <Button label=ids.add_label icon="plus" variant=burrow_ui_kit::ButtonLook::Secondary size=burrow_ui_kit::ButtonSize::Small testid=ids.add on_click=move |_| ctl.open.set(Open::Add)/>
             </div>
         })
     };

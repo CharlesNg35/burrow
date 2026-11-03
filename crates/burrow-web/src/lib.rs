@@ -1,5 +1,7 @@
-//! The web proxy on burrow's HTTPS and HTTP ports: it routes by TLS name and Host, passes TLS through, ends TLS and
-//! reverse-proxies HTTP/1.1 and HTTP/2 to services, gets certificates (files, ACME, local CA) and hands tunnel connections to burrow.
+//! The web proxy for burrow's HTTPS and HTTP ports.
+//! It routes by TLS name and Host, passes TLS through or ends it, and reverse-proxies HTTP/1.1 and HTTP/2 to services.
+//! It gets certificates (files, ACME, local CA) and hands tunnel connections to burrow through the `Upstream` trait.
+//! Start at `Proxy::start` with `ProxySettings`.
 //! It must not depend on burrow, burrow-config, burrow-admin-* or burrow-ui-kit.
 
 #![forbid(unsafe_code)]

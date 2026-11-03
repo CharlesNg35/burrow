@@ -2,6 +2,8 @@ use std::net::SocketAddr;
 
 use burrow_config::Bind;
 
+pub const NO_SERVER_PORT: &str = "no server port (a website or visitors)";
+
 pub use burrow_syntax::ports::{
     MAX_RANGE, parse_range, port_at, ranges_conflict, show, show_addr, split_target,
 };

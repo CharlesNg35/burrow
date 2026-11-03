@@ -1,3 +1,6 @@
+//! The admin schema, a tree of `Node`s that gives each config field its semantic type, editability and relations.
+//! The key type is `Schema`, which also lists the entities and the locked and reduce-only paths.
+
 mod relation;
 mod sem;
 
@@ -6,7 +9,7 @@ use serde_json::Value;
 
 use crate::Path;
 
-pub use relation::{Cond, Relation};
+pub use relation::{Cond, Lookup, Relation, decide, holds};
 pub use sem::{
     CountryC, DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC,
     MapC, NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,

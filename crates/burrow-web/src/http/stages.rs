@@ -13,7 +13,7 @@ use super::pages::Page;
 use super::site::SiteRun;
 use super::unread::Kept;
 use super::upstream::{Forward, forward};
-use super::{Body, Conn, compress, headers, redirect};
+use super::{Body, Conn, Proto, compress, headers, redirect};
 use crate::listen::Shared;
 use crate::log::{Entry, kept_request_id, new_request_id};
 use crate::route::{Route, Table};
@@ -153,6 +153,7 @@ async fn answer<U: Upstream>(
         host: asked.host,
     };
     let epoch = shared.pool.epoch();
+    let front = (conn.proto == Proto::H1).then_some(&conn.cut);
     let gate = Gate {
         up: shared.up.as_ref(),
         pool: &shared.pool,
@@ -163,6 +164,7 @@ async fn answer<U: Upstream>(
         site,
         visitor: &visitor,
         client: &client,
+        front,
     };
     if let Some(denied) = gate.allowed() {
         return denied;
@@ -195,6 +197,7 @@ async fn answer<U: Upstream>(
         prefix: prefix.as_deref(),
         request_id: id,
         activity: &conn.activity,
+        front,
     };
     let resp = forward(shared.up.as_ref(), &conn.ups, req, f).await;
     if overflow.is_some_and(|o| o.hit()) {

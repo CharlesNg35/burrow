@@ -1,7 +1,7 @@
 use super::table::{ALWAYS, cell, col, long, num, table, toned};
 use super::{Paint, Tone};
 use crate::metrics::Status;
-use crate::metrics::render::duration;
+use burrow_syntax::duration::span;
 
 pub(super) fn render_notify(out: &mut String, s: &Status, paint: Paint) {
     if s.notify.is_empty() {
@@ -13,7 +13,7 @@ pub(super) fn render_notify(out: &mut String, s: &Status, paint: Paint) {
         .map(|n| {
             let state = match (&n.failing, n.failing_secs) {
                 (Some(why), Some(secs)) => {
-                    toned(format!("failing for {}: {why}", duration(secs)), Tone::Bad)
+                    toned(format!("failing for {}: {why}", span(secs)), Tone::Bad)
                 }
                 (Some(why), None) => toned(format!("failing: {why}"), Tone::Bad),
                 (None, _) => toned("ok", Tone::Good),
@@ -70,10 +70,7 @@ mod tests {
         render_notify(&mut out, &s, Paint::PLAIN);
         assert!(out.contains("NOTIFICATIONS"), "{out}");
         assert!(out.contains("ntfy ntfy.sh"), "{out}");
-        assert!(
-            out.contains("failing for 2 min: connection refused"),
-            "{out}"
-        );
+        assert!(out.contains("failing for 2m: connection refused"), "{out}");
         let mut none = String::new();
         render_notify(&mut none, &Status::default(), Paint::PLAIN);
         assert!(none.is_empty());

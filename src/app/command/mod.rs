@@ -1,3 +1,5 @@
+//! Runs the parsed command line: `main` parses it, runs the chosen command and prints any failure.
+
 mod ca;
 #[cfg(feature = "web")]
 mod passwd;
@@ -32,7 +34,25 @@ fn format(f: FileFormat) -> Format {
     }
 }
 
+fn connected_with(m: &crate::install::Manifest, version: &str) -> bool {
+    let Some(pid) = crate::service::main_pid(m) else {
+        return false;
+    };
+    let config = crate::base::fs::canonical_or_same(&m.config);
+    let scan = crate::status::query::scan(&crate::instance::default_dir(), Some(&config));
+    scan.found.iter().filter(|f| f.entry.pid == pid).any(|f| {
+        f.status
+            .client
+            .as_ref()
+            .is_some_and(|c| c.connected && c.build.version == version)
+    })
+}
+
 pub fn main() -> ExitCode {
+    crate::admin::adapters::use_latest(crate::update::latest::cached, crate::update::latest::fresh);
+    crate::app::run::use_client_updates(|path| {
+        std::sync::Arc::new(crate::update::remote::ClientUpdates::new(path))
+    });
     let err_style = Style::detect(std::io::stderr().is_terminal());
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -199,6 +219,11 @@ fn service(action: ServiceAction, logging: crate::app::run::Logging) -> Result<u
             let _ = logging;
             service::run_service(n.name.as_deref().unwrap_or("burrow"))
         }
+        ServiceAction::RemoteUpdate(n) => crate::update::remote::helper::run(
+            n.name.as_deref().unwrap_or("burrow"),
+            &connected_with,
+            &mut out,
+        ),
     }
 }
 
@@ -240,7 +265,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             Ok(0)
         }
         Command::Version => {
-            print(&format!("burrow {}\n", env!("CARGO_PKG_VERSION")))?;
+            print(&format!("burrow {}\n", crate::base::build::version()))?;
             Ok(0)
         }
         Command::Edit(a) => crate::edit::run(
@@ -252,6 +277,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             &mut std::io::stdout().lock(),
         ),
         Command::Status(a) => status(a),
+        Command::Clients(a) => clients(a),
         Command::Ca {
             action: crate::app::cli::CaAction::Export(a),
         } => ca::export(&a, &mut std::io::stdout().lock()),
@@ -312,6 +338,9 @@ fn run(cli: Cli) -> Result<u8, Failure> {
 }
 
 fn validate(args: crate::app::cli::ValidateArgs, out_style: Style) -> Result<u8, Failure> {
+    if crate::base::build::test_mark("BREAK") == Some("config") {
+        return Err(Failure::new("error: this test build accepts no config"));
+    }
     let path = config_path(args.config, args.role.map(role))?;
     let v = match crate::config::validate::validate(
         &path,
@@ -366,6 +395,28 @@ fn status(a: crate::app::cli::StatusArgs) -> Result<u8, Failure> {
     )
 }
 
+fn clients(a: crate::app::cli::ClientsArgs) -> Result<u8, Failure> {
+    use crate::app::cli::ClientsAction;
+    use crate::status::clients::{Options, Update, run};
+    use crate::status::query::Pick;
+    let pick = match (a.service, a.config) {
+        (Some(name), _) => Pick::Service(name),
+        (None, Some(config)) => Pick::Config(config),
+        (None, None) => Pick::All,
+    };
+    let update = a.action.map(|ClientsAction::Update(u)| Update {
+        names: u.names,
+        all: u.all,
+        yes: u.yes,
+    });
+    let opts = Options {
+        pick,
+        json: a.json,
+        update,
+    };
+    run(opts, &mut std::io::stdout().lock(), &mut TtyPrompt)
+}
+
 fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
     let opts = InitOptions {
         format: args.format.map(format),
@@ -377,6 +428,7 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         secret: args.secret,
         env_secret: args.env_secret,
         update: args.update,
+        remote_updates: args.remote_updates,
         yes: args.yes,
         email: args.email,
         web: args.web.map(|domain| crate::init::WebInit {

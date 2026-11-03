@@ -1,3 +1,6 @@
+//! Rate limits per client subnet: `Limit` for requests per second and `Failures` for wrong passwords.
+//! Both are built on the governor crate and keyed by `subnet_key`.
+
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::num::NonZeroU32;

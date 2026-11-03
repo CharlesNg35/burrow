@@ -1,3 +1,5 @@
+//! ntfy notifications: posts the message to a topic URL with its title and priority headers.
+
 use ::http::Request;
 use burrow_web::tls::acme::http::Client;
 

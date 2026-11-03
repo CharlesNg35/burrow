@@ -1,3 +1,5 @@
+//! The entry screens of the admin UI: the list of a section's entries and the detail pane of the selected one.
+
 mod actions;
 mod body;
 mod detail;
@@ -15,10 +17,9 @@ use burrow_ui_kit::{Tone, tag_class};
 
 use detail::Detail;
 pub(crate) use list::{Entities, row_for};
-pub(crate) use problems::go_to_field;
 use problems::{apply_notes, problem_list, problems_for, problems_of};
 pub(crate) use rows::{protocol_view, service_tr};
-pub(crate) use summary::health_tag;
+pub(crate) use summary::{HealthMark, health_mark, health_tag, mark_view};
 use summary::{overview, served, visitor_overview};
 
 const SERVICES: &str = ServiceEntry::SECTION;

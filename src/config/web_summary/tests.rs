@@ -1,6 +1,7 @@
 #![cfg(feature = "web")]
 
 use super::*;
+use crate::base::testkit::cert_pair as pair;
 use crate::config::{Format, Loaded, Role, load::load_str_in};
 
 fn settings(dir: &std::path::Path, rest: &str) -> ServerSettings {
@@ -83,17 +84,6 @@ fn an_ipv4_port_without_names_says_so() {
     assert!(summary(&off).is_none());
 }
 
-fn pair(dir: &std::path::Path, stem: &str, names: &[&str]) {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let names = names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
-    let cert = rcgen::CertificateParams::new(names)
-        .unwrap()
-        .self_signed(&key)
-        .unwrap();
-    std::fs::write(dir.join(format!("{stem}.pem")), cert.pem()).unwrap();
-    std::fs::write(dir.join(format!("{stem}.key")), key.serialize_pem()).unwrap();
-}
-
 #[test]
 fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
     let dir = tempfile::tempdir().unwrap();
@@ -114,7 +104,7 @@ fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
                 .to_string(),
             "dash.lan.example.com: plain HTTP on [::]:80 only, unencrypted (tls: off) -> service intranet"
                 .to_string(),
-            format!("erp.corp.example.com: web.certificates[0] ({}) -> service erp", at("corp.pem")),
+            format!("erp.corp.example.com: shared file {} -> service erp", at("corp.pem")),
             "example.com: Let's Encrypt, TLS check -> service blog".to_string(),
             "nas.example.com: the app does its own HTTPS -> service nas".to_string(),
             format!("portal.example.com: file {} -> service portal", at("portal.pem")),

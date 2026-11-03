@@ -379,5 +379,5 @@ fn client_config_matches_the_server_transport() {
     )
     .err()
     .unwrap();
-    assert!(err.message.contains("has no websocket section"));
+    assert!(err.message.contains("WebSocket is off on this server"));
 }

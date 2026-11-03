@@ -1,3 +1,6 @@
+//! The admin API core: reads, checks and applies config changes for `burrow admin` sessions.
+//! Start at `Core` and `dispatch`; the `Store`, `Live` and `Env` traits in `ports` connect it to files and the running server.
+
 pub mod diags;
 pub mod diff;
 mod dispatch;
@@ -7,10 +10,12 @@ pub mod ops;
 pub mod passwords;
 pub mod plan;
 pub mod ports;
+mod runtime;
 pub mod snippets;
 mod status;
 pub mod summary;
 pub mod text;
+pub mod updates;
 pub mod uploads;
 pub mod values;
 
@@ -261,7 +266,7 @@ impl Core {
             you: You {
                 visitor: s.visitor.clone(),
                 level: s.level,
-                from: s.peer.ip().to_string(),
+                from: burrow_syntax::ip::ip_shown(s.peer.ip()),
                 secret_fp: s.secret.fingerprint(),
             },
             features: features(),
@@ -365,6 +370,11 @@ impl Core {
             restart_pending.push(ServerConfig::LISTEN.key().to_string());
         }
         let status = self.live.status();
+        let not_open = checked
+            .settings
+            .as_ref()
+            .map(|file| runtime::not_open(file, &running_settings, &status))
+            .unwrap_or_default();
         let mut bound = BTreeMap::new();
         for svc in &status.services {
             if let Some(b) = &svc.bind {
@@ -405,10 +415,11 @@ impl Core {
             values,
             runtime: Runtime {
                 sessions,
-                addresses: addresses(&running_settings),
+                addresses: runtime::addresses(&running_settings),
                 bound,
                 restart_pending,
                 allows: self.live.allows(),
+                not_open,
             },
             diags: warnings,
         })
@@ -545,39 +556,6 @@ impl Core {
 fn next_id(newest: Option<&AuditEntry>, at: u64) -> u64 {
     let after = newest.map_or(0, |e| e.id).saturating_add(1);
     after.max(at.saturating_mul(1000))
-}
-
-fn addresses(s: &crate::config::settings::ServerSettings) -> Vec<String> {
-    let mut out = vec![
-        "0.0.0.0".to_string(),
-        "::".to_string(),
-        "127.0.0.1".to_string(),
-    ];
-    let mut add = |ip: std::net::IpAddr| {
-        let t = ip.to_string();
-        if !out.contains(&t) {
-            out.push(t);
-        }
-    };
-    if let Some(l) = s.listen {
-        add(l.ip());
-    }
-    if let Some(w) = &s.websocket {
-        add(w.listen.ip());
-    }
-    for svc in s.services.values() {
-        if let Some(b) = svc.bind {
-            add(b.ip());
-        }
-    }
-    if let Some(ip) = s
-        .public_address
-        .as_deref()
-        .and_then(|a| a.parse::<std::net::IpAddr>().ok())
-    {
-        add(ip);
-    }
-    out
 }
 
 #[cfg(test)]

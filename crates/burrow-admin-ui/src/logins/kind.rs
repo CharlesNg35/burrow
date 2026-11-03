@@ -72,10 +72,7 @@ impl Kind {
     }
 
     pub(crate) fn what(self) -> &'static str {
-        match self {
-            Kind::Forward => "login service",
-            Kind::Oidc => "login provider",
-        }
+        burrow_admin_logic::entity::info(&self.entity()).singular
     }
 
     pub(crate) fn ids(self) -> &'static Ids {

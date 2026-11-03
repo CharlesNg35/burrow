@@ -189,3 +189,47 @@ pub fn reveal(el: &web_sys::Element) -> bool {
     }
     true
 }
+
+pub fn go_to_field(path: &[String]) {
+    let entity = path
+        .first()
+        .is_some_and(|s| crate::route::SECTIONS.contains(&s.as_str()));
+    let ids: Vec<String> = (if entity { 3 } else { 1 }..=path.len())
+        .rev()
+        .map(|n| super::field_id(&path[..n]))
+        .collect();
+    request_animation_frame(move || {
+        let doc = document();
+        let Some(el) = ids.iter().find_map(|id| doc.get_element_by_id(id)) else {
+            return;
+        };
+        if reveal(&el) {
+            request_animation_frame(move || scroll_and_focus(el));
+        } else {
+            scroll_and_focus(el);
+        }
+    });
+}
+
+fn scroll_and_focus(el: web_sys::Element) {
+    use wasm_bindgen::JsCast;
+    let opts = web_sys::ScrollIntoViewOptions::new();
+    opts.set_block(web_sys::ScrollLogicalPosition::Center);
+    el.scroll_into_view_with_scroll_into_view_options(&opts);
+    let target = el
+        .query_selector("input:not([type=hidden]), select, textarea, button")
+        .ok()
+        .flatten()
+        .unwrap_or(el);
+    if !target.has_attribute("tabindex")
+        && !matches!(
+            target.tag_name().as_str(),
+            "INPUT" | "SELECT" | "TEXTAREA" | "BUTTON"
+        )
+    {
+        let _ = target.set_attribute("tabindex", "-1");
+    }
+    if let Ok(h) = target.dyn_into::<web_sys::HtmlElement>() {
+        let _ = h.focus();
+    }
+}

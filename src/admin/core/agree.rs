@@ -670,3 +670,86 @@ fn a_listen_address_from_the_environment_is_checked_through_its_resolved_value()
         );
     }
 }
+
+fn client_fields(n: &Node, path: &mut Path, out: &mut Vec<Path>) {
+    match &n.sem {
+        SemType::Optional(o) => return client_fields(&o.inner, path, out),
+        SemType::Union(u) => return u.branches.iter().for_each(|b| client_fields(b, path, out)),
+        _ if !n.sem.reserved().is_empty() => out.push(path.clone()),
+        _ => {}
+    }
+    let mut down = |key: &str, child: &Node| {
+        path.push(key.to_string());
+        client_fields(child, path, out);
+        path.pop();
+    };
+    match &n.sem {
+        SemType::Object(o) => o.fields.iter().for_each(|f| down(&f.key, &f.node)),
+        SemType::Map(m) => down("*", &m.value),
+        SemType::List(l) => down("*", &l.item),
+        _ => {}
+    }
+}
+
+fn self_cases() -> Vec<(Path, Value)> {
+    vec![
+        (ServiceEntry::CLIENT.of("web"), json!(burrow_config::SELF)),
+        (
+            ServiceEntry::CLIENTS.of("pool"),
+            json!([burrow_config::SELF, "home"]),
+        ),
+        (ServiceEntry::CLIENT.of("nas"), json!(burrow_config::SELF)),
+        (
+            VisitorEntry::REACH.of("lap"),
+            json!({burrow_config::SELF: ["127.0.0.1/32:22"]}),
+        ),
+    ]
+}
+
+fn starred(path: &[String]) -> Path {
+    let mut p = path.to_vec();
+    p[1] = "*".into();
+    p
+}
+
+#[test]
+fn every_client_picker_offers_this_server_exactly_when_the_server_accepts_it() {
+    for allow in ["", "self:\n  allow: [127.0.0.1/32]\n"] {
+        let (w, base_text) = base();
+        let text = format!("{base_text}{allow}");
+        let core = core_for(&text);
+        assert!(
+            plan::check_text(&core, &text).valid,
+            "the base loads:\n{text}"
+        );
+        let s = session(&w, AdminLevel::Write);
+        let doc = plan::check_text(&core, &text).raw.unwrap_or(Value::Null);
+        let schema = core.schema();
+        let mut fields = Vec::new();
+        client_fields(&schema.root, &mut Vec::new(), &mut fields);
+        let cases = self_cases();
+        for f in &fields {
+            assert!(
+                cases.iter().any(|(p, _)| &starred(p) == f),
+                "{f:?} names a client: add a case for it"
+            );
+        }
+        for (path, value) in cases {
+            let field = starred(&path);
+            let reserved = node_at(&schema.root, &field)
+                .map(|n| n.sem.reserved().to_vec())
+                .unwrap_or_default();
+            let offered =
+                burrow_admin_logic::choices::client_choices(&doc, None, &reserved, &field)
+                    .iter()
+                    .any(|c| c.name == burrow_config::SELF && c.blocked.is_none());
+            let case = Case {
+                path: path.clone(),
+                item: false,
+                value,
+            };
+            let server = server_ok(&core, &s, &text, &case);
+            assert_eq!(offered, server, "{} with {allow:?}", path.join("."));
+        }
+    }
+}

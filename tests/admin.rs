@@ -1,3 +1,5 @@
+//! Integration tests for `burrow admin`: the admin protocol, grants, the launch page, older UI versions and sessions.
+
 mod common;
 #[path = "admin/grants.rs"]
 mod grants;
@@ -9,6 +11,9 @@ mod local_page;
 mod older;
 #[path = "admin/session.rs"]
 mod session;
+#[cfg(feature = "admin-test-hooks")]
+#[path = "admin/updates.rs"]
+mod updates;
 
 use std::time::Duration;
 

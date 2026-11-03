@@ -49,11 +49,11 @@ impl Systemd {
     }
 }
 
-fn quote_exec(p: &Path) -> String {
+pub(in crate::service) fn quote_exec(p: &Path) -> String {
     quote(p).replace('$', "$$")
 }
 
-fn quote(p: &Path) -> String {
+pub(in crate::service) fn quote(p: &Path) -> String {
     let s = p.display().to_string().replace('%', "%%");
     if s.contains([' ', '"', '\\']) {
         format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
@@ -156,7 +156,7 @@ impl Backend for Systemd {
             "LogsDirectory=burrow/{}\nLogsDirectoryMode=0750\n",
             m.short()
         ));
-        if m.web_state.is_some() {
+        if m.web_state.is_some() || super::helper::wanted(m) {
             s.push_str(&format!(
                 "StateDirectory=burrow/{}\nStateDirectoryMode=0700\n",
                 m.short()
@@ -472,6 +472,7 @@ mod tests {
                 version: "0.1.0".into(),
                 admin_writable: false,
                 web_state: None,
+                remote_updates: false,
             };
             let unit = Systemd.render(&m);
             assert!(
@@ -505,6 +506,7 @@ mod tests {
             version: "0.1.0".into(),
             admin_writable: false,
             web_state: None,
+            remote_updates: false,
         }
     }
 

@@ -1,0 +1,145 @@
+use std::ffi::OsStr;
+use std::os::fd::OwnedFd;
+use std::path::Path;
+
+use rustix::fs::{AtFlags, Dir, FileType, Gid, Mode, OFlags, Uid};
+
+use crate::base::failure::Failure;
+
+const FOLDER: OFlags = OFlags::RDONLY
+    .union(OFlags::DIRECTORY)
+    .union(OFlags::NOFOLLOW)
+    .union(OFlags::CLOEXEC);
+
+fn failed(what: &str, path: &Path, e: impl std::fmt::Display) -> Failure {
+    Failure::new(format!("cannot {what} {}: {e}", path.display()))
+}
+
+pub fn folder(path: &Path) -> Result<OwnedFd, Failure> {
+    rustix::fs::open(path, FOLDER, Mode::empty()).map_err(|e| {
+        failed(
+            "open",
+            path,
+            format!("{e}; it must be a folder, not a link"),
+        )
+    })
+}
+
+pub fn subfolder(
+    parent: &Path,
+    name: &str,
+    mode: u32,
+    owner: Option<(u32, u32)>,
+) -> Result<(), Failure> {
+    let path = parent.join(name);
+    let holder = folder(parent)?;
+    if let Err(e) = rustix::fs::mkdirat(&holder, name, Mode::from_bits_truncate(0o700))
+        && e != rustix::io::Errno::EXIST
+    {
+        return Err(failed("create", &path, e));
+    }
+    let dir = rustix::fs::openat(&holder, name, FOLDER, Mode::empty()).map_err(|e| {
+        failed(
+            "open",
+            &path,
+            format!("{e}; it must be a folder, not a link"),
+        )
+    })?;
+    let (uid, gid) = owner.unwrap_or((0, 0));
+    rustix::fs::fchown(&dir, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))
+        .map_err(|e| failed("give", &path, e))?;
+    rustix::fs::fchmod(&dir, Mode::from_bits_truncate(mode as _))
+        .map_err(|e| failed("set permissions on", &path, e))
+}
+
+fn remove_at(dir: &OwnedFd, name: &OsStr) {
+    let Ok(st) = rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW) else {
+        return;
+    };
+    if FileType::from_raw_mode(st.st_mode) == FileType::Directory {
+        if let Ok(sub) = rustix::fs::openat(dir, name, FOLDER, Mode::empty()) {
+            empty(&sub);
+        }
+        let _ = rustix::fs::unlinkat(dir, name, AtFlags::REMOVEDIR);
+    } else {
+        let _ = rustix::fs::unlinkat(dir, name, AtFlags::empty());
+    }
+}
+
+fn empty(dir: &OwnedFd) {
+    let Ok(entries) = Dir::read_from(dir) else {
+        return;
+    };
+    let names: Vec<std::ffi::CString> = entries
+        .flatten()
+        .map(|e| e.file_name().to_owned())
+        .filter(|n| !matches!(n.as_bytes(), b"." | b".."))
+        .collect();
+    for n in names {
+        use std::os::unix::ffi::OsStrExt;
+        remove_at(dir, OsStr::from_bytes(n.as_bytes()));
+    }
+}
+
+pub fn remove_entry(parent: &Path, name: &str) {
+    if let Ok(dir) = folder(parent) {
+        remove_at(&dir, OsStr::new(name));
+    }
+}
+
+#[cfg(any(test, target_os = "macos"))]
+pub fn empty_folder(path: &Path) {
+    if let Ok(dir) = folder(path) {
+        empty(&dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entries_are_removed_without_following_links_or_reading_them() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = root.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("keep"), "x").unwrap();
+        let queue = root.path().join("queue");
+        std::fs::create_dir(&queue).unwrap();
+        std::os::unix::fs::symlink(&outside, queue.join("link")).unwrap();
+        std::fs::create_dir_all(queue.join("deep/er")).unwrap();
+        std::fs::write(queue.join("deep/er/f"), "x").unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(queue.join("fifo"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        std::fs::write(queue.join("update-now"), "x").unwrap();
+        remove_entry(&queue, "update-now");
+        assert!(!queue.join("update-now").exists());
+        empty_folder(&queue);
+        assert_eq!(std::fs::read_dir(&queue).unwrap().count(), 0);
+        assert!(
+            outside.join("keep").exists(),
+            "a link is removed, never followed"
+        );
+    }
+
+    #[test]
+    fn a_subfolder_that_is_a_link_is_refused_and_its_target_left_alone() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, root.path().join("queue")).unwrap();
+        let mine = rustix::process::getuid().as_raw();
+        let gid = rustix::process::getgid().as_raw();
+        let err = subfolder(root.path(), "queue", 0o700, Some((mine, gid))).unwrap_err();
+        assert!(err.message.contains("not a link"), "{}", err.message);
+        use std::os::unix::fs::PermissionsExt;
+        let before = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_ne!(before & 0o777, 0o700, "the link's target keeps its mode");
+        subfolder(root.path(), "real", 0o700, Some((mine, gid))).unwrap();
+        let made = std::fs::metadata(root.path().join("real")).unwrap();
+        assert_eq!(made.permissions().mode() & 0o777, 0o700);
+    }
+}

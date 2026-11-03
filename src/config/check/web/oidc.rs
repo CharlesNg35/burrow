@@ -78,7 +78,7 @@ fn provider(name: &str, p: &OidcConfig, at: &At<'_>, base_dir: &Path, out: &mut 
     let field = format!("{PROVIDERS}.{name}");
     if let Some(why) = issuer_problem(&p.issuer) {
         out.push(
-            Diagnostic::error(OIDC, format!("{field}.issuer {why}"))
+            Diagnostic::error(OIDC, format!("{field}.issuer: {why}"))
                 .at(at.value(&[name, "issuer"]))
                 .help("the provider's issuer URL, for example https://accounts.google.com"),
         );
@@ -86,7 +86,7 @@ fn provider(name: &str, p: &OidcConfig, at: &At<'_>, base_dir: &Path, out: &mut 
         out.push(
             Diagnostic::warning(
                 OIDC,
-                format!("{field}.issuer is plain http://; burrow reaches it only on loopback or private addresses, and the client secret travels unencrypted"),
+                format!("{field}.issuer: plain http://; burrow reaches it only on loopback or private addresses, and the client secret travels unencrypted"),
             )
             .at(at.value(&[name, "issuer"]))
             .help("use https:// unless the provider sits on your own network"),
@@ -94,9 +94,12 @@ fn provider(name: &str, p: &OidcConfig, at: &At<'_>, base_dir: &Path, out: &mut 
     }
     if p.client_id.trim().is_empty() {
         out.push(
-            Diagnostic::error(OIDC, format!("{field}.client_id is empty"))
-                .at(at.value(&[name, "client_id"]))
-                .help("the client ID the provider gave you when you registered burrow"),
+            Diagnostic::error(
+                OIDC,
+                format!("{field}.client_id: a login provider needs its client ID"),
+            )
+            .at(at.value(&[name, "client_id"]))
+            .help("the client ID the provider gave you when you registered burrow"),
         );
     }
     if let Some(secret) = &p.client_secret {

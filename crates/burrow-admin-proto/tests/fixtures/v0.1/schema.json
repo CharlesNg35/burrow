@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:27df530d36108a44",
+  "hash": "b2s:f24072f8a271f524",
   "root": {
     "label": "Server",
     "sem": {
@@ -2365,27 +2365,28 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
+                                              "r": "fixed_if",
+                                              "cond": {
+                                                "eq": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              },
+                                              "value": true,
+                                              "reason": "Always on: the app does its own HTTPS, and burrow sends http:// visitors to https://, where the app answers"
+                                            },
+                                            {
                                               "r": "enabled_if",
                                               "cond": {
-                                                "all": [
+                                                "any": [
                                                   {
                                                     "ne": [
                                                       "tls",
-                                                      "passthrough"
+                                                      "off"
                                                     ]
                                                   },
                                                   {
-                                                    "any": [
-                                                      {
-                                                        "ne": [
-                                                          "tls",
-                                                          "off"
-                                                        ]
-                                                      },
-                                                      {
-                                                        "set": "/web/trusted_proxies"
-                                                      }
-                                                    ]
+                                                    "set": "/web/trusted_proxies"
                                                   }
                                                 ]
                                               },
@@ -2430,22 +2431,21 @@
                                             {
                                               "r": "enabled_if",
                                               "cond": {
-                                                "all": [
+                                                "any": [
                                                   {
-                                                    "ne": [
-                                                      "tls",
-                                                      "passthrough"
-                                                    ]
+                                                    "not": {
+                                                      "set": "tls"
+                                                    }
                                                   },
                                                   {
-                                                    "ne": [
+                                                    "eq": [
                                                       "tls",
-                                                      "off"
+                                                      "auto"
                                                     ]
                                                   }
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
+                                              "reason": "This applies only when Let's Encrypt gives the certificate (HTTPS: Automatic)"
                                             }
                                           ]
                                         }

@@ -19,6 +19,7 @@ Words like client, visitor, service and target have one meaning throughout; the 
 | I want to… | Read |
 | --- | --- |
 | start burrow at boot, update it, or run it in Docker | [Running as a service](service.md) |
+| see which burrow each client runs, and update clients from the server | [Updating clients](updates.md) |
 | watch traffic and change the config in a browser | [burrow admin](admin.md) |
 | let an AI app read or change the server | [burrow mcp](mcp.md) |
 | see clients, services and certificates, or collect metrics | [Monitoring](monitoring.md) |

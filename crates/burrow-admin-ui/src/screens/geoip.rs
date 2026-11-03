@@ -26,7 +26,7 @@ pub fn geoip_status() -> impl IntoView {
     });
     move || {
         let (g, lines) = status.get()?;
-        let now = (js_sys::Date::now() / 1000.0) as u64;
+        let now = (s.now.get() / 1000.0) as u64;
         let warn = !g.ready() || g.stale || g.failed;
         let tone = if warn { "text-warning" } else { "text-text" };
         let closed = (!g.ready()).then(|| view! {

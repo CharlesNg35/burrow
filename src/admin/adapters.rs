@@ -231,13 +231,15 @@ impl Store for FileStore {
 
     fn writable(&self) -> Result<(), WhyNot> {
         let folder = self.folder();
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let probe = folder.join(format!(
-            ".{}.burrow-probe-{}",
+            ".{}.burrow-probe-{}-{}",
             self.path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
-            std::process::id()
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let made = std::fs::OpenOptions::new()
             .write(true)
@@ -321,9 +323,14 @@ impl Store for FileStore {
     }
 }
 
-fn probe_bind(addr: SocketAddr) -> std::io::Result<()> {
-    crate::wire::transport::tcp::bind_tcp(addr).map(drop)
+fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
+    match proto {
+        burrow_config::Protocol::Tcp => crate::wire::transport::tcp::bind_tcp(addr).map(drop),
+        burrow_config::Protocol::Udp => crate::wire::transport::udp::bind_udp_now(addr).map(drop),
+    }
 }
+
+pub use super::latest::use_latest;
 
 pub struct ServerLive(pub Arc<Shared>);
 
@@ -357,8 +364,24 @@ impl Live for ServerLive {
             .collect()
     }
 
-    fn bind_probe(&self, addr: SocketAddr) -> std::io::Result<()> {
-        probe_bind(addr)
+    fn bind_probe(&self, proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
+        probe_bind(proto, addr)
+    }
+
+    fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
+        super::latest::cached()
+    }
+
+    fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
+        super::latest::fresh()
+    }
+
+    fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {
+        self.0.ask_update(client, to, by)
+    }
+
+    fn update_all(&self, clients: Vec<String>, to: &str, by: &str) -> Result<(), String> {
+        self.0.update_all(clients, to, by)
     }
 
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16> {
@@ -568,11 +591,17 @@ mod tests {
     async fn the_web_port_probe_never_keeps_the_port() {
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = held.local_addr().unwrap();
-        let busy = super::probe_bind(addr).unwrap_err();
+        let busy = super::probe_bind(burrow_config::Protocol::Tcp, addr).unwrap_err();
         assert_eq!(busy.kind(), std::io::ErrorKind::AddrInUse);
         drop(held);
-        super::probe_bind(addr).unwrap();
+        super::probe_bind(burrow_config::Protocol::Tcp, addr).unwrap();
         std::net::TcpListener::bind(addr).expect("free again right after the probe");
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let at = udp.local_addr().unwrap();
+        let busy = super::probe_bind(burrow_config::Protocol::Udp, at).unwrap_err();
+        assert_eq!(busy.kind(), std::io::ErrorKind::AddrInUse);
+        drop(udp);
+        super::probe_bind(burrow_config::Protocol::Udp, at).unwrap();
     }
 
     use super::*;
@@ -618,6 +647,28 @@ mod tests {
         )
         .await
         .expect("the refusal gives up on a peer that holds the socket");
+    }
+
+    #[test]
+    fn two_sessions_checking_at_once_both_see_a_writable_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        std::fs::write(&path, "listen: 1\n").unwrap();
+        let store = std::sync::Arc::new(FileStore::new(&path));
+        let leftover = dir
+            .path()
+            .join(format!(".server.yaml.burrow-probe-{}", std::process::id()));
+        std::fs::write(&leftover, "").unwrap();
+        let all: Vec<_> = (0..8)
+            .map(|_| {
+                let s = store.clone();
+                std::thread::spawn(move || (0..50).all(|_| s.writable().is_ok()))
+            })
+            .collect();
+        assert!(
+            all.into_iter().all(|t| t.join().unwrap()),
+            "every check sees the file writable"
+        );
     }
 
     #[test]

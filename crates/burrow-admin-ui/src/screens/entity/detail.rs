@@ -8,11 +8,12 @@ use burrow_ui_kit::{Icon, Tone, tag_class};
 use leptos::context::Provider;
 use leptos::prelude::*;
 
+use crate::entities::singular;
 use crate::form::{EditMode, plain};
 use crate::format;
+use crate::rename::RenameEntity;
 use crate::route::{self, Route};
 use crate::screens::DetailPane;
-use crate::screens::create::{RenameEntity, singular};
 use crate::screens::paths;
 use crate::screens::placement;
 use crate::store::store;
@@ -51,7 +52,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     let mode = EditMode(Signal::derive(move || editing.get()));
     let renaming = RwSignal::new(false);
     let menu = RwSignal::new(false);
-    crate::app::popover(menu, "entity-more", "entity-more-menu");
+    crate::shown::popover(menu, "entity-more", "entity-more-menu");
     let what = singular(&section);
     if section == ClientEntry::section()
         && let Ok(h) = set_interval_with_handle(
@@ -116,7 +117,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     let (sec_d, name_d, plural_s) = (section.clone(), name.clone(), plural(&section));
     view! {
         <Provider value=mode>
-        <DetailPane back=crumb.clone()>
+        <DetailPane back=Some(crumb.clone())>
             {crate::screens::crumbs(
                 crumb,
                 plural_s.to_string(),
@@ -129,7 +130,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
                 hidden=Signal::derive(move || !exists.get())
                 actions={view! { {head_actions} }.into_any()}
             >
-                {title_dot}{name.clone()}{protocol_tag}
+                <span class="min-w-0">{title_dot}{name.clone()}</span>{protocol_tag}
             </burrow_ui_kit::PageHeader>
             <RenameEntity entity=ent_r name=name_r open=renaming/>
             <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
@@ -361,8 +362,8 @@ fn title_dot(section: &str, name: &str) -> impl IntoView + use<> {
     let (sec, nm) = (section.to_string(), name.to_string());
     move || {
         (sec == CLIENTS).then(|| {
-            let on = s.status.with(|st| st.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == nm)).is_some_and(|c| c.connected));
-            view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { burrow_admin_logic::wording::ONLINE } else { burrow_admin_logic::wording::OFFLINE }></span> }
+            let on = s.status.with(|st| crate::format::presence_of(st.as_deref(), &nm).up());
+            view! { <burrow_ui_kit::Dot tone=if on { Tone::Success } else { Tone::Neutral } class="mr-2.5 mb-[0.2em] inline-block size-2.5 align-middle" label=if on { burrow_admin_logic::wording::ONLINE } else { burrow_admin_logic::wording::OFFLINE }/> }
         })
     }
 }

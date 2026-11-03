@@ -9,7 +9,7 @@ use crate::form::plain;
 use crate::format;
 use crate::route::{Link, Route};
 use crate::screens::Row;
-use crate::screens::paths::{clients_of, online};
+use crate::screens::paths::clients_of;
 
 pub(crate) fn protocol_tag(svc: &Value) -> (String, Tone) {
     let p = ServiceEntry::PROTOCOL
@@ -31,7 +31,6 @@ pub(crate) fn protocol_view(svc: &Value) -> impl IntoView + use<> {
 
 pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView + use<> {
     let s = crate::store::store();
-    let cs = clients_of(svc);
     let target = ServiceEntry::TARGET
         .get(svc)
         .map(burrow_admin_logic::web::target_value_shown)
@@ -68,13 +67,13 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
         }
     });
     let health = {
-        let name = name.clone();
+        let (name, svc) = (name.clone(), svc.clone());
         move || {
             s.status.with(|st| {
                 let status = st.as_deref();
-                let x = status.and_then(|st| st.services.iter().find(|y| y.name == name));
-                let up = status.map(|_| cs.iter().filter(|c| online(status, c)).count());
-                super::health_tag(up, cs.len(), x.map(|x| x.health.as_slice()).unwrap_or(&[]))
+                super::health_tag(
+                    status.map(|_| crate::screens::paths::health_count(&name, &svc, status, &[])),
+                )
             })
         }
     };
@@ -82,7 +81,7 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
         <tr data-row=name>
             <th scope="row"><Link to=to class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
             <td>{protocol_view(svc)}</td>
-            <td>{exposure}</td>
+            <td class="whitespace-normal! break-words">{exposure}</td>
             <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=target.clone() data-target=target.clone()>{format!("→ {target}")}</td>
             <td class="text-right tabular-nums" data-cell="open">{open}</td>
             {rate.map(|r| view! { <td class="text-right tabular-nums" data-cell="rate">{r}</td> })}
@@ -100,9 +99,10 @@ pub(super) fn client_row(
 ) -> Row {
     let c = status
         .as_ref()
-        .and_then(|st| st.clients.iter().find(|c| &c.name == name))
+        .and_then(|st| burrow_admin_logic::presence::client(st, name))
         .cloned();
-    let on = c.as_ref().is_some_and(|c| c.connected);
+    let presence = format::presence_of(status, name);
+    let on = presence.up();
     let served: Vec<String> = ServiceEntry::entries(draft)
         .map(|m| {
             m.iter()
@@ -115,8 +115,8 @@ pub(super) fn client_row(
     Row {
         key: name.clone(),
         to,
-        icon: "monitor",
-        dot: Some(if on { Tone::Success } else { Tone::Neutral }),
+        icon: burrow_admin_logic::entity::CLIENT_ICON,
+        dot: format::tone_of(presence).or(Some(Tone::Neutral)),
         title: name.clone(),
         meta: match (&c, on) {
             (Some(c), true) => format!("{} open", c.open),
@@ -130,15 +130,23 @@ pub(super) fn client_row(
         } else if on {
             let host = c
                 .as_ref()
-                .and_then(|c| c.from.clone())
-                .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
+                .and_then(|c| c.from.as_deref())
+                .map(burrow_admin_logic::presence::from_ip)
                 .unwrap_or_default();
             let since = format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
-            if host.is_empty() {
+            let mut line = if host.is_empty() {
                 format!("for {since}")
             } else {
                 format!("{host} · for {since}")
+            };
+            if let Some(v) = c
+                .as_ref()
+                .map(burrow_admin_logic::presence::info)
+                .filter(|i| i.system.is_some())
+            {
+                line.push_str(&format!(" · {}", v.version));
             }
+            line
         } else {
             String::new()
         },
@@ -260,12 +268,12 @@ pub(super) fn service_row(
         .unwrap_or_else(|| Protocol::default().wire().into());
     let udp = Protocol::from_wire(&protocol) == Some(Protocol::Udp);
     let cs = clients_of(v);
-    let up = cs.iter().filter(|c| online(status, c)).count();
-    let health_up = st
-        .as_ref()
-        .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()));
-    let problem =
-        status.is_some() && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
+    let up = cs
+        .iter()
+        .filter(|c| format::presence_of(status, c).up())
+        .count();
+    let count = status.map(|_| crate::screens::paths::health_count(name, v, status, &[]));
+    let problem = count.is_some_and(|c| c.level() != burrow_admin_logic::health::Level::Up);
     let mut tags = vec![protocol_tag(v)];
     if ways.public {
         tags.push(("public".into(), Tone::Neutral));
@@ -282,17 +290,13 @@ pub(super) fn service_row(
     if !(ways.public || ways.website || ways.visitors) {
         tags.push((burrow_admin_logic::web::NO_WAY_IN.into(), Tone::Warning));
     }
-    if up == 0 && status.is_some() {
-        tags.push(("✕ Down".into(), Tone::Danger));
-    } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {
-        tags.push((format!("⚠ {u} of {n} up"), Tone::Warning));
-    } else if status.is_some() && up < cs.len() {
-        tags.push((format!("⚠ {up} of {} up", cs.len()), Tone::Warning));
-    }
     Row {
         key: name.clone(),
         to,
         icon: if public { "globe" } else { "lock" },
+        health: count
+            .map(super::health_mark)
+            .filter(|m| m.1 != Tone::Success),
         dot: Some(if !problem {
             Tone::Success
         } else if up == 0 {

@@ -1,3 +1,5 @@
+//! OIDC login tests against a local test provider: the login flow, allow_users, forged tokens, several providers and logout.
+
 #[path = "../common/mod.rs"]
 mod common;
 mod idp;

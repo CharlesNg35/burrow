@@ -1,13 +1,22 @@
+//! Draws a status snapshot as a text table, with rates and optional color.
+//! Start at `render`.
+
 mod certs;
+mod client;
 mod geo;
 mod notify;
 mod table;
+mod versions;
+
+pub use versions::versions;
 
 use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::metrics::Status;
-use crate::metrics::render::{bytes, duration};
+use burrow_admin_proto::status::{OFFLINE, ONLINE, away};
+use burrow_syntax::duration::{ago, span};
+use burrow_syntax::size::bytes;
 use table::{ALWAYS, Cell, address, cell, col, long, num, right, table, toned};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +129,10 @@ fn speed(bytes_per_sec: f64) -> Cell {
 
 pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     let mut out = String::new();
+    if let Some(c) = &s.client {
+        client::render_local(&mut out, c, &s.version, paint);
+        return out;
+    }
     render_head(&mut out, s, paint);
     render_clients(&mut out, s, paint);
     render_services(&mut out, s, paint, rates);
@@ -135,7 +148,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
 
 fn render_head(out: &mut String, s: &Status, paint: Paint) {
     let title = format!("burrow {}", s.version);
-    let up = format!("up {}", duration(s.uptime_secs));
+    let up = format!("up {}", span(s.uptime_secs));
     let dot = paint.tone("  ·  ", Tone::Dim);
     let one_line = [title.clone(), up.clone()]
         .iter()
@@ -169,16 +182,12 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
         .map(|c| {
             let (mut state, since) = match (c.connected, c.connected_secs, c.left_secs_ago) {
                 (true, secs, _) => (
-                    paint.state("connected", true),
-                    cell(secs.map(duration).unwrap_or_default()),
+                    paint.state(ONLINE, true),
+                    cell(secs.map(span).unwrap_or_default()),
                 ),
-                (false, _, Some(ago)) => (
-                    paint.state("offline", false),
-                    toned(format!("left {} ago", duration(ago)), Tone::Dim),
-                ),
-                (false, _, None) => (
-                    paint.state("offline", false),
-                    toned("never seen", Tone::Dim),
+                (false, _, left) => (
+                    paint.state(OFFLINE, false),
+                    toned(away(left, s.uptime_secs, None), Tone::Dim),
                 ),
             };
             if c.at_limit {
@@ -188,6 +197,7 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
                 cell(&c.name),
                 state,
                 since,
+                version_cell(c),
                 match c.local {
                     true => toned("this server", Tone::Dim),
                     false => cell(c.from.clone().unwrap_or_default()),
@@ -205,7 +215,7 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
             "{}  {}",
             paint.bold("CLIENTS"),
             paint.tone(
-                &format!("{connected}/{remote} connected"),
+                &format!("{connected}/{remote} {ONLINE}"),
                 if all_in { Tone::Good } else { Tone::Warn }
             )
         ),
@@ -213,12 +223,25 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
             long("NAME", ALWAYS),
             col("STATE", 9),
             col("SINCE", 5),
+            col("VERSION", 3),
             long("FROM", 4),
             col("OPEN", 7),
             col("IDLE", 1),
         ],
         rows,
     );
+}
+
+fn version_cell(c: &crate::metrics::ClientStatus) -> Cell {
+    use burrow_admin_proto::updates::{Shown, version};
+    match version(c) {
+        Shown::Known(v) => cell(v),
+        Shown::Older if !c.local => toned(
+            format!("< {}", burrow_admin_proto::updates::FIRST_REPORTING),
+            Tone::Dim,
+        ),
+        _ => cell(String::new()),
+    }
 }
 
 fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Rates>) {
@@ -312,6 +335,9 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
                 if let Some(h) = &v.http {
                     extra.push(http_counts(h));
                 }
+                if let Some(why) = &v.not_listening {
+                    extra.push(burrow_admin_proto::status::not_listening(why));
+                }
                 for h in v.health.iter().filter(|h| !h.up) {
                     if let Some(why) = &h.reason {
                         extra.push(format!("{} down: {why}", h.client));
@@ -354,7 +380,7 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
             .map(|v| {
                 let last = match (v.open, v.last_seen_secs) {
                     (1.., _) => cell("now"),
-                    (0, Some(ago)) => cell(format!("{} ago", duration(ago))),
+                    (0, Some(secs)) => cell(ago(secs)),
                     (0, None) => toned("not since start", Tone::Dim),
                 };
                 vec![cell(&v.name), last, num(v.open), num(v.total)]
@@ -378,6 +404,9 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
 fn render_web(out: &mut String, s: &Status, paint: Paint) {
     if let Some(w) = &s.web_waiting {
         let _ = writeln!(out, "\n{}", paint.tone(&w.line(), Tone::Bad));
+        if !w.hint.is_empty() {
+            let _ = writeln!(out, "  {}", paint.tone(&w.hint, Tone::Dim));
+        }
     }
     let Some(web) = &s.web else {
         return;

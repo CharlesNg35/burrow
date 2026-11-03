@@ -1,74 +1,9 @@
-use burrow_admin_proto::schema::{Cond, Node, Relation};
+use burrow_admin_proto::schema::{Cond, Node, Relation, decide, holds};
 use burrow_admin_proto::serde_json::Value;
 
 use crate::tree::{Lookup, fields, lookup};
 
-fn same(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(n), Value::String(s)) | (Value::String(s), Value::Number(n)) => {
-            s.trim().parse::<f64>().ok() == n.as_f64()
-        }
-        _ => a == b,
-    }
-}
-
-fn len(v: &Value) -> u64 {
-    match v {
-        Value::Array(a) => a.len() as u64,
-        Value::Object(m) => m.len() as u64,
-        Value::Null => 0,
-        _ => 1,
-    }
-}
-
-fn tri(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> Option<bool> {
-    match c {
-        Cond::Eq(p, x) => match get(p) {
-            Lookup::Value(v) => Some(same(&v, x)),
-            Lookup::Unset => Some(x.is_null()),
-            Lookup::Unknown => None,
-        },
-        Cond::Ne(p, x) => tri(&Cond::Eq(p.clone(), x.clone()), get).map(|b| !b),
-        Cond::LenGe(p, n) => match get(p) {
-            Lookup::Value(v) => Some(len(&v) >= *n),
-            Lookup::Unset => Some(*n == 0),
-            Lookup::Unknown => None,
-        },
-        Cond::Set(p) => match get(p) {
-            Lookup::Value(v) => Some(!v.is_null()),
-            Lookup::Unset => Some(false),
-            Lookup::Unknown => None,
-        },
-        Cond::All(cs) => {
-            let r: Vec<Option<bool>> = cs.iter().map(|c| tri(c, get)).collect();
-            if r.contains(&Some(false)) {
-                Some(false)
-            } else if r.iter().all(Option::is_some) {
-                Some(true)
-            } else {
-                None
-            }
-        }
-        Cond::Any(cs) => {
-            let r: Vec<Option<bool>> = cs.iter().map(|c| tri(c, get)).collect();
-            if r.contains(&Some(true)) {
-                Some(true)
-            } else if r.iter().all(Option::is_some) {
-                Some(false)
-            } else {
-                None
-            }
-        }
-        Cond::Not(c) => tri(c, get).map(|b| !b),
-        Cond::Unknown(_) => None,
-    }
-}
-
 pub const PICK_ONE: &str = "pick at least one";
-
-pub fn holds(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> bool {
-    tri(c, get).unwrap_or(true)
-}
 
 fn holds_at(c: &Cond, root: &Node, doc: &Value, base: &[String]) -> bool {
     holds(c, &|p| lookup(root, doc, base, p))
@@ -81,6 +16,7 @@ pub struct FieldState {
     pub disabled_reason: Option<String>,
     pub warnings: Vec<String>,
     pub default_from: Option<Value>,
+    pub fixed: Option<Value>,
 }
 
 pub fn field_state(node: &Node, root: &Node, doc: &Value, base: &[String]) -> FieldState {
@@ -96,6 +32,17 @@ pub fn field_state(node: &Node, root: &Node, doc: &Value, base: &[String]) -> Fi
                 if !holds_at(cond, root, doc, base) {
                     s.enabled = false;
                     s.disabled_reason.get_or_insert_with(|| reason.clone());
+                }
+            }
+            Relation::FixedIf {
+                cond,
+                value,
+                reason,
+            } => {
+                if decide(cond, &|p| lookup(root, doc, base, p)) == Some(true) {
+                    s.enabled = false;
+                    s.disabled_reason.get_or_insert_with(|| reason.clone());
+                    s.fixed = Some(value.clone());
                 }
             }
             Relation::WarnIf { cond, message } => {
@@ -212,6 +159,53 @@ mod tests {
             Some(v) => Lookup::Value(v.clone()),
             None => Lookup::Unknown,
         }
+    }
+
+    #[test]
+    fn the_lets_encrypt_check_applies_only_to_a_lets_encrypt_site() {
+        use burrow_config::admin_schema::AdminSchema;
+        let root = burrow_config::ServerConfig::node();
+        let site = burrow_config::WebSite::node();
+        let challenge = &site
+            .field(burrow_config::WebSite::CHALLENGE.key())
+            .unwrap()
+            .node;
+        let at = |web: Value| {
+            let d = json!({"services": {"nas": {"client": "home", "target": 443, "web": web}}});
+            field_state(challenge, &root, &d, &p(&["services", "nas", "web"])).enabled
+        };
+        assert!(at(json!({"hosts": ["nas.example.com"]})));
+        assert!(at(json!({"hosts": ["nas.example.com"], "tls": "auto"})));
+        for tls in ["internal", "off", "passthrough"] {
+            assert!(
+                !at(json!({"hosts": ["nas.example.com"], "tls": tls})),
+                "{tls}"
+            );
+        }
+        assert!(!at(
+            json!({"hosts": ["nas.example.com"], "tls": {"cert": "a.pem", "key": "a.key"}})
+        ));
+    }
+
+    #[test]
+    fn a_passthrough_site_shows_send_to_https_fixed_on() {
+        use burrow_config::admin_schema::AdminSchema;
+        let root = burrow_config::ServerConfig::node();
+        let site = burrow_config::WebSite::node();
+        let redirect = &site
+            .field(burrow_config::WebSite::HTTPS_REDIRECT.key())
+            .unwrap()
+            .node;
+        let at = |tls: &str| {
+            let d = json!({"services": {"nas": {"client": "home", "target": 443, "web": {"hosts": ["nas.example.com"], "tls": tls}}}});
+            field_state(redirect, &root, &d, &p(&["services", "nas", "web"]))
+        };
+        let pass = at("passthrough");
+        assert!(!pass.enabled);
+        assert_eq!(pass.fixed, Some(json!(true)));
+        assert!(pass.disabled_reason.unwrap().contains("https://"));
+        let auto = at("auto");
+        assert!(auto.enabled && auto.fixed.is_none(), "{auto:?}");
     }
 
     #[test]

@@ -1,3 +1,6 @@
+//! Shared test helpers: a fake `Upstream`, test sites, TLS and HTTP backends, and request helpers.
+//! `devices` and `pki` make client certificates, CAs and CRLs.
+
 #![allow(dead_code)]
 
 pub mod devices;

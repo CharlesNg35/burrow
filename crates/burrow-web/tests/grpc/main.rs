@@ -1,3 +1,6 @@
+//! gRPC tests through the proxy to the gRPC interop server, over h2c and over HTTP/2 with target TLS.
+//! They run only when BURROW_GRPC is set; the server runs in Docker.
+
 #[path = "../common/mod.rs"]
 mod common;
 mod interop;

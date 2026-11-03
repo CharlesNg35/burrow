@@ -51,8 +51,8 @@ impl DbIp {
             let age = unix_now().saturating_sub(db.built);
             if age > STALE_AFTER.as_secs() {
                 warn!(
-                    "the country database is {} days old; burrow keeps trying to download a newer one",
-                    age / 86_400
+                    "the country database is {} old; burrow keeps trying to download a newer one",
+                    burrow_syntax::duration::span(age)
                 );
             }
         }

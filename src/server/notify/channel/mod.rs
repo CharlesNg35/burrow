@@ -1,3 +1,6 @@
+//! Notification destinations: one `Channel` per kind (webhook, ntfy, email), each in its own file.
+//! Start at `open`, which picks the channel for a destination.
+
 mod email;
 mod http;
 mod ntfy;

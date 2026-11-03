@@ -1,3 +1,5 @@
+//! A DNS-01 `Provider` for Cloudflare: finds the zone and adds or removes TXT records through its API.
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 

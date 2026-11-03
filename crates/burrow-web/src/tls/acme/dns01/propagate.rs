@@ -1,3 +1,6 @@
+//! Waits until every authoritative nameserver answers with the new TXT values, or the wait runs out.
+//! Start at `wait_all`.
+
 use std::time::{Duration, Instant};
 
 use hickory_proto::op::{Message, ResponseCode};

@@ -163,7 +163,7 @@ Turn it on only when the target expects it: an app that does not understand the 
 
 ## Several clients
 
-Run the same app on two machines, list both under `clients`, and the service stays up when one goes away. This works for TCP and UDP services. `mode: balance`, `mode: least_connections`, `mode: ip_hash` and `health_check` are for TCP only, so a UDP service uses failover. This web service spreads its connections over two clients, and skips one whose app stops answering:
+Run the same app on two machines, list both under `clients`, and the service stays up when one goes away. This works for TCP and UDP services. `mode: balance`, `mode: least_connections`, `mode: ip_hash` and `health_check` are for TCP only, so a UDP service uses failover. `mode` needs two or more clients; with one, `validate` warns that it has no effect. This web service spreads its connections over two clients, and skips one whose app stops answering:
 
 ```yaml
 # server.yaml, under services:

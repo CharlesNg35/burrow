@@ -368,3 +368,20 @@ fn a_server_whose_services_all_run_on_self_needs_no_clients() {
     let text = render("server.yaml", &some, None);
     assert!(text.contains("no clients are defined"), "{text}");
 }
+
+#[test]
+fn a_network_with_host_bits_set_says_what_to_write_instead() {
+    let text = render(
+        "server.yaml",
+        &self_server(
+            "self:\n  allow: [127.0.0.1/24]\n",
+            "  web: { client: home, bind: 8080, target: 3000 }\n",
+            "",
+        ),
+        None,
+    );
+    assert!(
+        text.contains("invalid self.allow entry: \"127.0.0.1/24\" has host bits set: write 127.0.0.0/24 for the network, or 127.0.0.1/32 for this one address"),
+        "{text}"
+    );
+}

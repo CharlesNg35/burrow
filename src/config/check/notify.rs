@@ -1,3 +1,5 @@
+//! Checks the server's notify list: each destination's address, its email and SMTP server, and where its password comes from.
+
 use std::path::Path;
 
 use super::Spans;

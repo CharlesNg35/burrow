@@ -1,5 +1,9 @@
+//! `burrow update`: downloads a release for this platform, checks its SHA-256 sum and replaces the binary.
+//! Start at `run`.
+
 pub mod archive;
-use crate::wire::fetch;
+pub mod latest;
+pub mod remote;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -10,6 +14,7 @@ use crate::base::failure::{Failure, admin, cmd};
 use crate::base::output::say;
 use crate::install::Manifest;
 use crate::service::{self, parse_version};
+use crate::wire::fetch;
 
 const MAX_SUMS: usize = 1024 * 1024;
 const MAX_ASSET: usize = 256 * 1024 * 1024;
@@ -20,9 +25,22 @@ pub struct Options {
     pub force: bool,
 }
 
+static EXTRA_ENV: std::sync::OnceLock<std::collections::BTreeMap<String, String>> =
+    std::sync::OnceLock::new();
+
+pub fn use_env(vars: std::collections::BTreeMap<String, String>) {
+    let _ = EXTRA_ENV.set(vars);
+}
+
+fn var(name: &str) -> Option<String> {
+    EXTRA_ENV
+        .get()
+        .and_then(|e| e.get(name).cloned())
+        .or_else(|| std::env::var(name).ok())
+}
+
 pub fn releases() -> String {
-    std::env::var("BURROW_UPDATE_URL")
-        .ok()
+    var("BURROW_UPDATE_URL")
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| concat!(env!("CARGO_PKG_REPOSITORY"), "/releases").to_string())
         .trim_end_matches('/')
@@ -30,46 +48,7 @@ pub fn releases() -> String {
 }
 
 pub fn platform() -> Option<(&'static str, &'static str)> {
-    let os = if cfg!(target_os = "linux") {
-        "linux"
-    } else if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "freebsd") {
-        "freebsd"
-    } else if cfg!(windows) {
-        "windows"
-    } else {
-        return None;
-    };
-    let arch = if cfg!(target_arch = "x86_64") {
-        "amd64"
-    } else if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else if cfg!(target_arch = "arm") {
-        if env!("BURROW_TARGET").starts_with("armv7") {
-            "armv7"
-        } else {
-            "armv6"
-        }
-    } else if cfg!(target_arch = "riscv64") {
-        "riscv64"
-    } else {
-        return None;
-    };
-    let name = match (os, arch) {
-        ("linux", "amd64") => "linux-amd64",
-        ("linux", "arm64") => "linux-arm64",
-        ("linux", "armv7") => "linux-armv7",
-        ("linux", "armv6") => "linux-armv6",
-        ("linux", "riscv64") => "linux-riscv64",
-        ("macos", "amd64") => "macos-amd64",
-        ("macos", "arm64") => "macos-arm64",
-        ("freebsd", "amd64") => "freebsd-amd64",
-        ("windows", "amd64") => "windows-amd64",
-        ("windows", "arm64") => "windows-arm64",
-        _ => return None,
-    };
-    Some((name, if os == "windows" { "zip" } else { "tar.gz" }))
+    crate::base::build::release_asset()
 }
 
 fn binary_name() -> &'static str {
@@ -94,7 +73,7 @@ pub fn find_asset(sums: &str, platform: &str, ext: &str) -> Option<Asset> {
         let hash = parts.next()?;
         let name = parts.next()?.trim_start_matches('*');
         let version = name.strip_prefix("burrow-")?.strip_suffix(&suffix)?;
-        parse_version(version)?;
+        release_version(version)?;
         (hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())).then(|| Asset {
             version: version.to_string(),
             name: name.to_string(),
@@ -103,7 +82,7 @@ pub fn find_asset(sums: &str, platform: &str, ext: &str) -> Option<Asset> {
     })
 }
 
-fn in_container() -> bool {
+pub(crate) fn in_container() -> bool {
     cfg!(target_os = "linux")
         && (Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists())
 }
@@ -113,13 +92,18 @@ fn fetch(url: &str, limit: usize) -> Result<fetch::Fetched, fetch::FetchError> {
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
-    let env = |name: &str| std::env::var(name).ok();
-    rt.block_on(fetch::get(url, limit, &env))
+    rt.block_on(fetch::get(url, limit, &var))
 }
 
-struct Staged {
+pub struct Staged {
     dir: PathBuf,
     binary: PathBuf,
+}
+
+impl Staged {
+    pub fn binary(&self) -> &Path {
+        &self.binary
+    }
 }
 
 impl Drop for Staged {
@@ -202,8 +186,17 @@ fn stage(near: &Path, bytes: &[u8]) -> Result<Staged, Failure> {
     )))
 }
 
+pub fn release_version(v: &str) -> Option<semver::Version> {
+    let parsed = semver::Version::parse(v).ok()?;
+    (parsed.build.is_empty() && parsed.to_string() == v).then_some(parsed)
+}
+
 fn version_of(v: &str) -> Result<semver::Version, Failure> {
-    parse_version(v).ok_or_else(|| Failure::usage(format!("\"{v}\" is not a version like 1.2.3")))
+    release_version(v).ok_or_else(|| {
+        Failure::usage(format!(
+            "\"{v}\" is not a release number like 1.2.3 or 1.2.3-rc.1"
+        ))
+    })
 }
 
 pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
@@ -218,7 +211,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         Failure::new("there is no release build of burrow for this system")
             .hint("build the new version from source: cargo install --git https://github.com/charlesng35/burrow")
     })?;
-    let mine = env!("CARGO_PKG_VERSION");
+    let mine = crate::base::build::version();
     let base = releases();
     let wanted = match &opts.to {
         Some(v) => {
@@ -285,8 +278,28 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
     finish(&staged, &targets, force, &asset.version, mine, out)
 }
 
+pub fn fetch_verified(version: &str, near: &Path, out: &mut dyn Write) -> Result<Staged, Failure> {
+    let (platform, ext) = platform()
+        .ok_or_else(|| Failure::new("there is no release build of burrow for this system"))?;
+    let base = releases();
+    let (sums_url, sums) = fetch_sums(&base, Some(version))?;
+    let asset = find_asset(&sums, platform, ext).ok_or_else(|| {
+        Failure::new(format!(
+            "the release has no {platform} build (looked in {sums_url})"
+        ))
+    })?;
+    let theirs = version_of(&asset.version)?;
+    if parse_version(version).as_ref() != Some(&theirs) {
+        return Err(Failure::new(format!(
+            "{sums_url} lists {} instead of {version}",
+            asset.version
+        )));
+    }
+    download(&base, &asset, ext, near, &theirs, out)
+}
+
 fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Failure> {
-    let sums_url = match wanted {
+    let sums_url = match wanted.map(version_of).transpose()? {
         Some(v) => format!("{base}/download/v{v}/SHA256SUMS"),
         None => format!("{base}/latest/download/SHA256SUMS"),
     };

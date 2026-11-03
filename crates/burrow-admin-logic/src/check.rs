@@ -390,7 +390,10 @@ fn public_address_in(given: &str, doc: &Value) -> Result<(), String> {
         &mut Vec::new(),
     )
     .map(|_| ())
-    .map_err(|e| e.message)
+    .map_err(|e| match e.hint.is_empty() {
+        true => e.message,
+        false => format!("{}; {}", e.message, e.hint),
+    })
 }
 
 pub fn refs_exist(node: &Node, v: &Value, names: &[String]) -> Result<(), String> {
@@ -672,5 +675,13 @@ mod tests {
             check(&required, &Value::Null),
             Err("Field is required".into())
         );
+    }
+
+    #[test]
+    fn a_websocket_address_without_websocket_says_where_to_turn_it_on() {
+        let doc = json!({"listen": 7835});
+        let e = public_address_in("wss://tunnel.example.net/burrow", &doc).unwrap_err();
+        assert!(e.starts_with("WebSocket is off on this server"), "{e}");
+        assert!(e.contains("Settings, Connections"), "{e}");
     }
 }

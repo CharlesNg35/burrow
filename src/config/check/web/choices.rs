@@ -6,7 +6,7 @@ use crate::config::tree::Span;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
 
 pub(super) use burrow_admin_proto::codes::{
-    PLAIN_HTTP, PLAIN_NEEDS_HTTP, REDIRECT_NEEDS_HTTP, REDIRECT_PASSTHROUGH, REDIRECT_PLAIN,
+    PASSTHROUGH_FIXED, PLAIN_HTTP, PLAIN_NEEDS_HTTP, REDIRECT_NEEDS_HTTP, REDIRECT_PLAIN,
 };
 pub(super) const REDIRECT_BY_PROXY: &str = "redirect-by-proxy";
 pub(super) const NEEDS_HTTPS: &str = "needs-https";
@@ -110,14 +110,6 @@ fn redirect(
         _ => false,
     };
     match web.tls() {
-        Some(SiteTls::Mode(TlsMode::Passthrough)) if own == Some(false) => out.push(error(
-            REDIRECT_PASSTHROUGH,
-            format!(
-                "services.{name}.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); on web.http its names get 404"
-            ),
-            at,
-            "remove https_redirect",
-        )),
         Some(SiteTls::Mode(TlsMode::Passthrough)) => {}
         _ if plain && own == Some(true) && trusted => out.push(
             Diagnostic::warning(

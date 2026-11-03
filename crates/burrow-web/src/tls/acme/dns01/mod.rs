@@ -1,3 +1,6 @@
+//! DNS-01 checks for ACME: the `Provider` trait that adds and removes TXT records, and the settings that pick one per domain.
+//! `solve::Dns` runs a check from start to end; each DNS service has its own file.
+
 use std::fmt;
 use std::future::Future;
 use std::net::SocketAddr;

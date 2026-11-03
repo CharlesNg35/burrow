@@ -56,6 +56,14 @@ pub fn tab_of(field: &str) -> Tab {
     }
 }
 
+pub fn problems_in(tab: Tab, paths: &[Vec<String>], sections: &[&str]) -> usize {
+    paths
+        .iter()
+        .filter_map(|p| p.first())
+        .filter(|k| !sections.contains(&k.as_str()) && tab_of(k) == tab)
+        .count()
+}
+
 pub fn rank(field: &str) -> usize {
     [
         ServerConfig::WEBSOCKET.key(),
@@ -112,5 +120,21 @@ mod tests {
         for t in Tab::ALL {
             assert_eq!(Tab::parse(t.key()), Some(t));
         }
+    }
+
+    #[test]
+    fn each_tab_counts_the_problems_of_its_own_settings() {
+        let p = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let paths = [
+            p(&["web", "http"]),
+            p(&["pool", "min_idle"]),
+            p(&["services", "web", "bind"]),
+            p(&["listen"]),
+        ];
+        let sections = ["services", "clients", "visitors"];
+        assert_eq!(problems_in(Tab::Web, &paths, &sections), 1);
+        assert_eq!(problems_in(Tab::Connections, &paths, &sections), 1);
+        assert_eq!(problems_in(Tab::Server, &paths, &sections), 1);
+        assert_eq!(problems_in(Tab::Monitoring, &paths, &sections), 0);
     }
 }

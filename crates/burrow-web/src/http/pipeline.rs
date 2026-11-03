@@ -157,6 +157,9 @@ fn on_plain<U: Upstream>(
             CertState::Ready => to_https(host, shared.https_port, req),
             CertState::Pending | CertState::Failing => Page::Pending.response(),
         }),
+        Some(Kind::Passthrough { redirect: true, .. }) => {
+            Some(to_https(host, shared.https_port, req))
+        }
         _ => Some(Page::NotFound.response()),
     }
 }

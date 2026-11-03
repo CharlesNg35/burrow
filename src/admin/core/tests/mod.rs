@@ -1,3 +1,6 @@
+//! Tests for the admin core, using an in-memory store and a fake running server.
+//! Build a `Core` with `core_for` and its siblings, and a signed-in `session`.
+
 #![cfg(test)]
 
 mod files;
@@ -144,10 +147,18 @@ impl Live for FakeLive {
     fn free_port(&self, near: u16, _: u16, _: bool) -> Option<u16> {
         (!self.busy.contains(&near)).then_some(near)
     }
-    fn bind_probe(&self, addr: std::net::SocketAddr) -> std::io::Result<()> {
-        match self.busy.contains(&addr.port()) {
-            true => Err(std::io::ErrorKind::AddrInUse.into()),
-            false => Ok(()),
+    fn bind_probe(
+        &self,
+        _proto: burrow_config::Protocol,
+        addr: std::net::SocketAddr,
+    ) -> std::io::Result<()> {
+        if addr.ip().to_string().starts_with("192.0.2.") {
+            return Err(std::io::ErrorKind::AddrNotAvailable.into());
+        }
+        match (self.busy.contains(&addr.port()), addr.port() < 1024) {
+            (true, true) => Err(std::io::ErrorKind::PermissionDenied.into()),
+            (true, false) => Err(std::io::ErrorKind::AddrInUse.into()),
+            (false, _) => Ok(()),
         }
     }
 }

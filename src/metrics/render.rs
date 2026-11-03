@@ -283,25 +283,6 @@ fn visitor_families(f: &mut Family, s: &Status) {
     }
 }
 
-pub fn duration(secs: u64) -> String {
-    match secs {
-        0..60 => format!("{secs} s"),
-        60..3600 => format!("{} min", secs / 60),
-        3600..86400 => format!("{} h {} min", secs / 3600, secs % 3600 / 60),
-        _ => format!("{} d {} h", secs / 86400, secs % 86400 / 3600),
-    }
-}
-
-pub fn bytes(n: u64) -> String {
-    let n = n as f64;
-    for (unit, size) in [("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3)] {
-        if n >= size {
-            return format!("{:.1} {unit}", n / size);
-        }
-    }
-    format!("{n} B")
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::*;
@@ -378,6 +359,7 @@ mod tests {
                 http: Some(burrow_admin_proto::status::HttpCounts {
                     responses: [0, 140, 3, 9, 1],
                 }),
+                not_listening: None,
             }],
             visitors: vec![VisitorStatus {
                 name: "lap\"top".into(),
@@ -408,6 +390,9 @@ mod tests {
             acme: None,
             local_ca: None,
             web_waiting: None,
+            client: None,
+            rollout: None,
+            latest: None,
             geoip: None,
             notify: Vec::new(),
         }
@@ -466,13 +451,5 @@ mod tests {
             let value = l.rsplit(' ').next().unwrap();
             assert!(value.parse::<u64>().is_ok(), "{l}");
         }
-    }
-
-    #[test]
-    fn sizes_and_times() {
-        assert_eq!(bytes(999), "999 B");
-        assert_eq!(bytes(3_100_000), "3.1 MB");
-        assert_eq!(duration(59), "59 s");
-        assert_eq!(duration(61), "1 min");
     }
 }

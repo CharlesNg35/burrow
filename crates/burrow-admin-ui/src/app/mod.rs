@@ -1,8 +1,8 @@
+//! The admin UI shell: the `App` root component with its header, banners, menus, search and the current screen.
+
 mod header;
 mod menus;
-mod row_menu;
 mod search;
-mod shown;
 
 use burrow_admin_proto::msg::{FileDiagnostics, UiDiagnostics};
 use burrow_admin_proto::serde_json;
@@ -19,10 +19,7 @@ use crate::screens;
 use crate::store::{Conn, Store, store};
 
 use header::Header;
-pub(crate) use header::popover;
-pub(crate) use row_menu::{Item as MenuItem, row_menu, row_menus};
 use search::SearchPopover;
-pub(crate) use shown::shown_while;
 
 const THEME_KEY: &str = "burrow-admin-theme";
 
@@ -113,6 +110,7 @@ pub fn App() -> impl IntoView {
     let s = Store::new(route::current());
     provide_context(s);
     apply_theme(&saved_theme());
+    burrow_ui_kit::auto_titles();
     let on_pop = Closure::<dyn FnMut()>::new(move || {
         s.route.set(route::current());
         s.query_seen.update(|n| *n += 1);
@@ -267,7 +265,7 @@ fn Body() -> impl IntoView {
             Conn::Closed { message } if !loaded.get() => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="closed">
                     <EmptyState icon="wifi-off" title="Disconnected" message=message>
-                        <Button label="Reconnect" variant="primary" on_click=move |_| api::reconnect(s)/>
+                        <Button label="Reconnect" variant=burrow_ui_kit::ButtonLook::Primary on_click=move |_| api::reconnect(s)/>
                     </EmptyState>
                 </div>
             }
@@ -321,7 +319,7 @@ fn Banners() -> impl IntoView {
                     message=format!("{why}Reconnecting in {left} s · attempt {attempt}.{kept} Values are from {at}.")
                     testid="banner-reconnecting"
                 >
-                    <Button label="Retry now" small=true on_click=move |_| api::reconnect(s)/>
+                    <Button label="Retry now" size=burrow_ui_kit::ButtonSize::Small on_click=move |_| api::reconnect(s)/>
                 </Banner>
             })
         }
@@ -334,7 +332,7 @@ fn Banners() -> impl IntoView {
         }.into_any()),
         Conn::Closed { message } => Some(view! {
             <Banner tone=Tone::Danger title="Disconnected; showing the last known state" message=message testid="banner-closed">
-                <Button label="Reconnect" small=true on_click=move |_| api::reconnect(s)/>
+                <Button label="Reconnect" size=burrow_ui_kit::ButtonSize::Small on_click=move |_| api::reconnect(s)/>
             </Banner>
         }.into_any()),
         _ => None,
@@ -345,7 +343,7 @@ fn Banners() -> impl IntoView {
             let lines: Vec<String> = st.running.file_diags.iter().map(|d| d.message.clone()).collect();
             view! {
                 <Banner tone=Tone::Danger title="The config file on the server has errors; the server keeps running the previous version" message=lines.first().cloned().unwrap_or_default() testid="banner-file-errors">
-                    <Button label=Signal::derive(move || if show_diags.get() { "Hide diagnostics".to_string() } else { "Show diagnostics".to_string() }) small=true on_click=move |_| show_diags.update(|v| *v = !*v)/>
+                    <Button label=Signal::derive(move || if show_diags.get() { "Hide diagnostics".to_string() } else { "Show diagnostics".to_string() }) size=burrow_ui_kit::ButtonSize::Small on_click=move |_| show_diags.update(|v| *v = !*v)/>
                 </Banner>
                 <Show when=move || show_diags.get()>
                     <ul class="border-b border-danger/30 bg-danger-weak px-5 py-2 font-mono text-xs text-co-danger">
@@ -373,11 +371,11 @@ fn Banners() -> impl IntoView {
         };
         let action = match stale {
             Some(_) => view! {
-                <Button label=crate::review::REVIEW_ON_NEW small=true testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
+                <Button label=crate::review::REVIEW_ON_NEW size=burrow_ui_kit::ButtonSize::Small testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
             }
             .into_any(),
             None => view! {
-                <Button label="Refresh" small=true on_click=move |_| {
+                <Button label="Refresh" size=burrow_ui_kit::ButtonSize::Small on_click=move |_| {
                     api::load_state(s);
                     s.changed.set(None);
                 }/>

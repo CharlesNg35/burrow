@@ -10,7 +10,7 @@ use super::forwarded::Client;
 use super::pages::Page;
 use super::site::{Hop, SiteRun};
 use super::unread::Kept;
-use super::upstream::pool::{Back, Key, Pool};
+use super::upstream::pool::{Back, Cut, Key, Pool};
 use super::upstream::send::Asking;
 use super::upstream::{refusal_page, strip_hop_by_hop};
 use crate::auth::forward::{Asked, copy_granted, strip_visitor_copies, subrequest};
@@ -32,6 +32,7 @@ pub(crate) struct Gate<'a, U> {
     pub site: &'a SiteRun,
     pub visitor: &'a Visitor,
     pub client: &'a Client,
+    pub front: Option<&'a Arc<Cut>>,
 }
 
 fn too_many(site: &SiteRun, wait: Duration) -> Response<Body> {
@@ -117,7 +118,7 @@ impl<U: Upstream> Gate<'_, U> {
             self.up,
             (self.pool, self.epoch),
             (self.table, wait),
-            (fa, self.visitor),
+            (fa, self.visitor, self.front),
             sub,
         );
         let asked = tokio::time::timeout(wait, asked).await;
@@ -140,7 +141,7 @@ async fn ask<U: Upstream>(
     up: &U,
     (pool, epoch): (&Arc<Pool>, u64),
     (table, wait): (&Table, Duration),
-    (fa, visitor): (&ForwardAuth, &Visitor),
+    (fa, visitor, front): (&ForwardAuth, &Visitor, Option<&Arc<Cut>>),
     sub: Request<Body>,
 ) -> Result<Response<Body>, Page> {
     let deadline = Instant::now() + wait;
@@ -163,6 +164,7 @@ async fn ask<U: Upstream>(
         deadline,
         epoch,
         ask: crate::Ask::Auth,
+        front,
     };
     let (resp, home, ticket) = asking.send_h1(None, sub).await.map_err(|m| m.page)?;
     let lease = (asking.lease, ticket);

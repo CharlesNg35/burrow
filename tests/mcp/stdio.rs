@@ -50,8 +50,39 @@ async fn a_write_admin_checks_changes_but_applies_them_only_with_allow_write() {
     let a = ai(&v, &["--allow-write"]).await;
     assert_eq!(
         a.tools().await,
-        names(&["apply_change", "check_change", "revert_to_version"])
+        names(&[
+            "apply_change",
+            "check_change",
+            "revert_to_version",
+            "update_clients"
+        ])
     );
+    fn latest() -> burrow_admin_proto::updates::LatestRelease {
+        burrow_admin_proto::updates::LatestRelease {
+            version: Some("99.0.0".into()),
+            ..Default::default()
+        }
+    }
+    burrow::admin::adapters::use_latest(latest, latest);
+    let preview = a
+        .ok(
+            "update_clients",
+            json!({ "all": true, "version": "99.0.0" }),
+        )
+        .await;
+    assert_eq!(preview["done"], false, "{preview}");
+    assert_eq!(preview["confirm"], json!(["update"]), "{preview}");
+    assert_eq!(preview["to"], "99.0.0", "{preview}");
+    assert_eq!(preview["skipped"][0]["client"], "home", "{preview}");
+    assert_eq!(preview["skipped"][0]["why"], "it is offline", "{preview}");
+    let asked = a
+        .ok(
+            "update_clients",
+            json!({ "all": true, "version": "99.0.0", "confirm": ["update"] }),
+        )
+        .await;
+    assert_eq!(asked["done"], true, "{asked}");
+    assert_eq!(asked["asked"], json!([]), "{asked}");
     a.stop().await;
     let _ = w.stop.send(true);
 }

@@ -1,3 +1,6 @@
+//! The server's country database: loads DB-IP Lite or the admin's own file, keeps it fresh and answers country lookups.
+//! Start at `start`; `Geo` holds the current database and its status.
+
 mod db;
 mod db_ip;
 mod keep;

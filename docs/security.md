@@ -92,6 +92,12 @@ A website is open to every browser, so burrow checks each request before it reac
   - Instead of a file path, a write admin may upload a certificate, CA or revocation list. burrow checks it, keeps it private in its state folder, and never sends a key back ([Uploading files](web/certificates.md#uploading-files-in-the-admin-ui)).
 - **The local CA (`tls: internal`)** may sign only LAN names and addresses (X.509 name constraints in its root). Its key stays in the state folder, readable only by the service account, and the admin UI offers its certificate, never the key.
 
+## Client updates
+
+A client updates itself only when its own config has `update.remote: true`. The server only asks. The client, or its updater, finds the latest official release itself, or uses a mirror set on the client machine. It checks the release against its `SHA256SUMS` and refuses anything that is not newer than what it runs. For a service, a small updater that runs as root does the replacing, and it takes no input from the client's account. It reads the opt-in from the installed config itself. The account can only start it, by a trigger file that the updater removes without reading, or on Windows by starting the updater service. The updater writes its result only into a folder the account may read but not change. Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
+
+`burrow clients update` on the server machine asks through the server's local status endpoint on `127.0.0.1`, with the token that only the server's own account can read. That account can already change the server's config, so it gains nothing new ([D79](decisions.md#d79-burrow-clients-updates-clients-from-the-server-machine-through-one-write-route-of-the-local-status-endpoint)).
+
 ## burrow admin
 
 The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).

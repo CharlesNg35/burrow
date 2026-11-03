@@ -45,7 +45,7 @@ pub(super) fn check_site_wide(
             out.push(
                 Diagnostic::error(
                     "access-log",
-                    "web.access_log needs a file, like logs/access.log",
+                    "web.access_log: needs a file, like logs/access.log",
                 )
                 .at(spans.value(&["web", "access_log"]))
                 .help("paths are relative to the config file"),
@@ -108,7 +108,7 @@ fn ranges(key: &str, list: &[String], open: &str, spans: &Spans, out: &mut Vec<D
             Err(e) => out.push(
                 Diagnostic::error(
                     "invalid-range",
-                    format!("web.{key}: \"{}\" {}", text.trim(), e.describe()),
+                    format!("web.{key}: {}", e.describe()),
                 )
                 .at(at)
                 .help(

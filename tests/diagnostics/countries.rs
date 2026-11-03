@@ -14,7 +14,9 @@ fn country_codes_are_checked_and_only_one_rule_per_service() {
         None,
     );
     assert!(
-        both.contains("error: service \"shop\" has both allow_countries and deny_countries"),
+        both.contains(
+            "error: services.shop.deny_countries: set allow_countries or deny_countries, not both"
+        ),
         "{both}"
     );
     let bad = render(
@@ -67,7 +69,7 @@ fn validate_says_when_the_country_database_is_not_ready_or_not_used() {
     let unused = render("server.yaml", &format!("geoip: db-ip\n{}", shop("")), None);
     assert!(
         unused.contains(
-            "warning: geoip is set, but no service has allow_countries or deny_countries"
+            "warning: geoip: no service has allow_countries or deny_countries, so it is not used"
         ),
         "{unused}"
     );
@@ -80,7 +82,7 @@ fn validate_says_when_the_country_database_is_not_ready_or_not_used() {
         None,
     );
     assert!(
-        url.contains("error: geoip \"https://example.com/x.mmdb\" is a URL"),
+        url.contains("error: geoip: \"https://example.com/x.mmdb\" is a URL"),
         "{url}"
     );
     let private = render(
@@ -91,7 +93,7 @@ fn validate_says_when_the_country_database_is_not_ready_or_not_used() {
         None,
     );
     assert!(
-        private.contains("allow_countries of service \"db\" has no effect"),
+        private.contains("services.db.allow_countries: has no effect"),
         "{private}"
     );
 }

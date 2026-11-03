@@ -1,3 +1,6 @@
+//! Handles a request body the app did not read: drains a small rest after the response, or else closes the connection.
+//! Start at `keep`, then call `Unread::settle` on the response.
+
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};

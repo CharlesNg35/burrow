@@ -1,19 +1,31 @@
+//! The `Combobox` component: a searchable single or multi pick list with chips, keyboard navigation and a popover that opens where it fits.
+//! `create` adds making a new value from the typed text.
+
 mod create;
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::basic::Tone;
+use crate::basic::{Dot, Tone};
 use crate::icon::Icon;
 
 use create::{Create, create_section};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComboOption {
     pub value: String,
     pub label: String,
     pub facet: String,
     pub dot: Option<Tone>,
+    pub blocked: Option<String>,
+    pub group: u8,
+}
+
+pub fn pickable(options: &[ComboOption], value: &str) -> bool {
+    options
+        .iter()
+        .find(|o| o.value == value)
+        .is_none_or(|o| o.blocked.is_none())
 }
 
 pub fn filter_options(options: &[ComboOption], query: &str) -> Vec<ComboOption> {
@@ -43,16 +55,24 @@ pub fn toggle(selected: &[String], value: &str, multi: bool) -> Vec<String> {
     out
 }
 
-fn dot_class(tone: Option<Tone>) -> &'static str {
-    match tone {
-        Some(Tone::Success) => "bg-success",
-        Some(Tone::Warning) => "bg-warning",
-        Some(Tone::Danger) => "bg-danger",
-        _ => "bg-transparent ring-[1.5px] ring-text-faint ring-inset",
-    }
+pub fn start_at(visible: &[ComboOption], selected: &[String]) -> usize {
+    visible
+        .iter()
+        .position(|o| selected.contains(&o.value))
+        .unwrap_or(0)
 }
 
 const POPOVER_ROOM: f64 = 240.0;
+const POPOVER_MAX: f64 = 520.0;
+const EDGE: f64 = 16.0;
+
+fn view_width() -> f64 {
+    window()
+        .inner_width()
+        .ok()
+        .and_then(|w| w.as_f64())
+        .unwrap_or(POPOVER_MAX)
+}
 
 #[component]
 pub fn Combobox(
@@ -79,6 +99,9 @@ pub fn Combobox(
     let list_id = format!("{id}-list");
     let visible = Memo::new(move |_| options.with(|o| filter_options(o, &query.get())));
     let pick = move |value: String| {
+        if !options.with_untracked(|o| pickable(o, &value)) {
+            return;
+        }
         let next = toggle(&selected.get_untracked(), &value, multi);
         on_change.run(next);
         query.set(String::new());
@@ -92,6 +115,29 @@ pub fn Combobox(
     let input_id = id.clone();
     let up = RwSignal::new(false);
     place_popover(id.clone(), open, up);
+    Effect::new(move |was: Option<bool>| {
+        let now = open.get();
+        if now && was != Some(true) {
+            let at = visible.with_untracked(|v| selected.with_untracked(|s| start_at(v, s)));
+            active.set(at);
+        }
+        now
+    });
+    let opt_prefix = format!("{id}-opt-");
+    Effect::new(move |_| {
+        let a = active.get();
+        if !open.get() {
+            return;
+        }
+        let prefix = opt_prefix.clone();
+        request_animation_frame(move || {
+            if let Some(el) = document().get_element_by_id(&format!("{prefix}{a}")) {
+                let opts = web_sys::ScrollIntoViewOptions::new();
+                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                el.scroll_into_view_with_scroll_into_view_options(&opts);
+            }
+        });
+    });
     Effect::new(move |_| {
         if !open.get() && creating.get_untracked() {
             creating.set(false);
@@ -133,7 +179,8 @@ pub fn Combobox(
         >
             <div
                 class=move || format!(
-                    "flex min-h-10 flex-wrap items-center gap-[5px] rounded-input border bg-input p-1 {}",
+                    "flex min-h-10 items-center gap-[5px] rounded-input border bg-input p-1 {} {}",
+                    if multi { "flex-wrap" } else { "flex-nowrap" },
                     if invalid.get() { "border-danger ring-3 ring-danger-weak" } else { "border-border-strong focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-weak" }
                 )
                 on:click=move |_| {
@@ -152,7 +199,7 @@ pub fn Combobox(
                     role="combobox"
                     autocomplete="off"
                     spellcheck="false"
-                    class="h-[26px] min-w-24 flex-1 bg-transparent px-1.5 text-sm outline-none placeholder:text-text-faint"
+                    class=if multi { "h-[26px] min-w-24 flex-1 bg-transparent px-1.5 text-sm outline-none placeholder:text-text-faint" } else { "h-[26px] w-6 min-w-6 flex-1 bg-transparent px-1.5 text-sm outline-none placeholder:text-text-faint" }
                     placeholder=move || if multi || selected.with(|s| s.iter().all(String::is_empty)) { placeholder.clone() } else { String::new() }
                     aria-label=(!label.is_empty()).then_some(label)
                     aria-expanded=move || open.get().to_string()
@@ -173,7 +220,7 @@ pub fn Combobox(
                 {(!multi).then(|| view! { <span class="pointer-events-none mr-1.5 ml-auto text-text-muted" aria-hidden="true" data-single=""><Icon name="chevron-down" small=true/></span> })}
             </div>
             <Show when=move || open.get()>
-                <div class=move || format!("absolute left-0 z-30 w-[min(470px,100%)] min-w-64 rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
+                <div class=move || format!("absolute left-0 z-30 w-full sm:w-max sm:min-w-64 sm:max-w-[var(--pop-room,100%)] rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
                     {(!header.is_empty()).then(|| view! { <div class="px-2.5 pt-1.5 pb-1 text-2xs font-bold tracking-[0.08em] text-text-faint uppercase">{header.clone()}</div> })}
                     <ul id=list_id.clone() role="listbox" aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
                         {rows.clone()}
@@ -271,13 +318,13 @@ fn chips(
                 (false, false) => "",
             };
             view! {
-                <span class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {look}") data-chip=v.clone()>
-                    <span class=format!("size-2 rounded-full {}", dot_class(dot)) aria-hidden="true"></span>
-                    {text.clone()}
+                <span class=format!("inline-flex h-[26px] max-w-full min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {look}") data-chip=v.clone() title=text.clone()>
+                    <Dot tone=dot.unwrap_or(Tone::Neutral)/>
+                    <span class="truncate">{text.clone()}</span>
                     {removable.then(|| view! {
                         <button
                             type="button"
-                            class="flex size-[18px] cursor-pointer items-center justify-center rounded-xs text-text-faint hover:bg-border hover:text-text"
+                            class="relative flex size-[18px] cursor-pointer items-center justify-center rounded-xs text-text-faint after:absolute after:-inset-[3px] hover:bg-border hover:text-text"
                             aria-label=format!("Remove {text}")
                             data-remove=v2.clone()
                             on:mousedown=move |e| e.prevent_default()
@@ -309,17 +356,27 @@ fn option_rows(
             return view! { <li class="px-2.5 py-2 text-sm text-text-muted" role="presentation">"Nothing matches"</li> }.into_any();
         }
         let act = active.get().min(list.len() - 1);
+        let groups: Vec<u8> = list.iter().map(|o| o.group).collect();
         list.into_iter()
             .enumerate()
             .map(|(i, o)| {
+                let split = i > 0 && groups[i - 1] != o.group;
                 let on = sel.contains(&o.value);
                 let value = o.value.clone();
+                let off = o.blocked.is_some();
+                let tip = o.blocked.clone().unwrap_or_else(|| o.facet.clone());
                 view! {
+                    {split.then(|| view! { <li role="separator" class="mx-2.5 my-1 h-px bg-border"></li> })}
                     <li
                         id=format!("{id}-opt-{i}")
                         role="option"
                         aria-selected=on.to_string()
-                        class="flex h-[34px] cursor-pointer items-center gap-2.5 rounded-input px-2.5 text-sm"
+                        aria-disabled=off.then_some("true")
+                        title=(!tip.is_empty()).then_some(tip)
+                        class="flex min-h-[34px] flex-wrap items-center gap-x-2.5 rounded-input px-2.5 py-1.5 text-sm whitespace-nowrap sm:flex-nowrap sm:py-0"
+                        class:cursor-pointer=!off
+                        class:text-text-muted=off
+                        class:cursor-not-allowed=off
                         class:bg-surface-3=i == act
                         data-option=o.value.clone()
                         on:mousedown=move |e| e.prevent_default()
@@ -347,10 +404,10 @@ fn option_rows(
                                 />
                             }
                         })}
-                        <span class=format!("size-2 shrink-0 rounded-full {}", dot_class(o.dot)) aria-hidden="true"></span>
-                        <span class="font-semibold">{o.label.clone()}</span>
-                        <span class="ml-auto truncate text-[11.5px] text-text-muted">{o.facet.clone()}</span>
-                        {(!multi && on).then(|| view! { <span class="text-accent-ink"><Icon name="check" small=true/></span> })}
+                        <Dot tone=o.dot.unwrap_or(Tone::Neutral)/>
+                        <span class="max-w-[calc(100%-18px)] shrink-0 truncate font-semibold">{o.label.clone()}</span>
+                        <span data-facet="" class="order-last basis-full truncate pl-[18px] text-[11.5px] text-text-muted sm:order-none sm:ml-auto sm:min-w-0 sm:basis-auto sm:pl-3">{o.facet.clone()}</span>
+                        {(!multi && on).then(|| view! { <span class="ml-auto text-accent-ink sm:ml-0"><Icon name="check" small=true/></span> })}
                     </li>
                 }
             })
@@ -360,10 +417,7 @@ fn option_rows(
 }
 
 fn place_popover(id: String, open: RwSignal<bool>, up: RwSignal<bool>) {
-    Effect::new(move |_| {
-        if !open.get() {
-            return;
-        }
+    let place = move || {
         let Some(field) = document().get_element_by_id(&id) else {
             return;
         };
@@ -372,7 +426,26 @@ fn place_popover(id: String, open: RwSignal<bool>, up: RwSignal<bool>) {
         let below = floor - r.bottom();
         let above = r.top() - 72.0;
         up.set(below < POPOVER_ROOM && above > below);
+        if let Some(el) = field.closest(".relative").ok().flatten()
+            && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
+        {
+            let b = el.get_bounding_client_rect();
+            let wide = (view_width() - b.left() - EDGE).min(POPOVER_MAX);
+            let _ = el.style().set_property("--pop-room", &format!("{wide}px"));
+        }
+    };
+    let again = place.clone();
+    Effect::new(move |_| {
+        if open.get() {
+            place();
+        }
     });
+    let resize = window_event_listener(leptos::ev::resize, move |_| {
+        if open.get_untracked() {
+            again();
+        }
+    });
+    on_cleanup(move || resize.remove());
 }
 
 #[cfg(test)]
@@ -383,8 +456,7 @@ mod tests {
         ComboOption {
             value: v.into(),
             label: v.into(),
-            facet: String::new(),
-            dot: None,
+            ..ComboOption::default()
         }
     }
 
@@ -397,5 +469,23 @@ mod tests {
         assert_eq!(s, ["a", "b"]);
         assert_eq!(toggle(&s, "a", true), ["b"]);
         assert_eq!(toggle(&s, "c", false), ["c"]);
+    }
+
+    #[test]
+    fn opening_starts_at_the_selected_option() {
+        let list = vec![opt("self"), opt("home"), opt("office")];
+        assert_eq!(start_at(&list, &["office".into()]), 2);
+        assert_eq!(start_at(&list, &[]), 0);
+        assert_eq!(start_at(&list, &["gone".into()]), 0);
+    }
+
+    #[test]
+    fn a_blocked_option_cannot_be_picked() {
+        let mut off = opt("self");
+        off.blocked = Some("not on yet".into());
+        let all = vec![off, opt("home")];
+        assert!(!pickable(&all, "self"));
+        assert!(pickable(&all, "home"));
+        assert!(pickable(&all, "gone"));
     }
 }

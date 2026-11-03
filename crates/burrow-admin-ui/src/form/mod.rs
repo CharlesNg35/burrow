@@ -1,3 +1,6 @@
+//! The schema-driven forms of the admin UI: settings cards, rows and controls that show a schema `Node` as fields.
+//! The entry point is `object_view`.
+
 mod cards;
 mod controls;
 mod more;
@@ -10,7 +13,6 @@ use burrow_admin_logic::more::split;
 use burrow_admin_logic::tree::{fields, inner, merged_into, merged_single};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Applies, Editable, Field, Node, SemType};
-use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::child;
 use burrow_config::{Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::Tone;
@@ -19,14 +21,15 @@ use leptos::prelude::*;
 use crate::domain;
 use crate::store::store;
 
+pub use crate::field::{Ctx, plain};
 use cards::layout_order;
 pub(crate) use cards::{SettingsCard, card_fields, settings_card, settings_cards};
 pub(crate) use controls::VALUE_BOX;
 use more::{More, more_settings};
-pub use more::{PageSearch, reveal};
+pub use more::{PageSearch, go_to_field};
 use row::row;
+pub(crate) use view::server_checked;
 use view::value_view;
-pub(crate) use view::{ref_link, server_checked};
 
 const SERVICES: &str = ServiceEntry::SECTION;
 const VISITORS: &str = VisitorEntry::SECTION;
@@ -46,19 +49,11 @@ const WEB: &str = ServiceEntry::WEB.key();
 const SITE_HOSTS: &str = burrow_config::WebSite::HOSTS.key();
 const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
 
-const MAX_TEXT: usize = 4096;
-
 pub fn locked_hint(n: &Node) -> String {
     match n.applies {
         Some(Applies::Restart) => burrow_admin_logic::wording::CHANGE_IN_FILE_THEN_RESTART.into(),
         _ => burrow_admin_logic::wording::CHANGE_IN_FILE.into(),
     }
-}
-
-#[derive(Clone)]
-pub struct Ctx {
-    pub doc: Value,
-    pub path: Vec<String>,
 }
 
 pub fn join(p: &[String]) -> String {
@@ -70,25 +65,6 @@ pub fn field_id(path: &[String]) -> String {
         "f-{}",
         join(path).replace(|c: char| !c.is_ascii_alphanumeric(), "-")
     )
-}
-
-fn cap(s: String) -> String {
-    if s.len() <= MAX_TEXT {
-        return s;
-    }
-    let mut end = MAX_TEXT;
-    while !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &s[..end])
-}
-
-pub fn plain(v: &Value) -> String {
-    cap(match v {
-        Value::String(s) => s.clone(),
-        Value::Null => String::new(),
-        other => other.to_string(),
-    })
 }
 
 fn locked(n: &Node) -> Option<String> {
@@ -217,6 +193,24 @@ impl Section<'_> {
         }
         off_group::assemble(rows)
     }
+}
+
+pub fn field_row(path: Path, spath: Path) -> AnyView {
+    let node = store()
+        .schema
+        .with_untracked(|sc| sc.as_ref().and_then(|sc| sc.root.at(&spath).cloned()));
+    let Some(node) = node else {
+        return ().into_any();
+    };
+    let key = spath.last().cloned().unwrap_or_default();
+    let entry = spath.get(1).is_some_and(|s| s == "*")
+        && burrow_config::entity_of_section(&spath[0]).is_some();
+    let entity = if entry {
+        path[..2].to_vec()
+    } else {
+        Vec::new()
+    };
+    row(Field { key, node }, path, spath, entity)
 }
 
 fn under(base: &[String], key: &str) -> Path {

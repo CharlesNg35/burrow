@@ -1,3 +1,5 @@
+//! Tests of failover and load balancing across clients and gateway entries: health checks, weights, IP hash and UDP moves.
+
 mod common;
 #[path = "failover/entries.rs"]
 mod entries;

@@ -1,3 +1,6 @@
+//! Checks a loaded config for mistakes and reports each one with its place in the file.
+//! Start at `check_server`, `check_client` and `check_visitor`; `Spans` maps a key path to its place in the file.
+
 mod client;
 mod connection;
 mod entries;
@@ -34,6 +37,7 @@ pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
 pub use burrow_syntax::name::{MAX_NAME_LEN, valid_name};
 use burrow_syntax::ports::SENSITIVE_PORTS;
 pub(crate) use burrow_syntax::ports::binds_conflict;
+pub(crate) use web::low_port_refused;
 
 pub struct Spans {
     map: HashMap<Vec<String>, (Span, Span)>,
@@ -275,7 +279,7 @@ pub fn source_list(
                 at.push(&n);
                 out.push(
                     Diagnostic::error(
-                        "invalid-source",
+                        burrow_admin_proto::codes::INVALID_SOURCE,
                         format!("invalid {field} entry for {owner}: {}", e.describe()),
                     )
                     .at(spans.value(&at))

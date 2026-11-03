@@ -1,5 +1,9 @@
+//! The admin UI's edit session: the `Edit` state that holds the draft, checks it with the server, shows the review and applies it.
+
 mod check;
 mod diags;
+mod groups;
+mod scratch;
 mod session;
 
 use std::collections::BTreeMap;
@@ -17,6 +21,8 @@ use leptos::prelude::*;
 
 use diags::related_errors;
 pub(crate) use diags::{diags_at, severity_tone};
+pub(crate) use groups::{Group, change_groups};
+pub(crate) use scratch::{NEW, Scratch};
 
 pub const VALIDATE_AFTER: Duration = Duration::from_millis(400);
 
@@ -61,6 +67,7 @@ pub struct Edit {
     pub refused: RwSignal<std::collections::BTreeSet<Path>>,
     pub editing: RwSignal<BTreeMap<Path, Option<Value>>>,
     pub after_apply: RwSignal<Option<crate::route::Route>>,
+    pub scratch: RwSignal<Vec<Scratch>>,
     seq: StoredValue<u64>,
     carry: StoredValue<Vec<(Path, Option<Value>)>>,
 }
@@ -163,6 +170,7 @@ impl Edit {
             refused: RwSignal::new(std::collections::BTreeSet::new()),
             editing: RwSignal::new(BTreeMap::new()),
             after_apply: RwSignal::new(None),
+            scratch: RwSignal::new(Vec::new()),
             seq: StoredValue::new(0),
             carry: StoredValue::new(Vec::new()),
         }
@@ -178,7 +186,7 @@ impl Edit {
 
     pub fn review_count(&self) -> usize {
         match self.review_plan() {
-            Some(p) => crate::review::change_groups(&p).len(),
+            Some(p) => crate::edit::change_groups(&p).len(),
             None => self.pending(),
         }
     }
@@ -276,17 +284,23 @@ impl Edit {
     }
 
     pub fn value(&self, path: &[String]) -> Option<Value> {
+        if let Some(v) = self.scratch_get(path, true) {
+            return v;
+        }
         self.draft
             .with(|d| burrow_admin_proto::value::get(d.draft(), path).cloned())
     }
 
     pub fn peek(&self, path: &[String]) -> Option<Value> {
+        if let Some(v) = self.scratch_get(path, false) {
+            return v;
+        }
         self.draft
             .with_untracked(|d| burrow_admin_proto::value::get(d.draft(), path).cloned())
     }
 
     pub fn doc(&self) -> Value {
-        self.draft.with(|d| d.draft().clone())
+        self.with_doc(Value::clone)
     }
 
     pub fn refuse(&self, path: &[String], refused: bool) {
@@ -312,6 +326,9 @@ impl Edit {
                 &site,
                 burrow_admin_logic::web::with_field(now.as_ref(), key, v),
             );
+        }
+        if self.scratch_set(path, v.clone()) {
+            return;
         }
         let refused = crate::grants::refuses(path, v.as_ref());
         self.refuse(path, refused);
@@ -416,7 +433,7 @@ pub fn landing(
 ) -> Option<crate::route::Route> {
     use crate::route::Route;
     use burrow_admin_proto::plan::ChangeKind;
-    let head = crate::review::change_groups(plan).into_iter().next()?.head;
+    let head = crate::edit::change_groups(plan).into_iter().next()?.head;
     match head.path.as_slice() {
         [sec, name] if crate::route::SECTIONS.contains(&sec.as_str()) => Some(match head.kind {
             ChangeKind::Remove => Route::List(sec.clone()),

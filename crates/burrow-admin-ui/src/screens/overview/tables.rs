@@ -1,3 +1,4 @@
+use burrow_admin_logic::presence;
 use burrow_admin_logic::top::{some_names, top, view_all};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::ClientStatus;
@@ -28,7 +29,7 @@ fn names_cell(all: Vec<String>) -> impl IntoView {
     let (shown, more) = some_names(&all);
     let title = more.is_some().then(|| all.join(", "));
     view! {
-        <td class="text-text-muted" title=title data-names=all.len().to_string()>
+        <td class="whitespace-normal! text-text-muted [overflow-wrap:anywhere]" title=title data-names=all.len().to_string()>
             {shown}
             {more.map(|m| view! { <span class="ml-1.5 whitespace-nowrap" data-testid="names-more">{m}</span> })}
         </td>
@@ -70,17 +71,14 @@ pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
     let clients = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
-        let of = |name: &str| {
-            st.as_ref()
-                .and_then(|st| st.clients.iter().find(|c| c.name == name))
-        };
+        let of = |name: &str| st.as_ref().and_then(|st| presence::client(st, name));
         let serving = |name: &str| {
             ServiceEntry::entries(&v)
                 .is_some_and(|m| m.values().any(|x| clients_of(x).iter().any(|c| c == name)))
         };
         top(names(&v, ClientEntry::section()), |name| {
             let c = of(name);
-            let away = !c.is_some_and(|c| c.connected) && serving(name);
+            let away = !format::presence_of(st.as_deref(), name).up() && serving(name);
             (
                 away || c.is_some_and(|c| c.at_limit),
                 c.map_or(0, |c| c.open),
@@ -126,11 +124,7 @@ fn client_cells(s: Store, name: String) -> impl Fn() -> Option<ClientStatus> + C
     move || {
         s.status.with(|st| {
             st.as_ref()
-                .and_then(|st| {
-                    st.clients
-                        .iter()
-                        .find(|c| name.with_value(|n| &c.name == n))
-                })
+                .and_then(|st| name.with_value(|n| presence::client(st, n)))
                 .cloned()
         })
     }
@@ -167,12 +161,14 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> An
                     <td class="text-right tabular-nums">{move || c().map(|c| c.open).unwrap_or(0)}</td>
                     <td class="text-right tabular-nums">{move || c().map(|c| c.idle_channels).unwrap_or(0)}</td>
                     <td>{since}</td>
+                    <td>{move || crate::screens::updates::version_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
+                    <td class=burrow_ui_kit::WIDE_ONLY>{move || crate::screens::updates::system_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
                     {names_cell(serves)}
                 </tr>
             }
         })
         .collect_view();
-    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Version", "~System", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
 }
 
 pub(super) fn visitors_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {

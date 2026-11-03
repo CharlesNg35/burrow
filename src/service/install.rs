@@ -3,8 +3,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::checks::{
-    Checked, check_config, check_files_readable, check_ports_free, refuse_another_source,
-    refuse_running_outside, refuse_unfit,
+    Checked, check_config, check_files_readable, check_ports_before_stop, check_ports_free,
+    refuse_another_source, refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
     StartAgain, Takeover, Undo, give_old_files, given_note, release_previous, start_installed,
@@ -39,6 +39,16 @@ pub(super) fn recorded_source(existing: Option<&Manifest>, source: &Path) -> Pat
 pub(super) fn installs_from(existing: &Manifest, source: &Path) -> bool {
     existing.source_config == source
         || crate::base::fs::canonical_or_same(&existing.config) == source
+}
+
+fn say_created(created: bool, account: &str, out: &mut dyn Write) -> Result<(), Failure> {
+    if created {
+        say(
+            out,
+            format!("created service account {account} (no login, no home)"),
+        )?;
+    }
+    Ok(())
 }
 
 pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure> {
@@ -82,10 +92,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         created_account: false,
         low_ports,
         files: checked.files.iter().map(|(_, p)| p.clone()).collect(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::base::build::version().to_string(),
         admin_writable: writable,
         web_state: (checked.needs_state && checked.role == Role::Server)
             .then(|| crate::install::service_state_dir(&short)),
+        remote_updates: checked.remote_updates,
     };
     refuse_unfit(&*backend, &checked, &manifest)?;
 
@@ -112,9 +123,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         backend: &*backend,
         manifest: previous.as_ref().filter(|_| was_running),
     };
-    if let Some(p) = again.manifest {
-        backend.stop(p)?;
-    }
+    stop_when_free(&*backend, &checked, again.manifest)?;
 
     refuse_running_outside(&checked)?;
     check_ports_free(&*backend, &checked)?;
@@ -124,12 +133,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         backend: &*backend,
         account: created.then_some(account.as_str()),
     };
-    if created {
-        say(
-            out,
-            format!("created service account {account} (no login, no home)"),
-        )?;
-    }
+    say_created(created, &account, out)?;
     let manifest = Manifest {
         created_account: burrows_account(
             created,
@@ -168,6 +172,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         save_env(&*backend, &manifest, &env, f, out)?;
     }
     backend.install(&manifest)?;
+    super::helper::set_up(&manifest, out)?;
     if !opts.start {
         again.manifest = None;
     }
@@ -295,6 +300,18 @@ fn env_for(opts: &InstallOptions, src_text: &str) -> BTreeMap<String, String> {
             .filter_map(|k| std::env::var(&k).ok().map(|v| (k, v)))
             .collect(),
     }
+}
+
+fn stop_when_free(
+    backend: &dyn Backend,
+    checked: &Checked,
+    running: Option<&Manifest>,
+) -> Result<(), Failure> {
+    if let Some(p) = running {
+        check_ports_before_stop(backend, checked, p)?;
+        backend.stop(p)?;
+    }
+    Ok(())
 }
 
 fn reinstall_in_background(

@@ -1,4 +1,4 @@
-use super::tests::{errors, load_in};
+use super::tests::{errors, load_in, svc};
 use crate::config::Outcome;
 
 pub(super) const TOP: &str =
@@ -22,10 +22,6 @@ pub(super) fn warnings(o: &Outcome) -> Vec<String> {
         .filter(|d| !d.is_error())
         .map(|d| d.message.clone())
         .collect()
-}
-
-fn svc(name: &str, web: &str) -> String {
-    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
 }
 
 #[test]
@@ -57,6 +53,54 @@ fn http_keys_on_a_passthrough_service_are_refused_each_by_name() {
         assert!(found.contains(&want), "{key}: {found:#?}");
     }
     assert_eq!(found.len(), 5, "{found:#?}");
+}
+
+const ON_PASSTHROUGH: [(&str, &str); 22] = [
+    ("paths", "[/a]"),
+    ("https_redirect", "false"),
+    ("challenge", "http"),
+    ("app_path", "/v1"),
+    ("redirect_from", "[www.nas.example.com]"),
+    ("redirects", "{ /old: /new }"),
+    ("maintenance", "true"),
+    ("basic_auth", "{ alice: x }"),
+    ("forward_auth", "authelia"),
+    ("oidc", "google"),
+    ("allow_users", "[a@b.co]"),
+    ("rate_limit", "10"),
+    ("client_auth", "{ ca: ca.pem }"),
+    ("target_tls", "{ insecure_skip_verify: true }"),
+    ("target_http2", "true"),
+    ("hsts", "true"),
+    ("compress", "true"),
+    ("max_body_size", "8GB"),
+    ("response_header_timeout_secs", "300"),
+    ("request_headers", "{ X-A: b }"),
+    ("response_headers", "{ X-A: b }"),
+    ("error_pages", "pages/"),
+];
+
+#[test]
+fn every_key_the_admin_turns_off_on_passthrough_is_refused_by_validate() {
+    use burrow_config::applies::{OnPassthrough, on_passthrough};
+    for (key, rule) in on_passthrough() {
+        let Some((_, value)) = ON_PASSTHROUGH.iter().find(|(k, _)| *k == key) else {
+            panic!("{key} does not apply on passthrough: add a value for it to ON_PASSTHROUGH");
+        };
+        let site = |v: &str| {
+            svc(
+                "nas",
+                &format!("{{ hosts: [nas.example.com], tls: passthrough, {key}: {v} }}"),
+            )
+        };
+        let at = format!("services.nas.web.{key}:");
+        let refused = |v: &str| errs("", &site(v)).iter().any(|e| e.starts_with(&at));
+        assert!(refused(value), "{key}: {value} is accepted on passthrough");
+        if let OnPassthrough::Fixed(fixed) = rule {
+            assert!(!refused(&fixed.to_string()), "{key}: {fixed} is refused");
+        }
+    }
+    assert_eq!(on_passthrough().len(), ON_PASSTHROUGH.len());
 }
 
 #[test]

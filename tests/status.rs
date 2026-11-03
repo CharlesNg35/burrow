@@ -1,76 +1,18 @@
 mod common;
 
+#[cfg(unix)]
+use common::servers::Running;
+use common::servers::{server_config, start};
+use common::text;
+
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::path::Path;
+use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
 use burrow::metrics::Status;
-use burrow::wire::secret::Secret;
 
 const BIN: &str = env!("CARGO_BIN_EXE_burrow");
-
-struct Running(Child);
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-use common::{free_port, text};
-
-fn server_config(dir: &Path, file: &str) -> PathBuf {
-    let config = dir.join(file);
-    std::fs::write(
-        &config,
-        format!(
-            "listen: 127.0.0.1:{}\nclients:\n  home:\n    secret: {}\nservices:\n  web:\n    client: home\n    bind: 127.0.0.1:{}\n    target: 3000\n    bandwidth: 40mbit\n",
-            free_port(),
-            Secret::generate().encode(),
-            free_port()
-        ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-    config
-}
-
-fn start(instances: &Path, config: &Path) -> Running {
-    for _ in 0..5 {
-        let child = Command::new(BIN)
-            .args(["server", "-c"])
-            .arg(config)
-            .env("BURROW_INSTANCE_DIR", instances)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let mut running = Running(child);
-        for _ in 0..100 {
-            let ready = std::fs::read_dir(instances).is_ok_and(|d| {
-                d.flatten().any(|e| {
-                    e.file_name().to_string_lossy() == format!("{}.status", running.0.id())
-                })
-            });
-            if ready {
-                return running;
-            }
-            if running.0.try_wait().unwrap().is_some() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        let name = config.file_name().unwrap().to_string_lossy().into_owned();
-        server_config(config.parent().unwrap(), &name);
-    }
-    panic!("the server did not publish its status");
-}
 
 fn status(instances: &Path, args: &[&str]) -> Output {
     Command::new(BIN)
@@ -95,8 +37,11 @@ fn status_works_without_a_metrics_endpoint() {
         out.starts_with(&format!("burrow {}  ·  up ", env!("CARGO_PKG_VERSION"))),
         "{out}"
     );
-    assert!(out.contains("CLIENTS  0/1 connected"), "{out}");
-    assert!(out.contains("home  offline  never seen"), "{out}");
+    assert!(out.contains("CLIENTS  0/1 online"), "{out}");
+    assert!(
+        out.contains("home  offline  not seen since server start"),
+        "{out}"
+    );
     assert!(out.contains("web: limit 5.0 MB/s"), "{out}");
     let o = status(&instances, &["-c", config.to_str().unwrap(), "--json"]);
     let list: Vec<serde_json::Value> = serde_json::from_slice(&o.stdout).unwrap();
@@ -131,7 +76,7 @@ fn several_servers_are_shown_and_picked_by_config() {
     );
     assert!(!o.status.success());
     assert!(
-        text(&o).contains("no running burrow server uses"),
+        text(&o).contains("no running burrow server or client uses"),
         "{}",
         text(&o)
     );
@@ -148,7 +93,7 @@ fn a_stopped_server_leaves_nothing_to_show() {
     let o = status(&instances, &[]);
     assert!(!o.status.success());
     assert!(
-        text(&o).contains("no burrow server is running"),
+        text(&o).contains("no burrow server or client is running"),
         "{}",
         text(&o)
     );
@@ -181,7 +126,10 @@ fn a_server_that_does_not_answer_is_named_rather_than_called_stopped() {
     assert!(!o.status.success());
     let shown = text(&o);
     assert!(shown.contains("did not answer"), "{shown}");
-    assert!(!shown.contains("no burrow server is running"), "{shown}");
+    assert!(
+        !shown.contains("no burrow server or client is running"),
+        "{shown}"
+    );
     let o = status(&instances, &["--json"]);
     assert!(!o.status.success());
     let list: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();

@@ -1,3 +1,6 @@
+//! DNS-01 tests against Pebble, with BIND, acme-dns and a mock Cloudflare API.
+//! They run only when BURROW_PEBBLE is set.
+
 mod acme_dns;
 mod bind;
 mod cloudflare;

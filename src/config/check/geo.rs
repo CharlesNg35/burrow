@@ -22,7 +22,7 @@ pub(super) fn countries(
         out.push(
             Diagnostic::error(
                 COUNTRIES_BOTH,
-                format!("service \"{name}\" has both allow_countries and deny_countries"),
+                format!("services.{name}.deny_countries: set allow_countries or deny_countries, not both"),
             )
             .at(spans.key(&field("deny_countries")))
             .label("only one of the two")
@@ -62,7 +62,7 @@ pub(super) fn countries(
         out.push(
             Diagnostic::warning(
                 COUNTRIES_UNUSED,
-                format!("{key} of service \"{name}\" has no effect: it has no public port and no website"),
+                format!("services.{name}.{key}: has no effect, as the service has no public port and no website"),
             )
             .at(spans.key(&field(key)))
             .label("nothing to filter")
@@ -85,7 +85,7 @@ pub(super) fn source(
     if !used {
         if given.is_some() {
             out.push(
-                Diagnostic::warning(GEOIP_UNUSED, "geoip is set, but no service has allow_countries or deny_countries")
+                Diagnostic::warning(GEOIP_UNUSED, "geoip: no service has allow_countries or deny_countries, so it is not used")
                     .at(at())
                     .label("not used")
                     .help("add allow_countries or deny_countries to a service, or remove geoip; nothing is downloaded until a service uses it"),
@@ -104,7 +104,7 @@ pub(super) fn source(
         },
         Some(text) if text.contains("://") => {
             out.push(
-                Diagnostic::error(GEOIP_INVALID, format!("geoip \"{text}\" is a URL"))
+                Diagnostic::error(GEOIP_INVALID, format!("geoip: \"{text}\" is a URL"))
                     .at(at())
                     .label("expected db-ip or a file")
                     .help("use db-ip for the automatic monthly DB-IP Lite download, or the path of an .mmdb file on this server"),

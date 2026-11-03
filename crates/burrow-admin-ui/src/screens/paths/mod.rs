@@ -1,5 +1,8 @@
+//! The path diagrams of the admin UI: the hops from clients and visitors through the server to a service's target.
+
 mod service;
 
+use burrow_admin_logic::wording::PICK_VISITORS;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
@@ -13,10 +16,19 @@ pub fn clients_of(svc: &Value) -> Vec<String> {
     ServiceEntry::client_names(svc)
 }
 
-pub fn online(status: Option<&Status>, client: &str) -> bool {
-    status
-        .and_then(|s| s.clients.iter().find(|c| c.name == client))
-        .is_some_and(|c| c.connected)
+pub fn health_count(
+    name: &str,
+    svc: &Value,
+    status: Option<&Status>,
+    reserved: &[String],
+) -> burrow_admin_logic::health::Count {
+    use burrow_admin_logic::health;
+    let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
+    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
+    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
+    health::count(&health::entries(listed, clients_of(svc)), checks, |c| {
+        burrow_admin_logic::presence::online(status, reserved, c)
+    })
 }
 
 pub struct Problems {
@@ -26,8 +38,8 @@ pub struct Problems {
 }
 
 pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) -> PathData {
-    let c = status.and_then(|s| s.clients.iter().find(|c| c.name == name));
-    let on = c.is_some_and(|c| c.connected);
+    let c = burrow_admin_logic::presence::of(status, name);
+    let on = crate::format::presence_of(status, name).up();
     let served: Vec<(String, String)> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
@@ -57,15 +69,12 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
     PathData {
         hops: vec![
             Hop {
-                icon: "monitor",
+                icon: burrow_admin_logic::entity::CLIENT_ICON,
                 head: "Client".into(),
                 value: name.to_string(),
                 mono: true,
                 dot: Some(if on { Tone::Success } else { Tone::Neutral }),
-                unit: c
-                    .and_then(|c| c.from.clone())
-                    .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
-                    .unwrap_or_default(),
+                unit: c.and_then(|c| c.from).unwrap_or_default(),
                 state: HopState::Current,
                 badge: None,
             },
@@ -154,7 +163,11 @@ pub fn visitor(
                 .map(|(n, s)| {
                     (
                         n.clone(),
-                        status.is_none_or(|st| clients_of(s).iter().any(|c| online(Some(st), c))),
+                        status.is_none_or(|st| {
+                            clients_of(s)
+                                .iter()
+                                .any(|c| crate::format::presence_of(Some(st), c).up())
+                        }),
                         udp(s),
                     )
                 })
@@ -277,9 +290,6 @@ pub fn udp(svc: &Value) -> bool {
         == Some(Protocol::Udp)
 }
 
-pub const PICK_VISITORS: &str =
-    "Turn on a way in: Public port, Website, or Visitors with at least one visitor";
-
 pub fn add_blocker(svc: &Value) -> Option<&'static str> {
     let public = burrow_admin_logic::web::is_public(svc);
     let picked = ServiceEntry::VISITORS
@@ -293,6 +303,28 @@ pub fn add_blocker(svc: &Value) -> Option<&'static str> {
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn clients_whose_health_check_fails_are_not_drawn_up() {
+        let svc =
+            json!({"clients": ["a", "b"], "health_check": true, "target": 8080, "bind": 9000});
+        let st: Status = burrow_admin_proto::serde_json::from_value(json!({
+            "version": "0.2.0", "uptime_secs": 10, "listening": [], "handshakes_refused": 0, "udp_peers": 0,
+            "clients": [{"name": "a", "connected": true}, {"name": "b", "connected": true}],
+            "services": [{"name": "web", "open": 0, "total": 0, "bytes_in": 0, "bytes_out": 0, "refused": 0,
+                "health": [{"client": "a", "up": false}, {"client": "b", "up": false}]}],
+            "visitors": []
+        }))
+        .unwrap();
+        let none = Problems {
+            source: None,
+            clients: None,
+            ports: None,
+        };
+        let p = service("web", &svc, Some(&st), &none, false, &[]);
+        assert_eq!(p.hops[2].unit, "0 of 2 up");
+        assert_ne!(p.hops[2].dot, Some(Tone::Success));
+    }
 
     #[test]
     fn a_visitor_never_seen_has_a_hollow_dot_and_one_in_use_a_green_one() {
@@ -455,6 +487,6 @@ mod tests {
         let p = service("web", &mixed, None, &none, false, &reserved);
         assert_eq!(p.hops.len(), 4);
         assert_eq!(p.hops[2].value, "This server · home");
-        assert_eq!(p.hops[2].unit, "1 of 2 online");
+        assert_eq!(p.hops[2].unit, "1 of 2 up");
     }
 }

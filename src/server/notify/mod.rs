@@ -1,3 +1,6 @@
+//! Notifications: watches the server's status for problems and fixes, and sends each message to every destination that wants it.
+//! Start at `run`; each destination has its own queue and retries in `Worker`, so a slow one never holds up the others.
+
 mod channel;
 mod watch;
 

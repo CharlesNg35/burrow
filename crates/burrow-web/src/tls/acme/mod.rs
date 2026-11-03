@@ -1,3 +1,6 @@
+//! The ACME client: gets and renews Let's Encrypt certificates per group of names over TLS-ALPN, HTTP or DNS checks.
+//! Start at `Acme` and `Handle` in `manager`; this file maps names to their allowed checks and explains ACME problems.
+
 pub mod account;
 pub mod challenge;
 pub mod dns01;

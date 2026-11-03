@@ -1,11 +1,15 @@
+//! The tunnel protocol: the channel preamble, control messages, visit requests and grants, and their encoding.
+
 mod control;
 mod grants;
+mod report;
 mod visit;
 
 use burrow_config::{Cipher, Protocol};
 use burrow_syntax::name::MAX_NAME_LEN;
 pub use control::{ByeReason, ClientMsg, Hello, MAX_ALLOW_RULES, ServerMsg, ServiceInfo};
 pub use grants::{GRANTS_REQUEST, GRANTS_REQUEST_V2, GrantedClient, GrantedService, Grants};
+pub use report::{LastUpdate, Outcome, Remote, Report, RunMode, Step};
 use visit::put_short;
 pub use visit::{Connect, Status, VisitRequest, VisitTarget};
 

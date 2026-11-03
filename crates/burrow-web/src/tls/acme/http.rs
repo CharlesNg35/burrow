@@ -1,3 +1,6 @@
+//! The HTTPS client for ACME and DNS provider APIs, with timeouts, a body cap and the webpki roots plus an optional CA.
+//! Plain http:// is allowed only to loopback or private addresses.
+
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;

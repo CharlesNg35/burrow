@@ -1,3 +1,5 @@
+//! Serves one visitor channel: checks its grant and forwards its TCP or UDP visit to a client.
+
 mod grant;
 
 use std::net::SocketAddr;

@@ -1,7 +1,7 @@
 use burrow_admin_logic::oidc::{chosen, config, note, providers, secret_shown, site_value};
 use burrow_admin_proto::value::child;
 use burrow_config::ServerConfig;
-use burrow_ui_kit::{ComboOption, Combobox};
+use burrow_ui_kit::Combobox;
 use leptos::prelude::*;
 
 use super::Kind;
@@ -23,20 +23,6 @@ pub(super) fn card_body(name: &str) -> AnyView {
         <p class="mt-0.5 text-[13px]" data-testid="oidc-secret">"Client secret: "<span class="font-mono">{secret_shown(&c)}</span></p>
     }
     .into_any()
-}
-
-fn options() -> Vec<ComboOption> {
-    providers(&store().edit.doc())
-        .iter()
-        .map(|(name, v)| ComboOption {
-            value: name.clone(),
-            label: name.clone(),
-            facet: config(v)
-                .map(|c| c.issuer.trim().to_string())
-                .unwrap_or_default(),
-            dot: None,
-        })
-        .collect()
 }
 
 pub(crate) fn oidc_site_editor(fc: FieldCtx) -> AnyView {
@@ -68,7 +54,7 @@ pub(crate) fn oidc_site_editor(fc: FieldCtx) -> AnyView {
                 <div class="min-w-[14rem]" data-picker="multi">
                     <Combobox
                         id=fc.id.clone()
-                        options=Signal::derive(options)
+                        options=Signal::derive(crate::addr::oidc_options)
                         selected=selected
                         on_change=on_change
                         multi=true

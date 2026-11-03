@@ -22,6 +22,7 @@ fn manifest(web_state: Option<&str>) -> Manifest {
         version: "0.1.0".into(),
         admin_writable: false,
         web_state: web_state.map(PathBuf::from),
+        remote_updates: false,
     }
 }
 
@@ -380,4 +381,35 @@ fn purge_spares_every_file_another_installed_service_owns() {
     for gone in ["home", "logs/home-access.log", "shared.env", "state"] {
         assert!(!base.join(gone).exists(), "{gone}: {said}");
     }
+}
+
+#[test]
+fn a_reinstall_refused_for_a_port_another_program_holds_never_stops_the_service() {
+    let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = held.local_addr().unwrap();
+    let checked = super::checks::Checked {
+        role: crate::install::Role::Server,
+        identity: None,
+        listens: vec![(
+            burrow_config::Protocol::Tcp,
+            addr,
+            "service \"echo\"".into(),
+        )],
+        files: Vec::new(),
+        access_log: None,
+        admins: Vec::new(),
+        needs_state: false,
+        remote_updates: false,
+    };
+    let rec = super::tests::Recorder(Default::default(), true);
+    let m = super::tests::record(crate::install::Platform::Linux);
+    let refused = super::checks::check_ports_before_stop(&rec, &checked, &m);
+    assert!(refused.is_err(), "the port is held by another program");
+    assert!(
+        rec.0.borrow().is_empty(),
+        "nothing was stopped: {:?}",
+        rec.0.borrow()
+    );
+    drop(held);
+    assert!(super::checks::check_ports_before_stop(&rec, &checked, &m).is_ok());
 }

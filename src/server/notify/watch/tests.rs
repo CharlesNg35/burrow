@@ -63,7 +63,7 @@ fn an_offline_client_is_told_once_after_a_minute_and_once_when_back() {
     assert!(told[0].resolved);
     assert_eq!(
         told[0].text,
-        "Client \"home\" is connected again from 203.0.113.5:40000, after 11 min offline."
+        "Client \"home\" is connected again from 203.0.113.5:40000, after 11m offline."
     );
     assert!(w.step(t0 + Duration::from_secs(700), back).is_empty());
 }

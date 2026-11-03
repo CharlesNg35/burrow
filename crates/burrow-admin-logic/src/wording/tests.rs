@@ -157,7 +157,7 @@ fn the_redirect_choices_say_what_to_do_in_plain_words() {
         &[],
     );
     assert!(too.starts_with("answering plain HTTP too"), "{too}");
-    for code in [REDIRECT_PASSTHROUGH, REDIRECT_PLAIN] {
+    for code in [PASSTHROUGH_FIXED, REDIRECT_PLAIN] {
         let m = shown(code, "services.nas.web.https_redirect: ...", &[]);
         assert!(
             !m.contains("https_redirect") && !m.contains("services."),
@@ -330,4 +330,70 @@ fn a_failed_check_says_whether_the_server_refused_or_did_not_answer() {
     );
     assert_eq!(reason_text("Done."), "Done.");
     assert_eq!(reason_text(""), "");
+}
+
+#[test]
+fn a_key_led_message_drops_its_key_at_the_field_and_names_the_field_elsewhere() {
+    let d = |code: &str, message: &str, path: &[&str]| -> burrow_admin_proto::diag::Diag {
+        burrow_admin_proto::serde_json::from_value(burrow_admin_proto::serde_json::json!({
+            "severity": "warning",
+            "code": code,
+            "message": message,
+            "path": path,
+        }))
+        .unwrap()
+    };
+    let low = d(
+        "low-port",
+        "web.https: port 80 needs root or CAP_NET_BIND_SERVICE",
+        &["web", "https"],
+    );
+    assert_eq!(
+        diag_text(&low),
+        "port 80 needs root or CAP_NET_BIND_SERVICE"
+    );
+    assert_eq!(
+        diag_title(&low),
+        "HTTPS port: port 80 needs root or CAP_NET_BIND_SERVICE"
+    );
+    let plain = d(
+        "insecure-plaintext",
+        "insecure_plaintext: data forwarded between the server and its clients is not encrypted",
+        &["insecure_plaintext"],
+    );
+    assert_eq!(
+        diag_text(&plain),
+        "data forwarded between the server and its clients is not encrypted"
+    );
+    let other = d("x", "a plain sentence", &["listen"]);
+    assert_eq!(diag_title(&other), "A plain sentence");
+}
+
+#[test]
+fn an_invalid_entry_says_only_what_is_wrong_beside_its_field() {
+    let d: burrow_admin_proto::diag::Diag =
+        burrow_admin_proto::serde_json::from_value(burrow_admin_proto::serde_json::json!({
+            "severity": "error",
+            "code": "invalid-source",
+            "message": "invalid allow_from entry for service \"web\": \"80\" is not an IP address or CIDR",
+            "path": ["services", "web", "allow_from", "0"]
+        }))
+        .unwrap();
+    assert_eq!(diag_text(&d), "\"80\" is not an IP address or CIDR");
+}
+
+#[test]
+fn a_port_used_twice_reads_as_a_sentence_without_a_subject() {
+    let d: burrow_admin_proto::diag::Diag =
+        burrow_admin_proto::serde_json::from_value(burrow_admin_proto::serde_json::json!({
+            "severity": "error",
+            "code": burrow_admin_proto::codes::DUPLICATE_BIND,
+            "message": "web.http 127.0.0.1:80 is also web.https",
+            "path": ["web", "http"]
+        }))
+        .unwrap();
+    assert_eq!(
+        diag_text(&d),
+        "This port is already used by another service or listener; pick another port"
+    );
 }

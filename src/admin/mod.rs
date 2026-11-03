@@ -1,6 +1,11 @@
+//! The server side of `burrow admin`: a `Hub` that seats sessions, queues plans and owns the admin core.
+//! `core` holds the logic, `transport` runs a session, `adapters` connect the core to files and the running server.
+
 pub mod adapters;
 pub mod core;
 pub mod hooks;
+pub mod latest;
+pub mod local;
 pub mod transport;
 
 use std::collections::HashMap;

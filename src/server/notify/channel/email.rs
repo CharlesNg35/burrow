@@ -1,3 +1,5 @@
+//! Email notifications: builds a plain-text message and sends it through the configured SMTP server.
+
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};

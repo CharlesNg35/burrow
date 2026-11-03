@@ -1,3 +1,6 @@
+//! Reads a PROXY protocol header (v1 or v2) and returns the real client address.
+//! Start at `read_proxy_header`; the ppp crate does the parsing.
+
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;

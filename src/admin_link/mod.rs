@@ -1,3 +1,6 @@
+//! The visitor side of `burrow admin`: finding the config, the link to the server, tokens and stored files.
+//! Also binds the loopback listener and accepts connections up to a limit.
+
 pub mod client;
 pub mod find;
 pub mod open;

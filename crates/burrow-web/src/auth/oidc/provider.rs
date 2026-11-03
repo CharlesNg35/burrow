@@ -1,3 +1,5 @@
+//! One OIDC provider: its discovery document and signing keys, refreshed when stale, and the checks on an ID token.
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

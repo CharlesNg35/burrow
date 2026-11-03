@@ -1,3 +1,5 @@
+//! DNS messages on the wire: builds questions and sends them over UDP, retrying over TCP when the answer is cut.
+
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;

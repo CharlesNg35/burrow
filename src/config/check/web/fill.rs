@@ -31,6 +31,7 @@ pub(super) fn site(
         None => WebTls::Off,
     };
     let https_redirect = match (web.https_redirect(), &tls) {
+        (_, WebTls::Passthrough) => true,
         (Some(own), _) => own,
         (None, WebTls::Off) => false,
         (None, _) => cfg
