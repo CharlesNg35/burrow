@@ -161,12 +161,14 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> An
                     <td class="text-right tabular-nums">{move || c().map(|c| c.open).unwrap_or(0)}</td>
                     <td class="text-right tabular-nums">{move || c().map(|c| c.idle_channels).unwrap_or(0)}</td>
                     <td>{since}</td>
+                    <td>{move || crate::screens::updates::version_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
+                    <td class=burrow_ui_kit::WIDE_ONLY>{move || crate::screens::updates::system_cell(c().as_ref().map(burrow_admin_logic::presence::info))}</td>
                     {names_cell(serves)}
                 </tr>
             }
         })
         .collect_view();
-    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
+    view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", ">Ready connections", "Since", "Version", "~System", "Serves"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
 }
 
 pub(super) fn visitors_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {

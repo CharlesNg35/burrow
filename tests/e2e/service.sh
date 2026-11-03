@@ -174,8 +174,10 @@ for _ in $(seq 1 50); do sudo "$B" service logs burrow-e2e-visitor -n 20 | grep 
 sudo "$B" service logs burrow-e2e-visitor -n 20 | grep -q "config reloaded: nothing changed" || fail "the visitor did not reload in place: $(sudo "$B" service logs burrow-e2e-visitor -n 20)"
 check "visitor service reaches the private service"
 sudo "$B" service list | grep -c "running" | grep -q 3 || fail "list does not show all three services"
-out="$(sudo "$B" status burrow-e2e-client 2>&1)" && fail "status of a client service succeeded: $out"
-echo "$out" | grep -q "is a client service, and burrow status shows servers only" || fail "status of a client service: $out"
+out="$(sudo "$B" status burrow-e2e-client 2>&1)" || fail "status of a client service: $out"
+echo "$out" | grep -q "remote updates" || fail "status of a client service does not show remote updates: $out"
+out="$(sudo "$B" status burrow-e2e-visitor 2>&1)" && fail "status of a visitor service succeeded: $out"
+echo "$out" | grep -q "is a visitor service, and burrow status shows servers and clients only" || fail "status of a visitor service: $out"
 check "status and list"
 
 echo "== the same tunnel cannot also run by hand"

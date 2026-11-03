@@ -47,7 +47,7 @@ fn plist_path(m: &Manifest) -> PathBuf {
     PathBuf::from(format!("/Library/LaunchDaemons/{}.plist", label(m)))
 }
 
-fn xml(s: &str) -> String {
+pub(in crate::service) fn xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -409,6 +409,7 @@ mod tests {
             version: "0.1.0".into(),
             admin_writable: false,
             web_state: None,
+            remote_updates: false,
         };
         let p = plist(&Manifest {
             env_file: Some("/etc/burrow/home.env".into()),
@@ -435,6 +436,7 @@ mod tests {
         assert!(!p.contains("--state-dir"));
         let web = plist(&Manifest {
             web_state: Some("/Library/Application Support/burrow/home".into()),
+            remote_updates: false,
             ..visitor
         });
         assert!(web.contains(

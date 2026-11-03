@@ -260,6 +260,7 @@ allow:
 | `max_connections` | `16384` | most connections open through this client at once, 1 to 1000000; beyond it the server gets busy. Each UDP service also holds one of them for its relay. Lowered automatically when the open file limit is too small, with a warning. Each idle connection uses about 15 KB on the client, so 100000 is about 1.5 GB |
 | `max_udp_peers` | `8192` | most UDP peers open through this client at once, across all UDP services, 1 to 1000000; a datagram from a new peer beyond it is dropped. Each peer uses one socket on the client, so it is lowered like `max_connections` |
 | `tcp`, `udp` | as on the server | `tcp.nodelay`, `tcp.keepalive_secs`, `udp.session_timeout_secs` |
+| `update.remote` | `false` | let the server ask this client (from burrow admin, `burrow mcp` or `burrow clients update` on the server machine) to update to a newer published release; the client downloads and checks it itself and goes back if it does not connect ([updates.md](updates.md)). A service needs `service install` again after turning it on |
 
 By default a client keeps retrying until it is stopped, and follows a server that moved to a new address.
 

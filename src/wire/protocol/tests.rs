@@ -552,3 +552,71 @@ fn a_peer_times_out_after_the_missed_heartbeats_the_docs_name() {
         "docs/configuration.md must name {MISSED_HEARTBEATS} missed pings"
     );
 }
+
+#[test]
+fn a_report_reads_back_and_a_newer_one_with_more_fields_still_reads() {
+    let mut report = Report {
+        version: "0.2.1".into(),
+        os: "linux".into(),
+        arch: "amd64".into(),
+        run: RunMode::Service,
+        remote: Remote::Blocked("the service needs to be installed again".into()),
+        last: None,
+    };
+    let sent = ClientMsg::Report(report.clone()).encode();
+    assert_eq!(sent[0], 0x83);
+    assert_eq!(
+        ClientMsg::decode(&sent).unwrap(),
+        ClientMsg::Report(report.clone())
+    );
+    report.last = Some(LastUpdate {
+        id: 7,
+        outcome: Outcome::RolledBack,
+        from: "0.2.1".into(),
+        to: "0.2.2".into(),
+        detail: "it did not connect within 60 s".into(),
+    });
+    let mut newer = ClientMsg::Report(report.clone()).encode();
+    newer.extend_from_slice(b"\x05later");
+    assert_eq!(
+        ClientMsg::decode(&newer).unwrap(),
+        ClientMsg::Report(report)
+    );
+    assert!(ClientMsg::decode(&sent[..sent.len() - 2]).is_err());
+}
+
+#[test]
+fn report_text_is_one_short_line() {
+    let report = Report {
+        version: "0.2.1\nevil".into(),
+        os: "x".repeat(400),
+        arch: "amd64".into(),
+        run: RunMode::ByHand,
+        remote: Remote::On,
+        last: None,
+    };
+    let ClientMsg::Report(got) = ClientMsg::decode(&ClientMsg::Report(report).encode()).unwrap()
+    else {
+        panic!("not a report");
+    };
+    assert_eq!(got.version, "0.2.1 evil");
+    assert_eq!(got.os.len(), 255);
+}
+
+#[test]
+fn update_messages_read_back() {
+    let ask = ServerMsg::Update {
+        id: 3,
+        version: "0.2.2".into(),
+    };
+    assert_eq!(ServerMsg::decode(&ask.encode()).unwrap(), ask);
+    let state = ClientMsg::UpdateState {
+        id: 3,
+        step: Step::Refused,
+        detail: "remote updates are off".into(),
+    };
+    assert_eq!(ClientMsg::decode(&state.encode()).unwrap(), state);
+    let mut trailing = state.encode();
+    trailing.push(0);
+    assert!(ClientMsg::decode(&trailing).is_err());
+}

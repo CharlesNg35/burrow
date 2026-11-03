@@ -38,6 +38,23 @@ impl Probe {
         }
     }
 
+    async fn event(&mut self, name: &str) -> Result<Value, String> {
+        loop {
+            let m = self
+                .rx
+                .recv()
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or("the server closed the admin session")?;
+            if let Some(Incoming::Event { ev, body }) =
+                Incoming::parse(&String::from_utf8_lossy(&m))
+                && ev == name
+            {
+                return Ok(body);
+            }
+        }
+    }
+
     async fn apply(&mut self, ops: Value, confirm: &[String]) -> Result<Value, String> {
         let state = self.call("state", json!({})).await?;
         let plan = self
@@ -57,7 +74,7 @@ impl Probe {
 async fn run(args: Vec<String>) -> Result<(), String> {
     let [config, action, rest @ ..] = args.as_slice() else {
         return Err(
-            "usage: admin_probe VISITOR_CONFIG state | history | revert REV | apply OPS_JSON [CONFIRM...] | soak COUNT [FIRST]"
+            "usage: admin_probe VISITOR_CONFIG state | status | call TYPE BODY_JSON | history | revert REV | apply OPS_JSON [CONFIRM...] | soak COUNT [FIRST]"
                 .into(),
         );
     };
@@ -82,6 +99,14 @@ async fn run(args: Vec<String>) -> Result<(), String> {
     match (action.as_str(), rest) {
         ("state", []) => {
             println!("{}", p.call("state", json!({})).await?);
+        }
+        ("call", [t, body]) => {
+            let body: Value = serde_json::from_str(body).map_err(|e| e.to_string())?;
+            println!("{}", p.call(t, body).await?);
+        }
+        ("status", []) => {
+            p.call("subscribe", json!({"status_ms": 200})).await?;
+            println!("{}", p.event("status").await?);
         }
         ("history", []) => {
             println!("{}", p.call("history", json!({})).await?);

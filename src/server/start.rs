@@ -339,6 +339,7 @@ impl Server {
             web_wait: Mutex::new(None),
             not_listening: Mutex::default(),
             standing: Mutex::new(standing::Standing::default()),
+            updates: Mutex::new(super::updates::Board::default()),
             wheels: Mutex::default(),
             local: Arc::new(local::SelfDialer::new(
                 &settings,

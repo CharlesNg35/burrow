@@ -49,6 +49,7 @@ pub struct InitOptions {
     pub email: Option<String>,
     pub web: Option<WebInit>,
     pub update: bool,
+    pub remote_updates: bool,
     pub yes: bool,
 }
 

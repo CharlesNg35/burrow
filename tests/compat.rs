@@ -146,9 +146,27 @@ async fn a_new_client_tunnels_through_an_older_server() {
 }
 
 #[tokio::test]
-async fn an_older_client_tunnels_through_a_new_server() {
+async fn an_older_client_tunnels_through_a_new_server_which_shows_it_as_older() {
     let Some(old) = older() else { return };
-    tunnel_between(Path::new(NEW), &old).await;
+    let s = Setup::new();
+    let target = common::echo_server().await.port();
+    let _server = s.run(Path::new(NEW), "server", &s.server(target));
+    let _client = s.run(&old, "client", &s.client(target));
+    assert!(
+        tunnel_works(s.bind).await,
+        "no tunnel from the older client"
+    );
+    let out = s
+        .command(Path::new(NEW))
+        .args(["status", "--json"])
+        .stdout(Stdio::piped())
+        .output()
+        .unwrap();
+    let list: Vec<Value> = serde_json::from_slice(&out.stdout).unwrap();
+    let home = &list[0]["status"]["clients"][0];
+    assert_eq!(home["name"], "home");
+    assert_eq!(home["connected"], true);
+    assert!(home.get("build").is_none(), "{home}");
 }
 
 async fn call(

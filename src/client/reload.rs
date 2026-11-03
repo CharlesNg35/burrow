@@ -56,6 +56,7 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
         udp_session_timeout,
         max_connections,
         max_udp_peers,
+        remote_updates,
     } = new;
     let reconnect = [
         (*server != old.server || *endpoint != old.endpoint, "server"),
@@ -88,6 +89,7 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
         (*udp_session_timeout != old.udp_session_timeout, "udp"),
         (*max_connections != old.max_connections, "max_connections"),
         (*max_udp_peers != old.max_udp_peers, "max_udp_peers"),
+        (*remote_updates != old.remote_updates, "update.remote"),
     ];
     let names = |fields: &[(bool, &'static str)]| {
         fields
@@ -138,6 +140,7 @@ pub(crate) mod tests {
             udp_session_timeout: Duration::from_secs(120),
             max_connections: Limit::default_of(16384),
             max_udp_peers: Limit::default_of(8192),
+            remote_updates: false,
         }
     }
 

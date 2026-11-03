@@ -38,6 +38,8 @@ pub struct Manifest {
     pub admin_writable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_state: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote_updates: bool,
 }
 
 impl Manifest {

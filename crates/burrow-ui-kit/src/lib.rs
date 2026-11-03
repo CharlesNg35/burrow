@@ -20,6 +20,7 @@ mod scroll;
 mod spark;
 mod stepper;
 mod toast;
+mod version;
 
 pub use bar::{StickyBar, bar_status, bar_top, view_height};
 pub use basic::{
@@ -50,3 +51,4 @@ pub use scroll::{ScrollRow, active_item};
 pub use spark::{ChartData, LineChart, segments, spark_max, spark_path};
 pub use stepper::{Stepper, stepped};
 pub use toast::{MAX_TOASTS, Toast, ToastHost, push_toast};
+pub use version::VersionTag;

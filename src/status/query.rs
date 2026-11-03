@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::io::{IsTerminal, Read, Write};
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -9,7 +8,7 @@ use crate::base::failure::Failure;
 use crate::instance::publish::Entry;
 use crate::metrics::Status;
 
-const MAX_BODY: u64 = 16 * 1024 * 1024;
+use super::call::{self, Fetch};
 
 pub enum Pick {
     All,
@@ -31,95 +30,19 @@ pub struct Scan {
 const DEADLINE: Duration = Duration::from_secs(2);
 const MAX_FILE: u64 = 4096;
 
-enum Fetch {
-    Gone,
-    Failed,
-}
-
 pub fn fetch(entry: &Entry) -> Result<Status, String> {
     fetch_by(entry, Instant::now() + DEADLINE).map_err(|(_, why)| why)
 }
 
-fn fetch_by(entry: &Entry, deadline: Instant) -> Result<Status, (Fetch, String)> {
-    let failed = |e: String| (Fetch::Failed, e);
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| failed(e.to_string()))?;
-    let left = deadline
-        .checked_duration_since(Instant::now())
-        .filter(|d| !d.is_zero())
-        .ok_or_else(|| failed("it did not answer in time".into()))?;
-    rt.block_on(async {
-        tokio::time::timeout(left, ask(entry))
-            .await
-            .unwrap_or_else(|_| Err(failed("it did not answer in time".into())))
-    })
-}
-
-async fn ask(entry: &Entry) -> Result<Status, (Fetch, String)> {
-    use http_body_util::BodyExt;
-    let failed = |e: String| (Fetch::Failed, e);
-    let addr = SocketAddr::from(([127, 0, 0, 1], entry.port));
-    let s = tokio::net::TcpStream::connect(addr).await.map_err(|e| {
-        let kind = if e.kind() == std::io::ErrorKind::ConnectionRefused {
-            Fetch::Gone
-        } else {
-            Fetch::Failed
-        };
-        (kind, e.to_string())
-    })?;
-    let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
-        .title_case_headers(true)
-        .handshake::<_, http_body_util::Empty<bytes::Bytes>>(hyper_util::rt::TokioIo::new(s))
-        .await
-        .map_err(|e| failed(e.to_string()))?;
-    let driver = tokio::spawn(conn);
-    let result = async {
-        let request = hyper::Request::get("/status")
-            .header("Host", addr.to_string())
-            .header("Authorization", format!("Bearer {}", entry.token))
-            .header("Connection", "close")
-            .body(http_body_util::Empty::new())
-            .map_err(|e| failed(e.to_string()))?;
-        let response = sender.send_request(request).await.map_err(|e| {
-            if e.is_parse() {
-                failed("the answer is not HTTP".into())
-            } else {
-                failed(e.to_string())
-            }
-        })?;
-        let status = response.status();
-        if status != hyper::StatusCode::OK {
-            return Err(failed(
-                format!(
-                    "it answered HTTP/1.1 {} {}",
-                    status.as_u16(),
-                    status.canonical_reason().unwrap_or("")
-                )
-                .trim_end()
-                .to_string(),
-            ));
-        }
-        let body = http_body_util::Limited::new(response.into_body(), MAX_BODY as usize)
-            .collect()
-            .await
-            .map_err(|e| {
-                if e.is::<http_body_util::LengthLimitError>() {
-                    failed("the answer is too large".into())
-                } else {
-                    failed(e.to_string())
-                }
-            })?
-            .to_bytes();
-        let mut status: Status = serde_json::from_slice(&body)
-            .map_err(|e| failed(format!("not a burrow status: {e}")))?;
-        clean_status(&mut status);
-        Ok(status)
+pub(super) fn fetch_by(entry: &Entry, deadline: Instant) -> Result<Status, (Fetch, String)> {
+    let (code, body) = call::blocking(deadline, call::call(entry, "GET", "/status", Vec::new()))?;
+    if code != 200 {
+        return Err((Fetch::Failed, call::answered(code)));
     }
-    .await;
-    driver.abort();
-    result
+    let mut status: Status = serde_json::from_slice(&body)
+        .map_err(|e| (Fetch::Failed, format!("not a burrow status: {e}")))?;
+    clean_status(&mut status);
+    Ok(status)
 }
 
 pub fn clean(s: &str) -> String {
@@ -254,9 +177,9 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
         Pick::Config(p) => Some(canonical(p)),
         Pick::Service(name) => {
             let m = crate::service::resolve(Some(name))?;
-            if m.role != crate::install::Role::Server {
+            if m.role == crate::install::Role::Visitor {
                 return Err(Failure::usage(format!(
-                    "{} is a {} service, and burrow status shows servers only",
+                    "{} is a {} service, and burrow status shows servers and clients only",
                     m.name, m.role
                 ))
                 .hint(format!(
@@ -323,9 +246,9 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
     }
 }
 
-fn did_not_answer(entry: &Entry, why: &str) -> String {
+pub(super) fn did_not_answer(entry: &Entry, why: &str) -> String {
     format!(
-        "the burrow server with pid {} ({}) did not answer: {why}",
+        "the burrow process with pid {} ({}) did not answer: {why}",
         entry.pid,
         clean(&entry.config.display().to_string())
     )
@@ -341,8 +264,8 @@ fn none_answered(scan: &Scan, pick: &Pick) -> Failure {
 
 fn none_running(pick: &Pick, hidden: usize) -> Failure {
     let what = match pick {
-        Pick::All => "no burrow server is running on this machine".to_string(),
-        Pick::Config(p) => format!("no running burrow server uses {}", p.display()),
+        Pick::All => "no burrow server or client is running on this machine".to_string(),
+        Pick::Config(p) => format!("no running burrow server or client uses {}", p.display()),
         Pick::Service(n) => format!("service {n} is not running"),
     };
     let hint = if hidden > 0 {
@@ -352,11 +275,11 @@ fn none_running(pick: &Pick, hidden: usize) -> Failure {
         )
     } else if crate::base::failure::SERVICES {
         format!(
-            "burrow status shows servers; on a client or visitor, see {} and its logs",
+            "burrow status shows servers and clients; for a visitor, see {} and its logs",
             crate::base::failure::cmd("service status")
         )
     } else {
-        "burrow status shows servers; a client or visitor reports in its own log".to_string()
+        "burrow status shows servers and clients; a visitor reports in its own log".to_string()
     };
     Failure::new(what).hint(hint)
 }
@@ -419,6 +342,15 @@ fn json(scan: &Scan) -> String {
         "{}\n",
         serde_json::to_string_pretty(&list).expect("status serializes")
     )
+}
+
+pub fn screen(json: bool) -> Paint {
+    let tty = std::io::stdout().is_terminal();
+    Paint {
+        color: tty && crate::base::style::Style::detect(true).color,
+        boxed: tty && !json,
+        width: if tty { super::live::width() } else { None },
+    }
 }
 
 pub struct Options {
@@ -491,12 +423,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
         return Err(none_answered(&first, &opts.pick));
     }
     let tty = std::io::stdout().is_terminal();
-    let color = tty && crate::base::style::Style::detect(true).color;
-    let paint = || Paint {
-        color,
-        boxed: tty && !opts.json,
-        width: if tty { super::live::width() } else { None },
-    };
+    let paint = || screen(opts.json);
     let show = |scan: &Scan, rates: Option<&HashMap<u32, Rates>>| {
         if opts.json {
             json(scan)

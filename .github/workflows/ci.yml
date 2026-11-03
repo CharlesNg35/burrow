@@ -59,6 +59,10 @@ jobs:
         env:
           BURROW_E2E_PROFILE: dev
         run: bash tests/e2e/service.sh
+      - name: Clients started by hand update themselves when the admin asks, and roll back
+        run: cargo test --locked --features admin-test-hooks --test admin updates
+      - name: A client service updates through systemd when the admin asks, and rolls back
+        run: bash tests/e2e/remote-update.sh
 
   pebble:
     runs-on: ubuntu-latest
@@ -141,6 +145,8 @@ jobs:
       - run: cargo test --locked
       - name: Test the web proxy crate, the lingering close and the in-memory pipe
         run: cargo test --locked -p burrow-web -p burrow-io
+      - name: Clients started by hand update themselves when the admin asks, and roll back
+        run: cargo test --locked --features admin-test-hooks --test admin updates
       - name: Install and run as a launchd service
         if: runner.os == 'macOS'
         env:

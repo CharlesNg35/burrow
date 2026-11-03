@@ -126,6 +126,7 @@ pub fn bare(name: &str) -> Manifest {
         version: String::new(),
         admin_writable: false,
         web_state: None,
+        remote_updates: false,
     }
 }
 

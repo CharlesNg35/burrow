@@ -14,6 +14,7 @@ pub mod ops;
 pub mod plan;
 pub mod schema;
 pub mod status;
+pub mod updates;
 pub mod value;
 pub mod web;
 
@@ -42,6 +43,7 @@ pub mod features {
     pub const HISTORY_IDS: &str = "history.ids";
     pub const LOCAL_CA: &str = "local-ca";
     pub const CLIENT_ALLOW: &str = "client.allow";
+    pub const CLIENT_UPDATES: &str = "client.updates";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -58,5 +60,6 @@ pub mod features {
         HISTORY_IDS,
         LOCAL_CA,
         CLIENT_ALLOW,
+        CLIENT_UPDATES,
     ];
 }

@@ -41,6 +41,8 @@ mod passwords;
 mod ports;
 #[path = "admin_e2e/reach.rs"]
 mod reach;
+#[path = "common/releases.rs"]
+mod releases;
 #[path = "admin_e2e/reverts.rs"]
 mod reverts;
 #[path = "admin_e2e/screens.rs"]
@@ -61,6 +63,8 @@ mod site_keys;
 mod tables;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
+#[path = "admin_e2e/updates.rs"]
+mod updates;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
 #[path = "admin_e2e/wizards.rs"]

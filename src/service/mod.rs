@@ -4,9 +4,12 @@
 mod background;
 #[cfg(unix)]
 mod hand_over;
+pub mod helper;
 mod logview;
+#[cfg(unix)]
+pub(crate) mod nofollow;
 pub(crate) mod ports;
-mod stray;
+pub(crate) mod stray;
 pub(crate) mod system;
 mod update;
 
@@ -41,7 +44,7 @@ pub use system::{binary_version, copy_file, is_admin};
 use uninstall::give_history;
 pub use uninstall::uninstall;
 use uninstall::{admin_history, delete_hint, is_source};
-pub use update::{update, update_from, worker as update_worker};
+pub use update::{update, update_checked, update_from, worker as update_worker};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -201,6 +204,13 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
     }
     let name = crate::install::service_name(&clean);
     let short = crate::install::short_name(&name);
+    if short.ends_with(helper::SUFFIX) {
+        return Err(Failure::usage(format!(
+            "\"{short}\" cannot be used as a service name: names ending in {} are kept for the updaters of clients",
+            helper::SUFFIX
+        ))
+        .hint("pass --name with another name"));
+    }
     if OWN_FOLDERS.contains(&short) {
         let source = if given.is_some() {
             "--name"
@@ -215,7 +225,7 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
     Ok(name)
 }
 
-const OWN_FOLDERS: [&str; 5] = ["services", "jobs", "logs", "bin", "instances"];
+const OWN_FOLDERS: [&str; 6] = ["services", "jobs", "logs", "bin", "instances", "updates"];
 
 pub fn exposed(m: &Manifest) -> bool {
     let p = Platform::current();
@@ -265,6 +275,10 @@ pub fn installed() -> Vec<Installed> {
             manifest,
         })
         .collect()
+}
+
+pub fn main_pid(m: &Manifest) -> Option<u32> {
+    system::backend().ok()?.status(m).pid
 }
 
 pub fn env_of(m: &Manifest) -> BTreeMap<String, String> {

@@ -330,6 +330,8 @@ fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Resu
     }
 }
 
+pub use super::latest::use_latest;
+
 pub struct ServerLive(pub Arc<Shared>);
 
 impl Live for ServerLive {
@@ -364,6 +366,22 @@ impl Live for ServerLive {
 
     fn bind_probe(&self, proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
         probe_bind(proto, addr)
+    }
+
+    fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
+        super::latest::cached()
+    }
+
+    fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
+        super::latest::fresh()
+    }
+
+    fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {
+        self.0.ask_update(client, to, by)
+    }
+
+    fn update_all(&self, clients: Vec<String>, to: &str, by: &str) -> Result<(), String> {
+        self.0.update_all(clients, to, by)
     }
 
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16> {

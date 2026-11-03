@@ -10,7 +10,7 @@ For clients and visitors, use `burrow service status` and `burrow service logs -
 
 ## burrow status
 
-`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network.
+`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network. A server lists each client's burrow version, or `< 0.2.2` for a client too old to say. On a client's machine, from 0.2.2 on, it shows the running client too: its server, whether it is connected, how it runs, whether it allows remote updates and its last update ([updates.md](updates.md)). `burrow clients` lists the same clients with their burrow, system and a newer release, and `burrow clients update` updates them ([updates.md](updates.md#from-the-servers-command-line)).
 
 Run it on the server machine:
 
@@ -27,12 +27,12 @@ A server installed as a service needs `sudo` (an administrator terminal on Windo
 
 ```
 $ sudo burrow status
-burrow 0.2.0  ·  up 3d 4h  ·  clients on tcp 0.0.0.0:7835
+burrow 0.2.2  ·  up 3d 4h  ·  clients on tcp 0.0.0.0:7835
 
 CLIENTS  1/2 online
-  NAME    STATE    SINCE        FROM            OPEN  IDLE
-  home    online   2h 13m       81.2.3.4:51234     3     4
-  office  offline  left 5m ago                     0     0
+  NAME    STATE    SINCE        VERSION  FROM            OPEN  IDLE
+  home    online   2h 13m       0.2.2    81.2.3.4:51234     3     4
+  office  offline  left 5m ago                              0     0
 
 SERVICES
   NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT

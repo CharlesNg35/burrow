@@ -1,3 +1,4 @@
+use super::report::{Report, Step, put_text, read_text};
 use super::{
     ChannelKind, DecodeError, Reader, TOKEN_LEN, proto_byte, proto_from, put_str, put_strings,
 };
@@ -85,6 +86,10 @@ pub enum ServerMsg {
     Bye {
         reason: ByeReason,
     },
+    Update {
+        id: u32,
+        version: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +106,8 @@ pub enum ByeReason {
 pub enum ClientMsg {
     Pong,
     Allow(Vec<String>),
+    Report(Report),
+    UpdateState { id: u32, step: Step, detail: String },
 }
 
 pub const MAX_ALLOW_RULES: usize = 64;
@@ -136,6 +143,12 @@ impl ServerMsg {
                 v
             }
             ServerMsg::Bye { reason } => vec![5, *reason as u8],
+            ServerMsg::Update { id, version } => {
+                let mut v = vec![6];
+                v.extend_from_slice(&id.to_be_bytes());
+                put_text(&mut v, version);
+                v
+            }
         }
     }
 
@@ -178,6 +191,10 @@ impl ServerMsg {
                     x => return Err(DecodeError::UnknownType(x)),
                 },
             },
+            6 => ServerMsg::Update {
+                id: r.u32()?,
+                version: read_text(&mut r)?,
+            },
             x => return Err(DecodeError::UnknownType(x)),
         };
         r.end()?;
@@ -194,6 +211,18 @@ impl ClientMsg {
                 put_strings(&mut v, rules);
                 v
             }
+            ClientMsg::Report(report) => {
+                let mut v = vec![0x83];
+                report.encode_into(&mut v);
+                v
+            }
+            ClientMsg::UpdateState { id, step, detail } => {
+                let mut v = vec![0x84];
+                v.extend_from_slice(&id.to_be_bytes());
+                v.push(*step as u8);
+                put_text(&mut v, detail);
+                v
+            }
         }
     }
 
@@ -202,6 +231,12 @@ impl ClientMsg {
         let m = match r.u8()? {
             0x81 => ClientMsg::Pong,
             0x82 => ClientMsg::Allow(r.strings()?),
+            0x83 => return Report::decode_from(&mut r).map(ClientMsg::Report),
+            0x84 => ClientMsg::UpdateState {
+                id: r.u32()?,
+                step: Step::from(r.u8()?)?,
+                detail: read_text(&mut r)?,
+            },
             x => return Err(DecodeError::UnknownType(x)),
         };
         r.end()?;

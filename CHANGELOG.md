@@ -2,24 +2,35 @@
 
 ## [Unreleased]
 
-- burrow admin: an address field's first choice says what a port alone listens on for that setting, like "All IPv4 and IPv6 (default)" for the web ports, instead of showing "All IPv6 (::)". `::` reads "All IPv4 and IPv6", which is what burrow opens. Picking an address before the port no longer marks the field invalid or sets it.
-- A port below 1024 that the server may not open gets one warning with one text, for every address it listens on (`listen`, `websocket.listen`, `metrics.listen`, the web ports and service binds) and for a port alone too: `burrow validate`, burrow admin and the error when the port cannot be opened say how to grant it (install the service again, or `sudo setcap cap_net_bind_service=+ep` for a server run by hand) or to use a port above 1023.
-- burrow admin shows a check's hint under its message, at the field and in Review; a web port that waits shows its hint in Needs attention, and `burrow status` prints it.
-- The low-port hint fits how burrow runs: a burrow service says to install it again from its own config, which grants the permission without moving anything, and a burrow started by hand says `sudo setcap cap_net_bind_service=+ep` (a service's locked-down unit ignores `setcap`).
-- burrow admin warns before saving when a listen or bind address is not an address of this server, with the same hint as the error the server would give.
-- A `ws://` or `wss://` public address on a server without WebSocket says that WebSocket is off and where to turn it on.
-- burrow admin checks a changed service port, TCP or UDP, before saving, as it does for the web ports; a service that cannot listen after a change shows why in Needs attention and `burrow status`, and that a restart fails until it can.
-- burrow admin: each Settings tab shows how many problems its settings have, and a service's problem list names nested fields by their own label.
-- A reinstall refused because another program holds a port no longer stops the running service; `burrow service status` without sudo says a file is not readable instead of missing.
-- burrow admin: Review waits for the check of the latest edit instead of showing the previous result, and New website says why a name is refused under the names.
-- burrow admin warns before saving when a service's client has sent an allow list that does not cover the service's target, so it would refuse the service; the hint says to add it or print the client's config again.
-- `burrow validate` warns when a service sets `mode` with only one client, where it has no effect.
-- burrow admin: a website's Let's Encrypt check can be changed only when Let's Encrypt gives the certificate (HTTPS: Automatic), as `burrow validate` requires; Review opened with edits not yet added says so and opens them; a public address shows its "up to 1000 ports" capacity only while Port range is on.
-- burrow admin: Review's impacts and the pre-save port checks compare the config file with your changes, as the change list does, so an unrelated edit no longer says it opens web ports applied before. A web port, WebSocket or metrics address that is in the config but not open on the server is shown in Needs attention instead. Review says "opens the web proxy's HTTPS port …".
-- The server and the client log a service without a server port as "no server port (a website or visitors)" instead of "private" or "private, for visitors".
-- burrow admin: two tabs or admins open at once no longer flip each other to read-only while they check the config file, and the Overview counts a service that is not listening as not healthy.
-- `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
-- Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
+## [0.2.2]
+
+Clients tell the server which burrow they run, and a client that allows it can be updated from burrow admin or `burrow mcp`, with automatic rollback. burrow admin also checks far more before you apply (ports, addresses, allow lists) and explains what to do. Older clients and servers keep working with this release in both directions.
+
+- **Client versions:** each client reports its release, system, how it runs (service, container or started by hand) and whether it allows remote updates. `burrow status` on the server has a VERSION column, burrow admin shows Version and System columns and a Burrow figure in each client's overview, and clients too old to report show as such. `burrow status` on a client's machine now shows the running client too.
+- **Updates from the server:** `update: { remote: true }` in client.yaml (off by default; `burrow init client` asks, `--remote-updates` turns it on) lets the server's admin ask it to update to the latest release. The client, or its root updater, finds and downloads that release from the official releases itself, checks `SHA256SUMS`, its version and the config, keeps the old binary and restarts. If the new version does not connect within 60 s, or keeps crashing, the old one comes back. Never a downgrade, and never a file or address from the server. See docs/updates.md.
+  - Services get a small updater that runs as root when installed with `update.remote` on: a systemd path unit, a launchd job, or a Windows service that only the client's account may start. It takes no input from the client's account: the account can only start it. Clients started by hand replace their own binary and start again. Containers are told to update the image.
+  - burrow admin: **Update** on a client's page and **Update all**, one client at a time, stopping at the first failure, with progress and results. `burrow mcp --allow-write`: the `update_clients` tool, which asks only when called again with `confirm`.
+  - `burrow clients` on the server machine lists each client's burrow and a newer release; `burrow clients update NAME... | --all` asks them, confirms (`--yes` skips it), follows each one and exits 0 only when all updated (`--json` for scripts). It finds the server like `burrow status` and asks through one new route of the server's local status endpoint, behind the same token.
+  - Protocol: the client's Report message and the server's Update message; older servers ignore Report, and older clients never get Update.
+- **Admin and config checks** (found by a supervised fuzz sweep of burrow admin):
+  - burrow admin: an address field's first choice says what a port alone listens on for that setting, like "All IPv4 and IPv6 (default)" for the web ports, instead of showing "All IPv6 (::)". `::` reads "All IPv4 and IPv6", which is what burrow opens. Picking an address before the port no longer marks the field invalid or sets it.
+  - A port below 1024 that the server may not open gets one warning with one text, for every address it listens on (`listen`, `websocket.listen`, `metrics.listen`, the web ports and service binds) and for a port alone too: `burrow validate`, burrow admin and the error when the port cannot be opened say how to grant it (install the service again, or `sudo setcap cap_net_bind_service=+ep` for a server run by hand) or to use a port above 1023.
+  - burrow admin shows a check's hint under its message, at the field and in Review; a web port that waits shows its hint in Needs attention, and `burrow status` prints it.
+  - The low-port hint fits how burrow runs: a burrow service says to install it again from its own config, which grants the permission without moving anything, and a burrow started by hand says `sudo setcap cap_net_bind_service=+ep` (a service's locked-down unit ignores `setcap`).
+  - burrow admin warns before saving when a listen or bind address is not an address of this server, with the same hint as the error the server would give.
+  - A `ws://` or `wss://` public address on a server without WebSocket says that WebSocket is off and where to turn it on.
+  - burrow admin checks a changed service port, TCP or UDP, before saving, as it does for the web ports; a service that cannot listen after a change shows why in Needs attention and `burrow status`, and that a restart fails until it can.
+  - burrow admin: each Settings tab shows how many problems its settings have, and a service's problem list names nested fields by their own label.
+  - A reinstall refused because another program holds a port no longer stops the running service; `burrow service status` without sudo says a file is not readable instead of missing.
+  - burrow admin: Review waits for the check of the latest edit instead of showing the previous result, and New website says why a name is refused under the names.
+  - burrow admin warns before saving when a service's client has sent an allow list that does not cover the service's target, so it would refuse the service; the hint says to add it or print the client's config again.
+  - `burrow validate` warns when a service sets `mode` with only one client, where it has no effect.
+  - burrow admin: a website's Let's Encrypt check can be changed only when Let's Encrypt gives the certificate (HTTPS: Automatic), as `burrow validate` requires; Review opened with edits not yet added says so and opens them; a public address shows its "up to 1000 ports" capacity only while Port range is on.
+  - burrow admin: Review's impacts and the pre-save port checks compare the config file with your changes, as the change list does, so an unrelated edit no longer says it opens web ports applied before. A web port, WebSocket or metrics address that is in the config but not open on the server is shown in Needs attention instead. Review says "opens the web proxy's HTTPS port …".
+  - The server and the client log a service without a server port as "no server port (a website or visitors)" instead of "private" or "private, for visitors".
+  - burrow admin: two tabs or admins open at once no longer flip each other to read-only while they check the config file, and the Overview counts a service that is not listening as not healthy.
+  - `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
+  - Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
 
 ## [0.2.1]
 
@@ -203,3 +214,4 @@ First release.
 - **`burrow update`** downloads the latest release (or `--to VERSION`), verifies it against `SHA256SUMS` and by running it, then replaces this binary and updates the installed services with rollback. `--check` only reports whether a newer release exists, and it points out installed services that still run an older version. It honours `HTTPS_PROXY` and `NO_PROXY`, and a mirror in `BURROW_UPDATE_URL` must use https unless it is on the same machine. Service installs, updates and uninstalls take turns through one lock.
 - The same tunnel cannot run twice (an OS file lock), one address cannot take more than its share of the server's unauthenticated handshake slots when they run short, and `-c` can be left out when `server.yaml`, `client.yaml` or `visitor.yaml` is in the current folder.
 - Static Linux binaries (amd64, arm64, armv7, armv6, riscv64), macOS (arm64, amd64), Windows (amd64, arm64) and FreeBSD (amd64) builds, and a multi-arch distroless image.
+

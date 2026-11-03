@@ -7,6 +7,7 @@ pub(crate) use data::fit_to_open_files;
 pub mod reconnect;
 pub mod reload;
 mod session;
+pub mod updates;
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -100,6 +101,28 @@ pub struct Client {
     reloads: Option<mpsc::Receiver<ClientSettings>>,
     instance: [u8; crate::wire::protocol::TOKEN_LEN],
     welcomed: Arc<Mutex<Option<Instant>>>,
+    updates: Arc<dyn updates::Updates>,
+    nudge: Arc<watch::Sender<u64>>,
+    since: Arc<Mutex<Option<Instant>>>,
+}
+
+#[derive(Clone)]
+pub struct Presence {
+    live: Live,
+    since: Arc<Mutex<Option<Instant>>>,
+}
+
+impl Presence {
+    pub fn settings(&self) -> Arc<ClientSettings> {
+        self.live.settings()
+    }
+
+    pub fn connected_secs(&self) -> Option<u64> {
+        self.since
+            .lock()
+            .expect("since lock")
+            .map(|t| t.elapsed().as_secs())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,7 +172,16 @@ impl Client {
                 id
             },
             welcomed: Arc::new(Mutex::new(None)),
+            updates: Arc::new(updates::Fixed),
+            nudge: Arc::new(watch::Sender::new(0)),
+            since: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn with_updates(mut self, updates: Arc<dyn updates::Updates>) -> Self {
+        updates.attach(self.nudge.clone());
+        self.updates = updates;
+        self
     }
 
     pub fn with_resolver(mut self, resolver: Arc<dyn Resolver>) -> Self {
@@ -186,10 +218,21 @@ impl Client {
                 .peers
                 .limit(data::client_peer_cap(next.max_udp_peers));
         }
+        let resend = old.remote_updates != next.remote_updates;
         self.live
             .0
             .send_replace(Current::new(Arc::new(next), &self.resolver));
+        if resend {
+            self.nudge.send_modify(|n| *n += 1);
+        }
         !changes.reconnect.is_empty()
+    }
+
+    pub fn presence(&self) -> Presence {
+        Presence {
+            live: self.live.clone(),
+            since: self.since.clone(),
+        }
     }
 
     pub fn state(&self) -> watch::Receiver<State> {
@@ -220,6 +263,7 @@ impl Client {
                 }
             };
             let s = self.live.settings();
+            *self.since.lock().expect("since lock") = None;
             let welcomed = self.welcomed.lock().expect("welcomed lock").take();
             if welcomed.is_some_and(|t| t.elapsed() > STABLE_AFTER) {
                 backoff.reset();

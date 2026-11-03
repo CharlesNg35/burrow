@@ -4,6 +4,8 @@
 pub mod adapters;
 pub mod core;
 pub mod hooks;
+pub mod latest;
+pub mod local;
 pub mod transport;
 
 use std::collections::HashMap;

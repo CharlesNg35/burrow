@@ -414,6 +414,7 @@ pub struct ClientSettings {
     pub udp_session_timeout: Duration,
     pub max_connections: Limit,
     pub max_udp_peers: Limit,
+    pub remote_updates: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

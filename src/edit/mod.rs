@@ -5,6 +5,7 @@ mod apply;
 mod draft;
 mod editor;
 mod found;
+pub use found::role_of;
 mod notes;
 mod pick;
 mod source;

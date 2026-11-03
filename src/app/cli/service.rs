@@ -30,6 +30,8 @@ pub enum ServiceAction {
     List,
     #[command(hide = true)]
     Run(ServiceName),
+    #[command(hide = true)]
+    RemoteUpdate(ServiceName),
 }
 
 #[derive(Debug, Args)]

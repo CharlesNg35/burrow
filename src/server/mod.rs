@@ -23,6 +23,7 @@ mod start;
 mod status;
 mod tcp;
 mod udp;
+mod updates;
 pub mod uploads;
 mod via;
 mod visit;
@@ -84,6 +85,7 @@ pub struct Shared {
     web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
     not_listening: Mutex<std::collections::BTreeMap<String, String>>,
     standing: Mutex<standing::Standing>,
+    updates: Mutex<updates::Board>,
     wheels: Mutex<balance::Wheels>,
     local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,

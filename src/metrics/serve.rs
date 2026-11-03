@@ -10,17 +10,20 @@ use tracing::{debug, warn};
 use super::{Status, prometheus};
 
 const MAX_HEAD: usize = 8 * 1024;
+const MAX_BODY: usize = 64 * 1024;
 const MAX_OPEN: usize = 64;
 const MAX_WAITING: usize = 256;
 const READ_TIMEOUT: Duration = Duration::from_secs(1);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const HANDLER_TIMEOUT: Duration = Duration::from_secs(20);
 const WAIT_FOR_SLOT: Duration = Duration::from_secs(2);
 
 pub type Snapshot = Arc<dyn Fn() -> Status + Send + Sync>;
-pub type Handler = Arc<dyn Fn(&Request<()>) -> (u16, &'static str, String) + Send + Sync>;
+pub type Body<'a> = Result<&'a [u8], u16>;
+pub type Handler = Arc<dyn Fn(&Request<()>, Body) -> (u16, &'static str, String) + Send + Sync>;
 
 pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
-    let handler: Handler = Arc::new(move |req| respond(req, snapshot.as_ref()));
+    let handler: Handler = Arc::new(move |req, _| respond(req, snapshot.as_ref()));
     serve_with(listener, handler).await
 }
 
@@ -124,15 +127,38 @@ pub fn respond(req: &Request<()>, snapshot: &dyn Fn() -> Status) -> (u16, &'stat
 async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
     let handler = handler.clone();
     let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
-        let (parts, _) = req.into_parts();
-        let (code, kind, body) = handler(&Request::from_parts(parts, ()));
-        let response = Response::builder()
-            .status(code)
-            .header("Content-Type", kind)
-            .header("Content-Length", body.len())
-            .header("Connection", "close")
-            .body(http_body_util::Full::new(bytes::Bytes::from(body)));
-        async move { response }
+        let handler = handler.clone();
+        async move {
+            use http_body_util::BodyExt;
+            let (parts, body) = req.into_parts();
+            let read = tokio::time::timeout(
+                READ_TIMEOUT,
+                http_body_util::Limited::new(body, MAX_BODY).collect(),
+            )
+            .await;
+            let body = match read {
+                Ok(Ok(b)) => Ok(b.to_bytes()),
+                Ok(Err(_)) => Err(413),
+                Err(_) => Err(408),
+            };
+            let req = Request::from_parts(parts, ());
+            let run =
+                tokio::task::spawn_blocking(move || handler(&req, body.as_deref().map_err(|c| *c)));
+            let (code, kind, body) = match tokio::time::timeout(HANDLER_TIMEOUT, run).await {
+                Ok(Ok(answer)) => answer,
+                _ => (
+                    503,
+                    "text/plain",
+                    "the server did not answer in time\n".into(),
+                ),
+            };
+            Response::builder()
+                .status(code)
+                .header("Content-Type", kind)
+                .header("Content-Length", body.len())
+                .header("Connection", "close")
+                .body(http_body_util::Full::new(bytes::Bytes::from(body)))
+        }
     });
     let mut builder = hyper::server::conn::http1::Builder::new();
     builder
@@ -145,10 +171,15 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
         .auto_date_header(false);
     let io = hyper_util::rt::TokioIo::new(Capped {
         inner: ShutOnce::new(stream),
-        left: MAX_HEAD + 1024,
+        left: MAX_HEAD + MAX_BODY + 1024,
     });
     let mut served = builder.serve_connection(io, service);
-    match tokio::time::timeout(READ_TIMEOUT + WRITE_TIMEOUT, &mut served).await {
+    match tokio::time::timeout(
+        READ_TIMEOUT * 2 + HANDLER_TIMEOUT + WRITE_TIMEOUT,
+        &mut served,
+    )
+    .await
+    {
         Err(_) => Err(std::io::Error::other("the reader is too slow")),
         Ok(Err(e)) if !burrow_io::linger::answered(&e) => Err(std::io::Error::other(e)),
         Ok(ended) => {
@@ -177,6 +208,9 @@ mod tests {
             acme: None,
             local_ca: None,
             web_waiting: None,
+            client: None,
+            rollout: None,
+            latest: None,
         }
     }
 

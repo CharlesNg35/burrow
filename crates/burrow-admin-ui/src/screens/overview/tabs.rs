@@ -153,6 +153,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
             <div class="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2.5">
                 {pills}
                 <span class="ml-auto text-xs text-text-muted">{open}</span>
+                {move || (shown.get() == ClientEntry::section()).then(crate::screens::updates::update_all_bar)}
             </div>
             <div class="@container" role="tabpanel">{panel}</div>
         </section>
