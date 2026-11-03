@@ -145,6 +145,7 @@ fn service_paths(
         source: None,
         clients: None,
         ports: None,
+        site: None,
     };
     let mut names: Vec<&String> = b.keys().chain(d.keys()).collect();
     names.sort();

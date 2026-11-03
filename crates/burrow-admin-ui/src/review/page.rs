@@ -86,8 +86,18 @@ fn follow_applied(s: Store) {
                 Some(Outcome::Applied(a)) => a.not_listening.clone(),
                 _ => Vec::new(),
             });
-            for w in waits {
-                s.toast(Tone::Warning, w, None);
+            match waits.len() {
+                0 => {}
+                1 => s.toast(
+                    Tone::Warning,
+                    "An address is not open yet; see Needs attention",
+                    None,
+                ),
+                n => s.toast(
+                    Tone::Warning,
+                    format!("{n} addresses are not open yet; see Needs attention"),
+                    None,
+                ),
             }
             let shown = e.outcome.with_untracked(|o| match o {
                 Some(Outcome::Applied(a)) => a

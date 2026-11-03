@@ -238,6 +238,19 @@ impl Edit {
         saved + self.texts.with(BTreeMap::len)
     }
 
+    pub fn with_saved<T>(&self, f: impl FnOnce(&Changeset) -> T) -> T {
+        let open = self.open_edits_untracked();
+        self.draft.with_untracked(|d| f(&Self::saved_of(d, &open)))
+    }
+
+    fn open_edits_untracked(&self) -> Vec<(Path, Option<Value>)> {
+        self.editing.with_untracked(|m| {
+            m.iter()
+                .map(|(p, snap)| (p.clone(), snap.clone()))
+                .collect()
+        })
+    }
+
     pub fn saved_ops(&self) -> Vec<Op> {
         let open = self.open_edits();
         if open.is_empty() {
@@ -400,6 +413,7 @@ impl Edit {
     }
 
     pub fn local_error(&self, path: &[String], err: Option<String>) {
+        let err = err.map(|e| burrow_admin_logic::wording::at_field(&e));
         let same = self.local.with_untracked(|l| l.get(path) == err.as_ref());
         if !same {
             self.local.update(|l| match err {

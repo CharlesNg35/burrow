@@ -169,7 +169,7 @@ fn Section(
                         <div class="flex h-full items-center justify-center py-6">
                             <div class="flex flex-col items-center gap-1.5 px-4 text-center">
                                 <span class="text-success"><Icon name=empty.0 large=true/></span>
-                                <span class="text-sm font-semibold">{move || empty.1.get()}</span>
+                                <span class="text-sm font-semibold" data-calm=(testid == "attention").then_some("")>{move || empty.1.get()}</span>
                                 <span class="text-[12.5px] text-text-muted">{move || empty.2.get()}</span>
                             </div>
                         </div>

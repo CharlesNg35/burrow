@@ -14,6 +14,11 @@ async fn not_added_yet(c: &mut Ctx) {
         "{note}"
     );
     assert!(!c.ui.text("body").await.contains("Nothing to apply"));
+    assert_eq!(
+        c.ui.count("[data-review-path='web']").await,
+        0,
+        "the review draws no path for edits that are not added yet"
+    );
     c.ui.shot("review-with-edits-not-added").await;
     c.ui.click("[data-testid=review-not-added] button").await;
     c.ui.wait_for("#f-services-web-bind", SECS).await;

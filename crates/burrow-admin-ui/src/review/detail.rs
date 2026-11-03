@@ -29,7 +29,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         Vec::new()
     } else {
         let status = s.status.get_untracked();
-        e.draft.with_untracked(|d| {
+        e.with_saved(|d| {
             service_paths(
                 d.base(),
                 d.draft(),
@@ -229,6 +229,19 @@ fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
         .collect_view()
 }
 
+const CHECKED: &str = "Checked with the same rules as burrow validate";
+
+fn state_words(first: String, warnings: usize) -> String {
+    if warnings == 0 {
+        first
+    } else {
+        format!(
+            "{first} · {}",
+            burrow_admin_logic::wording::count_of(warnings, "warning")
+        )
+    }
+}
+
 fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl IntoView + use<> {
     let Facts {
         n,
@@ -243,23 +256,23 @@ fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl Into
     <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
         <div class="min-w-0 flex-1">
             <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {}", burrow_admin_logic::wording::count_of(n, "change")) }}</h1>
-            <p class="mt-1 text-base text-text-muted" class:hidden=empty>
+            <p class="mt-1 text-base text-text-muted" class:hidden=empty data-header-line="">
                 {if refused {
                     format!(
                         "Refused by the {}",
                         if no_lockouts { "admin grant guard" } else { "lockout guard" }
                     )
                 } else {
-                    format!("Checked with the same rules as burrow validate · {applies}")
+                    burrow_admin_logic::wording::capital(applies)
                 }}
             </p>
         </div>
         {if refused || empty {
             ().into_any()
         } else if errors > 0 {
-            view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{} · {}", burrow_admin_logic::wording::count_of(errors, "error"), burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Danger) data-testid="review-state" title=CHECKED>{state_words(burrow_admin_logic::wording::count_of(errors, "error"), warnings)}</span> }.into_any()
         } else {
-            view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {}", burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Success) data-testid="review-state" title=CHECKED><Icon name="check" small=true/>{state_words("Valid".to_string(), warnings)}</span> }.into_any()
         }}
     </header>
     }

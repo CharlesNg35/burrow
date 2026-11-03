@@ -3,7 +3,7 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
-use burrow_config::ServiceEntry;
+use burrow_config::{Entry, ServiceEntry};
 use burrow_ui_kit::{Callout, Tone};
 use leptos::prelude::*;
 
@@ -73,15 +73,35 @@ pub(super) fn problems_for(path: &Path) -> Problems {
             ),
             burrow_admin_logic::relations::target_ports,
         );
-        format!("{t} ≠ {b} ports")
+        format!("{t} vs {b} ports")
     });
     Problems {
         source: at(ServiceEntry::ALLOW_FROM.key())
             .or_else(|| at(ServiceEntry::DENY_FROM.key()))
-            .map(|_| "invalid CIDR".into()),
+            .map(|_| "invalid network".into()),
         clients: at(ServiceEntry::HEALTH_CHECK.key()).map(|_| "health".into()),
         ports,
+        site: site_problem(path),
     }
+}
+
+fn site_problem(path: &Path) -> Option<(String, Tone)> {
+    let s = store();
+    let [section, name] = path.as_slice() else {
+        return None;
+    };
+    if section.as_str() != ServiceEntry::SECTION {
+        return None;
+    }
+    let now = (s.now.get_untracked() / 1000.0) as u64;
+    s.status.with(|st| {
+        let (text, level) = burrow_admin_logic::certs::site_badge(st.as_deref()?, now, name)?;
+        let tone = match level {
+            burrow_admin_logic::certs::Level::Bad => Tone::Danger,
+            _ => Tone::Warning,
+        };
+        Some((text, tone))
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]

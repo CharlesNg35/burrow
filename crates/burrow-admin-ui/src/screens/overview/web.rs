@@ -43,6 +43,33 @@ fn routes(list: Vec<RouteLine>) -> impl IntoView {
     view! { <ul class="mt-1 w-full space-y-0.5 pl-4" data-testid="web-routes">{items}</ul> }
 }
 
+fn plain_kind(served: &str) -> String {
+    match served.split_once(" (tls: ") {
+        Some((kind, rest)) => format!("{kind}{}", rest.split_once(')').map_or("", |(_, r)| r)),
+        None => served.to_string(),
+    }
+}
+
+fn ports_line(w: &WebSummary) -> String {
+    let mut out = Vec::new();
+    let shared = |on: bool| if on { " (shared with the tunnel)" } else { "" };
+    if !w.https.is_empty() {
+        out.push(format!(
+            "HTTPS on {}{}",
+            w.https,
+            shared(w.shared_with_tunnel)
+        ));
+    }
+    if !w.http.is_empty() {
+        out.push(format!(
+            "HTTP on {}{}",
+            w.http,
+            shared(w.http_shared_with_tunnel)
+        ));
+    }
+    out.join(", ")
+}
+
 fn rows(web: WebSummary) -> impl IntoView {
     let tunnel = web.tunnel.clone().map(|t| {
         view! {
@@ -60,7 +87,7 @@ fn rows(web: WebSummary) -> impl IntoView {
     let hosts = kept
         .into_iter()
         .map(|h| {
-            let (row, kind, plain) = (h.name.clone(), h.served(), h.unencrypted());
+            let (row, kind, plain) = (h.name.clone(), plain_kind(&h.served()), h.unencrypted());
             let single = h.routes.is_empty().then(|| service_link(h.service.clone(), h.also.clone()));
             let routes = (!h.routes.is_empty()).then(|| routes(h.routes.clone()));
             view! {
@@ -86,9 +113,36 @@ pub(super) fn websites_panel(web: Option<WebSummary>) -> impl IntoView {
     };
     view! {
         <div data-testid="websites">
-            <p class="border-b border-border px-4 py-2.5 text-xs text-text-muted" data-testid="websites-port">{w.head().trim_start_matches("web: ").to_string()}</p>
+            <p class="border-b border-border px-4 py-2.5 text-xs text-text-muted" data-testid="websites-port">{ports_line(&w)}</p>
             {rows(w)}
         </div>
     }
     .into_any()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_websites_tab_reads_without_config_keys() {
+        assert_eq!(
+            plain_kind("local CA, 12-hour certificates (tls: internal)"),
+            "local CA, 12-hour certificates"
+        );
+        assert_eq!(
+            plain_kind("shared file ./portal.pem"),
+            "shared file ./portal.pem"
+        );
+        let w = WebSummary {
+            https: "127.0.0.1:443".into(),
+            http: "127.0.0.1:80".into(),
+            addresses: "this address only".into(),
+            ..WebSummary::default()
+        };
+        assert_eq!(
+            ports_line(&w),
+            "HTTPS on 127.0.0.1:443, HTTP on 127.0.0.1:80"
+        );
+    }
 }
