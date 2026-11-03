@@ -298,28 +298,20 @@ impl ServerUpdate {
         let (fig, open) = (self.fig, self.open);
         move || {
             let f = fig.get().filter(ServerFigure::says_something)?;
-            let lead = f.state.is_some();
-            let item = "inline-flex items-center gap-1.5 whitespace-nowrap";
             let state = f.state.clone().map(|(t, m)| view! {
-                <span class=tone(m).text() title=f.detail.clone() data-testid="server-update-state">{t}</span>
+                <span class=format!("whitespace-nowrap {}", tone(m).text()) title=f.detail.clone() data-testid="server-update-state">{t}</span>
             });
             let available = f.available.clone().map(|(t, m)| view! {
-                <span class=item>
-                    {lead.then_some("·")}
-                    <span class=tone(m).text() title=f.why_not.clone().unwrap_or_default() data-testid="server-update-tag">{t}</span>
-                </span>
+                <span class=format!("whitespace-nowrap {}", tone(m).text()) title=f.why_not.clone().unwrap_or_default() data-testid="server-update-tag">{t}</span>
                 {f.to.as_deref().and_then(burrow_admin_logic::wording::release_notes).map(|(_, url)| view! {
-                    <span class=item>
-                        "·"
-                        <a href=url target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-accent-ink" data-testid="server-whats-new">"What's new"<burrow_ui_kit::Icon name="external" small=true/></a>
-                    </span>
+                    <a href=url target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 whitespace-nowrap font-semibold text-accent-ink" data-testid="server-whats-new">"What's new"<burrow_ui_kit::Icon name="external" small=true/></a>
                 })}
             });
             let button = (server_offered(s) && f.can_ask && !s.server_updating.get().busy()).then(|| view! {
                 <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Inline icon="download" testid="server-update" on_click=move |_| open.set(true)/>
             });
             Some(view! {
-                <div class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-text-muted" data-testid="server-burrow">{state}{available}{button}</div>
+                <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-text-muted" data-testid="server-burrow">{state}{available}{button}</div>
             })
         }
     }

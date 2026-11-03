@@ -40,7 +40,7 @@ pub fn update_dialog(
                 <Facts testid="update-versions">
                     <Fact label="Current" mono=true>{from}</Fact>
                     <Fact label="New" mono=true>
-                        <span class="inline-flex flex-wrap items-center gap-1.5">{to.clone()}{release_link(&to, short_link).map(|l| view! { <span class="text-text-faint">"·"</span><span class="font-sans text-sm">{l}</span> })}</span>
+                        <span class="flex flex-wrap items-center gap-x-3 gap-y-1"><span class="whitespace-nowrap">{to.clone()}</span>{release_link(&to, short_link).map(|l| view! { <span class="font-sans text-sm whitespace-nowrap">{l}</span> })}</span>
                     </Fact>
                 </Facts>
             }

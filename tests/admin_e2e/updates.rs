@@ -76,6 +76,48 @@ async fn every_look(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
+pub const WIDTHS: [u32; 7] = [320, 360, 390, 768, 1024, 1280, 1440];
+
+pub async fn row_ok(c: &Ctx, css: &str) -> String {
+    c.ui.eval::<String>(&format!(
+        r#"(() => {{
+            const row = document.querySelector({css:?});
+            if (!row) return "missing";
+            const kids = [...row.children].filter(e => e.getBoundingClientRect().width > 0);
+            for (const k of kids) {{
+                const t = k.textContent.trim();
+                if (/^[·•|]/.test(t) || /[·•|]$/.test(t)) return "separator at a line edge: " + t;
+            }}
+            const btn = kids.find(k => k.tagName === "BUTTON" || k.querySelector("button"));
+            if (btn) {{
+                const b = btn.getBoundingClientRect();
+                const cy = b.top + b.height / 2;
+                for (const k of kids) {{
+                    if (k === btn) continue;
+                    const r = k.getBoundingClientRect();
+                    if (r.top < b.bottom && r.bottom > b.top && Math.abs(r.top + r.height / 2 - cy) > 2)
+                        return "off the button's centre by " + (r.top + r.height / 2 - cy).toFixed(1) + "px: " + k.textContent.trim();
+                }}
+            }}
+            if (row.scrollWidth > row.clientWidth + 1) return "overflows";
+            return "ok";
+        }})()"#
+    ))
+    .await
+}
+
+pub async fn every_width(c: &mut Ctx, step: &str, rows: &[&str]) {
+    for w in WIDTHS {
+        c.ui.viewport(w, 900).await;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        for row in rows {
+            assert_eq!(row_ok(c, row).await, "ok", "{row} at {w}px");
+        }
+        c.ui.shot(&format!("{step}-{w}")).await;
+    }
+    c.ui.viewport(1440, 900).await;
+}
+
 pub async fn whats_new(c: &Ctx, dialog: &str, version: &str) {
     let link = format!("[data-testid={dialog}] [data-testid=whats-new]");
     assert_eq!(c.ui.text(&link).await, format!("What's new in {version}"));
@@ -152,7 +194,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             format!("Update all to {NEW} (2)"),
             "only home and spare can take it"
         );
-        every_look(c, "clients-versions").await;
+        every_width(c, "clients-versions", &["[data-testid=updates-bar]"]).await;
 
         c.ui.nav("/clients/office").await;
         let tag = "[data-testid=live] [data-testid=client-update-tag]";
@@ -191,7 +233,12 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
 
         c.ui.nav("/clients/home").await;
         c.ui.wait_for("[data-testid=client-update]", SECS).await;
-        every_look(c, "client-update-offer").await;
+        every_width(
+            c,
+            "client-update-offer",
+            &["[data-testid=live] [data-stat-row=burrow]"],
+        )
+        .await;
         c.ui.click("[data-testid=client-update]").await;
         c.ui.wait_for("[data-testid=client-update-dialog]", SECS)
             .await;

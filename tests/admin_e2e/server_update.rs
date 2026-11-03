@@ -42,7 +42,12 @@ async fn ask(c: &mut Ctx, to: &str, step: &str) {
         1,
         "the release's page is one click away on the same line"
     );
-    every_look(c, &format!("{step}-offer")).await;
+    super::updates::every_width(
+        c,
+        &format!("{step}-offer"),
+        &["[data-testid=server-burrow]"],
+    )
+    .await;
     c.ui.click("[data-testid=server-update]").await;
     c.ui.wait_for("[data-testid=server-update-dialog]", SECS)
         .await;
