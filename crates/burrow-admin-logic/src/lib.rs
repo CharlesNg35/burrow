@@ -23,6 +23,7 @@ pub mod off;
 pub mod presence;
 pub mod rates;
 pub mod relations;
+pub mod running;
 pub mod settings_tabs;
 pub mod shorthand;
 pub mod top;

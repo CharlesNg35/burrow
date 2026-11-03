@@ -111,6 +111,12 @@ async fn the_read_tools_answer_from_the_server() {
         !secret.is_null(),
         "the secret shows as its fingerprint: {config}"
     );
+    assert!(config["values"].get("heartbeat").is_none(), "{config}");
+    let all = a.ok("get_config", json!({ "show": "with_defaults" })).await;
+    assert!(all["values"]["heartbeat"].is_object(), "{all}");
+    assert_eq!(all["values"]["services"]["web"]["target"], 3000, "{all}");
+    assert_eq!(all["values"]["visitors"]["ops"]["secret"], *secret, "{all}");
+    v.assert_no_secret(&all.to_string());
     let web = a
         .ok("describe_settings", json!({ "path": ["services"] }))
         .await;

@@ -11,6 +11,8 @@ mod checks;
 mod chips;
 #[path = "admin_e2e/compat.rs"]
 mod compat;
+#[path = "admin_e2e/config_file.rs"]
+mod config_file;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
 #[path = "admin_e2e/edit_state.rs"]

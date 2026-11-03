@@ -80,7 +80,7 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 | Tool | What it does | Listed when |
 |---|---|---|
 | `get_status` | the live status: clients with their burrow version and system, the latest release, visitors, services, traffic | always |
-| `get_config` | the config and its version; secrets only as fingerprints or `${ENV}` names | always |
+| `get_config` | the config and its version; secrets only as fingerprints or `${ENV}` names. `show: with_defaults` adds every default in effect, as burrow admin's Config file tab does | always |
 | `describe_settings` | what each key means: type, default, help, essential or advanced, locked | always |
 | `list_versions` | the kept versions, who changed what, which can be reverted | always |
 | `check_change` | validates a change and returns its diff, problems, impact and a plan id; writes nothing | `admin: write` |

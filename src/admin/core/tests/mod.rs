@@ -20,6 +20,9 @@ mod reverts;
 mod snippets;
 mod status;
 mod uploads;
+mod view;
+#[cfg(feature = "web")]
+mod view_secrets;
 #[cfg(feature = "web")]
 mod web_ports;
 mod websocket;

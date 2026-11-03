@@ -18,6 +18,7 @@ pub mod text;
 pub mod updates;
 pub mod uploads;
 pub mod values;
+pub mod view;
 
 pub use dispatch::{dispatch, ok, parse};
 
@@ -344,6 +345,14 @@ impl Core {
     }
 
     pub fn state(&self, s: &Session) -> Result<State, ApiError> {
+        self.state_as(s, burrow_admin_proto::view::Shown::Written)
+    }
+
+    pub fn state_as(
+        &self,
+        s: &Session,
+        show: burrow_admin_proto::view::Shown,
+    ) -> Result<State, ApiError> {
         let text = self.read()?;
         let rev = text::rev(&text);
         {
@@ -360,7 +369,7 @@ impl Core {
         let values = checked
             .raw
             .as_ref()
-            .map(|raw| values::present(raw, Some(&self.schema.root), "", &*self.env))
+            .map(|raw| view::shown_values(self, raw, show))
             .unwrap_or(Value::Null);
         let running_settings = self.live.settings();
         let mut restart_pending = Vec::new();

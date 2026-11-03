@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **burrow admin: Config file.** A last Settings tab shows the server's config as YAML, view only, for read and write admins: the keys the file sets, or with **Show defaults too** every default in effect. Secrets show as fingerprints or `${ENV}` names, and password hashes and credential headers stay hidden, by the same code as `burrow mcp`'s `get_config`, which takes `show: with_defaults` too. **Copy** and **Download** (`server.redacted.yaml`) take that redacted text, and a note links to Needs attention when the running server differs from the file.
+
 ## [0.2.2]
 
 Clients tell the server which burrow they run, and a client that allows it can be updated from burrow admin or `burrow mcp`, with automatic rollback. burrow admin also checks far more before you apply (ports, addresses, allow lists) and explains what to do. Older clients and servers keep working with this release in both directions.
