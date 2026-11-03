@@ -100,6 +100,11 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             c.ui.attr_of("[data-testid=server-update-state]", "title")
                 .await;
         assert!(why.contains("asked by ops"), "{why}");
+        let sub = c.ui.text("[data-testid=overview-sub]").await;
+        assert!(
+            sub.starts_with("v9.0.0-test.2 · "),
+            "the header and the update line read the same running version: {sub}"
+        );
         every_look(c, "updated").await;
         latest("9.0.0-test.6");
         ask(c, "9.0.0-test.6", "health").await;

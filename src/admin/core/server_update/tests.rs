@@ -182,3 +182,17 @@ fn the_status_carries_the_servers_own_update_state() {
     let (core, _, _) = setup(on(), Some("0.2.3"));
     assert_eq!(core.status().server_update, Some(on()));
 }
+
+#[test]
+fn the_welcome_reports_the_running_version_from_the_one_source() {
+    if std::env::var_os(crate::admin::hooks::VERSION_ENV).is_some() {
+        return;
+    }
+    let w = world();
+    let core = core_running(&w.text, &w.text);
+    let s = session(&w, AdminLevel::Write);
+    assert_eq!(
+        core.welcome(&s).server.version,
+        crate::base::build::version()
+    );
+}

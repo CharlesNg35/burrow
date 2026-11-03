@@ -76,7 +76,7 @@ async fn every_look(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
-pub const WIDTHS: [u32; 7] = [320, 360, 390, 768, 1024, 1280, 1440];
+pub const WIDTHS: [i64; 7] = [320, 360, 390, 768, 1024, 1280, 1440];
 
 pub async fn row_ok(c: &Ctx, css: &str) -> String {
     c.ui.eval::<String>(&format!(
@@ -118,9 +118,9 @@ pub async fn every_width(c: &mut Ctx, step: &str, rows: &[&str]) {
     c.ui.viewport(1440, 900).await;
 }
 
-pub async fn whats_new(c: &Ctx, dialog: &str, version: &str) {
+pub async fn whats_new(c: &Ctx, dialog: &str, version: &str, text: &str) {
     let link = format!("[data-testid={dialog}] [data-testid=whats-new]");
-    assert_eq!(c.ui.text(&link).await, format!("What's new in {version}"));
+    assert_eq!(c.ui.text(&link).await, text);
     assert_eq!(
         c.ui.attr_of(&link, "href").await,
         format!("https://github.com/CharlesNg35/burrow/releases/tag/v{version}")
@@ -132,6 +132,43 @@ pub async fn whats_new(c: &Ctx, dialog: &str, version: &str) {
         .eval("performance.getEntriesByType('resource').filter(e => e.name.includes('github')).length")
         .await;
     assert_eq!(fetched, 0.0, "the page fetches nothing from GitHub");
+}
+
+async fn not_offered(c: &mut Ctx) {
+    c.ui.nav("/clients/office").await;
+    let tag = "[data-testid=live] [data-testid=client-update-tag]";
+    c.ui.wait_text(tag, &format!("{NEW} available"), SECS).await;
+    assert_eq!(
+        c.ui.count("[data-testid=client-update]").await,
+        0,
+        "office did not opt in: no button, not a disabled one"
+    );
+    let why = c.ui.attr_of(tag, "title").await;
+    assert!(
+        why.contains("off in its config"),
+        "the reason is the tag's tooltip: {why}"
+    );
+    assert_eq!(
+        c.ui.text("[data-testid=live] [data-stat=burrow]").await,
+        OLD
+    );
+    every_look(c, "client-not-allowed").await;
+
+    c.ui.nav("/clients/lab").await;
+    c.ui.wait_for("[data-testid=live] [data-stat=burrow]", SECS)
+        .await;
+    let live = c.ui.text("[data-testid=live]").await;
+    assert!(live.contains("older than 0.2.2"), "{live}");
+    let hint =
+            c.ui.eval::<String>(
+                "document.querySelector('[data-testid=live] [data-stat=burrow]').closest('[title]')?.title ?? ''",
+            )
+            .await;
+    assert!(
+        hint.contains("sudo burrow update"),
+        "the hint is a tooltip: {hint}"
+    );
+    every_look(c, "client-older").await;
 }
 
 fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
@@ -196,40 +233,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         );
         every_width(c, "clients-versions", &["[data-testid=updates-bar]"]).await;
 
-        c.ui.nav("/clients/office").await;
-        let tag = "[data-testid=live] [data-testid=client-update-tag]";
-        c.ui.wait_text(tag, &format!("{NEW} available"), SECS).await;
-        assert_eq!(
-            c.ui.count("[data-testid=client-update]").await,
-            0,
-            "office did not opt in: no button, not a disabled one"
-        );
-        let why = c.ui.attr_of(tag, "title").await;
-        assert!(
-            why.contains("off in its config"),
-            "the reason is the tag's tooltip: {why}"
-        );
-        assert_eq!(
-            c.ui.text("[data-testid=live] [data-stat=burrow]").await,
-            OLD
-        );
-        every_look(c, "client-not-allowed").await;
-
-        c.ui.nav("/clients/lab").await;
-        c.ui.wait_for("[data-testid=live] [data-stat=burrow]", SECS)
-            .await;
-        let live = c.ui.text("[data-testid=live]").await;
-        assert!(live.contains("older than 0.2.2"), "{live}");
-        let hint =
-            c.ui.eval::<String>(
-                "document.querySelector('[data-testid=live] [data-stat=burrow]').closest('[title]')?.title ?? ''",
-            )
-            .await;
-        assert!(
-            hint.contains("sudo burrow update"),
-            "the hint is a tooltip: {hint}"
-        );
-        every_look(c, "client-older").await;
+        not_offered(c).await;
 
         c.ui.nav("/clients/home").await;
         c.ui.wait_for("[data-testid=client-update]", SECS).await;
@@ -331,8 +335,8 @@ async fn rolled_back(c: &mut Ctx) {
     );
     assert_eq!(
         c.ui.count("[data-testid=client-update]").await,
-        1,
-        "it may be asked again"
+        0,
+        "one message at a time: the result first"
     );
     every_look(c, "client-rolled-back").await;
 }

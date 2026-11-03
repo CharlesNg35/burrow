@@ -78,7 +78,7 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
             .is_some_and(|b| b.remote == RemoteUpdates::On),
         available: c.available.clone(),
         blocked: c.blocked.clone(),
-        update: c.update.clone().map(|u| UpdateStatus { secs_ago: 0, ..u }),
+        update: c.update.clone(),
     }
 }
 
@@ -200,16 +200,20 @@ impl ClientInfo {
             }
             line
         };
-        match (&self.update, &self.available) {
-            (Some(u), _) if !u.state.finished() => Card {
-                tag: Some(("updating…".into(), Mood::Busy, job(u))),
-                can_ask: false,
-            },
-            (Some(u), _) if u.state.failed() => Card {
-                tag: Some((state_text(u.state).into(), Mood::Bad, job(u))),
-                can_ask: ready,
-            },
-            (_, Some(v)) => Card {
+        use crate::own_update::{Say, say};
+        let says = say(
+            self.update.as_ref().is_some_and(|u| !u.state.finished()),
+            self.update.as_ref().map(|u| (u.state, u.secs_ago)),
+            self.available.is_some(),
+        );
+        let tag = |t: String, m: Mood| Card {
+            tag: Some((t, m, self.update.as_ref().map(job).unwrap_or_default())),
+            can_ask: false,
+        };
+        match (says, &self.update, &self.available) {
+            (Say::Running, ..) => tag("updating…".into(), Mood::Busy),
+            (Say::Failed, Some(u), _) => tag(state_text(u.state).into(), Mood::Bad),
+            (Say::Available, _, Some(v)) => Card {
                 tag: Some((
                     format!("{v} available"),
                     if self.blocked.is_some() {
@@ -221,11 +225,8 @@ impl ClientInfo {
                 )),
                 can_ask: ready,
             },
-            (Some(u), None) => Card {
-                tag: Some((state_text(u.state).into(), Mood::Good, job(u))),
-                can_ask: false,
-            },
-            (None, None) => Card::default(),
+            (Say::Done, Some(u), _) => tag(state_text(u.state).into(), Mood::Good),
+            _ => Card::default(),
         }
     }
 }
@@ -539,7 +540,7 @@ mod tests {
         let (t, m, why) = back.tag.unwrap();
         assert_eq!((t.as_str(), m), ("rolled back", Mood::Bad));
         assert!(why.contains("rolled back: did not connect"), "{why}");
-        assert!(back.can_ask, "it may be asked again");
+        assert!(!back.can_ask, "one message at a time: the result first");
         c.update.as_mut().unwrap().state = UpdateState::Done;
         c.available = None;
         let done = c.card(true);

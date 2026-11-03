@@ -24,7 +24,7 @@ impl ServerFigure {
     }
 }
 
-fn shown_for(state: UpdateState) -> u64 {
+pub fn shown_for(state: UpdateState) -> u64 {
     match state {
         UpdateState::Done => DONE_SHOWN_SECS,
         _ => RESULT_SHOWN_SECS,
@@ -39,22 +39,38 @@ fn result(u: &UpdateStatus) -> (String, Mood) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Say {
+    Running,
+    Failed,
+    Available,
+    Done,
+    Nothing,
+}
+
+pub fn say(running: bool, last: Option<(UpdateState, u64)>, newer: bool) -> Say {
+    let recent = last.filter(|(s, ago)| *ago < shown_for(*s)).map(|(s, _)| s);
+    match (running, recent, newer) {
+        (true, _, _) => Say::Running,
+        (false, Some(s), _) if s.failed() => Say::Failed,
+        (false, _, true) => Say::Available,
+        (false, Some(UpdateState::Done), false) => Say::Done,
+        _ => Say::Nothing,
+    }
+}
+
 pub fn figure(st: &Status) -> Option<ServerFigure> {
     let own = st.server_update.as_ref()?;
     let latest = st.latest.as_ref().and_then(|l| l.version.clone());
     let on = own.remote == RemoteUpdates::On;
-    let running = own.running();
-    let to = latest.filter(|l| server_is_older(&st.version, l) && !running);
-    let recent = own
-        .last
-        .as_ref()
-        .filter(|u| running || u.secs_ago < shown_for(u.state));
-    let state = match recent {
-        Some(_) if running => Some((UPDATING.to_string(), Mood::Busy)),
-        Some(u) => Some(result(u)),
-        None => None,
-    };
-    let detail = recent
+    let newer = latest.filter(|l| server_is_older(&st.version, l));
+    let last = own.last.as_ref();
+    let says = say(
+        own.running(),
+        last.map(|u| (u.state, u.secs_ago)),
+        newer.is_some(),
+    );
+    let detail = last
         .map(|u| {
             let mut line = job_text(u);
             if !u.by.is_empty() {
@@ -63,6 +79,12 @@ pub fn figure(st: &Status) -> Option<ServerFigure> {
             line
         })
         .unwrap_or_default();
+    let state = match (says, last) {
+        (Say::Running, _) => Some((UPDATING.to_string(), Mood::Busy)),
+        (Say::Failed | Say::Done, Some(u)) => Some(result(u)),
+        _ => None,
+    };
+    let to = newer.filter(|_| says == Say::Available);
     Some(ServerFigure {
         can_ask: on && to.is_some(),
         available: to.as_ref().map(|v| {
@@ -128,6 +150,12 @@ mod tests {
             "an hour after an update the header is as before"
         );
         let failed = job(UpdateState::RolledBack, "x", DONE_SHOWN_SECS);
+        let done_newer = job(UpdateState::Done, "", 5);
+        let f = figure(&status(RemoteUpdates::On, "0.2.4", Some(done_newer))).unwrap();
+        assert!(
+            f.state.is_none() && f.available.is_some(),
+            "a newer release hides the earlier success"
+        );
         let f = figure(&status(RemoteUpdates::On, "0.2.2", Some(failed))).unwrap();
         assert!(f.says_something(), "a roll back stays for a day");
         let older = job(UpdateState::RolledBack, "x", RESULT_SHOWN_SECS);
@@ -190,6 +218,36 @@ mod tests {
             back.state,
             Some(("rolled back: 0.2.3 is not running".into(), Mood::Bad))
         );
-        assert!(back.can_ask, "it may be asked again");
+        assert!(
+            back.available.is_none() && !back.can_ask,
+            "one message at a time"
+        );
+    }
+
+    #[test]
+    fn one_message_at_a_time_in_priority_order() {
+        use UpdateState::{Done, Failed, RolledBack};
+        let hour = DONE_SHOWN_SECS;
+        let day = RESULT_SHOWN_SECS;
+        let cases = [
+            (true, Some((RolledBack, 5)), true, Say::Running),
+            (true, None, false, Say::Running),
+            (false, Some((RolledBack, 5)), true, Say::Failed),
+            (false, Some((Failed, day - 1)), false, Say::Failed),
+            (false, Some((RolledBack, day)), true, Say::Available),
+            (false, Some((Done, 5)), true, Say::Available),
+            (false, None, true, Say::Available),
+            (false, Some((Done, 5)), false, Say::Done),
+            (false, Some((Done, hour)), false, Say::Nothing),
+            (false, Some((RolledBack, day)), false, Say::Nothing),
+            (false, None, false, Say::Nothing),
+        ];
+        for (running, last, newer, want) in cases {
+            assert_eq!(
+                say(running, last, newer),
+                want,
+                "{running} {last:?} {newer}"
+            );
+        }
     }
 }
