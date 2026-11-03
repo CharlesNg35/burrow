@@ -67,6 +67,12 @@ pub trait Live: Send + Sync {
     fn update_all(&self, _clients: Vec<String>, _to: &str, _by: &str) -> Result<(), String> {
         Err("this server cannot ask clients to update".into())
     }
+    fn own_update(&self) -> Option<burrow_admin_proto::updates::ServerUpdate> {
+        None
+    }
+    fn update_self(&self, _by: &str) -> Result<(), String> {
+        Err("this server cannot update itself from burrow admin".into())
+    }
 }
 
 pub trait Env: crate::config::env::EnvSource + Send + Sync {}

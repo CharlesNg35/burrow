@@ -1,7 +1,11 @@
+use burrow_admin_logic::own_update::figure;
 use burrow_admin_logic::presence::{ClientInfo, Mood, of, ready_names, rollout_line};
-use burrow_admin_proto::features::CLIENT_UPDATES;
-use burrow_admin_proto::msg::req::UPDATE_CLIENTS;
-use burrow_admin_proto::updates::{FIRST_REPORTING, UpdateClients, UpdateClientsReply};
+use burrow_admin_proto::features::{CLIENT_UPDATES, SERVER_UPDATES};
+use burrow_admin_proto::msg::req::{UPDATE_CLIENTS, UPDATE_SERVER};
+use burrow_admin_proto::updates::{
+    FIRST_REPORTING, SERVER_UPDATE_NOTE, UpdateClients, UpdateClientsReply, UpdateServer,
+    UpdateServerReply,
+};
 use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Dialog, Stat, Tone, VersionTag, tag_class};
 use leptos::prelude::*;
 
@@ -248,4 +252,100 @@ pub fn update_all_bar() -> impl IntoView {
             </div>
         </Dialog>
     }
+}
+
+fn server_offered(s: Store) -> bool {
+    s.welcome.with(|w| {
+        w.as_ref().is_some_and(|w| {
+            w.has(SERVER_UPDATES) && w.you.level == burrow_admin_proto::msg::AdminLevel::Write
+        })
+    })
+}
+
+fn ask_server(s: Store) {
+    let body = crate::api::body(&UpdateServer { dry_run: false });
+    crate::api::request(UPDATE_SERVER, body, move |r| match r {
+        Ok(v) => {
+            let reply: UpdateServerReply =
+                burrow_admin_proto::serde_json::from_value(v).unwrap_or_default();
+            s.server_updating.set(true);
+            s.toast(
+                Tone::Info,
+                format!(
+                    "Updating the server to {}: it restarts, and this tab reconnects on its own",
+                    reply.to
+                ),
+                None,
+            );
+        }
+        Err(e) => s.toast(Tone::Danger, e.message, None),
+    });
+}
+
+pub fn server_figure() -> impl IntoView {
+    let s = store();
+    let open = RwSignal::new(false);
+    let fig = Memo::new(move |_| s.status.with(|st| st.as_deref().and_then(figure)));
+    let line = move || {
+        let f = fig.get()?;
+        let tag = f.tag.clone().map(|(t, m)| (t, tone(m)));
+        let button = (server_offered(s) && f.to.is_some() && !s.server_updating.get()).then(|| {
+            let why = f.why_not.clone().filter(|_| !f.can_ask).unwrap_or_default();
+            view! { <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" disabled=!f.can_ask reason=why testid="server-update" on_click=move |_| open.set(true)/> }
+        });
+        let why = f.why_not.clone().map(|w| view! { <span class="text-xs text-text-faint" data-testid="server-update-why">{w}</span> });
+        let last = f.last.clone().map(|(l, m)| view! { <span class=format!("text-xs {}", tone(m).text()) data-testid="server-update-last">{l}</span> });
+        Some(view! {
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-muted" data-testid="server-burrow">
+                <span>"Burrow on this server"</span>
+                <VersionTag text=f.version.clone() tag=tag/>
+                {button}
+                <span class="text-xs text-text-faint" title=f.why_not.clone().unwrap_or_default() data-testid="server-update-remote">{f.remote}</span>
+            </div>
+            {(why.is_some() || last.is_some()).then(|| view! { <div class="mt-0.5 flex flex-col gap-0.5">{why}{last}</div> })}
+        })
+    };
+    let to = move || fig.with(|f| f.as_ref().and_then(|f| f.to.clone()).unwrap_or_default());
+    view! {
+        {line}
+        <Dialog open=open title=Signal::derive(move || format!("Update burrow on this server to {}?", to())) icon="download" testid="server-update-dialog">
+            <p class="text-sm">{move || format!(
+                "A root updater on the server downloads {} from the official releases and checks it against the published checksums. {SERVER_UPDATE_NOTE}",
+                to()
+            )}</p>
+            <div class="mt-4 flex justify-end gap-2">
+                <Button label="Cancel" on_click=move |_| open.set(false)/>
+                <Button label="Update the server" variant=ButtonLook::Primary testid="server-update-confirm" on_click=move |_| {
+                    open.set(false);
+                    ask_server(s);
+                }/>
+            </div>
+        </Dialog>
+    }
+}
+
+pub fn follow_server_update() {
+    let s = store();
+    Effect::new(move |_| {
+        if !s.server_updating.get() {
+            return;
+        }
+        let Some(last) = s.status.with(|st| {
+            st.as_deref()
+                .and_then(|st| st.server_update.as_ref())
+                .and_then(|u| u.last.clone())
+        }) else {
+            return;
+        };
+        if !last.state.finished() {
+            return;
+        }
+        s.server_updating.set(false);
+        let t = if last.state == burrow_admin_proto::updates::UpdateState::Done {
+            Tone::Success
+        } else {
+            Tone::Danger
+        };
+        s.toast(t, burrow_admin_proto::updates::job_text(&last), None);
+    });
 }

@@ -85,6 +85,7 @@ pub struct Store {
     pub prev: RwSignal<Route>,
     pub server_addr: RwSignal<String>,
     pub error: RwSignal<Option<String>>,
+    pub server_updating: RwSignal<bool>,
     pub edit: Edit,
 }
 
@@ -124,6 +125,7 @@ impl Store {
             route: RwSignal::new(route),
             query_seen: RwSignal::new(0),
             error: RwSignal::new(None),
+            server_updating: RwSignal::new(false),
             edit: Edit::new(),
         }
     }

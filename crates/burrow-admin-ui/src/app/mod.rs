@@ -284,6 +284,7 @@ fn Body() -> impl IntoView {
 #[component]
 fn Banners() -> impl IntoView {
     let s = store();
+    crate::screens::updates::follow_server_update();
     let show_diags = RwSignal::new(false);
     let reconnecting = move || match s.conn.get() {
         Conn::Reconnecting { attempt } => {
@@ -301,6 +302,11 @@ fn Banners() -> impl IntoView {
                     "burrow admin is not running.".to_string(),
                     "Start it again and this tab reconnects. ".to_string(),
                 )
+            } else if s.server_updating.get() {
+                (
+                    format!("{} restarts with the new release.", s.server_name()),
+                    "This tab reconnects on its own and then shows the result. ".to_string(),
+                )
             } else {
                 (
                     format!("Lost the connection to {}.", s.server_name()),
@@ -312,9 +318,14 @@ fn Banners() -> impl IntoView {
                 1 => " Your 1 change is kept.".to_string(),
                 n => format!(" Your {n} changes are kept."),
             };
+            let tone = if s.server_updating.get() {
+                Tone::Info
+            } else {
+                Tone::Warning
+            };
             Some(view! {
                 <Banner
-                    tone=Tone::Warning
+                    tone=tone
                     title=title
                     message=format!("{why}Reconnecting in {left} s · attempt {attempt}.{kept} Values are from {at}.")
                     testid="banner-reconnecting"

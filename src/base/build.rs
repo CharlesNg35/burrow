@@ -55,6 +55,19 @@ pub fn version() -> &'static str {
 
 pub const TEST_MARK: &str = "BURROW-TEST-";
 
+pub fn test_break_at_start() -> Option<crate::base::failure::Failure> {
+    use crate::base::failure::{EXIT_CONFIG, Failure};
+    match test_mark("BREAK")? {
+        "start" => Some(Failure::new("this test build stops at once")),
+        "config" => {
+            let mut f = Failure::new("this test build accepts no config");
+            f.exit = EXIT_CONFIG;
+            Some(f)
+        }
+        _ => None,
+    }
+}
+
 #[cfg(feature = "admin-test-hooks")]
 pub fn test_mark(key: &str) -> Option<&'static str> {
     use std::io::{Read, Seek, SeekFrom};

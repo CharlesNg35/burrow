@@ -76,6 +76,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         metrics: None,
         self_allow: None,
         web: None,
+        remote_updates: false,
     }
 }
 

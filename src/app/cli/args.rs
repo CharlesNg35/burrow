@@ -327,7 +327,7 @@ pub struct InitArgs {
     pub force: bool,
     #[arg(
         long,
-        help = "Client only: let the server's admin ask this client to update to a newer published release (update: remote: true); asked when run in a terminal, off otherwise"
+        help = "Client: let the server's admin ask this client to update to a newer published release, asked when run in a terminal; server: let burrow admin update the server once it is installed as a service (update: remote: true)"
     )]
     pub remote_updates: bool,
     #[arg(

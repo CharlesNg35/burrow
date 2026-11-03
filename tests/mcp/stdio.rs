@@ -54,7 +54,8 @@ async fn a_write_admin_checks_changes_but_applies_them_only_with_allow_write() {
             "apply_change",
             "check_change",
             "revert_to_version",
-            "update_clients"
+            "update_clients",
+            "update_server"
         ])
     );
     fn latest() -> burrow_admin_proto::updates::LatestRelease {
@@ -83,6 +84,18 @@ async fn a_write_admin_checks_changes_but_applies_them_only_with_allow_write() {
         .await;
     assert_eq!(asked["done"], true, "{asked}");
     assert_eq!(asked["asked"], json!([]), "{asked}");
+    let server = a.ok("update_server", json!({})).await;
+    assert_eq!(server["done"], false, "{server}");
+    assert_eq!(server["to"], "99.0.0", "{server}");
+    assert!(server["why_not"].as_str().is_some(), "{server}");
+    assert!(
+        server.get("confirm").is_none(),
+        "nothing to confirm: {server}"
+    );
+    let (refused, _) = a
+        .call("update_server", json!({ "confirm": ["update"] }))
+        .await;
+    assert!(refused, "a server that cannot update itself refuses");
     a.stop().await;
     let _ = w.stop.send(true);
 }

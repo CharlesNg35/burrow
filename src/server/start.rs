@@ -183,6 +183,11 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
 
 pub(super) async fn bind_service(name: &str, svc: &Service) -> Result<Vec<(u16, Bound)>, Failure> {
     let what = format!("service \"{name}\"");
+    if crate::base::build::test_mark("BREAK") == Some("bind") {
+        return Err(Failure::new(format!(
+            "cannot bind {what}: this test build binds no service port"
+        )));
+    }
     let mut bound = Vec::new();
     for (index, addr) in svc.binds() {
         let b = match svc.protocol {

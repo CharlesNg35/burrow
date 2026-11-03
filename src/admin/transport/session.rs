@@ -126,10 +126,33 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
     core::ok(applied)
 }
 
+async fn update_server(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
+    use crate::admin::core::server_update::{Applying, update_server};
+    let r: burrow_admin_proto::updates::UpdateServer = core::parse(&body)?;
+    if let Some(why) = cx.access.revoked() {
+        return Err(ApiError::new(
+            ErrorCode::Forbidden,
+            format!("this session lost its admin rights ({why})"),
+        ));
+    }
+    let lock = cx.hub.plan_lock_now();
+    let applying = match lock {
+        Some(_) => Applying::Idle,
+        None => Applying::Busy,
+    };
+    let (core_, session) = (cx.hub.core.clone(), cx.session.clone());
+    let reply = blocking(move || update_server(&core_, &session, &r, applying))
+        .await
+        .ok_or_else(|| ApiError::new(ErrorCode::Internal, "the request failed"))??;
+    drop(lock);
+    core::ok(reply)
+}
+
 async fn handle(cx: Arc<Ctx>, req: Request) -> Vec<u8> {
     let id = req.id;
     let result = match req.t.as_str() {
         msg::req::APPLY => apply(&cx, req.body).await,
+        msg::req::UPDATE_SERVER => update_server(&cx, req.body).await,
         msg::req::VALIDATE | msg::req::REVERT => match cx.hub.queue() {
             None => Err(ApiError::new(
                 ErrorCode::Busy,

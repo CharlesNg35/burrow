@@ -11,7 +11,7 @@ use crate::install::Manifest;
 use crate::service::helper;
 use crate::wire::protocol::{LastUpdate, Outcome, Step};
 
-const WATCH_FOR: Duration = Duration::from_secs(30 * 60);
+pub(super) const WATCH_FOR: Duration = Duration::from_secs(30 * 60);
 
 pub fn blocked(m: &Manifest) -> Option<String> {
     if !m.remote_updates || helper::helper().is_none() {
@@ -61,6 +61,7 @@ pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String
         id: job.id,
         at: record::now(),
         from: job.from.clone(),
+        by: String::new(),
     };
     let file = asked_file(m);
     record::write(&file, &asked, 0o600)

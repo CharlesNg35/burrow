@@ -5,7 +5,9 @@ pub mod adapters;
 pub mod core;
 pub mod hooks;
 pub mod latest;
+pub mod live;
 pub mod local;
+pub mod own_update;
 pub mod transport;
 
 use std::collections::HashMap;
@@ -95,6 +97,10 @@ impl Hub {
 
     pub async fn plan_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.plan_lock.lock().await
+    }
+
+    pub fn plan_lock_now(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        self.plan_lock.try_lock().ok()
     }
 
     pub fn nudger(&self) -> mpsc::Sender<Nudge> {

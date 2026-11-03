@@ -141,6 +141,44 @@ pub struct UpdateClients {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ServerUpdate {
+    #[serde(default)]
+    pub run: RunMode,
+    #[serde(default)]
+    pub remote: RemoteUpdates,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why_not: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<UpdateStatus>,
+}
+
+impl ServerUpdate {
+    pub fn running(&self) -> bool {
+        self.last.as_ref().is_some_and(|l| !l.state.finished())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct UpdateServer {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct UpdateServerReply {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub asked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why_not: Option<String>,
+    #[serde(default)]
+    pub note: String,
+}
+
+pub const SERVER_UPDATE_NOTE: &str = "The server restarts with the new release: clients, visitors and websites pause for a few seconds and reconnect on their own. If the new release does not come up healthy within a minute, the old one is put back.";
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Skipped {
     pub client: String,
     pub why: String,
@@ -216,7 +254,7 @@ pub fn hand_hint() -> String {
 pub fn job_text(u: &UpdateStatus) -> String {
     let mut line = format!("{} → {}: {}", u.from, u.to, state_text(u.state));
     if !u.detail.is_empty() && u.state.finished() {
-        line.push_str(&format!(" ({})", u.detail));
+        line.push_str(&format!(": {}", u.detail));
     }
     line
 }
@@ -254,7 +292,7 @@ mod tests {
         u.detail = "did not connect within a minute".into();
         assert_eq!(
             job_text(&u),
-            "0.2.2 → 0.2.3: rolled back (did not connect within a minute)"
+            "0.2.2 → 0.2.3: rolled back: did not connect within a minute"
         );
         u.state = UpdateState::Done;
         u.detail.clear();

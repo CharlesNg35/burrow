@@ -34,22 +34,11 @@ fn format(f: FileFormat) -> Format {
     }
 }
 
-fn connected_with(m: &crate::install::Manifest, version: &str) -> bool {
-    let Some(pid) = crate::service::main_pid(m) else {
-        return false;
-    };
-    let config = crate::base::fs::canonical_or_same(&m.config);
-    let scan = crate::status::query::scan(&crate::instance::default_dir(), Some(&config));
-    scan.found.iter().filter(|f| f.entry.pid == pid).any(|f| {
-        f.status
-            .client
-            .as_ref()
-            .is_some_and(|c| c.connected && c.build.version == version)
-    })
-}
-
 pub fn main() -> ExitCode {
     crate::admin::adapters::use_latest(crate::update::latest::cached, crate::update::latest::fresh);
+    crate::admin::own_update::use_own_update(|path| {
+        std::sync::Arc::new(crate::update::remote::ServerUpdates::new(path))
+    });
     crate::app::run::use_client_updates(|path| {
         std::sync::Arc::new(crate::update::remote::ClientUpdates::new(path))
     });
@@ -219,11 +208,9 @@ fn service(action: ServiceAction, logging: crate::app::run::Logging) -> Result<u
             let _ = logging;
             service::run_service(n.name.as_deref().unwrap_or("burrow"))
         }
-        ServiceAction::RemoteUpdate(n) => crate::update::remote::helper::run(
-            n.name.as_deref().unwrap_or("burrow"),
-            &connected_with,
-            &mut out,
-        ),
+        ServiceAction::RemoteUpdate(n) => {
+            crate::update::remote::helper::run(n.name.as_deref().unwrap_or("burrow"), &mut out)
+        }
     }
 }
 

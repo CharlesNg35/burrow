@@ -135,6 +135,7 @@ pub fn check_server(
             },
         ),
         websocket,
+        remote_updates: cfg.update.remote,
     })
 }
 

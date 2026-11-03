@@ -44,6 +44,7 @@ pub mod features {
     pub const LOCAL_CA: &str = "local-ca";
     pub const CLIENT_ALLOW: &str = "client.allow";
     pub const CLIENT_UPDATES: &str = "client.updates";
+    pub const SERVER_UPDATES: &str = "server.updates";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -61,5 +62,6 @@ pub mod features {
         LOCAL_CA,
         CLIENT_ALLOW,
         CLIENT_UPDATES,
+        SERVER_UPDATES,
     ];
 }

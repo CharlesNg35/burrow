@@ -11,6 +11,7 @@ pub mod passwords;
 pub mod plan;
 pub mod ports;
 mod runtime;
+pub mod server_update;
 pub mod snippets;
 mod status;
 pub mod summary;

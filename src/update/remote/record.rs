@@ -12,6 +12,8 @@ pub struct Asked {
     pub at: u64,
     #[serde(default)]
     pub from: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub by: String,
 }
 
 pub fn now() -> u64 {
