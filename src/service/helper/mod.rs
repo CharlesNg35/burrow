@@ -183,6 +183,7 @@ fn remove_with(h: &dyn Helper, m: &Manifest) -> Result<(), Failure> {
     h.take_trigger(m);
     if m.role != Role::Visitor {
         let _ = std::fs::remove_dir_all(dir(m));
+        let _ = std::fs::remove_dir(base().join("updates"));
     }
     Ok(())
 }

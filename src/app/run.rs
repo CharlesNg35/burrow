@@ -402,7 +402,8 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
         let (hub, nudges) = crate::admin::adapters::hub(&shared, path, env.clone());
-        let _status = crate::admin::local::publish(path, &hub);
+        let _status = (crate::base::build::test_mark("BREAK") != Some("status"))
+            .then(|| crate::admin::local::publish(path, &hub));
         shared.set_admin(hub);
         let nudges = Some(nudges);
         let stop = stop_on_signal(stop);

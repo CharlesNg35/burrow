@@ -47,11 +47,12 @@ mark s2 VERSION=9.0.0-test.2
 mark s3 VERSION=9.0.0-test.3 BREAK=config
 mark s4 VERSION=9.0.0-test.4 BREAK=bind
 mark s5 VERSION=9.0.0-test.5 BREAK=start
+mark s6 VERSION=9.0.0-test.6 BREAK=status
 mark c1 VERSION=9.0.0-test.1
 
 cd "$WORK"
 mkfifo releases.ctl
-"$SERVE" 9.0.0-test.2 s2 good 9.0.0-test.3 s3 good 9.0.0-test.4 s4 good 9.0.0-test.5 s5 good < releases.ctl > releases.url &
+"$SERVE" 9.0.0-test.2 s2 good 9.0.0-test.3 s3 good 9.0.0-test.4 s4 good 9.0.0-test.5 s5 good 9.0.0-test.6 s6 good < releases.ctl > releases.url &
 PIDS+=($!)
 exec 3> releases.ctl
 for _ in $(seq 1 600); do [ -s releases.url ] && break; sleep 0.2; done
@@ -101,14 +102,13 @@ install() {
   sudo E2E_HOME="$HOME_SECRET" E2E_OPS="$OPS_SECRET" BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_UPDATE_WINDOW=20 BURROW_ADMIN_TEST_LATEST_SECS=0 \
     "$@" 2>&1
 }
-own() { "$PROBE" ops.yaml status 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); print(json.dumps({"version": s.get("version"), "u": s.get("server_update"), "latest": (s.get("latest") or {}).get("version")}))'; }
+own() { "$PROBE" ops.yaml status 2>/dev/null | python3 2>/dev/null -c 'import json,sys; s=json.load(sys.stdin); print(json.dumps({"version": s.get("version"), "u": s.get("server_update"), "latest": (s.get("latest") or {}).get("version")}))'; }
 field() { own | python3 -c "import json,sys; c=json.load(sys.stdin); v=c$1; print(v if v is not None else '')" 2>/dev/null || true; }
 wait_for() {
   local what="$1" expr="$2" want="$3"
   for _ in $(seq 1 360); do [ "$(field "$expr")" = "$want" ] && return 0; sleep 0.5; done
   fail "$what: $(own)"
 }
-installed() { sudo "$(sudo cat "$(binary_of)" 2>/dev/null)" version 2>/dev/null; }
 binary_of() { case "$(uname)" in Darwin) echo "/Library/Application Support/burrow/services/$NAME.json" ;; *) echo /var/lib/burrow/services/$NAME.json ;; esac; }
 installed() { sudo "$(sudo cat "$(binary_of)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["binary"])')" version; }
 latest() {
@@ -177,7 +177,7 @@ field "['u']['last']['detail']" | grep -q "1 of 1 clients connected again" || fa
 installed | grep -q 9.0.0-test.2 || fail "the installed binary is $(installed)"
 check "updated to 9.0.0-test.2, asked by ops, the client came back"
 
-for case in "9.0.0-test.3:config refused" "9.0.0-test.4:a port that cannot bind" "9.0.0-test.5:a crash at start"; do
+for case in "9.0.0-test.3:config refused" "9.0.0-test.4:a port that cannot bind" "9.0.0-test.5:a crash at start" "9.0.0-test.6:a server that runs but fails the health check"; do
   v="${case%%:*}"; what="${case#*:}"
   echo "== $what is rolled back"
   latest "$v"
@@ -185,6 +185,7 @@ for case in "9.0.0-test.3:config refused" "9.0.0-test.4:a port that cannot bind"
   wait_for "the rollback" "['u']['last']['state']" rolled-back
   wait_for "the old version back" "['version']" 9.0.0-test.2
   field "['u']['last']['detail']" | grep -q "restored 9.0.0-test.2" || fail "no reason: $(own)"
+  [ "$v" != 9.0.0-test.6 ] || field "['u']['last']['detail']" | grep -q "did not answer on its local status endpoint within" || fail "not the health check: $(own)"
   installed | grep -q 9.0.0-test.2 || fail "the binary was not restored: $(installed)"
   check "$what: rolled back to 9.0.0-test.2 ($(field "['u']['last']['detail']" | cut -c1-90))"
 done
@@ -196,6 +197,6 @@ case "$(uname)" in
   *) [ ! -e "/etc/systemd/system/$NAME-update.path" ] || fail "the updater path unit is left"
      left="$(systemctl list-units --all --no-legend "$NAME*" 2>/dev/null)"; [ -z "$left" ] || fail "units are left: $left" ;;
 esac
-[ ! -e "$STATE/updates/e2e-srv" ] || fail "the update folder is left"
+[ ! -e "$STATE/updates" ] || fail "the update folders are left"
 check "updater removed"
 echo "server-update e2e: all ok"

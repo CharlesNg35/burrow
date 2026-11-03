@@ -14,12 +14,18 @@ pub struct Asked {
     pub from: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub by: String,
+    #[serde(default)]
+    pub at_ms: u64,
 }
 
 pub fn now() -> u64 {
+    now_ms() / 1000
+}
+
+pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -36,6 +42,8 @@ pub struct Record {
     pub starts: u32,
     #[serde(default)]
     pub at: u64,
+    #[serde(default)]
+    pub at_ms: u64,
 }
 
 impl Record {
@@ -49,6 +57,7 @@ impl Record {
             config: config.to_path_buf(),
             starts: 0,
             at: now(),
+            at_ms: now_ms(),
         }
     }
 
@@ -60,6 +69,7 @@ impl Record {
         self.outcome = outcome.wire().into();
         self.detail = detail.into();
         self.at = now();
+        self.at_ms = now_ms();
         self
     }
 

@@ -53,7 +53,11 @@ pub(super) fn last_from(result: &std::path::Path, asked: &std::path::Path) -> Op
 }
 
 pub(super) fn answers(r: &Record, a: &Asked) -> bool {
-    r.at >= a.at && r.from == a.from
+    let after = match (r.at_ms, a.at_ms) {
+        (0, _) | (_, 0) => r.at >= a.at,
+        (r, a) => r >= a,
+    };
+    after && r.from == a.from
 }
 
 pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String> {
@@ -62,6 +66,7 @@ pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String
         at: record::now(),
         from: job.from.clone(),
         by: String::new(),
+        at_ms: record::now_ms(),
     };
     let file = asked_file(m);
     record::write(&file, &asked, 0o600)

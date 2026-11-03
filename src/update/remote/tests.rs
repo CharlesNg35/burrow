@@ -241,6 +241,7 @@ fn the_servers_last_update_joins_who_asked_with_the_root_written_result() {
         at: 1000,
         from: "0.2.2".into(),
         by: "ops (203.0.113.7)".into(),
+        at_ms: 0,
     };
     let waiting = server::last(None, Some(asked.clone()), 1010).unwrap();
     assert_eq!(waiting.state, UpdateState::Asked);
@@ -265,4 +266,25 @@ fn the_servers_last_update_joins_who_asked_with_the_root_written_result() {
     let alone = server::last(Some(back), None, 2000).unwrap();
     assert_eq!(alone.by, "");
     assert_eq!(server::last(None, None, 0), None);
+}
+
+#[test]
+fn a_result_from_earlier_in_the_same_second_does_not_answer_a_new_request() {
+    let config = PathBuf::from("/etc/burrow/hub/server.yaml");
+    let mut before = Record::new(0, "0.2.2", "0.2.3", &config).ended(Outcome::Failed, "x");
+    before.at = 1000;
+    before.at_ms = 1_000_100;
+    let asked = record::Asked {
+        id: 0,
+        at: 1000,
+        from: "0.2.2".into(),
+        by: "ops".into(),
+        at_ms: 1_000_900,
+    };
+    assert!(!service_side::answers(&before, &asked));
+    let running = server::last(Some(before.clone()), Some(asked.clone()), 1000).unwrap();
+    assert!(!running.state.finished(), "still one job running");
+    let mut after = before;
+    after.at_ms = 1_000_950;
+    assert!(service_side::answers(&after, &asked));
 }

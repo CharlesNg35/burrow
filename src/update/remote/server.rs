@@ -153,6 +153,7 @@ impl crate::admin::own_update::OwnUpdate for ServerUpdates {
             at: record::now(),
             from: crate::base::build::version().to_string(),
             by: by.to_string(),
+            at_ms: record::now_ms(),
         };
         let file = asked_file(m);
         record::write(&file, &asked, 0o600)
