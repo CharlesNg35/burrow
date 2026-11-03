@@ -48,6 +48,7 @@ pub const NO_FORWARDS: &str = "no-forwards";
 pub const SYNTAX: &str = "syntax";
 pub const NO_SERVICES: &str = "no-services";
 pub const NO_CLIENTS: &str = "no-clients";
+pub const NO_LISTENER: &str = "no-listener";
 pub const RENAMES: &str = "renames";
 pub const REMOVES_SERVICE: &str = "removes-service";
 pub const REBINDS_SERVICE: &str = "rebinds-service";
