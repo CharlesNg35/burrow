@@ -3,13 +3,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::config::settings::{
-    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions,
-    TargetTls, WebClientAuth, WebSettings,
+    ForwardAuth, LogFormat, NameRedirect, OidcSettings, PathRedirect, RESPONSE_HEADER_TIMEOUT,
+    SiteOidc, SiteOptions, TargetTls, WebClientAuth, WebSettings,
 };
 use crate::policy::allowlist::Cidr;
 use burrow_config::{
-    AccessLogFormat, LoginPick, RedirectTarget, ServiceWeb, Target, TargetTls as TargetTlsKey,
-    WebConfig, WebSite,
+    AccessLogFormat, LoginPick, OidcPick, RedirectTarget, ServiceWeb, Target,
+    TargetTls as TargetTlsKey, WebConfig, WebSite,
 };
 use burrow_syntax::web::{SingleLabel, host_name};
 
@@ -40,6 +40,8 @@ fn bare_site() -> WebSite {
         target_http2: false,
         basic_auth: BTreeMap::new(),
         forward_auth: None,
+        oidc: None,
+        allow_users: Vec::new(),
         rate_limit: None,
         client_auth: None,
         hsts: None,
@@ -67,6 +69,8 @@ fn site_options(top: &WebConfig, s: &WebSite, target: &Target, base_dir: &Path) 
         target_http2,
         basic_auth,
         forward_auth,
+        oidc,
+        allow_users,
         rate_limit,
         client_auth,
         hsts,
@@ -118,6 +122,13 @@ fn site_options(top: &WebConfig, s: &WebSite, target: &Target, base_dir: &Path) 
             Some(LoginPick::Found(_, f)) => Some(forward(f, top)),
             _ => None,
         },
+        oidc: match oidc.as_ref().map(|l| l.pick(&top.oidc)) {
+            Some(OidcPick::Found(names)) => Some(SiteOidc {
+                providers: names.into_iter().map(str::to_string).collect(),
+                allow_users: allow_users.iter().map(|u| u.trim().to_string()).collect(),
+            }),
+            _ => None,
+        },
         rate_limit: rate_limit.or(top.rate_limit).filter(|r| *r > 0),
         client_auth: client_auth.as_ref().map(|c| WebClientAuth {
             ca: base_dir.join(c.ca.as_deref().unwrap_or_default().trim()),
@@ -157,6 +168,24 @@ pub(super) fn site_wide(top: &WebConfig, s: &mut WebSettings, base_dir: &Path) {
         (base_dir.join(a.file().trim()), format)
     });
     s.request_id = top.request_id.unwrap_or(false);
+    s.oidc = top
+        .oidc
+        .iter()
+        .map(|(name, o)| OidcSettings {
+            name: name.clone(),
+            issuer: o.issuer.trim().to_string(),
+            client_id: o.client_id.trim().to_string(),
+            client_secret: o
+                .client_secret
+                .as_deref()
+                .and_then(|v| super::fill_dns::secret(v, base_dir)),
+            secret_file: o
+                .client_secret
+                .as_deref()
+                .and_then(|v| v.trim().strip_prefix(super::fill_dns::FILE_PREFIX))
+                .map(|p| base_dir.join(p.trim())),
+        })
+        .collect();
 }
 
 fn name_redirect(name: &str, t: &RedirectTarget) -> Option<NameRedirect> {

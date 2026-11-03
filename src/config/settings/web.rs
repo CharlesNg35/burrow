@@ -31,6 +31,7 @@ pub struct WebSettings {
     pub state_dir: Option<PathBuf>,
     pub uploads: Vec<String>,
     pub history: Option<PathBuf>,
+    pub oidc: Vec<OidcSettings>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +50,15 @@ pub enum WebTls {
     Files { cert: PathBuf, key: PathBuf },
     Off,
     Internal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OidcSettings {
+    pub name: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: Option<super::dns::SecretText>,
+    pub secret_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +121,7 @@ impl WebSettings {
             state_dir: None,
             uploads: Vec::new(),
             history: None,
+            oidc: Vec::new(),
         }
     }
 
@@ -128,6 +139,7 @@ impl WebSettings {
             out.extend(l.ca.clone());
             out.extend(l.secret_files.iter().cloned());
         }
+        out.extend(self.oidc.iter().filter_map(|o| o.secret_file.clone()));
         for site in self.sites.values() {
             if let Some(c) = &site.options.client_auth {
                 out.push(c.ca.clone());

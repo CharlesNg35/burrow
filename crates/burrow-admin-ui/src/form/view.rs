@@ -150,7 +150,7 @@ pub(super) fn value_view(
 }
 
 pub(super) fn mono(v: &Value) -> AnyView {
-    view! { <span class="font-mono text-sm">{plain(v)}</span> }.into_any()
+    view! { <span class="font-mono text-sm [overflow-wrap:anywhere]">{plain(v)}</span> }.into_any()
 }
 
 fn names(v: &Value) -> Vec<String> {
@@ -192,6 +192,11 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
                 .into_any()
         }
         SemType::Cidr | SemType::CidrRule => view! { <Chip text=plain(v) mono=true/> }.into_any(),
+        SemType::Country(_) => {
+            let code = plain(v);
+            let name = burrow_syntax::country::name_of(&code.to_ascii_uppercase()).unwrap_or_default();
+            view! { <span title=name><Chip text=code mono=true/></span> }.into_any()
+        }
         SemType::Duration(_) if v.as_u64().is_some() => {
             view! { <span class="tabular-nums" title=plain(v)>{sem_text(sem, v)}</span> }.into_any()
         }
@@ -284,8 +289,21 @@ fn list_view(c: &ListC, v: &Value, ctx: &Ctx) -> AnyView {
         return view! { <span class="text-text-muted">"None"</span> }.into_any();
     }
     let item = (*c.item).clone();
+    if let SemType::Enum(_) = &inner(&item).sem {
+        let sem = inner(&item).sem.clone();
+        return view! {
+            <span class="flex flex-wrap gap-1" data-testid="enum-list">
+                {a.iter().map(|x| view! { <Chip text=sem_text(&sem, x)/> }).collect_view()}
+            </span>
+        }
+        .into_any();
+    }
+    let layout = match inner(&item).sem {
+        SemType::Object(_) => "flex flex-col gap-2",
+        _ => "flex flex-wrap gap-1",
+    };
     view! {
-        <span class="flex flex-wrap gap-1">
+        <span class=layout>
             {a.iter().map(|x| value_view(&item, Some(x), None, ctx)).collect_view()}
         </span>
     }

@@ -22,7 +22,7 @@ fn internal_sites(doc: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn fact(label: &'static str, value: String, testid: &'static str) -> impl IntoView {
+pub(super) fn fact(label: &'static str, value: String, testid: &'static str) -> impl IntoView {
     let parts: Vec<String> = value.split(':').map(str::to_string).collect();
     let n = parts.len();
     let shown = parts

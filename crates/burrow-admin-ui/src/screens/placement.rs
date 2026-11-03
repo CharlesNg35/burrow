@@ -233,7 +233,7 @@ mod tests {
             | SemType::UrlPath => true,
             SemType::List(l) => matches!(
                 l.item.sem,
-                SemType::Cidr | SemType::CidrRule | SemType::HostName(_)
+                SemType::Cidr | SemType::CidrRule | SemType::Country(_) | SemType::HostName(_)
             ),
             SemType::Union(u) => u
                 .branches

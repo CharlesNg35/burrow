@@ -1,3 +1,4 @@
+use crate::policy::geo::Countries;
 use std::sync::atomic::Ordering;
 
 use super::Shared;
@@ -125,7 +126,18 @@ impl Shared {
                     bandwidth: svc.bandwidth,
                     visitors: svc.visitors.clone(),
                     proxy_protocol: svc.proxy_protocol.map(|v| v.wire().to_string()),
-                    filtered: !svc.sources.is_open(),
+                    filtered: !svc.sources.is_open() || svc.countries.is_some(),
+                    refused_country: stats.refused_country.load(Ordering::Relaxed),
+                    allowed_countries: svc
+                        .countries
+                        .as_ref()
+                        .map(Countries::allowed)
+                        .unwrap_or_default(),
+                    denied_countries: svc
+                        .countries
+                        .as_ref()
+                        .map(Countries::denied)
+                        .unwrap_or_default(),
                     open: self.service_counts.current(name),
                     total: stats.total.load(Ordering::Relaxed),
                     refused: stats.refused.load(Ordering::Relaxed),
@@ -176,6 +188,8 @@ impl Shared {
             client: None,
             rollout: self.rollout(),
             latest: None,
+            geoip: self.geo.status(settings.geoip.as_ref()),
+            notify: self.notify_lines(),
         }
     }
 }
@@ -222,6 +236,16 @@ impl Shared {
     #[cfg(feature = "web")]
     fn local_ca_of(&self) -> Option<crate::metrics::LocalCaStatus> {
         self.local_ca_line()
+    }
+
+    #[cfg(feature = "web")]
+    fn notify_lines(&self) -> Vec<burrow_admin_proto::status::NotifyStatus> {
+        self.notifier.status()
+    }
+
+    #[cfg(not(feature = "web"))]
+    fn notify_lines(&self) -> Vec<burrow_admin_proto::status::NotifyStatus> {
+        Vec::new()
     }
 
     #[cfg(not(feature = "web"))]

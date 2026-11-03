@@ -1,4 +1,4 @@
-use burrow_admin_logic::choices::{ServiceChoice, client_choices, service_choices};
+use burrow_admin_logic::choices::{ServiceChoice, client_choices, oidc_choices, service_choices};
 use burrow_admin_logic::presence::Presence;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
@@ -16,6 +16,9 @@ pub(super) fn options_for(
 ) -> Vec<ComboOption> {
     if *entity == Entity::Client {
         return client_options(field, reserved);
+    }
+    if *entity == Entity::Oidc {
+        return oidc_options();
     }
     if *entity == Entity::Service {
         let status = store().status.get();
@@ -52,6 +55,18 @@ fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
             facet: c.detail,
             blocked: c.blocked.map(str::to_string),
             group: u8::from(c.presence != Presence::Here),
+        })
+        .collect()
+}
+
+pub fn oidc_options() -> Vec<ComboOption> {
+    oidc_choices(&store().edit.doc())
+        .into_iter()
+        .map(|c| ComboOption {
+            value: c.name.clone(),
+            label: c.name,
+            facet: c.issuer,
+            ..ComboOption::default()
         })
         .collect()
 }

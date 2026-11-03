@@ -49,6 +49,7 @@ pub struct Table {
     plain_tunnel: Option<PlainTunnel>,
     sites: HashMap<String, Arc<SiteRun>>,
     client_auth: HashMap<String, ClientAuth>,
+    logins: HashMap<String, String>,
     pub forwarding: Forwarding,
     pub request_id: bool,
 }
@@ -154,6 +155,7 @@ impl Table {
         let mut hosts = HashMap::new();
         let mut sites = HashMap::new();
         let mut client_auth = HashMap::new();
+        let mut logins = HashMap::new();
         for site in &settings.sites {
             add_site(&mut hosts, site);
             if matches!(site.tls, SiteTls::Passthrough) {
@@ -164,6 +166,18 @@ impl Table {
             if let Some(c) = &site.options.client_auth {
                 for host in &site.hosts {
                     client_auth.insert(host.clone(), c.clone());
+                }
+            }
+            if site.options.oidc.is_some() && matches!(site.tls, SiteTls::Https(_)) {
+                for host in &site.hosts {
+                    logins
+                        .entry(host.clone())
+                        .and_modify(|s: &mut String| {
+                            if site.service < *s {
+                                s.clone_from(&site.service);
+                            }
+                        })
+                        .or_insert_with(|| site.service.clone());
                 }
             }
         }
@@ -207,6 +221,7 @@ impl Table {
             plain_tunnel,
             sites,
             client_auth,
+            logins,
             forwarding: settings.forwarding.clone(),
             request_id: settings.request_id,
         }
@@ -221,6 +236,14 @@ impl Table {
             return self.client_auth.get(name);
         }
         self.client_auth.get(&wildcard_of(name)?)
+    }
+
+    pub fn login_service(&self, name: &str) -> Option<&str> {
+        let found = match self.hosts.contains_key(name) {
+            true => self.logins.get(name),
+            false => self.logins.get(&wildcard_of(name)?),
+        };
+        found.map(String::as_str)
     }
 
     pub fn limits(&self) -> impl Iterator<Item = &Arc<crate::auth::Limit>> {

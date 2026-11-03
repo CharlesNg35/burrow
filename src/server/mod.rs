@@ -7,10 +7,13 @@ mod balance;
 mod certs;
 mod control;
 mod fields;
+mod geo;
 mod health;
 mod ip_hash;
 mod listen;
 mod local;
+#[cfg(feature = "web")]
+mod notify;
 pub mod passwords;
 mod pick;
 mod reload;
@@ -82,6 +85,8 @@ pub struct Shared {
     entry_counts: balance::EntryCounts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
+    #[cfg(feature = "web")]
+    notifier: notify::Notifier,
     web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
     not_listening: Mutex<std::collections::BTreeMap<String, String>>,
     standing: Mutex<standing::Standing>,
@@ -89,6 +94,7 @@ pub struct Shared {
     wheels: Mutex<balance::Wheels>,
     local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,
+    geo: geo::Geo,
     #[cfg(feature = "web")]
     certs: Arc<burrow_web::tls::Store>,
 }
@@ -201,13 +207,6 @@ impl Shared {
                     .unwrap_or(settings.max_connections_per_client);
                 pressed(most, self.client_counts.current(c))
             })
-    }
-
-    pub(crate) fn source_allowed(&self, service: &str, ip: std::net::IpAddr) -> bool {
-        self.settings()
-            .services
-            .get(service)
-            .is_some_and(|s| s.sources.permits(ip))
     }
 
     pub(crate) fn limit(&self, service: &str) -> Arc<Limit> {
@@ -420,7 +419,10 @@ impl Drop for ActiveConn {
 pub struct Server {
     shared: Arc<Shared>,
     health: JoinHandle<()>,
+    #[cfg(feature = "web")]
+    notify: JoinHandle<()>,
     metrics: Option<MetricsTask>,
+    geo: Option<geo::GeoTask>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,
     web: Option<web::WebTask>,

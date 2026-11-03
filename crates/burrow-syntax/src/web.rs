@@ -176,6 +176,7 @@ pub const DNS_WAIT_MAX_SECS: u64 = 3600;
 
 mod check;
 pub mod headers;
+pub mod oidc;
 pub mod pages;
 
 pub use check::{

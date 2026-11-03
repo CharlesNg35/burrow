@@ -7,7 +7,10 @@ use burrow_admin_proto::value::get;
 use burrow_admin_proto::schema::Entity;
 
 use crate::field::{Entry, entity_at};
-use crate::model::{ClientEntry, ServerConfig, ServiceClient, ServiceEntry, VisitorEntry, WebSite};
+use crate::model::{
+    ClientEntry, OidcSetting, ServerConfig, ServiceClient, ServiceEntry, VisitorEntry, WebSite,
+};
+use burrow_admin_proto::serde_json;
 
 pub fn rename_refs(root: &mut Value, entry: &[String], to: &str) -> Vec<Path> {
     let Some((from, parent)) = entry.split_last() else {
@@ -16,6 +19,10 @@ pub fn rename_refs(root: &mut Value, entry: &[String], to: &str) -> Vec<Path> {
     match entity_at(parent) {
         Some(Entity::Login) => {
             rename_login(root, from, to);
+            Vec::new()
+        }
+        Some(Entity::Oidc) => {
+            rename_oidc(root, from, to);
             Vec::new()
         }
         Some(e) => rename_in_services(root, e.section(), from, to),
@@ -37,6 +44,28 @@ fn rename_login(root: &mut Value, from: &str, to: &str) {
             .filter(|v| v.as_str().map(str::trim) == Some(from))
         {
             *v = Value::String(to.to_string());
+        }
+    }
+}
+
+fn rename_oidc(root: &mut Value, from: &str, to: &str) {
+    let Some(services) = ServerConfig::SERVICES
+        .get_mut(root)
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    for svc in services.values_mut() {
+        let Some(v) = ServiceEntry::WEB.then(WebSite::OIDC).get_mut(svc) else {
+            continue;
+        };
+        let Ok(mut setting) = serde_json::from_value::<OidcSetting>(v.clone()) else {
+            continue;
+        };
+        if setting.renamed(from, to)
+            && let Ok(new) = serde_json::to_value(&setting)
+        {
+            *v = new;
         }
     }
 }
@@ -248,6 +277,26 @@ mod tests {
 
     fn p(a: &str, b: &str) -> Path {
         vec![a.to_string(), b.to_string()]
+    }
+
+    #[test]
+    fn a_renamed_login_provider_is_renamed_on_every_site_that_names_it_alone_or_in_a_list() {
+        let mut doc = json!({
+            "web": {"oidc": {"g": {"issuer": "https://accounts.google.com", "client_id": "x"}}},
+            "services": {
+                "wiki": {"client": "home", "target": 80, "web": {"hosts": ["w.example.com"], "oidc": "g"}},
+                "dav": {"client": "home", "target": 81, "web": {"hosts": ["d.example.com"], "oidc": ["w", "g"]}},
+                "all": {"client": "home", "target": 82, "web": {"hosts": ["a.example.com"], "oidc": true}}
+            }
+        });
+        let at = vec!["web".to_string(), "oidc".to_string(), "g".to_string()];
+        assert!(rename_refs(&mut doc, &at, "google").is_empty());
+        assert_eq!(doc["services"]["wiki"]["web"]["oidc"], "google");
+        assert_eq!(
+            doc["services"]["dav"]["web"]["oidc"],
+            json!(["w", "google"])
+        );
+        assert_eq!(doc["services"]["all"]["web"]["oidc"], true);
     }
 
     #[test]

@@ -57,6 +57,6 @@ mod tests {
         assert_eq!(rule(WebSite::APP_PATH.key()), Some(&OnPassthrough::Refused));
         assert_eq!(rule(WebSite::HOSTS.key()), None);
         assert_eq!(rule(WebSite::TLS.key()), None);
-        assert_eq!(rules.len(), 20, "{rules:?}");
+        assert_eq!(rules.len(), 22, "{rules:?}");
     }
 }

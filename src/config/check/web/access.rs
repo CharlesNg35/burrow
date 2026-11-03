@@ -17,6 +17,7 @@ pub(super) fn check_access(
     out: &mut Vec<Diagnostic>,
 ) {
     super::logins::check_names(cfg, spans, out);
+    super::oidc::check_providers(cfg, base_dir, spans, out);
     for (name, svc) in &cfg.services {
         let Some(web @ ServiceWeb::Site(site)) = svc.web.as_ref() else {
             continue;
@@ -58,6 +59,14 @@ pub(super) fn check_access(
         }
         passwords(name, site, served, &at, out);
         super::logins::forward(cfg, name, site, served, &at, out);
+        let fallback = cfg.web.as_ref().and_then(|w| w.https_redirect);
+        let s = super::oidc::SiteAt {
+            name,
+            site,
+            served,
+            https_redirect: site.https_redirect.or(fallback),
+        };
+        super::oidc::check_site(cfg, &s, &at, out);
         client_auth(name, site, served, tunnel, base_dir, &at, out);
         if served != Served::Plain {
             devices_on_port_80(cfg, name, site, &at, out);
@@ -114,6 +123,7 @@ fn public_port(name: &str, bind: &Bind, site: &WebSite, at: &At<'_>, out: &mut V
             .filter(|f| f.on())
             .map(|_| "forward_auth"),
         site.client_auth.as_ref().map(|_| "client_auth"),
+        site.oidc.as_ref().filter(|o| o.on()).map(|_| "oidc"),
     ]
     .into_iter()
     .flatten()

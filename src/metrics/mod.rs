@@ -24,6 +24,7 @@ pub struct Traffic {
 pub struct ServiceStats {
     pub total: AtomicU64,
     pub refused: AtomicU64,
+    pub refused_country: AtomicU64,
     pub traffic: Traffic,
     pub http: [AtomicU64; 5],
 }
@@ -114,6 +115,13 @@ impl Metrics {
         stats.refused.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn refuse_country(&self, service: &str) {
+        self.refuse(service);
+        self.service(service)
+            .refused_country
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn client_left(&self, name: &str) {
         self.left
             .lock()
@@ -180,8 +188,8 @@ impl Metrics {
 }
 
 pub use burrow_admin_proto::status::{
-    AcmeStatus, CertSourceStatus, CertStateStatus, CertStatus, ClientStatus, HealthStatus,
-    LocalCaStatus, ServiceStatus, SetAside, Status, VisitorStatus,
+    AcmeStatus, CertSourceStatus, CertStateStatus, CertStatus, ClientStatus, GeoipStatus,
+    HealthStatus, LocalCaStatus, ServiceStatus, SetAside, Status, VisitorStatus,
 };
 
 #[cfg(test)]

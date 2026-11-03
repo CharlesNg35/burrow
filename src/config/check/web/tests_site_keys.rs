@@ -55,7 +55,7 @@ fn http_keys_on_a_passthrough_service_are_refused_each_by_name() {
     assert_eq!(found.len(), 5, "{found:#?}");
 }
 
-const ON_PASSTHROUGH: [(&str, &str); 20] = [
+const ON_PASSTHROUGH: [(&str, &str); 22] = [
     ("paths", "[/a]"),
     ("https_redirect", "false"),
     ("challenge", "http"),
@@ -65,6 +65,8 @@ const ON_PASSTHROUGH: [(&str, &str); 20] = [
     ("maintenance", "true"),
     ("basic_auth", "{ alice: x }"),
     ("forward_auth", "authelia"),
+    ("oidc", "google"),
+    ("allow_users", "[a@b.co]"),
     ("rate_limit", "10"),
     ("client_auth", "{ ca: ca.pem }"),
     ("target_tls", "{ insecure_skip_verify: true }"),

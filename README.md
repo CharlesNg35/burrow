@@ -358,7 +358,7 @@ sudo burrow status       # once
 sudo burrow status -f    # live, with rates, until Ctrl-C
 ```
 
-Prometheus metrics are there too, off until you turn them on, and so is the live dashboard of `burrow admin`.
+Prometheus metrics are there too, off until you turn them on, and so are messages to a webhook, an ntfy topic or an email address when a client goes offline or a certificate fails, and the live dashboard of `burrow admin`.
 
 **Read more:** [docs/monitoring.md](docs/monitoring.md)
 

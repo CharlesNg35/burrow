@@ -42,9 +42,9 @@ pub(super) async fn tcp_service(
             }
         };
         let svc = config.borrow().clone();
-        if !shared.source_allowed(&name, peer.ip()) {
-            shared.metrics.refuse(&name);
-            debug!(%peer, "service \"{name}\": source address not allowed, closing");
+        let verdict = shared.admission(&name, peer.ip());
+        if !verdict.admitted() {
+            debug!(%peer, "service \"{name}\": {}, closing", refused_why(verdict));
             continue;
         }
         let shared = shared.clone();
@@ -424,6 +424,13 @@ fn busy(client: &str) -> String {
         format!(
             "client \"{client}\" answered busy: it has reached its max_connections; raise max_connections in its client.yaml"
         )
+    }
+}
+
+pub(super) fn refused_why(verdict: crate::policy::geo::Verdict) -> &'static str {
+    match verdict {
+        crate::policy::geo::Verdict::Region => "the visitor's country is not allowed",
+        _ => "source address not allowed",
     }
 }
 

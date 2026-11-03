@@ -121,6 +121,7 @@ pub(in crate::config::check) fn written(
         {
             false
         }
+        [web, oidc, ..] if web == "web" && oidc == "oidc" => false,
         [web, ..] if web == "web" => true,
         [services, _, web, ..] => services == "services" && web == "web",
         _ => false,

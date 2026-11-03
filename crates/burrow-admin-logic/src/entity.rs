@@ -41,12 +41,21 @@ const LOGIN: Info = Info {
     rename_note: "Websites that use it are renamed with it.",
 };
 
+const OIDC: Info = Info {
+    singular: "login provider",
+    icon: "stack",
+    name_example: "google or work",
+    intro: "A sign-in service, such as Google or Microsoft, that visitors log in with before a website lets them in.",
+    rename_note: "Websites that use it are renamed with it.",
+};
+
 pub fn info(e: &Entity) -> &'static Info {
     match e {
         Entity::Client => &CLIENT,
         Entity::Visitor => &VISITOR,
         Entity::Service | Entity::Unknown(_) => &SERVICE,
         Entity::Login => &LOGIN,
+        Entity::Oidc => &OIDC,
     }
 }
 
@@ -68,6 +77,7 @@ mod tests {
             Entity::Visitor,
             Entity::Service,
             Entity::Login,
+            Entity::Oidc,
         ] {
             let i = info(&e);
             assert!(!i.singular.is_empty() && !i.icon.is_empty(), "{e:?}");

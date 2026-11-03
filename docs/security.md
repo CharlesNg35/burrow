@@ -42,6 +42,7 @@ Several checks decide what a connection may reach, and the client has the last w
 - **A private service has no port on the server at all.** Only the visitors it lists can reach it.
 - **A visitor reaches only** the services that list it, and clients only through `reach`.
 - **`allow_from` and `deny_from`** are checked on the server before anything enters the tunnel, also for visitors of private services.
+- **`allow_countries` and `deny_countries`** are checked there too, for public ports and websites only.
 - **The server itself** (`client: self`) connects only to what `self.allow` permits. It never connects to its own listen, WebSocket or metrics addresses, nor to link-local or cloud metadata addresses that `self.allow` does not name on their own.
 
 ## Guessing names
@@ -80,6 +81,7 @@ A website is open to every browser, so burrow checks each request before it reac
 - **Logins never fail open** ([Who may visit](web/access.md)):
   - `basic_auth` takes argon2id or bcrypt hashes with capped costs, and never passes the `Authorization` header to the app. It allows 10 wrong passwords a minute per address (IPv6 per /64), on all sites together, and then answers `429`, the right password included.
   - `forward_auth` removes a visitor's own copies of the headers every login service passes on (also written with `_`). A login service that is down or slow gives `502`, `503` or `504`, never the app.
+  - `oidc` uses the authorization code flow with PKCE, `state` and `nonce` ([RFC 9700](https://www.rfc-editor.org/rfc/rfc9700)), checks the ID token's signature, issuer, audience, expiry and nonce, and refuses an unverified email. Its login cookie is encrypted and signed (AES-256-GCM), `__Host-` prefixed, `HttpOnly`, `Secure` and `SameSite=Lax`, and never reaches the app. A provider that cannot be reached gives `502`, never the app.
   - `client_auth` checks device certificates in the TLS handshake, and refuses the devices in its revocation list. It answers `421` to a request for another name than the connection's, so a wildcard certificate cannot carry a visitor from an open name to a protected one.
 - **`target_tls` checks the app's certificate** unless you write `insecure_skip_verify: true`, which validate notes.
 - **DNS provider secrets** (`cloudflare.token`, `rfc2136.secret`, `acme_dns.password`) come only from `${VAR}` or `file:`; validate refuses one written in the config. They are never printed, and burrow wipes them from memory when they are no longer needed. Give a Cloudflare token only Zone: Read and DNS: Edit on the zones it serves, and an RFC 2136 key only the `_acme-challenge` names.

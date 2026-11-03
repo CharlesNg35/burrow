@@ -5,6 +5,7 @@
 
 pub mod address;
 pub mod cidr;
+pub mod country;
 pub mod defaults;
 pub mod duration;
 pub mod endpoint;

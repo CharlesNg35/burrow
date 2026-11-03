@@ -67,6 +67,7 @@ fn cases(sem: &SemType) -> Cases {
         SemType::ServerAddress => Cases::Values(server_address_cases()),
         SemType::Cidr => Cases::Values(cidr_cases()),
         SemType::CidrRule => Cases::Values(cidr_rule_cases()),
+        SemType::Country(_) => Cases::Values(country_cases()),
         SemType::Union(_) => Cases::Values(union_cases()),
         SemType::HostName(_) => Cases::Values(host_name_cases()),
         SemType::UrlPath | SemType::Path(_) => Cases::Locked,
@@ -322,6 +323,21 @@ fn cidr_cases() -> Vec<Case> {
             json!("10.0.0.0/33"),
             json!("x"),
             json!("10.0.0.0/8:22"),
+        ],
+    )
+}
+
+fn country_cases() -> Vec<Case> {
+    items(
+        ServiceEntry::ALLOW_COUNTRIES.of("web"),
+        &[
+            json!("FR"),
+            json!("ch"),
+            json!("XK"),
+            json!("France"),
+            json!("ZZ"),
+            json!("FRA"),
+            json!(""),
         ],
     )
 }

@@ -88,6 +88,24 @@ pub fn service_choices(doc: &Value, status: Option<&Status>) -> Vec<ServiceChoic
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderChoice {
+    pub name: String,
+    pub issuer: String,
+}
+
+pub fn oidc_choices(doc: &Value) -> Vec<ProviderChoice> {
+    crate::oidc::providers(doc)
+        .iter()
+        .map(|(name, v)| ProviderChoice {
+            name: name.clone(),
+            issuer: crate::oidc::config(v)
+                .map(|c| c.issuer.trim().to_string())
+                .unwrap_or_default(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +263,28 @@ mod tests {
         assert_eq!(label_of("self", &reserved()), "This server");
         assert_eq!(label_of("home", &reserved()), "home");
         assert_eq!(label_of("self", &[]), "self");
+    }
+
+    #[test]
+    fn login_providers_are_offered_by_name_with_their_issuer() {
+        let doc = json!({"web": {"oidc": {
+            "google": {"issuer": " https://accounts.google.com ", "client_id": "x"},
+            "work": {"issuer": "https://id.example.com/realms/work", "client_id": "y"}
+        }}});
+        let got = oidc_choices(&doc);
+        assert_eq!(
+            got,
+            vec![
+                ProviderChoice {
+                    name: "google".into(),
+                    issuer: "https://accounts.google.com".into()
+                },
+                ProviderChoice {
+                    name: "work".into(),
+                    issuer: "https://id.example.com/realms/work".into()
+                },
+            ]
+        );
+        assert!(oidc_choices(&json!({})).is_empty());
     }
 }

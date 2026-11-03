@@ -539,10 +539,6 @@ fn status_json_keeps_its_exact_shape() {
             total: 5,
             last_seen_secs: Some(30),
         }],
-        web: None,
-        certificates: Vec::new(),
-        acme: None,
-        local_ca: None,
         ..Status::default()
     };
     let golden = r#"{

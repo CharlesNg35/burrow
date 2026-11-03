@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use burrow::update::archive::{from_tar_gz, from_zip};
-use burrow::update::http::{Fetched, get};
+use burrow::wire::fetch::{Fetched, get};
 use output::text;
 use releases::{Releases, Reply, archive};
 

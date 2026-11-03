@@ -24,9 +24,11 @@ hickory-proto = { version = "0.26.3", default-features = false, features = ["std
 http = "1.5.0"
 http-body-util = "0.1.5"
 httpdate = "1.0.3"
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_lc_rs"] }
 instant-acme = { version = "=0.8.5", default-features = false, features = ["aws-lc-rs", "rcgen", "time"] }
 hyper = { version = "1.12.0", default-features = false, features = ["http1", "http2", "server", "client"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+oauth2 = { version = "5.0.0", default-features = false }
 ppp = "2.3.0"
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem", "crypto"] }
 resolv-conf = "0.7.6"
@@ -39,6 +41,7 @@ tokio = { version = "1.53.3", features = ["net", "io-util", "time", "sync", "rt"
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
 tokio-util = { version = "0.7.20", default-features = false, features = ["io"] }
 tracing = "0.1.44"
+url = "2.5.8"
 webpki-roots = "1.0.10"
 zeroize = "1.9.1"
 x509-cert = { version = "0.3.0", default-features = false, features = ["hazmat"] }

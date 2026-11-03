@@ -397,3 +397,19 @@ fn a_port_used_twice_reads_as_a_sentence_without_a_subject() {
         "This port is already used by another service or listener; pick another port"
     );
 }
+
+#[test]
+fn an_invalid_country_says_only_what_is_wrong_beside_its_field() {
+    let d: burrow_admin_proto::diag::Diag =
+        burrow_admin_proto::serde_json::from_value(burrow_admin_proto::serde_json::json!({
+            "severity": "error",
+            "code": burrow_admin_proto::codes::INVALID_COUNTRY,
+            "message": "invalid allow_countries entry for service \"shop\": \"Atlantis\" is not a country: use a two-letter ISO 3166 code or a country name, for example FR, DE or Switzerland",
+            "path": ["services", "shop", "allow_countries", "5"]
+        }))
+        .unwrap();
+    assert_eq!(
+        diag_text(&d),
+        "\"Atlantis\" is not a country: use a two-letter ISO 3166 code or a country name, for example FR, DE or Switzerland"
+    );
+}

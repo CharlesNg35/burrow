@@ -21,21 +21,22 @@ fn note(entity: &Entity) -> &'static str {
 }
 
 pub(crate) fn problem_of(entity: &Entity, name: &str) -> Option<String> {
-    if *entity != Entity::Login {
-        return name_problem(name, entity.section(), None);
-    }
+    let what = match entity {
+        Entity::Login | Entity::Oidc => what(entity),
+        _ => return name_problem(name, entity.section(), None),
+    };
     if let Err(e) = check_name(name) {
         return Some(e);
     }
     if RESERVED_LOGIN_NAMES.contains(&name) {
         return Some(format!(
-            "{name} means on or off; give the login service another name"
+            "{name} means on or off; give the {what} another name"
         ));
     }
     names_of(entity)
         .iter()
         .any(|t| t == name)
-        .then(|| format!("a login service named {name} already exists"))
+        .then(|| format!("a {what} named {name} already exists"))
 }
 
 #[component]
@@ -59,7 +60,10 @@ pub fn RenameEntity(entity: Entity, name: String, open: RwSignal<bool>) -> impl 
         open.set(false);
         let mut path = entity_path(&ent);
         path.push(old.clone());
-        if n != old && store().edit.rename(&path, &n) && ent != Entity::Login {
+        if n != old
+            && store().edit.rename(&path, &n)
+            && !matches!(ent, Entity::Login | Entity::Oidc)
+        {
             go(Route::Detail(ent.section().to_string(), n));
         }
     });

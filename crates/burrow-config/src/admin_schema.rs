@@ -97,6 +97,7 @@ pub mod sem {
         ServerAddress,
         Cidr,
         CidrRule,
+        Country,
         Duration,
         Size,
         Rate,
@@ -134,6 +135,7 @@ carriers!(HostName: String);
 carriers!(ServerAddress: String);
 carriers!(Cidr: String);
 carriers!(CidrRule: String);
+carriers!(Country: String);
 carriers!(Duration: u32, u64);
 carriers!(Size: u32, u64);
 carriers!(Rate: String);
@@ -157,8 +159,8 @@ pub mod __private {
         sem, type_bounds,
     };
     pub use burrow_admin_proto::schema::{
-        Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
-        HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC,
+        Applies, Cond, CountryC, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field,
+        Group, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC,
         PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC, RefMapC, Relation,
         SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UploadC,
     };
@@ -200,6 +202,13 @@ pub fn entities() -> Vec<EntityInfo> {
             path: crate::field::logins_path(),
             label: "Login service".to_string(),
             plural: Entity::Login.plural().to_string(),
+            facets: Vec::new(),
+        },
+        EntityInfo {
+            entity: Entity::Oidc,
+            path: crate::field::oidc_path(),
+            label: "Login provider".to_string(),
+            plural: Entity::Oidc.plural().to_string(),
             facets: Vec::new(),
         },
     ]

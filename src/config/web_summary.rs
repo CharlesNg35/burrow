@@ -321,6 +321,13 @@ fn access(s: &ServerSettings, web: &WebSettings, service: &str) -> Vec<String> {
         if o.client_auth.is_some() {
             parts.push("device certificate".into());
         }
+        if let Some(l) = &o.oidc {
+            parts.push(format!(
+                "login with {} for {}",
+                l.providers.join(" or "),
+                l.allow_users.join(", ")
+            ));
+        }
     }
     if let Some(sources) = s.services.get(service).map(|svc| &svc.sources) {
         for (key, list) in [("allow_from", &sources.allow), ("deny_from", &sources.deny)] {
@@ -329,6 +336,14 @@ fn access(s: &ServerSettings, web: &WebSettings, service: &str) -> Vec<String> {
                 parts.push(format!("{key} {}", list.join(", ")));
             }
         }
+    }
+    if let Some(c) = s
+        .services
+        .get(service)
+        .and_then(|svc| svc.countries.as_ref())
+    {
+        let codes: Vec<&str> = c.codes().iter().map(String::as_str).collect();
+        parts.push(format!("{} {}", c.key(), codes.join(", ")));
     }
     parts
 }

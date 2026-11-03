@@ -125,6 +125,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             .parse::<rule::Rule>()
             .map(|_| ())
             .map_err(|e| e.describe()),
+        SemType::Country(_) => burrow_syntax::country::country(&want_text(v)?).map(|_| ()),
         SemType::Duration(c) => check_duration(c, v),
         SemType::Size(_) => {
             let n = want_int(v)?;

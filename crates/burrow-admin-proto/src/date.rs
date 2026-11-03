@@ -4,6 +4,16 @@ const MONTHS: [&str; 12] = [
 ];
 
 pub fn date(unix: u64) -> String {
+    let (y, m, d) = civil(unix);
+    format!("{d} {} {y}", MONTHS[(m - 1) as usize])
+}
+
+pub fn year_month(unix: u64) -> String {
+    let (y, m, _) = civil(unix);
+    format!("{y:04}-{m:02}")
+}
+
+fn civil(unix: u64) -> (i64, i64, i64) {
     let z = (unix / DAY) as i64 + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z - era * 146_097;
@@ -13,7 +23,7 @@ pub fn date(unix: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{d} {} {y}", MONTHS[(m - 1) as usize])
+    (y, m, d)
 }
 
 pub fn date_time(unix: u64) -> String {
@@ -49,6 +59,8 @@ mod tests {
         assert_eq!(date(4_102_444_800), "1 Jan 2100");
         assert_eq!(date(66_303_014_400), "22 Jan 4071");
         assert_eq!(date_time(4_102_444_800 + 3_723), "1 Jan 2100 01:02 UTC");
+        assert_eq!(year_month(951_782_400), "2000-02");
+        assert_eq!(year_month(4_102_444_800 - 1), "2099-12");
     }
 
     #[test]

@@ -211,6 +211,8 @@ mod tests {
             client: None,
             rollout: None,
             latest: None,
+            geoip: None,
+            notify: Vec::new(),
         }
     }
 

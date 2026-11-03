@@ -20,6 +20,7 @@ pub mod input;
 pub mod logins;
 pub mod more;
 pub mod off;
+pub mod oidc;
 pub mod presence;
 pub mod rates;
 pub mod relations;

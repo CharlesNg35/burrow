@@ -363,6 +363,7 @@ fn carriers_cover_semtypes() {
             SemType::ServerAddress => assert_carrier::<String, sem::ServerAddress>(),
             SemType::Cidr => assert_carrier::<String, sem::Cidr>(),
             SemType::CidrRule => assert_carrier::<String, sem::CidrRule>(),
+            SemType::Country(_) => assert_carrier::<String, sem::Country>(),
             SemType::Duration(_) => assert_carrier::<u32, sem::Duration>(),
             SemType::Size(_) => assert_carrier::<u64, sem::Size>(),
             SemType::Rate => assert_carrier::<String, sem::Rate>(),

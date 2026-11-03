@@ -14,7 +14,7 @@ pub(crate) fn worded(code: &str, subject: &str) -> Option<String> {
         UNREACHABLE_SERVICE => {
             "Nothing reaches this service: turn on a public port, a website or visitors under Reached by".into()
         }
-        AUTH_BOTH => "Use passwords or a login service on this website, not both".into(),
+        AUTH_BOTH => "Use one kind of login on this website: passwords, a login service or login providers".into(),
         DUPLICATE_BIND if subject.is_empty() => {
             "This port is already used by another service or listener; pick another port".into()
         }
@@ -100,6 +100,43 @@ mod tests {
         out
     }
 
+    fn file_lines() -> Vec<(&'static str, &'static str)> {
+        let client_file = [
+            "allow-all",
+            "allow-ignored",
+            "no-allow-list",
+            "invalid-cidr",
+            "invalid-socket",
+            "invalid-reconnect",
+            "unused-option",
+            "invalid-address",
+            "invalid-forward",
+            "no-forwards",
+            "range-mismatch",
+            "shared-forward",
+            "socks-one-port",
+            "socks-udp",
+            "udp-unix-target",
+            "invalid-header",
+            "invalid-proxy",
+        ];
+        let file_load = [
+            "syntax",
+            "read",
+            "invalid",
+            "not-a-mapping",
+            "unknown-role",
+            "wrong-role",
+            "world-readable",
+            "edit-spare",
+            "env-syntax",
+        ];
+        let mut out = Vec::new();
+        out.extend(client_file.map(|c| (c, CLIENT_FILE)));
+        out.extend(file_load.map(|c| (c, FILE_LOAD)));
+        out
+    }
+
     fn allowed() -> Vec<(&'static str, &'static str)> {
         let key_led = [
             "app-path",
@@ -149,6 +186,15 @@ mod tests {
             "unknown-login",
             "forward-auth-unused",
             "forward-auth-h2",
+            "oidc",
+            "unknown-oidc",
+            "oidc-unused",
+            "oidc-secret",
+            "allow-users",
+            "countries-both",
+            "countries-unused",
+            "geoip-unused",
+            "geoip-invalid",
             "low-port",
             "swapped-port",
             "not-this-machine",
@@ -160,36 +206,6 @@ mod tests {
             "web-port",
             "invalid-pool",
         ];
-        let client_file = [
-            "allow-all",
-            "allow-ignored",
-            "no-allow-list",
-            "invalid-cidr",
-            "invalid-socket",
-            "invalid-reconnect",
-            "unused-option",
-            "invalid-address",
-            "invalid-forward",
-            "no-forwards",
-            "range-mismatch",
-            "shared-forward",
-            "socks-one-port",
-            "socks-udp",
-            "udp-unix-target",
-            "invalid-header",
-            "invalid-proxy",
-        ];
-        let file_load = [
-            "syntax",
-            "read",
-            "invalid",
-            "not-a-mapping",
-            "unknown-role",
-            "wrong-role",
-            "world-readable",
-            "edit-spare",
-            "env-syntax",
-        ];
         let plain = [
             "admin-shared",
             "allow-every-address",
@@ -200,6 +216,7 @@ mod tests {
             "invalid-name",
             "invalid-path",
             "invalid-reach",
+            "geoip-not-ready",
             "link-local-target",
             "missing-secret",
             "no-clients",
@@ -235,8 +252,7 @@ mod tests {
         ];
         let mut out = Vec::new();
         out.extend(key_led.map(|c| (c, KEY_LED)));
-        out.extend(client_file.map(|c| (c, CLIENT_FILE)));
-        out.extend(file_load.map(|c| (c, FILE_LOAD)));
+        out.extend(file_lines());
         out.extend(plain.map(|c| (c, PLAIN)));
         out.extend(server_lines());
         out.extend(["x", "unknown-client"].map(|c| (c, TEST_ONLY)));

@@ -9,7 +9,7 @@ Words like client, visitor, service and target have one meaning throughout; the 
 | I want to… | Read |
 | --- | --- |
 | understand the three config files and every key | [Configuration](configuration.md) |
-| expose a TCP or UDP port, limit who may connect, use several clients | [Services](services.md) |
+| expose a TCP or UDP port, limit who may connect by address or country, use several clients | [Services](services.md) |
 | reach home machines from my laptop without opening them to the internet | [Private services and visitors](visitors.md) |
 | connect clients through nginx, Caddy, Cloudflare or another HTTPS-only path | [WebSocket](websocket.md) |
 | serve my apps as websites, with automatic HTTPS | [Websites](web.md) |
@@ -22,7 +22,7 @@ Words like client, visitor, service and target have one meaning throughout; the 
 | see which burrow each client runs, and update clients from the server | [Updating clients](updates.md) |
 | watch traffic and change the config in a browser | [burrow admin](admin.md) |
 | let an AI app read or change the server | [burrow mcp](mcp.md) |
-| see clients, services and certificates, or collect metrics | [Monitoring](monitoring.md) |
+| see clients, services and certificates, collect metrics, or get a message when something fails | [Monitoring](monitoring.md) |
 | know how burrow protects the tunnel and what I must do | [Security](security.md) |
 
 ## Websites in depth
@@ -32,7 +32,7 @@ Words like client, visitor, service and target have one meaning throughout; the 
 | know what happens to a request, step by step | [How it works](web/how-it-works.md) |
 | get certificates: Let's Encrypt, my own files, DNS checks, the local CA | [Certificates](web/certificates.md) |
 | split one name between apps, or redirect | [Paths and redirects](web/routing.md) |
-| add passwords, single sign-on, rate limits or device certificates | [Who may visit](web/access.md) |
+| add passwords, single sign-on, login with Google or my own provider, rate limits or device certificates | [Who may visit](web/access.md) |
 | set headers, upload limits, error pages, or HTTPS to the app | [Headers, limits and pages](web/headers-limits-pages.md) |
 | run behind Cloudflare, a load balancer or a home router | [Behind a proxy](web/proxies.md) |
 | serve HTTP/2 or gRPC | [HTTP/2 and gRPC](web/http2-grpc.md) |
