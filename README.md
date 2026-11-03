@@ -32,7 +32,7 @@ The client connects out to the server and keeps that connection open, so the rou
 - **Websites with automatic HTTPS:** many sites on one port 443, with free Let's Encrypt certificates, logins, redirects and HTTP/2.
 - **Always up:** several clients per service, with failover, load balancing and health checks.
 - **A clean web admin:** watch traffic and manage clients, services, visitors and settings in your browser, with a review of each change before it applies.
-- **Works with AI apps:** `burrow mcp` lets Claude Code, Codex or Cursor read the server and, if you allow it, change it through the same review.
+- **Works with AI apps:** `burrow mcp` lets Claude Desktop, Claude Code, Codex, Cursor, Cherry Studio and other MCP apps read the server and, if you allow it, change it through the same review.
 - **Runs everywhere:** Linux, macOS, Windows, FreeBSD and Docker, as a system service, even where only HTTPS gets through to the server.
 
 ## Contents
@@ -105,7 +105,7 @@ If the home machine has no copy of the server's files, run `./burrow init client
 
 
 ```sh
-./burrow init server|client|visitor           # write a new config (asks what it needs)
+./burrow init server|client|visitor           # write a new config (asks what it needs; on an existing visitor.yaml, offers to update it)
 ./burrow server | client | visit              # run a server, a client or a visitor (-c FILE, or the file in this folder)
 ./burrow validate -c server.yaml              # check a config: exit 0 valid, 1 invalid, 2 usage error
 ./burrow client-config office --server myserver.example.com -o office.yaml  # the config for client "office" of server.yaml

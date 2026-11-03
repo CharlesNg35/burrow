@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+`burrow mcp` starts reliably from any AI app, stops at once, says what went wrong, and tells the AI what this session may do.
+
+- **Stops at once:** Ctrl-C, SIGTERM or the app closing stdin stop `burrow mcp` within a second, also before an app spoke to it (Ctrl-C was ignored there) and while a call waits for the server.
+- **Handshake first:** it answers the app's MCP handshake at once and connects to the server in the background. If the link fails or drops, each tool says where and what to do ("burrow mcp on this computer could not connect to …: could not look up … (DNS: …)"), and the next call connects again with a fresh DNS lookup and a backoff of up to 8 s. `get_status` shows the link under `mcp_link`. A DNS failure now reads "could not look up HOST (DNS: …)" in the client and visitor logs too.
+- **Errors the app can see:** a missing or broken config is sent to the app as an MCP error on its handshake, instead of a bare "Connection closed", and `burrow-mcp.log` next to the visitor config (or in burrow's state folder) keeps it. "Connection closed: initialize request" now reads "no AI app spoke to it".
+- **One standard config:** `burrow mcp --print-config` without an app name prints the common `mcpServers` JSON, with the full path of burrow and of the config, and the same as fields, one argument per line, for apps with a form like Cherry Studio. Run in a terminal, `burrow mcp` shows the full commands for any app, one app and `--check`, with `-c` and the config's full path. `--print-config claude|codex|cursor` stays, built from the same values; with `--allow-write`, every printed setup includes it.
+- **The whole command in one argument** (`"mcp -c FILE"`, as one line of Cherry Studio's Arguments field) gets an error that says to put each argument on its own line.
+- **`burrow mcp --check`** starts as an app would and reports the config, the server, the admin level, whether writes are allowed and the tools; exit code 0 means ready.
+- **Instructions that match the session:** read-only, check-only (without `--allow-write`) or write. In check-only mode the AI is told that changes can be checked but not applied, and `check_change` says so in its `apply` field, so the AI asks you to restart burrow mcp with `--allow-write` instead of promising a change.
+- **`validate_config`**, a new read-only tool at every admin level: it checks a config or a fragment with burrow's own validation, as `burrow validate` does, and writes nothing. The instructions tell the AI to check every config example with it before showing it, and `describe_settings` says it gives each key's help and examples.
+- **`burrow init visitor` on an existing visitor.yaml**, on a terminal, offers to update it from the server (`--update`) instead of only refusing; scripts get the same error as before. `burrow init server` now refuses an existing file before asking anything, like `init client`.
+
 ## [0.2.2]
 
 Clients tell the server which burrow they run, and a client that allows it can be updated from burrow admin or `burrow mcp`, with automatic rollback. burrow admin also checks far more before you apply (ports, addresses, allow lists) and explains what to do. Older clients and servers keep working with this release in both directions.
