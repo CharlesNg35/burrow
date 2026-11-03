@@ -356,10 +356,10 @@ mod tests {
         assert_eq!(nas.system_short(), "linux/arm64 · service");
         assert!(!nas.refuses());
         let boxed = of(Some(&st), "box").unwrap();
-        assert_eq!(boxed.system_short(), "linux/arm64 · by hand");
+        assert_eq!(boxed.system_short(), "linux/arm64 · started by hand");
         assert_eq!(
             boxed.summary(),
-            "linux/arm64 · by hand · remote updates off in its config"
+            "linux/arm64 · started by hand · remote updates off in its config"
         );
         assert!(boxed.refuses());
         let mut quiet = st.clone();

@@ -45,8 +45,8 @@ A client that allows remote updates but cannot do them says why, for example "th
 
 ## Update from burrow admin
 
-- The Overview's Clients tab lists each client's version and system, marks the clients that have a newer release ("0.2.2 available") and shows **Update all to 0.2.2 (N)** for the clients that can take it.
-- A client's page shows its burrow next to its other figures: version, system, how it runs, remote updates, a "0.2.3 available" tag and an **Update** button. A disabled button says why on hover.
+- The Overview's Clients tab lists each client's version and system, marks the clients that have a newer release ("0.2.2 available", with the reason on hover when the client cannot take it) and shows **Update all to 0.2.2 (N)** for the clients that can take it.
+- A client's page shows its burrow among its figures: version, system, how it runs ("started by hand", "service" or "container"), a "0.2.3 available" tag and an **Update** button when the update is possible. When it is not, there is no button, and the tag's tooltip says why.
 - Both ask for confirmation first; the dialog links to the release's page on GitHub ("What's new in 0.2.3", in a new tab), and burrow admin fetches nothing from it. **Update all** updates one client at a time. The next client starts only after the one before it has connected again with the new version, and it stops at the first client that fails, says so and names the reason.
 - The result shows under the client's figures ("0.2.2 → 0.2.3: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
 - burrow admin needs `admin: write`; read-only admins see versions but no buttons.
@@ -73,7 +73,7 @@ $ sudo burrow clients
 CLIENTS  latest release 0.2.3
   NAME    VERSION  SYSTEM       RUNS     REMOTE UPDATES      NEWER
   home    0.2.2    linux/amd64  service  allowed             0.2.3 available
-  nas     0.2.2    linux/arm64  by hand  off in its config   0.2.3 available, but remote updates are off in its config (update: remote: true in client.yaml)
+  nas     0.2.2    linux/arm64  started by hand  off in its config   0.2.3 available, but remote updates are off in its config (update: remote: true in client.yaml)
   office  < 0.2.2                                            update it by hand once (sudo burrow update); from 0.2.2 on it can be updated from here
 ```
 

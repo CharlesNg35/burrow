@@ -131,13 +131,18 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             format!("[data-testid=overview-clients] tr[data-row={n}] [data-testid=client-system]")
         };
         let home = c.ui.text(&row("home")).await;
-        assert!(home.ends_with(" · by hand"), "{home}");
-        let office = c.ui.text(&row("office")).await;
-        assert!(office.ends_with(" · by hand · updates off"), "{office}");
         assert!(
-            c.ui.attr_of(&row("office"), "title")
+            home.contains('/') && !home.contains('·'),
+            "the system only: {home}"
+        );
+        let office_tag =
+            "[data-testid=overview-clients] tr[data-row=office] [data-testid=client-update-tag]";
+        assert_eq!(c.ui.text(office_tag).await, format!("{NEW} available"));
+        assert!(
+            c.ui.attr_of(office_tag, "title")
                 .await
-                .ends_with("remote updates off in its config")
+                .contains("remote updates are off in its config"),
+            "updates off is the tag's tooltip"
         );
         let all = c.ui.text("[data-testid=update-all]").await;
         assert_eq!(

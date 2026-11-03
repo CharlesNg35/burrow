@@ -66,14 +66,21 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
         let serves =
             c.ui.text("[data-testid=overview-clients] tr[data-row=home] [data-names]")
                 .await;
+        assert_eq!(serves, "32 services", "the services column counts them");
+        let names =
+            c.ui.attr_of(
+                "[data-testid=overview-clients] tr[data-row=home] [data-names]",
+                "title",
+            )
+            .await;
         assert!(
-            serves.starts_with("web, ssh, s01") && serves.contains("+29 more"),
-            "the services column shows 3 names then how many more: {serves}"
+            names.starts_with("web, ssh, s01"),
+            "the names are the tooltip: {names}"
         );
         assert_eq!(
             c.ui.count("[data-testid=overview-clients] [data-names] a, [data-testid=overview-clients] [data-names] button").await,
             0,
-            "+N more is text, not a link"
+            "the count is text, not a link"
         );
         both_widths(c, "overview-50-clients").await;
         c.ui.viewport(420, 900).await;
