@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:a1080e833c1cd722",
+  "hash": "b2s:cb75fd87ea24fac6",
   "root": {
     "label": "Server",
     "sem": {
@@ -3434,6 +3434,34 @@
             "applies": "reload",
             "group": "monitoring",
             "none_label": "Off"
+          }
+        },
+        {
+          "key": "update",
+          "node": {
+            "label": "Updates",
+            "sem": {
+              "t": "object",
+              "fields": [
+                {
+                  "key": "remote",
+                  "node": {
+                    "label": "Update from burrow admin",
+                    "help": "Lets an admin with write access update this server to the latest release; a root updater checks it and goes back to the old version if the new one does not come up",
+                    "sem": {
+                      "t": "bool"
+                    },
+                    "default": false,
+                    "editable": {
+                      "no": "Only root turns this on: set update.remote: true in server.yaml, then run sudo burrow service install again"
+                    },
+                    "locked": true
+                  }
+                }
+              ]
+            },
+            "applies": "restart",
+            "group": "security"
           }
         }
       ]

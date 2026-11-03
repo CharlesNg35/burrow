@@ -74,7 +74,7 @@ pub fn CodeBlock(
     let btn = "inline-flex h-[24px] cursor-pointer items-center gap-1.5 rounded-sm border border-white/15 bg-white/5 px-2 text-xs font-semibold text-code-text/85 hover:bg-white/10 hover:text-code-text";
     view! {
         <div class="relative overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid)>
-            <div class="absolute top-2.5 right-2.5 flex gap-1.5">
+            <div class="flex justify-end gap-1.5 px-2.5 pt-2.5 sm:absolute sm:top-2.5 sm:right-2.5 sm:p-0">
                 <button
                     type="button"
                     class=btn
@@ -95,7 +95,7 @@ pub fn CodeBlock(
                     }
                 })}
             </div>
-            <pre class="overflow-x-auto px-4 py-3.5 pr-44 font-mono text-[12.5px] leading-[1.7] whitespace-pre">
+            <pre class="overflow-x-auto px-4 py-3.5 font-mono max-sm:pt-2 sm:pr-44 text-[12.5px] leading-[1.7] whitespace-pre">
                 {move || {
                     let t = text.get();
                     let n = t.lines().count();

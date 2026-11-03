@@ -336,6 +336,17 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             c.ui.count("[data-schema=public_address] input").await > 0,
             "unlocked fields are editable in edit mode"
         );
+        let remote = c.ui.text("[data-schema='update/remote']").await;
+        assert!(
+            remote.contains("Only root turns this on")
+                && remote.contains("sudo burrow service install"),
+            "the server's update opt-in is locked with its reason: {remote}"
+        );
+        let _: bool = c
+            .ui
+            .eval("(() => { document.querySelector(\"[data-schema='update/remote']\").scrollIntoView({block: 'center'}); return true; })()")
+            .await;
+        super::both_widths(c, "server-update-opt-in-locked").await;
         let public = c.ui.text("[data-schema=public_address]").await;
         assert!(
             public.contains("when WebSocket is on; connect commands made here use it"),

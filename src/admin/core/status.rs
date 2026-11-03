@@ -16,6 +16,7 @@ impl Core {
         let latest = self.live.latest();
         status.latest = (latest != Default::default()).then_some(latest);
         super::updates::offer(&mut status);
+        status.server_update = self.live.own_update();
         status
     }
 }

@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::time::Instant;
 
 use super::record::{self, Record};
 use super::{allowed_target, outcome_of, window};
@@ -9,10 +8,26 @@ use crate::install::Manifest;
 use crate::service::helper;
 use crate::wire::protocol::Outcome;
 
-fn opted_in(m: &Manifest) -> Result<(), String> {
+pub(super) fn opted_in(m: &Manifest) -> Result<(), String> {
     if !m.remote_updates {
-        return Err("the service was installed without remote updates".into());
+        return Err(match m.role {
+            Role::Server => format!(
+                "the service was installed without remote updates; to allow them, set update.remote: true in server.yaml and run: {}",
+                crate::base::failure::admin(&format!(
+                    "service install -c {}",
+                    crate::base::failure::path_arg(&m.source_config)
+                ))
+            ),
+            _ => "the service was installed without remote updates".into(),
+        });
     }
+    match m.role {
+        Role::Server => Ok(()),
+        _ => client_config_allows(m),
+    }
+}
+
+fn client_config_allows(m: &Manifest) -> Result<(), String> {
     let env = crate::config::env::Env::with(crate::service::env_of(m));
     let loaded = crate::config::load_file(&m.config, Some(Role::Client), &env)
         .map_err(|e| e.describe(&m.config).0)?
@@ -29,8 +44,15 @@ fn opted_in(m: &Manifest) -> Result<(), String> {
     }
 }
 
-fn shared_with_others(m: &Manifest) -> Result<(), String> {
-    let others: Vec<String> = crate::install::all_manifests()
+fn accepts(m: &Manifest, staged: &std::path::Path, to: &str) -> Result<(), String> {
+    match m.role {
+        Role::Server => Ok(()),
+        _ => super::by_hand::accepts_config(staged, &m.config, to, &crate::service::env_of(m)),
+    }
+}
+
+pub(super) fn shared_with_others(m: &Manifest, all: Vec<Manifest>) -> Result<(), String> {
+    let others: Vec<String> = all
         .into_iter()
         .filter(|o| o.binary == m.binary && o.name != m.name && !helper::wanted(o))
         .map(|o| o.name)
@@ -43,23 +65,6 @@ fn shared_with_others(m: &Manifest) -> Result<(), String> {
         others.join(", "),
         m.binary.display(),
         crate::base::failure::admin("update")
-    ))
-}
-
-pub type Probe<'a> = &'a dyn Fn(&Manifest, &str) -> bool;
-
-fn healthy(m: &Manifest, version: &str, probe: Probe) -> Result<(), String> {
-    let window = window();
-    let until = Instant::now() + window;
-    while Instant::now() < until {
-        if probe(m, version) {
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-    Err(format!(
-        "{version} did not connect to the server within {} s",
-        window.as_secs()
     ))
 }
 
@@ -88,16 +93,16 @@ fn finish(
     Ok(u8::from(outcome != Outcome::Done))
 }
 
-pub fn run(name: &str, probe: Probe, out: &mut dyn Write) -> Result<u8, Failure> {
+pub fn run(name: &str, out: &mut dyn Write) -> Result<u8, Failure> {
     let m = crate::service::resolve(Some(name))?;
-    if m.role != Role::Client {
+    let Some(health) = super::health::of(m.role) else {
         return Err(Failure::usage(format!(
-            "{} is not a client service",
-            m.name
+            "{} is a {} service, and only clients and servers update this way",
+            m.name, m.role
         )));
-    }
+    };
     helper::take_trigger(&m);
-    crate::update::use_env(crate::service::env_of(&m));
+    crate::update::use_env(super::root_env::for_root(&m, out));
     let installed = crate::service::binary_version(&m.binary);
     let mut r = Record::new(0, &installed, "", &m.config);
     if let Err(why) = opted_in(&m) {
@@ -108,7 +113,7 @@ pub fn run(name: &str, probe: Probe, out: &mut dyn Write) -> Result<u8, Failure>
         Err(why) => return finish(out, &m, r, Outcome::Failed, why),
     };
     r.to = to.clone();
-    if let Err(why) = shared_with_others(&m) {
+    if let Err(why) = shared_with_others(&m, crate::install::all_manifests()) {
         return finish(out, &m, r, Outcome::Failed, why);
     }
     record::write(&helper::result_file(&m), &r, 0o644)
@@ -117,13 +122,16 @@ pub fn run(name: &str, probe: Probe, out: &mut dyn Write) -> Result<u8, Failure>
         Ok(s) => s,
         Err(f) => return finish(out, &m, r, Outcome::Failed, f.message),
     };
-    let env = crate::service::env_of(&m);
-    if let Err(why) = super::by_hand::accepts_config(staged.binary(), &m.config, &to, &env) {
+    if let Err(why) = accepts(&m, staged.binary(), &to) {
         return finish(out, &m, r, Outcome::Failed, why);
     }
-    let check = |s: &Manifest| healthy(s, &to, probe);
+    health.before(&m);
+    let check = |s: &Manifest| super::health::wait(&*health, s, &to, window());
     match crate::service::update_checked(&m.name, staged.binary(), &to, &check, out) {
-        Ok(()) => finish(out, &m, r, Outcome::Done, String::new()),
+        Ok(()) => {
+            let note = health.note(&m, &to);
+            finish(out, &m, r, Outcome::Done, note)
+        }
         Err(f) => finish(out, &m, r, outcome_of(&f.message), f.message),
     }
 }

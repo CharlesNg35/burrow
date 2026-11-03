@@ -53,11 +53,7 @@ fn test_fresh() -> Option<Duration> {
     if !cfg!(feature = "admin-test-hooks") {
         return None;
     }
-    std::env::var(FRESH_ENV)
-        .ok()?
-        .parse()
-        .ok()
-        .map(Duration::from_secs)
+    super::var(FRESH_ENV)?.parse().ok().map(Duration::from_secs)
 }
 
 pub fn cached() -> LatestRelease {

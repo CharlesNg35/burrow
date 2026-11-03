@@ -96,6 +96,10 @@ A client updates itself only when its own config has `update.remote: true`. The 
 
 `burrow clients update` on the server machine asks through the server's local status endpoint on `127.0.0.1`, with the token that only the server's own account can read. That account can already change the server's config, so it gains nothing new ([D79](decisions.md#d79-burrow-clients-updates-clients-from-the-server-machine-through-one-write-route-of-the-local-status-endpoint)).
 
+## Server updates
+
+A server can be updated from burrow admin or `burrow mcp` only when root turned it on: `update.remote: true` in server.yaml counts only after `sudo burrow service install`, which records it in the service's root-owned install record. The root updater trusts that record alone and never reads server.yaml, which the server's account may be allowed to change. The server's account can only start the updater, as a client's can; it still cannot write the binary, and it passes no version, file or path. The updater takes the newest official release, checks `SHA256SUMS`, never goes back to an older release, and puts the old binary back when the new server is not healthy within a minute. An admin with `admin: write` can therefore move the server to the latest official release, and nothing else. Clients are never asked to update past the server's own version ([updates.md](updates.md#update-the-server-from-burrow-admin)).
+
 ## burrow admin
 
 The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).

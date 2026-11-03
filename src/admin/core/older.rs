@@ -11,7 +11,7 @@ pub fn notice(core: &Core, s: &Session, raw: Option<&Value>) -> Option<Diag> {
     if spots.is_empty() {
         return None;
     }
-    let version = crate::admin::hooks::version(env!("CARGO_PKG_VERSION"));
+    let version = crate::admin::hooks::version(crate::base::build::version());
     let (message, help) = burrow_config::older::older_admin(&version, &spots);
     Some(Diag {
         severity: Severity::Warning,

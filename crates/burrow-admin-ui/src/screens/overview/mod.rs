@@ -5,6 +5,7 @@ mod certs;
 mod page;
 mod tables;
 mod tabs;
+mod update_items;
 mod web;
 
 use burrow_admin_logic::rates::{axis_max, mbit};
@@ -18,6 +19,7 @@ use burrow_ui_kit::{ChartData, Tone};
 use crate::format;
 use crate::route::Route;
 use crate::screens::paths::clients_of;
+use crate::store::Retry;
 
 pub(crate) use page::Overview;
 
@@ -29,6 +31,14 @@ pub struct Item {
     pub detail: String,
     pub to: Option<Route>,
     pub field: Option<Vec<String>>,
+    pub extra: Option<Extra>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Extra {
+    pub raw: String,
+    pub retry: Option<Retry>,
+    pub notes: Option<String>,
 }
 
 fn rank(t: Tone) -> u8 {
@@ -75,6 +85,7 @@ pub fn attention(
         out.extend(status.web_waiting.as_ref().map(web_wait_item));
         out.extend(status.services.iter().filter_map(not_listening_item));
         out.extend(certs::items(status, now));
+        out.extend(update_items::items(status));
     }
     out.sort_by_key(|i| rank(i.tone));
     out
@@ -101,6 +112,7 @@ fn not_open_item(n: &burrow_admin_proto::msg::NotOpen) -> Item {
         ),
         to: Some(Route::Settings),
         field: Some(n.path.clone()),
+        extra: None,
     }
 }
 
@@ -118,6 +130,7 @@ fn not_listening_item(s: &burrow_admin_proto::status::ServiceStatus) -> Option<I
             s.name.clone(),
         )),
         field: Some(burrow_config::ServiceEntry::BIND.of(&s.name)),
+        extra: None,
     })
 }
 
@@ -134,6 +147,7 @@ fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
         },
         to: Some(Route::Settings),
         field: Some(field),
+        extra: None,
     }
 }
 
@@ -147,6 +161,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 .into(),
             to: Some(Route::About),
             field: None,
+            extra: None,
         });
     }
     for p in &st.runtime.restart_pending {
@@ -159,6 +174,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                     .into(),
             to: Some(Route::Settings),
             field: None,
+            extra: None,
         });
     }
     for n in &st.runtime.not_open {
@@ -179,6 +195,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             ),
             to: d.path.as_deref().and_then(link_of),
             field: burrow_admin_logic::wording::field_for(&d.code),
+            extra: None,
         });
     }
 }
@@ -221,6 +238,7 @@ fn service_items(
                     },
                     to,
                     field: None,
+                    extra: None,
                 });
                 continue;
             }
@@ -241,6 +259,7 @@ fn service_items(
                     detail: format!("Failing on {}.", failing.join(", ")),
                     to,
                     field: None,
+                    extra: None,
                 });
             } else if let [c] = off.as_slice() {
                 by_client.entry((*c).clone()).or_default().1.push((
@@ -266,6 +285,7 @@ fn service_items(
                     ),
                     to,
                     field: None,
+                    extra: None,
                 });
             }
         }
@@ -318,6 +338,7 @@ fn client_item(
         detail: format!("{} · {when}", parts.join("; ")),
         to: Some(Route::Detail(ClientEntry::section().into(), c)),
         field: None,
+        extra: None,
     }
 }
 
@@ -417,6 +438,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
                 ),
                 to: Some(Route::Detail(ClientEntry::section().into(), c)),
                 field: None,
+                extra: None,
             })
         })
         .collect()
@@ -495,6 +517,7 @@ pub fn old_server_item(server: &str, ui: &str) -> Option<Item> {
         detail: "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand.".into(),
         to: Some(Route::About),
         field: None,
+        extra: None,
     })
 }
 

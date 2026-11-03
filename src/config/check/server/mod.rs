@@ -135,6 +135,7 @@ pub fn check_server(
             },
         ),
         websocket,
+        remote_updates: cfg.update.remote,
     })
 }
 
@@ -167,7 +168,7 @@ fn check_listen(
         && !spans.has_at(&[], ServerConfig::WEBSOCKET)
     {
         out.push(
-            Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
+            Diagnostic::error(burrow_admin_proto::codes::NO_LISTENER, "the server needs \"listen\" (TCP), \"websocket\", or both")
                 .help(format!("add \"listen: 0.0.0.0:{}\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)", burrow_syntax::ports::SERVER_PORT)),
         );
     }

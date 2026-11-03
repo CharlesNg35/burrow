@@ -206,7 +206,7 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
     let short = crate::install::short_name(&name);
     if short.ends_with(helper::SUFFIX) {
         return Err(Failure::usage(format!(
-            "\"{short}\" cannot be used as a service name: names ending in {} are kept for the updaters of clients",
+            "\"{short}\" cannot be used as a service name: names ending in {} are kept for the updaters of services",
             helper::SUFFIX
         ))
         .hint("pass --name with another name"));

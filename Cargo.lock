@@ -435,7 +435,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burrow"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "arbtest",
  "argon2",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-derive"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-logic"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-admin-proto",
  "burrow-config",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-proto"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-syntax",
  "schemars",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-ui"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-config"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-admin-derive",
  "burrow-admin-proto",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-io"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "bytes",
  "http-body-util",
@@ -575,11 +575,11 @@ dependencies = [
 
 [[package]]
 name = "burrow-syntax"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "burrow-ui-kit"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "js-sys",
  "leptos",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-web"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "argon2",
  "async-compression",

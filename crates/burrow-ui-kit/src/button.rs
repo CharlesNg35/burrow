@@ -20,6 +20,7 @@ pub enum ButtonSize {
     #[default]
     Normal,
     Small,
+    Inline,
 }
 
 pub fn button_class(look: ButtonLook, size: ButtonSize) -> String {
@@ -46,6 +47,7 @@ pub fn button_class(look: ButtonLook, size: ButtonSize) -> String {
     };
     let size = match size {
         ButtonSize::Small => "h-[26px] px-[9px] text-xs",
+        ButtonSize::Inline => "h-5 px-2 text-xs",
         ButtonSize::Normal => "h-9 px-3 text-sm",
     };
     format!(

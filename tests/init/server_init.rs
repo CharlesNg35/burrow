@@ -381,3 +381,36 @@ fn client_config_matches_the_server_transport() {
     .unwrap();
     assert!(err.message.contains("WebSocket is off on this server"));
 }
+
+#[test]
+fn an_existing_server_or_client_config_keeps_the_error_and_asks_nothing() {
+    use common::prompt::Terminal;
+    let dir = tempfile::tempdir().unwrap();
+    for (file, role) in [("server.yaml", "server"), ("client.yaml", "client")] {
+        let path = dir.path().join(file);
+        std::fs::write(&path, "# mine\n").unwrap();
+        let opts = InitOptions {
+            output: Some(path.clone()),
+            web: (role == "server").then(|| burrow::init::WebInit {
+                domain: "blog.example.com".into(),
+                client: None,
+                target: None,
+            }),
+            ..Default::default()
+        };
+        let mut terminal = Terminal::answering(&[true, true]);
+        let err = match role {
+            "server" => burrow::init::init_server_asking(&opts, &mut terminal, &mut Vec::new()),
+            _ => init_client(&opts, &mut terminal, &mut Vec::new()),
+        }
+        .unwrap_err();
+        assert!(
+            err.message.contains("already exists"),
+            "{role}: {}",
+            err.message
+        );
+        assert!(err.hint.unwrap().contains("--force"), "{role}");
+        assert!(terminal.asked.is_empty(), "{role}: {:?}", terminal.asked);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# mine\n");
+    }
+}

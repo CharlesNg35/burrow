@@ -3,6 +3,7 @@
 mod about;
 pub mod activity;
 pub mod bar;
+mod config_file;
 pub mod create;
 pub mod entity;
 pub mod flow;
@@ -12,6 +13,7 @@ mod overview;
 pub mod paths;
 pub mod placement;
 mod settings;
+pub mod update_dialog;
 pub mod updates;
 
 use burrow_ui_kit::{EmptyState, Icon, Tone, button_class};

@@ -32,10 +32,11 @@ pub fn use_env(vars: std::collections::BTreeMap<String, String>) {
     let _ = EXTRA_ENV.set(vars);
 }
 
-fn var(name: &str) -> Option<String> {
+pub(crate) fn var(name: &str) -> Option<String> {
     EXTRA_ENV
         .get()
         .and_then(|e| e.get(name).cloned())
+        .or_else(|| crate::config::env::run_var(name))
         .or_else(|| std::env::var(name).ok())
 }
 

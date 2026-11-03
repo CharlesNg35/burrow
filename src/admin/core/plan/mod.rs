@@ -33,8 +33,12 @@ pub struct Checked {
     pub settings: Option<ServerSettings>,
 }
 
-pub fn check_text(core: &Core, text: &str) -> Checked {
-    let src = text.strip_prefix('\u{feff}').unwrap_or(text);
+pub fn load_as(
+    core: &Core,
+    text: &str,
+    role: Role,
+    format: crate::config::Format,
+) -> crate::config::Outcome {
     let dir = core
         .store
         .path()
@@ -43,14 +47,19 @@ pub fn check_text(core: &Core, text: &str) -> Checked {
         .unwrap_or(std::path::Path::new("."))
         .to_path_buf();
     let state = core.store.state_dir();
-    let outcome = load_str_at(
+    load_str_at(
         (&dir, Some(&state)),
         &core.store.path().display().to_string(),
         text,
-        core.store.format(),
-        Some(Role::Server),
+        format,
+        Some(role),
         &*core.env,
-    );
+    )
+}
+
+pub fn check_text(core: &Core, text: &str) -> Checked {
+    let src = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let outcome = load_as(core, text, Role::Server, core.store.format());
     let parsed = tree::parse(src).ok();
     let mapper = Mapper::new(parsed.as_ref());
     let diags: Vec<Diag> = outcome

@@ -614,3 +614,40 @@ const ADD: &str =
     "forward \"dns\": service \"dns\" is a udp service on the server; add \"protocol: udp\"";
 const REMOVE: &str =
     "forward \"db\": service \"db\" is a tcp service on the server; remove \"protocol: udp\"";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn on_a_terminal_init_visitor_offers_to_update_an_existing_config() {
+    let w = World::start(true).await;
+    assert!(w.new_config("visitor.yaml").status.success());
+    let path = w.path("visitor.yaml");
+    let mut next = w.settings.clone();
+    let target = echo_server().await;
+    next.services
+        .insert("web".into(), private_service(target, &["laptop"]));
+    w.server.reload_applied(next).await;
+    let opts = burrow::init::InitOptions {
+        output: Some(path.clone()),
+        ..Default::default()
+    };
+    let mut terminal = common::prompt::Terminal::answering(&[true, true]);
+    let mut out = Vec::new();
+    let written = tokio::task::spawn_blocking(move || {
+        let r = burrow::init::init_visitor(&opts, &mut terminal, &mut out);
+        (r, terminal.asked, String::from_utf8(out).unwrap())
+    })
+    .await
+    .unwrap();
+    let (result, asked, shown) = written;
+    result.unwrap();
+    assert!(
+        asked[0].starts_with("visitor.yaml already exists. Update it"),
+        "{asked:?}"
+    );
+    assert!(shown.contains("+ web"), "{shown}");
+    let yaml = read(&path);
+    assert!(yaml.contains("  web:\n    service: web\n"), "{yaml}");
+    assert!(
+        yaml.contains("  db:\n    service: db\n"),
+        "the forwards are kept: {yaml}"
+    );
+}

@@ -59,6 +59,13 @@ pub fn releases() -> String {
     format!("{REPO}/releases/latest")
 }
 
+pub fn release_notes(version: &str) -> Option<(String, String)> {
+    let v = semver::Version::parse(version.trim().trim_start_matches('v')).ok()?;
+    v.build
+        .is_empty()
+        .then(|| (v.to_string(), format!("{REPO}/releases/tag/v{v}")))
+}
+
 pub fn docs(page: &str) -> String {
     format!("{REPO}/blob/main/docs/{page}")
 }

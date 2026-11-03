@@ -1,24 +1,35 @@
 //! `burrow mcp`: an MCP server, over stdio or HTTP, whose tools check and apply config changes.
+//! It answers the app's handshake at once and keeps the server link in `upstream`, which
+//! connects in the background and again on the next call; `mode` decides the tools and instructions.
 
+pub mod check;
+mod handler;
 pub mod http;
+pub mod journal;
+pub mod mode;
 pub mod plans;
 pub mod setup;
+pub mod startup;
 pub mod stdio;
 pub mod token_file;
 pub mod tools;
+pub mod upstream;
+pub mod validate;
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
-use burrow_admin_proto::msg::AdminLevel;
 use tokio::sync::watch;
 
-use crate::admin_link::client::{Link, LinkError};
+use crate::admin_link::client::Link;
 use crate::base::failure::Failure;
 use crate::config::settings::VisitorSettings;
+use mode::Writes;
 
 pub const CLIENT: &str = "burrow-mcp";
+pub const CLOSE_WITHIN: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone)]
 pub struct HttpOptions {
@@ -26,15 +37,21 @@ pub struct HttpOptions {
     pub show_token: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Task {
+    Serve,
+    PrintConfig(Option<setup::App>),
+    PrintToken,
+    Check,
+}
+
 #[derive(Debug, Clone)]
 pub struct Options {
-    pub allow_write: bool,
+    pub writes: Writes,
     pub http: Option<HttpOptions>,
     pub token_file: Option<PathBuf>,
     pub new_token: bool,
-    pub print_token: bool,
-    pub print_config: Option<setup::App>,
-    pub config_given: bool,
+    pub task: Task,
 }
 
 fn token_path(config: &Path, opts: &Options) -> Result<PathBuf, Failure> {
@@ -44,22 +61,22 @@ fn token_path(config: &Path, opts: &Options) -> Result<PathBuf, Failure> {
     }
 }
 
-fn print_config(app: setup::App, config: &Path, opts: &Options) -> Result<(), Failure> {
-    let s = match &opts.http {
-        None => setup::stdio(app, &setup::program(), config),
+fn print_config(app: Option<setup::App>, config: &Path, opts: &Options) -> Result<(), Failure> {
+    let built = match &opts.http {
+        None => setup::Setup::stdio(&setup::program(), config, opts.writes),
         Some(h) => {
             let token = token_file::load_or_create(&token_path(config, opts)?)?;
-            setup::http(app, h.port, &token)
+            setup::Setup::http(h.port, &token)
         }
     };
-    if app == setup::App::Cursor {
-        crate::say_errln!("{}", s.header);
-    } else {
-        println!("{}", s.header);
+    let p = built.printed(app);
+    match p.head_to {
+        setup::Stream::Stdout => println!("{}", p.head),
+        setup::Stream::Stderr => crate::say_errln!("{}", p.head),
     }
-    println!("{}", s.text);
-    if let Some(after) = s.after {
-        crate::say_errln!("\n{after}");
+    println!("{}", p.text);
+    if let Some(after) = p.after {
+        crate::say_errln!("\n{}", after.trim_end_matches('\n'));
     }
     Ok(())
 }
@@ -69,16 +86,15 @@ pub fn before_start(config: &Path, opts: &Options) -> Result<bool, Failure> {
         token_file::replace(&token_path(config, opts)?)?;
         crate::say_errln!("made a new token; the old one no longer works");
     }
-    if opts.print_token {
-        let token = token_file::load_or_create(&token_path(config, opts)?)?;
-        println!("{}", token.as_str());
-        return Ok(false);
+    match opts.task {
+        Task::PrintToken => {
+            let token = token_file::load_or_create(&token_path(config, opts)?)?;
+            println!("{}", token.as_str());
+            Ok(false)
+        }
+        Task::PrintConfig(app) => print_config(app, config, opts).map(|()| false),
+        Task::Serve | Task::Check => Ok(true),
     }
-    if let Some(app) = opts.print_config {
-        print_config(app, config, opts)?;
-        return Ok(false);
-    }
-    Ok(true)
 }
 
 pub async fn serve(
@@ -87,24 +103,19 @@ pub async fn serve(
     opts: Options,
     stop: watch::Receiver<bool>,
 ) -> Result<(), Failure> {
-    let (visitor, server) = (settings.name.clone(), settings.server.clone());
+    let journal = journal::Journal::open(Some(config));
     let link = Arc::new(Link::new(settings, CLIENT));
-    let welcome = link.welcome().await.map_err(|e| match e {
-        LinkError::Open(f) => f,
-        other => Failure::new(other.to_string()),
-    })?;
-    let level = welcome.you.level;
-    if opts.allow_write && level != AdminLevel::Write {
-        crate::say_errln!(
-            "visitor \"{visitor}\" has read admin rights on {server}, so burrow mcp offers no tools that change the config"
-        );
-    }
-    let tools = tools::Tools::new(link.clone(), level, opts.allow_write);
-    let shown_config = opts.config_given.then_some(config);
+    let up = upstream::Upstream::start(link.clone(), opts.writes, journal.clone());
+    let notices = match opts.http {
+        None => tools::Notices::ToolChanges,
+        Some(_) => tools::Notices::Never,
+    };
+    let tools = tools::Tools::new(up, notices);
     let served = match &opts.http {
         None => {
             if std::io::stdin().is_terminal() {
-                crate::say_err!("{}", setup::by_hand(&setup::program(), shown_config));
+                let hints = setup::hints(&setup::program(), config, opts.writes, None);
+                crate::say_err!("{}", setup::by_hand(&hints));
             }
             stdio::serve(tools, stop).await
         }
@@ -113,11 +124,15 @@ pub async fn serve(
             let shown = http::Started {
                 token: &token,
                 show_token: h.show_token,
-                config: shown_config,
+                config,
+                writes: opts.writes,
             };
             http::serve(tools, h, &shown, stop).await
         }
     };
-    link.close().await;
+    let _ = tokio::time::timeout(CLOSE_WITHIN, link.close()).await;
+    if let (Err(f), Some(j)) = (&served, &journal) {
+        j.write(&format!("stopped: {}", f.message));
+    }
     served
 }

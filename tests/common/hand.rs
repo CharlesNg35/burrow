@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use super::releases::Releases;
 
-pub const OLD: &str = "9.0.0-test.1";
-pub const NEW: &str = "9.0.0-test.2";
+pub const OLD: &str = "0.0.1-test.1";
+pub const NEW: &str = "0.0.1-test.2";
 
 pub fn build(marks: &[(&str, &str)]) -> Vec<u8> {
     let mut b = std::fs::read(env!("CARGO_BIN_EXE_burrow")).unwrap();

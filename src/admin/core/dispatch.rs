@@ -1,7 +1,8 @@
 use burrow_admin_proto::msg::{self, ErrorCode, HistoryRequest, Suggest};
+use burrow_admin_proto::view::ShownRequest;
 use serde_json::Value;
 
-use super::{ApiError, Core, Reply, Session, passwords, plan, snippets, uploads};
+use super::{ApiError, Core, Reply, Session, check_text, passwords, plan, snippets, uploads, view};
 
 pub fn ok<T: serde::Serialize>(v: T) -> Reply {
     serde_json::to_value(v).map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))
@@ -28,7 +29,14 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
             let r: msg::SchemaRequest = parse(body)?;
             ok(core.schema_reply(&r.have))
         }
-        msg::req::STATE => ok(core.state(s)?),
+        msg::req::STATE => {
+            let r: ShownRequest = parse(body)?;
+            ok(core.state_as(s, r.show)?)
+        }
+        msg::req::CONFIG_VIEW => {
+            let r: ShownRequest = parse(body)?;
+            ok(view::config_view(core, r.show)?)
+        }
         msg::req::VALIDATE => {
             let r: msg::Validate = parse(body)?;
             if !s.writes() {
@@ -38,6 +46,10 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
                 ));
             }
             ok(plan::compute(core, s, &r.base, &r.ops)?.plan)
+        }
+        msg::req::CHECK_TEXT => {
+            let r: burrow_admin_proto::check::CheckText = parse(body)?;
+            check_text::check(core, &r)
         }
         msg::req::GENERATE_SECRET => ok(core.generate_secret(s)?),
         msg::req::SUGGEST => {

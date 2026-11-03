@@ -40,6 +40,13 @@ pub fn holds_secret(text: &str) -> bool {
         .any(|t| !t.is_empty() && Secret::parse(t).is_ok())
 }
 
+pub fn secret_shown(fp: Option<&str>) -> String {
+    match fp {
+        Some(fp) => format!("«secret {fp}»"),
+        None => "«secret»".to_string(),
+    }
+}
+
 pub fn mask_secrets(line: &str, fresh: &[(String, String)]) -> String {
     let mut out = String::with_capacity(line.len());
     let mut token = String::new();
@@ -50,7 +57,7 @@ pub fn mask_secrets(line: &str, fresh: &[(String, String)]) -> String {
         if let Some((_, fp)) = fresh.iter().find(|(v, _)| v == token) {
             out.push_str(&format!("«new secret {fp}»"));
         } else if let Ok(s) = Secret::parse(token) {
-            out.push_str(&format!("«secret {}»", s.fingerprint()));
+            out.push_str(&secret_shown(Some(&s.fingerprint())));
         } else if token.len() >= 24 && looks_random(token) {
             out.push_str(&"*".repeat(token.len()));
         } else {

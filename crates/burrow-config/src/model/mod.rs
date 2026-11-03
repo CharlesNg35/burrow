@@ -29,7 +29,8 @@ pub use entries::{
 };
 pub use options::{ClientUdpOptions, Heartbeat, Limits, Pool, TcpOptions, UdpOptions};
 pub use server::{
-    MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,
+    MetricsConfig, SelfEntry, ServerConfig, ServerUpdate, TlsFiles, WebSocketConfig,
+    default_ws_path,
 };
 pub use site::{ChallengeKind, SiteFiles, SiteTls, TlsMode, WebSite};
 pub use site_keys::{

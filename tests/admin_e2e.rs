@@ -11,6 +11,8 @@ mod checks;
 mod chips;
 #[path = "admin_e2e/compat.rs"]
 mod compat;
+#[path = "admin_e2e/config_file.rs"]
+mod config_file;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
 #[path = "admin_e2e/edit_state.rs"]
@@ -53,6 +55,8 @@ mod secrets;
 mod self_picker;
 #[path = "admin_e2e/sequences.rs"]
 mod sequences;
+#[path = "admin_e2e/server_update.rs"]
+mod server_update;
 #[path = "admin_e2e/settings.rs"]
 mod settings;
 #[path = "admin_e2e/sheet.rs"]

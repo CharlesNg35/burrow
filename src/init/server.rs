@@ -101,6 +101,9 @@ pub fn init_server_asking(
     out: &mut dyn Write,
 ) -> Result<PathBuf, Failure> {
     let (path, format) = resolve_output(Role::Server, opts)?;
+    if path.exists() && !opts.force {
+        return Err(super::already_exists(&path));
+    }
     let client = opts.client_name.as_deref().unwrap_or(DEFAULT_CLIENT_NAME);
     check_name("--client-name", client)?;
     if opts.email.is_some() && opts.websocket.is_none() && opts.web.is_none() {
@@ -137,10 +140,13 @@ pub fn init_server_asking(
         Some(address) if tunnel.is_none() => with_public_address(value, address.trim()),
         _ => value,
     };
-    let value = match &site {
+    let mut value = match &site {
         Some(site) => web::with_site(value, site),
         None => value,
     };
+    if opts.remote_updates {
+        value["update"] = json!({ "remote": true });
+    }
     write_new(&path, &render(&value, format), opts.force)?;
     let done = Written {
         path: &path,
@@ -159,6 +165,18 @@ pub fn init_server_asking(
         )?;
     }
     next_steps(&done, to_server.as_deref(), ws.as_ref(), site.as_ref(), out)?;
+    if opts.remote_updates {
+        line(
+            out,
+            format!(
+                "update.remote: true lets burrow admin update this server once it runs as a service: {}",
+                crate::base::failure::admin(&format!(
+                    "service install -c {}",
+                    crate::base::failure::path_arg(&path)
+                ))
+            ),
+        )?;
+    }
     Ok(path)
 }
 

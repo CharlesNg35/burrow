@@ -33,6 +33,7 @@ pub(super) fn items(status: &Status, now: u64) -> Vec<Item> {
                 (None, None) => Route::Settings,
             }),
             field: n.field,
+            extra: None,
         })
         .collect()
 }

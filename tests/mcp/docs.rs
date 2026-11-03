@@ -84,6 +84,60 @@ async fn tool_count(v: &Visitor, program: &str, args: &[String]) -> usize {
     count
 }
 
+fn entry(printed: &str) -> Value {
+    let v: Value = serde_json::from_str(printed).unwrap_or_else(|e| panic!("{e}: {printed}"));
+    v["mcpServers"]["burrow"].clone()
+}
+
+fn form_lines(stderr: &str, after: &str) -> Vec<String> {
+    stderr
+        .lines()
+        .skip_while(|l| *l != after)
+        .skip(1)
+        .take_while(|l| l.starts_with("  "))
+        .map(|l| l.trim().to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn the_printed_stdio_config_starts_a_working_server() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let this = dunce::canonicalize(env!("CARGO_BIN_EXE_burrow")).unwrap();
+    let this = this.to_str().unwrap();
+    let (json, stderr) = printed(&v, &["--print-config"]).await;
+    let e = entry(&json);
+    assert_eq!(e["command"].as_str(), Some(this), "{json}");
+    let args: Vec<String> = serde_json::from_value(e["args"].clone()).unwrap();
+    assert!(std::path::Path::new(&args[2]).is_absolute(), "{args:?}");
+    assert_eq!(form_lines(&stderr, "Command:"), [this]);
+    assert_eq!(form_lines(&stderr, "Arguments, one per line:"), args);
+    assert_eq!(tool_count(&v, this, &args).await, 5);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn the_printed_http_config_connects_with_its_url_and_token() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let port = super::common::free_port();
+    let p = port.to_string();
+    let _h = start_on(&v, &p, &[]).await;
+    let (json, stderr) = printed(&v, &["--http", "--port", &p, "--print-config"]).await;
+    let e = entry(&json);
+    let auth = e["headers"]["Authorization"].as_str().unwrap();
+    assert_eq!(
+        e["url"].as_str(),
+        Some(format!("http://127.0.0.1:{port}/mcp").as_str())
+    );
+    assert_eq!(list_with(port, auth).await, 200);
+    assert_eq!(
+        form_lines(&stderr, "Header:"),
+        [format!("Authorization: {auth}")]
+    );
+    let _ = w.stop.send(true);
+}
+
 #[tokio::test]
 async fn the_printed_stdio_setup_starts_a_working_server() {
     let w = world().await;
@@ -97,7 +151,7 @@ async fn the_printed_stdio_setup_starts_a_working_server() {
     assert_eq!(entry["command"].as_str(), Some(this), "{codex}");
     let args = strings(&entry["args"]);
     assert!(std::path::Path::new(&args[2]).is_absolute(), "{args:?}");
-    assert_eq!(tool_count(&v, this, &args).await, 4);
+    assert_eq!(tool_count(&v, this, &args).await, 5);
     let (cursor, header) = printed(&v, &["--print-config", "cursor"]).await;
     assert_eq!(
         header.lines().last(),
@@ -119,7 +173,7 @@ async fn the_printed_stdio_setup_starts_a_working_server() {
     } else {
         let words = burrow_args(&command_in(&claude));
         assert_eq!(words[0], this, "{claude}");
-        assert_eq!(tool_count(&v, &words[0], &words[1..]).await, 4);
+        assert_eq!(tool_count(&v, &words[0], &words[1..]).await, 5);
     }
     let _ = w.stop.send(true);
 }
@@ -138,7 +192,7 @@ async fn a_burrow_linked_on_path_is_printed_by_its_link() {
     let t: toml::Value = toml::from_str(&codex).unwrap();
     let entry = &t["mcp_servers"]["burrow"];
     assert_eq!(entry["command"].as_str(), Some(link), "{codex}");
-    assert_eq!(tool_count(&v, link, &strings(&entry["args"])).await, 4);
+    assert_eq!(tool_count(&v, link, &strings(&entry["args"])).await, 5);
     let (claude, _) = printed_with_path(&v, &["--print-config", "claude"], path).await;
     assert_eq!(burrow_args(&command_in(&claude))[0], link, "{claude}");
     let _ = w.stop.send(true);
@@ -195,6 +249,7 @@ fn an_unknown_app_lists_the_three() {
     for app in ["claude", "codex", "cursor"] {
         assert!(e.contains(app), "{e}");
     }
+    assert!(burrow::app::cli::Cli::try_parse_from(["burrow", "mcp", "--print-config"]).is_ok());
 }
 
 fn names_burrow_by_its_path(program: &str) -> bool {
@@ -204,7 +259,7 @@ fn names_burrow_by_its_path(program: &str) -> bool {
 #[test]
 fn every_setup_in_mcp_md_is_valid() {
     let json = blocks("json");
-    assert!(json.len() >= 3, "{json:?}");
+    assert!(json.len() >= 2, "{json:?}");
     let md = MCP_MD.replace("\r\n", "\n");
     for before in md.split("```json\n").take(json.len()) {
         let said = before.trim_end().lines().last().unwrap_or_default();

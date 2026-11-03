@@ -18,6 +18,7 @@ use crate::wire::transport::Channel;
 const IDLE: Duration = Duration::from_secs(30 * 60);
 const RELOAD_WAIT: Duration = Duration::from_secs(15);
 const FILE_CHECK: Duration = Duration::from_secs(3);
+pub const CHECK_TEXT_LIMIT: Duration = Duration::from_secs(10);
 
 pub trait Access: Send + Sync {
     fn revoked(&self) -> Option<String>;
@@ -49,6 +50,23 @@ fn reply(id: u32, result: Result<Value, ApiError>) -> Vec<u8> {
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
     tokio::task::spawn_blocking(f).await.ok()
+}
+
+pub async fn within<T>(
+    limit: Duration,
+    work: impl std::future::Future<Output = Option<Result<T, ApiError>>>,
+) -> Result<T, ApiError> {
+    match tokio::time::timeout(limit, work).await {
+        Ok(Some(r)) => r,
+        Ok(None) => Err(ApiError::new(ErrorCode::Internal, "the request failed")),
+        Err(_) => Err(ApiError::new(
+            ErrorCode::Busy,
+            format!(
+                "the check took longer than {} s; check a smaller part",
+                limit.as_secs()
+            ),
+        )),
+    }
 }
 
 async fn nudge(hub: &Hub) -> Option<ReloadOutcome> {
@@ -126,10 +144,47 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
     core::ok(applied)
 }
 
+async fn update_server(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
+    use crate::admin::core::server_update::{Applying, update_server};
+    let r: burrow_admin_proto::updates::UpdateServer = core::parse(&body)?;
+    if let Some(why) = cx.access.revoked() {
+        return Err(ApiError::new(
+            ErrorCode::Forbidden,
+            format!("this session lost its admin rights ({why})"),
+        ));
+    }
+    let lock = cx.hub.plan_lock_now();
+    let applying = match lock {
+        Some(_) => Applying::Idle,
+        None => Applying::Busy,
+    };
+    let (core_, session) = (cx.hub.core.clone(), cx.session.clone());
+    let reply = blocking(move || update_server(&core_, &session, &r, applying))
+        .await
+        .ok_or_else(|| ApiError::new(ErrorCode::Internal, "the request failed"))??;
+    drop(lock);
+    core::ok(reply)
+}
+
 async fn handle(cx: Arc<Ctx>, req: Request) -> Vec<u8> {
     let id = req.id;
     let result = match req.t.as_str() {
         msg::req::APPLY => apply(&cx, req.body).await,
+        msg::req::CHECK_TEXT => match cx.hub.queue() {
+            None => Err(ApiError::new(
+                ErrorCode::Busy,
+                "too many checks are waiting; try again",
+            )),
+            Some(_queued) => {
+                let (core_, session) = (cx.hub.core.clone(), cx.session.clone());
+                within(
+                    CHECK_TEXT_LIMIT,
+                    blocking(move || core::dispatch(&core_, &session, &req.t, &req.body)),
+                )
+                .await
+            }
+        },
+        msg::req::UPDATE_SERVER => update_server(&cx, req.body).await,
         msg::req::VALIDATE | msg::req::REVERT => match cx.hub.queue() {
             None => Err(ApiError::new(
                 ErrorCode::Busy,
@@ -420,6 +475,21 @@ mod tests {
         fn revoked(&self) -> Option<String> {
             Some("admin level changed".into())
         }
+    }
+
+    #[tokio::test]
+    async fn a_check_that_takes_too_long_is_answered_busy_at_the_limit() {
+        let slow = async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            Some(Ok::<_, ApiError>(1))
+        };
+        let started = std::time::Instant::now();
+        let e = within(Duration::from_millis(50), slow).await.unwrap_err();
+        assert_eq!(e.code, ErrorCode::Busy);
+        assert!(e.message.contains("took longer than"), "{}", e.message);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let quick = async { Some(Ok::<_, ApiError>(2)) };
+        assert_eq!(within(CHECK_TEXT_LIMIT, quick).await.unwrap(), 2);
     }
 
     #[test]

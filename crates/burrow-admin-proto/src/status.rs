@@ -52,6 +52,8 @@ pub struct Status {
     pub rollout: Option<crate::updates::RolloutStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest: Option<crate::updates::LatestRelease>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_update: Option<crate::updates::ServerUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
