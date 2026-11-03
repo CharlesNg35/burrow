@@ -195,7 +195,18 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         c.ui.click("[data-testid=client-update]").await;
         c.ui.wait_for("[data-testid=client-update-dialog]", SECS)
             .await;
-        whats_new(c, "client-update-dialog", NEW).await;
+        whats_new(c, "client-update-dialog", NEW, "What's new").await;
+        let current =
+            c.ui.text("[data-testid=client-update-dialog] [data-testid=update-versions]")
+                .await;
+        assert!(current.contains(OLD) && current.contains(NEW), "{current}");
+        let notes =
+            c.ui.text("[data-testid=client-update-dialog] [data-testid=update-notes]")
+                .await;
+        assert!(
+            notes.contains(&format!("goes back to {OLD}")) && notes.contains("within a minute"),
+            "{notes}"
+        );
         every_look(c, "client-update-dialog").await;
         c.ui.click("[data-testid=client-update-confirm]").await;
         c.ui.wait_text(
@@ -223,7 +234,15 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         .await;
         c.ui.click("[data-testid=update-all]").await;
         c.ui.wait_for("[data-testid=update-all-dialog]", SECS).await;
-        whats_new(c, "update-all-dialog", NEW).await;
+        whats_new(c, "update-all-dialog", NEW, &format!("What's new in {NEW}")).await;
+        let names =
+            c.ui.text("[data-testid=update-all-dialog] [data-testid=update-names]")
+                .await;
+        assert!(
+            names.starts_with("spare")
+                && names.contains("office: remote updates are off in its config"),
+            "{names}"
+        );
         both_widths(c, "update-all-dialog").await;
         c.ui.click("[data-testid=update-all-confirm]").await;
         c.ui.wait_text(

@@ -1,8 +1,6 @@
 //! Updating this server from burrow admin and burrow mcp: one entry point that checks who may ask and when, then lets the root updater do the rest.
 use burrow_admin_proto::msg::ErrorCode;
-use burrow_admin_proto::updates::{
-    RemoteUpdates, SERVER_UPDATE_NOTE, ServerUpdate, UpdateServer, UpdateServerReply,
-};
+use burrow_admin_proto::updates::{RemoteUpdates, ServerUpdate, UpdateServer, UpdateServerReply};
 
 use super::updates::newer;
 use super::{ApiError, Core, Session};
@@ -86,7 +84,7 @@ pub fn ask_server(
         to: to.clone(),
         asked: false,
         why_not: why_not(&own, &from, &to, applying),
-        note: SERVER_UPDATE_NOTE.into(),
+        note: burrow_admin_proto::updates::server_update_note(),
     };
     if r.dry_run {
         return Ok(reply);

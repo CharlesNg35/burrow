@@ -176,7 +176,21 @@ pub struct UpdateServerReply {
     pub note: String,
 }
 
-pub const SERVER_UPDATE_NOTE: &str = "The server restarts with the new release: clients, visitors and websites pause for a few seconds and reconnect on their own. If the new release does not come up healthy within a minute, the old one is put back.";
+pub const ROLLBACK_SECS: u64 = 60;
+
+pub fn rollback_window() -> String {
+    match ROLLBACK_SECS {
+        60 => "a minute".into(),
+        s => burrow_syntax::duration::span(s),
+    }
+}
+
+pub fn server_update_note() -> String {
+    format!(
+        "The server restarts with the new release: clients, visitors and websites pause for a few seconds and reconnect on their own. If the new release does not come up healthy within {}, the old one is put back.",
+        rollback_window()
+    )
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Skipped {

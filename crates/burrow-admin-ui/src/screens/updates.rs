@@ -1,14 +1,15 @@
 use burrow_admin_logic::own_update::{ServerFigure, figure};
-use burrow_admin_logic::presence::{ClientInfo, Mood, of, ready_names, rollout_line};
+use burrow_admin_logic::presence::{ClientInfo, Mood, of, ready_names, rollout_line, skipped};
 use burrow_admin_proto::features::{CLIENT_UPDATES, SERVER_UPDATES};
 use burrow_admin_proto::msg::req::{UPDATE_CLIENTS, UPDATE_SERVER};
 use burrow_admin_proto::updates::{
-    FIRST_REPORTING, SERVER_UPDATE_NOTE, UpdateClients, UpdateClientsReply, UpdateServer,
-    UpdateServerReply,
+    FIRST_REPORTING, UpdateClients, UpdateClientsReply, UpdateServer, UpdateServerReply,
+    rollback_window,
 };
-use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Dialog, Stat, Tone, VersionTag, tag_class};
+use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Stat, Tone, VersionTag, tag_class};
 use leptos::prelude::*;
 
+use super::update_dialog::{Confirm, update_dialog};
 use crate::store::{OwnJob, Store, store};
 
 pub fn tone(m: Mood) -> Tone {
@@ -29,12 +30,6 @@ fn offered(s: Store) -> bool {
 
 pub fn info_of(s: Store, name: &str) -> Option<ClientInfo> {
     s.status.with(|st| of(st.as_deref(), name))
-}
-
-fn whats_new(version: &str) -> impl IntoView + use<> {
-    burrow_admin_logic::wording::release_notes(version).map(|(v, url)| view! {
-        <a href=url target="_blank" rel="noopener noreferrer" class="mr-auto inline-flex items-center gap-1 text-xs font-semibold text-accent-ink" data-testid="whats-new">{format!("What's new in {v}")}<burrow_ui_kit::Icon name="external" small=true/></a>
-    })
 }
 
 pub fn version_cell(c: Option<ClientInfo>) -> AnyView {
@@ -150,29 +145,35 @@ impl ClientUpdate {
     pub fn below(self) -> impl IntoView {
         let s = store();
         let (info, open) = (self.info, self.open);
-        let confirm = move || {
+        let c = Signal::derive(move || {
             let c = info.get().unwrap_or_default();
-            let to = c.available.clone().unwrap_or_default();
-            let (who, from, target) = (c.name.clone(), c.version.clone(), to.clone());
-            view! {
-                <p class="text-sm">{format!(
-                    "{who} downloads {to} from the official releases, checks it against the published checksums and restarts with it. If {to} does not connect within a minute, {who} goes back to {from}."
-                )}</p>
-                <div class="mt-4 flex items-center justify-end gap-2">
-                    {whats_new(&target)}
-                    <Button label="Cancel" on_click=move |_| open.set(false)/>
-                    <Button label=format!("Update to {target}") variant=ButtonLook::Primary testid="client-update-confirm" on_click=move |_| {
-                        open.set(false);
-                        ask(s, vec![who.clone()], false, Some(target.clone()));
-                    }/>
-                </div>
+            let window = rollback_window();
+            Confirm {
+                title: format!("Update {}?", c.name),
+                from: Some(c.version.clone()),
+                to: c.available.clone().unwrap_or_default(),
+                names: None,
+                notes: vec![
+                    (
+                        "warning",
+                        format!("{} restarts; its services pause for a few seconds.", c.name),
+                    ),
+                    (
+                        "revert",
+                        format!(
+                            "If it doesn't reconnect within {window}, it goes back to {}.",
+                            c.version
+                        ),
+                    ),
+                ],
+                action: format!("Update {}", c.name),
             }
+        });
+        let go = move || {
+            let c = info.get_untracked().unwrap_or_default();
+            ask(s, vec![c.name], false, c.available);
         };
-        view! {
-            <Dialog open=open title=Signal::derive(move || format!("Update {}?", info.with(|c| c.as_ref().map(|c| c.name.clone()).unwrap_or_default()))) icon="download" testid="client-update-dialog">
-                {confirm}
-            </Dialog>
-        }
+        update_dialog(open, "client-update-dialog", "client-update-confirm", c, go)
     }
 }
 
@@ -203,27 +204,46 @@ pub fn update_all_bar() -> impl IntoView {
             </div>
         })
     };
+    let c = Signal::derive(move || {
+        let names = ready();
+        let skipped = s
+            .status
+            .with(|st| st.as_deref().map(skipped).unwrap_or_default());
+        let one =
+            burrow_admin_logic::entity::info(&burrow_admin_proto::schema::Entity::Client).singular;
+        let count = burrow_admin_logic::wording::count_of(names.len(), one);
+        let reasons: Vec<String> = skipped
+            .iter()
+            .map(|(n, why)| format!("{n}: {why}"))
+            .collect();
+        let (shown, more) = burrow_admin_logic::top::some_names(&reasons);
+        let short = match (reasons.is_empty(), more) {
+            (true, _) => String::new(),
+            (false, Some(m)) => format!("({shown} {m}, skipped)"),
+            (false, None) => format!("({shown}, skipped)"),
+        };
+        Confirm {
+            title: format!("Update {count} to {}?", to()),
+            from: None,
+            to: to(),
+            names: Some((names.join(", "), short, reasons.join("\n"))),
+            notes: vec![
+                (
+                    "warning",
+                    "One at a time; each pauses for a few seconds.".to_string(),
+                ),
+                (
+                    "alert-circle",
+                    "Stops at the first client that doesn't come back.".to_string(),
+                ),
+            ],
+            action: format!("Update {count}"),
+        }
+    });
+    let go = move || ask(s, Vec::new(), true, Some(to()));
     view! {
         {bar}
-        <Dialog open=open title=Signal::derive(move || {
-            let n = ready().len();
-            let one = burrow_admin_logic::entity::info(&burrow_admin_proto::schema::Entity::Client).singular;
-            format!("Update {} to {}?", burrow_admin_logic::wording::count_of(n, one), to())
-        }) icon="download" testid="update-all-dialog">
-            <p class="text-sm">{move || format!(
-                "One at a time: {}. Each downloads {} from the official releases, checks it and restarts. The next one starts only after the one before has connected again, and the update stops at the first client that does not come back.",
-                ready().join(", "),
-                to()
-            )}</p>
-            <div class="mt-4 flex items-center justify-end gap-2">
-                {move || whats_new(&to())}
-                <Button label="Cancel" on_click=move |_| open.set(false)/>
-                <Button label="Update all" variant=ButtonLook::Primary testid="update-all-confirm" on_click=move |_| {
-                    open.set(false);
-                    ask(s, Vec::new(), true, Some(to()));
-                }/>
-            </div>
-        </Dialog>
+        {update_dialog(open, "update-all-dialog", "update-all-confirm", c, go)}
     }
 }
 
@@ -310,23 +330,40 @@ impl ServerUpdate {
     pub fn dialog(self) -> impl IntoView {
         let s = store();
         let (fig, open) = (self.fig, self.open);
-        let to = move || fig.with(|f| f.as_ref().and_then(|f| f.to.clone()).unwrap_or_default());
-        view! {
-            <Dialog open=open title=Signal::derive(move || format!("Update burrow on this server to {}?", to())) icon="download" testid="server-update-dialog">
-                <p class="text-sm">{move || format!(
-                    "A root updater on the server downloads {} from the official releases and checks it against the published checksums. {SERVER_UPDATE_NOTE}",
-                    to()
-                )}</p>
-                <div class="mt-4 flex items-center justify-end gap-2">
-                    {move || whats_new(&to())}
-                    <Button label="Cancel" on_click=move |_| open.set(false)/>
-                    <Button label="Update the server" variant=ButtonLook::Primary testid="server-update-confirm" on_click=move |_| {
-                        open.set(false);
-                        ask_server(s);
-                    }/>
-                </div>
-            </Dialog>
-        }
+        let c = Signal::derive(move || {
+            let to = fig.with(|f| f.as_ref().and_then(|f| f.to.clone()).unwrap_or_default());
+            let from = s
+                .status
+                .with(|st| st.as_ref().map(|st| st.version.clone()).unwrap_or_default());
+            Confirm {
+                title: "Update burrow on this server?".into(),
+                notes: vec![
+                    (
+                        "warning",
+                        "Clients, visitors and websites pause for a few seconds while it restarts."
+                            .into(),
+                    ),
+                    (
+                        "revert",
+                        format!(
+                            "If {to} isn't healthy within {}, {from} comes back.",
+                            rollback_window()
+                        ),
+                    ),
+                ],
+                from: Some(from),
+                to,
+                names: None,
+                action: "Update the server".into(),
+            }
+        });
+        update_dialog(
+            open,
+            "server-update-dialog",
+            "server-update-confirm",
+            c,
+            move || ask_server(s),
+        )
     }
 }
 

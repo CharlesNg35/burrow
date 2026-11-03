@@ -230,6 +230,20 @@ impl ClientInfo {
     }
 }
 
+pub fn skipped(status: &Status) -> Vec<(String, String)> {
+    status
+        .clients
+        .iter()
+        .filter(|c| !c.local && c.connected)
+        .map(info)
+        .filter_map(|c| match (&c.available, &c.blocked) {
+            (Some(_), Some(why)) => Some((c.name, why.clone())),
+            (None, _) if c.older => Some((c.name, format!("older than {FIRST_REPORTING}"))),
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn ready_names(status: &Status) -> Vec<String> {
     status
         .clients
@@ -536,5 +550,17 @@ mod tests {
             ..ClientInfo::default()
         };
         assert_eq!(quiet.card(true), Card::default(), "nothing to say");
+    }
+
+    #[test]
+    fn update_all_names_the_clients_it_skips_and_why() {
+        let st = status();
+        let names: Vec<String> = skipped(&st).into_iter().map(|(n, _)| n).collect();
+        for n in &names {
+            assert!(
+                !ready_names(&st).contains(n),
+                "{n} is both asked and skipped"
+            );
+        }
     }
 }

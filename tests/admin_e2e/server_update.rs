@@ -46,7 +46,7 @@ async fn ask(c: &mut Ctx, to: &str, step: &str) {
     c.ui.click("[data-testid=server-update]").await;
     c.ui.wait_for("[data-testid=server-update-dialog]", SECS)
         .await;
-    super::updates::whats_new(c, "server-update-dialog", to).await;
+    super::updates::whats_new(c, "server-update-dialog", to, "What's new").await;
     let said = c.ui.text("[data-testid=server-update-dialog]").await;
     assert!(said.contains("pause for a few seconds"), "{said}");
     every_look(c, &format!("{step}-dialog")).await;

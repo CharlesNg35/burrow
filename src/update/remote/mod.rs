@@ -22,7 +22,7 @@ use crate::wire::protocol::{LastUpdate, Outcome, Remote, Report, RunMode};
 pub use record::{Asked, Record};
 pub use server::ServerUpdates;
 
-pub const WINDOW: Duration = Duration::from_secs(60);
+pub const WINDOW: Duration = Duration::from_secs(burrow_admin_proto::updates::ROLLBACK_SECS);
 pub const MAX_STARTS: u32 = 3;
 pub const WINDOW_ENV: &str = "BURROW_ADMIN_TEST_UPDATE_WINDOW";
 
