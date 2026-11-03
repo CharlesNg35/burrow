@@ -302,7 +302,7 @@ fn Banners() -> impl IntoView {
                     "burrow admin is not running.".to_string(),
                     "Start it again and this tab reconnects. ".to_string(),
                 )
-            } else if s.server_updating.get() {
+            } else if s.server_updating.get().busy() {
                 (
                     format!("{} restarts with the new release.", s.server_name()),
                     "This tab reconnects on its own and then shows the result. ".to_string(),
@@ -318,7 +318,7 @@ fn Banners() -> impl IntoView {
                 1 => " Your 1 change is kept.".to_string(),
                 n => format!(" Your {n} changes are kept."),
             };
-            let tone = if s.server_updating.get() {
+            let tone = if s.server_updating.get().busy() {
                 Tone::Info
             } else {
                 Tone::Warning

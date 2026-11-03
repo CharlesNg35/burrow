@@ -91,6 +91,21 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             "update:\n  remote: true\n",
         );
         open(c, "ops").await;
+        c.ui.wait_for("[data-testid=server-burrow]", SECS).await;
+        let remote = c.ui.text("[data-testid=server-update-remote]").await;
+        assert_eq!(remote, "updates from burrow admin not possible");
+        assert!(
+            c.ui.attr_of("[data-testid=server-update-remote]", "title")
+                .await
+                .contains("sudo burrow update"),
+            "a server started by hand says how to update it"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=server-update]").await,
+            0,
+            "no newer release for the server, so no button"
+        );
+        every_look(c, "server-by-hand").await;
         overview_tab(c, "clients").await;
         c.ui.wait_text(
             "[data-testid=overview-clients] tr[data-row=home] [data-testid=client-update-tag]",

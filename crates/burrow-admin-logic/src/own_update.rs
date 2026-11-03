@@ -5,6 +5,7 @@ use crate::presence::Mood;
 use crate::version::server_is_older;
 
 pub const UPDATING: &str = "updating, the server restarts";
+pub const RESULT_SHOWN_SECS: u64 = 24 * 3600;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ServerFigure {
@@ -23,23 +24,28 @@ pub fn figure(st: &Status) -> Option<ServerFigure> {
     let to = latest.filter(|l| server_is_older(&st.version, l));
     let on = own.remote == RemoteUpdates::On;
     let running = own.running();
+    let shown = to.clone();
     let tag = match (&to, running) {
         (_, true) => Some((UPDATING.to_string(), Mood::Busy)),
         (Some(v), false) if on => Some((format!("{v} available"), Mood::Offer)),
         (Some(v), false) => Some((format!("{v} available"), Mood::Quiet)),
         (None, false) => None,
     };
-    let last = own.last.as_ref().filter(|u| u.state.finished()).map(|u| {
-        let mut line = job_text(u);
-        if !u.by.is_empty() {
-            line.push_str(&format!(", asked by {}", u.by));
-        }
-        let mood = match u.state {
-            UpdateState::Done => Mood::Good,
-            _ => Mood::Bad,
-        };
-        (line, mood)
-    });
+    let last = own
+        .last
+        .as_ref()
+        .filter(|u| u.state.finished() && u.secs_ago < RESULT_SHOWN_SECS)
+        .map(|u| {
+            let mut line = job_text(u);
+            if !u.by.is_empty() {
+                line.push_str(&format!(", asked by {}", u.by));
+            }
+            let mood = match u.state {
+                UpdateState::Done => Mood::Good,
+                _ => Mood::Bad,
+            };
+            (line, mood)
+        });
     Some(ServerFigure {
         version: st.version.clone(),
         can_ask: on && !running && to.is_some(),
@@ -50,7 +56,7 @@ pub fn figure(st: &Status) -> Option<ServerFigure> {
             RemoteUpdates::Off => "updates from burrow admin off",
             _ => "updates from burrow admin not possible",
         },
-        why_not: own.why_not.clone().filter(|_| !on),
+        why_not: own.why_not.clone().filter(|_| !on && shown.is_some()),
         last,
     })
 }
@@ -92,6 +98,11 @@ mod tests {
         assert_eq!(off.remote, "updates from burrow admin off");
         let same = figure(&status(RemoteUpdates::On, "0.2.2", None)).unwrap();
         assert!(!same.can_ask && same.tag.is_none() && same.to.is_none());
+        let quiet = figure(&status(RemoteUpdates::Off, "0.2.2", None)).unwrap();
+        assert_eq!(
+            quiet.why_not, None,
+            "no reason to show without a newer release"
+        );
         assert_eq!(
             figure(&Status::default()),
             None,
@@ -118,5 +129,16 @@ mod tests {
         assert_eq!(mood, Mood::Bad);
         assert!(line.contains("rolled back: 0.2.3 is not running"), "{line}");
         assert!(line.ends_with("asked by ops (203.0.113.7)"), "{line}");
+        let mut old = status(RemoteUpdates::On, "0.2.3", None);
+        old.server_update.as_mut().unwrap().last = Some(UpdateStatus {
+            state: UpdateState::Done,
+            secs_ago: RESULT_SHOWN_SECS,
+            ..UpdateStatus::default()
+        });
+        assert_eq!(
+            figure(&old).unwrap().last,
+            None,
+            "a day later the header is quiet again"
+        );
     }
 }

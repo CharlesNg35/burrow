@@ -53,6 +53,8 @@ mod secrets;
 mod self_picker;
 #[path = "admin_e2e/sequences.rs"]
 mod sequences;
+#[path = "admin_e2e/server_update.rs"]
+mod server_update;
 #[path = "admin_e2e/settings.rs"]
 mod settings;
 #[path = "admin_e2e/sheet.rs"]

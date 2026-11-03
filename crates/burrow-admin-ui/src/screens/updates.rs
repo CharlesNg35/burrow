@@ -9,7 +9,7 @@ use burrow_admin_proto::updates::{
 use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Dialog, Stat, Tone, VersionTag, tag_class};
 use leptos::prelude::*;
 
-use crate::store::{Store, store};
+use crate::store::{OwnJob, Store, store};
 
 pub fn tone(m: Mood) -> Tone {
     match m {
@@ -264,11 +264,11 @@ fn server_offered(s: Store) -> bool {
 
 fn ask_server(s: Store) {
     let body = crate::api::body(&UpdateServer { dry_run: false });
+    s.server_updating.set(OwnJob::Asked);
     crate::api::request(UPDATE_SERVER, body, move |r| match r {
         Ok(v) => {
             let reply: UpdateServerReply =
                 burrow_admin_proto::serde_json::from_value(v).unwrap_or_default();
-            s.server_updating.set(true);
             s.toast(
                 Tone::Info,
                 format!(
@@ -278,7 +278,10 @@ fn ask_server(s: Store) {
                 None,
             );
         }
-        Err(e) => s.toast(Tone::Danger, e.message, None),
+        Err(e) => {
+            s.server_updating.set(OwnJob::Idle);
+            s.toast(Tone::Danger, e.message, None);
+        }
     });
 }
 
@@ -289,7 +292,7 @@ pub fn server_figure() -> impl IntoView {
     let line = move || {
         let f = fig.get()?;
         let tag = f.tag.clone().map(|(t, m)| (t, tone(m)));
-        let button = (server_offered(s) && f.to.is_some() && !s.server_updating.get()).then(|| {
+        let button = (server_offered(s) && f.to.is_some() && !s.server_updating.get().busy()).then(|| {
             let why = f.why_not.clone().filter(|_| !f.can_ask).unwrap_or_default();
             view! { <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" disabled=!f.can_ask reason=why testid="server-update" on_click=move |_| open.set(true)/> }
         });
@@ -297,7 +300,8 @@ pub fn server_figure() -> impl IntoView {
         let last = f.last.clone().map(|(l, m)| view! { <span class=format!("text-xs {}", tone(m).text()) data-testid="server-update-last">{l}</span> });
         Some(view! {
             <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-text-muted" data-testid="server-burrow">
-                <span>"Burrow on this server"</span>
+                <span class="max-sm:hidden">"Burrow on this server"</span>
+                <span class="sm:hidden">"Burrow"</span>
                 <VersionTag text=f.version.clone() tag=tag/>
                 {button}
                 <span class="text-xs text-text-faint" title=f.why_not.clone().unwrap_or_default() data-testid="server-update-remote">{f.remote}</span>
@@ -327,7 +331,8 @@ pub fn server_figure() -> impl IntoView {
 pub fn follow_server_update() {
     let s = store();
     Effect::new(move |_| {
-        if !s.server_updating.get() {
+        let job = s.server_updating.get();
+        if !job.busy() {
             return;
         }
         let Some(last) = s.status.with(|st| {
@@ -337,15 +342,18 @@ pub fn follow_server_update() {
         }) else {
             return;
         };
-        if !last.state.finished() {
-            return;
+        match (job, last.state.finished()) {
+            (OwnJob::Asked, false) => s.server_updating.set(OwnJob::Running),
+            (OwnJob::Running, true) => {
+                s.server_updating.set(OwnJob::Idle);
+                let t = if last.state == burrow_admin_proto::updates::UpdateState::Done {
+                    Tone::Success
+                } else {
+                    Tone::Danger
+                };
+                s.toast(t, burrow_admin_proto::updates::job_text(&last), None);
+            }
+            _ => {}
         }
-        s.server_updating.set(false);
-        let t = if last.state == burrow_admin_proto::updates::UpdateState::Done {
-            Tone::Success
-        } else {
-            Tone::Danger
-        };
-        s.toast(t, burrow_admin_proto::updates::job_text(&last), None);
     });
 }
