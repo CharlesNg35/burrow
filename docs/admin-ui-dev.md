@@ -98,3 +98,120 @@ cargo xtask ui --release && cargo xtask size --budget                           
 The size gate allows 2 MiB of gzipped WebAssembly and 2.4 MiB for all UI assets with the fonts, and warns above 90 % of either (owner, 2026-11-02). The room is for necessary improvements, not a reason to add code.
 
 On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).
+
+## Messages, placement and layout
+
+These rules say where a message goes, how long it may be and how a row lines up. They apply to every screen and dialog; the owner's rulings still win. Each rule says how a check can enforce it: `e2e` means a check in `tests/admin_e2e.rs` that runs on every screenshot step, `fuzz` means `tmp/ui-review/fuzz/checks.js`, `unit` means a test over the UI source.
+
+### 1. One home per kind of message
+
+| kind of message | where it lives | example |
+|---|---|---|
+| what the page is, in a few words | the page header line (`PageHeader` `sub`) | "29 services, 3 reached by websites" |
+| a fact about one card | that card's subline (`card_head` `sub`) or a row inside it | "3 of 4 clients up" |
+| something the user should look at or fix | Needs attention (Overview), and in place next to the field or row it is about | "The certificate for portal.example.com expires in 9 days" |
+| the user must act before anything else works | a `Banner` under the header: connection lost, config errors, config changed on the server (owner, 2026-10-19) | "Connection lost. Retrying…" |
+| the answer to what the user just did | one toast | "Added to changes" |
+| what happened, with its full detail | Activity | the apply, its diff, the server's log line |
+| why a control is off, what a short value means | a tooltip (`title` or `Tooltip`) | button "Update" disabled, tooltip "the client runs as a container" |
+| technical detail a few users need | a "Details" fold (`Disclosure`) under the plain sentence | error code, path, checksum, raw server text |
+
+Good: Apply succeeds, a toast says "Applied", the header keeps its usual line, Activity lists the version. Bad: the header line also says "Applied version 12 at 10:32", and a callout repeats it.
+
+Check: e2e, after each step, no visible text other than the toast contains the toast's text (normalised, at least 12 characters).
+
+### 2. Lengths
+
+| place | at most | on a phone (390 px) |
+|---|---|---|
+| page header line | 80 characters, one sentence | 2 lines |
+| card subline | 50 characters | 1 line, else it moves under the title |
+| toast | 70 characters, plus one action word | 3 lines |
+| Needs attention item title | 70 characters; detail goes on its second line | 3 lines |
+| button label | 3 words | 1 line, never broken inside |
+| tooltip | 120 characters | n/a |
+
+A message that does not fit is the wrong kind: move the detail to Details, Activity or a tooltip, do not shorten the words into jargon.
+
+Good: header "3 clients offline". Bad: header "Could not reach the local status endpoint at 127.0.0.1:27801 (connection refused); showing the last known state from 10:31".
+
+Check: e2e, `header p` (the header line), `[data-testid=toast]` and the `card_head` subline are measured by characters and by rendered lines (height / line height) at 1440 and 390.
+
+### 3. One message per line, by priority
+
+A line (header line, card subline, table cell, status row) says one thing. When several states are true, the screen shows the highest one and leaves the rest to their own homes. The order is: broken > in progress > needs a look > available > recently done > nothing. "Nothing" means no line at all, not "All good".
+
+Good: "Updating to 0.2.3…" while an update runs. Bad: "Up to date · Update available · Checked 2m ago" on one line.
+
+Check: e2e, a header line or card subline holds at most one sentence (no `. ` followed by a capital) and at most one `[data-tone]` element.
+
+### 4. Problems go to Needs attention, and the page never contradicts itself
+
+Every problem (a failing check, an offline client that serves something, an expiring certificate, a failed update) is an item in Needs attention and, where it can be fixed, also next to the thing it is about. A page never shows a calm summary next to a problem: no "Nothing needs attention", "All clients online" or a green dot while a danger or warning item is on the same page.
+
+Good: a failing health check shows in Needs attention and as a red row in Health per client. Bad: "Nothing needs attention" in the card and "Update failed" in the header line.
+
+Check: e2e, when "Nothing needs attention" or a success-tone summary is visible, no visible `[data-tone=danger]` or `[data-tone=warning]` exists on the page.
+
+### 5. Plain words first, technical detail behind Details
+
+The first line is what happened and what to do, in the user's words. The About page is the one place for support facts (versions, schema, paths) and is exempt. Addresses, paths, codes, raw server text and internal names go behind a "Details" fold or into Activity. Never name an internal part (endpoint, API, schema path, store, draft, `web.certificates[0]`).
+
+Good: "The server could not check this client" + Details: "GET /status: connection refused". Bad: "local status endpoint unreachable", "2 CIDRs", "(tls: internal)".
+
+Check: unit, a test over `burrow_admin_logic::wording` and the UI's string literals refuses a list of internal words (endpoint, schema, payload, draft, struct, YAML key paths with `[0]`); e2e, the same list over the visible text of every screenshot step, outside `code`, `pre`, `.font-mono` and Details.
+
+### 6. Tone colours
+
+- `Danger` only for a broken state now: a service nothing can reach, a failed check, a failed apply or update, a lost connection.
+- `Warning` for "needs a look": expiring soon, an offline client, a setting that will cut someone off.
+- `Success` only as the answer to an action or a positive summary with nothing else to say.
+- `Info` (accent) for neutral notes. Never red for a choice the user made (off, disabled, not set).
+- A danger card is never red-on-red (owner, 2026-10-19): `DANGER_CARD`.
+
+Good: an offline client is amber. Bad: a client the user turned off is red.
+
+Check: e2e, in the healthy fixture world no `[data-tone=danger]` is visible on any page; the contrast tests in `src/contrast.rs` keep each tone readable in light and dark.
+
+### 7. No redundant text
+
+Do not write what a visible control or icon already says: no "Update available" next to an "Update" button, no "Click to edit" next to Edit, no "Status: online" next to a green dot with the word online, no repeated entity name in a card that sits under that name. Helpful repeats across places are fine (owner, 2026-10-22).
+
+Good: a button "Update to 0.2.3". Bad: "0.2.3 is available" followed by a button "Update to 0.2.3".
+
+Check: e2e, within one row (a flex container), no text node repeats the label of a button in the same row (case-insensitive, ignoring "to"/"now").
+
+### 8. Rows of text and buttons line up and wrap whole
+
+- A row that mixes text, tags, icons and buttons is `flex items-center`; inline buttons use `ButtonSize::Small` so they do not stretch the row. The vertical centres of its items differ by at most 2 px. Next to text of several lines, a radio, checkbox or icon lines up with the first line.
+- Table cells of one row line up on their first line of text, whatever their font (mono, tag or text). Tables use `burrow_ui_kit::Table`, not a hand-made `<table>`.
+- On a narrow screen a row wraps whole items: a button, a tag or a "label: value" pair never breaks inside (`whitespace-nowrap` on the item, `flex-wrap` on the row).
+- A separator ("·") belongs to the item after it and is never the first or the last thing on a visual line. Use the shared inline list of `burrow-ui-kit`, which hides a separator that starts a line; never type " · " between two views.
+- Buttons side by side have a gap (owner, 2026-10-22).
+
+Good: `Client 0.2.2 [Update]` with the button centred on the text. Bad: the button 6 px lower than the text, or a line on a phone that starts with "· 2 services".
+
+Check: e2e and fuzz, for every visible flex row, items on the same visual line (overlapping tops) have centres within 2 px, measured on the first line box of a text item; for every table row, the first line boxes of its cells have centres within 2 px; every visible "·" has a neighbour on its own visual line on both sides.
+
+### 9. Icons come from the ui-kit
+
+Use `Icon` (`burrow_ui_kit::icon`) for every pictogram: warning, external link, copy, close, check, arrows in buttons. Never type a glyph such as ⚠ ↗ ⧉ ✕ ✓ ↵ ⟳: the bundled Geist fonts are a Latin subset without them, so they render as empty boxes, and they do not follow the tone colours. A new pictogram is a new `Icon` name, not a character.
+
+Characters the fonts have may be text: · … — – − × • › ↑ ↓. The arrows → and ← are not in Geist but every system font has them, so they stay allowed as text ("Open websites →"). Other symbols (≠ ≈ ↔) become words or an icon.
+
+Good: `<Icon name="external"/>` after "Release notes". Bad: "Release notes ↗".
+
+Check: e2e, every visible text character is tested in the browser: a canvas measures it with `Geist, serif`, `Geist, monospace` and against an unassigned code point. Equal to the unassigned one means an empty box (fail); different between the two fallbacks means another font draws it (fail unless → or ←). unit: a test over the string literals of `burrow-admin-ui`, `burrow-ui-kit` and `burrow-admin-logic` allows only Latin-1 and the list above.
+
+### 10. Phones
+
+- Check every screen at 390 px (and 360 px for new layouts), light and dark, and at 1440 and 1280.
+- No page scrolls sideways; tab, chip and navigation rows use `ScrollRow` (owner, 2026-10-30).
+- Header actions move under the title as one group; the header line wraps to at most 2 lines.
+- Touch targets are at least 24 × 24 px (WCAG 2.2 2.5.8).
+- Tables become stacked rows, not a sideways-scrolling grid, unless they are data tables a user reads across.
+- Text that is cut has an ellipsis and its full value on hover (`auto_titles`).
+
+Good: the client page header on a phone: name, then the status dot and tags, then the buttons on one row. Bad: the Edit button pushed off-screen by a long header line.
+
+Check: fuzz and e2e at 390 px: `page-hscroll`, `offscreen`, `small-target`, `clipped-text`, `ellipsis-no-title` (already in `checks.js`); e2e, the header's actions start below or right of the title and fully inside the viewport.
