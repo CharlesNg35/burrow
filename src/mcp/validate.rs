@@ -1,34 +1,14 @@
 use std::path::Path;
 
-use burrow_admin_proto::codes;
+use burrow_admin_proto::check::{CheckRole, CheckScope, CheckText};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config::diagnostics::{Diagnostic, mask_text};
-use crate::config::{Format, Role};
+use crate::config::text_check::{self, Reads};
 
-pub const MAX_INPUT: usize = 64 * 1024;
 pub const NAME: &str = "config.yaml";
-
-const NOTE: &str = "checked on this computer by burrow's own validation, as `burrow validate` does; nothing was written or sent to the server. ${VAR} values and files named in the config are not read here: they are read where burrow runs.";
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum RoleWord {
-    #[default]
-    Server,
-    Client,
-    Visitor,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum Scope {
-    #[default]
-    Fragment,
-    Whole,
-}
+const ELSEWHERE: &str = "${VAR} values and files named in the config are not read here: they are read where burrow runs. Nothing was written or sent to the server.";
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ValidateArgs {
@@ -38,97 +18,64 @@ pub struct ValidateArgs {
     pub config: String,
     #[schemars(description = "Which config it is: server (the default), client or visitor")]
     #[serde(default)]
-    pub role: RoleWord,
+    pub role: CheckRole,
     #[schemars(
         description = "fragment (the default): part of a larger config, so a missing listen, clients or services is not reported; whole: a complete file, as burrow validate checks it"
     )]
     #[serde(default)]
-    pub scope: Scope,
+    pub scope: CheckScope,
 }
 
-fn role(r: RoleWord) -> Role {
-    match r {
-        RoleWord::Server => Role::Server,
-        RoleWord::Client => Role::Client,
-        RoleWord::Visitor => Role::Visitor,
-    }
-}
-
-fn kept(d: &Diagnostic, scope: Scope) -> bool {
-    let elsewhere = [codes::ENV_UNSET, codes::TLS_UNREADABLE];
-    let whole_file = ["no-listener", codes::NO_CLIENTS, codes::NO_SERVICES];
-    !elsewhere.contains(&d.code) && (scope == Scope::Whole || !whole_file.contains(&d.code))
-}
-
-pub const LITERAL_MIN: usize = 20;
-
-fn literals(input: &str) -> Vec<String> {
-    let mut found: Vec<String> = input
-        .split(|c: char| !(c.is_ascii_alphanumeric() || "+/=-_".contains(c)))
-        .filter(|t| t.len() >= LITERAL_MIN)
-        .map(String::from)
-        .collect();
-    found.sort_by_key(|t| std::cmp::Reverse(t.len()));
-    found.dedup();
-    found
-}
-
-fn masked(v: &mut Value, hidden: &[String]) {
-    match v {
-        Value::String(s) => {
-            let mut text = mask_text(s);
-            for h in hidden {
-                text = text.replace(h.as_str(), &"*".repeat(h.len()));
-            }
-            *s = text;
-        }
-        Value::Array(a) => a.iter_mut().for_each(|x| masked(x, hidden)),
-        Value::Object(o) => o.values_mut().for_each(|x| masked(x, hidden)),
-        _ => {}
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Local {
+    OlderServer(String),
+    Unreachable(String),
 }
 
 pub fn too_large(len: usize) -> Option<Value> {
-    (len > MAX_INPUT).then(|| {
-        json!({
-            "error": "too-large",
-            "message": format!("the config is {len} bytes; validate_config takes at most {MAX_INPUT}"),
-            "hint": "check one section at a time",
-        })
+    burrow_admin_proto::check::too_large(len).map(|why| {
+        json!({ "error": "too-large", "message": why, "hint": "check one section at a time" })
     })
 }
 
-pub fn check(a: &ValidateArgs) -> Value {
-    if let Some(v) = too_large(a.config.len()) {
-        return v;
+pub fn request(a: &ValidateArgs) -> CheckText {
+    CheckText {
+        text: a.config.clone(),
+        role: a.role,
+        scope: a.scope,
     }
-    let format = if a.config.trim_start().starts_with('{') {
-        Format::Json
-    } else {
-        Format::Yaml
-    };
+}
+
+pub fn on_server(mut v: Value, server: &str) -> Value {
+    v["checked_by"] = "server".into();
+    v["note"] = format!(
+        "checked by the server, which runs burrow {server}, with its own validation, environment variables and files; nothing was written"
+    )
+    .into();
+    v
+}
+
+pub fn local(a: &ValidateArgs, why: &Local) -> Value {
     let none = |_: &str| None::<String>;
-    let outcome = crate::config::load::load_str_in(
-        Path::new("."),
-        NAME,
+    let outcome = text_check::load(
         &a.config,
-        format,
-        Some(role(a.role)),
+        text_check::role(a.role),
+        (Path::new("."), None),
+        NAME,
         &none,
     );
-    let mut report = outcome.report;
-    report.diagnostics.retain(|d| kept(d, a.scope));
-    let mut v = report.render_json();
-    if let Some(items) = v["diagnostics"].as_array_mut() {
-        for item in items.iter_mut().filter_map(Value::as_object_mut) {
-            item.remove("file");
-        }
-    }
-    if let Some(o) = v.as_object_mut() {
-        o.remove("file");
-    }
-    masked(&mut v, &literals(&a.config));
-    v["note"] = NOTE.into();
+    let mut v = text_check::report_json(outcome.report, &a.config, a.scope, Reads::Elsewhere, &[]);
+    let here = crate::base::build::version();
+    let reason = match why {
+        Local::OlderServer(server) => format!(
+            "checked with burrow {here} on this computer; the server runs burrow {server} and may differ"
+        ),
+        Local::Unreachable(what) => format!(
+            "checked with burrow {here} on this computer, because the server could not be reached ({what}); the server may differ"
+        ),
+    };
+    v["checked_by"] = "local".into();
+    v["note"] = format!("{reason}. {ELSEWHERE}").into();
     v
 }
 
@@ -158,12 +105,13 @@ mod tests {
         wildcards: [\"*.example.com\"]
 ";
 
-    fn of(config: &str, scope: Scope) -> Value {
-        check(&ValidateArgs {
+    fn of(config: &str, scope: CheckScope) -> Value {
+        let a = ValidateArgs {
             config: config.into(),
-            role: RoleWord::Server,
+            role: CheckRole::Server,
             scope,
-        })
+        };
+        local(&a, &Local::OlderServer("0.1.2".into()))
     }
 
     #[cfg(feature = "web")]
@@ -179,7 +127,7 @@ mod tests {
     #[cfg(feature = "web")]
     #[test]
     fn the_owner_s_example_is_refused_with_the_validate_message() {
-        let v = of(OWNER_EXAMPLE, Scope::Fragment);
+        let v = of(OWNER_EXAMPLE, CheckScope::Fragment);
         assert_eq!(v["valid"], false, "{v}");
         let m = messages(&v);
         assert!(
@@ -188,18 +136,24 @@ mod tests {
         );
         assert!(!m.iter().any(|m| m.contains("CF_TOKEN")), "{v}");
         assert!(!m.iter().any(|m| m.contains("needs \"listen\"")), "{v}");
-        let whole = messages(&of(OWNER_EXAMPLE, Scope::Whole));
+        let whole = messages(&of(OWNER_EXAMPLE, CheckScope::Whole));
         assert!(
             whole.iter().any(|m| m.contains("needs \"listen\"")),
             "{whole:?}"
         );
-        let unquoted = of(FLOW_UNQUOTED, Scope::Fragment);
+        let unquoted = of(FLOW_UNQUOTED, CheckScope::Fragment);
         let first = &unquoted["diagnostics"][0];
         assert!(
             first["help"].as_str().unwrap().contains("must be quoted"),
             "{unquoted}"
         );
-        assert!(v["note"].as_str().unwrap().contains("nothing was written"));
+        let note = v["note"].as_str().unwrap();
+        assert!(
+            note.contains("the server runs burrow 0.1.2 and may differ"),
+            "{note}"
+        );
+        assert!(note.contains("Nothing was written"), "{note}");
+        assert_eq!(v["checked_by"], "local");
     }
 
     #[cfg(feature = "web")]
@@ -209,23 +163,37 @@ mod tests {
             "        wildcards:\n          - example.com\n",
             "        wildcards:\n          - \"*.example.com\"\n",
         );
-        let v = of(&format!("{fixed}  https: 443\n"), Scope::Fragment);
+        let v = of(&format!("{fixed}  https: 443\n"), CheckScope::Fragment);
         assert_eq!(v["valid"], true, "{v}");
     }
 
     #[test]
     fn secrets_and_long_values_are_never_echoed_and_the_size_is_capped() {
-        let unquoted = of(FLOW_UNQUOTED, Scope::Fragment);
+        let unquoted = of(FLOW_UNQUOTED, CheckScope::Fragment);
         assert_eq!(unquoted["diagnostics"][0]["code"], "syntax", "{unquoted}");
         let secret = crate::wire::secret::Secret::generate().encode();
         let leaky = format!("listen: {secret}\nclients:\n  home: {{ secret: {secret} }}\n");
-        let v = of(&leaky, Scope::Whole);
+        let v = of(&leaky, CheckScope::Whole);
         assert_eq!(v["valid"], false, "{v}");
         assert!(!v.to_string().contains(&secret), "{v}");
         let token = "cf_0123456789abcdefghijklmnop";
-        let v = of(&format!("listen: {token}\n"), Scope::Whole);
+        let v = of(&format!("listen: {token}\n"), CheckScope::Whole);
         assert!(!v.to_string().contains(token), "{v}");
-        let big = "#".repeat(MAX_INPUT + 1);
-        assert_eq!(of(&big, Scope::Whole)["error"], "too-large");
+        let big = burrow_admin_proto::check::MAX_TEXT + 1;
+        assert_eq!(too_large(big).unwrap()["error"], "too-large");
+        let a = ValidateArgs {
+            config: "x: 1\n".into(),
+            role: CheckRole::Server,
+            scope: CheckScope::Fragment,
+        };
+        let away = local(&a, &Local::Unreachable("connection refused".into()));
+        let note = away["note"].as_str().unwrap();
+        assert!(
+            note.contains("could not be reached (connection refused)"),
+            "{note}"
+        );
+        let served = on_server(json!({ "valid": true }), "0.2.3");
+        assert_eq!(served["checked_by"], "server");
+        assert!(served["note"].as_str().unwrap().contains("burrow 0.2.3"));
     }
 }

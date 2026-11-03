@@ -67,8 +67,14 @@ async fn a_read_only_admin_checks_the_owner_s_example_and_gets_the_validate_refu
         .await;
     assert!(!failed, "{got}");
     assert_eq!(got["valid"], false, "{got}");
+    assert_eq!(got["checked_by"], "server", "{got}");
     let said = messages(&got);
     assert!(said.iter().any(|m| m == REFUSAL), "{got}");
+    assert!(
+        said.iter()
+            .any(|m| m == "environment variable \"CF_TOKEN\" is not set"),
+        "the server checks its own environment: {got}"
+    );
     assert!(
         cli_messages(OWNER_EXAMPLE)
             .await
@@ -81,7 +87,8 @@ async fn a_read_only_admin_checks_the_owner_s_example_and_gets_the_validate_refu
         "        wildcards:\n          - \"*.example.com\"\n  https: 443\n",
     );
     let (failed, good) = a.call("validate_config", json!({ "config": fixed })).await;
-    assert!(!failed && good["valid"] == true, "{good}");
+    assert!(!failed, "{good}");
+    assert!(!messages(&good).iter().any(|m| m == REFUSAL), "{good}");
     let (failed, flow) = a
         .call("validate_config", json!({ "config": FLOW_UNQUOTED }))
         .await;
