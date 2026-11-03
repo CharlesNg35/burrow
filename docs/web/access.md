@@ -192,6 +192,7 @@ Register burrow with the provider as a web application, with `https://wiki.examp
 - The app gets `Remote-User` and `Remote-Email`, both the visitor's email. A visitor's own headers of those names, also written with `_`, are always removed, and the login cookie never reaches the app.
 - burrow uses the authorization code flow with PKCE, `state` and `nonce`, and checks the ID token's signature, issuer, audience, expiry and nonce. An email the provider marks as not verified is refused.
 - An `http://` issuer works only on loopback or private addresses, for a provider on your own network; validate warns.
+- **In the admin UI**, Settings → Web lists the login providers as cards with Add, Edit, Rename and Remove, and each card names the websites that use it. The dialog shows the redirect URI to register. A website's **Login with** picks one or more providers, and **Allowed users** says who gets in.
 
 ## Device certificates
 
