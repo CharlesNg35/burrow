@@ -1,4 +1,4 @@
-//! The shared kit of the integration tests: settings builders, running servers and clients, echo targets, free ports, certificates and wait helpers.
+//! The shared kit of the integration tests: settings builders, running servers and clients, echo targets, free ports, certificates and wait helpers, and a scripted terminal for prompts.
 
 #![allow(dead_code)]
 
@@ -8,6 +8,7 @@ pub mod hand;
 pub mod older;
 pub mod output;
 pub mod ports;
+pub mod prompt;
 pub mod releases;
 pub mod servers;
 pub mod socks;

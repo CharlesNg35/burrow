@@ -101,6 +101,9 @@ pub fn init_server_asking(
     out: &mut dyn Write,
 ) -> Result<PathBuf, Failure> {
     let (path, format) = resolve_output(Role::Server, opts)?;
+    if path.exists() && !opts.force {
+        return Err(super::already_exists(&path));
+    }
     let client = opts.client_name.as_deref().unwrap_or(DEFAULT_CLIENT_NAME);
     check_name("--client-name", client)?;
     if opts.email.is_some() && opts.websocket.is_none() && opts.web.is_none() {

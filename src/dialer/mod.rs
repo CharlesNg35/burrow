@@ -304,7 +304,7 @@ fn tls_reason(e: &std::io::Error, role: &str) -> String {
 }
 
 fn unreachable_reason(server: &str, via: &str, e: &std::io::Error) -> String {
-    if crate::wire::transport::proxy::lookup_timed_out(e) {
+    if crate::wire::transport::proxy::lookup_failed(e) {
         io_reason(e)
     } else {
         format!("server unreachable at {server}{via} ({})", io_reason(e))
@@ -332,6 +332,14 @@ mod tests {
         assert_eq!(
             unreachable_reason("tunnel.example.com:7835", "", &refused),
             "server unreachable at tunnel.example.com:7835 (connection refused)"
+        );
+        let failed = std::io::Error::other(crate::wire::transport::proxy::LookupFailed::new(
+            "tunnel.example.com:7835",
+            &std::io::Error::other("no such host"),
+        ));
+        assert_eq!(
+            unreachable_reason("tunnel.example.com:7835", "", &failed),
+            "could not look up tunnel.example.com (DNS: no such host)"
         );
         let slow = std::io::Error::from(std::io::ErrorKind::TimedOut);
         assert_eq!(

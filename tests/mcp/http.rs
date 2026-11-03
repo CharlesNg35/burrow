@@ -32,7 +32,7 @@ pub async fn start_on(v: &Visitor, port: &str, args: &[&str]) -> Http {
         .unwrap();
     let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
     let mut seen = String::new();
-    let last = if quiet { "  URL:" } else { "  Cursor:" };
+    let last = if quiet { "  URL:" } else { "  One app:" };
     let started = tokio::time::timeout(Duration::from_secs(20), async {
         while let Ok(Some(line)) = lines.next_line().await {
             seen.push_str(&line);
@@ -168,7 +168,7 @@ async fn http_needs_the_token_a_local_origin_and_a_post() {
     let list = modern("tools/list", "2026-07-28");
     let ok = raw(h.port, "POST", &good, &list).await;
     assert_eq!(ok.status, 200, "{}", ok.body);
-    assert_eq!(tools_in(&ok.body).len(), 4, "{}", ok.body);
+    assert_eq!(tools_in(&ok.body).len(), 5, "{}", ok.body);
     let mut none = good.clone();
     none.retain(|(k, _)| *k != "Authorization");
     assert_eq!(raw(h.port, "POST", &none, &list).await.status, 401);
@@ -257,7 +257,7 @@ async fn a_2025_11_25_client_works_without_a_session() {
     )
     .await;
     assert_eq!(listed.status, 200, "{}", listed.body);
-    assert_eq!(tools_in(&listed.body).len(), 4, "{}", listed.body);
+    assert_eq!(tools_in(&listed.body).len(), 5, "{}", listed.body);
     let _ = w.stop.send(true);
 }
 
@@ -269,7 +269,7 @@ async fn the_token_is_kept_per_config_privately_and_shown_unless_asked_not_to() 
     assert_eq!(first.token.len(), 64, "{}", first.stderr);
     let this = dunce::canonicalize(env!("CARGO_BIN_EXE_burrow")).unwrap();
     let hint = format!(
-        "Claude Code:  {} mcp -c ",
+        "  Any app:   {} mcp -c ",
         burrow::base::failure::program_arg(&this)
     );
     assert!(first.stderr.contains(&hint), "{}", first.stderr);

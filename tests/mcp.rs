@@ -1,14 +1,24 @@
-//! Tests of `burrow mcp`: the stdio and HTTP transports, the token and origin checks, limits and the docs it serves.
+//! Tests of `burrow mcp`: the stdio and HTTP transports, starting and stopping as an AI app does, the token and origin checks, limits and the docs it serves.
 
+#[path = "mcp/app.rs"]
+mod app;
+#[path = "mcp/check.rs"]
+mod check;
 mod common;
 #[path = "mcp/docs.rs"]
 mod docs;
 #[path = "mcp/http.rs"]
 mod http;
+#[path = "mcp/lifecycle.rs"]
+mod lifecycle;
 #[path = "mcp/limits.rs"]
 mod limits;
+#[path = "mcp/startup.rs"]
+mod startup;
 #[path = "mcp/stdio.rs"]
 mod stdio;
+#[path = "mcp/validate.rs"]
+mod validate;
 
 use std::path::PathBuf;
 
@@ -54,13 +64,20 @@ impl Visitor {
     }
 }
 
-pub fn visitor(w: &World, name: &str, secret: &Secret) -> Visitor {
-    let dir = tempfile::tempdir().unwrap();
-    let server = if common::ws_mode() {
-        format!("ws://{}/burrow", w.addr)
+pub fn server_line(addr: std::net::SocketAddr) -> String {
+    if common::ws_mode() {
+        format!("ws://{addr}/burrow")
     } else {
-        w.addr.to_string()
-    };
+        addr.to_string()
+    }
+}
+
+pub fn visitor(w: &World, name: &str, secret: &Secret) -> Visitor {
+    visitor_to(w, name, secret, &server_line(w.addr))
+}
+
+pub fn visitor_to(w: &World, name: &str, secret: &Secret, server: &str) -> Visitor {
+    let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("visitor.yaml");
     burrow::base::fs::write_private(
         &config,
