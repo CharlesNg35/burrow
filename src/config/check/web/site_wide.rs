@@ -45,7 +45,7 @@ pub(super) fn check_site_wide(
             out.push(
                 Diagnostic::error(
                     "access-log",
-                    "web.access_log needs a file, like logs/access.log",
+                    "web.access_log: needs a file, like logs/access.log",
                 )
                 .at(spans.value(&["web", "access_log"]))
                 .help("paths are relative to the config file"),

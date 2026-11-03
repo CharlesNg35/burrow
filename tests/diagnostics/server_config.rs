@@ -289,7 +289,7 @@ fn insecure_and_empty() {
     insta::assert_snapshot!(render("server.yaml", &format!(
         "listen: 0.0.0.0:7835\ninsecure_plaintext: true\nclients:\n  home:\n    secret: {SECRET}\nservices: {{}}\n"
     ), None), @"
-    warning: insecure_plaintext is enabled: forwarded data is not encrypted
+    warning: insecure_plaintext: data forwarded between the server and its clients is not encrypted
       --> server.yaml:2:21
        |
      2 | insecure_plaintext: true

@@ -344,6 +344,7 @@ mod tests {
                 http: Some(burrow_admin_proto::status::HttpCounts {
                     responses: [0, 140, 3, 9, 1],
                 }),
+                not_listening: None,
             }],
             visitors: vec![VisitorStatus {
                 name: "lap\"top".into(),

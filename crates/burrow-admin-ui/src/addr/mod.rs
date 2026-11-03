@@ -25,7 +25,7 @@ pub enum Kind {
     Bind {
         ranges: bool,
         max: Option<u16>,
-        default_ip: String,
+        default_ip: Option<String>,
     },
     Target {
         ranges: bool,
@@ -38,35 +38,26 @@ pub enum Kind {
 
 const SPECIFIC: &str = "\u{1}specific";
 
-fn base_hosts() -> Vec<(String, String)> {
-    let mut o = vec![
-        ("0.0.0.0".to_string(), "All IPv4 (0.0.0.0)".to_string()),
-        ("::".to_string(), "All IPv6 (::)".to_string()),
-        ("127.0.0.1".to_string(), "Loopback (127.0.0.1)".to_string()),
-    ];
+fn base_hosts(alone: &str) -> Vec<(String, String)> {
     let extra: Vec<String> = store().state.with(|s| {
         s.as_ref()
             .map(|s| s.runtime.addresses.clone())
             .unwrap_or_default()
     });
-    for a in extra {
-        if !o.iter().any(|(v, _)| *v == a) {
-            o.push((a.clone(), a));
-        }
-    }
-    o
+    addr::hosts(alone, &extra)
+}
+
+fn is_specific(host: &str) -> bool {
+    !host.is_empty() && !base_hosts("").iter().any(|(v, _)| v == host)
 }
 
 pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
     let e = store().edit;
     let start = addr::split(e.peek(&fc.path).as_ref());
-    let implicit = start.host.is_empty();
     let parts = RwSignal::new(start.clone());
     let port_text = RwSignal::new(start.from.clone());
     let range_on = RwSignal::new(!start.to.is_empty());
-    let specific = RwSignal::new(
-        !start.host.is_empty() && !base_hosts().iter().any(|(v, _)| *v == start.host),
-    );
+    let specific = RwSignal::new(is_specific(&start.host));
     let (ranges, unix_ok, max) = match &kind {
         Kind::Bind { ranges, max, .. } => (*ranges, false, *max),
         Kind::Target { ranges, unix } => (*ranges, *unix, None),
@@ -104,7 +95,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
                 x.to = p.to.clone();
                 x.unix = p.unix.clone();
             });
-            specific.set(!p.host.is_empty() && !base_hosts().iter().any(|(v, _)| *v == p.host));
+            specific.set(is_specific(&p.host));
         } else {
             parts.update(|x| x.from = t.clone());
         }
@@ -132,10 +123,9 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
     };
     let host_control = host_control(
         kind,
-        fc.id.clone(),
+        (fc.id.clone(), fc.path.clone()),
         parts,
         specific,
-        implicit,
         commit.clone(),
     );
     let unix_mode = Memo::new(move |_| parts.with(|p| p.unix.is_some()));
@@ -167,7 +157,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
             <p class="mt-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" class:hidden=move || stored.with(String::is_empty) || has_error.get() data-testid="stored-as" data-stored=stored>
                 {format!("{} ", burrow_admin_logic::wording::WRITTEN_AS)}
                 <code class="font-mono">{stored}</code>
-                {(ranges && max.is_some()).then(|| max.map(|m| format!(" · up to {m} ports")))}
+                {move || (ranges && range_on.get()).then(|| max.map(|m| format!(" · up to {m} ports")))}
             </p>
             {none.map(|n| view! { <p class="mt-1.5 text-xs text-text-muted" class:hidden=move || !stored.with(String::is_empty) data-testid="stored-none">{n}</p> })}
         </div>

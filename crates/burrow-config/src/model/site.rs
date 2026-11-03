@@ -70,8 +70,8 @@ pub struct WebSite {
         none_label = "Automatic",
         advanced,
         enabled_if(
-            all(ne(tls, "passthrough"), ne(tls, "off")),
-            "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
+            any(not(set(tls)), eq(tls, "auto")),
+            "This applies only when Let's Encrypt gives the certificate (HTTPS: Automatic)"
         )
     )]
     pub challenge: Option<ChallengeKind>,

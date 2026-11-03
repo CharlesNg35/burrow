@@ -78,6 +78,17 @@ async fn new_website(c: &mut Ctx) {
         .await;
     c.ui.click("[data-new=website]").await;
     c.ui.wait_for("[data-testid=new-website]", SECS).await;
+    c.ui.fill("#new-website-names", "80").await;
+    c.ui.press("#new-website-names", "Enter").await;
+    let said =
+        c.ui.wait_text("[data-testid=names-problem]", "80:", SECS)
+            .await;
+    assert!(
+        said.contains("not a host name"),
+        "a bad name says why at the field: {said}"
+    );
+    c.ui.click("[data-chip='80'] button").await;
+    c.ui.wait_gone("[data-testid=names-problem]", SECS).await;
     c.ui.fill("#new-website-names", "shop.example.com").await;
     c.ui.press("#new-website-names", "Enter").await;
     c.ui.wait_for("[data-chip='shop.example.com']", SECS).await;

@@ -449,5 +449,9 @@ pub(super) fn differs(source: &Path, installed: &Path) -> bool {
 }
 
 pub(super) fn missing(p: &Path) -> &'static str {
-    if p.exists() { "" } else { "  (missing!)" }
+    match p.try_exists() {
+        Ok(true) => "",
+        Ok(false) => "  (missing!)",
+        Err(_) => "  (not readable by you; run with sudo to check it)",
+    }
 }

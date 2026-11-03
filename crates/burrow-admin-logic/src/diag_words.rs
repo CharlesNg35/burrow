@@ -15,6 +15,9 @@ pub(crate) fn worded(code: &str, subject: &str) -> Option<String> {
             "Nothing reaches this service: turn on a public port, a website or visitors under Reached by".into()
         }
         AUTH_BOTH => "Use passwords or a login service on this website, not both".into(),
+        DUPLICATE_BIND if subject.is_empty() => {
+            "This port is already used by another service or listener; pick another port".into()
+        }
         DUPLICATE_BIND => format!("{subject} is already used by another service or listener; pick another port"),
         PUBLIC_PORT_SKIPS_LOGIN => {
             "The public port reaches the app without the website's login; turn the public port off, or keep it on a trusted network".into()
@@ -122,6 +125,8 @@ mod tests {
             "invalid-range",
             "invalid-size",
             "letsencrypt-ca",
+            "letsencrypt-email",
+            "letsencrypt-directory",
             "passthrough-key",
             "plain-password",
             "redirect-from",
@@ -144,6 +149,16 @@ mod tests {
             "unknown-login",
             "forward-auth-unused",
             "forward-auth-h2",
+            "low-port",
+            "swapped-port",
+            "not-this-machine",
+            "target-not-allowed",
+            "mode-one-client",
+            "plain-ws-443",
+            "access-log",
+            "insecure-plaintext",
+            "web-port",
+            "invalid-pool",
         ];
         let client_file = [
             "allow-all",
@@ -176,29 +191,21 @@ mod tests {
             "env-syntax",
         ];
         let plain = [
-            "access-log",
             "admin-shared",
             "allow-every-address",
             "bind-is-control-port",
             "duplicate-secret",
             "env-unset",
-            "insecure-plaintext",
             "invalid-bandwidth",
             "invalid-name",
             "invalid-path",
-            "invalid-pool",
             "invalid-reach",
-            "invalid-source",
-            "letsencrypt-directory",
-            "letsencrypt-email",
             "link-local-target",
-            "low-port",
             "missing-secret",
             "no-clients",
             "no-listener",
             "no-services",
             "no-web-proxy",
-            "plain-ws-443",
             "proxied-source",
             "proxy-tls-check",
             "public-metrics",
@@ -221,7 +228,6 @@ mod tests {
             "unused-admin-from",
             "weak-secret",
             "web-overlap",
-            "web-port",
             "wildcard-hint",
             "dns-wildcard",
             "listen-clash",

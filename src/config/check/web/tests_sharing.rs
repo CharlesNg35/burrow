@@ -116,7 +116,7 @@ fn plain_websocket_on_443_gets_a_note() {
     assert!(!note.is_error());
     assert_eq!(
         note.message,
-        "websocket.listen 443 has no TLS: clients must use ws://tunnel.example.com:443/burrow, and networks that expect TLS on 443 may block it; add websocket.tls, use web.letsencrypt (a web: block with websocket.host), or use port 80"
+        "websocket.listen: port 443 has no TLS, so clients must use ws://tunnel.example.com:443/burrow, and networks that expect TLS on 443 may block it; add websocket.tls, use web.letsencrypt (a web: block with websocket.host), or use port 80"
     );
     assert!(found(&format!("listen: 7835\n{}", ws("7836", "")), "plain-ws-443").is_empty());
 }
@@ -127,4 +127,46 @@ fn only_a_tunnel_on_the_https_port_needs_a_certificate_source() {
     assert!(found(&on80, "tunnel-certificate").is_empty());
     let on443 = format!("web: {{ https: 443 }}\n{}", ws("443", HOST));
     assert_eq!(found(&on443, "tunnel-certificate").len(), 1);
+}
+
+#[test]
+fn every_low_bind_gets_the_same_low_port_warning_once() {
+    let addr: std::net::SocketAddr = "0.0.0.0:22".parse().unwrap();
+    if !super::low::refused_here(addr) {
+        return;
+    }
+    let text = "listen: 0.0.0.0:700\nmetrics: { listen: 0.0.0.0:701 }\nwebsocket: { listen: 443 }\nweb: { https: 443, http: 8080, letsencrypt: { email: a@example.com } }\nservices:\n  ssh: { client: home, bind: 22, target: 22 }\n  dns: { client: home, protocol: udp, bind: 53, target: 53 }\n";
+    let mut low = found(text, "low-port");
+    low.sort();
+    let keys: Vec<&str> = low.iter().map(|m| m.split(": ").next().unwrap()).collect();
+    assert_eq!(
+        keys,
+        [
+            "listen",
+            "metrics.listen",
+            "services.dns.bind",
+            "services.ssh.bind",
+            "web.https"
+        ],
+        "{low:?}"
+    );
+}
+
+#[test]
+fn a_mode_with_one_client_says_it_has_no_effect() {
+    let one = found(
+        "services:\n  db: { client: home, mode: balance, bind: 127.0.0.1:45100, target: 22 }\n",
+        "mode-one-client",
+    );
+    assert_eq!(
+        one,
+        [
+            "services.db.mode: balance applies only with two or more clients; with one it has no effect"
+        ]
+    );
+    let default = found(
+        "services:\n  db: { client: home, bind: 127.0.0.1:45100, target: 22 }\n",
+        "mode-one-client",
+    );
+    assert!(default.is_empty());
 }

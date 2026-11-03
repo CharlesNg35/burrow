@@ -154,12 +154,59 @@ pub fn writable_hint(config: &Path) -> String {
     )
 }
 
+static CONFIG: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn note_config(path: &Path) {
+    let _ = CONFIG.set(crate::base::fs::canonical_or_same(path));
+}
+
+pub fn low_port_hint() -> String {
+    low_port_hint_for(CONFIG.get().map(PathBuf::as_path))
+}
+
+fn low_port_hint_for(config: Option<&Path>) -> String {
+    use crate::base::{failure, ports};
+    match config.filter(|c| in_service_folder(c)) {
+        Some(c) => ports::low_port_service_fix(
+            ports::os(),
+            &failure::admin(&format!("service install -c {}", failure::path_arg(c))),
+        ),
+        None => {
+            let exe = std::env::current_exe()
+                .map(|p| failure::arg(&p.to_string_lossy()))
+                .unwrap_or_else(|_| "$(command -v burrow)".into());
+            ports::low_port_fix(ports::os(), failure::command(), &exe)
+        }
+    }
+}
+
 pub fn in_service_folder(config: &Path) -> bool {
     config.parent().and_then(Path::parent) == Some(Platform::current().config_dir().as_path())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_low_port_hint_fits_how_burrow_runs() {
+        let installed = Platform::current()
+            .config_dir()
+            .join("home")
+            .join("server.yaml");
+        let service = low_port_hint_for(Some(&installed));
+        let by_hand = low_port_hint_for(Some(Path::new("/home/me/server.yaml")));
+        if cfg!(target_os = "linux") {
+            assert!(
+                service.contains("install it again") && !service.contains("setcap"),
+                "{service}"
+            );
+            assert!(
+                by_hand.contains("setcap") && by_hand.contains("service install grants it"),
+                "{by_hand}"
+            );
+        }
+        assert_eq!(by_hand, low_port_hint_for(None));
+    }
+
     use super::*;
 
     #[test]

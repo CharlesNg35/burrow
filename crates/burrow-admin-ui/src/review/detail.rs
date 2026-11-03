@@ -222,6 +222,7 @@ fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
             view! {
                 <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
                     <strong>{where_}</strong>" "{burrow_admin_logic::wording::diag_text(d)}
+                    {burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref()).map(|h| view! { <p class="mt-1 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="diag-hint">{h}</p> })}
                 </li>
             }
         })

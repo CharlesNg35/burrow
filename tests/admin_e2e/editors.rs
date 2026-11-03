@@ -5,6 +5,50 @@ use super::open_more;
 use super::world::{Options, free_range};
 use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
 
+async fn not_added_yet(c: &mut Ctx) {
+    c.ui.nav("/review").await;
+    c.ui.wait_for("[data-testid=review-not-added]", SECS).await;
+    let note = c.ui.text("[data-testid=review-not-added]").await;
+    assert!(
+        note.contains("service web") && note.contains("Open them"),
+        "{note}"
+    );
+    assert!(!c.ui.text("body").await.contains("Nothing to apply"));
+    c.ui.shot("review-with-edits-not-added").await;
+    c.ui.click("[data-testid=review-not-added] button").await;
+    c.ui.wait_for("#f-services-web-bind", SECS).await;
+}
+
+async fn bind_editor(c: &mut Ctx, public: u16) {
+    let bind = "services/*/bind";
+    c.ui.fill("#f-services-web-bind", "70000").await;
+    let err = row_error(c, bind).await;
+    assert!(!err.is_empty(), "port 70000 is refused inline");
+    c.ui.shot("bind-port-out-of-range").await;
+    c.ui.fill("#f-services-web-bind", &format!("127.0.0.1:{public}"))
+        .await;
+    row_clean(c, bind).await;
+    assert_eq!(
+        c.ui.count("[data-schema='services/*/bind'] [data-testid=port-count]")
+            .await,
+        0,
+        "one port needs no count beside it"
+    );
+    let row = c.ui.text("[data-schema='services/*/bind']").await;
+    assert!(
+        !row.contains("up to"),
+        "the range capacity shows only with Port range on: {row}"
+    );
+    c.ui.select("#f-services-web-bind-host", "\u{1}specific")
+        .await;
+    c.ui.fill("#f-services-web-bind-host-ip", "999.1.1.1").await;
+    let err = row_error(c, bind).await;
+    assert!(!err.is_empty(), "a bad IP is refused inline");
+    c.ui.shot("bind-bad-ip").await;
+    c.ui.select("#f-services-web-bind-host", "127.0.0.1").await;
+    row_clean(c, bind).await;
+}
+
 fn editors(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         let public = free_range(2);
@@ -12,35 +56,31 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.nav("/services/web").await;
         edit_mode(c).await;
 
-        let bind = "services/*/bind";
-        c.ui.fill("#f-services-web-bind", "70000").await;
-        let err = row_error(c, bind).await;
-        assert!(!err.is_empty(), "port 70000 is refused inline");
-        c.ui.shot("bind-port-out-of-range").await;
-        c.ui.fill("#f-services-web-bind", &format!("127.0.0.1:{public}"))
-            .await;
-        row_clean(c, bind).await;
-        assert_eq!(
-            c.ui.count("[data-schema='services/*/bind'] [data-testid=port-count]")
-                .await,
-            0,
-            "one port needs no count beside it"
-        );
-        c.ui.select("#f-services-web-bind-host", "\u{1}specific")
-            .await;
-        c.ui.fill("#f-services-web-bind-host-ip", "999.1.1.1").await;
-        let err = row_error(c, bind).await;
-        assert!(!err.is_empty(), "a bad IP is refused inline");
-        c.ui.shot("bind-bad-ip").await;
-        c.ui.select("#f-services-web-bind-host", "127.0.0.1").await;
-        row_clean(c, bind).await;
+        bind_editor(c, public).await;
 
+        super::adornments_clear(c, "the service form").await;
         let target = "services/*/target";
+        let row = "[data-schema='services/*/target']";
         click_js(c, "[data-schema='services/*/target'] input[value=unix]").await;
+        let long = "/var/run/burrow/apps/a-rather-long-folder-name/for-the-app/app-socket.sock";
+        c.ui.fill("#f-services-web-target", long).await;
+        stored_as(c, target, &format!("unix:{long}")).await;
+        super::adornments_clear(c, "a long Unix socket path").await;
+        c.ui.shot("target-unix-socket").await;
+        super::baseline_of(c, "target-unix-socket-desktop", row).await;
+        c.ui.fill("#f-services-web-target", "relative/app.sock")
+            .await;
+        let err = row_error(c, target).await;
+        assert!(!err.is_empty(), "a relative socket path is refused inline");
+        super::baseline_of(c, "target-unix-socket-invalid-desktop", row).await;
+        c.ui.viewport(390, 844).await;
+        c.ui.fill("#f-services-web-target", long).await;
+        super::adornments_clear(c, "a long Unix socket path at 390 px").await;
+        super::baseline_of(c, "target-unix-socket-phone", row).await;
+        c.ui.viewport(1440, 900).await;
         c.ui.fill("#f-services-web-target", "/tmp/burrow-e2e.sock")
             .await;
-        stored_as(c, "services/*/target", "unix:/tmp/burrow-e2e.sock").await;
-        c.ui.shot("target-unix-socket").await;
+        stored_as(c, target, "unix:/tmp/burrow-e2e.sock").await;
         click_js(c, "[data-schema='services/*/target'] input[value=network]").await;
         c.ui.fill("#f-services-web-target-host", "127.0.0.1").await;
         c.ui.fill("#f-services-web-target", "abc").await;
@@ -90,6 +130,8 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for(&format!("{client} [data-chip=home]"), SECS)
             .await;
         wait_checked(c).await;
+        not_added_yet(c).await;
+        wait_checked(c).await;
         c.ui.click("[data-testid=save]").await;
         open_review(c, "review-of-the-editors").await;
         applied(c, "editors-applied").await;
@@ -133,7 +175,9 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             .await;
         let err = row_error(c, "public_address").await;
         assert!(
-            err.contains("no websocket section"),
+            err.contains("WebSocket is off on this server")
+                && err.contains("Settings, Connections")
+                && !err.contains("public_address"),
             "a wss:// address is refused inline on a server without WebSocket, as validate refuses it: {err}"
         );
         c.ui.shot("server-address-wss").await;

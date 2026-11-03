@@ -76,6 +76,7 @@ pub(crate) fn sample() -> Status {
                 entries: vec![],
                 web: vec![],
                 http: None,
+                not_listening: None,
             },
             ServiceStatus {
                 name: "db".into(),
@@ -98,6 +99,7 @@ pub(crate) fn sample() -> Status {
                 entries: vec![],
                 web: vec![],
                 http: None,
+                not_listening: None,
             },
         ],
         visitors: vec![
@@ -517,11 +519,12 @@ fn a_web_proxy_waiting_for_its_port_is_named_even_while_it_is_off() {
         reason: "in use".into(),
         stays: String::new(),
         retry_secs: 5,
+        hint: "pick another port".into(),
     });
     let text = render(&s, Paint::PLAIN, None);
     assert!(
         text.contains(
-            "web.http 0.0.0.0:80 is in use; the web proxy stays off and tries again every 5s"
+            "web.http 0.0.0.0:80 is in use; the web proxy stays off and tries again every 5s\n  pick another port"
         ),
         "{text}"
     );
@@ -581,6 +584,18 @@ fn a_client_shows_its_server_its_run_mode_and_its_last_update() {
         text.contains(
             "  last update     0.2.1 → 0.2.2: rolled back (0.2.2 did not connect within 60 s)\n"
         ),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_service_that_is_not_listening_says_why_and_that_a_restart_fails() {
+    let mut s = sample();
+    s.services[0].not_listening =
+        Some("cannot bind service \"x\" on 0.0.0.0:22: permission denied".into());
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains("not listening: cannot bind service \"x\" on 0.0.0.0:22: permission denied; a restart fails until it can"),
         "{text}"
     );
 }

@@ -96,6 +96,22 @@ pub(super) fn check_service<'a>(
         spans,
         out,
     );
+    if svc.client.iter().count() + svc.clients.len() == 1
+        && svc.mode != Mode::Failover
+        && spans.has(&["services", name, "mode"])
+    {
+        out.push(
+            Diagnostic::warning(
+                "mode-one-client",
+                format!(
+                    "services.{name}.mode: {} applies only with two or more clients; with one it has no effect",
+                    svc.mode.wire()
+                ),
+            )
+            .at(spans.value(&["services", name, "mode"]))
+            .help("add another client to the service, or remove mode"),
+        );
+    }
     let (target, ports) = target?;
     if svc.bind.is_some() && bind.is_none() {
         return None;

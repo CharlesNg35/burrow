@@ -288,14 +288,7 @@ impl Client {
         }
         for svc in list {
             let ports = svc.ports.max(1);
-            let at = match svc.bind_port {
-                0 => "private, for visitors".to_string(),
-                p if ports > 1 => format!(
-                    "server ports {}",
-                    crate::config::check::ports::show(p, ports)
-                ),
-                p => format!("server port {p}"),
-            };
+            let at = reached_at(svc.bind_port, ports);
             let target = match crate::config::check::parse_host_port(&svc.target) {
                 Ok((_, p)) if ports > 1 => format!(
                     "{}:{}",
@@ -412,5 +405,28 @@ impl Client {
                 }
             }
         }
+    }
+}
+
+fn reached_at(bind_port: u16, ports: u16) -> String {
+    match bind_port {
+        0 => crate::config::check::ports::NO_SERVER_PORT.to_string(),
+        p if ports > 1 => format!(
+            "server ports {}",
+            crate::config::check::ports::show(p, ports)
+        ),
+        p => format!("server port {p}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_service_without_a_server_port_is_not_called_visitors_only() {
+        assert_eq!(
+            super::reached_at(0, 1),
+            "no server port (a website or visitors)"
+        );
+        assert_eq!(super::reached_at(8080, 1), "server port 8080");
     }
 }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:2313946348804ebf",
+  "hash": "b2s:a1080e833c1cd722",
   "root": {
     "label": "Server",
     "sem": {
@@ -2316,22 +2316,21 @@
                                             {
                                               "r": "enabled_if",
                                               "cond": {
-                                                "all": [
+                                                "any": [
                                                   {
-                                                    "ne": [
-                                                      "tls",
-                                                      "passthrough"
-                                                    ]
+                                                    "not": {
+                                                      "set": "tls"
+                                                    }
                                                   },
                                                   {
-                                                    "ne": [
+                                                    "eq": [
                                                       "tls",
-                                                      "off"
+                                                      "auto"
                                                     ]
                                                   }
                                                 ]
                                               },
-                                              "reason": "This needs burrow to do the HTTPS; the app does its own HTTPS here, or the site is plain HTTP"
+                                              "reason": "This applies only when Let's Encrypt gives the certificate (HTTPS: Automatic)"
                                             }
                                           ]
                                         }

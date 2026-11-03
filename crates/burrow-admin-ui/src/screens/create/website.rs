@@ -542,6 +542,7 @@ fn steps(
                     check=check_name
                     placeholder="Type a name like blog.example.com and press Enter"
                 />
+                {move || names.with(|l| l.iter().find_map(|t| check_name.run(t.clone()).map(|m| format!("{t}: {m}")))).map(|m| view! { <div data-testid="names-problem">{burrow_ui_kit::field_message(burrow_ui_kit::Tone::Danger, m)}</div> })}
                 <p class="mt-1.5 text-xs text-text-muted">"For example blog.example.com, *.apps.example.com or 203.0.113.10."</p>
             </div>
             {step(2, "Client", "The machine that reaches the app.")}

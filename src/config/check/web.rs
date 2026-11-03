@@ -48,7 +48,7 @@ pub(super) fn check_https(
             out.push(
                 Diagnostic::error(
                     "web-port",
-                    "web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80",
+                    "web: needs a port: the HTTPS port for HTTPS sites, like https: 443, or the HTTP port for plain HTTP sites, like http: 80",
                 )
                 .at(spans.key(&["web"]))
                 .help("add https: 443 or http: 80 under web"),
@@ -251,7 +251,7 @@ fn plain_on_443(cfg: &ServerConfig, ws: &WebSocketSettings, spans: &Spans) -> Op
         Diagnostic::warning(
             "plain-ws-443",
             format!(
-                "websocket.listen 443 has no TLS: clients must use ws://{host}:443{}, and networks that expect TLS on 443 may block it; add websocket.tls, use web.letsencrypt (a web: block with websocket.host), or use port 80",
+                "websocket.listen: port 443 has no TLS, so clients must use ws://{host}:443{}, and networks that expect TLS on 443 may block it; add websocket.tls, use web.letsencrypt (a web: block with websocket.host), or use port 80",
                 ws.path
             ),
         )
@@ -362,7 +362,7 @@ pub(super) fn check_sites(
     #[cfg(feature = "web")]
     dns_entries::wildcard_hint(cfg, spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
-    low::check_low_ports((https, http), spans, out);
+    low::check_swapped((https, http), spans, out);
     sites
 }
 
@@ -419,6 +419,8 @@ mod internal;
 mod letsencrypt;
 mod logins;
 mod low;
+pub(in crate::config::check) use low::check_low_ports;
+pub(crate) use low::refused_here as low_port_refused;
 #[cfg(feature = "web")]
 mod pem;
 mod share;
