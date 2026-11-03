@@ -534,6 +534,7 @@ impl Ui {
     }
 
     pub async fn shot(&mut self, step: &str) {
+        crate::design::assert_clean(self, step).await;
         let png = self.png().await;
         self.flow.save(step, &png);
         let dark = self.is_dark.load(std::sync::atomic::Ordering::Relaxed);

@@ -15,6 +15,8 @@ mod compat;
 mod config_file;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
+#[path = "admin_e2e/design.rs"]
+mod design;
 #[path = "admin_e2e/edit_state.rs"]
 mod edit_state;
 #[path = "admin_e2e/editors.rs"]
