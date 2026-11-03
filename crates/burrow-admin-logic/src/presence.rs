@@ -55,6 +55,7 @@ pub struct ClientInfo {
     pub available: Option<String>,
     pub blocked: Option<String>,
     pub update: Option<UpdateStatus>,
+    pub update_recent: bool,
 }
 
 pub fn client<'a>(status: &'a Status, name: &str) -> Option<&'a ClientStatus> {
@@ -78,7 +79,11 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
             .is_some_and(|b| b.remote == RemoteUpdates::On),
         available: c.available.clone(),
         blocked: c.blocked.clone(),
-        update: c.update.clone(),
+        update: c.update.clone().map(|u| UpdateStatus { secs_ago: 0, ..u }),
+        update_recent: c
+            .update
+            .as_ref()
+            .is_some_and(|u| u.secs_ago < crate::own_update::shown_for(u.state)),
     }
 }
 
@@ -203,7 +208,9 @@ impl ClientInfo {
         use crate::own_update::{Say, say};
         let says = say(
             self.update.as_ref().is_some_and(|u| !u.state.finished()),
-            self.update.as_ref().map(|u| (u.state, u.secs_ago)),
+            self.update
+                .as_ref()
+                .map(|u| (u.state, if self.update_recent { 0 } else { u64::MAX })),
             self.available.is_some(),
         );
         let tag = |t: String, m: Mood| Card {
@@ -534,6 +541,7 @@ mod tests {
             "the reason is the tooltip"
         );
         c.blocked = None;
+        c.update_recent = true;
         c.update = Some(UpdateStatus {
             from: "0.2.2".into(),
             to: "0.2.3".into(),

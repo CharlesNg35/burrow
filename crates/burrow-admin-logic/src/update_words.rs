@@ -3,7 +3,7 @@ use burrow_admin_proto::updates::{UpdateState, UpdateStatus, rollback_window};
 pub fn plain_reason(detail: &str) -> String {
     let d = detail.to_ascii_lowercase();
     let window = rollback_window();
-    let plain = if d.contains("did not connect") {
+    if d.contains("did not connect") {
         format!("didn't connect to the server within {window}")
     } else if d.contains("sha-256") || d.contains("checksum") {
         "the download didn't match its published checksum".to_string()
@@ -29,8 +29,7 @@ pub fn plain_reason(detail: &str) -> String {
         format!("didn't become healthy within {window}")
     } else {
         "the update didn't finish".to_string()
-    };
-    plain
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

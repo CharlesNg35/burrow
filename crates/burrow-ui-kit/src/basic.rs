@@ -447,10 +447,11 @@ pub fn Stat(
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let key = label.to_lowercase();
+    let row = key.clone();
     view! {
         <div title=move || Some(title.get()).filter(|t| !t.is_empty())>
             <div class="text-xs text-text-muted">{label}</div>
-            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1" data-stat-row=key.clone()>
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1" data-stat-row=row>
                 <span class="text-xl font-bold tabular-nums" data-stat=key>
                     {move || value.get()}
                     <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>

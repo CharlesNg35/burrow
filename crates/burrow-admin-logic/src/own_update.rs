@@ -201,7 +201,7 @@ mod tests {
         assert!(!busy.can_ask && busy.available.is_none());
         let done = figure(&status(
             RemoteUpdates::On,
-            "0.2.3",
+            "0.2.2",
             Some(job(UpdateState::Done, "1 of 1 clients connected again", 9)),
         ))
         .unwrap();
