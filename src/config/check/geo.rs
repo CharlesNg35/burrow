@@ -53,7 +53,7 @@ pub(super) fn countries(
                     )
                     .at(spans.value(&["services", name, key, &n]))
                     .label("expected a two-letter country code")
-                    .help("use ISO 3166 codes such as FR, DE, CH or US; burrow admin shows the full list"),
+                    .help("two-letter ISO 3166 codes, like FR, DE, CH or US; burrow admin suggests them by country name as you type"),
                 );
             }
         }

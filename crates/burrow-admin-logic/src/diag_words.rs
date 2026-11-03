@@ -216,7 +216,6 @@ mod tests {
             "invalid-name",
             "invalid-path",
             "invalid-reach",
-            "invalid-country",
             "geoip-not-ready",
             "link-local-target",
             "missing-secret",

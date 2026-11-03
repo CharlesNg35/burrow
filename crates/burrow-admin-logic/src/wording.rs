@@ -1,10 +1,11 @@
 //! The user-facing words of the admin UI: labels, counts, help for diagnostic codes and links to the docs and releases.
 
 use burrow_admin_proto::codes::{
-    BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, INVALID_SOURCE, MAX_CONNECTIONS_TCP_ONLY,
-    MISSING_FIELD, NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PASSTHROUGH_FIXED, PLAIN_HTTP,
-    PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PLAIN, UNUSED_VISITOR,
-    WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
+    BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, INVALID_COUNTRY, INVALID_SOURCE,
+    MAX_CONNECTIONS_TCP_ONLY, MISSING_FIELD, NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE,
+    PASSTHROUGH_FIXED, PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP,
+    REDIRECT_PLAIN, UNUSED_VISITOR, WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS,
+    WRONG_TYPE,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
@@ -274,8 +275,9 @@ pub fn diag_title(d: &burrow_admin_proto::diag::Diag) -> String {
 }
 
 #[cfg(test)]
-pub(crate) const SHOWN_CODES: [&str; 18] = [
+pub(crate) const SHOWN_CODES: [&str; 19] = [
     INVALID_SOURCE,
+    INVALID_COUNTRY,
     WEIGHT_NOT_BALANCE,
     UNUSED_VISITOR,
     NO_HTTP,
@@ -356,7 +358,7 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
             mode_label(message)
         );
     }
-    if code == INVALID_SOURCE
+    if (code == INVALID_SOURCE || code == INVALID_COUNTRY)
         && let Some((_, reason)) = message.split_once(": ")
     {
         return reason.to_string();
