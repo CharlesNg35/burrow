@@ -300,10 +300,7 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         for (tab, fields) in [
-            (
-                "server",
-                &["listen", "insecure_plaintext", "update/remote"][..],
-            ),
+            ("server", &["listen", "insecure_plaintext"][..]),
             (
                 "connections",
                 &[
