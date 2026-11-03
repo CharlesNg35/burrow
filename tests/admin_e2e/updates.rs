@@ -330,8 +330,8 @@ async fn rolled_back(c: &mut Ctx) {
         .await;
     let why = c.ui.attr_of(tag, "title").await;
     assert!(
-        why.contains("rolled back: "),
-        "the reason is the tooltip: {why}"
+        why.contains("so home went back to"),
+        "a plain reason is the tooltip: {why}"
     );
     assert_eq!(
         c.ui.count("[data-testid=client-update]").await,
@@ -339,6 +339,21 @@ async fn rolled_back(c: &mut Ctx) {
         "one message at a time: the result first"
     );
     every_look(c, "client-rolled-back").await;
+    c.ui.nav("/").await;
+    let item = "[data-item='client-update:home']";
+    c.ui.wait_for(item, SECS).await;
+    let text = c.ui.text(item).await;
+    assert!(
+        text.contains(&format!("Update of home to {BROKEN} rolled back"))
+            && text.contains("is running normally"),
+        "{text}"
+    );
+    assert_eq!(
+        c.ui.count(&format!("{item} [data-testid=update-try-again]"))
+            .await,
+        1
+    );
+    every_look(c, "client-rolled-back-attention").await;
 }
 
 #[test]

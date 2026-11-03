@@ -110,8 +110,35 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         ask(c, "9.0.0-test.6", "health").await;
         c.ui.wait_text(
             "[data-testid=server-update-state]",
-            "rolled back: ",
+            "Update to 9.0.0-test.6 rolled back",
             RESTART,
+        )
+        .await;
+        assert_eq!(
+            c.ui.text("[data-testid=server-update-still]").await,
+            "still on 9.0.0-test.2"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=server-update]").await,
+            0,
+            "no Update on that line"
+        );
+        let item = "[data-item=server-update]";
+        let text = c.ui.text(item).await;
+        assert!(
+            text.contains("didn't become healthy within a minute, so 9.0.0-test.2 was put back"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("endpoint"),
+            "the raw reason is folded: {text}"
+        );
+        c.ui.click(&format!("{item} summary")).await;
+        assert!(c.ui.text(item).await.contains("local status endpoint"));
+        c.ui.wait_text(
+            "[data-testid=toasts]",
+            "Update rolled back — see Needs attention",
+            SECS,
         )
         .await;
         every_look(c, "rolled-back").await;
