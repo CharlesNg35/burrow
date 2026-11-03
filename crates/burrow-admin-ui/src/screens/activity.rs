@@ -291,7 +291,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         match s.history.get() {
         None => view! { <Skeleton lines=4/> }.into_any(),
         Some(h) if h.is_empty() => view! {
-            <EmptyState title="No changes yet" message="Changes made through burrow admin and hand edits of server.yaml show up here." testid="activity-empty"/>
+            <EmptyState title="No changes yet" message="Changes made through burrow admin show up here. A hand edit of server.yaml shows up with the next change." testid="activity-empty"/>
         }
         .into_any(),
         Some(h) => {

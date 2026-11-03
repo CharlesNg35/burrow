@@ -253,7 +253,7 @@ fn tab_bar(
                     })
                 />
             </div>
-            <div class="max-lg:w-full lg:w-64">{search}</div>
+            <div class="max-lg:w-full lg:w-64" class:hidden=move || !tab.get().holds_fields()>{search}</div>
         </div>
     }
 }
@@ -396,7 +396,7 @@ pub fn Settings() -> impl IntoView {
         <div class="px-8 pt-7 pb-12 max-sm:px-4" id="detail">
             <burrow_ui_kit::PageHeader
                 kicker="Settings"
-                sub="Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."
+                sub="Everything in server.yaml except clients, visitors and services."
                 actions={view! {
                     {move || (!editing.get() && tab.get().holds_fields()).then(|| view! {
                         <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, None) } on_click=start/>

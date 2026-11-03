@@ -290,7 +290,12 @@ fn Banners() -> impl IntoView {
         Conn::Reconnecting { attempt } => {
             let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
             let n = s.edit.pending();
-            let at = format::clock(s.values_at.get());
+            let at = s.values_at.get();
+            let at = if at > 0.0 {
+                format!(" Values are from {}.", format::clock(at))
+            } else {
+                String::new()
+            };
             let (title, why) = if s.admin_down.get() && api::gone_a_while(attempt) {
                 (
                     "burrow admin is not running here.".to_string(),
@@ -327,7 +332,7 @@ fn Banners() -> impl IntoView {
                 <Banner
                     tone=tone
                     title=title
-                    message=format!("{why}Reconnecting in {left} s · attempt {attempt}.{kept} Values are from {at}.")
+                    message=format!("{why}Reconnecting in {left} s, attempt {attempt}.{kept}{at}")
                     testid="banner-reconnecting"
                 >
                     <Button label="Retry now" size=burrow_ui_kit::ButtonSize::Small on_click=move |_| api::reconnect(s)/>

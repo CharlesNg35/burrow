@@ -32,7 +32,7 @@ pub fn About() -> impl IntoView {
                 "Server version",
                 if burrow_admin_logic::version::server_is_older(&w.server.version, UI_VERSION) {
                     format!(
-                        "{} · older than this burrow admin, update the server",
+                        "{}, older than this burrow admin: update the server",
                         w.server.version
                     )
                 } else {
@@ -56,7 +56,7 @@ pub fn About() -> impl IntoView {
             (
                 "Schema, for support",
                 format!(
-                    "version {} · {}",
+                    "version {} ({})",
                     schema.schema_version,
                     schema
                         .hash
@@ -69,7 +69,7 @@ pub fn About() -> impl IntoView {
             ),
             (
                 "Signed in as",
-                format!("{} · admin {level} · from {}", w.you.visitor, w.you.from),
+                format!("{}, admin {level}, from {}", w.you.visitor, w.you.from),
             ),
             ("Config file", st.file.path.clone()),
             ("Format", st.file.format.to_uppercase()),

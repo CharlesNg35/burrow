@@ -118,7 +118,7 @@ pub fn ConfigFile() -> impl IntoView {
         <section class="mb-4 rounded-card border border-border bg-surface" data-card="file" data-testid="config-file" data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
             {burrow_ui_kit::card_head(
                 "The config the server reads".into(),
-                Some("View only. Change it in the other tabs, or with burrow edit.".into()),
+                Some("View only; edit in other tabs or with burrow edit".into()),
                 view! { <span data-testid="file-toggle">{toggle}</span> }.into_any(),
             )}
             <div class="min-w-0 px-4 py-3">
