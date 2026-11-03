@@ -67,7 +67,7 @@ pub fn files_panel() -> impl IntoView {
                     <ul>{rows}</ul>
                 </section>
                 <p class="text-[13px] text-text-muted">
-                    {format!("Services, clients and visitors can also live in *.yaml files in {folder}/ next to {main}. A file with no write permission is read-only here; Split and Merge in an item's ⋯ menu move it between files.")}
+                    {format!("Services, clients and visitors can also live in *.yaml files in {folder}/ next to {main}. A file with no write permission is read-only here; Split and Merge in an item's More actions menu move it between files.")}
                 </p>
             </div>
         }
