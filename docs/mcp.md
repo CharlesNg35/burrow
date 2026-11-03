@@ -99,6 +99,8 @@ Updating clients also takes two steps: `update_clients` without `confirm` return
 
 A change always takes two steps: `check_change` returns the diff and a plan id, and `apply_change` applies exactly that plan. Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, with at most 16 plans at a time.
 
+With drop-in files ([configuration.md](configuration.md#drop-in-files)), the AI edits each item in its own file, moves an item between files with a `place` operation in `check_change`, and removes an empty drop-in file with `drop_file`. It follows the admin's rules: files read-only on disk are never written, and a change is written to every file it touches or to none.
+
 ## Over HTTP
 
 For an app that connects to a URL instead, run `burrow mcp --http` yourself:
@@ -159,9 +161,6 @@ Cursor, in `~/.cursor/mcp.json`:
 For an AI app on another machine, forward the port with `ssh -L 7838:127.0.0.1:7838 you@laptop` rather than opening it.
 
 ## Safety
-
-With drop-in files ([configuration.md](configuration.md#drop-in-files)), the AI edits each item in its own file and follows the admin's rules: files read-only on disk are never written, and a change is written to every file it touches or to none.
-
 
 An AI app that can change your server must not be able to do harm by mistake or by a trick in the data it reads. These rules hold:
 
