@@ -91,7 +91,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         node.help.clone()
     };
     let key_hint = if show_keys {
-        path.join(".\u{200b}")
+        burrow_admin_logic::wording::key_hint(&path)
     } else {
         String::new()
     };
@@ -177,7 +177,7 @@ fn object_row(p: &Parts, n: Node, lock_here: bool, hint: String) -> AnyView {
     let (jp, js) = (join(&path), join(&spath));
     let show_keys = use_context::<ShowKeys>().map(|k| k.0).unwrap_or(false);
     let key_hint = if show_keys {
-        path.join(".\u{200b}")
+        burrow_admin_logic::wording::key_hint(&path)
     } else {
         String::new()
     };
@@ -210,8 +210,32 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
     Signal::derive(move || {
         let s = st.get();
         let picked = touched.get();
+        let now = store().state.with(|st| {
+            st.as_ref()
+                .map(|st| {
+                    st.diags
+                        .iter()
+                        .filter(|d| d.severity == Severity::Warning)
+                        .filter(|d| {
+                            if items {
+                                d.within(&path)
+                            } else {
+                                d.concerns(&path)
+                            }
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        });
         let server = e.plan.with(|p| {
-            diags_at(p.as_deref(), &path, items)
+            let found = diags_at(p.as_deref(), &path, items);
+            let found = if p.is_none() {
+                now.iter().collect()
+            } else {
+                found
+            };
+            found
                 .into_iter()
                 .filter(|d| picked || d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE)
                 .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))

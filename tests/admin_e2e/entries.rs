@@ -23,15 +23,16 @@ async fn phone_edit(c: &mut Ctx) {
     let sum = |i: usize| format!("[data-entry='{i}'] [data-entry-summary]");
     let weight = |i: usize| format!("#f-services-pool-clients-{i}-weight");
     c.ui.wait_for(&sum(2), SECS).await;
-    let first = c.ui.text(&sum(0)).await;
-    assert!(
-        first.contains("home") && first.contains("→ 127.0.0.1:8080 (main target) · weight 3"),
-        "{first}"
+    let line = |i: usize| format!("{} [data-entry-to]", sum(i));
+    assert!(c.ui.text(&sum(0)).await.contains("home"));
+    assert_eq!(
+        c.ui.attr_of(&line(0), "title").await,
+        "→ 127.0.0.1:8080 (main target) · weight 3",
+        "the separators are drawn by the layout, the title keeps the whole line"
     );
-    let second = c.ui.text(&sum(1)).await;
-    assert!(
-        second.contains("→ 10.0.0.13:8080 · weight 1") && !second.contains("main target"),
-        "{second}"
+    assert_eq!(
+        c.ui.attr_of(&line(1), "title").await,
+        "→ 10.0.0.13:8080 · weight 1"
     );
     for i in 0..3 {
         assert!(

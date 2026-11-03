@@ -121,7 +121,7 @@ fn is_wide(n: &Node) -> bool {
 fn applies_tag(n: &Node) -> Option<(String, Tone)> {
     let how = n.applies.as_ref()?;
     let tone = match how {
-        Applies::Live => Tone::Success,
+        Applies::Live => Tone::Neutral,
         Applies::Reload => Tone::Accent,
         Applies::Restart | Applies::Unknown => Tone::Warning,
     };

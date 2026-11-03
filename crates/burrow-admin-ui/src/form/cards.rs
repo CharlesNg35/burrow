@@ -240,7 +240,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         } else {
             let shown = none_label.clone();
             view! {
-                <burrow_ui_kit::FieldRow id=field_id(&unset_path) label=unset_label.clone() help=help.clone() key_hint=unset_path.join(".\u{200b}") table=true>
+                <burrow_ui_kit::FieldRow id=field_id(&unset_path) label=unset_label.clone() help=help.clone() key_hint=burrow_admin_logic::wording::key_hint(&unset_path) table=true>
                     <p class="text-sm text-text-muted" data-testid="not-set">{shown}</p>
                 </burrow_ui_kit::FieldRow>
             }

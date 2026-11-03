@@ -194,7 +194,7 @@ pub(crate) fn login_services(label: String, help: String, path: Path, spath: Pat
     let (jp, js) = (crate::form::join(&path), crate::form::join(&spath));
     let table = use_context::<crate::form::ShowKeys>().is_some_and(|k| k.0);
     let key_hint = if table {
-        path.join(".\u{200b}")
+        burrow_admin_logic::wording::key_hint(&path)
     } else {
         String::new()
     };

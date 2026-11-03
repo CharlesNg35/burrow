@@ -142,8 +142,8 @@ pub(super) fn rate_editor(fc: FieldCtx) -> AnyView {
             .and_then(|t| {
                 burrow_syntax::rate::parse_rate(&t).ok().map(|b| {
                     format!(
-                        "≈ {} · {} {t}",
-                        burrow_syntax::rate::equivalent(b),
+                        "about {} · {} {t}",
+                        burrow_syntax::rate::equivalent(b).replace(" \u{2248} ", " or "),
                         burrow_admin_logic::wording::WRITTEN_AS.to_lowercase()
                     )
                 })

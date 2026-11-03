@@ -176,7 +176,7 @@ pub(super) fn website_editor(fc: FieldCtx) -> AnyView {
                 items=items
                 on_change=on_names
                 check=check_one
-                placeholder="Type a name like nas.example.com and press Enter"
+                placeholder="Type a name and press Enter"
                 empty_label=fc.node.none_label.clone().unwrap_or_default()
             />
         </div>
