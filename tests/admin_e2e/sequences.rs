@@ -140,9 +140,7 @@ fn two_tabs(c: &mut Ctx) -> Flow<'_> {
             .expect("a second tab in time")
             .expect("a second tab");
         let _ = tokio::time::timeout(SECS * 2, other.goto(url.as_str())).await;
-        eprintln!("second tab at {url}");
         tab_wait(&other, "[data-testid=conn-pill]").await;
-        eprintln!("second tab connected");
         tab_apply_target(&other, "ssh", "2222").await;
         assert!(
             c.world.config().contains("target: 2222"),
