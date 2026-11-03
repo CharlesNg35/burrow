@@ -33,7 +33,7 @@ pub fn info_of(s: Store, name: &str) -> Option<ClientInfo> {
 
 fn whats_new(version: &str) -> impl IntoView + use<> {
     burrow_admin_logic::wording::release_notes(version).map(|(v, url)| view! {
-        <a href=url target="_blank" rel="noopener noreferrer" class="mr-auto text-xs font-semibold text-accent-ink" data-testid="whats-new">{format!("What's new in {v} ↗")}</a>
+        <a href=url target="_blank" rel="noopener noreferrer" class="mr-auto inline-flex items-center gap-1 text-xs font-semibold text-accent-ink" data-testid="whats-new">{format!("What's new in {v}")}<burrow_ui_kit::Icon name="external" small=true/></a>
     })
 }
 
@@ -319,24 +319,31 @@ impl ServerUpdate {
         move || {
             let f = fig.get().filter(ServerFigure::says_something)?;
             let lead = f.state.is_some();
+            let item = "inline-flex items-center gap-1.5 whitespace-nowrap";
             let state = f.state.clone().map(|(t, m)| view! {
                 <span class=tone(m).text() title=f.detail.clone() data-testid="server-update-state">{t}</span>
             });
             let available = f.available.clone().map(|(t, m)| view! {
-                {lead.then_some(" · ")}
-                <span class=tone(m).text() title=f.why_not.clone().unwrap_or_default() data-testid="server-update-tag">{t}</span>
+                <span class=item>
+                    {lead.then_some("·")}
+                    <span class=tone(m).text() title=f.why_not.clone().unwrap_or_default() data-testid="server-update-tag">{t}</span>
+                </span>
                 {f.to.as_deref().and_then(burrow_admin_logic::wording::release_notes).map(|(_, url)| view! {
-                    " · "
-                    <a href=url target="_blank" rel="noopener noreferrer" class="font-semibold text-accent-ink" data-testid="server-whats-new">"What's new ↗"</a>
+                    <span class=item>
+                        "·"
+                        <a href=url target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-semibold text-accent-ink" data-testid="server-whats-new">"What's new"<burrow_ui_kit::Icon name="external" small=true/></a>
+                    </span>
                 })}
             });
             let button = (server_offered(s) && f.can_ask && !s.server_updating.get().busy()).then(|| view! {
-                " · "
-                <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" testid="server-update" on_click=move |_| open.set(true)/>
+                <span class=item>
+                    "·"
+                    <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" testid="server-update" on_click=move |_| open.set(true)/>
+                </span>
             });
-            Some(
-                view! { <p class="mt-1 text-sm text-text-muted" data-testid="server-burrow">{state}{available}{button}</p> },
-            )
+            Some(view! {
+                <div class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-text-muted" data-testid="server-burrow">{state}{available}{button}</div>
+            })
         }
     }
 

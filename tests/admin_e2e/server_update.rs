@@ -36,10 +36,11 @@ async fn ask(c: &mut Ctx, to: &str, step: &str) {
         c.ui.attr_of("[data-testid=server-whats-new]", "href").await,
         format!("https://github.com/CharlesNg35/burrow/releases/tag/v{to}")
     );
-    let line = c.ui.text("[data-testid=server-burrow]").await;
-    assert!(
-        line.contains(&format!("{to} available · What's new ↗")),
-        "{line}"
+    assert_eq!(
+        c.ui.count("[data-testid=server-burrow] [data-testid=server-whats-new]")
+            .await,
+        1,
+        "the release's page is one click away on the same line"
     );
     every_look(c, &format!("{step}-offer")).await;
     c.ui.click("[data-testid=server-update]").await;

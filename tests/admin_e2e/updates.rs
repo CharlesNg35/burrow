@@ -76,7 +76,7 @@ async fn every_look(c: &mut Ctx, step: &str) {
 
 pub async fn whats_new(c: &Ctx, dialog: &str, version: &str) {
     let link = format!("[data-testid={dialog}] [data-testid=whats-new]");
-    assert_eq!(c.ui.text(&link).await, format!("What's new in {version} ↗"));
+    assert_eq!(c.ui.text(&link).await, format!("What's new in {version}"));
     assert_eq!(
         c.ui.attr_of(&link, "href").await,
         format!("https://github.com/CharlesNg35/burrow/releases/tag/v{version}")
