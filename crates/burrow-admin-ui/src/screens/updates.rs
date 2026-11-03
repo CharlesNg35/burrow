@@ -130,7 +130,7 @@ impl ClientUpdate {
         let card = Memo::new(move |_| info.with(|c| c.as_ref().map(|c| c.card(offered(s)))));
         let side = move || {
             let card = card.get()?;
-            let tag = card.tag.map(|(t, m, why)| view! { <span class=tag_class(tone(m)) title=why data-testid="client-update-tag">{t}</span> });
+            let tag = card.tag.map(|(t, m, why)| view! { <span class=format!("{} max-w-full", tag_class(tone(m))) title=why data-testid="client-update-tag"><span class="min-w-0 truncate">{t}</span></span> });
             let button = card.can_ask.then(|| view! {
                 <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" testid="client-update" on_click=move |_| open.set(true)/>
             });

@@ -99,7 +99,9 @@ pub async fn row_ok(c: &Ctx, css: &str) -> String {
                         return "off the button's centre by " + (r.top + r.height / 2 - cy).toFixed(1) + "px: " + k.textContent.trim();
                 }}
             }}
-            if (row.scrollWidth > row.clientWidth + 1) return "overflows";
+            const edge = row.getBoundingClientRect().right;
+            const out = kids.filter(k => k.getBoundingClientRect().right > edge + 1);
+            if (out.length) return "overflows: " + out.map(k => k.textContent.trim() + " ends at " + k.getBoundingClientRect().right.toFixed(1) + " > " + edge.toFixed(1)).join(", ");
             return "ok";
         }})()"#
     ))
