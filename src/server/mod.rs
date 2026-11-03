@@ -82,6 +82,7 @@ pub struct Shared {
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
     web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
+    not_listening: Mutex<std::collections::BTreeMap<String, String>>,
     standing: Mutex<standing::Standing>,
     wheels: Mutex<balance::Wheels>,
     local: Arc<local::SelfDialer>,
@@ -343,6 +344,22 @@ impl Shared {
 
     pub fn udp_peers(&self) -> usize {
         self.udp_peers.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn not_listening(&self, name: &str, why: Option<String>) {
+        let mut map = self.not_listening.lock().expect("not listening lock");
+        match why {
+            Some(w) => map.insert(name.to_string(), w),
+            None => map.remove(name),
+        };
+    }
+
+    pub(crate) fn not_listening_of(&self, name: &str) -> Option<String> {
+        self.not_listening
+            .lock()
+            .expect("not listening lock")
+            .get(name)
+            .cloned()
     }
 
     pub fn waiting_visitors(&self) -> usize {

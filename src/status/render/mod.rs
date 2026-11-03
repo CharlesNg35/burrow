@@ -308,6 +308,9 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
                 if let Some(h) = &v.http {
                     extra.push(http_counts(h));
                 }
+                if let Some(why) = &v.not_listening {
+                    extra.push(burrow_admin_proto::status::not_listening(why));
+                }
                 for h in v.health.iter().filter(|h| !h.up) {
                     if let Some(why) = &h.reason {
                         extra.push(format!("{} down: {why}", h.client));
@@ -374,6 +377,9 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
 fn render_web(out: &mut String, s: &Status, paint: Paint) {
     if let Some(w) = &s.web_waiting {
         let _ = writeln!(out, "\n{}", paint.tone(&w.line(), Tone::Bad));
+        if !w.hint.is_empty() {
+            let _ = writeln!(out, "  {}", paint.tone(&w.hint, Tone::Dim));
+        }
     }
     let Some(web) = &s.web else {
         return;

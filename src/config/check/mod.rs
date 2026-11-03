@@ -34,6 +34,7 @@ pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
 pub use burrow_syntax::name::{MAX_NAME_LEN, valid_name};
 use burrow_syntax::ports::SENSITIVE_PORTS;
 pub(crate) use burrow_syntax::ports::binds_conflict;
+pub(crate) use web::low_port_refused;
 
 pub struct Spans {
     map: HashMap<Vec<String>, (Span, Span)>,
@@ -275,7 +276,7 @@ pub fn source_list(
                 at.push(&n);
                 out.push(
                     Diagnostic::error(
-                        "invalid-source",
+                        burrow_admin_proto::codes::INVALID_SOURCE,
                         format!("invalid {field} entry for {owner}: {}", e.describe()),
                     )
                     .at(spans.value(&at))

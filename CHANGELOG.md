@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+- burrow admin: an address field's first choice says what a port alone listens on for that setting, like "All IPv4 and IPv6 (default)" for the web ports, instead of showing "All IPv6 (::)". `::` reads "All IPv4 and IPv6", which is what burrow opens. Picking an address before the port no longer marks the field invalid or sets it.
+- A port below 1024 that the server may not open gets one warning with one text, for every address it listens on (`listen`, `websocket.listen`, `metrics.listen`, the web ports and service binds) and for a port alone too: `burrow validate`, burrow admin and the error when the port cannot be opened say how to grant it (install the service again, or `sudo setcap cap_net_bind_service=+ep` for a server run by hand) or to use a port above 1023.
+- burrow admin shows a check's hint under its message, at the field and in Review; a web port that waits shows its hint in Needs attention, and `burrow status` prints it.
+- The low-port hint fits how burrow runs: a burrow service says to install it again from its own config, which grants the permission without moving anything, and a burrow started by hand says `sudo setcap cap_net_bind_service=+ep` (a service's locked-down unit ignores `setcap`).
+- burrow admin warns before saving when a listen or bind address is not an address of this server, with the same hint as the error the server would give.
+- A `ws://` or `wss://` public address on a server without WebSocket says that WebSocket is off and where to turn it on.
+- burrow admin checks a changed service port, TCP or UDP, before saving, as it does for the web ports; a service that cannot listen after a change shows why in Needs attention and `burrow status`, and that a restart fails until it can.
+- burrow admin: each Settings tab shows how many problems its settings have, and a service's problem list names nested fields by their own label.
+- A reinstall refused because another program holds a port no longer stops the running service; `burrow service status` without sudo says a file is not readable instead of missing.
+- burrow admin: Review waits for the check of the latest edit instead of showing the previous result, and New website says why a name is refused under the names.
+- burrow admin warns before saving when a service's client has sent an allow list that does not cover the service's target, so it would refuse the service; the hint says to add it or print the client's config again.
+- `burrow validate` warns when a service sets `mode` with only one client, where it has no effect.
+- burrow admin: a website's Let's Encrypt check can be changed only when Let's Encrypt gives the certificate (HTTPS: Automatic), as `burrow validate` requires; Review opened with edits not yet added says so and opens them; a public address shows its "up to 1000 ports" capacity only while Port range is on.
+- burrow admin: Review's impacts and the pre-save port checks compare the config file with your changes, as the change list does, so an unrelated edit no longer says it opens web ports applied before. A web port, WebSocket or metrics address that is in the config but not open on the server is shown in Needs attention instead. Review says "opens the web proxy's HTTPS port …".
+- The server and the client log a service without a server port as "no server port (a website or visitors)" instead of "private" or "private, for visitors".
+- burrow admin: two tabs or admins open at once no longer flip each other to read-only while they check the config file, and the Overview counts a service that is not listening as not healthy.
+- `burrow validate` warns when `web.https` is 80 or `web.http` is 443 (`swapped-port`).
+- Messages about one setting start with its key (`web.https: port 80 needs root …`, `insecure_plaintext: data forwarded … is not encrypted`, `web: needs a port: …`): burrow admin shows them beside the field without the key, and Needs attention names the field. A service that could not listen after a change says why, with the hint, in the log and the admin.
+
 ## [0.2.1]
 
 A polished admin UI, one way to read durations, and checks in the create screens. Clients and visitors from 0.2.0 work unchanged. A config that writes a network with host bits set, like `127.0.0.1/24`, is now refused and says what to write instead.

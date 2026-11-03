@@ -7,6 +7,7 @@ use crate::icon::Icon;
 pub struct FieldState {
     pub error: Option<String>,
     pub warning: Option<String>,
+    pub hint: Option<String>,
     pub info: Option<String>,
     pub disabled_reason: Option<String>,
     pub locked_reason: Option<String>,
@@ -59,11 +60,16 @@ pub fn FieldRow(
     let class = move || {
         let s = state.get();
         format!(
-            "relative min-w-0{}{}",
+            "relative min-w-0{}{}{}",
             if table {
                 " grid grid-cols-1 gap-x-4 gap-y-1.5 py-3.5 md:grid-cols-[210px_minmax(0,1fr)_110px]"
             } else if wide {
                 " md:col-span-2"
+            } else {
+                ""
+            },
+            if quiet {
+                " has-[[data-testid=reset-field]]:pt-7"
             } else {
                 ""
             },
@@ -76,11 +82,17 @@ pub fn FieldRow(
     };
     let help_line = move || {
         let s = state.get();
-        s.error
+        let hint = s.hint.filter(|_| s.error.is_some() || s.warning.is_some());
+        let line = s
+            .error
             .map(|m| field_message(Tone::Danger, m))
             .or(s.disabled_reason.map(|m| field_message(Tone::Neutral, m)))
             .or(s.warning.map(|m| field_message(Tone::Warning, m)))
-            .or(s.info.map(|m| field_message(Tone::Info, m)))
+            .or(s.info.map(|m| field_message(Tone::Info, m)));
+        view! {
+            {line}
+            {hint.map(|h| view! { <p class="mt-1 pl-5 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="field-hint">{h}</p> })}
+        }
     };
     let help_text = move || {
         (has_help

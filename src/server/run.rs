@@ -95,6 +95,7 @@ impl Server {
                 continue;
             }
             if let Ok(bound) = bind_service(name, svc).await {
+                self.shared.not_listening(name, None);
                 let t = spawn_service(&self.shared, name, svc, bound);
                 info!("service \"{name}\" could listen now");
                 log_service(name, svc, t.addr);

@@ -216,7 +216,13 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
                 .filter(|d| picked || d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE)
                 .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))
                 .filter(|d| !rows || d.path.as_ref().is_none_or(|x| x.len() <= path.len()))
-                .map(|d| (d.severity, burrow_admin_logic::wording::diag_text(d)))
+                .map(|d| {
+                    (
+                        d.severity,
+                        burrow_admin_logic::wording::diag_text(d),
+                        burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref()),
+                    )
+                })
                 .collect::<Vec<_>>()
         });
         let row_speaks = rows
@@ -225,14 +231,9 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
                     .iter()
                     .any(|d| d.path.as_ref().is_some_and(|x| x.len() > path.len()))
             });
-        let server_error = server
-            .iter()
-            .find(|(sev, _)| *sev == Severity::Error)
-            .map(|(_, m)| m.clone());
-        let server_warning = server
-            .iter()
-            .find(|(sev, _)| *sev == Severity::Warning)
-            .map(|(_, m)| m.clone());
+        let first = |want: Severity| server.iter().find(|(sev, ..)| *sev == want).cloned();
+        let server_error = first(Severity::Error);
+        let server_warning = first(Severity::Warning);
         let related = e.related.with(|r| r.get(&path).cloned());
         let local = touched
             .get()
@@ -240,9 +241,16 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             .flatten()
             .or(related)
             .filter(|_| !row_speaks);
+        let hint = match (&local, &server_error, &server_warning) {
+            (Some(_), ..) => None,
+            (None, Some(e), _) => e.2.clone(),
+            (None, None, Some(w)) => w.2.clone(),
+            _ => None,
+        };
         FieldState {
-            error: local.or(server_error),
-            warning: server_warning.or(s.warnings.first().cloned()),
+            error: local.or(server_error.map(|e| e.1)),
+            warning: server_warning.map(|w| w.1).or(s.warnings.first().cloned()),
+            hint,
             info: None,
             disabled_reason: (!s.enabled).then(|| s.disabled_reason.clone()).flatten(),
             locked_reason: if lock {

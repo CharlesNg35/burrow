@@ -5,15 +5,34 @@ use crate::icon::Icon;
 
 pub const INPUT_H: &str = "h-[38px]";
 
-pub fn field_class(invalid: bool, mono: bool) -> String {
+fn field_frame(invalid: bool, mono: bool) -> String {
     format!(
-        "{INPUT_H} w-full min-w-0 rounded-input border bg-input px-2.5 text-[13px] text-text placeholder:text-text-faint outline-none focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:opacity-55 disabled:cursor-not-allowed {}{}",
+        "{INPUT_H} w-full min-w-0 rounded-input border bg-input px-2.5 text-[13px] text-text {}{}",
         if invalid {
             "border-danger ring-3 ring-danger-weak"
         } else {
             "border-border-strong"
         },
         if mono { " font-mono" } else { "" }
+    )
+}
+
+pub fn field_class(invalid: bool, mono: bool) -> String {
+    format!(
+        "{} placeholder:text-text-faint outline-none focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:opacity-55 disabled:cursor-not-allowed",
+        field_frame(invalid, mono)
+    )
+}
+
+fn adorned_class(invalid: bool, mono: bool, disabled: bool) -> String {
+    format!(
+        "{} flex items-center gap-1.5 focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-weak{}",
+        field_frame(invalid, mono),
+        if disabled {
+            " opacity-55 cursor-not-allowed"
+        } else {
+            " cursor-text"
+        }
     )
 }
 
@@ -33,42 +52,56 @@ pub fn TextInput(
     #[prop(optional, into)] prefix: Option<String>,
     #[prop(optional, into)] suffix: Option<String>,
     #[prop(optional)] new_password: bool,
-) -> impl IntoView {
+) -> AnyView {
     let suffix = suffix.filter(|x| !x.is_empty());
-    let pad = format!(
-        "{}{}",
-        if prefix.is_some() { " pl-6" } else { "" },
-        if suffix.is_some() { " pr-24" } else { "" }
-    );
-    view! {
-        <div class="relative min-w-0 flex-1">
-            {prefix.map(|p| view! { <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 font-mono text-[13px] font-bold text-text-faint">{p}</span> })}
-            <input
-                id=id
-                type=if new_password { "password" } else { "text" }
-                class=move || format!("{}{}{}", field_class(invalid.get(), mono), pad, if numeric { " tabular-nums" } else { "" })
-                inputmode=numeric.then_some("numeric")
-                autocomplete=if new_password { "new-password" } else { "off" }
-                spellcheck="false"
-                placeholder=placeholder
-                aria-label=label
-                aria-invalid=move || invalid.get().then_some("true")
-                aria-describedby=move || Some(described_by.get()).filter(|d| !d.is_empty())
-                aria-errormessage=move || {
-                    Some(described_by.get()).filter(|d| !d.is_empty() && invalid.get())
+    let adorned = prefix.is_some() || suffix.is_some();
+    let input_class = move || {
+        let base = if adorned {
+            format!(
+                "h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] text-text placeholder:text-text-faint outline-none disabled:cursor-not-allowed{}",
+                if mono { " font-mono" } else { "" }
+            )
+        } else {
+            field_class(invalid.get(), mono)
+        };
+        format!("{base}{}", if numeric { " tabular-nums" } else { "" })
+    };
+    let input = view! {
+        <input
+            id=id
+            type=if new_password { "password" } else { "text" }
+            class=input_class
+            inputmode=numeric.then_some("numeric")
+            autocomplete=if new_password { "new-password" } else { "off" }
+            spellcheck="false"
+            placeholder=placeholder
+            aria-label=label
+            aria-invalid=move || invalid.get().then_some("true")
+            aria-describedby=move || Some(described_by.get()).filter(|d| !d.is_empty())
+            aria-errormessage=move || {
+                Some(described_by.get()).filter(|d| !d.is_empty() && invalid.get())
+            }
+            disabled=move || disabled.get()
+            prop:value=move || value.get()
+            on:input:target=move |e| on_input.run(e.target().value())
+            on:blur=move |_| {
+                if let Some(b) = on_blur {
+                    let _ = b.try_run(());
                 }
-                disabled=move || disabled.get()
-                prop:value=move || value.get()
-                on:input:target=move |e| on_input.run(e.target().value())
-                on:blur=move |_| {
-                    if let Some(b) = on_blur {
-                        let _ = b.try_run(());
-                    }
-                }
-            />
-            {suffix.map(|s| view! { <span class="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-text-muted">{s}</span> })}
-        </div>
+            }
+        />
+    };
+    if !adorned {
+        return view! { <div class="relative min-w-0 flex-1">{input}</div> }.into_any();
     }
+    view! {
+        <label class=move || format!("min-w-0 flex-1 {}", adorned_class(invalid.get(), mono, disabled.get())) data-adorned="">
+            {prefix.map(|p| view! { <span class="shrink-0 font-mono text-[13px] font-bold text-text-faint select-none" data-adornment="prefix">{p}</span> })}
+            {input}
+            {suffix.map(|s| view! { <span class="shrink-0 whitespace-nowrap text-xs text-text-muted select-none" data-adornment="suffix">{s}</span> })}
+        </label>
+    }
+    .into_any()
 }
 
 #[component]

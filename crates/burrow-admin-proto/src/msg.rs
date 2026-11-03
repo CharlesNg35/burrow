@@ -342,6 +342,16 @@ pub struct Runtime {
     pub restart_pending: Vec<String>,
     #[serde(default)]
     pub allows: std::collections::BTreeMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_open: Vec<NotOpen>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NotOpen {
+    pub path: Vec<String>,
+    pub wanted: String,
+    #[serde(default)]
+    pub running: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

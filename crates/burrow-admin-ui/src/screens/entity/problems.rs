@@ -92,6 +92,14 @@ pub struct Problem {
     pub message: String,
 }
 
+fn named(p: &Path) -> Path {
+    let mut out = p.clone();
+    while out.len() > 2 && out.last().is_some_and(|k| k.parse::<usize>().is_ok()) {
+        out.pop();
+    }
+    out
+}
+
 fn field(p: &Path) -> Option<Path> {
     p.get(..3).map(<[String]>::to_vec)
 }
@@ -181,7 +189,11 @@ pub(super) fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
                     .as_deref()
                     .map(|k| placement::tab_of(section, k))
                     .unwrap_or(placement::SETTINGS),
-                label: field(&path).map(|f| label(&f)).unwrap_or_default(),
+                label: if path.len() > 2 {
+                    label(&named(&path))
+                } else {
+                    String::new()
+                },
                 path,
                 message,
             }
@@ -315,5 +327,36 @@ mod tests {
             vec![own[0].clone(), other]
         );
         assert_eq!(merged(Vec::new(), vec![own[0].clone()]), own);
+    }
+
+    #[test]
+    fn a_website_field_is_named_by_its_own_label() {
+        use burrow_config::admin_schema::AdminSchema;
+        let root = burrow_config::ServerConfig::node();
+        for (key, label) in [
+            ("paths", "Paths"),
+            ("hosts", "Names"),
+            ("app_path", "Path on the app"),
+        ] {
+            let at = p(&["services", "*", "web", key]);
+            assert_eq!(root.at(&at).map(|n| n.label.as_str()), Some(label), "{key}");
+        }
+    }
+
+    #[test]
+    fn a_problem_is_named_by_the_field_it_is_in_not_the_first_key() {
+        assert_eq!(
+            named(&p(&["services", "site", "web", "paths", "0"])),
+            p(&["services", "site", "web", "paths"])
+        );
+        assert_eq!(
+            named(&p(&["services", "site", "web", "app_path"])),
+            p(&["services", "site", "web", "app_path"])
+        );
+        assert_eq!(
+            named(&p(&["services", "site", "allow_from", "1"])),
+            p(&["services", "site", "allow_from"])
+        );
+        assert_eq!(named(&p(&["services", "site"])), p(&["services", "site"]));
     }
 }

@@ -99,3 +99,6 @@ pub const READ_BY_THE_CLI: [&str; 6] = [
     NO_CLIENTS,
     TLS_UNREADABLE,
 ];
+pub const INVALID_SOURCE: &str = "invalid-source";
+pub const NOT_THIS_MACHINE: &str = "not-this-machine";
+pub const TARGET_NOT_ALLOWED: &str = "target-not-allowed";

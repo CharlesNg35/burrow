@@ -8,7 +8,7 @@ allow:
 --- notes
 
 === client home Yaml Some("ws://tunnel.example.com/burrow")
-error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+error: Failure { message: "invalid --server: WebSocket is off on this server, so clients cannot use a ws:// or wss:// address", hint: Some("use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)"), exit: 2 }
 === client office Yaml None
 server: tunnel.example.com:7835
 name: office
@@ -20,7 +20,7 @@ allow:
 --- notes
 
 === client office Yaml Some("ws://tunnel.example.com/burrow")
-error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+error: Failure { message: "invalid --server: WebSocket is off on this server, so clients cannot use a ws:// or wss:// address", hint: Some("use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)"), exit: 2 }
 === client lab Yaml None
 server: tunnel.example.com:7835
 name: lab
@@ -30,7 +30,7 @@ allow:
 --- notes
 service "named" targets host name printer.lan; add its IP address to "allow" on the client
 === client lab Yaml Some("ws://tunnel.example.com/burrow")
-error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+error: Failure { message: "invalid --server: WebSocket is off on this server, so clients cannot use a ws:// or wss:// address", hint: Some("use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)"), exit: 2 }
 === visitor laptop Yaml
 server: tunnel.example.com:7835
 name: laptop
@@ -74,7 +74,7 @@ forwards:
 --- notes
 
 === client home Json Some("ws://tunnel.example.com/burrow")
-error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+error: Failure { message: "invalid --server: WebSocket is off on this server, so clients cannot use a ws:// or wss:// address", hint: Some("use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)"), exit: 2 }
 === client office Json None
 {
   "server": "tunnel.example.com:7835",
@@ -89,7 +89,7 @@ error: Failure { message: "invalid --server: the server has no websocket section
 --- notes
 
 === client office Json Some("ws://tunnel.example.com/burrow")
-error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+error: Failure { message: "invalid --server: WebSocket is off on this server, so clients cannot use a ws:// or wss:// address", hint: Some("use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)"), exit: 2 }
 === client lab Json None
 {
   "server": "tunnel.example.com:7835",
@@ -102,7 +102,7 @@ error: Failure { message: "invalid --server: the server has no websocket section
 --- notes
 service "named" targets host name printer.lan; add its IP address to "allow" on the client
 === client lab Json Some("ws://tunnel.example.com/burrow")
-error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+error: Failure { message: "invalid --server: WebSocket is off on this server, so clients cannot use a ws:// or wss:// address", hint: Some("use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)"), exit: 2 }
 === visitor laptop Json
 {
   "server": "tunnel.example.com:7835",

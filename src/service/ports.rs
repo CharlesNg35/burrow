@@ -11,6 +11,20 @@ pub struct PortUser {
     pub stop: Option<String>,
 }
 
+pub fn held_by(proto: Protocol, addr: SocketAddr, mine: Option<u32>) -> bool {
+    let kind = match proto {
+        Protocol::Tcp => socket2::Type::STREAM,
+        Protocol::Udp => socket2::Type::DGRAM,
+    };
+    match crate::wire::transport::udp::std_socket(addr, kind) {
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => match owner(proto, addr.port()) {
+            Some((_, pid)) => Some(pid) == mine,
+            None => mine.is_some(),
+        },
+        _ => false,
+    }
+}
+
 pub fn check_free(
     proto: Protocol,
     addr: SocketAddr,
@@ -130,13 +144,17 @@ fn owner(proto: Protocol, port: u16) -> Option<(String, u32)> {
 
 #[cfg(target_os = "macos")]
 fn owner(proto: Protocol, port: u16) -> Option<(String, u32)> {
-    let flag = if proto == Protocol::Udp {
-        format!("-iUDP:{port}")
-    } else {
-        format!("-iTCP:{port}")
-    };
+    let mut args = vec!["-nP".to_string()];
+    match proto {
+        Protocol::Udp => args.push(format!("-iUDP:{port}")),
+        Protocol::Tcp => {
+            args.push(format!("-iTCP:{port}"));
+            args.push("-sTCP:LISTEN".into());
+        }
+    }
+    args.push("-Fpc".into());
     let out = std::process::Command::new("lsof")
-        .args(["-nP", &flag, "-Fpc"])
+        .args(&args)
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -181,6 +199,43 @@ mod tests {
                 addr.port()
             );
             std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn the_owner_of_a_port_is_its_listener_not_a_process_connected_to_it() {
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        let script = format!(
+            "import socket,time\ns=socket.socket()\ns.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)\ns.bind(('127.0.0.1',{port}))\ns.listen(4)\nc,_=s.accept()\ntime.sleep(30)\n"
+        );
+        let Ok(mut child) = std::process::Command::new("python3")
+            .args(["-c", &script])
+            .spawn()
+        else {
+            return;
+        };
+        let mut conn = None;
+        for _ in 0..100 {
+            if let Ok(c) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+                conn = Some(c);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let held = conn.is_some();
+        let found = owner(Protocol::Tcp, port);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(held, "the child listens on {port}");
+        if let Some((_, pid)) = found {
+            assert_eq!(
+                pid,
+                child.id(),
+                "the listener owns the port, not the connected process"
+            );
         }
     }
 

@@ -129,7 +129,7 @@ services:
 
 | key | default | meaning |
 | --- | --- | --- |
-| `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. Needs `listen`, `websocket` or both |
+| `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. `[::]:port` listens on every IPv4 and IPv6 address, here and in every other address key. Needs `listen`, `websocket` or both |
 | `public_address` | none | how clients reach this server: host, host:port or a `wss://` URL. `client-config` and `visitor-config` write it into the configs they print |
 | `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`, or, when it shares the port of a bare `web.https`, every IPv4 and IPv6 address (`[::]`) like `web.https`. See [websocket.md](websocket.md) and [The tunnel on the same port](web/tunnel.md#the-tunnel-on-the-same-port) |
 | `websocket.path` | `/burrow` | URL path for WebSocket clients |

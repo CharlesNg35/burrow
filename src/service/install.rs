@@ -3,8 +3,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::checks::{
-    Checked, check_config, check_files_readable, check_ports_free, refuse_another_source,
-    refuse_running_outside, refuse_unfit,
+    Checked, check_config, check_files_readable, check_ports_before_stop, check_ports_free,
+    refuse_another_source, refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
     StartAgain, Takeover, Undo, give_old_files, given_note, release_previous, start_installed,
@@ -112,9 +112,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         backend: &*backend,
         manifest: previous.as_ref().filter(|_| was_running),
     };
-    if let Some(p) = again.manifest {
-        backend.stop(p)?;
-    }
+    stop_when_free(&*backend, &checked, again.manifest)?;
 
     refuse_running_outside(&checked)?;
     check_ports_free(&*backend, &checked)?;
@@ -295,6 +293,18 @@ fn env_for(opts: &InstallOptions, src_text: &str) -> BTreeMap<String, String> {
             .filter_map(|k| std::env::var(&k).ok().map(|v| (k, v)))
             .collect(),
     }
+}
+
+fn stop_when_free(
+    backend: &dyn Backend,
+    checked: &Checked,
+    running: Option<&Manifest>,
+) -> Result<(), Failure> {
+    if let Some(p) = running {
+        check_ports_before_stop(backend, checked, p)?;
+        backend.stop(p)?;
+    }
+    Ok(())
 }
 
 fn reinstall_in_background(

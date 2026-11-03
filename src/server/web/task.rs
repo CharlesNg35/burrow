@@ -66,6 +66,7 @@ impl BindFailed {
             reason: self.reason.clone(),
             stays,
             retry_secs: BIND_RETRY.as_secs(),
+            hint: self.failure.hint.clone().unwrap_or_default(),
         }
     }
 }

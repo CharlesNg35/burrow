@@ -162,6 +162,32 @@ mod tests {
     }
 
     #[test]
+    fn the_lets_encrypt_check_applies_only_to_a_lets_encrypt_site() {
+        use burrow_config::admin_schema::AdminSchema;
+        let root = burrow_config::ServerConfig::node();
+        let site = burrow_config::WebSite::node();
+        let challenge = &site
+            .field(burrow_config::WebSite::CHALLENGE.key())
+            .unwrap()
+            .node;
+        let at = |web: Value| {
+            let d = json!({"services": {"nas": {"client": "home", "target": 443, "web": web}}});
+            field_state(challenge, &root, &d, &p(&["services", "nas", "web"])).enabled
+        };
+        assert!(at(json!({"hosts": ["nas.example.com"]})));
+        assert!(at(json!({"hosts": ["nas.example.com"], "tls": "auto"})));
+        for tls in ["internal", "off", "passthrough"] {
+            assert!(
+                !at(json!({"hosts": ["nas.example.com"], "tls": tls})),
+                "{tls}"
+            );
+        }
+        assert!(!at(
+            json!({"hosts": ["nas.example.com"], "tls": {"cert": "a.pem", "key": "a.key"}})
+        ));
+    }
+
+    #[test]
     fn a_passthrough_site_shows_send_to_https_fixed_on() {
         use burrow_config::admin_schema::AdminSchema;
         let root = burrow_config::ServerConfig::node();
