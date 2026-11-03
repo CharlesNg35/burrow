@@ -1,6 +1,6 @@
 [package]
 name = "burrow-io"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "Small I/O helpers shared by the burrow tunnel and web proxy: lingering close for early HTTP/1 answers, in-memory pipes"
 license = "MIT"
