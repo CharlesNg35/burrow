@@ -148,34 +148,38 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         every_look(c, "clients-versions").await;
 
         c.ui.nav("/clients/office").await;
-        c.ui.wait_for("[data-testid=live] [data-testid=client-facts]", SECS)
-            .await;
+        let tag = "[data-testid=live] [data-testid=client-update-tag]";
+        c.ui.wait_text(tag, &format!("{NEW} available"), SECS).await;
         assert_eq!(
-            c.ui.count("[data-testid=client-burrow]").await,
+            c.ui.count("[data-testid=client-update]").await,
             0,
-            "the client's burrow sits in its overview figures, not in a card of its own"
+            "office did not opt in: no button, not a disabled one"
         );
-        assert!(
-            !c.ui.enabled("[data-testid=client-update]").await,
-            "office did not opt in"
-        );
-        let why =
-            c.ui.eval::<String>(
-                "document.querySelector('[data-testid=client-update]').parentElement.title",
-            )
-            .await;
+        let why = c.ui.attr_of(tag, "title").await;
         assert!(
             why.contains("off in its config"),
-            "the reason shows on hover: {why}"
+            "the reason is the tag's tooltip: {why}"
         );
-        let remote = c.ui.text("[data-testid=client-facts]").await;
-        assert!(remote.contains("off in its config"), "{remote}");
+        assert_eq!(
+            c.ui.text("[data-testid=live] [data-stat=burrow]").await,
+            OLD
+        );
         every_look(c, "client-not-allowed").await;
 
         c.ui.nav("/clients/lab").await;
-        c.ui.wait_for("[data-testid=client-older]", SECS).await;
-        let older = c.ui.text("[data-testid=client-older]").await;
-        assert!(older.contains("sudo burrow update"), "{older}");
+        c.ui.wait_for("[data-testid=live] [data-stat=burrow]", SECS)
+            .await;
+        let live = c.ui.text("[data-testid=live]").await;
+        assert!(live.contains("older than 0.2.2"), "{live}");
+        let hint =
+            c.ui.eval::<String>(
+                "document.querySelector('[data-testid=live] [data-stat=burrow]').closest('[title]')?.title ?? ''",
+            )
+            .await;
+        assert!(
+            hint.contains("sudo burrow update"),
+            "the hint is a tooltip: {hint}"
+        );
         every_look(c, "client-older").await;
 
         c.ui.nav("/clients/home").await;
@@ -188,7 +192,7 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         every_look(c, "client-update-dialog").await;
         c.ui.click("[data-testid=client-update-confirm]").await;
         c.ui.wait_text(
-            "[data-testid=client-last-update]",
+            "[data-testid=live] [data-testid=client-update-tag]",
             "updated",
             Duration::from_secs(60),
         )

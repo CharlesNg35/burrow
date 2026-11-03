@@ -443,18 +443,21 @@ pub fn Stat(
     #[prop(into)] value: Signal<String>,
     #[prop(optional, into)] unit: Signal<String>,
     #[prop(optional, into)] detail: Signal<String>,
+    #[prop(optional, into)] title: Signal<String>,
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let key = label.to_lowercase();
     view! {
-        <div>
+        <div title=move || Some(title.get()).filter(|t| !t.is_empty())>
             <div class="text-xs text-text-muted">{label}</div>
-            <div class="mt-1 text-xl font-bold tabular-nums" data-stat=key>
-                {move || value.get()}
-                <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span class="text-xl font-bold tabular-nums" data-stat=key>
+                    {move || value.get()}
+                    <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>
+                </span>
+                {children.map(|c| c())}
             </div>
             <div class="text-xs text-text-muted">{move || detail.get()}</div>
-            {children.map(|c| c())}
         </div>
     }
 }

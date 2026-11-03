@@ -184,6 +184,52 @@ impl ClientInfo {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Card {
+    pub tag: Option<(String, Mood, String)>,
+    pub can_ask: bool,
+}
+
+impl ClientInfo {
+    pub fn card(&self, offered: bool) -> Card {
+        let ready = offered && self.ready();
+        let job = |u: &UpdateStatus| {
+            let mut line = job_text(u);
+            if !u.by.is_empty() {
+                line.push_str(&format!(", asked by {}", u.by));
+            }
+            line
+        };
+        match (&self.update, &self.available) {
+            (Some(u), _) if !u.state.finished() => Card {
+                tag: Some(("updating…".into(), Mood::Busy, job(u))),
+                can_ask: false,
+            },
+            (Some(u), _) if u.state.failed() => Card {
+                tag: Some((state_text(u.state).into(), Mood::Bad, job(u))),
+                can_ask: ready,
+            },
+            (_, Some(v)) => Card {
+                tag: Some((
+                    format!("{v} available"),
+                    if self.blocked.is_some() {
+                        Mood::Quiet
+                    } else {
+                        Mood::Offer
+                    },
+                    self.blocked.clone().unwrap_or_default(),
+                )),
+                can_ask: ready,
+            },
+            (Some(u), None) => Card {
+                tag: Some((state_text(u.state).into(), Mood::Good, job(u))),
+                can_ask: false,
+            },
+            (None, None) => Card::default(),
+        }
+    }
+}
+
 pub fn ready_names(status: &Status) -> Vec<String> {
     status
         .clients
@@ -440,5 +486,55 @@ mod tests {
         let home = of(Some(&st), "home").unwrap();
         assert!(home.online && !home.local);
         assert_eq!(home.from.as_deref(), Some("2001:db8::1"));
+    }
+
+    #[test]
+    fn a_clients_card_offers_a_button_only_when_the_update_is_possible() {
+        let mut c = ClientInfo {
+            name: "nas".into(),
+            version: "0.2.2".into(),
+            available: Some("0.2.3".into()),
+            ..ClientInfo::default()
+        };
+        let card = c.card(true);
+        assert!(card.can_ask);
+        assert_eq!(card.tag.unwrap().0, "0.2.3 available");
+        assert!(!c.card(false).can_ask, "a read admin gets no button");
+        c.blocked = Some("remote updates are off in its config".into());
+        let off = c.card(true);
+        assert!(!off.can_ask, "no disabled button");
+        let (t, m, why) = off.tag.unwrap();
+        assert_eq!((t.as_str(), m), ("0.2.3 available", Mood::Quiet));
+        assert!(
+            why.contains("off in its config"),
+            "the reason is the tooltip"
+        );
+        c.blocked = None;
+        c.update = Some(UpdateStatus {
+            from: "0.2.2".into(),
+            to: "0.2.3".into(),
+            state: UpdateState::Downloading,
+            ..UpdateStatus::default()
+        });
+        let busy = c.card(true);
+        assert_eq!(busy.tag.unwrap().0, "updating…");
+        assert!(!busy.can_ask);
+        c.update.as_mut().unwrap().state = UpdateState::RolledBack;
+        c.update.as_mut().unwrap().detail = "did not connect".into();
+        let back = c.card(true);
+        let (t, m, why) = back.tag.unwrap();
+        assert_eq!((t.as_str(), m), ("rolled back", Mood::Bad));
+        assert!(why.contains("rolled back: did not connect"), "{why}");
+        assert!(back.can_ask, "it may be asked again");
+        c.update.as_mut().unwrap().state = UpdateState::Done;
+        c.available = None;
+        let done = c.card(true);
+        assert_eq!(done.tag.unwrap().0, "updated");
+        assert!(!done.can_ask);
+        let quiet = ClientInfo {
+            version: "0.2.3".into(),
+            ..ClientInfo::default()
+        };
+        assert_eq!(quiet.card(true), Card::default(), "nothing to say");
     }
 }

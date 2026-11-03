@@ -101,34 +101,7 @@ fn shown_detail(c: Option<&ClientInfo>) -> String {
         Some(c) if c.local => "this server".into(),
         Some(c) if c.older => format!("older than {FIRST_REPORTING}"),
         Some(c) if c.system.is_none() => "shown once it connects".into(),
-        Some(c) => c.summary(),
-    }
-}
-
-#[derive(Clone, PartialEq)]
-enum Action {
-    Nothing,
-    Tag(String, Mood),
-    Offer {
-        tag: String,
-        mood: Mood,
-        blocked: Option<String>,
-    },
-}
-
-fn action(c: Option<&ClientInfo>, offered: bool) -> Action {
-    let Some(c) = c else {
-        return Action::Nothing;
-    };
-    match c.tag() {
-        Some((t, Mood::Busy)) => Action::Tag(t, Mood::Busy),
-        Some((tag, mood)) if offered && c.available.is_some() => Action::Offer {
-            tag,
-            mood,
-            blocked: c.blocked.clone(),
-        },
-        Some((t, m)) => Action::Tag(t, m),
-        None => Action::Nothing,
+        Some(c) => c.system_short(),
     }
 }
 
@@ -151,27 +124,25 @@ impl ClientUpdate {
     pub fn stat(self) -> impl IntoView {
         let s = store();
         let (info, open) = (self.info, self.open);
-        let act = Memo::new(move |_| info.with(|c| action(c.as_ref(), offered(s))));
-        let facts = move || match act.get() {
-            Action::Offer { blocked: None, .. } => {
-                info.with(|c| c.as_ref().map(ClientInfo::system_short).unwrap_or_default())
-            }
-            _ => info.with(|c| shown_detail(c.as_ref())),
-        };
+        let card = Memo::new(move |_| info.with(|c| c.as_ref().map(|c| c.card(offered(s)))));
         let side = move || {
-            match act.get() {
-            Action::Nothing => ().into_any(),
-            Action::Tag(t, m) => view! { <span class=tag_class(tone(m)) data-testid="client-update-tag">{t}</span> }.into_any(),
-            Action::Offer { tag, mood, blocked } => view! {
-                <span class=tag_class(tone(mood)) data-testid="client-update-tag">{tag}</span>
-                <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" disabled=blocked.is_some() reason=blocked.unwrap_or_default() testid="client-update" on_click=move |_| open.set(true)/>
-            }.into_any(),
-        }
+            let card = card.get()?;
+            let tag = card.tag.map(|(t, m, why)| view! { <span class=tag_class(tone(m)) title=why data-testid="client-update-tag">{t}</span> });
+            let button = card.can_ask.then(|| view! {
+                <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Small icon="download" testid="client-update" on_click=move |_| open.set(true)/>
+            });
+            Some(view! { {tag}{button} })
+        };
+        let hint = move || {
+            info.with(|c| {
+                c.as_ref()
+                    .and_then(ClientInfo::older_note)
+                    .unwrap_or_default()
+            })
         };
         view! {
-            <Stat label="Burrow" value=Signal::derive(move || info.with(|c| shown_version(c.as_ref())))>
-                <div class="text-xs text-text-muted break-words" data-testid="client-facts">{facts}</div>
-                {move || (act.get() != Action::Nothing).then(|| view! { <div class="mt-2 flex flex-wrap items-center gap-2">{side}</div> })}
+            <Stat label="Burrow" value=Signal::derive(move || info.with(|c| shown_version(c.as_ref()))) detail=Signal::derive(move || info.with(|c| shown_detail(c.as_ref()))) title=Signal::derive(hint)>
+                {side}
             </Stat>
         }
     }
@@ -179,16 +150,6 @@ impl ClientUpdate {
     pub fn below(self) -> impl IntoView {
         let s = store();
         let (info, open) = (self.info, self.open);
-        let line = move || {
-            info.with(|c| {
-                let c = c.as_ref()?;
-                if let Some(note) = c.older_note() {
-                    return Some(view! { <p class="-mt-3 mb-5 text-sm text-text-muted" data-testid="client-older">{note}</p> }.into_any());
-                }
-                let (l, m) = c.last_update()?;
-                Some(view! { <p class=format!("-mt-3 mb-5 text-sm {}", tone(m).text()) data-testid="client-last-update">{l}</p> }.into_any())
-            })
-        };
         let confirm = move || {
             let c = info.get().unwrap_or_default();
             let to = c.available.clone().unwrap_or_default();
@@ -208,7 +169,6 @@ impl ClientUpdate {
             }
         };
         view! {
-            {line}
             <Dialog open=open title=Signal::derive(move || format!("Update {}?", info.with(|c| c.as_ref().map(|c| c.name.clone()).unwrap_or_default()))) icon="download" testid="client-update-dialog">
                 {confirm}
             </Dialog>
