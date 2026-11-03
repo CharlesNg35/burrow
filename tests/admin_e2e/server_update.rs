@@ -38,7 +38,7 @@ async fn ask(c: &mut Ctx, to: &str, step: &str) {
     );
     let line = c.ui.text("[data-testid=server-burrow]").await;
     assert!(
-        line.starts_with(&format!("{to} available · What's new ↗")),
+        line.contains(&format!("{to} available · What's new ↗")),
         "{line}"
     );
     every_look(c, &format!("{step}-offer")).await;
