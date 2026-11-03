@@ -212,7 +212,16 @@ impl ClientInfo {
         };
         match (says, &self.update, &self.available) {
             (Say::Running, ..) => tag("updating…".into(), Mood::Busy),
-            (Say::Failed, Some(u), _) => tag(state_text(u.state).into(), Mood::Bad),
+            (Say::Failed, Some(u), _) => Card {
+                tag: Some((
+                    state_text(u.state).into(),
+                    Mood::Offer,
+                    crate::update_words::trouble(u, Some(&self.name))
+                        .map(|t| format!("{} See Needs attention.", t.sentence))
+                        .unwrap_or_default(),
+                )),
+                can_ask: false,
+            },
             (Say::Available, _, Some(v)) => Card {
                 tag: Some((
                     format!("{v} available"),
@@ -538,8 +547,11 @@ mod tests {
         c.update.as_mut().unwrap().detail = "did not connect".into();
         let back = c.card(true);
         let (t, m, why) = back.tag.unwrap();
-        assert_eq!((t.as_str(), m), ("rolled back", Mood::Bad));
-        assert!(why.contains("rolled back: did not connect"), "{why}");
+        assert_eq!((t.as_str(), m), ("rolled back", Mood::Offer));
+        assert!(
+            why.contains("didn't connect to the server within a minute, so nas went back to 0.2.2"),
+            "{why}"
+        );
         assert!(!back.can_ask, "one message at a time: the result first");
         c.update.as_mut().unwrap().state = UpdateState::Done;
         c.available = None;

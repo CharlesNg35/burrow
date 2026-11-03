@@ -29,6 +29,7 @@ pub mod settings_tabs;
 pub mod shorthand;
 pub mod top;
 pub mod tree;
+pub mod update_words;
 pub mod version;
 pub mod web;
 pub mod wording;

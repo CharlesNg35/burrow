@@ -10,7 +10,7 @@ use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Stat, Tone, VersionTag, tag_
 use leptos::prelude::*;
 
 use super::update_dialog::{Confirm, update_dialog};
-use crate::store::{OwnJob, Store, store};
+use crate::store::{OwnJob, Retry, Store, store};
 
 pub fn tone(m: Mood) -> Tone {
     match m {
@@ -109,10 +109,18 @@ pub struct ClientUpdate {
 impl ClientUpdate {
     pub fn new(name: String) -> Self {
         let s = store();
+        let open = RwSignal::new(false);
+        let mine = Some(Retry::Client(name.clone()));
+        Effect::new(move |_| {
+            if s.retry.with(|r| r == &mine) {
+                s.retry.set(None);
+                open.set(true);
+            }
+        });
         let key = StoredValue::new(name);
         ClientUpdate {
             info: Memo::new(move |_| key.with_value(|n| info_of(s, n))),
-            open: RwSignal::new(false),
+            open,
         }
     }
 
@@ -287,9 +295,16 @@ pub struct ServerUpdate {
 impl ServerUpdate {
     pub fn new() -> Self {
         let s = store();
+        let open = RwSignal::new(false);
+        Effect::new(move |_| {
+            if s.retry.with(|r| r == &Some(Retry::Server)) {
+                s.retry.set(None);
+                open.set(true);
+            }
+        });
         ServerUpdate {
             fig: Memo::new(move |_| s.status.with(|st| st.as_deref().and_then(figure))),
-            open: RwSignal::new(false),
+            open,
         }
     }
 
@@ -301,6 +316,15 @@ impl ServerUpdate {
             let state = f.state.clone().map(|(t, m)| view! {
                 <span class=format!("whitespace-nowrap {}", tone(m).text()) title=f.detail.clone() data-testid="server-update-state">{t}</span>
             });
+            let still = f.still.clone().map(|t| view! {
+                <span class="whitespace-nowrap" data-testid="server-update-still">{t}</span>
+                <a href="#server-update" class="whitespace-nowrap font-semibold text-accent-ink" data-testid="server-update-details" on:click=move |e| {
+                    e.prevent_default();
+                    if let Some(el) = document().get_element_by_id("server-update") {
+                        el.scroll_into_view();
+                    }
+                }>"Details"</a>
+            });
             let available = f.available.clone().map(|(t, m)| view! {
                 <span class=format!("whitespace-nowrap {}", tone(m).text()) title=f.why_not.clone().unwrap_or_default() data-testid="server-update-tag">{t}</span>
                 {f.to.as_deref().and_then(burrow_admin_logic::wording::release_notes).map(|(_, url)| view! {
@@ -311,7 +335,7 @@ impl ServerUpdate {
                 <Button label="Update" variant=ButtonLook::Primary size=ButtonSize::Inline icon="download" testid="server-update" on_click=move |_| open.set(true)/>
             });
             Some(view! {
-                <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-text-muted" data-testid="server-burrow">{state}{available}{button}</div>
+                <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-text-muted" data-testid="server-burrow">{state}{still}{available}{button}</div>
             })
         }
     }
@@ -320,7 +344,11 @@ impl ServerUpdate {
         let s = store();
         let (fig, open) = (self.fig, self.open);
         let c = Signal::derive(move || {
-            let to = fig.with(|f| f.as_ref().and_then(|f| f.to.clone()).unwrap_or_default());
+            let to = fig.with(|f| {
+                f.as_ref()
+                    .and_then(|f| f.to.clone().or(f.retry.clone()))
+                    .unwrap_or_default()
+            });
             let from = s
                 .status
                 .with(|st| st.as_ref().map(|st| st.version.clone()).unwrap_or_default());
@@ -374,12 +402,23 @@ pub fn follow_server_update() {
             (OwnJob::Asked, false) => s.server_updating.set(OwnJob::Running),
             (OwnJob::Running, true) => {
                 s.server_updating.set(OwnJob::Idle);
-                let t = if last.state == burrow_admin_proto::updates::UpdateState::Done {
-                    Tone::Success
-                } else {
-                    Tone::Danger
-                };
-                s.toast(t, burrow_admin_proto::updates::job_text(&last), None);
+                match last.state {
+                    burrow_admin_proto::updates::UpdateState::Done => {
+                        s.toast(
+                            Tone::Success,
+                            format!("Server updated to {}", last.to),
+                            None,
+                        );
+                    }
+                    burrow_admin_proto::updates::UpdateState::RolledBack => {
+                        s.toast(
+                            Tone::Warning,
+                            "Update rolled back — see Needs attention",
+                            None,
+                        );
+                    }
+                    _ => s.toast(Tone::Warning, "Update failed — see Needs attention", None),
+                }
             }
             _ => {}
         }

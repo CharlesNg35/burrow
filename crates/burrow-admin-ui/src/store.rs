@@ -86,10 +86,17 @@ pub struct Store {
     pub server_addr: RwSignal<String>,
     pub error: RwSignal<Option<String>>,
     pub server_updating: RwSignal<OwnJob>,
+    pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,
 }
 
 pub const REVIEW: &str = "Review";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Retry {
+    Server,
+    Client(String),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OwnJob {
@@ -139,6 +146,7 @@ impl Store {
             query_seen: RwSignal::new(0),
             error: RwSignal::new(None),
             server_updating: RwSignal::new(OwnJob::Idle),
+            retry: RwSignal::new(None),
             edit: Edit::new(),
         }
     }

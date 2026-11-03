@@ -16,6 +16,8 @@ pub struct ServerFigure {
     pub why_not: Option<String>,
     pub can_ask: bool,
     pub detail: String,
+    pub still: Option<String>,
+    pub retry: Option<String>,
 }
 
 impl ServerFigure {
@@ -31,12 +33,8 @@ pub fn shown_for(state: UpdateState) -> u64 {
     }
 }
 
-fn result(u: &UpdateStatus) -> (String, Mood) {
-    match u.state {
-        UpdateState::Done => (format!("updated {} → {}", u.from, u.to), Mood::Good),
-        s if u.detail.is_empty() => (state_text(s).to_string(), Mood::Bad),
-        s => (format!("{}: {}", state_text(s), u.detail), Mood::Bad),
-    }
+fn done(u: &UpdateStatus) -> (String, Mood) {
+    (format!("updated {} → {}", u.from, u.to), Mood::Good)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,11 +79,19 @@ pub fn figure(st: &Status) -> Option<ServerFigure> {
         .unwrap_or_default();
     let state = match (says, last) {
         (Say::Running, _) => Some((UPDATING.to_string(), Mood::Busy)),
-        (Say::Failed | Say::Done, Some(u)) => Some(result(u)),
+        (Say::Failed, Some(u)) => Some((
+            format!("Update to {} {}", u.to, state_text(u.state)),
+            Mood::Offer,
+        )),
+        (Say::Done, Some(u)) => Some(done(u)),
         _ => None,
     };
+    let still = (says == Say::Failed).then(|| format!("still on {}", st.version));
+    let retry = newer.clone().filter(|_| on);
     let to = newer.filter(|_| says == Say::Available);
     Some(ServerFigure {
+        still,
+        retry,
         can_ask: on && to.is_some(),
         available: to.as_ref().map(|v| {
             let mood = if on { Mood::Offer } else { Mood::Quiet };
@@ -216,7 +222,14 @@ mod tests {
         .unwrap();
         assert_eq!(
             back.state,
-            Some(("rolled back: 0.2.3 is not running".into(), Mood::Bad))
+            Some(("Update to 0.2.3 rolled back".into(), Mood::Offer)),
+            "short and calm; the reason is in Needs attention"
+        );
+        assert_eq!(back.still.as_deref(), Some("still on 0.2.2"));
+        assert_eq!(
+            back.retry.as_deref(),
+            Some("0.2.3"),
+            "Try again has a target"
         );
         assert!(
             back.available.is_none() && !back.can_ask,
