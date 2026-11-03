@@ -7,11 +7,7 @@ use rustix::fs::{AtFlags, Mode, OFlags};
 use super::Put;
 use crate::base::failure::Failure;
 use crate::service::Backend;
-
-const FOLDER: OFlags = OFlags::RDONLY
-    .union(OFlags::DIRECTORY)
-    .union(OFlags::NOFOLLOW)
-    .union(OFlags::CLOEXEC);
+use crate::service::nofollow::{failed, made_subfolder};
 
 pub(super) struct Folder {
     dir: OwnedFd,
@@ -34,10 +30,6 @@ fn owner_and_mode(
     }
 }
 
-fn failed(what: &str, path: &Path, e: impl std::fmt::Display) -> Failure {
-    Failure::new(format!("cannot {what} {}: {e}", path.display()))
-}
-
 impl Folder {
     pub(super) fn open(
         _backend: &dyn Backend,
@@ -49,16 +41,7 @@ impl Folder {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
-        let name = to.file_name().unwrap_or_default();
-        let holder = rustix::fs::open(parent, FOLDER, Mode::empty())
-            .map_err(|e| failed("open", parent, e))?;
-        if let Err(e) = rustix::fs::mkdirat(&holder, name, Mode::from_bits_truncate(0o700))
-            && e != rustix::io::Errno::EXIST
-        {
-            return Err(failed("create", to, e));
-        }
-        let dir = rustix::fs::openat(&holder, name, FOLDER, Mode::empty())
-            .map_err(|e| failed("open", to, format!("{e}; it must be a folder, not a link")))?;
+        let dir = made_subfolder(parent, to.file_name().unwrap_or_default())?;
         let root = rustix::process::geteuid().is_root();
         let ids = root
             .then(|| crate::base::process::account_ids(account).ok())
@@ -146,6 +129,37 @@ mod tests {
         assert_eq!(
             owner_and_mode(Put::Note, (None, None), false),
             (None, 0o644)
+        );
+    }
+
+    #[test]
+    fn a_drop_in_folder_that_is_a_link_is_refused_and_its_target_left_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let config = tmp.path().join("server.yaml");
+        let target = tmp.path().join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let to = tmp.path().join("server.d");
+        std::os::unix::fs::symlink(&target, &to).unwrap();
+        let backend = crate::service::tests::Recorder(Default::default(), false);
+        let Err(err) = Folder::open(&backend, (&config, &to), "burrow", true) else {
+            panic!("a linked server.d is opened");
+        };
+        assert!(err.message.contains("not a link"), "{}", err.message);
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755, "the link's target keeps its mode");
+        std::fs::remove_file(&to).unwrap();
+        let folder = Folder::open(&backend, (&config, &to), "burrow", true).unwrap();
+        folder
+            .put("apps.yaml", b"services: {}\n", Put::Config)
+            .unwrap();
+        assert!(to.join("apps.yaml").is_file());
+        let mode = std::fs::metadata(&to).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o700,
+            "a writable install keeps the folder private"
         );
     }
 }
