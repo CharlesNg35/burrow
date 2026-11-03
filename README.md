@@ -347,7 +347,7 @@ sudo burrow service logs -f                    # follow its log
 sudo burrow update                             # install the latest release and restart the services
 ```
 
-**Read more:** [docs/service.md](docs/service.md): where the files go, updating, and the Docker image `ghcr.io/charlesng35/burrow`.
+**Read more:** [docs/service.md](docs/service.md): where the files go, updating, and the Docker image `ghcr.io/charlesng35/burrow`. Clients can also be updated remotely from burrow admin, with automatic rollback: [docs/updates.md](docs/updates.md).
 
 ## Monitoring
 
