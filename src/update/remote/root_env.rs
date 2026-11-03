@@ -6,12 +6,14 @@ use crate::install::Manifest;
 
 pub const TRUST_ENV: &str = "BURROW_ADMIN_TEST_TRUST_ENV";
 
+#[cfg(any(unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Owned {
     pub uid: u32,
     pub mode: u32,
 }
 
+#[cfg(any(unix, test))]
 pub fn judge(file: Owned, folder: Owned) -> Result<(), String> {
     if file.uid != 0 {
         return Err("it does not belong to root".into());
