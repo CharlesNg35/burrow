@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+use burrow_admin_proto::local::Reason;
 use burrow_admin_proto::msg::{self, ErrorBody, Incoming, Request, Subscribe, Welcome};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -16,7 +17,7 @@ pub const ANSWER: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
 pub enum LinkError {
-    Open(Failure),
+    Open(Reason, Failure),
     Lost(String),
     Refused(ErrorBody),
 }
@@ -24,7 +25,7 @@ pub enum LinkError {
 impl std::fmt::Display for LinkError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LinkError::Open(e) => match &e.hint {
+            LinkError::Open(_, e) => match &e.hint {
                 Some(h) => write!(f, "{} ({h})", e.message),
                 None => f.write_str(&e.message),
             },
@@ -73,6 +74,10 @@ impl Link {
         &self.settings.server
     }
 
+    pub fn visitor(&self) -> &str {
+        &self.settings.name
+    }
+
     fn id(&self) -> u32 {
         self.next.fetch_add(1, Ordering::Relaxed)
     }
@@ -85,9 +90,9 @@ impl Link {
     }
 
     async fn connect(&self) -> Result<Opened, LinkError> {
-        let (rx, tx) = open::open(&self.dialer, &self.settings, self.client)
+        let (rx, tx) = open::open_explained(&self.dialer, &self.settings, self.client)
             .await
-            .map_err(LinkError::Open)?;
+            .map_err(|(reason, f)| LinkError::Open(reason, f))?;
         let mut conn = Conn {
             rx,
             tx,

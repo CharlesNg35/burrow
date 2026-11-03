@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tracing::error;
 
+use super::drive::{drive, drive_for, hold_hangup, stop_on_signal};
 use crate::base::failure::Failure;
 use crate::base::style::Style;
 use crate::client::{Client, RunEnd};
@@ -127,67 +128,6 @@ fn config_failure(mut f: Failure) -> Failure {
     f
 }
 
-fn runtime() -> Result<tokio::runtime::Runtime, Failure> {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| Failure::new(format!("cannot start the async runtime: {e}")))
-}
-
-fn hold_hangup() {
-    #[cfg(unix)]
-    let _ = signal_hook::flag::register(
-        signal_hook::consts::SIGHUP,
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
-}
-
-fn drive<T>(work: impl std::future::Future<Output = Result<T, Failure>>) -> Result<T, Failure> {
-    let rt = runtime()?;
-    #[cfg(unix)]
-    rt.block_on(async {
-        let _ = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup());
-    });
-    let out = rt.block_on(work);
-    rt.shutdown_timeout(std::time::Duration::from_secs(1));
-    out
-}
-
-#[cfg(unix)]
-async fn terminate() {
-    use tokio::signal::unix::{SignalKind, signal};
-    let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
-    let mut int = signal(SignalKind::interrupt()).expect("install SIGINT handler");
-    tokio::select! {
-        _ = term.recv() => {}
-        _ = int.recv() => {}
-    }
-}
-
-#[cfg(not(unix))]
-async fn terminate() {
-    if tokio::signal::ctrl_c().await.is_err() {
-        std::future::pending::<()>().await;
-    }
-}
-
-fn stop_on_signal(external: Option<watch::Receiver<bool>>) -> watch::Receiver<bool> {
-    let (tx, rx) = watch::channel(false);
-    tokio::spawn(async move {
-        match external {
-            Some(mut ext) => {
-                tokio::select! {
-                    _ = terminate() => {}
-                    _ = ext.wait_for(|stop| *stop) => {}
-                }
-            }
-            None => terminate().await,
-        }
-        let _ = tx.send(true);
-    });
-    rx
-}
-
 fn visitor(path: &Path, env: &Env) -> Result<crate::config::settings::VisitorSettings, Failure> {
     let loaded = load(
         path,
@@ -205,14 +145,30 @@ fn visitor(path: &Path, env: &Env) -> Result<crate::config::settings::VisitorSet
 }
 
 pub fn mcp(path: &Path, env: Env, opts: crate::mcp::Options) -> Result<u8, Failure> {
-    let settings = visitor(path, &env)?;
+    use crate::mcp::Task;
+    let settings = visitor(path, &env).map_err(|f| match opts.task {
+        Task::Serve => crate::mcp::startup::failed(f, Some(path)),
+        Task::PrintConfig(_) | Task::PrintToken | Task::Check => f,
+    })?;
     if !crate::mcp::before_start(path, &opts)? {
         return Ok(0);
     }
-    drive(async move {
-        crate::mcp::serve(settings, path, opts, stop_on_signal(None)).await?;
-        Ok(0)
-    })
+    if opts.task == Task::Check {
+        let mut out = std::io::stdout().lock();
+        return drive(crate::mcp::check::run(
+            settings,
+            path,
+            opts.writes,
+            &mut out,
+        ));
+    }
+    drive_for(
+        async move {
+            crate::mcp::serve(settings, path, opts, stop_on_signal(None)).await?;
+            Ok(0)
+        },
+        crate::mcp::CLOSE_WITHIN,
+    )
 }
 
 pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
@@ -614,16 +570,5 @@ mod tests {
         web.sites.clear();
         web.uploads = vec!["pair-1".into()];
         assert!(needs_state_folder(&web));
-    }
-
-    #[test]
-    fn a_stop_does_not_wait_for_a_stuck_blocking_lookup() {
-        let started = std::time::Instant::now();
-        let out = drive(async {
-            tokio::task::spawn_blocking(|| std::thread::sleep(std::time::Duration::from_secs(20)));
-            Ok(7)
-        });
-        assert_eq!(out.unwrap(), 7);
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 }
