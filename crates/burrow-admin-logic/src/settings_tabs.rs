@@ -6,10 +6,17 @@ pub enum Tab {
     Connections,
     Web,
     Monitoring,
+    File,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Server, Tab::Connections, Tab::Web, Tab::Monitoring];
+    pub const ALL: [Tab; 5] = [
+        Tab::Server,
+        Tab::Connections,
+        Tab::Web,
+        Tab::Monitoring,
+        Tab::File,
+    ];
 
     pub fn key(self) -> &'static str {
         match self {
@@ -17,6 +24,7 @@ impl Tab {
             Tab::Connections => "connections",
             Tab::Web => "proxy",
             Tab::Monitoring => "monitoring",
+            Tab::File => "file",
         }
     }
 
@@ -26,7 +34,12 @@ impl Tab {
             Tab::Connections => "Connections",
             Tab::Web => "Web",
             Tab::Monitoring => "Monitoring",
+            Tab::File => "Config file",
         }
+    }
+
+    pub fn holds_fields(self) -> bool {
+        self != Tab::File
     }
 
     pub fn parse(key: &str) -> Option<Tab> {
@@ -119,6 +132,8 @@ mod tests {
         for t in Tab::ALL {
             assert_eq!(Tab::parse(t.key()), Some(t));
         }
+        assert_eq!(Tab::ALL.last(), Some(&Tab::File));
+        assert!(!Tab::File.holds_fields());
     }
 
     #[test]

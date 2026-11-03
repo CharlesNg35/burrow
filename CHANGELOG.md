@@ -13,6 +13,7 @@
 - **Instructions that match the session:** read-only, check-only (without `--allow-write`) or write. In check-only mode the AI is told that changes can be checked but not applied, and `check_change` says so in its `apply` field, so the AI asks you to restart burrow mcp with `--allow-write` instead of promising a change.
 - **`validate_config`**, a new read-only tool at every admin level: it checks a config or a fragment with burrow's own validation, as `burrow validate` does, and writes nothing. The instructions tell the AI to check every config example with it before showing it, and `describe_settings` says it gives each key's help and examples.
 - **`burrow init visitor` on an existing visitor.yaml**, on a terminal, offers to update it from the server (`--update`) instead of only refusing; scripts get the same error as before. `burrow init server` now refuses an existing file before asking anything, like `init client`.
+- **burrow admin: Config file.** A last Settings tab shows the server's config as YAML, view only, for read and write admins: the keys the file sets, or with **Show defaults too** every default in effect. Secrets show as fingerprints or `${ENV}` names, and password hashes and credential headers stay hidden, by the same code as `burrow mcp`'s `get_config`, which takes `show: with_defaults` too. **Copy** and **Download** (`server.redacted.yaml`) take that redacted text, and a note links to Needs attention when the running server differs from the file.
 
 ## [0.2.2]
 
