@@ -188,7 +188,7 @@ pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView 
     view! {
         <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
             <h2 class="text-[13.5px] font-bold">{title}</h2>
-            {sub.map(|s| view! { <span class="text-xs text-text-muted">{s}</span> })}
+            {sub.map(|s| view! { <span class="text-xs text-text-muted" data-card-sub="">{s}</span> })}
             <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{right}</div>
         </div>
     }
@@ -239,7 +239,7 @@ pub fn PageHeader(
             <div class="min-w-0 flex-1">
                 {kicker.map(|k| view! { <p class="mb-1.5 text-[12.5px] font-semibold">{k}</p> })}
                 <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
-                {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted">{s}</p> })}
+                {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted" data-header-line="">{s}</p> })}
             </div>
             {actions.map(|a| view! { <div class="flex items-center gap-2">{a}</div> })}
         </header>

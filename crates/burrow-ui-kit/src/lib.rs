@@ -12,6 +12,7 @@ mod disclosure;
 mod feedback;
 mod field;
 mod icon;
+mod inline;
 mod input;
 mod overlay;
 mod path;
@@ -38,6 +39,7 @@ pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
 pub use icon::{Icon, path as icon_path};
+pub use inline::{Inline, inline};
 pub use input::{
     ChipInput, ConfirmInput, INPUT_H, Segmented, Select, TextArea, TextInput, Toggle, field_class,
     split_entries,
