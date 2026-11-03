@@ -426,3 +426,29 @@ fn release_notes_link_only_a_strict_release_number_to_the_official_release_page(
         assert_eq!(release_notes(bad), None, "{bad}");
     }
 }
+
+#[test]
+fn a_field_message_drops_the_check_prefix_that_names_the_field_again() {
+    assert_eq!(
+        at_field("invalid target for service \"app\": only an IPv6 address goes in brackets"),
+        "only an IPv6 address goes in brackets"
+    );
+    assert_eq!(
+        at_field("invalid target for forward \"a: b\": no port"),
+        "no port"
+    );
+    assert_eq!(
+        at_field("must be between 1 and 9"),
+        "must be between 1 and 9"
+    );
+    assert_eq!(at_field("invalid CIDR"), "invalid CIDR");
+}
+
+#[test]
+fn a_long_key_hint_may_break_at_dots_and_underscores() {
+    let k = key_hint(&["web".to_string(), "request_header_timeout_secs".to_string()]);
+    assert_eq!(
+        k.replace('\u{200b}', "|"),
+        "web.|request_|header_|timeout_|secs"
+    );
+}

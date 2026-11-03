@@ -99,7 +99,8 @@ pub fn rows(status: &Status, now: u64) -> Vec<Row> {
         .certificates
         .iter()
         .filter(burrows)
-        .map(|c| Row {
+        .map(|c| (c, expires(c, now)))
+        .map(|(c, ends)| Row {
             name: c.name.clone(),
             source: source(c),
             check: match c.check {
@@ -108,13 +109,15 @@ pub fn rows(status: &Status, now: u64) -> Vec<Row> {
                 Some(CertCheck::Dns) => "DNS".into(),
                 None => "—".into(),
             },
-            state: match &c.state {
-                CertStateStatus::Ok => ("Valid".into(), Level::Good),
-                CertStateStatus::Pending => ("Requesting a certificate".into(), Level::Info),
-                CertStateStatus::Renewing => ("Renewing".into(), Level::Info),
-                CertStateStatus::Failing { .. } => ("Failing".into(), Level::Bad),
+            state: match (&c.state, ends.1) {
+                (CertStateStatus::Ok, Level::Warn) => ("Expiring soon".into(), Level::Warn),
+                (CertStateStatus::Ok, Level::Bad) => ("Expired".into(), Level::Bad),
+                (CertStateStatus::Ok, _) => ("Valid".into(), Level::Good),
+                (CertStateStatus::Pending, _) => ("Requesting a certificate".into(), Level::Info),
+                (CertStateStatus::Renewing, _) => ("Renewing".into(), Level::Info),
+                (CertStateStatus::Failing { .. }, _) => ("Failing".into(), Level::Bad),
             },
-            expires: expires(c, now),
+            expires: ends,
             expires_on: c.expires.map(date).unwrap_or_default(),
             next: next(c, now),
             problem: match &c.state {
@@ -132,7 +135,10 @@ pub fn count(status: &Status, now: u64) -> String {
         .iter()
         .filter(|r| matches!(r.expires.1, Level::Warn | Level::Bad))
         .count();
-    let failing = all.iter().filter(|r| r.state.1 == Level::Bad).count();
+    let failing = all
+        .iter()
+        .filter(|r| r.state.1 == Level::Bad && r.expires.1 != Level::Bad)
+        .count();
     let mut out = all.len().to_string();
     if expiring > 0 {
         out.push_str(&format!(" · {expiring} expiring"));
@@ -151,9 +157,40 @@ fn service_of(status: &Status, name: &str) -> Option<String> {
         .and_then(|h| h.first_service().map(str::to_string))
 }
 
+pub fn site_badge(status: &Status, now: u64, service: &str) -> Option<(String, Level)> {
+    status
+        .certificates
+        .iter()
+        .filter(burrows)
+        .filter(|c| service_of(status, &c.name).as_deref() == Some(service))
+        .find_map(|c| match (&c.state, c.expires) {
+            (CertStateStatus::Failing { .. }, _) => {
+                Some(("certificate failing".into(), Level::Bad))
+            }
+            (_, Some(t)) if t <= now => Some(("certificate expired".into(), Level::Bad)),
+            (CertStateStatus::Ok, Some(t))
+                if burrow_syntax::web::expiry_due(t, c.next_renewal, c.failures, now) =>
+            {
+                Some((format!("expires in {}", span(t - now)), Level::Warn))
+            }
+            _ => None,
+        })
+}
+
 pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
-    let mut out = Vec::new();
+    let mut out: Vec<Notice> = Vec::new();
+    let mut names: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for c in status.certificates.iter().filter(burrows) {
+        let (subject, key) = match &c.source {
+            CertSourceStatus::SharedFile { path } => {
+                (format!("file {path}"), format!("cert-file:{path}"))
+            }
+            _ => (format!("for {}", c.name), format!("cert:{}", c.name)),
+        };
+        if let Some(n) = names.get_mut(&key) {
+            *n += 1;
+            continue;
+        }
         let service = service_of(status, &c.name);
         let field = (c.code.as_deref() == Some(PROFILE_NOT_OFFERED)).then(|| {
             [
@@ -165,7 +202,7 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
             .to_vec()
         });
         let notice = |level, title: String, detail: String| Notice {
-            key: format!("cert:{}", c.name),
+            key: key.clone(),
             level,
             title,
             detail,
@@ -177,17 +214,19 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
                 0 | 1 => String::new(),
                 n => format!(" · tried {n} times"),
             };
+            names.insert(key.clone(), 1);
             out.push(notice(
                 Level::Bad,
-                format!("The certificate for {} cannot be renewed", c.name),
+                format!("The certificate {subject} cannot be renewed"),
                 format!("{reason}{tries}"),
             ));
             continue;
         }
+        let before = out.len();
         match c.expires {
             Some(t) if t <= now => out.push(notice(
                 Level::Bad,
-                format!("The certificate for {} has expired", c.name),
+                format!("The certificate {subject} has expired"),
                 "Browsers refuse the site until it is renewed.".into(),
             )),
             Some(t)
@@ -196,15 +235,19 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
             {
                 out.push(notice(
                     Level::Warn,
-                    format!(
-                        "The certificate for {} expires in {}",
-                        c.name,
-                        span(t - now)
-                    ),
+                    format!("The certificate {subject} expires in {}", span(t - now)),
                     "Replace the file, or let Let's Encrypt renew it.".into(),
                 ))
             }
             _ => {}
+        }
+        if out.len() > before {
+            names.insert(key, 1);
+        }
+    }
+    for n in &mut out {
+        if let Some(&k) = names.get(&n.key).filter(|k| **k > 1) {
+            n.detail = format!("It covers {k} names. {}", n.detail);
         }
     }
     out
@@ -246,6 +289,18 @@ mod tests {
             }),
             ..Status::default()
         }
+    }
+
+    #[test]
+    fn a_valid_certificate_near_its_end_reads_as_expiring_not_valid() {
+        let soon = CertStatus {
+            next_renewal: None,
+            ..cert("old.example.com", CertStateStatus::Ok, Some(NOW + 5 * DAY))
+        };
+        let gone = cert("gone.example.com", CertStateStatus::Ok, Some(NOW - DAY));
+        let r = rows(&status(vec![soon, gone]), NOW);
+        assert_eq!(r[0].state, ("Expiring soon".to_string(), Level::Warn));
+        assert_eq!(r[1].state, ("Expired".to_string(), Level::Bad));
     }
 
     #[test]
@@ -366,6 +421,63 @@ mod tests {
             notices(&p, NOW)[0].field.as_deref(),
             Some(&["web".to_string(), "letsencrypt".into(), "profile".into()][..]),
             "a profile the service does not offer links to the field"
+        );
+    }
+
+    #[test]
+    fn one_shared_file_near_its_end_is_one_notice_not_one_per_name() {
+        let shared = |name: &str| CertStatus {
+            source: CertSourceStatus::SharedFile {
+                path: "./portal.pem".into(),
+            },
+            check: None,
+            next_renewal: None,
+            ..cert(name, CertStateStatus::Ok, Some(NOW + 9 * DAY))
+        };
+        let n = notices(
+            &status(vec![
+                shared("portal.example.com"),
+                shared("www.portal.example.com"),
+                shared("old.example.com"),
+            ]),
+            NOW,
+        );
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert_eq!(
+            n[0].title,
+            "The certificate file ./portal.pem expires in 9d"
+        );
+        assert_eq!(
+            n[0].detail,
+            "It covers 3 names. Replace the file, or let Let's Encrypt renew it."
+        );
+    }
+
+    #[test]
+    fn a_site_shows_its_own_certificate_problem_in_place() {
+        let s = status(vec![CertStatus {
+            next_renewal: None,
+            ..cert("blog.example.com", CertStateStatus::Ok, Some(NOW + 9 * DAY))
+        }]);
+        assert_eq!(
+            site_badge(&s, NOW, "blog"),
+            Some(("expires in 9d".to_string(), Level::Warn))
+        );
+        assert_eq!(site_badge(&s, NOW, "other"), None);
+        let fine = status(vec![cert(
+            "blog.example.com",
+            CertStateStatus::Ok,
+            Some(NOW + 60 * DAY),
+        )]);
+        assert_eq!(site_badge(&fine, NOW, "blog"), None);
+        let bad = status(vec![cert(
+            "blog.example.com",
+            CertStateStatus::Failing { reason: "x".into() },
+            None,
+        )]);
+        assert_eq!(
+            site_badge(&bad, NOW, "blog"),
+            Some(("certificate failing".to_string(), Level::Bad))
         );
     }
 

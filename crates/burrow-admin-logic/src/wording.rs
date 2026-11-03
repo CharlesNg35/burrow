@@ -202,6 +202,21 @@ pub fn required(label: &str) -> String {
     format!("{label} is required")
 }
 
+pub fn key_hint(path: &[String]) -> String {
+    path.iter()
+        .map(|k| k.replace('_', "_\u{200b}"))
+        .collect::<Vec<_>>()
+        .join(".\u{200b}")
+}
+
+pub fn at_field(message: &str) -> String {
+    message
+        .strip_prefix("invalid ")
+        .and_then(|rest| rest.split_once(" \""))
+        .and_then(|(_, after)| after.split_once("\": "))
+        .map_or_else(|| message.to_string(), |(_, own)| own.to_string())
+}
+
 pub fn beside_label(label: &str, message: &str) -> String {
     let rest = message
         .strip_prefix(label)

@@ -29,7 +29,7 @@ const SERVICE: Info = Info {
     singular: <burrow_config::ServiceEntry as burrow_config::Entry>::ENTITY,
     icon: "stack",
     name_example: "nas or home-ssh",
-    intro: "A port on this server, a website, or a service for your visitors, reached through one of your clients.",
+    intro: "A port, a website or a service for visitors, reached through a client.",
     rename_note: "Visitors that forward this service by name must use the new name.",
 };
 
