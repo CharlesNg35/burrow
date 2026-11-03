@@ -6,11 +6,13 @@ use super::world::{BIN, Options};
 use super::{Ctx, SECS, both_widths, open, overview_tab, run};
 
 static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static RELEASES: std::sync::OnceLock<Releases> = std::sync::OnceLock::new();
 static LAB: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static SPARE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 const OLD: &str = "0.0.1-test.1";
 const NEW: &str = "0.0.1-test.2";
+const BROKEN: &str = "0.0.1-test.3";
 
 fn marked(marks: &[&str]) -> Vec<u8> {
     let mut b = std::fs::read(BIN).unwrap();
@@ -232,13 +234,46 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         .await;
         assert_eq!(c.ui.count("[data-testid=update-all]").await, 0);
         every_look(c, "update-all-done").await;
+        rolled_back(c).await;
         c.ui.assert_no_errors();
     })
 }
 
+async fn rolled_back(c: &mut Ctx) {
+    let releases = RELEASES.get().expect("the release server");
+    releases.publish(
+        BROKEN,
+        &marked(&[&format!("VERSION={BROKEN}"), "BREAK=connect"]),
+        false,
+    );
+    c.ui.nav("/clients/home").await;
+    let tag = "[data-testid=live] [data-testid=client-update-tag]";
+    c.ui.wait_text(tag, &format!("{BROKEN} available"), Duration::from_secs(30))
+        .await;
+    c.ui.click("[data-testid=client-update]").await;
+    c.ui.wait_for("[data-testid=client-update-dialog]", SECS)
+        .await;
+    c.ui.click("[data-testid=client-update-confirm]").await;
+    c.ui.wait_text(tag, "updating…", SECS).await;
+    every_look(c, "client-updating").await;
+    c.ui.wait_text(tag, "rolled back", Duration::from_secs(60))
+        .await;
+    let why = c.ui.attr_of(tag, "title").await;
+    assert!(
+        why.contains("rolled back: "),
+        "the reason is the tooltip: {why}"
+    );
+    assert_eq!(
+        c.ui.count("[data-testid=client-update]").await,
+        1,
+        "it may be asked again"
+    );
+    every_look(c, "client-rolled-back").await;
+}
+
 #[test]
 fn a_client_is_updated_from_its_page_and_others_say_why_not() {
-    let releases = Releases::start();
+    let releases = RELEASES.get_or_init(Releases::start);
     releases.publish(NEW, &marked(&[&format!("VERSION={NEW}")]), false);
     let base = releases.base.clone();
     let lab = LAB.get_or_init(super::world::secret).clone();
@@ -249,11 +284,13 @@ fn a_client_is_updated_from_its_page_and_others_say_why_not() {
         Options {
             clients: Some(Vec::new()),
             extra_clients: format!("  lab:\n    secret: {lab}\n  spare:\n    secret: {spare}\n"),
-            server_env: vec![("BURROW_UPDATE_URL".into(), base)],
+            server_env: vec![
+                ("BURROW_UPDATE_URL".into(), base),
+                ("BURROW_ADMIN_TEST_LATEST_SECS".into(), "1".into()),
+            ],
             ..Options::default()
         },
         true,
         flow,
     );
-    drop(releases);
 }
