@@ -1,9 +1,5 @@
-use super::tests::{errors, load_in};
+use super::tests::{errors, load_in, svc};
 use super::tests_site_keys::{errs, run, warnings};
-
-fn svc(name: &str, web: &str) -> String {
-    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
-}
 
 #[test]
 fn address_ranges_must_parse_and_the_whole_internet_is_a_warning() {

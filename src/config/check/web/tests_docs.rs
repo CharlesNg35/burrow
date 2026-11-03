@@ -398,7 +398,7 @@ fn the_full_example_of_the_web_docs_is_pinned_at_what_p3_and_p6_build() {
             "old-blog.example.com: Let's Encrypt shared wildcard *.example.com",
             "  /           -> redirect https://example.com (temporary)",
             "partner.example.net: file certs/partner.pem -> service partner",
-            "portal.intranet.example.org: web.certificates[0] (certs/intranet-wildcard.pem) -> service portal",
+            "portal.intranet.example.org: shared file certs/intranet-wildcard.pem -> service portal",
             "printer.home.arpa: local CA, 12-hour certificates (tls: internal) -> service printer",
             "pve.example.com: Let's Encrypt shared wildcard *.example.com",
             "  /           -> service pve (HTTPS to the app, not checked)",

@@ -1,3 +1,6 @@
+//! Reads a config file or text, fills in environment variables, and turns it into settings with diagnostics.
+//! Start at `load_file` and `load_str`; `drop_ins` and `merge` add a server's drop-in files.
+
 mod drop_ins;
 mod merge;
 mod parse;
@@ -169,6 +172,7 @@ pub fn load_file(
     env: &dyn EnvSource,
 ) -> Result<Outcome, LoadError> {
     let format = Format::from_path(path).ok_or(LoadError::UnknownExtension)?;
+    crate::install::note_config(path);
     let meta = std::fs::metadata(path).map_err(LoadError::Read)?;
     if !meta.is_file() && !meta.is_dir() {
         return Err(LoadError::Read(std::io::Error::other(

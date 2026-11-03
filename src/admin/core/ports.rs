@@ -52,8 +52,24 @@ pub trait Live: Send + Sync {
     fn sessions(&self) -> Vec<LiveSession>;
     fn allows(&self) -> BTreeMap<String, Vec<String>>;
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16>;
-    fn bind_probe(&self, _addr: std::net::SocketAddr) -> std::io::Result<()> {
+    fn bind_probe(
+        &self,
+        _proto: burrow_config::Protocol,
+        _addr: std::net::SocketAddr,
+    ) -> std::io::Result<()> {
         Ok(())
+    }
+    fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
+        burrow_admin_proto::updates::LatestRelease::default()
+    }
+    fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
+        self.latest()
+    }
+    fn ask_update(&self, _client: &str, _to: &str, _by: &str) -> Result<(), String> {
+        Err("this server cannot ask clients to update".into())
+    }
+    fn update_all(&self, _clients: Vec<String>, _to: &str, _by: &str) -> Result<(), String> {
+        Err("this server cannot ask clients to update".into())
     }
 }
 

@@ -132,7 +132,7 @@ fn web_off() -> impl IntoView {
     view! {
         <p class="mb-2 text-[13px] text-text-muted" data-testid="web-off">
             "The web proxy is off, so names here lead nowhere yet. "
-            <button type="button" class="cursor-pointer font-semibold text-accent-ink hover:underline" data-testid="web-off-link" on:click=open>"Turn it on in Settings"</button>
+            <burrow_ui_kit::LinkButton testid="web-off-link" on_click=open>"Turn it on in Settings"</burrow_ui_kit::LinkButton>
         </p>
     }
 }

@@ -1,3 +1,6 @@
+//! Runs one admin session over a tunnel channel, with ping and silence timeouts.
+//! Start at `run`.
+
 mod session;
 
 use std::sync::OnceLock;

@@ -30,12 +30,27 @@ The `burrow` crate is built in layers, from the bottom up:
 - Each crate in `crates/` has a fixed list of crates it may depend on.
 - A new module gets its row in `xtask/src/layers.rs`, and a new crate in `xtask/src/arch.rs`, in the same change.
 
+The admin UI crate (`crates/burrow-admin-ui`) has its own layers, from the bottom up:
+
+| Layer | What it holds |
+|---|---|
+| model | the store, the draft (`edit`), the API, routes, formatting, adding and naming entries (`entities`) |
+| controls | one control at a time: a field's context (`field`), addresses and pickers (`addr`), passwords, secrets, row menus, popovers (`shown`) |
+| editor | the field editor (`domain`) and the object form (`form`), logins, uploads, the rename dialog |
+| pages | the screens, Review and the app shell |
+
+- A lower layer never imports a higher one. Units in one layer may use each other: the field editor and the form call each other for nested objects.
+
 ## Comments
 
-- No code comments: no `//` and no `///`.
-- One exception: a `//!` header of at most 3 lines, as the very first lines of each crate's `lib.rs` or `main.rs` (`burrow`, every crate in `crates/`, and `xtask`) and of each layer folder's `mod.rs` (`base`, `wire`, `policy`, `app`). Each of these files has one. It says what the unit is for and what it must not depend on.
-- `cargo xtask arch-check` enforces the comment rule.
-- Longer explanations belong in `docs/`, and the reasons for design choices in `docs/decisions.md`.
+- No code comments: no `//`, no `///` and no `/* */`.
+- One exception: every module root starts with a `//!` header of at most 5 lines. A module root is a `lib.rs`, `main.rs` or `mod.rs`, or a `foo.rs` that has a `foo/` folder beside it; this includes test crates and the test kits under `tests/`.
+  - Line 1 is one whole sentence that says what the module is for, and still reads right on its own.
+  - The other lines are optional: where to start reading (the entry point or key type), what the module must not depend on, or a short reason for its shape.
+  - Write it from the code, and change it when the module changes.
+- Other files (leaf modules) have no header; their module root and their names say what they hold.
+- `cargo xtask arch-check` enforces all of this.
+- Longer explanations belong in `docs/`, and the reasons for design choices in `docs/decisions.md`. The map of the code is in [docs/development.md](docs/development.md#code-map).
 
 ## Changes
 
@@ -54,3 +69,22 @@ The `burrow` crate is built in layers, from the bottom up:
 - Use a well-tested library instead of writing your own. For a large dependency, measure the size it adds first.
 - Every implementation follows current best practice, not older patterns. Before you build on a protocol, an OS behaviour, a library API or a security choice, confirm the current recommendation in the official docs (RFCs and their errata, crate docs, man pages, vendor docs) with a web search. Do the same whenever you are unsure, and cite the source in `docs/decisions.md` or the commit notes. Never guess.
 - A simplification must not remove a feature, useful UI information or a documentation example.
+
+## One source for each fact
+
+burrow has one config model shared by the server, the CLI and the admin UI. Most bugs that slip through review come from a second copy of something: a second list of choices, a second check, a second label. These rules keep each fact in one place.
+
+- **One trait per concept, one file per implementation.** A family of interchangeable things (login kinds, DNS providers, transports, notification targets) has a small trait for the part that varies. Each implementation lives in its own file with its own config, format and tests, and adding one is a new file plus one registry line.
+- **No bool mode flags.** A look, a size or a mode is an enum, never a `bool` or a string, so a typo or a wrong order does not compile.
+- **Shared logic once.** Queues, retries, parsing, checks and formatting that two places need live in one function, in the lowest crate both may use (`burrow-syntax`, `burrow-config`, `burrow-admin-proto`, `burrow-admin-logic`). The server, the CLI and the admin UI call it.
+- **One component per concept.** The admin UI has one component for each kind of control (a button, a link button, a picker, a status dot, a row of tabs), in `burrow-ui-kit` or the shared UI folders. A page never styles its own copy; if the component lacks something, extend it.
+- **One source per list of choices.** Every picker of clients, visitors, services or other named things gets its options from the shared choices builder (`burrow_admin_logic::choices`). A screen never builds its own list, even a simple one.
+- **One place per derived fact.** Whether a client is online, whether it is the server itself, where it connects from, and how durations, sizes and status words read: each has one function. Use it; do not look a status up by name in a screen.
+- **Schema fields render through the field editor.** A field of the config model is shown and edited through the shared editor (`domain::editor`), also in wizards. Its label, help, units and checks come from the schema, never from a copy.
+- **Validate with the shared rules.** UI checks call the same `burrow-syntax` and `burrow-admin-logic` functions the server uses. No inline `contains('@')` or `parse().ok()`.
+- **A relation lives in the model.** If a field does not apply in some case, the model says so (for example with `enabled_if`), and the server check and the UI both read that one rule; never a second hand-written list.
+- **New model fields are checked by the compiler all the way to the runtime.** Code that turns the model into runtime settings destructures the model struct without `..`, so a new field cannot be forgotten.
+- **Entity facts live in the entity descriptor.** The name, icon, name example and wording of each entity kind sit in one table, `burrow_admin_logic::entity`; a screen never matches on `Entity` to pick one of them.
+- **Controls do not import screens.** Shared controls (fields, pickers, cards) may use the store and the logic crates, never page modules. `cargo xtask arch-check` enforces the order.
+- **Test helpers are shared.** Before you write a helper in a test file, look in the test kits (`tests/common`, `src/base/testkit.rs`, the crate's own kit). A second copy moves into the kit.
+- **When you add a variant, find every list of variants.** Add or extend a test that walks all of them (schema fields, entity kinds, choice lists, diagnostic codes), so the next person cannot miss one.

@@ -1,3 +1,6 @@
+//! Writes a checked config back to disk: one file over itself, or a set of drop-in files all or nothing.
+//! Start at `write_back` and `write_set`; `unix` and `other` hold each platform's safe file steps.
+
 use std::path::{Path, PathBuf};
 
 use crate::config::env::EnvSource;

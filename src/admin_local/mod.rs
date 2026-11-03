@@ -1,3 +1,6 @@
+//! Serves the admin web UI on 127.0.0.1 and bridges each browser session to the server through the visitor link.
+//! Start at `listen` and `serve`; `bridge` relays the WebSocket, `session` keeps sign-ins, `launch` opens the browser.
+
 pub mod assets;
 pub mod bridge;
 pub mod http;
@@ -447,7 +450,7 @@ pub async fn serve_session(
             _ = tokio::time::sleep(idle_left), if shared.connected.load(Ordering::Acquire) == 0 => {
                 crate::say_errln!(
                     "no browser was connected for {}; burrow admin stopped (run it again, or pass a longer --idle-exit)",
-                    crate::client::reconnect::human(opts.idle_exit)
+                    burrow_syntax::duration::span(opts.idle_exit.as_secs())
                 );
                 last_touch(&session).await;
                 return Ok(());

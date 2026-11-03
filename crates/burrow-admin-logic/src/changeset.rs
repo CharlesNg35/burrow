@@ -1,3 +1,6 @@
+//! The admin UI's edit draft, a `Changeset` that keeps the base config and the edited draft and turns their difference into protocol `Op`s.
+//! It also tracks renames and new secrets and passwords, which travel as `$new_secret` and `$new_password` markers.
+
 use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};

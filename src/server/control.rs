@@ -89,6 +89,7 @@ pub(super) async fn control_session(
         });
         old.close();
     }
+    shared.seated(&name);
     info!("client \"{name}\" connected from {peer}");
 
     let interval = settings.heartbeat_interval;
@@ -115,9 +116,16 @@ pub(super) async fn control_session(
         tokio::select! {
             r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {
                 Ok(Ok(Some(b))) => {
-                    if let Ok(ClientMsg::Allow(rules)) = ClientMsg::decode(b) {
-                        note_refused_targets(&shared, &name, &rules);
-                        session.set_allow(rules);
+                    match ClientMsg::decode(b) {
+                        Ok(ClientMsg::Allow(rules)) => {
+                            note_refused_targets(&shared, &name, &rules);
+                            session.set_allow(rules);
+                        }
+                        Ok(ClientMsg::Report(report)) => shared.reported(&name, report),
+                        Ok(ClientMsg::UpdateState { id, step, detail }) => {
+                            shared.stepped(&name, id, step, detail);
+                        }
+                        _ => {}
                     }
                     continue;
                 }

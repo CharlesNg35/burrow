@@ -68,6 +68,22 @@ async fn off_then_on_keeps_the_values(c: &mut Ctx, port: u16) {
     switch(c, "visitors").await;
     c.ui.wait_for("[data-way=visitors] [data-chip=laptop]", SECS)
         .await;
+    c.ui.click("[data-way=visitors] [data-chip=laptop] button")
+        .await;
+    c.ui.wait_for("[data-way=visitors] [data-testid=reset-field]", SECS)
+        .await;
+    let clear: bool = c
+        .ui
+        .eval("(() => { const b = document.querySelector('[data-way=visitors] [data-testid=reset-field]').getBoundingClientRect(); return [...document.querySelectorAll('[data-way=visitors] input')].filter(i => i.offsetParent).every(i => { const r = i.getBoundingClientRect(); return b.right <= r.left || b.left >= r.right || b.bottom <= r.top || b.top >= r.bottom; }); })()")
+        .await;
+    assert!(
+        clear,
+        "the Reset button of a field without its own label stays clear of the input"
+    );
+    c.ui.click("[data-way=visitors] [data-testid=reset-field]")
+        .await;
+    c.ui.wait_for("[data-way=visitors] [data-chip=laptop]", SECS)
+        .await;
     switch(c, "web").await;
     c.ui.wait_for("[data-testid=website-off]", SECS).await;
     assert!(

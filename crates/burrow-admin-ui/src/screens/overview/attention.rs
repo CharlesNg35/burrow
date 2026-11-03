@@ -16,11 +16,11 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
         Tone::Danger => "alert-circle",
         Tone::Warning => "alert",
         Tone::Info => "info",
-        _ => "monitor",
+        _ => burrow_admin_logic::entity::CLIENT_ICON,
     };
     let inner = view! {
         <span class=format!("mt-0.5 shrink-0 {}", tone.text())>
-            {if icon { view! { <Icon name=glyph/> }.into_any() } else { view! { <span class="mt-1 block size-2 rounded-full bg-text-faint" aria-hidden="true"></span> }.into_any() }}
+            {if icon { view! { <Icon name=glyph/> }.into_any() } else { view! { <burrow_ui_kit::Dot tone=Tone::Neutral class="mt-1 block size-2"/> }.into_any() }}
         </span>
         <span class="min-w-0">
             <span class="block text-sm font-semibold">{i.title.clone()}</span>
@@ -45,7 +45,7 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
                                 _ => crate::route::go(to.clone()),
                             }
                             let path = path.clone();
-                            set_timeout(move || crate::screens::entity::go_to_field(&path), std::time::Duration::from_millis(150));
+                            set_timeout(move || crate::form::go_to_field(&path), std::time::Duration::from_millis(150));
                         }>{inner}</a>
                     }
                     .into_any()

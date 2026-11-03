@@ -1,3 +1,5 @@
+//! Tests of config diagnostics: what loading a bad server, client or visitor config reports in text and JSON, and that secrets never leak.
+
 #[path = "diagnostics/client_and_json.rs"]
 mod client_and_json;
 #[path = "diagnostics/limits.rs"]
@@ -34,7 +36,8 @@ fn render(name: &str, src: &str, role: Option<Role>) -> String {
     } else {
         Format::Yaml
     };
-    let o = load_str(name, src, format, role, &env);
+    let mut o = load_str(name, src, format, role, &env);
+    o.report.diagnostics.retain(|d| d.code != "low-port");
     let mut text = o.report.render_text(Style { color: false });
     text.push_str(&burrow::config::validate::summary_line(&o, false));
     for s in [SECRET, SECRET2] {

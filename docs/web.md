@@ -63,7 +63,8 @@ The web proxy listens on up to two ports of the server, set under `web:`:
 
 - A port alone, like `443`, listens on IPv4 and IPv6, since many home connections only have a public IPv6 address. Write `0.0.0.0:443` for IPv4 only, or one address, like `203.0.113.10:443`.
 - `web:` needs at least one of the two. Without `web.https`, every website is plain HTTP.
-- Ports below 1024 need root or `CAP_NET_BIND_SERVICE` on Linux; `burrow service install` takes care of that.
+- Ports below 1024 need root or `CAP_NET_BIND_SERVICE` on Linux. `burrow service install` grants it when the config has such a port; run it again after adding one. For a server you run by hand, `sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow` grants it to the binary, and must be run again after each update, as for Caddy. `burrow validate` and burrow admin warn when this process may not open the port, with the same text; this holds for every address the server listens on, services included. A service installed before the low port was added says to run `sudo burrow service install -c /etc/burrow/<name>/server.yaml` again, which grants the permission and moves nothing; `setcap` does not help a service, whose unit drops every other capability.
+- `burrow validate` warns when `web.https` is 80 or `web.http` is 443: browsers send `http://` to 80 and `https://` to 443, so visitors who type a name would not reach the websites. Keep it only when a router or proxy in front sends the usual port there.
 - Without `web.http`, nothing answers `http://`: a visitor who types `http://blog.example.com` gets "connection refused".
 
 ## How a website is served
@@ -127,6 +128,7 @@ Every website gets these without any setting:
   - A visitor who stops reading an answer counts as idle.
 - **TLS 1.2 and 1.3.** TLS 1.0 and 1.1 are retired (RFC 8996). Clients that only speak them cannot reach any site on the port, passthrough sites included.
 - Everything else a service does works for websites too: several clients with failover, balance, least_connections or ip_hash, health checks, `allow_from`, `max_connections`, `bandwidth`.
+- **An app next to the server** needs no client: `client: self` makes the server reach the app itself ([services.md](services.md#on-the-server-itself)). burrow admin's New website offers it as "This server".
 - **`allow_from` limits visitors, not Let's Encrypt:** burrow answers Let's Encrypt's checks before it looks at the site, so a site open only to `192.168.1.0/24` still gets its certificate. Behind a CDN or another proxy, `allow_from` sees the proxy's address, not the visitor's ([Behind a proxy](web/proxies.md)).
 
 ## Plain HTTP websites
@@ -168,7 +170,7 @@ services:
       tls: passthrough
 ```
 
-On port 80, passthrough names get `404`: burrow cannot redirect a site whose HTTPS it does not do.
+On port 80, a passthrough name is sent to `https://` with `308`, where the app answers. `https_redirect` is always on for a passthrough site, so `https_redirect: false` is refused ([D77](decisions.md#d77-a-passthrough-sites-http-visitors-are-sent-to-https-where-the-app-answers)).
 
 ## More about websites
 

@@ -1,3 +1,5 @@
+//! Tests of config reloads: live changes, limits that follow reloads, signals, processes and uploaded files.
+
 mod common;
 #[path = "reload/limits.rs"]
 mod limits;

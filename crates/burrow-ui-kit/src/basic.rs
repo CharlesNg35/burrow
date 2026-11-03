@@ -96,95 +96,6 @@ pub const TABLE_VIEW: &str = "@max-[760px]:hidden";
 pub const CARD_VIEW: &str = "@min-[760px]:hidden";
 pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-text-faint";
 
-pub fn button_class(variant: &str, small: bool) -> String {
-    let look = match variant {
-        "primary" => {
-            "border-accent bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:border-border disabled:bg-surface-3 disabled:text-text-faint disabled:opacity-100 disabled:hover:brightness-100"
-        }
-        "danger" => {
-            "border-danger bg-danger text-danger-ink hover:brightness-95 dark:hover:brightness-110"
-        }
-        "danger-pending" => "border-danger/45 bg-transparent text-danger",
-        "tinted" => "border-accent-line bg-accent-weak text-accent-ink hover:brightness-105",
-        "ghost" => {
-            "border-transparent bg-transparent text-text-muted hover:bg-surface-3 hover:text-text"
-        }
-        "ghost-danger" => "border-transparent bg-transparent text-danger hover:bg-danger-weak",
-        _ => "border-border-strong bg-surface text-text hover:bg-surface-3 dark:bg-surface-2",
-    };
-    let size = if small {
-        "h-[26px] px-[9px] text-xs"
-    } else {
-        "h-9 px-3 text-sm"
-    };
-    format!(
-        "inline-flex items-center justify-center gap-1.5 rounded-input border font-semibold whitespace-nowrap cursor-pointer no-underline transition-colors disabled:cursor-not-allowed disabled:opacity-55 {look} {size}"
-    )
-}
-
-#[component]
-pub fn Button(
-    #[prop(into)] label: Signal<String>,
-    #[prop(optional)] variant: &'static str,
-    #[prop(optional)] small: bool,
-    #[prop(optional)] icon: &'static str,
-    #[prop(optional)] kbd: &'static str,
-    #[prop(optional, into)] disabled: Signal<bool>,
-    #[prop(optional, into)] reason: Signal<String>,
-    #[prop(optional, into)] busy: Signal<bool>,
-    #[prop(optional)] testid: &'static str,
-    #[prop(into)] on_click: Callback<()>,
-) -> impl IntoView {
-    view! {
-        <span class="inline-flex" title=move || Some(reason.get()).filter(|r| !r.is_empty())>
-        <button
-            type="button"
-            class=move || button_class(if variant == "danger" && disabled.get() { "danger-pending" } else { variant }, small)
-            disabled=move || disabled.get() || busy.get()
-            aria-busy=move || busy.get().then_some("true")
-            data-testid=(!testid.is_empty()).then_some(testid)
-            on:click=move |_| on_click.run(())
-        >
-            {move || busy.get().then(|| view! { <SpinDot/> })}
-            {(!icon.is_empty()).then(|| view! { <Icon name=icon/> })}
-            <span>{move || label.get()}</span>
-            {(!kbd.is_empty()).then(|| view! { <Kbd text=kbd/> })}
-        </button>
-        </span>
-    }
-}
-
-#[component]
-pub fn SpinDot() -> impl IntoView {
-    view! {
-        <span
-            class="inline-block size-3.5 animate-spin rounded-full border-2 border-current border-r-transparent"
-            aria-hidden="true"
-        ></span>
-    }
-}
-
-#[component]
-pub fn IconButton(
-    icon: &'static str,
-    #[prop(into)] label: String,
-    #[prop(optional)] testid: &'static str,
-    #[prop(into)] on_click: Callback<()>,
-) -> impl IntoView {
-    view! {
-        <button
-            type="button"
-            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3 hover:text-text"
-            aria-label=label.clone()
-            title=label
-            data-testid=(!testid.is_empty()).then_some(testid)
-            on:click=move |_| on_click.run(())
-        >
-            <Icon name=icon small=true/>
-        </button>
-    }
-}
-
 #[component]
 pub fn Tag(
     #[prop(into)] text: Signal<String>,
@@ -208,6 +119,22 @@ pub fn Chip(
 }
 
 #[component]
+pub fn Dot(
+    #[prop(into)] tone: Signal<Tone>,
+    #[prop(default = "size-2")] class: &'static str,
+    #[prop(optional, into)] label: Option<String>,
+) -> impl IntoView {
+    let hidden = label.is_none().then_some("true");
+    view! {
+        <span
+            class=move || format!("shrink-0 rounded-full {class} {}", tone.get().dot())
+            aria-hidden=hidden
+            aria-label=label
+        ></span>
+    }
+}
+
+#[component]
 pub fn StatusDot(
     #[prop(into)] on: Signal<bool>,
     #[prop(into)] text: Signal<String>,
@@ -221,9 +148,9 @@ pub fn StatusDot(
         })
     };
     view! {
-        <span class="inline-flex items-center gap-2 text-sm whitespace-nowrap" data-on=move || on.get().to_string()>
-            <span class=move || format!("size-2 shrink-0 rounded-full {}", tone().dot()) aria-hidden="true"></span>
-            <span>{move || text.get()}</span>
+        <span class="inline-flex max-w-full items-center gap-2 text-sm whitespace-nowrap" data-on=move || on.get().to_string()>
+            <Dot tone=Signal::derive(tone)/>
+            <span class="min-w-0 truncate">{move || text.get()}</span>
         </span>
     }
 }
@@ -255,16 +182,6 @@ pub fn Kpi(
             <div class="mt-0.5 text-xs text-text-muted">{move || detail.get()}</div>
         </div>
     }
-}
-
-pub const MENU_ITEM: &str =
-    "block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3";
-
-pub fn menu_class(place: &str, roomy: bool) -> String {
-    let inside = if roomy { "p-3 text-sm" } else { "p-1" };
-    format!(
-        "absolute z-40 rounded-[10px] border border-border-strong bg-surface text-text shadow-overlay outline-none dark:bg-surface-2 {inside} {place}"
-    )
 }
 
 pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView {
@@ -512,7 +429,7 @@ pub fn Fact(
 pub fn Stats(#[prop(optional)] testid: &'static str, children: Children) -> impl IntoView {
     view! {
         <div
-            class="mb-[22px] grid grid-cols-2 overflow-hidden rounded-card border border-border bg-surface md:grid-cols-4 [&>*]:border-border [&>*]:px-4 [&>*]:py-3.5 [&>*:not(:last-child)]:border-r max-md:[&>*:nth-child(even)]:border-r-0 max-md:[&>*:nth-child(n+3)]:border-t"
+            class="mb-[22px] grid grid-cols-2 overflow-hidden rounded-card border border-border bg-surface md:grid-flow-col md:grid-cols-none md:auto-cols-fr [&>*]:border-border [&>*]:px-4 [&>*]:py-3.5 [&>*:not(:last-child)]:border-r max-md:[&>*:nth-child(even)]:border-r-0 max-md:[&>*:nth-child(n+3)]:border-t max-md:[&>*:last-child:nth-child(odd)]:col-span-2"
             data-testid=(!testid.is_empty()).then_some(testid)
         >
             {children()}
@@ -526,6 +443,7 @@ pub fn Stat(
     #[prop(into)] value: Signal<String>,
     #[prop(optional, into)] unit: Signal<String>,
     #[prop(optional, into)] detail: Signal<String>,
+    #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let key = label.to_lowercase();
     view! {
@@ -536,6 +454,7 @@ pub fn Stat(
                 <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>
             </div>
             <div class="text-xs text-text-muted">{move || detail.get()}</div>
+            {children.map(|c| c())}
         </div>
     }
 }

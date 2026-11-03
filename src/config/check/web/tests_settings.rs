@@ -35,6 +35,18 @@ fn https_redirect_is_taken_from_the_site_then_from_web() {
 }
 
 #[test]
+fn a_passthrough_site_always_sends_http_to_https() {
+    for top in ["", ", https_redirect: false"] {
+        let o = load(&format!(
+            "listen: 7835\nweb: {{ https: 443, http: 80{top} }}\n{NAS}"
+        ));
+        assert!(errors(&o).is_empty(), "{top}: {:?}", errors(&o));
+        let web = settings(o).web.unwrap();
+        assert!(web.site_of("nas").unwrap().https_redirect, "{top}");
+    }
+}
+
+#[test]
 fn a_passthrough_site_keeps_the_defaults_of_every_new_setting() {
     let web = settings(load(&format!("listen: 7835\nweb: {{ https: 443 }}\n{NAS}")))
         .web
@@ -154,12 +166,12 @@ fn the_letsencrypt_email_directory_and_ca_are_checked_at_validate() {
     }
     assert_eq!(
         only("email: ops"),
-        ["web.letsencrypt.email \"ops\" is not an email address"]
+        ["web.letsencrypt.email: \"ops\" is not an email address"]
     );
     let typo = letsencrypt(dir.path(), "email: ops@example.com, directory: stagging");
     assert_eq!(
         typo[0].0,
-        "web.letsencrypt.directory \"stagging\" is not production, staging or an https:// URL"
+        "web.letsencrypt.directory: \"stagging\" is not production, staging or an https:// URL"
     );
     assert!(
         typo[0]
@@ -173,7 +185,7 @@ fn the_letsencrypt_email_directory_and_ca_are_checked_at_validate() {
         assert_eq!(
             only(&format!("email: ops@example.com, directory: \"{url}\"")),
             [format!(
-                "web.letsencrypt.directory \"{url}\" is not production, staging or an https:// URL"
+                "web.letsencrypt.directory: \"{url}\" is not production, staging or an https:// URL"
             )]
         );
     }

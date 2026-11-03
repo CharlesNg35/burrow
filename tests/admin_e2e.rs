@@ -1,3 +1,6 @@
+//! End-to-end tests of the admin UI in Chrome against a running burrow, with accessibility checks and screenshot baselines.
+//! They skip when Chrome or the built UI is missing, unless `BURROW_E2E_REQUIRE=1`.
+
 #[path = "admin_e2e/access.rs"]
 mod access;
 #[path = "admin_e2e/check_failed.rs"]
@@ -28,6 +31,8 @@ mod header;
 mod hidden;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
+#[path = "admin_e2e/modes.rs"]
+mod modes;
 #[path = "admin_e2e/more.rs"]
 mod more;
 #[path = "common/older.rs"]
@@ -38,12 +43,18 @@ mod passwords;
 mod ports;
 #[path = "admin_e2e/reach.rs"]
 mod reach;
+#[path = "common/releases.rs"]
+mod releases;
 #[path = "admin_e2e/reverts.rs"]
 mod reverts;
 #[path = "admin_e2e/screens.rs"]
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
 mod secrets;
+#[path = "admin_e2e/self_picker.rs"]
+mod self_picker;
+#[path = "admin_e2e/sequences.rs"]
+mod sequences;
 #[path = "admin_e2e/settings.rs"]
 mod settings;
 #[path = "admin_e2e/sheet.rs"]
@@ -54,8 +65,12 @@ mod site_keys;
 mod tables;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
+#[path = "admin_e2e/updates.rs"]
+mod updates;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
+#[path = "admin_e2e/wizards.rs"]
+mod wizards;
 #[path = "admin_e2e/world.rs"]
 mod world;
 
@@ -354,6 +369,21 @@ async fn ax_clean(c: &Ctx, screen: &str) {
     );
 }
 
+pub const ADORNMENTS: &str = "(() => { const bad = []; for (const i of document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea')) { const r = i.getBoundingClientRect(); if (!r.width || !r.height) continue; const cs = getComputedStyle(i); const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft); const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight); const around = i.closest('[data-adorned]') || i.parentElement; for (const a of around.querySelectorAll('*')) { if (a === i || a.contains(i)) continue; const pos = getComputedStyle(a).position; if (!a.hasAttribute('data-adornment') && pos !== 'absolute' && pos !== 'fixed') continue; const q = a.getBoundingClientRect(); if (!q.width || !q.height) continue; if (Math.min(right, q.right) - Math.max(left, q.left) > 0.5 && Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top) > 0.5) bad.push((i.id || i.name || 'input') + ': ' + (a.textContent || a.tagName).trim().slice(0, 40)); } } return bad; })()";
+
+pub async fn adornments_clear(c: &Ctx, at: &str) {
+    let bad: Vec<String> = c.ui.eval(ADORNMENTS).await;
+    assert!(
+        bad.is_empty(),
+        "{at}: a prefix, suffix or icon is drawn over the typed text: {bad:?}"
+    );
+}
+
+pub async fn baseline_of(c: &mut Ctx, name: &str, css: &str) {
+    let png = c.ui.png_of(css).await;
+    check_baseline(c, name, png);
+}
+
 async fn baseline(c: &mut Ctx, name: &str) {
     let _: bool = c
         .ui
@@ -364,6 +394,10 @@ async fn baseline(c: &mut Ctx, name: &str) {
         .ui
         .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } return true; })()")
         .await;
+    check_baseline(c, name, png);
+}
+
+fn check_baseline(c: &mut Ctx, name: &str, png: Vec<u8>) {
     match compare(name, &png, &c.chrome_version) {
         Baseline::Same | Baseline::Written => {}
         Baseline::Skipped(why) => println!("baseline {name}: {why}"),

@@ -1,3 +1,5 @@
+//! Finds burrow services the system knows about but that have no usable install record.
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -124,6 +126,7 @@ pub fn bare(name: &str) -> Manifest {
         version: String::new(),
         admin_writable: false,
         web_state: None,
+        remote_updates: false,
     }
 }
 

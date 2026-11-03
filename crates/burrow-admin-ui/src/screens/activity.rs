@@ -201,7 +201,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         <PageHeader actions={view! { {can_revert.then(|| view! {
                 <Button
                     label=revert_label
-                    variant="tinted"
+                    variant=burrow_ui_kit::ButtonLook::Tinted
                     icon="revert"
                     testid="revert"
                     disabled=matches
@@ -289,6 +289,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         />
     }
     .into_any();
+    let back = selected.is_some().then_some(Route::Activity(None));
     let body = move || {
         match s.history.get() {
         None => view! { <Skeleton lines=4/> }.into_any(),
@@ -305,7 +306,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         }
     }
     };
-    let detail = view! { <DetailPane back=Route::Activity(None)>{body}</DetailPane> }.into_any();
+    let detail = view! { <DetailPane back=back>{body}</DetailPane> }.into_any();
     master_detail(list, detail)
 }
 

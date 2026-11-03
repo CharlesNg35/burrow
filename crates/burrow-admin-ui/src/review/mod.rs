@@ -1,77 +1,24 @@
+//! The review page of the admin UI: the server's plan of changes grouped for reading, the refusals of the lockout guard and the conflict dialog.
+
 mod detail;
 pub(crate) mod files;
 mod guard;
 mod page;
 
-use burrow_admin_proto::plan::{Change, ChangeKind, Diff, Level, Plan};
+use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan};
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Entry, ServiceEntry};
 use burrow_ui_kit::{EdgeState, HopState, PathData, Tone};
 
 use crate::screens::paths::{self, Problems};
 
+pub(crate) use crate::edit::{Group, change_groups};
 pub(crate) use page::{ConflictDialog, ReviewPage, recheck, stale};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Group {
-    pub head: Change,
-    pub parts: Vec<Change>,
-}
-
-pub fn change_groups(plan: &Plan) -> Vec<Group> {
-    let mut out: Vec<Group> = plan
-        .changes
-        .iter()
-        .filter(|c| {
-            c.part_of
-                .as_ref()
-                .is_none_or(|g| !plan.changes.iter().any(|h| h.path == *g))
-        })
-        .map(|c| Group {
-            head: c.clone(),
-            parts: Vec::new(),
-        })
-        .collect();
-    for c in &plan.changes {
-        if let Some(g) = c
-            .part_of
-            .as_ref()
-            .and_then(|g| out.iter_mut().find(|x| x.head.path == *g))
-        {
-            g.parts.push(c.clone());
-        }
-    }
-    let entity = |g: &Group| {
-        g.head
-            .path
-            .first()
-            .is_some_and(|s| crate::route::SECTIONS.contains(&s.as_str()))
-    };
-    let settings: Vec<Group> = out.iter().filter(|g| !entity(g)).cloned().collect();
-    if settings.len() > 1 {
-        out.retain(entity);
-        let names: Vec<String> = settings.iter().map(|g| g.head.path.join(".")).collect();
-        out.push(Group {
-            head: Change {
-                kind: ChangeKind::Set,
-                path: vec!["settings".into()],
-                summary: format!("Server settings: {}", names.join(", ")),
-                part_of: None,
-            },
-            parts: settings.into_iter().map(|g| g.head).collect(),
-        });
-    }
-    out
-}
 
 pub const REVIEW_ON_NEW: &str = "Review my changes on the new version";
 
 fn section_label(section: &str, n: usize) -> String {
-    let one = match burrow_config::entity_of_section(section) {
-        Some(burrow_admin_proto::schema::Entity::Client) => burrow_config::ClientEntry::ENTITY,
-        Some(burrow_admin_proto::schema::Entity::Visitor) => burrow_config::VisitorEntry::ENTITY,
-        _ => burrow_config::ServiceEntry::ENTITY,
-    };
+    let one = burrow_admin_logic::entity::of_section(section).singular;
     if n == 1 {
         one.to_string()
     } else {
@@ -268,19 +215,10 @@ fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
     burrow_admin_proto::serde_json::Map::new()
 }
 
-fn session_ip(from: &str) -> String {
-    let host = match from.rsplit_once(':') {
-        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !h.is_empty() => h,
-        _ => from,
-    };
-    host.trim_start_matches('[')
-        .trim_end_matches(']')
-        .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burrow_admin_proto::plan::Change;
 
     #[test]
     fn a_diagnostic_says_where_in_the_words_of_the_form() {
@@ -429,8 +367,5 @@ mod tests {
             }],
         };
         assert_eq!(diff_counts(&d), (1, 2));
-        assert_eq!(session_ip("203.0.113.7:51000"), "203.0.113.7");
-        assert_eq!(session_ip("[2001:db8::1]:443"), "2001:db8::1");
-        assert_eq!(session_ip("203.0.113.7"), "203.0.113.7");
     }
 }

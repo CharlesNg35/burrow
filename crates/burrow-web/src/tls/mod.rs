@@ -1,3 +1,7 @@
+//! Server certificates: the `Certificates` trait the proxy asks during TLS handshakes, and the status types it reports.
+//! `Store` is the main implementation (files, ACME, local CA); `Fixed` serves one certificate.
+//! `client_auth` checks visitor certificates and `uploads` keeps uploaded PEM files.
+
 pub mod acme;
 pub mod client_auth;
 pub mod files;

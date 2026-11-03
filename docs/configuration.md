@@ -183,7 +183,7 @@ services:
 
 | key | default | meaning |
 | --- | --- | --- |
-| `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. Needs `listen`, `websocket` or both |
+| `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. `[::]:port` listens on every IPv4 and IPv6 address, here and in every other address key. Needs `listen`, `websocket` or both |
 | `public_address` | none | how clients reach this server: host, host:port or a `wss://` URL. `client-config` and `visitor-config` write it into the configs they print |
 | `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`, or, when it shares the port of a bare `web.https`, every IPv4 and IPv6 address (`[::]`) like `web.https`. See [websocket.md](websocket.md) and [The tunnel on the same port](web/tunnel.md#the-tunnel-on-the-same-port) |
 | `websocket.path` | `/burrow` | URL path for WebSocket clients |
@@ -290,7 +290,7 @@ allow:
   - unix:/run/postgresql/* # Unix sockets: one path, or every socket in a folder
 ```
 
-`allow` is the list of targets this client agrees to connect to; anything else is refused, even when the server asks for it. Each entry is an address range in CIDR form, optionally with `:port` or `:low-high`: `192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, and `/32` means one address. Host names are checked after they are resolved. `burrow client-config` writes this list from the server's services.
+`allow` is the list of targets this client agrees to connect to; anything else is refused, even when the server asks for it. Each entry is an address range in CIDR form, optionally with `:port` or `:low-high`: `192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, and `/32` means one address. A network starts at its first address: `192.168.1.5/24` is refused, so write `192.168.1.0/24` for the network or `192.168.1.5/32` for that one machine (`/128` for IPv6). The same holds wherever networks are written: `allow_from`, `deny_from`, `reach`, `admin_from` and `web.trusted_proxies`. Host names are checked after they are resolved. `burrow client-config` writes this list from the server's services.
 
 <details>
 <summary><b>All client.yaml keys</b></summary>
@@ -314,6 +314,7 @@ allow:
 | `max_connections` | `16384` | most connections open through this client at once, 1 to 1000000; beyond it the server gets busy. Each UDP service also holds one of them for its relay. Lowered automatically when the open file limit is too small, with a warning. Each idle connection uses about 15 KB on the client, so 100000 is about 1.5 GB |
 | `max_udp_peers` | `8192` | most UDP peers open through this client at once, across all UDP services, 1 to 1000000; a datagram from a new peer beyond it is dropped. Each peer uses one socket on the client, so it is lowered like `max_connections` |
 | `tcp`, `udp` | as on the server | `tcp.nodelay`, `tcp.keepalive_secs`, `udp.session_timeout_secs` |
+| `update.remote` | `false` | let the server ask this client (from burrow admin, `burrow mcp` or `burrow clients update` on the server machine) to update to a newer published release; the client downloads and checks it itself and goes back if it does not connect ([updates.md](updates.md)). A service needs `service install` again after turning it on |
 
 By default a client keeps retrying until it is stopped, and follows a server that moved to a new address.
 

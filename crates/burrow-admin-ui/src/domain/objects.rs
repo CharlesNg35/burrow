@@ -38,7 +38,7 @@ pub(super) fn object_list(fc: FieldCtx, item: Node) -> AnyView {
                     view! {
                         <div class="rounded-input border border-border px-3 py-2" data-item=i.to_string()>
                             {object_view(&node, p, sp, fc.entity.clone())}
-                            <button type="button" class=button_class("ghost", true) aria-label=format!("Remove {} {}", fc.node.label, i + 1) on:click=remove>
+                            <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) aria-label=format!("Remove {} {}", fc.node.label, i + 1) on:click=remove>
                                 "Remove"
                             </button>
                         </div>
@@ -61,7 +61,7 @@ pub(super) fn object_list(fc: FieldCtx, item: Node) -> AnyView {
     view! {
         <div class="space-y-2" id=fc.id.clone()>
             {rows}
-            <button type="button" id=format!("{}-add-button", fc.id) class=button_class("secondary", true) on:click=add>
+            <button type="button" id=format!("{}-add-button", fc.id) class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Small) on:click=add>
                 {burrow_admin_logic::wording::add_label(&fc.node.label, &item_label)}
             </button>
         </div>

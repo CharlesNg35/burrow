@@ -1,16 +1,14 @@
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::input::time_unit;
 use burrow_admin_logic::tree::{fields, inner};
-use burrow_admin_proto::schema::{Entity, ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC};
+use burrow_admin_proto::schema::{ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
-use burrow_syntax::duration::human;
-use burrow_ui_kit::{Chip, Tag, Tone, chip_class};
+use burrow_syntax::duration::exact;
+use burrow_ui_kit::{Chip, Tag, Tone};
 use leptos::prelude::*;
 
-use crate::route::{Link, Route};
-
-use super::{Ctx, cap, plain};
+use crate::field::{Ctx, cap, plain, ref_link};
 
 pub const NOT_SET: &str = "Not set";
 
@@ -43,7 +41,7 @@ fn sem_text(sem: &SemType, v: &Value) -> String {
         }
         (SemType::Duration(c), Value::Number(n)) => n
             .as_u64()
-            .map(|n| human(n, time_unit(c.unit)))
+            .map(|n| exact(n, time_unit(c.unit)))
             .unwrap_or_else(|| plain(v)),
         (SemType::Size(c), _) => format!("{} {}", plain(v), c.unit),
         (SemType::Rate, _) => {
@@ -153,32 +151,6 @@ pub(super) fn value_view(
 
 pub(super) fn mono(v: &Value) -> AnyView {
     view! { <span class="font-mono text-sm">{plain(v)}</span> }.into_any()
-}
-
-pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
-    if reserved.iter().any(|r| r == name) {
-        let to = Route::Settings;
-        let local = name.to_string();
-        return view! {
-            <Link to=to class=chip_class(Tone::Accent, true)>
-                <span data-local=local>{crate::domain::THIS_SERVER}</span>
-            </Link>
-        }
-        .into_any();
-    }
-    let mut at = burrow_config::entity_path(entity);
-    at.push(name.to_string());
-    let exists = burrow_admin_proto::value::get(&ctx.doc, &at).is_some();
-    let name = name.to_string();
-    if exists {
-        let to = match entity {
-            Entity::Login => Route::Settings,
-            e => Route::Detail(e.section().to_string(), name.clone()),
-        };
-        view! { <Link to=to class=chip_class(Tone::Accent, true)>{name}</Link> }.into_any()
-    } else {
-        view! { <Chip text=name mono=true tone=Tone::Danger/> }.into_any()
-    }
 }
 
 fn names(v: &Value) -> Vec<String> {

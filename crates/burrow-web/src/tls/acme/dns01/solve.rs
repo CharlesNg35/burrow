@@ -1,3 +1,6 @@
+//! Runs DNS-01 checks: writes the TXT records, waits for them to spread and removes them afterwards.
+//! Start at `Dns`; changes are noted in a pending file so `replay` can remove records left from an earlier run.
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;

@@ -71,11 +71,13 @@ impl Shared {
                     name: name.clone(),
                     connected: true,
                     connected_secs: Some(s.since.elapsed().as_secs()),
-                    from: Some(s.peer.to_string()),
+                    from: Some(burrow_syntax::ip::peer_shown(s.peer)),
                     open: self.client_counts.current(name),
                     idle_channels: s.idle_count() as u64,
                     left_secs_ago: None,
                     local: false,
+                    build: self.build_of(name),
+                    update: self.job_of(name),
                     ..self.busy_of(name)
                 },
                 None => ClientStatus {
@@ -87,6 +89,8 @@ impl Shared {
                     idle_channels: 0,
                     left_secs_ago: self.metrics.left_secs_ago(name),
                     local: false,
+                    build: self.build_of(name),
+                    update: self.job_of(name),
                     ..self.busy_of(name)
                 },
             })
@@ -132,6 +136,7 @@ impl Shared {
                     entries,
                     web: site.map(|s| s.hosts.clone()).unwrap_or_default(),
                     file: settings.service_files.get(name).cloned(),
+                    not_listening: self.not_listening_of(name),
                     http: site
                         .filter(|s| s.tls != WebTls::Passthrough)
                         .map(|_| HttpCounts {
@@ -156,7 +161,7 @@ impl Shared {
         let listening = listening(&settings);
         let (certificates, acme) = self.certificates_of(&settings);
         Status {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: crate::base::build::version().to_string(),
             uptime_secs: self.metrics.uptime_secs(),
             listening,
             handshakes_refused: self.metrics.handshakes_refused.load(Ordering::Relaxed),
@@ -169,6 +174,9 @@ impl Shared {
             acme,
             local_ca: self.local_ca_of(),
             web_waiting: self.web_wait.lock().expect("web wait lock").clone(),
+            client: None,
+            rollout: self.rollout(),
+            latest: None,
         }
     }
 }

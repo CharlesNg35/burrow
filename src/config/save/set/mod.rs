@@ -1,3 +1,6 @@
+//! Writes a change that spans several config files: every file is staged first, then renamed in order, and all are put back if one fails.
+//! Start at `write_set`; `changes` says what happens to each file.
+
 use std::path::{Path, PathBuf};
 
 use super::platform::{self, Hidden, Pending};

@@ -99,12 +99,15 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
     click_js(c, &format!("{reach} [data-key=home] input[value=only]")).await;
     c.ui.wait_for(&format!("{reach} [data-chip='127.0.0.1/32']"), SECS)
         .await;
-    assert_eq!(
-        c.ui.count("#f-visitors-laptop-reach-add option[value=self]")
-            .await,
-        0,
-        "this server is not offered while it has no allowed targets"
-    );
+    c.ui.click("#f-visitors-laptop-reach-add").await;
+    c.ui.wait_for(
+        "#f-visitors-laptop-reach-add-list [data-option=self][aria-disabled=true]",
+        SECS,
+    )
+    .await;
+    let _: bool =
+        c.ui.eval("(() => { document.activeElement.blur(); return true; })()")
+            .await;
     c.ui.fill(
         &format!("{reach} [data-key=home] input[type=text]"),
         "127.0.0.1/32:22",

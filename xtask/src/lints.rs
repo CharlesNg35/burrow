@@ -1,3 +1,6 @@
+//! The lint setup check: no silenced lints or extra clippy configs, every crate on the workspace lints, and no lint-loosening flags in cargo config or CI.
+//! It also refuses crate aliases in `src/` and picker options built outside `addr/picker.rs`.
+
 use std::path::Path;
 use std::process::Command;
 
@@ -126,6 +129,24 @@ pub fn silenced_problems(path: &str, src: &str) -> Vec<String> {
         i = end;
     }
     out
+}
+
+pub const CHOICE_BUILDER: &str = "crates/burrow-admin-ui/src/addr/picker.rs";
+
+pub fn choice_problems(path: &str, src: &str) -> Vec<String> {
+    if !path.starts_with("crates/burrow-admin-ui/src/") || path == CHOICE_BUILDER {
+        return Vec::new();
+    }
+    let toks = tokens(&lex(src).code);
+    toks.windows(3)
+        .filter(|w| w[1].text == "ComboOption" && w[2].text == "{" && w[0].text != ">")
+        .map(|w| {
+            format!(
+                "{path}:{}: picker options are built in {CHOICE_BUILDER} from burrow_admin_logic::choices, not here",
+                w[1].line
+            )
+        })
+        .collect()
 }
 
 pub fn alias_problems(path: &str, src: &str) -> Vec<String> {
@@ -314,6 +335,7 @@ pub fn problems(root: &Path) -> Result<Vec<String>, String> {
     for path in crate::shape::tracked(root)? {
         let src = read(&path);
         out.extend(silenced_problems(&path, &src));
+        out.extend(choice_problems(&path, &src));
         if path.starts_with("src/") {
             out.extend(alias_problems(&path, &src));
         }

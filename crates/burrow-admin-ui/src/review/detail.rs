@@ -229,6 +229,7 @@ fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
             view! {
                 <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
                     <strong>{where_}</strong>" "{burrow_admin_logic::wording::diag_text(d)}
+                    {burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref()).map(|h| view! { <p class="mt-1 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="diag-hint">{h}</p> })}
                 </li>
             }
         })
@@ -304,10 +305,11 @@ fn diff_section(
 ) -> impl IntoView + use<> {
     let secrets_in_diff = plan.secrets_in_diff.is_empty();
     view! {
-    <div class="mb-2 flex items-center gap-2">
-        <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{if plan.files.is_empty() { burrow_admin_logic::wording::CHANGED_LINES } else { burrow_admin_logic::wording::CHANGED_FILES }}</h3>
+    <div class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <h3 class="text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase">{if plan.files.is_empty() { burrow_admin_logic::wording::CHANGED_LINES } else { burrow_admin_logic::wording::CHANGED_FILES }}</h3>
         <span class="text-xs text-text-muted">{burrow_admin_logic::wording::diff_head(added, removed, !secrets_in_diff)}</span>
         <span class="ml-auto"></span>
+        <div class="max-sm:hidden">
         <Segmented
             name="diff-mode"
             label="Show the changed lines"
@@ -315,6 +317,7 @@ fn diff_section(
             value=Signal::derive(move || if split.get() { "split".to_string() } else { "unified".to_string() })
             on_change=Callback::new(move |v: String| split.set(v == "split"))
         />
+        </div>
     </div>
     {if plan.files.is_empty() {
         view! {
@@ -367,7 +370,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         <span class="sr-only" data-testid="apply-reason">{move || reason.get()}</span>
         {guard_view.clone().map(lockout_fixes)}
         {(!revert).then(|| view! {
-            <Button label="Discard all" variant="ghost" testid="discard" on_click=move |_| {
+            <Button label="Discard all" variant=burrow_ui_kit::ButtonLook::Ghost testid="discard" on_click=move |_| {
                 let to = match s.prev.get_untracked() {
                     Route::Detail(sec, name) => {
                         let name = e.draft.with_untracked(|d| d.renamed_from(&sec, &name)).unwrap_or(name);
@@ -383,14 +386,14 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         })}
         {if revert {
             view! {
-                <Button label="Cancel" variant="secondary" testid="cancel-revert" on_click=move |_| {
+                <Button label="Cancel" variant=burrow_ui_kit::ButtonLook::Secondary testid="cancel-revert" on_click=move |_| {
                     e.review.set(None);
                     back();
                 }/>
             }.into_any()
         } else {
             view! {
-                <Button label="Back" variant="secondary" testid="keep-editing" on_click=move |_| {
+                <Button label="Back" variant=burrow_ui_kit::ButtonLook::Secondary testid="keep-editing" on_click=move |_| {
                     e.review.set(None);
                     back();
                 }/>
@@ -400,7 +403,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
             ().into_any()
         } else if refused || !can {
             view! {
-                <button type="button" class=button_class("danger-pending", false) disabled=true data-testid="apply">
+                <button type="button" class=button_class(burrow_ui_kit::ButtonLook::DangerPending, burrow_ui_kit::ButtonSize::Normal) disabled=true data-testid="apply">
                     {refused.then(|| view! { <Icon name="lock" small=true/> })}
                     {if refused { "Apply refused" } else { "Apply" }}
                 </button>
@@ -409,7 +412,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
             view! {
                 <Button
                     label=if revert { "Apply the revert".to_string() } else { format!("Apply {}", burrow_admin_logic::wording::count_of(n, "change")) }
-                    variant=if destructive { "danger" } else { "primary" }
+                    variant=if destructive { burrow_ui_kit::ButtonLook::Danger } else { burrow_ui_kit::ButtonLook::Primary }
                     testid="apply"
                     busy=e.applying
                     disabled=Signal::derive(move || !missing.get().is_empty())

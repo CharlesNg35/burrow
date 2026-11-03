@@ -327,6 +327,11 @@ pub struct InitArgs {
     pub force: bool,
     #[arg(
         long,
+        help = "Client only: let the server's admin ask this client to update to a newer published release (update: remote: true); asked when run in a terminal, off otherwise"
+    )]
+    pub remote_updates: bool,
+    #[arg(
+        long,
         value_name = "HOST",
         help = "Server host name or IP, port 7835 unless you add :PORT (server: saved as public_address)"
     )]

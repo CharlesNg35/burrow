@@ -61,12 +61,17 @@ The installed copy is then the config: the file you installed from was only its 
 What the pages do, and what stays a file edit:
 
 - A service page says how the service is reached: a public port, a website and visitors, in any mix. Turning one off keeps its values until you add the change, and Review says what goes: the port that closes, the website and its settings, or the visitors that can no longer reach it.
-- Settings has four tabs: Server (the listener, this server and security), Connections (WebSocket, ready connections to clients, heartbeat, TCP, UDP and limits), Web (the web proxy and, once it is on, the local CA) and Monitoring. The search and the All, Needs a restart and Changed filters above them look through every tab, and each tab says how many of its settings match, are changed or are locked.
+- Settings has four tabs: Server (the listener, this server and security), Connections (WebSocket, ready connections to clients, heartbeat, TCP, UDP and limits), Web (the web proxy and, once it is on, the local CA) and Monitoring, and a fifth, Files, when the server reads [drop-in files](#drop-in-files). The search and the All, Needs a restart and Changed filters above them look through every tab, and each tab says how many of its settings match, are changed or are locked.
 - Some settings are shown but are changed only in server.yaml on the server: `listen` (it needs a restart), `insecure_plaintext`, the heartbeat interval, the connection setup limits and every file path. The server refuses changes to them.
-- The web proxy's ports are changed in Settings, and New website turns the web proxy on when the server has none. Review names each port a change opens and the websites a removal stops. A port the tunnel shares stays a file edit, and a port another program holds is refused before anything is written.
+- The web proxy's ports are changed in Settings, and New website turns the web proxy on when the server has none. Review names each port a change opens and the websites a removal stops. A port the tunnel shares stays a file edit, and a port another program holds is refused before anything is written. A port below 1024 that the server may not open is a warning at the field, with what to do: install the service again, or `setcap` for a server run by hand. Every check that has a hint shows it under its message, at the field and in Review. An address that is not one of this server's gets a warning at the field before saving. A changed service port that another program holds, TCP or UDP, is refused before saving like a web port. A service that cannot listen after a change is listed in Needs attention with the reason, because a restart would fail until it can. Each Settings tab shows how many problems its settings have. Moving a service to a client whose allow list (the one it sent when it connected) does not cover the target gets a warning before saving, since that client would refuse it. Review's impacts describe only what your changes do to the config file; an address in the file that the server could not open is listed in Needs attention.
+- An address field's first choice says what a port alone listens on for that setting, like "All IPv4 and IPv6 (default)" for the web ports, "All IPv4 (default)" for a service's public port and "This machine only (default)" for metrics; it saves the port alone. `0.0.0.0`, `::` (IPv4 and IPv6) and `127.0.0.1` can be picked on purpose. Picking an address before typing the port leaves the field unset, not invalid.
 - WebSocket can be turned on, moved or turned off from Settings. The server first checks that a new port is free, and Review names the clients connected over WebSocket now: they are cut off and need their own config changed. A session that itself comes over WebSocket cannot move or turn off that listener; do that in server.yaml. The `websocket.tls` files stay a file edit.
 - Before each change from burrow admin, the previous file is kept beside it in `.server.yaml.history/` (the last 20, mode 0600). Activity lists the versions by the time they were applied, and you can go back to each after a review. When that folder cannot be written, the history is kept in memory only.
 - Every change goes through a review page, with what changes in server.yaml and what it affects, before it is applied, and a hand edit made meanwhile shows as a conflict instead of being overwritten.
+
+## Client versions and updates
+
+The Overview's Clients tab shows each client's burrow version and system with how it runs (like `linux/arm64 · service`, the full text on hover), marks the clients that have a newer release, and adds "updates off" where one waits but the client does not allow remote updates. A client's page shows its burrow next to its other figures and, for a write admin, an **Update** button. **Update all** updates the clients that can take the newer release, one at a time, and stops at the first one that fails. The client downloads and checks the release itself, and goes back to its old version if the new one does not connect within a minute. Clients older than 0.2.2 show as "older than 0.2.2": update them by hand once. See [updates.md](updates.md).
 
 ## Drop-in files
 
@@ -86,9 +91,9 @@ When the server reads a folder of drop-in files ([configuration.md](configuratio
 
 ## Mixed versions
 
-An admin older than v0.2.2 can still change items in `server.yaml`; the server refuses its changes to items in drop-in files, with a message saying so.
-
 The burrow on your machine and the one on the server don't need the same version. A newer burrow admin works with an older server: it says the server is older in Needs attention, and leaves out what that server cannot do. An older burrow admin, for example v0.1.2, can open a newer server too. When the config uses settings it doesn't know, such as clients with their own target or weight, websites or named login services, its Needs attention lists them ("This burrow admin is older than the server and cannot edit some settings here: …"), and it shows them as text instead of a form. Editing stays allowed, because the server checks every change. To edit those settings in forms, update burrow on your machine.
+
+An admin older than v0.2.3 can still change items in `server.yaml`; the server refuses its changes to items in drop-in files, with a message saying so.
 
 ## Security notes
 

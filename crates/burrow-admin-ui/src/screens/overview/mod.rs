@@ -1,3 +1,5 @@
+//! The overview screen of the admin UI: what needs attention, service health, traffic charts, certificates and websites.
+
 mod attention;
 mod certs;
 mod page;
@@ -71,10 +73,52 @@ pub fn attention(
         }
         out.extend(own);
         out.extend(status.web_waiting.as_ref().map(web_wait_item));
+        out.extend(status.services.iter().filter_map(not_listening_item));
         out.extend(certs::items(status, now));
     }
     out.sort_by_key(|i| rank(i.tone));
     out
+}
+
+fn not_open_item(n: &burrow_admin_proto::msg::NotOpen) -> Item {
+    let own = burrow_config::label_of(&n.path).unwrap_or_else(|| n.path.join("."));
+    let label = match n.path.split_last() {
+        Some((_, parent)) if !parent.is_empty() => burrow_config::label_of(parent)
+            .map_or(own.clone(), |p| format!("{p} {}", own.to_lowercase())),
+        _ => own,
+    };
+    let now = if n.running.is_empty() {
+        "nothing there yet".to_string()
+    } else {
+        format!("it stays on {}", n.running)
+    };
+    Item {
+        key: format!("not-open:{}", n.path.join(".")),
+        tone: Tone::Warning,
+        title: format!("{label} {} is in the config but not open", n.wanted),
+        detail: format!(
+            "The server could not open it and keeps trying; {now}. The server log says why."
+        ),
+        to: Some(Route::Settings),
+        field: Some(n.path.clone()),
+    }
+}
+
+fn not_listening_item(s: &burrow_admin_proto::status::ServiceStatus) -> Option<Item> {
+    let why = s.not_listening.as_ref()?;
+    Some(Item {
+        key: format!("not-listening:{}", s.name),
+        tone: Tone::Danger,
+        title: format!("Service {} is not listening", s.name),
+        detail: burrow_admin_logic::wording::capital(&burrow_admin_proto::status::not_listening(
+            why,
+        )),
+        to: Some(Route::Detail(
+            burrow_config::ServiceEntry::section().into(),
+            s.name.clone(),
+        )),
+        field: Some(burrow_config::ServiceEntry::BIND.of(&s.name)),
+    })
 }
 
 fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
@@ -83,7 +127,11 @@ fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
         key: format!("web-wait:{}", w.key),
         tone: Tone::Warning,
         title: w.line(),
-        detail: "Free the port, or pick another one in Settings.".into(),
+        detail: if w.hint.is_empty() {
+            "Free the port, or pick another one in Settings.".into()
+        } else {
+            burrow_admin_logic::wording::capital(&w.hint)
+        },
         to: Some(Route::Settings),
         field: Some(field),
     }
@@ -113,6 +161,9 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             field: None,
         });
     }
+    for n in &st.runtime.not_open {
+        out.push(not_open_item(n));
+    }
     for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
         out.push(Item {
             key: format!(
@@ -121,9 +172,11 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
             ),
             tone: Tone::Warning,
-            title: burrow_admin_logic::wording::diag_text(d),
-            detail: burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
-                .unwrap_or_default(),
+            title: burrow_admin_logic::wording::diag_title(d),
+            detail: burrow_admin_logic::wording::capital(
+                &burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
+                    .unwrap_or_default(),
+            ),
             to: d.path.as_deref().and_then(link_of),
             field: burrow_admin_logic::wording::field_for(&d.code),
         });
@@ -134,13 +187,7 @@ fn service_items(
     values: &Value,
     status: &Status,
 ) -> (std::collections::BTreeMap<String, Hits>, Vec<Item>) {
-    let online = |c: &str| {
-        status
-            .clients
-            .iter()
-            .find(|x| x.name == c)
-            .is_some_and(|x| x.connected)
-    };
+    let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
     let mut by_client: std::collections::BTreeMap<String, Hits> = std::collections::BTreeMap::new();
     let mut own = Vec::new();
     if let Some(services) = ServiceEntry::entries(values) {
@@ -257,11 +304,7 @@ fn client_item(
     }
     let when = format::left_of(
         &c,
-        status
-            .clients
-            .iter()
-            .find(|x| x.name == c)
-            .and_then(|x| x.left_secs_ago),
+        burrow_admin_logic::presence::client(status, &c).and_then(|x| x.left_secs_ago),
         status.uptime_secs,
     );
     Item {
@@ -282,6 +325,7 @@ type Hits = (Vec<String>, Vec<(String, usize, usize)>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Problem {
+    NotListening,
     Down,
     Partial,
     Health,
@@ -291,25 +335,18 @@ pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String,
     let Some(status) = status else {
         return Vec::new();
     };
-    let online = |c: &str| {
-        status
-            .clients
-            .iter()
-            .find(|x| x.name == c)
-            .is_some_and(|x| x.connected)
-    };
+    let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
     let mut out: Vec<(String, Problem)> = ServiceEntry::entries(values)
         .map(|m| {
             m.iter()
                 .filter_map(|(name, svc)| {
                     let cs = clients_of(svc);
                     let up = cs.iter().filter(|c| online(c)).count();
-                    let failing = status
-                        .services
-                        .iter()
-                        .find(|x| &x.name == name)
-                        .is_some_and(|x| x.health.iter().any(|h| !h.up));
-                    let p = if up == 0 {
+                    let st = status.services.iter().find(|x| &x.name == name);
+                    let failing = st.is_some_and(|x| x.health.iter().any(|h| !h.up));
+                    let p = if st.is_some_and(|x| x.not_listening.is_some()) {
+                        Problem::NotListening
+                    } else if up == 0 {
                         Problem::Down
                     } else if failing {
                         Problem::Health
@@ -330,6 +367,7 @@ pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String,
 pub fn healthy_detail(p: &[(String, Problem)]) -> String {
     match p {
         [] => "all up".into(),
+        [(n, Problem::NotListening)] => format!("{n} is not listening"),
         [(n, Problem::Down)] => format!("{n} is down"),
         [(n, Problem::Health)] => format!("{n} fails its health check"),
         [(n, Problem::Partial)] => format!("{n} runs on fewer clients"),
@@ -352,8 +390,8 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     names(values, ClientEntry::section())
         .into_iter()
         .filter_map(|c| {
-            let st = status.clients.iter().find(|x| x.name == c);
-            if st.is_some_and(|x| x.connected) {
+            let st = burrow_admin_logic::presence::client(status, &c);
+            if burrow_admin_logic::presence::online(Some(status), &[], &c) {
                 return None;
             }
             let serves: Vec<String> = ServiceEntry::entries(values)
@@ -387,26 +425,21 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
 pub fn x_ticks(window: usize) -> Vec<String> {
     match window {
         60 => vec![
-            "−60 s".into(),
-            "−45 s".into(),
-            "−30 s".into(),
-            "−15 s".into(),
+            "−60s".into(),
+            "−45s".into(),
+            "−30s".into(),
+            "−15s".into(),
             "now".into(),
         ],
         300 => vec![
-            "−5 min".into(),
-            "−4 min".into(),
-            "−3 min".into(),
-            "−2 min".into(),
-            "−1 min".into(),
+            "−5m".into(),
+            "−4m".into(),
+            "−3m".into(),
+            "−2m".into(),
+            "−1m".into(),
             "now".into(),
         ],
-        _ => vec![
-            "−15 min".into(),
-            "−10 min".into(),
-            "−5 min".into(),
-            "now".into(),
-        ],
+        _ => vec!["−15m".into(), "−10m".into(), "−5m".into(), "now".into()],
     }
 }
 
@@ -532,7 +565,7 @@ mod tests {
         assert_eq!(titles, ["Client b is offline", "Service both is down"]);
         assert_eq!(
             items[0].detail,
-            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d 0h ago"
+            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d ago"
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
@@ -569,6 +602,15 @@ mod tests {
         assert_eq!(healthy_detail(&p[..1]), "backup is down");
         assert_eq!(healthy_detail(&p[1..]), "both runs on fewer clients");
         assert_eq!(healthy_detail(&[]), "all up");
+        let mut st = status(&["a", "b"], &[]);
+        st.services.push(burrow_admin_proto::status::ServiceStatus {
+            name: "web".into(),
+            not_listening: Some("cannot bind".into()),
+            ..Default::default()
+        });
+        let p = service_problems(&v, Some(&st));
+        assert_eq!(p, [("web".to_string(), Problem::NotListening)]);
+        assert_eq!(healthy_detail(&p), "web is not listening");
     }
 
     #[test]
@@ -591,6 +633,55 @@ mod tests {
     }
 
     #[test]
+    fn a_listener_in_the_config_but_not_open_needs_attention() {
+        let n = burrow_admin_proto::msg::NotOpen {
+            path: vec!["websocket".into(), "listen".into()],
+            wanted: "0.0.0.0:7900".into(),
+            running: "0.0.0.0:7836".into(),
+        };
+        let i = not_open_item(&n);
+        assert_eq!(
+            i.title,
+            "WebSocket listen address 0.0.0.0:7900 is in the config but not open"
+        );
+        assert!(i.detail.contains("stays on 0.0.0.0:7836"), "{}", i.detail);
+    }
+
+    #[test]
+    fn a_service_that_is_not_listening_needs_attention_and_says_a_restart_fails() {
+        let mut st = status(&[], &[]);
+        st.services.push(burrow_admin_proto::status::ServiceStatus {
+            name: "echo".into(),
+            not_listening: Some(
+                "cannot bind service \"echo\" on 127.0.0.1:22: permission denied".into(),
+            ),
+            ..Default::default()
+        });
+        let items = attention(&json!({}), None, Some(&st), 0);
+        let i = items
+            .iter()
+            .find(|i| i.key == "not-listening:echo")
+            .expect("listed");
+        assert_eq!(i.title, "Service echo is not listening");
+        assert!(
+            i.detail.ends_with("a restart fails until it can"),
+            "{}",
+            i.detail
+        );
+        assert_eq!(i.tone, Tone::Danger);
+        assert_eq!(
+            i.field.as_deref(),
+            Some(
+                &[
+                    "services".to_string(),
+                    "echo".to_string(),
+                    "bind".to_string()
+                ][..]
+            )
+        );
+    }
+
+    #[test]
     fn a_web_port_that_waits_needs_attention_and_links_to_its_field() {
         let mut st = status(&[], &[]);
         st.web_waiting = Some(burrow_admin_proto::status::PortWait {
@@ -599,6 +690,7 @@ mod tests {
             reason: "in use by another program".into(),
             stays: String::new(),
             retry_secs: 30,
+            hint: "ports below 1024 need root".into(),
         });
         let items = attention(&json!({}), None, Some(&st), 0);
         let w = items
@@ -606,10 +698,31 @@ mod tests {
             .find(|i| i.key == "web-wait:web.https")
             .expect("the wait is listed");
         assert_eq!(w.title, st.web_waiting.as_ref().unwrap().line());
+        assert_eq!(w.detail, "Ports below 1024 need root");
         assert_eq!(
             w.field.as_deref(),
             Some(&["web".to_string(), "https".to_string()][..])
         );
         assert_eq!(w.tone, Tone::Warning);
+    }
+
+    #[test]
+    fn a_server_warning_reads_as_a_sentence_in_needs_attention() {
+        let d: burrow_admin_proto::diag::Diag = burrow_admin_proto::serde_json::from_value(json!({
+            "severity": "warning", "code": "custom", "message": "no clients are defined, so nobody can connect",
+            "help": "add one, for example home"
+        }))
+        .unwrap();
+        let st = State {
+            diags: vec![d],
+            ..State::default()
+        };
+        let items = attention(&json!({}), Some(&st), None, 0);
+        let w = items
+            .iter()
+            .find(|i| i.key.starts_with("diag:"))
+            .expect("the warning is listed");
+        assert!(w.title.starts_with("No clients"), "{}", w.title);
+        assert!(w.detail.starts_with("Add one"), "{}", w.detail);
     }
 }

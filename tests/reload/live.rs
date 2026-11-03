@@ -240,3 +240,53 @@ async fn a_visitor_forward_moved_to_a_busy_port_listens_once_it_is_free() {
         "the moved forward never listened after its port was freed"
     );
 }
+
+#[tokio::test]
+async fn a_service_that_cannot_listen_after_a_reload_shows_why_in_status_until_it_listens() {
+    let v = Live::start("127.0.0.0/8").await;
+    let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = held.local_addr().unwrap();
+    let mut next = v.server_settings.clone();
+    next.services.get_mut("web").unwrap().bind = Some(port);
+    v.server.reload_tx.send(next).await.unwrap();
+    let shared = v.server.shared.clone();
+    wait_for(|| {
+        shared
+            .status()
+            .services
+            .iter()
+            .any(|s| s.name == "web" && s.not_listening.is_some())
+    })
+    .await;
+    let why = shared
+        .status()
+        .services
+        .iter()
+        .find(|s| s.name == "web")
+        .unwrap()
+        .not_listening
+        .clone()
+        .unwrap();
+    assert!(
+        why.contains("address already in use (") && why.contains(" uses it"),
+        "{why}"
+    );
+    drop(held);
+    let mut listening = false;
+    for _ in 0..150 {
+        if shared
+            .status()
+            .services
+            .iter()
+            .any(|s| s.name == "web" && s.not_listening.is_none())
+        {
+            listening = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert!(
+        listening,
+        "the service listens once the port is free, and status says so"
+    );
+}

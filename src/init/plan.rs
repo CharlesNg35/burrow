@@ -1,3 +1,6 @@
+//! Plans a visitor's forwards from the server's grants, keeping the existing ones and picking local ports for new ones.
+//! Start at `plan`.
+
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;

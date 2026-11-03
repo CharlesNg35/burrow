@@ -33,10 +33,7 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let node = node.clone();
         let entity = entity.clone();
         let schema = schema.clone();
-        Memo::new(move |_| {
-            e.draft
-                .with(|d| field_state(&node, &schema.root, d.draft(), &entity))
-        })
+        Memo::new(move |_| e.with_doc(|d| field_state(&node, &schema.root, d, &entity)))
     };
     let lock = schema.locked_paths().iter().any(|l| spath.starts_with(l));
     let lock_here = schema.locked_paths().contains(&spath);
@@ -219,7 +216,13 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
                 .filter(|d| picked || d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE)
                 .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))
                 .filter(|d| !rows || d.path.as_ref().is_none_or(|x| x.len() <= path.len()))
-                .map(|d| (d.severity, burrow_admin_logic::wording::diag_text(d)))
+                .map(|d| {
+                    (
+                        d.severity,
+                        burrow_admin_logic::wording::diag_text(d),
+                        burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref()),
+                    )
+                })
                 .collect::<Vec<_>>()
         });
         let row_speaks = rows
@@ -228,14 +231,9 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
                     .iter()
                     .any(|d| d.path.as_ref().is_some_and(|x| x.len() > path.len()))
             });
-        let server_error = server
-            .iter()
-            .find(|(sev, _)| *sev == Severity::Error)
-            .map(|(_, m)| m.clone());
-        let server_warning = server
-            .iter()
-            .find(|(sev, _)| *sev == Severity::Warning)
-            .map(|(_, m)| m.clone());
+        let first = |want: Severity| server.iter().find(|(sev, ..)| *sev == want).cloned();
+        let server_error = first(Severity::Error);
+        let server_warning = first(Severity::Warning);
         let related = e.related.with(|r| r.get(&path).cloned());
         let local = touched
             .get()
@@ -243,9 +241,16 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             .flatten()
             .or(related)
             .filter(|_| !row_speaks);
+        let hint = match (&local, &server_error, &server_warning) {
+            (Some(_), ..) => None,
+            (None, Some(e), _) => e.2.clone(),
+            (None, None, Some(w)) => w.2.clone(),
+            _ => None,
+        };
         FieldState {
-            error: local.or(server_error),
-            warning: server_warning.or(s.warnings.first().cloned()),
+            error: local.or(server_error.map(|e| e.1)),
+            warning: server_warning.map(|w| w.1).or(s.warnings.first().cloned()),
+            hint,
             info: None,
             disabled_reason: (!s.enabled).then(|| s.disabled_reason.clone()).flatten(),
             locked_reason: if lock {
@@ -326,7 +331,7 @@ fn field_body(
                         let path = path.clone();
                         let label = format!("Clear ({})", reason.replace("do not support", "do not use"));
                         view! {
-                            <button type="button" class=burrow_ui_kit::button_class("ghost", true) data-testid="clear-unused" on:click=move |_| e.set(&path, None)>{label}</button>
+                            <button type="button" class=burrow_ui_kit::button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) data-testid="clear-unused" on:click=move |_| e.set(&path, None)>{label}</button>
                         }
                     })
                 }
@@ -334,12 +339,15 @@ fn field_body(
             view! {
                 <div class="flex min-h-[38px] flex-wrap items-center gap-3 text-[13px]" id=id.clone()>
                     {move || {
-                        let v = e.value(&path).or_else(|| {
-                            single
-                                .as_ref()
-                                .and_then(|s| e.value(s))
-                                .map(|c| Value::Array(vec![c]))
-                        });
+                        let v = e
+                            .value(&path)
+                            .or_else(|| {
+                                single
+                                    .as_ref()
+                                    .and_then(|s| e.value(s))
+                                    .map(|c| Value::Array(vec![c]))
+                            })
+                            .or_else(|| st.with(|s| s.fixed.clone()));
                         match ctx_now() {
                             Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &Ctx { path: path.clone(), ..c }),
                             None => ().into_any(),

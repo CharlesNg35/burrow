@@ -10,6 +10,21 @@ fn client_valid() {
 }
 
 #[test]
+fn client_with_remote_updates_says_the_admin_may_update_it() {
+    insta::assert_snapshot!(render("client.yaml", &format!(
+        "server: myserver.com:7835\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nupdate:\n  remote: true\n"
+    ), None), @r#"client.yaml: valid client config for "home"; the server's admin may ask it to update to newer releases"#);
+    let typo = render(
+        "client.yaml",
+        &format!(
+            "server: myserver.com:7835\nname: home\nsecret: {SECRET}\nupdate:\n  remote: yes please\n"
+        ),
+        None,
+    );
+    assert!(typo.contains("error"), "{typo}");
+}
+
+#[test]
 fn client_bad_cidr() {
     insta::assert_snapshot!(render("client.yaml", &format!(
         "server: myserver.com:99999\nname: home\nsecret: {SECRET}\nallow:\n  - 10.0.0.0/33\n  - lan.local\n  - 192.168.1.1/24\n  - 10.0.0.0/8:http\n"
@@ -35,7 +50,7 @@ fn client_bad_cidr() {
        |     ^^^^^^^^^ not a valid CIDR
        = help: allow entries are IP ranges, not host names; resolve the host and add its address, for example 192.168.1.10/32
 
-    error: invalid allow entry: "192.168.1.1/24" has host bits set
+    error: invalid allow entry: "192.168.1.1/24" has host bits set: write 192.168.1.0/24 for the network, or 192.168.1.1/32 for this one address
       --> client.yaml:7:5
        |
      7 |   - 192.168.1.1/24
@@ -172,7 +187,7 @@ fn json_secret_line_hidden() {
        |
      1 | {"server": "a:1", "name": "home", "secret": **********************************************, "alow": []}
        |                                                                                             ^^^^^^ unknown field
-       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, headers, ca, cipher, proxy, reconnect, connect_timeout_secs, max_connections, max_udp_peers, tcp, udp
+       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, headers, ca, cipher, proxy, reconnect, connect_timeout_secs, max_connections, max_udp_peers, tcp, udp, update
 
     client.json: 1 error, 1 warning
     "#);

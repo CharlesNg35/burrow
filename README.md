@@ -114,6 +114,7 @@ If the home machine has no copy of the server's files, run `./burrow init client
 ./burrow passwd alice                         # print alice's password hash for a website's basic_auth, see docs/web/access.md
 ./burrow edit                                 # open a config in your editor; it is checked, saved and applied
 ./burrow status                               # clients, services and traffic of the servers running here (-f to follow)
+./burrow clients update --all                 # update the server's clients to the latest release, see docs/updates.md
 ./burrow admin -c ops.yaml                    # the web admin, see docs/admin.md
 ./burrow mcp -c ops.yaml --print-config claude # let an AI app read the server over MCP, see docs/mcp.md
 ./burrow ca export --out burrow-local-ca.crt  # the local CA's certificate (tls: internal), to trust on your devices

@@ -1,12 +1,5 @@
 pub const DAY_SECS: u64 = 86_400;
 
-pub fn days_left(at: u64, now: u64) -> String {
-    match at.saturating_sub(now) / DAY_SECS {
-        1 => "1 day".to_string(),
-        n => format!("{n} days"),
-    }
-}
-
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -90,10 +83,44 @@ pub fn to_stored(number: &str, unit: TimeUnit, stored: TimeUnit) -> Result<u64, 
     Ok(ms / stored.ms())
 }
 
-pub fn human(value: u64, stored: TimeUnit) -> String {
+fn suffix(u: TimeUnit) -> &'static str {
+    match u {
+        TimeUnit::Ms => "ms",
+        TimeUnit::Secs => "s",
+        TimeUnit::Mins => "m",
+        TimeUnit::Hours => "h",
+    }
+}
+
+pub fn span(secs: u64) -> String {
+    let units = [
+        (secs / 86_400, "d"),
+        (secs / 3600 % 24, "h"),
+        (secs / 60 % 60, "m"),
+        (secs % 60, "s"),
+    ];
+    let Some(top) = units.iter().position(|(n, _)| *n > 0) else {
+        return "0s".into();
+    };
+    let (n, u) = units[top];
+    match units.get(top + 1) {
+        Some((m, v)) if *m > 0 => format!("{n}{u} {m}{v}"),
+        _ => format!("{n}{u}"),
+    }
+}
+
+pub fn ago(secs: u64) -> String {
+    if secs < 5 {
+        "just now".into()
+    } else {
+        format!("{} ago", span(secs))
+    }
+}
+
+pub fn exact(value: u64, stored: TimeUnit) -> String {
     let mut ms = value.saturating_mul(stored.ms());
     if ms == 0 {
-        return format!("0 {}", stored.short());
+        return format!("0{}", suffix(stored));
     }
     let mut parts = Vec::new();
     for u in [
@@ -104,7 +131,7 @@ pub fn human(value: u64, stored: TimeUnit) -> String {
     ] {
         let n = ms / u.ms();
         if n > 0 {
-            parts.push(format!("{n} {}", u.short()));
+            parts.push(format!("{n}{}", suffix(u)));
             ms -= n * u.ms();
         }
     }
@@ -122,29 +149,42 @@ pub fn check_range(
         return Ok(());
     }
     Err(match (min, max) {
-        (Some(a), Some(b)) => format!("between {} and {}", human(a, stored), human(b, stored)),
-        (Some(a), None) => format!("at least {}", human(a, stored)),
-        (None, Some(b)) => format!("at most {}", human(b, stored)),
+        (Some(a), Some(b)) => format!("between {} and {}", exact(a, stored), exact(b, stored)),
+        (Some(a), None) => format!("at least {}", exact(a, stored)),
+        (None, Some(b)) => format!("at most {}", exact(b, stored)),
         (None, None) => String::new(),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn days_left_says_one_day_and_counts_the_rest() {
-        use super::{DAY_SECS, days_left};
-        assert_eq!(days_left(DAY_SECS + 5, 0), "1 day");
-        assert_eq!(days_left(2 * DAY_SECS + 5, 0), "2 days");
-        assert_eq!(days_left(100, 0), "0 days");
-    }
-
     use super::*;
 
     #[test]
+    fn a_span_reads_like_2h_5m_with_its_two_largest_units() {
+        assert_eq!(span(0), "0s");
+        assert_eq!(span(45), "45s");
+        assert_eq!(span(200), "3m 20s");
+        assert_eq!(span(180), "3m");
+        assert_eq!(span(8040), "2h 14m");
+        assert_eq!(span(7200 + 59), "2h");
+        assert_eq!(span(90_000), "1d 1h");
+        assert_eq!(span(60 * 86_400 + 1800), "60d");
+        assert_eq!(ago(4), "just now");
+        assert_eq!(ago(7500), "2h 5m ago");
+    }
+
+    #[test]
+    fn exact_writes_every_unit_while_span_keeps_the_two_largest() {
+        assert_eq!(exact(3 * 3600 + 25 * 60 + 7, TimeUnit::Secs), "3h 25m 7s");
+        assert_eq!(span(3 * 3600 + 25 * 60 + 7), "3h 25m");
+    }
+
+    #[test]
     fn conversions() {
-        assert_eq!(human(5400, TimeUnit::Secs), "1 h 30 min");
-        assert_eq!(human(0, TimeUnit::Secs), "0 s");
+        assert_eq!(exact(5400, TimeUnit::Secs), "1h 30m");
+        assert_eq!(exact(0, TimeUnit::Secs), "0s");
+        assert_eq!(exact(1500, TimeUnit::Ms), "1s 500ms");
         assert_eq!(to_stored("2", TimeUnit::Mins, TimeUnit::Secs).unwrap(), 120);
         assert!(to_stored("x", TimeUnit::Secs, TimeUnit::Secs).is_err());
         assert!(to_stored("1500", TimeUnit::Ms, TimeUnit::Secs).is_err());
@@ -158,7 +198,7 @@ mod tests {
         );
         assert_eq!(
             check_range(0, Some(1), Some(3600), TimeUnit::Secs).unwrap_err(),
-            "between 1 s and 1 h"
+            "between 1s and 1h"
         );
         assert!(check_range(10, Some(1), Some(3600), TimeUnit::Secs).is_ok());
     }

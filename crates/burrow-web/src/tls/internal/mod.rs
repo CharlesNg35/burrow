@@ -1,3 +1,6 @@
+//! The local CA: issues short-lived certificates for internal names from a root kept in the state folder.
+//! Start at `Internal::step`; it creates or opens the CA and renews each group's leaf.
+
 mod ca;
 
 use std::collections::{BTreeMap, HashMap};
@@ -174,7 +177,7 @@ impl Internal {
             warning: (left < ROOT_WARNING_SECS).then(|| {
                 format!(
                     "the local CA expires in {}; burrow does not renew it on its own",
-                    burrow_syntax::duration::days_left(ca.root_not_after, now)
+                    burrow_syntax::duration::span(ca.root_not_after.saturating_sub(now))
                 )
             }),
         })

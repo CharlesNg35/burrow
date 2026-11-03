@@ -1,3 +1,5 @@
+//! The Windows service backend: installs and controls burrow through the service manager, and runs it as a service.
+
 mod acl;
 mod dispatch;
 
@@ -23,7 +25,38 @@ use acl::{
 };
 pub use dispatch::dispatch;
 
-const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
+fn locked_folder(dir: &Path, account: &str, rights: &[&str]) -> Result<(), Failure> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+    let real = || -> Result<(), Failure> {
+        if is_link(dir) || !dir.is_dir() {
+            return Err(Failure::new(format!(
+                "{} must be a folder, not a link",
+                dir.display()
+            )));
+        }
+        Ok(())
+    };
+    real()?;
+    let args = super::helper::acl::folder_acl(account, rights);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    icacls(dir, &args)?;
+    real()
+}
+
+pub(in crate::service) fn own_folder(dir: &Path, account: &str) -> Result<(), Failure> {
+    use super::helper::acl::{OWN_CHILD_RIGHTS, OWN_SELF_RIGHTS};
+    locked_folder(dir, account, &[OWN_SELF_RIGHTS, OWN_CHILD_RIGHTS])
+}
+
+pub(in crate::service) fn results_folder(dir: &Path, account: &str) -> Result<(), Failure> {
+    if let Some(updates) = dir.parent() {
+        locked_folder(updates, crate::base::windows::USERS, &["(RX)"])?;
+    }
+    locked_folder(dir, account, &[super::helper::acl::RESULTS_RIGHTS])
+}
+
+pub(in crate::service) const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
     .union(ServiceAccess::START)
     .union(ServiceAccess::STOP)
     .union(ServiceAccess::DELETE)
@@ -32,7 +65,7 @@ const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
 
 pub struct WindowsService;
 
-fn scm_error(what: &str, e: windows_service::Error) -> Failure {
+pub(in crate::service) fn scm_error(what: &str, e: windows_service::Error) -> Failure {
     let detail = match &e {
         windows_service::Error::Winapi(io) => io.to_string(),
         other => other.to_string(),
@@ -40,7 +73,7 @@ fn scm_error(what: &str, e: windows_service::Error) -> Failure {
     Failure::new(format!("cannot {what}: {detail}"))
 }
 
-fn manager(access: ServiceManagerAccess) -> Result<ServiceManager, Failure> {
+pub(in crate::service) fn manager(access: ServiceManagerAccess) -> Result<ServiceManager, Failure> {
     ServiceManager::local_computer(None::<&str>, access)
         .map_err(|e| scm_error("open the Windows service manager", e))
 }

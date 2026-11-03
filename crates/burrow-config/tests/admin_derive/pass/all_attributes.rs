@@ -76,7 +76,7 @@ pub struct Thing {
     pub name: String,
     #[admin(ty = path(must_exist, relative_to = "config"), default_from("/limits/x"))]
     pub path: String,
-    #[admin(ty = url_path, warn_if(eq(text, "x"), "careful"))]
+    #[admin(ty = url_path, warn_if(eq(text, "x"), "careful"), fixed_if(eq(port, 1), "/", "always /"))]
     pub url: String,
     #[admin(ty = host_name)]
     pub site: String,
@@ -170,6 +170,8 @@ fn main() {
     assert_eq!(t.groups.len(), 2);
     assert!(t.field("on").unwrap().node.reduce_only);
     assert!(!t.field("ip").unwrap().node.reduce_only);
+    let url = format!("{:?}", t.field("url").unwrap().node.relations);
+    assert!(url.contains("FixedIf") && url.contains("always /"), "{url}");
     let _ = <Elsewhere as AdminSchema>::node();
     assert_eq!(Svc::TCP_ONLY, ["visitors"]);
     let svc = <Svc as AdminSchema>::node();

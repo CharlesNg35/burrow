@@ -380,13 +380,13 @@ Where each name gets its certificate:
 | Problem | What validate says |
 | --- | --- |
 | a service has `web` but there is no top-level `web` | `services.blog.web: the web proxy is off; add a top-level web: with its ports, like web: {https: 443, http: 80}` |
-| `web` has no port | `web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80` |
+| `web` has no port | `web: needs a port: the HTTPS port for HTTPS sites, like https: 443, or the HTTP port for plain HTTP sites, like http: 80` |
 | a website with `tls: off` but no `web.http` | `services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80` |
 | an HTTPS choice (`tls: auto`, `passthrough` or `{cert, key}`, or a `challenge`) with no `web.https` | `services.blog.web.tls: auto needs web.https; without web.https every site is plain HTTP. Add https: 443, or remove tls` |
 | `https_redirect: false` with no `web.http` | `services.blog.web.https_redirect: false serves plain HTTP too, but web.http is not set; add http: 80` |
-| `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); on web.http its names get 404` |
+| `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false does not apply to a passthrough service (tls: passthrough); it is always true there, so remove https_redirect` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
-| `web.letsencrypt` with a wrong field | `web.letsencrypt.email "ops" is not an email address`; `web.letsencrypt.directory "stagging" is not production, staging or an https:// URL` (with `did you mean "staging"?`); `web.letsencrypt.ca: cannot read certs/ca.pem: file not found`, or `... certs/ca.pem holds no certificate` |
+| `web.letsencrypt` with a wrong field | `web.letsencrypt.email: "ops" is not an email address`; `web.letsencrypt.directory: "stagging" is not production, staging or an https:// URL` (with `did you mean "staging"?`); `web.letsencrypt.ca: cannot read certs/ca.pem: file not found`, or `... certs/ca.pem holds no certificate` |
 | Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates` |
 | a check without its port | `services.blog.web.challenge: http needs web.http on port 80: Let's Encrypt fetches a file there; add http: 80, or use challenge: tls or dns` |
 | a check where no certificate is ordered | `services.nas.web.challenge: the app keeps its own certificate (tls: passthrough); remove challenge` |
@@ -428,7 +428,8 @@ Where each name gets its certificate:
 | a UDP service with `web` | `service "dns" is udp, but web only works for tcp services; remove web:, or set protocol: tcp` |
 | warning: a plain-HTTP site | `services.wiki: served as plain HTTP; anyone on the path can read and change its traffic` |
 | warning: no `web.http` | `web.http is not set: http:// addresses get no answer` |
-| warning: a low port burrow may not open | `web.https [::]:443: port 443 needs root or CAP_NET_BIND_SERVICE; burrow service install grants it, or run burrow as root` |
+| warning: a low port burrow may not open | `web.https: port 443 needs root or CAP_NET_BIND_SERVICE`, with how to grant it |
+| warning: the two web ports swapped | `web.https: port 80 is where browsers send http:// addresses, so visitors who type a name do not reach these websites` |
 | another listener on the same port | `web.https [::]:443 is also the control port (listen ...)`, or the service or metrics port it clashes with |
 
 ## Next steps

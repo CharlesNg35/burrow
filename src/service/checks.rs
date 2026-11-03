@@ -193,6 +193,7 @@ pub(super) struct Checked {
     pub(super) access_log: Option<PathBuf>,
     pub(super) admins: Vec<String>,
     pub(super) needs_state: bool,
+    pub(super) remote_updates: bool,
 }
 
 pub(super) fn check_config(
@@ -268,6 +269,7 @@ pub(super) fn check_config(
         needs_state,
     } = uses(loaded);
     let admins = admin_visitors(loaded);
+    let remote_updates = matches!(loaded, Loaded::Client(s, _) if s.remote_updates);
     refuse_relative(&files)?;
     Ok(Checked {
         role,
@@ -277,6 +279,7 @@ pub(super) fn check_config(
         access_log,
         admins,
         needs_state,
+        remote_updates,
     })
 }
 
@@ -367,7 +370,28 @@ pub(super) fn refuse_running_outside(checked: &Checked) -> Result<(), Failure> {
 }
 
 pub(super) fn check_ports_free(backend: &dyn Backend, checked: &Checked) -> Result<(), Failure> {
-    let users = || {
+    for (proto, addr, label) in &checked.listens {
+        ports::check_free(*proto, *addr, label, &|| port_users(backend))?;
+    }
+    Ok(())
+}
+
+pub(super) fn check_ports_before_stop(
+    backend: &dyn Backend,
+    checked: &Checked,
+    running: &Manifest,
+) -> Result<(), Failure> {
+    let mine = backend.status(running).pid;
+    for (proto, addr, label) in &checked.listens {
+        if !ports::held_by(*proto, *addr, mine) {
+            ports::check_free(*proto, *addr, label, &|| port_users(backend))?;
+        }
+    }
+    Ok(())
+}
+
+fn port_users(backend: &dyn Backend) -> Vec<ports::PortUser> {
+    {
         let managed = all_manifests().into_iter().filter_map(|m| {
             backend.status(&m).pid.map(|pid| ports::PortUser {
                 pid,
@@ -385,11 +409,7 @@ pub(super) fn check_ports_free(backend: &dyn Backend, checked: &Checked) -> Resu
             })
         });
         managed.chain(strays).collect()
-    };
-    for (proto, addr, label) in &checked.listens {
-        ports::check_free(*proto, *addr, label, &users)?;
     }
-    Ok(())
 }
 
 pub(super) fn check_files_readable(

@@ -1,3 +1,6 @@
+//! Reads the TLS ClientHello to learn the requested name (SNI) and ALPN, keeping the bytes it read.
+//! Start at `peek_sni`.
+
 use std::io;
 use std::time::Duration;
 

@@ -142,7 +142,7 @@ impl Switch {
                         }
                         if way != Way::Website {
                             let path = path.clone();
-                            request_animation_frame(move || crate::screens::entity::go_to_field(&path));
+                            request_animation_frame(move || crate::form::go_to_field(&path));
                         }
                     } else {
                         kept.set_value(e.peek(&path));
@@ -179,7 +179,7 @@ fn website_row(sw: &Switch) -> impl IntoView + use<> {
         (None, true) => view! {
             <p class="mt-2 flex flex-wrap items-center gap-3 text-[13px] sm:ml-[46px]" data-testid="website-summary">
                 <span class="font-mono">{website_summary(e.value(&p).as_ref(), https_on.get())}</span>
-                <button type="button" class="cursor-pointer font-semibold text-accent-ink hover:underline" data-testid="edit-website" on:click=open>"Edit website ↓"</button>
+                <burrow_ui_kit::LinkButton testid="edit-website" on_click=open>"Edit website ↓"</burrow_ui_kit::LinkButton>
             </p>
         }
         .into_any(),
@@ -207,7 +207,7 @@ fn way_block(sw: Switch, field: Option<(Field, Path, Path, Path)>) -> impl IntoV
         <div class="border-b border-rowline py-4 first:pt-0 last:border-b-0" data-way=way.key()>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {sw.toggle()}
-                <span class="text-xs text-text-muted">{way.who()}{(way == Way::Visitors).then_some(", with burrow visit")}</span>
+                <span class="text-xs text-text-muted max-sm:basis-full">{way.who()}{(way == Way::Visitors).then_some(", with burrow visit")}</span>
             </div>
             {under}
         </div>
@@ -262,7 +262,7 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
     let no_way = move || {
         none.get().then(|| {
             let tone = if touched.get() { Tone::Danger } else { Tone::Info };
-            view! { <div data-testid="no-way-in">{field_message(tone, crate::screens::paths::PICK_VISITORS.to_string())}</div> }
+            view! { <div data-testid="no-way-in">{field_message(tone, burrow_admin_logic::wording::PICK_VISITORS.to_string())}</div> }
         })
     };
     view! {

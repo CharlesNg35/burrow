@@ -1,11 +1,7 @@
-use super::tests::{errors, load_in};
+use super::tests::{errors, load_in, svc};
 use super::tests_site_keys::{TOP, errs, run, warnings};
 
 const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$3Zrnt9ZV6D9A/Ed3Je/Hww$lg26ncNCHaoX2amIl0p8mWtR1BCyscvYzi1EmeCfbvg";
-
-fn svc(name: &str, web: &str) -> String {
-    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
-}
 
 #[test]
 fn password_hashes_are_argon2id_or_bcrypt_within_the_cost_caps() {

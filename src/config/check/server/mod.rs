@@ -1,3 +1,6 @@
+//! Checks a server config: listeners, clients, visitors, services and the references between them.
+//! Start at `check_server`, which returns `ServerSettings` when there are no errors.
+
 mod refs;
 mod secrets;
 
@@ -74,13 +77,14 @@ pub fn check_server(
     .filter_map(|(a, what)| a.map(|a| (a, what)))
     .collect();
     super::local::check_services(&services, self_allow.as_ref(), &own, spans, out);
+    super::web::check_low_ports(&binds_of(&own, websocket.as_ref(), &services), spans, out);
 
     if cfg.pool.min_idle > cfg.pool.max_idle {
         out.push(
             Diagnostic::error(
                 "invalid-pool",
                 format!(
-                    "pool.min_idle ({}) is larger than pool.max_idle ({})",
+                    "pool.min_idle: {} is more than pool.max_idle ({})",
                     cfg.pool.min_idle, cfg.pool.max_idle
                 ),
             )
@@ -189,13 +193,10 @@ fn check_public_address(
         )
     {
         out.push(
-            Diagnostic::error(
-                "invalid-address",
-                format!("invalid public_address: {}", e.message),
-            )
-            .at(spans.at(&[], ServerConfig::PUBLIC_ADDRESS))
-            .label("expected a host, host:port or wss:// URL")
-            .help(e.hint),
+            Diagnostic::error("invalid-address", format!("public_address: {}", e.message))
+                .at(spans.at(&[], ServerConfig::PUBLIC_ADDRESS))
+                .label("expected a host, host:port or wss:// URL")
+                .help(e.hint),
         );
     }
 }
@@ -543,9 +544,28 @@ fn check_metrics(
 pub(super) fn insecure_warning(spans: &Spans) -> Diagnostic {
     Diagnostic::warning(
         "insecure-plaintext",
-        "insecure_plaintext is enabled: forwarded data is not encrypted",
+        "insecure_plaintext: data forwarded between the server and its clients is not encrypted",
     )
     .at(spans.at(&[], ServerConfig::INSECURE_PLAINTEXT))
     .label("traffic can be read and modified on the network")
     .help("remove this line unless the network between client and server is trusted")
+}
+
+fn binds_of(
+    own: &[(SocketAddr, &str)],
+    websocket: Option<&crate::config::settings::WebSocketSettings>,
+    services: &BTreeMap<String, crate::config::settings::Service>,
+) -> Vec<(Vec<String>, SocketAddr)> {
+    let shared = websocket.is_some_and(|w| w.shares != crate::config::settings::Shares::Nothing);
+    let mut out: Vec<(Vec<String>, SocketAddr)> = own
+        .iter()
+        .filter(|(_, what)| !(shared && *what == "websocket.listen"))
+        .map(|(a, what)| (what.split('.').map(str::to_string).collect(), *a))
+        .collect();
+    for (name, svc) in services {
+        if let Some(b) = svc.bind {
+            out.push((burrow_config::ServiceEntry::BIND.of(name), b));
+        }
+    }
+    out
 }

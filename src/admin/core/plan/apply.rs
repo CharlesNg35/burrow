@@ -156,7 +156,7 @@ pub fn finish(
         id: 0,
         at: burrow_syntax::duration::now_secs(),
         visitor: s.visitor.clone(),
-        from: s.peer.ip().to_string(),
+        from: burrow_syntax::ip::ip_shown(s.peer.ip()),
         base: plan.base.clone(),
         rev: plan.result_rev.clone(),
         changes: plan.changes.clone(),

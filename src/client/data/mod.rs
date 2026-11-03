@@ -1,3 +1,6 @@
+//! Serves a client's data channels: reads each visit request and connects it to the local target.
+//! Also applies the connection and peer limits; `precheck` warns about targets the allow list does not permit.
+
 mod limits;
 mod reach;
 mod udp;

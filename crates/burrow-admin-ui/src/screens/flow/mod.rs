@@ -1,3 +1,5 @@
+//! The flow chart of the admin UI: sources, public ports, the server, clients and targets in columns, colored by health and shown in `FlowModal`.
+
 mod layout;
 mod links;
 mod view;

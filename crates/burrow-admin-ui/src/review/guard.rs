@@ -11,7 +11,7 @@ use leptos::prelude::*;
 
 use crate::store::store;
 
-use super::session_ip;
+use burrow_admin_logic::presence::from_ip;
 
 #[derive(Clone)]
 pub(super) struct Guard {
@@ -52,7 +52,7 @@ pub(super) fn guard(refusals: &[Refusal]) -> Guard {
     let now = list_at(e.peek(&path).as_ref());
     Guard {
         me,
-        ip: session_ip(&from),
+        ip: from_ip(&from),
         code,
         path,
         base,
@@ -201,7 +201,7 @@ pub(super) fn lockout_fixes(g: Guard) -> impl IntoView {
     let ip = g.ip.clone();
     view! {
         {can_allow.then(|| view! {
-            <button type="button" class=format!("{} whitespace-nowrap", button_class("tinted", false)) data-testid="fix-allow" on:click=move |_| {
+            <button type="button" class=format!("{} whitespace-nowrap", button_class(burrow_ui_kit::ButtonLook::Tinted, burrow_ui_kit::ButtonSize::Normal)) data-testid="fix-allow" on:click=move |_| {
                 let mut list = e.peek(&p1).and_then(|v| v.as_array().cloned()).unwrap_or_default();
                 list.push(Value::String(ip2.clone()));
                 e.set(&p1, Some(Value::Array(list)));
@@ -213,7 +213,7 @@ pub(super) fn lockout_fixes(g: Guard) -> impl IntoView {
             </button>
         })}
         {fixable.then(|| view! {
-            <button type="button" class=format!("{} whitespace-nowrap", button_class("tinted", false)) data-testid="fix-undo" on:click=move |_| {
+            <button type="button" class=format!("{} whitespace-nowrap", button_class(burrow_ui_kit::ButtonLook::Tinted, burrow_ui_kit::ButtonSize::Normal)) data-testid="fix-undo" on:click=move |_| {
                 let base = e.draft.with_untracked(|d| get(d.base(), &p2).cloned());
                 e.set(&p2, base);
                 e.outcome.set(None);

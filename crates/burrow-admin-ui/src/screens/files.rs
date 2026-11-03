@@ -37,7 +37,7 @@ fn file_row(f: ConfigFile, main: &str) -> impl IntoView + use<> {
         .into_iter()
         .map(|(section, n)| {
             let (name, sec) = (f.name.clone(), section.clone());
-            let label = format!("{n} {}", if n == 1 { crate::screens::create::singular(&section).to_string() } else { section.clone() });
+            let label = format!("{n} {}", if n == 1 { crate::entities::singular(&section).to_string() } else { section.clone() });
             view! {
                 <button type="button" class="cursor-pointer text-[13px] font-semibold text-accent-ink hover:underline" data-testid="file-items" on:click=move |_| route::go_search(Route::List(sec.clone()), &name)>{label}</button>
             }

@@ -237,7 +237,7 @@ async fn an_answer_that_never_waits_is_listed_for_the_reload_check_from_its_firs
         &Arc::from("blog"),
         from,
         crate::Ask::Site,
-        Cutter::Connection(task),
+        (Cutter::Connection(task), None),
         pool.epoch(),
     );
     let body = Frames(3).boxed();
@@ -264,7 +264,13 @@ fn a_request_that_passed_the_gate_before_a_reload_is_rechecked_when_listed_after
     };
     let cut = Arc::new(Cut::default());
     let stream = Cutter::Stream(cut.clone());
-    let mut ticket = pool.ticket(&Arc::from("blog"), from, crate::Ask::Site, stream, before);
+    let mut ticket = pool.ticket(
+        &Arc::from("blog"),
+        from,
+        crate::Ask::Site,
+        (stream, None),
+        before,
+    );
     ticket.waiting();
     pool.busy.recheck(pool.epoch(), &|_, _, _| false);
     let cx = std::task::Context::from_waker(std::task::Waker::noop());

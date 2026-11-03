@@ -224,7 +224,7 @@ fn the_manager_issues_per_group_and_reports_the_ca_with_its_root_warning() {
     let late = local.status(status.not_after - 30 * 86_400).unwrap();
     assert_eq!(
         late.warning.as_deref(),
-        Some("the local CA expires in 30 days; burrow does not renew it on its own")
+        Some("the local CA expires in 30d; burrow does not renew it on its own")
     );
     local.step(NOW + 60, &*w);
     assert_eq!(

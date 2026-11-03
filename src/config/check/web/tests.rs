@@ -18,6 +18,10 @@ fn tls_dir() -> tempfile::TempDir {
     dir
 }
 
+pub(super) fn svc(name: &str, web: &str) -> String {
+    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
+}
+
 pub(super) fn load_in(dir: &Path, rest: &str) -> Outcome {
     let text = format!("clients:\n  home: {{ secret: \"{SECRET}\" }}\n{rest}");
     load_str_in(
@@ -192,7 +196,7 @@ fn every_final_tls_form_parses_and_automatic_certificates_need_a_source() {
     assert!(!wrong.is_empty(), "an unknown word is refused");
 }
 
-const NEEDS_A_PORT: &str = "web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80";
+const NEEDS_A_PORT: &str = "web: needs a port: the HTTPS port for HTTPS sites, like https: 443, or the HTTP port for plain HTTP sites, like http: 80";
 
 #[test]
 fn web_needs_an_https_or_an_http_port() {

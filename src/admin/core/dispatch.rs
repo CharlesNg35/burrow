@@ -73,6 +73,10 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
             let r: msg::HashPassword = parse(body)?;
             ok(passwords::hash_password(s, r)?)
         }
+        msg::req::UPDATE_CLIENTS => {
+            let r: burrow_admin_proto::updates::UpdateClients = parse(body)?;
+            ok(super::updates::update_clients(core, s, &r)?)
+        }
         other => Err(ApiError::new(
             ErrorCode::UnknownRequest,
             format!("unknown request \"{other}\""),

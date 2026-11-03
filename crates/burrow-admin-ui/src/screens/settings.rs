@@ -163,7 +163,27 @@ fn pill_count(rows: &[(Tab, Row)], tab: Tab, look: Look) -> String {
         .to_string()
 }
 
-fn pill_marks(rows: &[(Tab, Row)], tab: Tab) -> Vec<TabMark> {
+fn problem_paths() -> Vec<Vec<String>> {
+    let e = store().edit;
+    let mut out: Vec<Vec<String>> = e.local.with(|l| l.keys().cloned().collect());
+    out.extend(e.related.with(|r| r.keys().cloned().collect::<Vec<_>>()));
+    out.extend(e.plan.with(|p| {
+        p.as_ref()
+            .map(|p| {
+                p.diags
+                    .iter()
+                    .filter(|d| d.is_error())
+                    .filter_map(|d| d.path.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    }));
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn pill_marks(rows: &[(Tab, Row)], tab: Tab, problems: &[Vec<String>]) -> Vec<TabMark> {
     let tagged = |word: &str| {
         rows.iter()
             .filter(|(t, r)| *t == tab && r.tags.iter().any(|(x, _)| x.contains(word)))
@@ -171,7 +191,18 @@ fn pill_marks(rows: &[(Tab, Row)], tab: Tab) -> Vec<TabMark> {
     };
     let changed = tagged("changed");
     let locked = tagged("locked");
+    let bad =
+        burrow_admin_logic::settings_tabs::problems_in(tab, problems, &crate::route::SECTIONS);
     let mut out = Vec::new();
+    if bad > 0 {
+        out.push(TabMark {
+            key: "problems",
+            n: bad,
+            icon: None,
+            dot: Some(Tone::Danger),
+            title: burrow_admin_logic::wording::count_of(bad, "problem"),
+        });
+    }
     if changed > 0 {
         out.push(TabMark {
             key: "changed",
@@ -213,7 +244,12 @@ fn tab_bar(
         })
     });
     let marks = Signal::derive(move || {
-        rows.with(|r| b.iter().map(|t| pill_marks(r, *t)).collect::<Vec<_>>())
+        let problems = problem_paths();
+        rows.with(|r| {
+            b.iter()
+                .map(|t| pill_marks(r, *t, &problems))
+                .collect::<Vec<_>>()
+        })
     });
     view! {
         <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-border bg-surface px-2 py-1.5" data-testid="settings-tabs">

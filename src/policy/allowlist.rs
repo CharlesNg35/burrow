@@ -1,3 +1,6 @@
+//! Allow lists: which targets a client may reach and which source addresses may connect.
+//! `AllowList` holds the rules; `Gate` checks a target and says why it is refused.
+
 use std::net::{IpAddr, SocketAddr};
 
 pub use burrow_syntax::cidr::Cidr;

@@ -1,3 +1,6 @@
+//! WebSocket as a tunnel transport: accepts and makes upgrades over plain TCP or TLS, and carries bytes in frames.
+//! Start at `accept` on the server and `connect` on the dialing side.
+
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll, ready};

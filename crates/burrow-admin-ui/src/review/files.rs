@@ -20,7 +20,7 @@ pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: bool)
                     <div class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5 text-[13px] text-text-muted" data-testid="empty-file">
                         <span>{empty_offer(&file)}</span>
                         <span class="ml-auto"></span>
-                        <Button label=format!("Delete {file}") variant="secondary" testid="drop-file" on_click=move |_| s.edit.drop_file(&file, true)/>
+                        <Button label=format!("Delete {file}") variant=burrow_ui_kit::ButtonLook::Secondary testid="drop-file" on_click=move |_| s.edit.drop_file(&file, true)/>
                     </div>
                 }
             });
@@ -31,7 +31,7 @@ pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: bool)
                 view! {
                     <div class="flex items-center gap-2 border-t border-border px-4 py-2.5 text-[13px]">
                         <span class="ml-auto"></span>
-                        <Button label="Keep the empty file" variant="ghost" testid="keep-file" on_click=move |_| s.edit.drop_file(&file, false)/>
+                        <Button label="Keep the empty file" variant=burrow_ui_kit::ButtonLook::Ghost testid="keep-file" on_click=move |_| s.edit.drop_file(&file, false)/>
                     </div>
                 }
             });

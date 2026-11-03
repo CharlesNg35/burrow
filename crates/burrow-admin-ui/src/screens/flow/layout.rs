@@ -6,7 +6,8 @@ use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
 use crate::form::plain;
 use crate::format;
 use crate::route::Route;
-use crate::screens::paths::clients_of;
+use crate::screens::paths::{clients_of, health_count};
+use burrow_admin_logic::health::Level;
 
 use super::links::{client_lines, service_nodes};
 use super::{Health, PITCH, TOP};
@@ -89,12 +90,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&s
     let mut lines = Vec::new();
     let offline: Vec<&String> = client_names
         .iter()
-        .filter(|c| {
-            status.is_some()
-                && !status
-                    .and_then(|s| s.clients.iter().find(|x| &x.name == *c))
-                    .is_some_and(|x| x.connected)
-        })
+        .filter(|c| status.is_some() && !format::presence_of(status, c).up())
         .collect();
     nodes.push(server_node(&svcs, status, rates, rows));
     let client_nodes = client_nodes(&client_names, &svcs, status, rows);
@@ -143,33 +139,13 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
                 .map(|(name, v)| {
                     let st = status.and_then(|s| s.services.iter().find(|x| &x.name == name));
                     let clients = clients_of(v);
-                    let up = clients
-                        .iter()
-                        .filter(|c| {
-                            status
-                                .and_then(|s| s.clients.iter().find(|x| &x.name == *c))
-                                .is_some_and(|x| x.connected)
-                        })
-                        .count();
-                    let checks = st
-                        .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()))
-                        .unwrap_or((0, 0));
-                    let (health, badge) = if status.is_none() {
-                        (Health::Unknown, None)
-                    } else if up == 0 {
-                        (Health::Down, Some("down".to_string()))
-                    } else if checks.1 > 0 && checks.0 < checks.1 {
-                        (
-                            Health::Degraded,
-                            Some(format!("{} of {} up", checks.0, checks.1)),
-                        )
-                    } else if up < clients.len() {
-                        (
-                            Health::Degraded,
-                            Some(format!("{up} of {} up", clients.len())),
-                        )
-                    } else {
-                        (Health::Healthy, None)
+                    let (health, badge) = match status.map(|_| health_count(name, v, status, &[])) {
+                        None => (Health::Unknown, None),
+                        Some(c) => match c.level() {
+                            Level::Down => (Health::Down, Some(c.label().to_lowercase())),
+                            Level::Partial => (Health::Degraded, Some(c.label())),
+                            Level::Up => (Health::Healthy, None),
+                        },
                     };
                     Svc {
                         name: name.clone(),
@@ -320,8 +296,8 @@ fn client_nodes(
         .iter()
         .enumerate()
         .map(|(j, c)| {
-            let cs = status.and_then(|s| s.clients.iter().find(|x| &x.name == c));
-            let on = cs.is_some_and(|x| x.connected);
+            let cs = status.and_then(|s| burrow_admin_logic::presence::client(s, c));
+            let on = format::presence_of(status, c).up();
             let slot = (rows as f64 * PITCH) / client_names.len().max(1) as f64;
             let y = TOP + (j as f64 + 0.5) * slot - 21.0;
             let involved = svcs.iter().any(|s| problem_svc(s) && s.clients.contains(c));

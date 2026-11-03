@@ -1,16 +1,17 @@
+use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{self, GeneratedSecret};
-use burrow_admin_proto::schema::Entity;
+use burrow_admin_proto::schema::Node;
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_config::{ClientEntry, Entry, ServiceEntry, entity_of_section};
-use burrow_config::{Limits, ServerConfig};
-use burrow_ui_kit::{Button, ComboOption, TextInput};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+use burrow_ui_kit::{Button, ComboOption};
 use leptos::prelude::*;
 
 use crate::api;
 use crate::route::{Route, go};
-use crate::store::{Store, store};
+use crate::store::store;
 
-use super::{create_with, name_problem, new_path, services_for, singular};
+use super::{new_path, services_for};
+use crate::entities::{create_with, name_problem, singular};
 
 #[component]
 pub fn NewEntity(
@@ -22,7 +23,12 @@ pub fn NewEntity(
     let e = s.edit;
     let what = singular(&section);
     let name = draft_name.unwrap_or_else(|| RwSignal::new(String::new()));
-    let max = RwSignal::new(String::new());
+    let at = vec![section.clone(), crate::edit::NEW.to_string()];
+    e.start_scratch(at.clone(), json!({}));
+    let at = StoredValue::new(at);
+    on_cleanup(move || {
+        let _ = e.take_scratch(&at.get_value());
+    });
     let save_in = RwSignal::new(String::new());
     let links: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
     let secret: RwSignal<Option<(String, String)>> = RwSignal::new(None);
@@ -34,22 +40,34 @@ pub fn NewEntity(
         });
     }
     let sec = section.clone();
-    let problem = Signal::derive(move || {
+    let sec2 = sec.clone();
+    let name_issue = Signal::derive(move || {
         let n = name.get();
-        if n.is_empty() {
-            None
-        } else {
-            name_problem(&n, &sec, None)
-        }
+        (!n.is_empty())
+            .then(|| name_problem(&n, &sec, None))
+            .flatten()
     });
+    let problem = Signal::derive(move || {
+        name_issue
+            .get()
+            .or_else(|| fields_problem(&sec2, at.get_value()))
+    });
+    let why = move || match (name_issue.get(), problem.get()) {
+        (Some(_), _) => "Fix the name first".to_string(),
+        (None, Some(p)) => p,
+        (None, None) => String::new(),
+    };
     let sec3 = StoredValue::new(section.clone());
     let finish = move |apply: bool| {
         let n = name.get_untracked();
         let sec = sec3.get_value();
-        if n.is_empty() || name_problem(&n, &sec, None).is_some() {
+        if n.is_empty() || untrack(|| problem.get()).is_some() {
             return;
         }
-        let m = max.get_untracked().trim().parse::<u64>().ok();
+        let scratch = e.take_scratch(&at.get_value()).unwrap_or_default();
+        let m = new_value(&sec, &scratch)
+            .get(ClientEntry::MAX_CONNECTIONS.key())
+            .and_then(Value::as_u64);
         let clean = !untrack(|| e.dirty());
         create_with(&sec, &n, secret.get_untracked(), m, &links.get_untracked());
         super::save_in::place_new(&sec, &n, &save_in.get_untracked());
@@ -67,19 +85,10 @@ pub fn NewEntity(
     let path_data = Signal::derive(move || {
         new_path(&sec4, &name.get(), &s.server_name(), links.with(Vec::len))
     });
-    let intro = match entity_of_section(&section) {
-        Some(Entity::Client) => {
-            "A machine that dials out to this server and reaches targets for your services."
-        }
-        Some(Entity::Visitor) => "A person or machine that reaches services with burrow visit.",
-        _ => {
-            "A port on this server, a website, or a service for your visitors, reached through one of your clients."
-        }
-    };
+    let intro = burrow_admin_logic::entity::of_section(&section).intro;
     let sec5 = section.clone();
     let options = Signal::derive(move || services_for(&sec5));
-    let client = what == ClientEntry::ENTITY;
-    let placeholder_max = placeholder_max(s, client);
+    let sec6 = section.clone();
     let crumb = Route::List(section.clone());
     let plural_s = crate::screens::plural(&section);
     view! {
@@ -89,11 +98,11 @@ pub fn NewEntity(
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
                 <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
-                {super::name_input("new-name", "Name", name, problem, true, super::name_example(entity_of_section(&section).as_ref()))}
+                {crate::rename::name_input("new-name", "Name", name, name_issue, true, burrow_admin_logic::entity::of_section(&section).name_example)}
                 {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
                 {super::save_in::save_in_field(name, save_in)}
             </section>
-            {(what != ServiceEntry::ENTITY).then(|| limits_section(what, name, max, placeholder_max, options, links))}
+            {(what != ServiceEntry::ENTITY).then(move || limits_section(&sec6, what, name, options, links))}
             <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
             <burrow_ui_kit::StickyBar>
                 {burrow_ui_kit::bar_status(Signal::derive(move || {
@@ -108,22 +117,22 @@ pub fn NewEntity(
                     }
                 }))}
                 <span class="ml-auto"></span>
-                <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
+                <Button label="Cancel" variant=burrow_ui_kit::ButtonLook::Ghost testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
                 <Button
                     label=if what == ServiceEntry::ENTITY { "Add and edit".to_string() } else { "Add to changes".to_string() }
-                    variant=if what == ServiceEntry::ENTITY { "primary" } else { "secondary" }
+                    variant=if what == ServiceEntry::ENTITY { burrow_ui_kit::ButtonLook::Primary } else { burrow_ui_kit::ButtonLook::Secondary }
                     testid="create"
                     disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some())
-                    reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
+                    reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else { why() })
                     on_click=move |_| finish2(false)
                 />
                 {(what != ServiceEntry::ENTITY).then(|| view! {
                     <Button
                         label="Create and apply"
-                        variant="primary"
+                        variant=burrow_ui_kit::ButtonLook::Primary
                         testid="create-apply"
                         disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some() || secret.get().is_none())
-                        reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
+                        reason=Signal::derive(move || if name.get().is_empty() { burrow_admin_logic::wording::TYPE_NAME_FIRST.to_string() } else if problem.get().is_some() { why() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
                         on_click=move |_| finish2(true)
                     />
                 })}
@@ -133,23 +142,48 @@ pub fn NewEntity(
     }
 }
 
-fn placeholder_max(s: Store, client: bool) -> String {
-    if client {
-        let n = s
-            .state
-            .with_untracked(|st| {
-                st.as_ref().and_then(|st| {
-                    ServerConfig::LIMITS
-                        .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
-                        .get(&st.values)
-                        .and_then(Value::as_u64)
-                })
-            })
-            .unwrap_or(u64::from(Limits::default().max_connections_per_client));
-        format!("Default: {}", crate::format::count(n))
+fn rows_of(section: &str) -> Vec<Path> {
+    if section == ClientEntry::section() {
+        vec![ClientEntry::MAX_CONNECTIONS.schema()]
+    } else if section == VisitorEntry::section() {
+        vec![VisitorEntry::MAX_CONNECTIONS.schema()]
     } else {
-        "Unlimited".to_string()
+        Vec::new()
     }
+}
+
+fn new_value(section: &str, scratch: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for r in rows_of(section) {
+        if let (Some(k), Some(v)) = (r.last(), r.last().and_then(|k| scratch.get(k))) {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+fn entry_problem(root: &Node, section: &str, scratch: &Value, doc: &Value) -> Option<String> {
+    rows_of(section).iter().find_map(|r| {
+        let v = r.last().and_then(|k| scratch.get(k));
+        crate::field::problem_at(root, r, v, doc)
+    })
+}
+
+fn fields_problem(section: &str, at: Path) -> Option<String> {
+    let s = store();
+    let e = s.edit;
+    let local = e.local.with(|l| {
+        l.iter()
+            .find(|(p, _)| p.starts_with(&at))
+            .map(|(_, m)| m.clone())
+    });
+    local.or_else(|| {
+        let scratch = e.value(&at).unwrap_or_default();
+        s.schema.with(|sc| {
+            sc.as_ref()
+                .and_then(|sc| entry_problem(&sc.root, section, &scratch, &e.doc()))
+        })
+    })
 }
 
 fn secret_field(secret: RwSignal<Option<(String, String)>>) -> impl IntoView {
@@ -170,13 +204,12 @@ fn secret_field(secret: RwSignal<Option<(String, String)>>) -> impl IntoView {
 }
 
 fn limits_section(
+    section: &str,
     what: &'static str,
     name: RwSignal<String>,
-    max: RwSignal<String>,
-    placeholder_max: String,
     options: Signal<Vec<ComboOption>>,
     links: RwSignal<Vec<String>>,
-) -> impl IntoView {
+) -> impl IntoView + use<> {
     let link_label = if what == ClientEntry::ENTITY {
         "Serves"
     } else {
@@ -195,17 +228,14 @@ fn limits_section(
             format!("Adds {who} to the service's visitors.")
         }
     };
+    let rows: Vec<AnyView> = rows_of(section)
+        .into_iter()
+        .map(|r| crate::form::field_row(crate::field::concrete(&r, crate::edit::NEW), r))
+        .collect();
     view! {
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
             <burrow_ui_kit::SectionHead title={if what == ClientEntry::ENTITY { "Limits and services" } else { "Access and limits" }} sub="Both optional."/>
-            <div>
-                <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{if what == ClientEntry::ENTITY { "Maximum connections on this server" } else { "Maximum connections" }}<span class="font-normal text-text-faint">"· optional"</span></span>
-                <div class="flex items-center gap-2">
-                    <div class="w-56">
-                        <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="connections"/>
-                    </div>
-                </div>
-            </div>
+            <div data-testid="new-max">{rows}</div>
             <div>
                 <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{link_label}<span class="font-normal text-text-faint">"· optional"</span></span>
                 <burrow_ui_kit::Combobox
@@ -221,5 +251,53 @@ fn limits_section(
                 <p class="mt-1.5 text-xs text-text-muted">{link_help}</p>
             </div>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_config::ServerConfig;
+    use burrow_config::admin_schema::AdminSchema;
+
+    fn problem(section: &str, scratch: Value) -> Option<String> {
+        entry_problem(&ServerConfig::node(), section, &scratch, &json!({}))
+    }
+
+    #[test]
+    fn maximum_connections_follow_the_schema_range_for_clients_and_visitors() {
+        for (section, key) in [
+            (ClientEntry::section(), ClientEntry::MAX_CONNECTIONS.key()),
+            (VisitorEntry::section(), VisitorEntry::MAX_CONNECTIONS.key()),
+        ] {
+            assert_eq!(problem(section, json!({})), None, "{section}");
+            assert_eq!(problem(section, json!({ key: 8 })), None, "{section}");
+            assert!(
+                problem(section, json!({ key: 0 })).is_some(),
+                "{section}: 0"
+            );
+            assert!(
+                problem(section, json!({ key: 4_294_967_296u64 })).is_some(),
+                "{section}: above u32"
+            );
+            assert!(
+                problem(section, json!({ key: "abc" })).is_some(),
+                "{section}: abc"
+            );
+        }
+    }
+
+    #[test]
+    fn every_field_the_wizard_writes_is_a_field_row() {
+        for section in [ClientEntry::section(), VisitorEntry::section()] {
+            let written = new_value(section, &json!({ "max_connections": 3 }));
+            let rows = rows_of(section);
+            for key in written.as_object().unwrap().keys() {
+                assert!(
+                    rows.iter().any(|r| r.last() == Some(key)),
+                    "{section}.{key} is written but not rendered by the field editor"
+                );
+            }
+        }
     }
 }

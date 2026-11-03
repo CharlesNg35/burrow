@@ -1,4 +1,22 @@
+use burrow_syntax::duration::{ago, span};
 use serde::{Deserialize, Serialize};
+
+pub const RESTART_FAILS: &str = "a restart fails until it can";
+
+pub fn not_listening(why: &str) -> String {
+    format!("not listening: {why}; {RESTART_FAILS}")
+}
+
+pub const ONLINE: &str = "online";
+pub const OFFLINE: &str = "offline";
+
+pub fn away(left_secs_ago: Option<u64>, uptime: u64, added_secs_ago: Option<u64>) -> String {
+    match (left_secs_ago, added_secs_ago) {
+        (Some(a), _) => format!("left {}", ago(a)),
+        (None, Some(a)) if a < uptime => format!("added {}, not connected yet", ago(a)),
+        (None, _) => format!("not seen since server start ({})", span(uptime)),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Status {
@@ -28,6 +46,12 @@ pub struct Status {
     pub local_ca: Option<LocalCaStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_waiting: Option<PortWait>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<crate::updates::LocalClient>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout: Option<crate::updates::RolloutStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<crate::updates::LatestRelease>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -39,6 +63,8 @@ pub struct PortWait {
     pub stays: String,
     #[serde(default)]
     pub retry_secs: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hint: String,
 }
 
 impl PortWait {
@@ -108,6 +134,14 @@ pub struct ClientStatus {
     pub at_limit: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<crate::updates::ClientBuild>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<crate::updates::UpdateStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -153,6 +187,8 @@ pub struct ServiceStatus {
     pub http: Option<HttpCounts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_listening: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -252,6 +288,25 @@ pub enum CertStateStatus {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_client_added_after_the_server_started_is_not_called_unseen_since_start() {
+        assert_eq!(super::away(Some(120), 900, None), "left 2m ago");
+        assert_eq!(
+            super::away(None, 900, Some(2)),
+            "added just now, not connected yet"
+        );
+        assert_eq!(
+            super::away(None, 900, None),
+            "not seen since server start (15m)"
+        );
+        assert_eq!(
+            super::away(None, 60, Some(600)),
+            "not seen since server start (1m)",
+            "an add from before this server start does not count"
+        );
+    }
+
     use super::*;
 
     #[test]
@@ -262,6 +317,7 @@ mod tests {
             reason: "in use".into(),
             stays: "https 0.0.0.0:443".into(),
             retry_secs: 5,
+            hint: String::new(),
         };
         assert_eq!(
             w.line(),

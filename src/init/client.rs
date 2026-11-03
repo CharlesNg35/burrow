@@ -48,13 +48,27 @@ pub fn init_client(
         name,
         secret_text,
     } = ask_login(Role::Client, &path, opts, prompt)?;
-    let value = client_value(&server, &name, &secret_text, &["127.0.0.0/8".to_string()]);
+    let mut value = client_value(&server, &name, &secret_text, &["127.0.0.0/8".to_string()]);
+    let remote = opts.remote_updates
+        || (prompt.interactive()
+            && prompt.confirm(
+                "Let the server's admin update this client to newer burrow releases? It downloads and checks them itself",
+                false,
+            ));
+    if remote {
+        value["update"] = json!({ "remote": true });
+    }
     write_new(&path, &render(&value, format), opts.force)?;
     crate::base::output::say(
         out,
         format!(
-            "wrote {} (allows 127.0.0.0/8; edit \"allow\" to expose other networks)",
-            path.display()
+            "wrote {} (allows 127.0.0.0/8; edit \"allow\" to expose other networks){}",
+            path.display(),
+            if remote {
+                "; the server's admin may update it to newer releases"
+            } else {
+                ""
+            }
         ),
     )?;
     Ok(path)

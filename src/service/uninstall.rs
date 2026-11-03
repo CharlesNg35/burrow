@@ -83,6 +83,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     let m = resolve(name)?;
     let env = backend.read_env(&m);
     let _ = backend.stop(&m);
+    super::helper::remove(&m)?;
     backend.uninstall(&m)?;
     let _ = std::fs::remove_file(manifest_path(&m.name));
     say(out, format!("removed service {}", m.name))?;
@@ -449,5 +450,9 @@ pub(super) fn differs(source: &Path, installed: &Path) -> bool {
 }
 
 pub(super) fn missing(p: &Path) -> &'static str {
-    if p.exists() { "" } else { "  (missing!)" }
+    match p.try_exists() {
+        Ok(true) => "",
+        Ok(false) => "  (missing!)",
+        Err(_) => "  (not readable by you; run with sudo to check it)",
+    }
 }

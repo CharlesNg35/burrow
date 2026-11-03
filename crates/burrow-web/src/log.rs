@@ -1,3 +1,6 @@
+//! Access log lines in common or JSON format, and request IDs.
+//! `LogFile` writes lines on its own thread, counts lines dropped when its queue is full and reopens a moved file.
+
 mod file;
 pub(crate) use file::WARN_EVERY;
 

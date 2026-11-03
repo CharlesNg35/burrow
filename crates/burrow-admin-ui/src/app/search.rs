@@ -18,9 +18,21 @@ struct Hit {
     query: Option<(&'static str, &'static str)>,
 }
 
+fn word_at(lower: &str, needle: &str) -> Option<usize> {
+    lower.match_indices(needle).map(|(i, _)| i).find(|&i| {
+        lower[..i]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric())
+    })
+}
+
 fn marked(label: &str, needle: &str) -> AnyView {
     let lower = label.to_lowercase();
-    match (!needle.is_empty()).then(|| lower.find(needle)).flatten() {
+    match (!needle.is_empty())
+        .then(|| word_at(&lower, needle).or_else(|| lower.find(needle)))
+        .flatten()
+    {
         Some(at) if label.is_char_boundary(at) && label.is_char_boundary(at + needle.len()) => {
             let (a, rest) = label.split_at(at);
             let (b, c) = rest.split_at(needle.len());
@@ -74,7 +86,7 @@ fn names(doc: &Value, sec: &str) -> Vec<String> {
 fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
     for c in names(doc, ClientEntry::section()) {
         let label = format!("Rotate secret of {c}…");
-        if !needle.is_empty() && hit(needle, &label) {
+        if !needle.is_empty() && word_at(&label.to_lowercase(), needle).is_some() {
             out.push(Hit {
                 section: "Actions",
                 icon: "refresh",
@@ -156,23 +168,16 @@ fn entity_hits(doc: &Value, status: Option<&Status>, needle: &str, out: &mut Vec
 fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> String {
     match entity_of_section(sec) {
         Some(Entity::Client) => {
-            let c = status
-                .as_ref()
-                .and_then(|st| st.clients.iter().find(|c| c.name == n))
-                .cloned();
+            let c = burrow_admin_logic::presence::of(status, n);
             let secrets = match ClientEntry::SECRET.get(v) {
                 Some(Value::Array(a)) => a.len(),
                 Some(_) => 1,
                 None => 0,
             };
             match c {
-                Some(c) if c.connected => format!(
+                Some(c) if c.online => format!(
                     "{} · {}",
-                    c.from
-                        .unwrap_or_default()
-                        .rsplit_once(':')
-                        .map(|(h, _)| h.to_string())
-                        .unwrap_or_default(),
+                    c.from.unwrap_or_default(),
                     burrow_admin_logic::wording::count_of(secrets, ClientEntry::SECRET.key())
                 ),
                 _ => format!(
@@ -276,6 +281,9 @@ pub(super) fn SearchPopover() -> impl IntoView {
         let list = hits.get();
         let needle = q.get().trim().to_lowercase();
         let act = active.get().min(list.len().saturating_sub(1));
+        if list.is_empty() {
+            return view! { <li class="px-2.5 py-3 text-sm text-text-muted" role="presentation">"Nothing matches"</li> }.into_any();
+        }
         let mut last = "";
         list.into_iter()
             .enumerate()
@@ -296,12 +304,13 @@ pub(super) fn SearchPopover() -> impl IntoView {
                             <span class="text-text-muted"><Icon name=h.icon/></span>
                             {marked(&h.label, &needle)}
                             <span class="ml-auto truncate text-xs text-text-muted">{h.facet.clone()}</span>
-                            {(i == act).then(|| view! { <Kbd text="↵"/> })}
+                            {(i == act).then(|| view! { <Kbd text="Enter"/> })}
                         </button>
                     </li>
                 }
             })
             .collect_view()
+            .into_any()
     };
     let keys = Callback::new(move |e: web_sys::KeyboardEvent| match e.key().as_str() {
         "ArrowDown" => {
@@ -354,9 +363,25 @@ pub(super) fn SearchPopover() -> impl IntoView {
                 <ul class="max-h-[60vh] overflow-y-auto p-1.5" role="listbox">{body}</ul>
                 <div class="flex items-center gap-3 border-t border-border px-4 py-2.5 text-xs text-text-muted">
                     <span>"↑↓ move"</span>
-                    <span>"↵ run"</span>
+                    <span>"Enter run"</span>
                     <span class="ml-auto">"Searches services, clients, visitors, settings and history"</span>
                 </div>
         </Modal>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::word_at;
+
+    #[test]
+    fn an_action_matches_where_a_word_starts() {
+        assert_eq!(word_at("rotate secret of etiolles…", "et"), Some(17));
+        assert_eq!(word_at("rotate secret of home…", "et"), None);
+        assert_eq!(
+            word_at("rotate secret of etiolles-ai-pve…", "pve"),
+            Some(29)
+        );
+        assert_eq!(word_at("rotate secret of home…", "secret of"), Some(7));
     }
 }

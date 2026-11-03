@@ -1,3 +1,5 @@
+//! The screens of the admin UI and `screen`, which picks the one for each `Route`.
+
 mod about;
 pub mod activity;
 pub mod bar;
@@ -11,6 +13,7 @@ mod overview;
 pub mod paths;
 pub mod placement;
 mod settings;
+pub mod updates;
 
 use burrow_ui_kit::{EmptyState, Icon, Tone, button_class};
 use leptos::prelude::*;
@@ -46,12 +49,7 @@ pub fn plural(section: &str) -> &'static str {
 }
 
 pub fn entity_icon(section: &str) -> &'static str {
-    use burrow_admin_proto::schema::Entity;
-    match entity_of(section) {
-        Entity::Client => "monitor",
-        Entity::Visitor => "person",
-        Entity::Service | Entity::Login | Entity::Unknown(_) => "stack",
-    }
+    burrow_admin_logic::entity::of_section(section).icon
 }
 
 pub fn screen(route: Route) -> AnyView {
@@ -67,7 +65,7 @@ pub fn screen(route: Route) -> AnyView {
         Route::NotFound(path) => view! {
             <div class="p-8">
                 <EmptyState title="Page not found" message=format!("Nothing lives at {path}.") testid="not-found">
-                    <Link to=Route::Overview class=button_class("secondary", false)>"Go to the overview"</Link>
+                    <Link to=Route::Overview class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Normal)>"Go to the overview"</Link>
                 </EmptyState>
             </div>
         }
@@ -101,6 +99,7 @@ pub struct Row {
     pub line3: String,
     pub aside: String,
     pub title_tag: Option<(String, Tone)>,
+    pub health: Option<entity::HealthMark>,
     pub terms: String,
 }
 
@@ -126,14 +125,14 @@ impl Row {
 
 #[component]
 pub fn DetailPane(
-    #[prop(optional, into)] back: Option<Route>,
+    #[prop(default = None)] back: Option<Route>,
     children: Children,
 ) -> impl IntoView {
     view! {
         <section id="detail" tabindex="-1" class="min-w-0 bg-bg px-[34px] pt-7 pb-12 outline-none max-sm:px-4" data-testid="detail-pane">
             {back.map(|b| view! {
                 <div class="mb-3 max-sm:hidden lg:hidden">
-                    <Link to=b class=button_class("ghost", true)>
+                    <Link to=b class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small)>
                         <Icon name="chevron-left" small=true/>
                         "Back"
                     </Link>

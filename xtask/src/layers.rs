@@ -1,3 +1,6 @@
+//! The layer check of the burrow crate: it maps each `src` module to a layer and reports imports that go up a layer.
+//! It builds the module graph by scanning `use` paths with proc-macro2 tokens, and also checks macro homes and guarded items.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -11,12 +14,17 @@ pub enum Layer {
     Config,
     Roles,
     Ops,
+    Model,
+    Controls,
+    Editor,
+    Pages,
 }
 
 pub const GROUPS: &[&str] = &["app", "base", "policy", "wire"];
 
 pub const UNITS: &[(&str, Layer)] = &[
     ("base::access", Layer::Base),
+    ("base::build", Layer::Base),
     ("base::channel", Layer::Base),
     ("base::failure", Layer::Base),
     ("base::fs", Layer::Base),
@@ -28,6 +36,7 @@ pub const UNITS: &[(&str, Layer)] = &[
     ("base::slots", Layer::Base),
     ("base::style", Layer::Base),
     ("base::suggest", Layer::Base),
+    ("base::testkit", Layer::Base),
     ("base::windows", Layer::Base),
     ("wire::handshake", Layer::Wire),
     ("wire::noise", Layer::Wire),
@@ -67,35 +76,111 @@ pub const UNITS: &[(&str, Layer)] = &[
 
 pub const MACROS: &[(&str, &str)] = &[("say_err", "base::failure"), ("say_errln", "base::failure")];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Includes {
+    Banned,
+    TestsMayReadSources,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cycles {
+    Refused,
+    WithinALayer,
+}
+
+pub struct Table {
+    pub src: &'static str,
+    pub includes: Includes,
+    pub cycles: Cycles,
+    pub root_file: &'static str,
+    pub groups: &'static [&'static str],
+    pub units: &'static [(&'static str, Layer)],
+    pub macros: &'static [(&'static str, &'static str)],
+}
+
+pub const ROOT: Table = Table {
+    src: "src",
+    includes: Includes::Banned,
+    cycles: Cycles::Refused,
+    root_file: "lib",
+    groups: GROUPS,
+    units: UNITS,
+    macros: MACROS,
+};
+
+pub const UI_UNITS: &[(&str, Layer)] = &[
+    ("api", Layer::Model),
+    ("edit", Layer::Model),
+    ("entities", Layer::Model),
+    ("format", Layer::Model),
+    ("grants", Layer::Model),
+    ("route", Layer::Model),
+    ("store", Layer::Model),
+    ("addr", Layer::Controls),
+    ("field", Layer::Controls),
+    ("passwords", Layer::Controls),
+    ("row_menu", Layer::Controls),
+    ("secrets", Layer::Controls),
+    ("shown", Layer::Controls),
+    ("domain", Layer::Editor),
+    ("form", Layer::Editor),
+    ("logins", Layer::Editor),
+    ("rename", Layer::Editor),
+    ("uploads", Layer::Editor),
+    ("app", Layer::Pages),
+    ("contrast", Layer::Pages),
+    ("review", Layer::Pages),
+    ("screens", Layer::Pages),
+];
+
+pub const UI: Table = Table {
+    src: "crates/burrow-admin-ui/src",
+    includes: Includes::TestsMayReadSources,
+    cycles: Cycles::WithinALayer,
+    root_file: "main",
+    groups: &[],
+    units: UI_UNITS,
+    macros: &[],
+};
+
+impl Table {
+    pub fn layer_of(&self, unit: &str) -> Option<Layer> {
+        self.units.iter().find(|(u, _)| *u == unit).map(|(_, l)| *l)
+    }
+
+    pub fn module_of(&self, rel: &str) -> Option<Vec<String>> {
+        let inner = rel
+            .strip_prefix(self.src)?
+            .strip_prefix('/')?
+            .strip_suffix(".rs")?;
+        let mut segs: Vec<String> = inner.split('/').map(str::to_string).collect();
+        if segs.last().is_some_and(|s| s == "mod") || segs == [self.root_file] {
+            segs.pop();
+        }
+        Some(segs)
+    }
+
+    pub fn unit_of(&self, module: &[String]) -> Option<String> {
+        let first = module.first()?;
+        if let Some((_, unit)) = self.macros.iter().find(|(m, _)| m == first) {
+            return Some(unit.to_string());
+        }
+        if self.groups.contains(&first.as_str()) {
+            return module.get(1).map(|second| format!("{first}::{second}"));
+        }
+        Some(first.clone())
+    }
+
+    fn is_group_root(&self, module: &[String]) -> bool {
+        module.len() == 1 && self.groups.contains(&module[0].as_str())
+    }
+}
+
 pub const GUARDS: &[(&str, &str, &str)] = &[(
     "src/wire/noise.rs",
     "pub struct InMemory(pub(in crate::wire) ());",
     "only code under src/wire may make an unencrypted in-memory session",
 )];
-
-pub fn layer_of(unit: &str) -> Option<Layer> {
-    UNITS.iter().find(|(u, _)| *u == unit).map(|(_, l)| *l)
-}
-
-pub fn module_of(rel: &str) -> Option<Vec<String>> {
-    let inner = rel.strip_prefix("src/")?.strip_suffix(".rs")?;
-    let mut segs: Vec<String> = inner.split('/').map(str::to_string).collect();
-    if segs.last().is_some_and(|s| s == "mod") || segs == ["lib"] {
-        segs.pop();
-    }
-    Some(segs)
-}
-
-pub fn unit_of(module: &[String]) -> Option<String> {
-    let first = module.first()?;
-    if let Some((_, unit)) = MACROS.iter().find(|(m, _)| m == first) {
-        return Some(unit.to_string());
-    }
-    if GROUPS.contains(&first.as_str()) {
-        return module.get(1).map(|second| format!("{first}::{second}"));
-    }
-    Some(first.clone())
-}
 
 #[derive(Debug, Default)]
 pub struct Scan {
@@ -263,9 +348,9 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 pub type Graph = BTreeMap<String, BTreeSet<String>>;
 
-pub fn graph(root: &Path) -> Result<(Graph, Vec<String>), String> {
+pub fn graph_in(root: &Path, table: &Table) -> Result<(Graph, Vec<String>), String> {
     let mut files = Vec::new();
-    rust_files(&root.join("src"), &mut files);
+    rust_files(&root.join(table.src), &mut files);
     files.sort();
     let mut edges = Graph::new();
     let mut problems = Vec::new();
@@ -275,18 +360,24 @@ pub fn graph(root: &Path) -> Result<(Graph, Vec<String>), String> {
             .unwrap_or(&f)
             .to_string_lossy()
             .replace('\\', "/");
-        if rel == "src/main.rs" {
+        if rel == "src/main.rs" && table.src == "src" {
             continue;
         }
         let src = std::fs::read_to_string(&f).map_err(|e| format!("{rel}: {e}"))?;
-        let module = module_of(&rel).ok_or_else(|| format!("{rel}: not a module file"))?;
+        let module = table
+            .module_of(&rel)
+            .ok_or_else(|| format!("{rel}: not a module file"))?;
         let scan = scan_source(&src, &module).map_err(|e| format!("{rel}: {e}"))?;
-        for b in &scan.banned {
+        for b in scan
+            .banned
+            .iter()
+            .filter(|_| table.includes == Includes::Banned)
+        {
             problems.push(format!("{rel}: {b} is not allowed in src"));
         }
-        let from = match unit_of(&module) {
-            Some(u) if layer_of(&u).is_some() => u,
-            _ if is_group_root(&module) || module.is_empty() => {
+        let from = match table.unit_of(&module) {
+            Some(u) if table.layer_of(&u).is_some() => u,
+            _ if table.is_group_root(&module) || module.is_empty() => {
                 if !scan.targets.is_empty() {
                     problems.push(format!(
                         "{rel}: a layer folder's mod.rs holds only mod lines"
@@ -303,7 +394,7 @@ pub fn graph(root: &Path) -> Result<(Graph, Vec<String>), String> {
             }
         };
         for t in scan.targets {
-            let Some(to) = unit_of(&t) else {
+            let Some(to) = table.unit_of(&t) else {
                 problems.push(format!(
                     "{rel}: crate::{} names a layer folder or the crate root; import the unit itself",
                     t.join("::")
@@ -313,7 +404,7 @@ pub fn graph(root: &Path) -> Result<(Graph, Vec<String>), String> {
             if to == from {
                 continue;
             }
-            if layer_of(&to).is_none() {
+            if table.layer_of(&to).is_none() {
                 problems.push(format!(
                     "{rel}: crate::{} is in no unit of the layer table",
                     t.join("::")
@@ -326,15 +417,11 @@ pub fn graph(root: &Path) -> Result<(Graph, Vec<String>), String> {
     Ok((edges, problems))
 }
 
-fn is_group_root(module: &[String]) -> bool {
-    module.len() == 1 && GROUPS.contains(&module[0].as_str())
-}
-
-pub fn upward(edges: &Graph) -> Vec<String> {
+pub fn upward_in(table: &Table, edges: &Graph) -> Vec<String> {
     let mut out = Vec::new();
     for (from, tos) in edges {
         for to in tos {
-            if let (Some(a), Some(b)) = (layer_of(from), layer_of(to))
+            if let (Some(a), Some(b)) = (table.layer_of(from), table.layer_of(to))
                 && b > a
             {
                 out.push(format!(
@@ -427,21 +514,33 @@ pub fn guard_problems(root: &Path) -> Vec<String> {
 }
 
 pub fn problems(root: &Path) -> Result<Vec<String>, String> {
-    let (edges, mut problems) = graph(root)?;
-    problems.extend(upward(&edges));
-    problems.extend(cycles(&edges));
+    let mut problems = Vec::new();
+    for table in [&ROOT, &UI] {
+        let (edges, found) = graph_in(root, table)?;
+        problems.extend(found);
+        problems.extend(upward_in(table, &edges));
+        if table.cycles == Cycles::Refused {
+            problems.extend(cycles(&edges));
+        }
+    }
     problems.extend(guard_problems(root));
     Ok(problems)
 }
 
 pub fn print_edges(root: &Path) -> Result<(), String> {
-    let (edges, _) = graph(root)?;
-    for (from, tos) in &edges {
-        let layer = layer_of(from).map(|l| format!("{l:?}")).unwrap_or_default();
-        println!(
-            "{from} ({layer}) -> {}",
-            tos.iter().cloned().collect::<Vec<_>>().join(" ")
-        );
+    for table in [&ROOT, &UI] {
+        println!("{}:", table.src);
+        let (edges, _) = graph_in(root, table)?;
+        for (from, tos) in &edges {
+            let layer = table
+                .layer_of(from)
+                .map(|l| format!("{l:?}"))
+                .unwrap_or_default();
+            println!(
+                "  {from} ({layer}) -> {}",
+                tos.iter().cloned().collect::<Vec<_>>().join(" ")
+            );
+        }
     }
     Ok(())
 }

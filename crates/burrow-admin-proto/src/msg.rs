@@ -22,6 +22,7 @@ pub mod req {
     pub const UPLOAD: &str = "upload";
     pub const LOCAL_CA: &str = "local_ca";
     pub const HASH_PASSWORD: &str = "hash_password";
+    pub const UPDATE_CLIENTS: &str = "update_clients";
 
     pub const ALL: &[&str] = &[
         WELCOME,
@@ -39,6 +40,7 @@ pub mod req {
         UPLOAD,
         LOCAL_CA,
         HASH_PASSWORD,
+        UPDATE_CLIENTS,
     ];
 }
 
@@ -233,6 +235,7 @@ pub fn needed_for(request: &str) -> Option<&'static str> {
         req::UPLOAD => Some(f::UPLOAD),
         req::HASH_PASSWORD => Some(f::PASSWORDS),
         req::LOCAL_CA => Some(f::LOCAL_CA),
+        req::UPDATE_CLIENTS => Some(f::CLIENT_UPDATES),
         _ => None,
     }
 }
@@ -368,6 +371,16 @@ pub struct Runtime {
     pub restart_pending: Vec<String>,
     #[serde(default)]
     pub allows: std::collections::BTreeMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_open: Vec<NotOpen>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NotOpen {
+    pub path: Vec<String>,
+    pub wanted: String,
+    #[serde(default)]
+    pub running: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

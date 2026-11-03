@@ -14,6 +14,7 @@ pub mod ops;
 pub mod plan;
 pub mod schema;
 pub mod status;
+pub mod updates;
 pub mod value;
 pub mod web;
 
@@ -43,6 +44,7 @@ pub mod features {
     pub const LOCAL_CA: &str = "local-ca";
     pub const CLIENT_ALLOW: &str = "client.allow";
     pub const CONFIG_FILES: &str = "config.files";
+    pub const CLIENT_UPDATES: &str = "client.updates";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -60,5 +62,6 @@ pub mod features {
         LOCAL_CA,
         CLIENT_ALLOW,
         CONFIG_FILES,
+        CLIENT_UPDATES,
     ];
 }

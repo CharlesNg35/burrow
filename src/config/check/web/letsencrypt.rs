@@ -29,7 +29,7 @@ pub(super) fn check_letsencrypt(
             Diagnostic::error(
                 "letsencrypt-email",
                 format!(
-                    "web.letsencrypt.email \"{}\" is not an email address",
+                    "web.letsencrypt.email: \"{}\" is not an email address",
                     le.email.trim()
                 ),
             )
@@ -49,7 +49,7 @@ pub(super) fn check_letsencrypt(
             Diagnostic::error(
                 "letsencrypt-directory",
                 format!(
-                    "web.letsencrypt.directory \"{text}\" is not production, staging or an https:// URL"
+                    "web.letsencrypt.directory: \"{text}\" is not production, staging or an https:// URL"
                 ),
             )
             .at(spans.value(&["web", "letsencrypt", "directory"]))

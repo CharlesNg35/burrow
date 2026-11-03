@@ -1,3 +1,6 @@
+//! Copies a server's drop-in folder with its config at `burrow service install`, and checks the files an earlier install left there.
+//! Start at `copy`; `unix` and `other` place each file through the opened folder.
+
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;

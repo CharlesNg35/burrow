@@ -60,13 +60,14 @@ pub fn ListCard(
                 </span>
                 {(!row.line2.is_empty()).then(|| {
                     let line2 = row.line2.clone();
-                    view! { <span class="line-clamp-2 block text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
+                    view! { <span class="line-clamp-2 text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
                 })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
-                {(!row.tags.is_empty() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
+                {(!row.tags.is_empty() || row.health.is_some() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
                     <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
                         {row.pending.map(|p| view! { <span class=tag_class(Tone::Accent) data-pending=p>{p}</span> })}
                         {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
+                        {row.health.clone().map(crate::screens::entity::mark_view)}
                         {(!row.aside.is_empty()).then(|| view! { <span class="text-sm text-text-muted">{row.aside.clone()}</span> })}
                     </span>
                 })}
@@ -163,7 +164,7 @@ pub fn ListPane(
     let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
     view! {
         <aside
-            class=move || format!("flex flex-col border-r border-border bg-surface max-lg:min-h-[calc(100vh-var(--hdr-h,64px))] lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
+            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
             aria-label=title.clone()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
@@ -238,7 +239,7 @@ pub struct NewChoice {
 
 fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl IntoView {
     let open = RwSignal::new(false);
-    crate::app::popover(open, "new-menu-button", "new-menu");
+    crate::shown::popover(open, "new-menu-button", "new-menu");
     let items = menu
         .into_iter()
         .map(|c| {

@@ -1,3 +1,6 @@
+//! Follows a config file, and a server's drop-in folder, and reloads the settings after a quiet moment when they change.
+//! Start at `follow`; `Watched` names the files and folders a kind of settings reads, and `watch` notices their changes.
+
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

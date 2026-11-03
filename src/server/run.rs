@@ -71,7 +71,10 @@ impl Server {
                     }
                 },
                 Some(next) = reload.recv() => self.apply(next).await,
-                _ = retry.tick() => self.bind_waiting().await,
+                _ = retry.tick() => {
+                    self.shared.drive_updates();
+                    self.bind_waiting().await;
+                }
                 _ = tick.tick() => {
                     let n = self.shared.rejected.swap(0, Ordering::Relaxed);
                     if n > 0 {
@@ -95,6 +98,7 @@ impl Server {
                 continue;
             }
             if let Ok(bound) = bind_service(name, svc).await {
+                self.shared.not_listening(name, None);
                 let t = spawn_service(&self.shared, name, svc, bound);
                 info!("service \"{name}\" could listen now");
                 log_service(name, svc, t.addr);

@@ -210,6 +210,7 @@ fn screens(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             c.ui.wait_gone("[aria-busy=true]", SECS).await;
             c.ui.shot(&format!("{name}-desktop")).await;
             ax_clean(c, name).await;
+            super::adornments_clear(c, name).await;
             baseline(c, &format!("{name}-desktop")).await;
         }
         let mut links: Vec<String> = Vec::new();
@@ -292,12 +293,14 @@ fn screens(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             c.ui.nav(path).await;
             c.ui.wait_gone("[aria-busy=true]", SECS).await;
             c.ui.shot(&format!("{name}-phone")).await;
+            super::adornments_clear(c, name).await;
             baseline(c, &format!("{name}-phone")).await;
         }
         c.ui.nav("/services/web").await;
         c.ui.click("[data-testid=edit]").await;
         c.ui.wait_for("[data-testid=save-bar]", SECS).await;
         c.ui.shot("service-form-narrow").await;
+        super::adornments_clear(c, "the service form at 390 px").await;
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.viewport(1100, 900).await;
         c.ui.nav("/").await;

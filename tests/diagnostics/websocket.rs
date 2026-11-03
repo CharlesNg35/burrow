@@ -222,7 +222,7 @@ fn public_address_is_checked() {
         );
     }
     insta::assert_snapshot!(render("server.yaml", &with("0.0.0.0"), None), @"
-    error: invalid public_address: 0.0.0.0 means every interface, not an address clients can connect to
+    error: public_address: 0.0.0.0 means every interface, not an address clients can connect to
       --> server.yaml:2:17
        |
      2 | public_address: 0.0.0.0
@@ -232,12 +232,12 @@ fn public_address_is_checked() {
     server.yaml: 1 error, 0 warnings
     ");
     insta::assert_snapshot!(render("server.yaml", &with("wss://t.example.com/burrow"), None), @"
-    error: invalid public_address: the server has no websocket section
+    error: public_address: WebSocket is off on this server, so clients cannot use a ws:// or wss:// address
       --> server.yaml:2:17
        |
      2 | public_address: wss://t.example.com/burrow
        |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ expected a host, host:port or wss:// URL
-       = help: use the host name, or add a websocket section to the server config
+       = help: use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)
 
     server.yaml: 1 error, 0 warnings
     ");

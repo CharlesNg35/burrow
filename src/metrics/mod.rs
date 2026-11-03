@@ -1,3 +1,6 @@
+//! Counts traffic, visitors and refusals for the status view and Prometheus.
+//! `Metrics` holds the counters; `serve` answers HTTP requests for them.
+
 mod counted;
 pub mod render;
 mod serve;
@@ -9,7 +12,7 @@ use std::time::{Instant, SystemTime};
 
 pub use counted::Counted;
 pub use render::prometheus;
-pub use serve::{Handler, Snapshot, serve, serve_with};
+pub use serve::{Body, Handler, Snapshot, serve, serve_with};
 
 #[derive(Debug, Default)]
 pub struct Traffic {

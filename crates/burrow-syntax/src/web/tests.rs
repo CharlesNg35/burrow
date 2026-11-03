@@ -320,6 +320,32 @@ fn a_certificate_is_due_for_the_warning_strictly_inside_14_days() {
 }
 
 #[test]
+fn a_certificate_burrow_renews_is_due_only_once_its_renewal_is_late() {
+    let now = 1_800_000_000;
+    let hour = 3600;
+    assert!(!expiry_due(now + 11 * hour, Some(now + hour), 0, now));
+    assert!(!expiry_due(now + 3 * hour, Some(now - 10 * 60), 0, now));
+    assert!(expiry_due(
+        now + 3 * hour,
+        Some(now - RENEWAL_GRACE_SECS - 1),
+        0,
+        now
+    ));
+    assert!(expiry_due(now + 3 * hour, Some(now + 4 * hour), 0, now));
+    assert!(!expiry_due(
+        now + 20 * 24 * hour,
+        Some(now + 5 * 24 * hour),
+        0,
+        now
+    ));
+    assert!(expiry_due(now + 13 * 24 * hour, None, 0, now));
+    assert!(!expiry_due(now + 15 * 24 * hour, None, 0, now));
+    assert!(expiry_due(now - 5, Some(now + hour), 0, now));
+    assert!(expiry_due(now + 3 * 24 * hour, Some(now + 600), 2, now));
+    assert!(!expiry_due(now + 3 * 24 * hour, Some(now + 600), 0, now));
+}
+
+#[test]
 fn a_shared_wildcard_covers_its_parent_and_one_label_below() {
     assert!(shared_wildcard_covers("*.a.com", "a.com"));
     assert!(shared_wildcard_covers("*.a.com", "x.a.com"));

@@ -150,8 +150,8 @@ pub fn client_address(
     match (&endpoint, websocket) {
         (Endpoint::WebSocket { .. }, None) => {
             return Err(error(
-                "the server has no websocket section",
-                "use the host name, or add a websocket section to the server config",
+                "WebSocket is off on this server, so clients cannot use a ws:// or wss:// address",
+                "use the host name, or turn WebSocket on (websocket.listen; in burrow admin: Settings, Connections)",
             ));
         }
         (Endpoint::Tcp { .. }, Some(ws)) if listen.is_none() => {

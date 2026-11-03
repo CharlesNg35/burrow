@@ -36,6 +36,9 @@ impl Platform {
     }
 
     pub fn state_dir(self) -> PathBuf {
+        if let Some(dir) = std::env::var_os("BURROW_SERVICE_DIR") {
+            return PathBuf::from(dir);
+        }
         match self {
             Platform::Windows => Self::program_data().join("burrow").join("services"),
             Platform::MacOs => PathBuf::from("/Library/Application Support/burrow/services"),

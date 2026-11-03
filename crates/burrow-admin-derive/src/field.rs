@@ -28,6 +28,7 @@ const FIELD_KEYS: &[&str] = &[
     "one_of",
     "visible_if",
     "enabled_if",
+    "fixed_if",
     "options_filter",
     "inverse",
     "default_from",
