@@ -378,10 +378,9 @@ pub fn client_until(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Re
 }
 
 fn split(hosted: Option<Hosted>) -> (Option<watch::Receiver<bool>>, Env) {
-    match hosted {
-        Some(h) => (h.stop, h.env),
-        None => (None, Env::default()),
-    }
+    let (stop, env) = hosted.map_or((None, Env::default()), |h| (h.stop, h.env));
+    crate::config::env::note_run_env(&env);
+    (stop, env)
 }
 
 fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {

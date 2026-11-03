@@ -29,8 +29,7 @@ pub fn window() -> Duration {
     if !cfg!(feature = "admin-test-hooks") {
         return WINDOW;
     }
-    std::env::var(WINDOW_ENV)
-        .ok()
+    crate::update::var(WINDOW_ENV)
         .and_then(|v| v.parse().ok())
         .map_or(WINDOW, Duration::from_secs)
 }
