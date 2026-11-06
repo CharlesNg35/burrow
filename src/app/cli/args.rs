@@ -98,8 +98,10 @@ pub struct McpArgs {
     pub service: Option<String>,
     #[arg(
         long,
-        help = "Offer the tools that change the config (apply_change, revert_to_version, update_clients); the visitor also needs admin: write"
+        help = "Leave out the tools that change the config (apply_change, revert_to_version, new_secret, new_password, update_clients, update_server); changes can still be checked"
     )]
+    pub read_only: bool,
+    #[arg(long, hide = true, conflicts_with = "read_only")]
     pub allow_write: bool,
     #[arg(
         long,

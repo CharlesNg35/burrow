@@ -53,7 +53,7 @@ A client that allows remote updates but cannot do them says why, for example "th
 
 A client is offered an update only when the latest release is not newer than the server: see [Clients never go past the server](#clients-never-go-past-the-server).
 
-The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while someone looks at the status (burrow admin, `burrow status`, `burrow clients`), and remembers it for 6 hours (15 minutes after a failed check). Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update. With `burrow mcp --allow-write`, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
+The latest release comes from the official releases' `SHA256SUMS`. The server looks it up only while someone looks at the status (burrow admin, `burrow status`, `burrow clients`), and remembers it for 6 hours (15 minutes after a failed check). Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update. With `burrow mcp` and a write admin, the `update_clients` tool does the same as the buttons ([mcp.md](mcp.md#what-the-ai-can-do)).
 
 ## From the server's command line
 
@@ -154,7 +154,7 @@ sudo burrow service install -c server.yaml    # records the opt-in where the ser
 4. Within 60 seconds the new server must be healthy: the service manager reports it running and not restarting, its local status endpoint answers with the new version, and no listener that worked before is now not listening. Otherwise the old binary is put back and started, and the result says "rolled back" with the reason.
 5. burrow admin shows "updating, the server restarts…" on that line and a banner while the connection is down, reconnects on its own, and then shows the result there: "updated 0.2.2 → 0.2.3" (on hover: who asked and how many clients connected again) for an hour, or for a day "Update to 0.2.3 rolled back · still on 0.2.2 · Details". Details leads to Needs attention, which says in plain words what happened ("0.2.3 started but didn't become healthy within a minute, so 0.2.2 was put back. The server is running normally."), keeps the technical reason behind "Show details" (and in the server log), and offers **Try again** and the release's page. A client's rolled back update shows the same way, as "Update of home to 0.2.3 rolled back". The line shows one message at a time: an update running, then a roll back, then a newer release, then a recent success. Clients reconnecting is reported but never causes a roll back.
 
-One update runs at a time, and none starts while a config change is being applied. The server's log names who asked. `burrow mcp --allow-write` has the `update_server` tool, which goes through the same entry point ([mcp.md](mcp.md#what-the-ai-can-do)).
+One update runs at a time, and none starts while a config change is being applied. The server's log names who asked. `burrow mcp` has the `update_server` tool for a write admin, which goes through the same entry point ([mcp.md](mcp.md#what-the-ai-can-do)).
 
 ### A mirror for the root updater
 
