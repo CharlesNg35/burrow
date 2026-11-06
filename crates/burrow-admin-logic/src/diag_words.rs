@@ -22,6 +22,7 @@ pub(crate) fn worded(code: &str, subject: &str) -> Option<String> {
         PUBLIC_PORT_SKIPS_LOGIN => {
             "The public port reaches the app without the website's login; turn the public port off, or keep it on a trusted network".into()
         }
+        "dns-provider" => "Pick the DNS provider that sets the records for these domains".into(),
         _ => return None,
     };
     Some(text)
@@ -35,7 +36,8 @@ pub(crate) const SCHEMA: [&str; 3] = [
 ];
 
 #[cfg(test)]
-pub(crate) const WORDED: [&str; 8] = [
+pub(crate) const WORDED: [&str; 9] = [
+    "dns-provider",
     CLIENT_AND_CLIENTS,
     MISSING_CLIENT,
     DUPLICATE_CLIENT,
@@ -114,7 +116,6 @@ mod tests {
             "client-auth-tunnel",
             "dns-acme-dns",
             "dns-command",
-            "dns-provider",
             "dns-resolver",
             "dns-uncovered",
             "error-pages",

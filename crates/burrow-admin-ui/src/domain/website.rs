@@ -68,7 +68,7 @@ fn files_view(fc: FieldCtx, files: ObjectC, tls: Memo<Option<Value>>) -> impl In
         (mode == FILES).then(|| {
             view! {
                 <div class="mt-2 rounded-input border border-border bg-surface-2 px-2.5 py-2" data-testid="website-files">
-                    {crate::uploads::certificate_source(&fc, &files)}
+                    {crate::form::object_view(&burrow_admin_proto::schema::Node::new(SemType::Object(files.clone())), fc.path.clone(), fc.spath.clone(), fc.entity.clone())}
                 </div>
             }
         })

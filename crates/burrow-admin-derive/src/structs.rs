@@ -9,7 +9,9 @@ use crate::serde_attrs;
 use crate::term::Term;
 use crate::{Errors, admin_attrs, assigned, check_keys, find, p, skip_reason, str_of};
 
-const STRUCT_KEYS: &[&str] = &["entity", "label", "plural", "groups", "skip", "tcp_only"];
+const STRUCT_KEYS: &[&str] = &[
+    "entity", "label", "plural", "groups", "skip", "tcp_only", "one_of",
+];
 
 fn field_paths(
     name: &syn::Ident,
@@ -132,6 +134,67 @@ fn declared_groups(container: &[Term], errors: &mut Errors) -> Vec<(String, Stri
     groups
 }
 
+fn one_of_groups(
+    container: &[Term],
+    field_names: &[String],
+    errors: &mut Errors,
+) -> Vec<TokenStream> {
+    let p = p();
+    let mut out = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for t in container.iter().filter(|t| t.name() == Some("one_of")) {
+        let mut key = None;
+        let mut required = false;
+        let mut choices: Vec<Vec<String>> = Vec::new();
+        for a in t.args() {
+            match a {
+                Term::Assign(k, v, _) if v.as_str().is_some() => {
+                    key = Some((k.clone(), v.as_str().unwrap_or_default().to_string()));
+                }
+                Term::Word(w, _) if w == "required" => required = true,
+                Term::Word(w, _) => choices.push(vec![w.clone()]),
+                Term::Call(w, rest, _) => choices.push(
+                    std::iter::once(w.clone())
+                        .chain(rest.iter().filter_map(|r| r.as_word().map(str::to_string)))
+                        .collect(),
+                ),
+                other => errors.push(
+                    other.span(),
+                    "one_of(key = \"Label | help\", required, field, field(with, these), ...)",
+                ),
+            }
+        }
+        for k in choices.iter().flatten() {
+            if !field_names.contains(k) {
+                errors.push(t.span(), format!("`{k}` is not a field of this struct"));
+            }
+            if seen.contains(k) {
+                errors.push(t.span(), format!("`{k}` is in two one_of groups"));
+            }
+            seen.push(k.clone());
+        }
+        let Some((key, label)) = key.filter(|_| choices.len() >= 2) else {
+            errors.push(
+                t.span(),
+                "one_of needs key = \"Label\" and at least two choices",
+            );
+            continue;
+        };
+        let (label, help) = label.split_once(" | ").unwrap_or((label.as_str(), ""));
+        let lists = choices
+            .iter()
+            .map(|c| quote!(::std::vec![#(#c.to_string()),*]));
+        out.push(quote!(#p::OneOf {
+            key: #key.into(),
+            label: #label.into(),
+            help: #help.into(),
+            required: #required,
+            choices: ::std::vec![#(#lists),*],
+        }));
+    }
+    out
+}
+
 fn tcp_only_fields(
     container: &[Term],
     field_names: &[String],
@@ -166,6 +229,7 @@ fn struct_impls(
     errors: &mut Errors,
 ) -> TokenStream {
     let (name, p, groups, tcp_only) = (o.name, o.p, o.groups, o.tcp_only);
+    let one_of = one_of_groups(container, o.field_names, errors);
     let mut container_meta = Vec::new();
     if let Some(e) = assigned(container, "entity") {
         match e.as_word() {
@@ -211,7 +275,8 @@ fn struct_impls(
             fn node() -> #p::Node {
                 let mut fields: ::std::vec::Vec<#p::Field> = ::std::vec::Vec::new();
                 #(#pushes)*
-                let mut n = #p::Node::new(#p::SemType::Object(#p::ObjectC { fields }));
+                let one_of = ::std::vec![#(#one_of),*];
+                let mut n = #p::Node::new(#p::SemType::Object(#p::ObjectC { fields, one_of }));
                 n.groups = ::std::vec![#(#group_items),*];
                 #(#container_meta)*
                 n

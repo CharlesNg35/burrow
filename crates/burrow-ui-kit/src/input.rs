@@ -54,6 +54,7 @@ pub fn TextInput(
     #[prop(optional)] new_password: bool,
 ) -> AnyView {
     let suffix = suffix.filter(|x| !x.is_empty());
+    let prefix = prefix.filter(|x| !x.is_empty());
     let adorned = prefix.is_some() || suffix.is_some();
     let input_class = move || {
         let base = if adorned {

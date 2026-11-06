@@ -25,7 +25,12 @@ pub(super) fn conflict(core: &Core, base: &str, old_text: &str, current: String)
                 &tree::parse(&a).ok()?.to_json(),
                 &tree::parse(&c).ok()?.to_json(),
             );
-            Some(summary::changes(&before, &after, &[]))
+            let written = values::credentials_in(&[&b, old_text], &core.schema().root);
+            Some(summary::changes(
+                &values::veil_written(&before, &written),
+                &values::veil_written(&after, &written),
+                &[],
+            ))
         });
     let body = Conflict {
         current: current.clone(),
@@ -228,13 +233,14 @@ pub(super) fn assemble(
     for v in [raw, new_raw] {
         values::hashes(v, Some(root), &mut hashes);
         values::header_values(v, &mut headers);
+        values::credentials(v, Some(root), "", &mut headers);
     }
     let mask = |l: &str| text::mask_secrets(&values::veil_line(l, &hashes, &headers), &fresh_pairs);
     let diff = crate::admin::core::diff::unified(old_text, new_text, &mask);
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let changes = summary::changes(
-        &values::veil_value(&old_shown, &hashes),
-        &values::veil_value(&new_shown, &hashes),
+        &values::veil_written(&values::veil_value(&old_shown, &hashes), &headers),
+        &values::veil_written(&values::veil_value(&new_shown, &hashes), &headers),
         &applied.renames,
     );
     let impacts_json =

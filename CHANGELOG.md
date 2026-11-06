@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **Let's Encrypt in burrow admin:** Settings, Web has its own cards for Let's Encrypt, DNS check providers (shown while Let's Encrypt is on) and your own certificates. A DNS provider is picked from one list (Cloudflare, RFC 2136, acme-dns, a command) with only its fields below, instead of four on/off switches side by side; a credential is a variable, a file or a value typed in, never shown again. Changing a field inside a DNS or certificate entry now works, and changes only that field in server.yaml, comments included. Turning Let's Encrypt off names the websites it would leave without a certificate. Every "pick one" set of fields in the config works the same way, like a certificate's files or upload ([D85](docs/decisions.md)).
+- **DNS credentials and references from the admin:** burrow admin and `burrow mcp` may set DNS provider credentials, `rfc2136.server` and `acme_dns.api`, and write `${VAR}` and `file:` references wherever server.yaml takes them; validate no longer refuses a DNS secret written in the file. A DNS provider's `command` stays a file edit.
+
 ## [0.2.3]
 
 `burrow mcp` starts reliably from any AI app and checks examples with the server's own validation, the server can be updated from burrow admin with automatic rollback, and burrow admin shows the config file it runs. Clients, visitors and configs from 0.2.2 work unchanged.

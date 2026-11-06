@@ -12,7 +12,6 @@ struct Field<'a> {
     path: [String; 6],
     value: &'a str,
     env: &'static str,
-    inline_ok: bool,
 }
 
 pub(super) fn check_dns_secrets(
@@ -41,7 +40,6 @@ pub(super) fn check_dns_secrets(
                 path: at("cloudflare", "token"),
                 value: &c.token,
                 env: "CF_TOKEN",
-                inline_ok: false,
             });
         }
         if let Some(r) = &e.rfc2136 {
@@ -49,7 +47,6 @@ pub(super) fn check_dns_secrets(
                 path: at("rfc2136", "secret"),
                 value: &r.secret,
                 env: "TSIG_SECRET",
-                inline_ok: false,
             });
         }
         if let Some(a) = &e.acme_dns {
@@ -57,13 +54,11 @@ pub(super) fn check_dns_secrets(
                 path: at("acme_dns", "username"),
                 value: &a.username,
                 env: "ACMEDNS_USER",
-                inline_ok: true,
             });
             fields.push(Field {
                 path: at("acme_dns", "password"),
                 value: &a.password,
                 env: "ACMEDNS_KEY",
-                inline_ok: false,
             });
         }
         for f in fields {
@@ -96,15 +91,6 @@ fn check(f: &Field<'_>, base_dir: &Path, spans: &Spans) -> Option<Diagnostic> {
                 Ok(_) => return None,
             }
         }
-        None if !f.inline_ok && !spans.from_env(&path) => (
-            format!(
-                "{name} is written in the file; use ${{{env}}} or file: so it stays out of the config"
-            ),
-            format!(
-                "for example ${{{env}}}, set in the service's environment, or file:/etc/burrow/{}",
-                env.to_ascii_lowercase()
-            ),
-        ),
         None if f.value.trim().is_empty() => (
             format!("{name} is empty"),
             format!("set it, for example from ${{{env}}}"),

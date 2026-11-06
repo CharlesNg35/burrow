@@ -96,10 +96,9 @@ pub struct WebConfig {
     )]
     #[admin(
         ty = list(object(CertFile)),
-        label = "Certificate files",
-        help = "Your own certificate files, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key",
-        empty_label = "None",
-        advanced
+        label = "Your own certificates",
+        help = "Certificates you already have, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key, or an upload",
+        empty_label = "None"
     )]
     pub certificates: Vec<CertFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

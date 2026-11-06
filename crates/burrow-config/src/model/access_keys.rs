@@ -144,7 +144,19 @@ mod tests {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "Device certificates")]
+#[admin(
+    label = "Device certificates",
+    one_of(
+        ca_source = "Devices' CA | A file on the server or a CA uploaded here",
+        ca,
+        ca_upload
+    ),
+    one_of(
+        crl_source = "Revocation list | A file on the server or a list uploaded here",
+        crl,
+        crl_upload
+    )
+)]
 pub struct ClientAuthFiles {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

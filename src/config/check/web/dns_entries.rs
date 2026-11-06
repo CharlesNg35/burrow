@@ -72,9 +72,9 @@ fn entry(
         out.push(
             Diagnostic::error(
                 "dns-domains",
-                format!("{name}.domains is required: the domains this provider manages, like domains: [example.com]"),
+                format!("{name}.domains: list the domains this provider manages, like domains: [example.com]"),
             )
-            .at(span(spans, &at(i, &[])))
+            .at(span(spans, &at(i, &["domains"])))
             .help("a domain covers itself and every name under it"),
         );
     }
@@ -89,7 +89,8 @@ fn entry(
             Ok(d) => {
                 if let Some((_, first)) = domains.iter().find(|(x, _)| *x == d) {
                     Some(format!(
-                        "domain \"{d}\" is listed in web.letsencrypt.dns[{first}] and [{i}]; list it in one entry only"
+                        "{name}.domains: \"{d}\" is already listed in DNS provider {}; list it in one entry only",
+                        first + 1
                     ))
                 } else {
                     domains.push((d, i));
@@ -312,12 +313,14 @@ fn wildcards(cfg: &ServerConfig, list: &[DnsEntry], spans: &Spans, out: &mut Vec
                         e.domains.join(", ")
                     )),
                     Some(k) if k != i => Some(format!(
-                        "{name}: \"{w}\" belongs to {}, which dns[{k}] manages; list it in dns[{k}].wildcards",
-                        &w[2..]
+                        "{name}: \"{w}\" belongs to {}, which DNS provider {} manages; list it there",
+                        &w[2..],
+                        k + 1
                     )),
                     Some(_) => match seen.iter().find(|(x, _)| *x == w) {
                         Some((_, first)) => Some(format!(
-                            "wildcard \"{w}\" is listed in web.letsencrypt.dns[{first}] and [{i}]; list it once"
+                            "{name}: \"{w}\" is already listed in DNS provider {}; list it once",
+                            first + 1
                         )),
                         None => {
                             if !used(cfg, &w) {

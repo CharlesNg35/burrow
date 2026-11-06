@@ -95,7 +95,7 @@ pub(super) fn concrete_locks(
     out
 }
 
-pub(super) fn renamed_from(path: &[String], renames: &[patch::Rename]) -> Vec<String> {
+fn renamed_from(path: &[String], renames: &[patch::Rename]) -> Vec<String> {
     for r in renames {
         let Some((_, parent)) = r.path.split_last() else {
             continue;

@@ -20,6 +20,7 @@ pub mod input;
 pub mod logins;
 pub mod more;
 pub mod off;
+pub mod one_of;
 pub mod own_update;
 pub mod presence;
 pub mod rates;

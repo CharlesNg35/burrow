@@ -66,7 +66,15 @@ pub enum TargetTls {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "The app's CA")]
+#[admin(
+    label = "The app's CA",
+    one_of(
+        ca_source = "The app's CA | A file on the server or a CA uploaded here",
+        required,
+        ca,
+        ca_upload
+    )
+)]
 pub struct TargetCa {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

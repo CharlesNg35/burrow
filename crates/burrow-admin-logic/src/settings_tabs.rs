@@ -1,4 +1,4 @@
-use burrow_config::ServerConfig;
+use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -67,6 +67,19 @@ pub fn tab_of(field: &str) -> Tab {
     } else {
         Tab::Server
     }
+}
+
+pub fn own_cards() -> Vec<Vec<String>> {
+    let web = ServerConfig::WEB.key();
+    let le = WebConfig::LETSENCRYPT.key();
+    [
+        vec![web, le],
+        vec![web, le, LetsEncrypt::DNS.key()],
+        vec![web, WebConfig::CERTIFICATES.key()],
+    ]
+    .into_iter()
+    .map(|p| p.into_iter().map(str::to_string).collect())
+    .collect()
 }
 
 pub fn problems_in(tab: Tab, paths: &[Vec<String>], sections: &[&str]) -> usize {

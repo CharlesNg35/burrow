@@ -58,15 +58,24 @@ pub fn groups(
         .into_iter()
         .map(|c| {
             let inside = card_fields(&c);
-            let tops: Vec<String> = c.fields.iter().map(|f| f.key.clone()).collect();
+            let tops: Vec<Vec<String>> = c
+                .fields
+                .iter()
+                .map(|f| {
+                    let mut p = c.at.clone();
+                    p.push(f.key.clone());
+                    p
+                })
+                .collect();
             let n_locked = inside
                 .iter()
                 .filter(|(p, _)| locked.iter().any(|l| p.starts_with(l)))
                 .count();
-            let is_changed = tops.iter().any(|k| changed(std::slice::from_ref(k)));
-            let needs_restart = restart
-                .iter()
-                .any(|r| tops.iter().any(|k| r.split('.').next() == Some(k.as_str())));
+            let is_changed = tops.iter().any(|k| changed(k));
+            let needs_restart = restart.iter().any(|r| {
+                let r: Vec<&str> = r.split('.').collect();
+                tops.iter().any(|k| k.iter().zip(&r).all(|(a, b)| a == b))
+            });
             let mut filters = Vec::new();
             if needs_restart {
                 filters.push("restart");
@@ -126,7 +135,7 @@ pub fn setting_errors(diags: &[burrow_admin_proto::diag::Diag]) -> usize {
 }
 
 fn tab_of_card(c: &crate::form::SettingsCard) -> Tab {
-    c.fields.first().map_or(Tab::Server, |f| tab_of(&f.key))
+    c.top().map_or(Tab::Server, tab_of)
 }
 
 fn asked_tab() -> Tab {
@@ -294,9 +303,8 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
             .filter(|c| shown.contains(&c.key))
             .collect::<Vec<_>>();
         cards.sort_by_key(|c| {
-            c.fields.first().map_or(usize::MAX, |f| {
-                burrow_admin_logic::settings_tabs::rank(&f.key)
-            })
+            c.top()
+                .map_or(usize::MAX, burrow_admin_logic::settings_tabs::rank)
         });
         let empty = cards.is_empty().then(|| {
             view! { <p class="py-6 text-sm text-text-muted" data-testid="settings-none">"No setting on this tab matches."</p> }
@@ -308,7 +316,7 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
             view! {
                 <div data-tab-panel=now.key()>
                     {web_note}
-                    {cards.iter().map(settings_card).collect_view()}
+                    {cards.iter().map(card_while_parent_on).collect_view()}
                     {(now == Tab::Web && web_on).then(super::local_ca::local_ca_card)}
                     {empty}
                 </div>
@@ -316,6 +324,17 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
             .into_any(),
         )
     }
+}
+
+fn card_while_parent_on(c: &crate::form::SettingsCard) -> AnyView {
+    if c.at.is_empty() {
+        return settings_card(c);
+    }
+    let e = store().edit;
+    let at = c.at.clone();
+    let on = Memo::new(move |_| e.value(&at).is_some_and(|v| !v.is_null()));
+    view! { <div class:hidden=move || !on.get() data-while-on="">{settings_card(c)}</div> }
+        .into_any()
 }
 
 fn follow_matches(rows: Memo<Vec<(Tab, Row)>>, tab: RwSignal<Tab>, look: Look) {

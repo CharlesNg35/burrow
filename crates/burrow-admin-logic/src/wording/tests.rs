@@ -452,3 +452,30 @@ fn a_long_key_hint_may_break_at_dots_and_underscores() {
         "web.|request_|header_|timeout_|secs"
     );
 }
+
+#[test]
+fn an_add_button_keeps_an_acronym_and_lowers_the_rest() {
+    assert_eq!(
+        add_label("DNS check providers", "DNS provider"),
+        "Add DNS provider"
+    );
+    assert_eq!(
+        add_label("Your own certificates", "Certificate"),
+        "Add certificate"
+    );
+    assert_eq!(add_label("Headers", ""), "Add to Headers");
+    assert!(dns_guide("cloudflare").is_some_and(|u| u.ends_with("certificates.md#cloudflare")));
+    assert_eq!(dns_guide("command"), None);
+}
+
+#[test]
+fn a_dns_entry_message_drops_its_indexed_key_path() {
+    assert_eq!(
+        shown(
+            "dns-domains",
+            "web.letsencrypt.dns[1].domains: \"example.com\" is already listed in DNS provider 1; list it in one entry only",
+            &[]
+        ),
+        "\"example.com\" is already listed in DNS provider 1; list it in one entry only"
+    );
+}

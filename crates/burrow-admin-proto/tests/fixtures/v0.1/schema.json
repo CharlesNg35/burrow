@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:b11ec27c82713814",
+  "hash": "b2s:8e17f53ece888f01",
   "root": {
     "label": "Server",
     "sem": {
@@ -501,8 +501,8 @@
                                 {
                                   "key": "dns",
                                   "node": {
-                                    "label": "DNS checks",
-                                    "help": "How burrow sets DNS records for Let's Encrypt's DNS check, needed for wildcards and names not reachable from the internet; each provider lists the domains it manages, for example example.com through Cloudflare",
+                                    "label": "DNS check providers",
+                                    "help": "How burrow sets DNS records for Let's Encrypt's DNS check, needed for wildcards and names the internet cannot reach; each provider lists the domains it manages, for example example.com through Cloudflare",
                                     "sem": {
                                       "t": "list",
                                       "item": {
@@ -514,7 +514,7 @@
                                               "key": "domains",
                                               "node": {
                                                 "label": "Domains",
-                                                "help": "The domains whose DNS records this provider can set, for example example.com; it covers every name under it, like wiki.example.com and *.apps.example.com",
+                                                "help": "The domains whose DNS records this provider can set, for example example.com; each covers every name under it, like wiki.example.com",
                                                 "sem": {
                                                   "t": "list",
                                                   "item": {
@@ -546,14 +546,13 @@
                                                           "key": "token",
                                                           "node": {
                                                             "label": "API token",
-                                                            "help": "An API token allowed Zone:Read and DNS:Edit on these zones only, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token",
+                                                            "help": "An API token with Zone:Read and DNS:Edit permissions, scoped to these zones, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token",
                                                             "sem": {
                                                               "t": "secret_ref",
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "required": true
                                                           }
                                                         }
                                                       ]
@@ -583,8 +582,7 @@
                                                             "sem": {
                                                               "t": "text"
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "required": true
                                                           }
                                                         },
                                                         {
@@ -595,8 +593,7 @@
                                                             "sem": {
                                                               "t": "text"
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "required": true
                                                           }
                                                         },
                                                         {
@@ -609,8 +606,7 @@
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "required": true
                                                           }
                                                         },
                                                         {
@@ -627,7 +623,6 @@
                                                               }
                                                             },
                                                             "advanced": true,
-                                                            "locked": true,
                                                             "none_label": "hmac-sha256"
                                                           }
                                                         }
@@ -658,36 +653,33 @@
                                                             "sem": {
                                                               "t": "text"
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "required": true
                                                           }
                                                         },
                                                         {
                                                           "key": "username",
                                                           "node": {
                                                             "label": "User name",
-                                                            "help": "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file",
+                                                            "help": "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file like file:/etc/burrow/acmedns.user",
                                                             "sem": {
                                                               "t": "secret_ref",
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "required": true
                                                           }
                                                         },
                                                         {
                                                           "key": "password",
                                                           "node": {
                                                             "label": "Password",
-                                                            "help": "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file",
+                                                            "help": "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file like file:/etc/burrow/acmedns.key",
                                                             "sem": {
                                                               "t": "secret_ref",
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "required": true
                                                           }
                                                         },
                                                         {
@@ -711,7 +703,7 @@
                                             {
                                               "key": "command",
                                               "node": {
-                                                "label": "Command",
+                                                "label": "A command of yours",
                                                 "help": "A program that sets the records with any provider, called with present or cleanup, the record's name and its value, for example /usr/local/bin/burrow-dns",
                                                 "sem": {
                                                   "t": "optional",
@@ -723,6 +715,9 @@
                                                     }
                                                   }
                                                 },
+                                                "editable": {
+                                                  "no": "Runs a program on the server: set it in server.yaml (see docs/web/certificates.md#a-command-for-any-provider)"
+                                                },
                                                 "locked": true,
                                                 "none_label": "Not used"
                                               }
@@ -731,7 +726,7 @@
                                               "key": "wildcards",
                                               "node": {
                                                 "label": "Shared wildcards",
-                                                "help": "One certificate each for every site one label under it and its parent name, for example *.example.com",
+                                                "help": "Start each with *., for example *.example.com: one certificate for example.com and every site one label under it",
                                                 "sem": {
                                                   "t": "list",
                                                   "item": {
@@ -788,13 +783,49 @@
                                                 "empty_label": "The system's"
                                               }
                                             }
+                                          ],
+                                          "one_of": [
+                                            {
+                                              "key": "provider",
+                                              "label": "DNS provider",
+                                              "help": "Who sets the DNS records for these domains",
+                                              "required": true,
+                                              "choices": [
+                                                [
+                                                  "cloudflare"
+                                                ],
+                                                [
+                                                  "rfc2136"
+                                                ],
+                                                [
+                                                  "acme_dns"
+                                                ],
+                                                [
+                                                  "command"
+                                                ]
+                                              ]
+                                            }
                                           ]
                                         }
                                       }
                                     },
-                                    "advanced": true,
                                     "empty_label": "None"
                                   }
+                                }
+                              ],
+                              "one_of": [
+                                {
+                                  "key": "trusted_ca",
+                                  "label": "Trusted CA",
+                                  "help": "The CA to trust for another ACME server",
+                                  "choices": [
+                                    [
+                                      "ca"
+                                    ],
+                                    [
+                                      "ca_upload"
+                                    ]
+                                  ]
                                 }
                               ]
                             }
@@ -806,12 +837,12 @@
                     {
                       "key": "certificates",
                       "node": {
-                        "label": "Certificate files",
-                        "help": "Your own certificate files, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key",
+                        "label": "Your own certificates",
+                        "help": "Certificates you already have, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key, or an upload",
                         "sem": {
                           "t": "list",
                           "item": {
-                            "label": "Certificate file",
+                            "label": "Certificate",
                             "sem": {
                               "t": "object",
                               "fields": [
@@ -839,8 +870,8 @@
                                 {
                                   "key": "cert",
                                   "node": {
-                                    "label": "Certificate file",
-                                    "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem",
+                                    "label": "Files on the server",
+                                    "help": "The certificate chain file, for example certs/fullchain.pem, named in server.yaml",
                                     "sem": {
                                       "t": "optional",
                                       "inner": {
@@ -896,11 +927,27 @@
                                     "none_label": "None"
                                   }
                                 }
+                              ],
+                              "one_of": [
+                                {
+                                  "key": "source",
+                                  "label": "Certificate",
+                                  "help": "Files on the server or a certificate uploaded here",
+                                  "required": true,
+                                  "choices": [
+                                    [
+                                      "cert",
+                                      "key"
+                                    ],
+                                    [
+                                      "upload"
+                                    ]
+                                  ]
+                                }
                               ]
                             }
                           }
                         },
-                        "advanced": true,
                         "empty_label": "None"
                       }
                     },
@@ -2165,8 +2212,8 @@
                                                         {
                                                           "key": "cert",
                                                           "node": {
-                                                            "label": "Certificate file",
-                                                            "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem; with key, or upload instead",
+                                                            "label": "Files on the server",
+                                                            "help": "The certificate chain file, for example certs/fullchain.pem, named in server.yaml",
                                                             "sem": {
                                                               "t": "optional",
                                                               "inner": {
@@ -2221,6 +2268,23 @@
                                                             },
                                                             "none_label": "None"
                                                           }
+                                                        }
+                                                      ],
+                                                      "one_of": [
+                                                        {
+                                                          "key": "source",
+                                                          "label": "Certificate",
+                                                          "help": "Files on the server or a certificate uploaded here",
+                                                          "required": true,
+                                                          "choices": [
+                                                            [
+                                                              "cert",
+                                                              "key"
+                                                            ],
+                                                            [
+                                                              "upload"
+                                                            ]
+                                                          ]
                                                         }
                                                       ]
                                                     }
@@ -2562,6 +2626,22 @@
                                                             "none_label": "None"
                                                           }
                                                         }
+                                                      ],
+                                                      "one_of": [
+                                                        {
+                                                          "key": "ca_source",
+                                                          "label": "The app's CA",
+                                                          "help": "A file on the server or a CA uploaded here",
+                                                          "required": true,
+                                                          "choices": [
+                                                            [
+                                                              "ca"
+                                                            ],
+                                                            [
+                                                              "ca_upload"
+                                                            ]
+                                                          ]
+                                                        }
                                                       ]
                                                     }
                                                   },
@@ -2833,6 +2913,34 @@
                                                       },
                                                       "none_label": "None"
                                                     }
+                                                  }
+                                                ],
+                                                "one_of": [
+                                                  {
+                                                    "key": "ca_source",
+                                                    "label": "Devices' CA",
+                                                    "help": "A file on the server or a CA uploaded here",
+                                                    "choices": [
+                                                      [
+                                                        "ca"
+                                                      ],
+                                                      [
+                                                        "ca_upload"
+                                                      ]
+                                                    ]
+                                                  },
+                                                  {
+                                                    "key": "crl_source",
+                                                    "label": "Revocation list",
+                                                    "help": "A file on the server or a list uploaded here",
+                                                    "choices": [
+                                                      [
+                                                        "crl"
+                                                      ],
+                                                      [
+                                                        "crl_upload"
+                                                      ]
+                                                    ]
                                                   }
                                                 ]
                                               }

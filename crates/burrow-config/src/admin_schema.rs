@@ -158,7 +158,7 @@ pub mod __private {
     };
     pub use burrow_admin_proto::schema::{
         Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
-        HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC,
+        HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OneOf, OptionalC,
         PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC, RefMapC, Relation,
         SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UploadC,
     };

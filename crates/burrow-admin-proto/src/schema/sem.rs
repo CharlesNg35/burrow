@@ -229,6 +229,32 @@ impl UploadC {
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ObjectC {
     pub fields: Vec<Field>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub one_of: Vec<OneOf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct OneOf {
+    pub key: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub help: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
+    pub choices: Vec<Vec<String>>,
+}
+
+impl OneOf {
+    pub fn holds(&self, key: &str) -> bool {
+        self.choices.iter().flatten().any(|k| k == key)
+    }
+
+    pub fn leads(&self, key: &str) -> bool {
+        self.choices
+            .first()
+            .and_then(|c| c.first())
+            .is_some_and(|k| k == key)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

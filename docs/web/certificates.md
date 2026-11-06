@@ -162,7 +162,7 @@ services:
 - **burrow waits for every nameserver.** Before it tells Let's Encrypt to look, burrow asks each of the zone's public nameservers directly until all of them answer the record, for up to `wait_secs` (120 when not set). `resolvers` (like `[1.1.1.1, 9.9.9.9]`) are used only to find those nameservers, and must give the public view. Without `resolvers`, the system's resolvers are used.
 - **CNAMEs are followed.** If `_acme-challenge.<name>` is a CNAME, burrow writes the record at its target (up to 8 steps), since Let's Encrypt reads it there. The entry is still chosen by the name's own domain: to delegate, list the name's domain on the entry that can write the target.
 - **Records are removed** after each order, also when it fails.
-- **Secrets** (`token`, `secret`, `password`) come only from `${VAR}` or `file:path` (relative to the config file); validate refuses one written in the file. They are never printed: `burrow status`, the logs and the admin UI show only that they are set.
+- **Secrets** (`token`, `secret`, `password`) may be written in the file, or come from `${VAR}` or `file:path` (relative to the config file). `${VAR}` or `file:` keeps the secret out of server.yaml, so the file can be shared or kept in git. Secrets are never printed: `burrow status`, `burrow validate`, the logs and the admin UI show only that they are set.
 
 ### Shared wildcards
 
@@ -246,6 +246,10 @@ esac
 ```
 
 Scripts written for lego's exec provider work unchanged when they read their credentials themselves.
+
+### In the admin UI
+
+All of this is set in burrow admin under Settings, **Web**: the Let's Encrypt card, then **DNS check providers**, which shows while Let's Encrypt is on. Each provider entry has its domains, the provider picked from a list with only its fields below, and its shared wildcards; a credential comes from a variable, a file or a value typed in, and is never shown again. A `command` is set in server.yaml, since it runs a program on the server. See [admin.md](../admin.md#certificates-and-lets-encrypt).
 
 ## When a certificate fails
 

@@ -3,6 +3,8 @@
 
 #[path = "admin_e2e/access.rs"]
 mod access;
+#[path = "admin_e2e/certificates.rs"]
+mod certificates;
 #[path = "admin_e2e/check_failed.rs"]
 mod check_failed;
 #[path = "admin_e2e/checks.rs"]
@@ -31,6 +33,8 @@ mod guards;
 mod header;
 #[path = "admin_e2e/hidden.rs"]
 mod hidden;
+#[path = "admin_e2e/letsencrypt.rs"]
+mod letsencrypt;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
 #[path = "admin_e2e/modes.rs"]

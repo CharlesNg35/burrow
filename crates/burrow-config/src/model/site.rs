@@ -321,7 +321,15 @@ pub enum SiteTls {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "My own certificate")]
+#[admin(
+    label = "My own certificate",
+    one_of(
+        source = "Certificate | Files on the server or a certificate uploaded here",
+        required,
+        cert(key),
+        upload
+    )
+)]
 pub struct SiteFiles {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -329,7 +337,8 @@ pub struct SiteFiles {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        label = "Certificate file",
+        label = "Files on the server",
+        help = "The certificate chain file, for example certs/fullchain.pem, named in server.yaml",
         none_label = "Not set",
         locked
     )]

@@ -252,37 +252,3 @@ pub fn object_of(
         _ => None,
     }
 }
-
-pub fn certificate_source(fc: &FieldCtx, obj: &burrow_admin_proto::schema::ObjectC) -> AnyView {
-    use burrow_admin_proto::schema::SemType;
-    obj.fields
-        .iter()
-        .filter(|f| {
-            matches!(
-                burrow_admin_logic::tree::inner(&f.node).sem,
-                SemType::Upload(_)
-            )
-        })
-        .map(|f| {
-            let mut path = fc.path.clone();
-            path.push(f.key.clone());
-            let mut spath = fc.spath.clone();
-            spath.push(f.key.clone());
-            let sub = FieldCtx {
-                node: f.node.clone(),
-                path,
-                spath,
-                id: format!("{}-{}", fc.id, f.key),
-                msg_id: format!("{}-{}-msg", fc.id, f.key),
-                ..fc.clone()
-            };
-            view! {
-                <div class="flex flex-col gap-1">
-                    <span class="text-[13px] font-medium">{f.node.label.clone()}</span>
-                    {crate::domain::editor(sub)}
-                </div>
-            }
-        })
-        .collect_view()
-        .into_any()
-}

@@ -206,7 +206,7 @@ fn setting_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
         {
             let label = cards
                 .iter()
-                .find(|c| c.object && c.fields.iter().any(|g| g.key == f.key))
+                .find(|c| c.object && c.at.is_empty() && c.fields.iter().any(|g| g.key == f.key))
                 .map_or_else(|| f.node.label.clone(), |c| c.title.clone());
             if !needle.is_empty()
                 && (hit(needle, &label) || hit(needle, &f.node.label) || hit(needle, &f.key))

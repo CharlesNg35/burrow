@@ -50,7 +50,7 @@ fn key_path(head: &str) -> bool {
     head.contains('.')
         && head
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*'))
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*' | '[' | ']'))
 }
 
 pub const REPO: &str = "https://github.com/CharlesNg35/burrow";
@@ -70,11 +70,34 @@ pub fn docs(page: &str) -> String {
     format!("{REPO}/blob/main/docs/{page}")
 }
 
+pub fn dns_guide(provider: &str) -> Option<String> {
+    use burrow_config::DnsEntry;
+    let anchor = if provider == DnsEntry::RFC2136.key() {
+        "rfc-2136-bind-knot-powerdns-technitium".to_string()
+    } else if [DnsEntry::CLOUDFLARE.key(), DnsEntry::ACME_DNS.key()].contains(&provider) {
+        provider.replace('_', "-")
+    } else {
+        return None;
+    };
+    Some(docs(&format!("web/certificates.md#{anchor}")))
+}
+
 pub fn add_label(field: &str, item: &str) -> String {
     if item.is_empty() {
         format!("Add to {field}")
     } else {
-        format!("Add {}", item.to_lowercase())
+        let words: Vec<String> = item
+            .split(' ')
+            .map(|w| {
+                let acronym = w.len() > 1 && w.chars().all(|c| !c.is_lowercase());
+                if acronym {
+                    w.to_string()
+                } else {
+                    w.to_lowercase()
+                }
+            })
+            .collect();
+        format!("Add {}", words.join(" "))
     }
 }
 
@@ -348,12 +371,12 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     }
     if code == NO_CERTIFICATE {
         return format!(
-            "{subject} has no certificate: turn on Let's Encrypt under {WEB_PROXY}, choose My own certificate under HTTPS, or list the name in the web proxy's Certificate files"
+            "{subject} has no certificate: turn on Let's Encrypt under {WEB_PROXY}, choose My own certificate under HTTPS, or list the name under Your own certificates"
         );
     }
     if code == WILDCARD_NEEDS_DNS {
         return format!(
-            "Let's Encrypt gives {subject} only through a DNS check: add a DNS provider for its domain under {WEB_PROXY}, Let's Encrypt, or use your own certificate file for it"
+            "Let's Encrypt gives {subject} only through a DNS check: add a DNS provider for its domain under DNS check providers, or list it under Your own certificates"
         );
     }
     if code == PLAIN_HTTP {
