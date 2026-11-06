@@ -410,7 +410,7 @@ fn an_existing_server_or_client_config_is_replaced_only_after_a_yes_on_a_termina
         let mut no = Terminal::answering(&[false]);
         let err = run(&mut no).unwrap_err();
         assert!(err.message.contains("already exists"), "{role}");
-        assert_eq!(no.asked, [question.clone()], "{role}");
+        assert_eq!(no.asked, std::slice::from_ref(&question), "{role}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "# mine\n");
         assert!(!bak.exists(), "{role}");
         let mut yes = Terminal::answering(&[true]);
