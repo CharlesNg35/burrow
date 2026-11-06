@@ -223,7 +223,7 @@ An AI app that can change your server must not be able to do harm by mistake or 
 - **Client and server updates need your OK too.** `update_clients` asks nobody and `update_server` changes nothing until called again with `confirm`, and the clients and the server's root updater fetch the release from the official releases themselves; the AI cannot name a download or a version, and cannot turn server updates on.
 - **Only checked changes are applied.** `apply_change` takes a plan id from `check_change`; the server refuses another change or a config that changed since, and impacts that need confirming must be named.
 - **Secrets never reach the AI.** Results show secrets as fingerprints or `${ENV}` names, and the AI cannot generate secrets or ask for connect snippets.
-- **The server's rules from [admin.md](admin.md#security-notes) apply unchanged:** admin access can be lowered but never granted or widened, and the last 20 versions are kept and can be reverted.
+- **The server's rules from [admin.md](admin.md#security-notes) apply unchanged:** it refuses removing your own visitor or the last one with write access, a change that ends your own session must be confirmed by name, and the last 20 versions are kept and can be reverted.
 - **Results are data, not instructions.** Names, host names, log lines and other text in results can be written by outsiders. The tool descriptions tell the AI so, and nothing applies without a diff you can see.
 - **Your app asks you** before each tool call unless you turned that off; keep it on for `apply_change`.
 - Activity in burrow admin shows changes made through `burrow mcp` under the visitor's name.

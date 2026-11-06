@@ -290,7 +290,7 @@ services:
 
 ## Web admin
 
-`burrow admin` opens a clean web admin on your own machine. Watch live traffic, clients, services, visitors, websites and certificates, and change them in forms that explain every field. Before a change applies, a review shows what changes in server.yaml and what it affects. You can go back to an earlier version, and the server refuses a change that would lock you out.
+`burrow admin` opens a clean web admin on your own machine. Watch live traffic, clients, services, visitors, websites and certificates, and change them in forms that explain every field. Before a change applies, a review shows what changes in server.yaml and what it affects. You can go back to an earlier version, and a change that would lock you out is refused or must be confirmed by name.
 
 The admin connects to the server as a visitor with admin access, so the server opens no new port. Give one visitor that access:
 

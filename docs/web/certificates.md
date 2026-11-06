@@ -55,7 +55,7 @@ services:
 ```
 
 - A field takes a file or an upload, never both: `tls` takes `cert` and `key` or `upload`; `target_tls` and `client_auth` take `ca` or `ca_upload`, and `crl` or `crl_upload`; `letsencrypt` takes `ca` or `ca_upload`.
-- Paths stay in server.yaml only: the admin UI never sets one, and a field that names a file there shows it as locked.
+- The admin UI sets paths too: pick **Files on the server** instead of an upload to name files another tool keeps current, like certbot's.
 - The key never leaves the server again: the UI shows only the names, the issuer, the expiry and the SHA-256 of what was uploaded.
 - Uploading the same file twice keeps one copy. Files that neither the config nor a version kept in the admin's Activity names are removed after the next change is applied, so a revert still finds its files, and burrow keeps at most 64 uploads waiting.
 

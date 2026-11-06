@@ -85,9 +85,10 @@ A website is open to every browser, so burrow checks each request before it reac
 - **DNS provider secrets** (`cloudflare.token`, `rfc2136.secret`, `acme_dns.password`) may be written in the config, like Caddy and Nginx Proxy Manager allow, or come from `${VAR}` or `file:`, which keep them out of the file. A write admin may set them in burrow admin. They are never printed, and burrow wipes them from memory when they are no longer needed. Give a Cloudflare token only Zone: Read and DNS: Edit on the zones it serves, and an RFC 2136 key only the `_acme-challenge` names.
 - **A DNS `command` hook** gets no secrets and only `PATH`; validate warns when others can change it.
 - **Certificates and keys** from Let's Encrypt live in a folder only the service account can read (0700, files 0600). Your own key files must be readable by the account burrow runs as.
-- **The admin UI cannot run programs or point at files.** `web.proxy_protocol_from`, every certificate, key and CA path, `error_pages`, `access_log` and a DNS provider's `command` are changed in server.yaml only ([web.md](web.md)).
+- **The admin UI cannot run programs.** A DNS provider's `command` is changed in server.yaml only ([web.md](web.md)). A write admin may set every other web setting, as Caddy's admin API and Nginx Proxy Manager allow: certificate, key and CA paths, `error_pages`, `proxy_protocol_from`, and the access log (D86).
+  - From burrow admin, the access log may only be a file inside the server's own folders: its state folder, or the service's log folder. A log line holds text a visitor chose, and a shell runs what it finds in its startup files, so a log written to a file like `~/.bashrc` could run that text as code. A file anywhere else is set in server.yaml.
   - A write admin may set a DNS provider's credentials and where they go (`rfc2136.server`, `acme_dns.api`), and may write `${VAR}` and `file:` references wherever server.yaml allows them, as Caddy and Nginx Proxy Manager let their admins do. So a stolen write admin could send a credential, or a variable or file the server's account can read, to a server it names. Admin access is the protection here: keep admin secrets and `admin_from` tight (owner, 2026-11-06, D85).
-  - A write admin may set the web proxy's ports (`web.https`, `web.http`), as with a service's public `bind`. The review names each port it opens and the websites a removal stops. A port shared with the tunnel stays a file edit, and a port another program holds is refused before anything is written.
+  - A write admin may set the web proxy's ports (`web.https`, `web.http`), as with a service's public `bind`. The review names each port it opens and the websites a removal stops. Moving a port the tunnel shares asks for a typed confirm and names the clients it cuts off, and a port another program holds is refused before anything is written. The same goes for the tunnel's own `listen`.
   - Instead of a file path, a write admin may upload a certificate, CA or revocation list. burrow checks it, keeps it private in its state folder, and never sends a key back ([Uploading files](web/certificates.md#uploading-files-in-the-admin-ui)).
 - **The local CA (`tls: internal`)** may sign only LAN names and addresses (X.509 name constraints in its root). Its key stays in the state folder, readable only by the service account, and the admin UI offers its certificate, never the key.
 
@@ -103,7 +104,7 @@ A server can be updated from burrow admin or `burrow mcp` only when root turned 
 
 ## burrow admin
 
-The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).
+The web admin listens on `127.0.0.1` only and needs a random token that only you can read. Admin access is the protection: a write admin may give or widen admin access, as in Portainer, Nginx Proxy Manager or Cloudflare, so keep admin secrets and `admin_from` tight. The server refuses only a change that removes your own visitor or leaves no visitor with write access. See [admin.md](admin.md#security-notes).
 
 ## burrow mcp
 
