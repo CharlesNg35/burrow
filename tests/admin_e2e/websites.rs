@@ -528,10 +528,15 @@ fn new_website(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=new-website-email]", SECS).await;
         c.ui.fill("[data-testid=new-website-email] input", "ops@example.com")
             .await;
-        let problem = c.ui.text("[data-testid=new-website-problem]").await;
+        let problem = c.ui.text("[data-testid=new-website-tls-problem]").await;
         assert!(
             problem.contains("Let's Encrypt cannot check shop.example.com"),
-            "this test's HTTPS port is not 443: {problem}"
+            "this test's HTTPS port is not 443, shown at the HTTPS step: {problem}"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=new-website-problem]").await,
+            0,
+            "the problem is not repeated above the save bar"
         );
         assert!(!c.ui.enabled("[data-testid=create]").await);
         both_widths(c, "new-website-no-check").await;

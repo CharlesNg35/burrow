@@ -1,9 +1,8 @@
 use burrow_admin_logic::web::{needs_letsencrypt, service_name, website};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::Node;
-use burrow_admin_proto::serde_json::{self, Value, json};
+use burrow_admin_proto::serde_json::{Value, json};
 use burrow_config::{Entry, LetsEncrypt, ServerConfig, ServiceEntry, TlsMode, WebConfig};
-use burrow_syntax::web::{CheckPorts, checks_for};
 use burrow_ui_kit::{
     Button, ChipInput, Edge, EdgeState, Hop, HopState, PathData, PathDiagram, TextInput, Tone,
 };
@@ -14,100 +13,11 @@ use crate::store::store;
 
 use crate::entities::{name_problem, taken};
 
+use super::https_choice::{
+    Ports, https_problem, planned, port_problem, ports_of, tls_options, web_now, web_port,
+};
+
 const TERMS: &str = "https://letsencrypt.org/repository/";
-
-#[derive(Clone, Copy, PartialEq)]
-struct Ports {
-    on: bool,
-    https: bool,
-    http: bool,
-    numbers: CheckPorts,
-}
-
-fn shown_port(v: Option<&Value>) -> String {
-    match v {
-        Some(Value::Number(n)) => n.to_string(),
-        Some(Value::String(s)) => s.clone(),
-        _ => String::new(),
-    }
-}
-
-fn port_of(v: &Value) -> Option<u16> {
-    match v {
-        Value::Number(n) => n.as_u64().and_then(|p| u16::try_from(p).ok()),
-        Value::String(s) => s.rsplit(':').next().and_then(|p| p.trim().parse().ok()),
-        _ => None,
-    }
-}
-
-fn web_port(plain: bool) -> String {
-    store().edit.draft.with(|d| {
-        let web = ServerConfig::WEB.get(d.draft());
-        let (scheme, field) = if plain {
-            ("HTTP", web.and_then(|w| WebConfig::HTTP.get(w)))
-        } else {
-            ("HTTPS", web.and_then(|w| WebConfig::HTTPS.get(w)))
-        };
-        let port = shown_port(field);
-        if port.is_empty() {
-            String::new()
-        } else {
-            format!("{scheme} {port}")
-        }
-    })
-}
-
-fn web_now() -> Option<Value> {
-    store().edit.draft.with(|d| {
-        ServerConfig::WEB
-            .get(d.draft())
-            .filter(|w| !w.is_null())
-            .cloned()
-    })
-}
-
-fn port_value(text: &str) -> Option<Value> {
-    let t = text.trim();
-    if t.is_empty() {
-        return None;
-    }
-    Some(t.parse::<u16>().map_or_else(|_| json!(t), |n| json!(n)))
-}
-
-fn port_problem(label: &str, text: &str) -> Option<String> {
-    let v = port_value(text)?;
-    let ok = serde_json::from_value::<burrow_config::Bind>(v)
-        .ok()
-        .and_then(|b| b.ranged([0, 0, 0, 0], label).ok())
-        .is_some_and(|(_, n)| n == 1);
-    (!ok).then(|| format!("{label}: give one port, like 443, or an address like 0.0.0.0:443"))
-}
-
-fn planned(https: &str, http: &str) -> Value {
-    let mut web = serde_json::Map::new();
-    if let Some(v) = port_value(https) {
-        web.insert(WebConfig::HTTPS.key().into(), v);
-    }
-    if let Some(v) = port_value(http) {
-        web.insert(WebConfig::HTTP.key().into(), v);
-    }
-    Value::Object(web)
-}
-
-fn ports_of(web: Option<&Value>) -> Ports {
-    let has = |w: Option<&Value>, f: fn(&Value) -> Option<&Value>| {
-        w.and_then(f).is_some_and(|v| !v.is_null())
-    };
-    Ports {
-        on: web.is_some(),
-        https: has(web, |w| WebConfig::HTTPS.get(w)),
-        http: has(web, |w| WebConfig::HTTP.get(w)),
-        numbers: CheckPorts {
-            https: web.and_then(|w| WebConfig::HTTPS.get(w)).and_then(port_of),
-            http: web.and_then(|w| WebConfig::HTTP.get(w)).and_then(port_of),
-        },
-    }
-}
 
 fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData {
     let hop = |icon: &'static str, head: &str, value: String, current: bool| Hop {
@@ -160,26 +70,6 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
     }
 }
 
-fn tls_options(p: Ports) -> Vec<burrow_ui_kit::RadioOption> {
-    crate::domain::website::https_options(|v| {
-        if v == crate::domain::website::files_choice() {
-            return Some("set its certificate files on the website once it exists".to_string());
-        }
-        let blocked = if v == TlsMode::Off.wire() {
-            !p.http
-        } else {
-            !p.https
-        };
-        blocked.then(|| {
-            if v == TlsMode::Off.wire() {
-                "needs the web proxy's HTTP port".to_string()
-            } else {
-                "needs the web proxy's HTTPS port".to_string()
-            }
-        })
-    })
-}
-
 #[cfg(test)]
 const OWN_CONTROLS: [&str; 1] = [ServiceEntry::WEB.key()];
 
@@ -201,7 +91,11 @@ fn site_value(names: &[String], site: &Value, tls: &str) -> Value {
             v[k] = x.clone();
         }
     }
-    let tls = (tls != TlsMode::Auto.wire()).then(|| json!(tls));
+    let tls = if tls == crate::domain::website::files_choice() {
+        Some(json!({}))
+    } else {
+        (tls != TlsMode::Auto.wire()).then(|| json!(tls))
+    };
     if let Some(web) = website(None, names, tls) {
         ServiceEntry::WEB.set(&mut v, web);
     }
@@ -243,6 +137,7 @@ struct Inputs {
     service: String,
     name_issue: Option<String>,
     local: Option<String>,
+    https: Option<String>,
 }
 
 fn missing(site: &Value, key: &str) -> bool {
@@ -288,17 +183,13 @@ fn website_problem(i: &Inputs, root: &Node, doc: &Value) -> Option<String> {
     }) {
         return Some(m);
     }
-    if i.asks_email {
-        if let Some(m) = email_problem(&i.email) {
-            return Some(m);
-        }
-        if let Some(m) = i.names.iter().find_map(|n| {
-            checks_for(n, i.ports.numbers, false, None)
-                .err()
-                .map(|why| burrow_admin_logic::cert_words::no_check(n, why))
-        }) {
-            return Some(m);
-        }
+    if i.asks_email
+        && let Some(m) = email_problem(&i.email)
+    {
+        return Some(m);
+    }
+    if let Some(m) = i.https.clone() {
+        return Some(m);
     }
     if i.service.is_empty() {
         return Some("Give the service a name".to_string());
@@ -341,6 +232,7 @@ struct Fields {
     email: Memo<String>,
     service: Memo<String>,
     name_issue: Signal<Option<String>>,
+    https: Memo<Option<String>>,
     at: [StoredValue<Path>; 2],
 }
 
@@ -367,13 +259,16 @@ fn problem_of(f: Fields) -> (Memo<Option<String>>, Memo<bool>) {
             service: f.service.get(),
             name_issue: f.name_issue.get(),
             local: local.get(),
+            https: f.https.get(),
         };
         s.schema.with(|sc| {
             sc.as_ref()
                 .and_then(|sc| website_problem(&i, &sc.root, &e.doc()))
         })
     });
-    let at_field = Memo::new(move |_| problem.get().is_some() && problem.get() == local.get());
+    let at_field = Memo::new(move |_| {
+        problem.get().is_some() && (problem.get() == local.get() || problem.get() == f.https.get())
+    });
     (problem, at_field)
 }
 
@@ -436,6 +331,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             .flatten();
         e.local_error(&email_path(), m);
     });
+    let https = Memo::new(move |_| https_problem(&names.get(), &tls.get(), &web.get(), p.get()));
     let (problem, at_field) = problem_of(Fields {
         web_on,
         https_in,
@@ -447,6 +343,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         email,
         service,
         name_issue,
+        https,
         at: [svc_at, le_at],
     });
     let finish = move |_| {
@@ -473,7 +370,18 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         }
         open.set(false);
         draft_name.set(String::new());
-        go(Route::Detail(ServiceEntry::section().into(), name));
+        go(Route::Detail(ServiceEntry::section().into(), name.clone()));
+        if tls.get_untracked() == crate::domain::website::files_choice() {
+            let at = ServiceEntry::WEB
+                .of(&name)
+                .into_iter()
+                .chain([burrow_config::WebSite::TLS.key().to_string()])
+                .collect::<Vec<_>>();
+            set_timeout(
+                move || crate::form::go_to_field(&at),
+                std::time::Duration::from_millis(150),
+            );
+        }
     };
     let diagram = Signal::derive(move || {
         let target = ServiceEntry::TARGET
@@ -488,12 +396,12 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             <burrow_ui_kit::PageHeader sub="A name visitors type, and the app on one of your clients that answers it.">"New website"</burrow_ui_kit::PageHeader>
             {move || (!web_on.get()).then(|| web_step(https_in, http_in))}
             <PathDiagram data=diagram testid="new-website-path"/>
-            {steps(names, check_name, tls, p)}
+            {steps(names, check_name, tls, p, https)}
+            {move || asks_email.get().then(email_step)}
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="new-website-name">
-                {step(5, "Service name", "A short name for lists, commands and Review.")}
+                {move || step(if asks_email.get() { 6 } else { 5 }, "Service name", "A short name for lists, commands and Review.")}
                 {crate::rename::name_input("new-website-service", "Service name", svc_name, name_issue, true, "blog or shop")}
             </section>
-            {move || asks_email.get().then(email_step)}
             {move || problem.get().filter(|_| !names.with(Vec::is_empty) && !at_field.get()).map(|m| view! {
                 <p class="mb-2 flex items-center gap-1.5 text-sm text-danger" data-testid="new-website-problem">
                     <burrow_ui_kit::Icon name="alert-circle" small=true/>
@@ -528,6 +436,7 @@ fn steps(
     check_name: Callback<String, Option<String>>,
     tls: RwSignal<String>,
     p: Memo<Ports>,
+    https: Memo<Option<String>>,
 ) -> impl IntoView {
     let on_names = Callback::new(move |l: Vec<String>| names.set(l));
     let row = |f: Path| crate::form::field_row(crate::field::concrete(&f, crate::edit::NEW), f);
@@ -556,6 +465,7 @@ fn steps(
                 {move || view! {
                     <burrow_ui_kit::RadioList name="new-website-tls" options=Signal::derive(move || tls_options(p.get())) value=Signal::derive(move || tls.get()) label="HTTPS" on_change=move |m: String| tls.set(m)/>
                 }}
+                {move || https.get().filter(|_| !names.with(Vec::is_empty)).map(|m| view! { <div data-testid="new-website-tls-problem">{burrow_ui_kit::field_message(burrow_ui_kit::Tone::Danger, m)}</div> })}
             </div>
         </section>
     }
@@ -580,7 +490,7 @@ fn web_step(https: RwSignal<String>, http: RwSignal<String>) -> impl IntoView {
 fn email_step() -> impl IntoView {
     view! {
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="new-website-email">
-            {step(6, "Let's Encrypt", "Automatic certificates for this server.")}
+            {step(5, "Let's Encrypt", "Automatic certificates for this server.")}
             <div>
                 {crate::form::field_row(email_path(), email_path())}
                 <p class="mt-1.5 text-xs text-text-muted">
@@ -609,6 +519,7 @@ mod tests {
             service: "blog".into(),
             name_issue: None,
             local: None,
+            https: None,
         }
     }
 
@@ -630,6 +541,32 @@ mod tests {
         i.asks_email = false;
         i.email = String::new();
         assert_eq!(problem(&i), None);
+    }
+
+    #[test]
+    fn a_certificate_problem_blocks_the_website_and_local_ca_takes_only_lan_names() {
+        let mut i = inputs();
+        i.https = Some("Let's Encrypt cannot check it".into());
+        assert_eq!(
+            problem(&i).as_deref(),
+            Some("Let's Encrypt cannot check it")
+        );
+        let p = ports_of(Some(&json!({ "https": 443, "http": 80 })));
+        let names = ["blog.example.com".to_string()];
+        assert!(https_problem(&names, "internal", &json!({}), p).is_some());
+        assert_eq!(
+            https_problem(&["nas.lan".into()], "internal", &json!({}), p),
+            None
+        );
+        assert_eq!(https_problem(&names, "auto", &json!({}), p), None);
+        let closed = ports_of(Some(&json!({ "https": 8443 })));
+        assert!(https_problem(&names, "auto", &json!({}), closed).is_some());
+    }
+
+    #[test]
+    fn my_own_certificate_writes_an_empty_choice_the_site_page_fills() {
+        let v = site_value(&["blog.example.com".to_string()], &inputs().site, "files");
+        assert_eq!(v["web"]["tls"], json!({}));
     }
 
     #[test]

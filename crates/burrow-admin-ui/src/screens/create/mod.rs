@@ -1,5 +1,6 @@
 //! The create screens for new entries and websites, with the path preview of a new entry.
 
+mod https_choice;
 mod new;
 mod website;
 
