@@ -96,6 +96,13 @@ impl Spans {
         self.get(path).map_or(self.root, |(_, v)| v)
     }
 
+    pub fn nearest(&self, path: &[&str]) -> Span {
+        (0..=path.len())
+            .rev()
+            .find_map(|n| self.get(&path[..n]))
+            .map_or(self.root, |(_, v)| v)
+    }
+
     pub fn key(&self, path: &[&str]) -> Span {
         self.get(path).map_or(self.root, |(k, _)| k)
     }

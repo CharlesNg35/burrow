@@ -223,3 +223,26 @@ fn a_dns_entrys_domains_wildcards_and_wait_stay_editable() {
         assert!(c.is_ok(), "{op:?}: {:?}", c.err().map(|e| e.message));
     }
 }
+
+#[test]
+fn a_new_dns_entry_is_told_its_domains_at_its_domains() {
+    let d = dns_world();
+    let core = core_for(&d.w.text);
+    let s = session(&d.w, AdminLevel::Write);
+    let base = text::rev(&core.read().unwrap());
+    let op = Op::Set {
+        path: p(&["web", "letsencrypt", "dns"]),
+        value: json!([first(&d), {}]),
+    };
+    let c = plan::compute(&core, &s, &base, &[op]).unwrap();
+    let d = c
+        .plan
+        .diags
+        .iter()
+        .find(|d| d.code == burrow_admin_proto::codes::DNS_DOMAINS)
+        .unwrap_or_else(|| panic!("{:?}", c.plan.diags));
+    assert_eq!(
+        d.path.as_deref(),
+        Some(p(&["web", "letsencrypt", "dns", "1", "domains"]).as_slice())
+    );
+}

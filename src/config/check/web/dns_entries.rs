@@ -74,7 +74,7 @@ fn entry(
                 burrow_admin_proto::codes::DNS_DOMAINS,
                 format!("{name}.domains: list the domains this provider manages, like domains: [example.com]"),
             )
-            .at(span(spans, &at(i, &["domains"])))
+            .at(spans.nearest(&at(i, &["domains"]).iter().map(String::as_str).collect::<Vec<_>>()))
             .help("a domain covers itself and every name under it"),
         );
     }

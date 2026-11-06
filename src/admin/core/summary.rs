@@ -174,6 +174,13 @@ fn fields_of(
 }
 
 fn nested(path: &[String], was: Option<&Value>, now: Option<&Value>, out: &mut Vec<String>) {
+    let none = Value::Array(Vec::new());
+    let list = |v: Option<&Value>| v.and_then(Value::as_array).is_some_and(|a| entries(a));
+    let (was, now) = match (was, now) {
+        (None, Some(_)) if list(now) => (Some(&none), now),
+        (Some(_), None) if list(was) => (was, Some(&none)),
+        other => other,
+    };
     match (was, now) {
         (Some(Value::Object(a)), Some(Value::Object(b))) => {
             let mut inner = Vec::new();
@@ -459,6 +466,15 @@ mod tests {
                 .map(|c| c.summary)
                 .collect::<Vec<_>>()
         };
+        let mut bare = le(json!([]));
+        bare["web"]["letsencrypt"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dns");
+        assert_eq!(
+            text(bare, le(json!([one]))),
+            ["Let's Encrypt: DNS provider 1 (Cloudflare) added"]
+        );
         assert_eq!(
             text(le(json!([one])), le(json!([one, two]))),
             ["Let's Encrypt: DNS provider 2 (RFC 2136) added"]
