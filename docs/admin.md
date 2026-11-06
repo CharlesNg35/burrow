@@ -83,7 +83,7 @@ Settings, **Web** holds the certificates, each in its own card ([certificates.md
 3. **Your own certificates:** add the names a certificate serves, then upload its certificate and key, or pick **Files on the server** and name files another tool keeps up to date, like certbot's `/etc/letsencrypt/live/example.com/fullchain.pem`.
 4. **Local certificate authority:** its fingerprint and the download of its certificate, for `tls: internal` sites.
 
-A website picks its certificate on its page, under HTTPS: Automatic (Let's Encrypt or a matching entry of Your own certificates), the local CA, My own certificate (an upload), passthrough or off. Its Let's Encrypt check (`challenge`) is under More settings; a wildcard name needs the DNS check.
+A website picks its certificate on its page, under HTTPS: Automatic (Let's Encrypt or a matching entry of Your own certificates), the local CA, My own certificate (an upload), passthrough or off. Its Let's Encrypt check (`challenge`) is under More settings; a wildcard name needs the DNS check, and Automatic uses it by itself for a name whose domain a DNS provider lists when ports 443 and 80 are not the web proxy's. **New website** asks the same HTTPS question and tells at once when Let's Encrypt cannot check a name or the local CA cannot sign it; with My own certificate it opens the new site on its upload. A certificate that cannot be issued, renewed or is near its end shows in Needs attention and at the site's HTTPS setting, where the item leads.
 
 ## Client versions and updates
 
