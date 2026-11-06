@@ -75,28 +75,25 @@ async fn a_header_and_a_path(c: &mut Ctx) {
 
 async fn dns_secrets_are_references(c: &mut Ctx) {
     c.ui.nav("/settings?tab=proxy").await;
-    c.ui.wait_for("[data-schema=web]", SECS).await;
-    open_more(c, "web/letsencrypt/dns").await;
-    c.ui.wait_text("[data-schema=web]", "set, from ${CF_TOKEN}", SECS)
-        .await;
-    let page = c.ui.text("[data-schema=web]").await;
+    let card = "[data-card='web.letsencrypt.dns']";
+    c.ui.wait_text(card, "set, from ${CF_TOKEN}", SECS).await;
+    let page = c.ui.text("main").await;
     assert!(
         !page.contains("cf-token-for-the-e2e"),
         "the token never shows: {page}"
     );
     both_widths(c, "settings-dns-provider").await;
     edit_mode(c).await;
-    let token = "[data-schema='web/letsencrypt/dns/*/cloudflare/token']";
-    c.ui.wait_text(token, "Change this in server.yaml", SECS)
-        .await;
+    let token = "#f-web-letsencrypt-dns-0-cloudflare-token";
+    c.ui.wait_for(token, SECS).await;
+    let typed: String =
+        c.ui.eval(&format!("document.querySelector('{token}').value"))
+            .await;
     assert_eq!(
-        c.ui.count(&format!("{token} input")).await,
-        0,
-        "a DNS secret reference is changed in server.yaml only"
+        typed, "CF_TOKEN",
+        "a reference is edited as its variable name"
     );
-    let api = c.ui.text(token).await;
-    assert!(api.contains("${CF_TOKEN}") || api.contains("set"), "{api}");
-    both_widths(c, "settings-dns-token-locked").await;
+    both_widths(c, "settings-dns-token").await;
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 }
