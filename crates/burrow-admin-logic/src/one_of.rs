@@ -27,10 +27,7 @@ fn is_set(obj: &Value, key: &str) -> bool {
 }
 
 pub fn picked(g: &OneOf, obj: Option<&Value>) -> Option<usize> {
-    let obj = obj?;
-    g.choices
-        .iter()
-        .position(|c| c.iter().any(|k| is_set(obj, k)))
+    g.picked(obj?)
 }
 
 pub fn filled(g: &OneOf, obj: Option<&Value>, choice: usize) -> bool {

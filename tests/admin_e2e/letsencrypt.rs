@@ -105,7 +105,7 @@ pub(super) async fn variable(c: &Ctx, id: &str, name: &str) {
     c.ui.fill(&format!("#{id}"), name).await;
 }
 
-pub(super) async fn apply_all(c: &mut Ctx, step: &str) {
+pub(super) async fn apply_all(c: &mut Ctx, step: &str) -> String {
     wait_checked(c).await;
     open_review(c, &format!("{step}-review")).await;
     let review: String = c.ui.eval("document.body.innerText").await;
@@ -113,6 +113,14 @@ pub(super) async fn apply_all(c: &mut Ctx, step: &str) {
         assert!(!review.contains(secret), "Review shows a secret: {review}");
     }
     applied(c, &format!("{step}-applied")).await;
+    review
+}
+
+async fn row_text(c: &Ctx, path: &str) -> String {
+    c.ui.eval(&format!(
+        "document.querySelector(\"[data-path='{path}']\")?.innerText ?? ''"
+    ))
+    .await
 }
 
 async fn t1_lets_encrypt_on(c: &mut Ctx) {
@@ -157,6 +165,17 @@ async fn t2_cloudflare(c: &mut Ctx) {
     edit_mode(c).await;
     c.ui.click(&format!("{DNS}-add-button")).await;
     c.ui.wait_for(&format!("{DNS}-0-domains"), SECS).await;
+    wait_checked(c).await;
+    let domains = row_text(c, "web/letsencrypt/dns/0/domains").await;
+    assert!(
+        domains.contains("list the domains"),
+        "a new entry's missing domains show at Domains: {domains}"
+    );
+    let provider = row_text(c, "web/letsencrypt/dns/0/provider").await;
+    assert!(
+        !provider.contains("list the domains"),
+        "not at the provider: {provider}"
+    );
     three(c, "t2-new-entry").await;
     chip(c, "f-web-letsencrypt-dns-0-domains", "example.com").await;
     c.ui.select(&format!("{DNS}-0-provider"), "0").await;
@@ -176,7 +195,11 @@ async fn t2_cloudflare(c: &mut Ctx) {
     chip(c, "f-web-letsencrypt-dns-0-wildcards", "*.example.com").await;
     wait_checked(c).await;
     three(c, "t2-filled").await;
-    apply_all(c, "t2").await;
+    let review = apply_all(c, "t2").await;
+    assert!(
+        review.contains("Let's Encrypt: DNS provider 1 (Cloudflare) added"),
+        "the Review names the change: {review}"
+    );
     saved_web_is(
         c,
         "web:\n  https: 127.0.0.1:HTTPS_PORT\n  http: 127.0.0.1:HTTP_PORT\n  letsencrypt:\n    email: ops@example.com\n    directory: https://127.0.0.1:9/directory\n    dns:\n      - domains: [example.com]\n        cloudflare: { token: \"${CF_TOKEN}\" }\n        wildcards: [\"*.example.com\"]\n",
@@ -243,6 +266,20 @@ async fn t7_wildcard_site(c: &mut Ctx) {
 async fn t4_switch_to_acme_dns(c: &mut Ctx) {
     web_tab(c).await;
     edit_mode(c).await;
+    c.ui.select(&format!("{DNS}-0-provider"), "2").await;
+    c.ui.wait_for("[data-testid=one-of-switch]", SECS).await;
+    c.ui.click("[data-testid=one-of-cancel]").await;
+    c.ui.wait_gone("[data-testid=one-of-switch]", SECS).await;
+    let kept: String =
+        c.ui.eval(&format!("document.querySelector('{DNS}-0-provider').value"))
+            .await;
+    assert_eq!(kept, "0", "Cancel puts the provider back on Cloudflare");
+    assert_eq!(
+        c.ui.count(&format!("{DNS}-0-cloudflare-token")).await,
+        1,
+        "Cancel keeps the Cloudflare fields"
+    );
+    three(c, "t4-cancelled").await;
     c.ui.select(&format!("{DNS}-0-provider"), "2").await;
     c.ui.wait_for("[data-testid=one-of-switch]", SECS).await;
     let dialog = c.ui.text("[data-testid=one-of-switch]").await;

@@ -255,6 +255,12 @@ impl OneOf {
             .and_then(|c| c.first())
             .is_some_and(|k| k == key)
     }
+
+    pub fn picked(&self, obj: &Value) -> Option<usize> {
+        self.choices
+            .iter()
+            .position(|c| c.iter().any(|k| obj.get(k).is_some_and(|v| !v.is_null())))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

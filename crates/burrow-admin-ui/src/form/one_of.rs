@@ -150,6 +150,14 @@ pub(super) fn choice_rows(c: Choice) -> AnyView {
         })
     };
     let pending: RwSignal<Option<Option<usize>>> = RwSignal::new(None);
+    let redraw = RwSignal::new(0u32);
+    Effect::new(move |was: Option<bool>| {
+        let open = pending.with(Option::is_some);
+        if was == Some(true) && !open {
+            redraw.update(|n| *n += 1);
+        }
+        open
+    });
     let g2 = g.clone();
     let on_change = Callback::new(move |v: String| {
         let to = v.parse::<usize>().ok();
@@ -181,6 +189,7 @@ pub(super) fn choice_rows(c: Choice) -> AnyView {
         let id = id.clone();
         let label_text = g.label.clone();
         move || {
+            redraw.track();
             let value =
                 Signal::derive(move || shown.get().map(|i| i.to_string()).unwrap_or_default());
             if can && editing.try_get().unwrap_or(false) {

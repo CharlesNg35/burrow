@@ -16,6 +16,7 @@ pub const WEIGHT_NOT_BALANCE: &str = "weight-not-balance";
 pub const DUPLICATE_BIND: &str = "duplicate-bind";
 pub const PORT_IN_USE: &str = "port-in-use";
 pub const WEB_PORT_SHARED: &str = "web-port-shared";
+pub const DNS_DOMAINS: &str = "dns-domains";
 pub const OPENS_PORT: &str = "opens-port";
 pub const STOPS_WEBSITES: &str = "stops-websites";
 pub const WEBSOCKET_MOVED: &str = "websocket-moved";

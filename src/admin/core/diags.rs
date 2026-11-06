@@ -1,5 +1,5 @@
 use burrow_admin_proto::diag::{Diag, Severity};
-use burrow_config::{Entry, ServiceEntry};
+use burrow_config::{DnsEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, WebConfig};
 
 use crate::config::diagnostics::{Diagnostic, mask_text};
 use crate::config::tree::{Node, Span, Value};
@@ -58,6 +58,20 @@ fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
     }
 }
 
+fn own_field(d: &Diagnostic, mut path: Vec<String>) -> Vec<String> {
+    let list = ServerConfig::WEB
+        .then(WebConfig::LETSENCRYPT)
+        .then(LetsEncrypt::DNS)
+        .path();
+    let entry = path.len() == list.len() + 1
+        && path.starts_with(&list)
+        && path.last().is_some_and(|i| i.parse::<usize>().is_ok());
+    if d.code == burrow_admin_proto::codes::DNS_DOMAINS && entry {
+        path.push(DnsEntry::DOMAINS.key().to_string());
+    }
+    path
+}
+
 pub struct Mapper {
     places: Vec<Place>,
 }
@@ -84,7 +98,8 @@ impl Mapper {
         let path = d
             .span
             .filter(|s| s.start.line > 0)
-            .and_then(|s| self.path_at(s.start.offset));
+            .and_then(|s| self.path_at(s.start.offset))
+            .map(|p| own_field(d, p));
         let also = also(d, path.as_deref());
         Diag {
             severity: match d.severity {
@@ -124,5 +139,34 @@ mod tests {
         assert_eq!(m.path_at(at).unwrap(), ["services", "web", "bind"]);
         let at = text.find("web").unwrap();
         assert_eq!(m.path_at(at).unwrap(), ["services", "web"]);
+    }
+
+    #[test]
+    fn a_new_dns_entry_without_domains_is_told_at_its_domains() {
+        let text = "web:\n  letsencrypt:\n    email: a@example.com\n    dns:\n      - {}\n";
+        let root = crate::config::tree::parse(text).unwrap();
+        let m = Mapper::new(Some(&root));
+        let at = text.find("{}").unwrap();
+        let mut d = Diagnostic::error(burrow_admin_proto::codes::DNS_DOMAINS, "domains: list them");
+        let pos = |offset: usize| crate::config::tree::Pos {
+            offset,
+            line: 5,
+            col: offset,
+        };
+        d.span = Some(Span {
+            start: pos(at),
+            end: pos(at + 2),
+        });
+        let shown = m.convert(&d);
+        assert_eq!(
+            shown.path.unwrap(),
+            ["web", "letsencrypt", "dns", "0", "domains"]
+        );
+        let mut other = Diagnostic::error("dns-provider", "name one provider");
+        other.span = d.span;
+        assert_eq!(
+            m.convert(&other).path.unwrap(),
+            ["web", "letsencrypt", "dns", "0"]
+        );
     }
 }

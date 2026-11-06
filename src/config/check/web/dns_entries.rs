@@ -71,7 +71,7 @@ fn entry(
     if e.domains.is_empty() {
         out.push(
             Diagnostic::error(
-                "dns-domains",
+                burrow_admin_proto::codes::DNS_DOMAINS,
                 format!("{name}.domains: list the domains this provider manages, like domains: [example.com]"),
             )
             .at(span(spans, &at(i, &["domains"])))
