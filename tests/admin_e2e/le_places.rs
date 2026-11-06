@@ -8,7 +8,6 @@ use super::{Ctx, SECS, edit_mode, open, open_more, run, wait_checked};
 
 const PROBLEM: &str = "[data-testid=new-website-tls-problem]";
 const WEB: &str = "web:\n  https: 127.0.0.1:HTTPS_PORT\n  http: 127.0.0.1:HTTP_PORT\n";
-const TLS: &str = "services/*/web/tls";
 
 fn le_on() -> String {
     format!(
@@ -214,6 +213,12 @@ async fn wildcard_and_check(c: &mut Ctx) {
     c.ui.wait_for(clear, SECS).await;
     assert_eq!(c.ui.text(clear).await.trim(), "Clear");
     wait_checked(c).await;
+    let unused = row_error(c, "services/*/web/challenge").await;
+    assert!(
+        unused
+            .starts_with("This site uses its own certificate, so Let's Encrypt does not check it"),
+        "{unused}"
+    );
     let msgs: Vec<String> = c
         .ui
         .eval("[...document.querySelectorAll(\"[data-schema='services/*/web/tls'] [aria-live] p\")].map(p => p.innerText)")

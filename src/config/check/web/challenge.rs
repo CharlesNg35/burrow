@@ -4,7 +4,8 @@ use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use burrow_admin_proto::codes::{
-    CHALLENGE_DNS, CHALLENGE_PORT, CHALLENGE_WILDCARD, DNS_UNCOVERED, NO_CHECK, WILDCARD_NEEDS_DNS,
+    CHALLENGE_DNS, CHALLENGE_PORT, CHALLENGE_UNUSED, CHALLENGE_WILDCARD, DNS_UNCOVERED, NO_CHECK,
+    WILDCARD_NEEDS_DNS,
 };
 use burrow_config::{ChallengeKind, ServerConfig, SiteTls, TlsMode};
 use burrow_syntax::web::{Challenge, CheckPorts, NoCheck, checks_for, dns_entry_for};
@@ -131,13 +132,13 @@ pub(super) fn check(
     };
     if code == CHALLENGE_PORT {
         port = Some(match err {
-            NoCheck::NoHttpPort => "http",
-            _ => "tls",
+            NoCheck::NoHttpPort => burrow_syntax::web::HTTP_PORT,
+            _ => burrow_syntax::web::TLS_PORT,
         });
     }
     let mut d = Diagnostic::error(code, message).about(host);
     if let Some(p) = port {
-        d = d.about(p);
+        d = d.about(p.to_string());
     }
     Some(d.at(at).help(help))
 }
@@ -243,22 +244,27 @@ pub(super) fn unused_site(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagn
             );
             continue;
         }
-        let why = match web.tls() {
-            Some(SiteTls::Mode(TlsMode::Passthrough)) => {
-                "the app keeps its own certificate (tls: passthrough)"
+        let (why, mode) = match web.tls() {
+            Some(SiteTls::Mode(TlsMode::Passthrough)) => (
+                "the app keeps its own certificate (tls: passthrough)",
+                TlsMode::Passthrough.wire(),
+            ),
+            Some(SiteTls::Mode(TlsMode::Off)) => {
+                ("a site with tls: off has no HTTPS", TlsMode::Off.wire())
             }
-            Some(SiteTls::Mode(TlsMode::Off)) => "a site with tls: off has no HTTPS",
-            Some(SiteTls::Files(_)) => "the site uses its own certificate file",
-            Some(SiteTls::Mode(TlsMode::Internal)) => {
-                "the local CA signs its certificates, so Let's Encrypt never checks it (tls: internal)"
-            }
+            Some(SiteTls::Files(_)) => ("the site uses its own certificate file", "files"),
+            Some(SiteTls::Mode(TlsMode::Internal)) => (
+                "the local CA signs its certificates, so Let's Encrypt never checks it (tls: internal)",
+                TlsMode::Internal.wire(),
+            ),
             _ => continue,
         };
         out.push(
             Diagnostic::error(
-                "challenge-unused",
+                CHALLENGE_UNUSED,
                 format!("services.{name}.web.challenge: {why}; remove challenge"),
             )
+            .about(mode)
             .at(at)
             .help("challenge only says how Let's Encrypt checks a site's names"),
         );
@@ -271,7 +277,8 @@ pub(in crate::config::check) fn unused_tunnel(spans: &Spans, by_site: bool) -> D
     } else {
         "websocket.challenge is only used when the tunnel's own name gets a Let's Encrypt certificate; remove it"
     };
-    Diagnostic::error("challenge-unused", message)
+    Diagnostic::error(CHALLENGE_UNUSED, message)
+        .about(if by_site { "tunnel-site" } else { "tunnel" })
         .at(spans.value(&["websocket", "challenge"]))
         .help("the tunnel shares web.https, has no websocket.tls files and no web.certificates entry lists its name")
 }

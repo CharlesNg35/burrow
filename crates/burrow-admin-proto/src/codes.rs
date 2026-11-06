@@ -9,6 +9,7 @@ pub const WILDCARD_NEEDS_DNS: &str = "wildcard-needs-dns";
 pub const CHALLENGE_DNS: &str = "challenge-dns";
 pub const CHALLENGE_PORT: &str = "challenge-port";
 pub const CHALLENGE_WILDCARD: &str = "challenge-wildcard";
+pub const CHALLENGE_UNUSED: &str = "challenge-unused";
 pub const DNS_UNCOVERED: &str = "dns-uncovered";
 pub const INTERNAL_NAME: &str = "internal-name";
 pub const PLAIN_HTTP: &str = "plain-http";
@@ -84,7 +85,7 @@ pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
 pub const OLDER_ADMIN: &str = "older-admin";
 pub const TLS_UNREADABLE: &str = "tls-unreadable";
 
-pub const READ_BY_THE_UI: [&str; 23] = [
+pub const READ_BY_THE_UI: [&str; 24] = [
     PLAIN_NEEDS_HTTP,
     PASSTHROUGH_FIXED,
     REDIRECT_PLAIN,
@@ -96,6 +97,7 @@ pub const READ_BY_THE_UI: [&str; 23] = [
     CHALLENGE_DNS,
     CHALLENGE_PORT,
     CHALLENGE_WILDCARD,
+    CHALLENGE_UNUSED,
     DNS_UNCOVERED,
     INTERNAL_NAME,
     PLAIN_HTTP,

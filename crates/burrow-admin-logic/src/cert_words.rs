@@ -1,17 +1,18 @@
 use burrow_admin_proto::codes::{
-    CHALLENGE_DNS, CHALLENGE_PORT, CHALLENGE_WILDCARD, DNS_UNCOVERED, INTERNAL_NAME, NO_CHECK,
-    WILDCARD_NEEDS_DNS,
+    CHALLENGE_DNS, CHALLENGE_PORT, CHALLENGE_UNUSED, CHALLENGE_WILDCARD, DNS_UNCOVERED,
+    INTERNAL_NAME, NO_CHECK, WILDCARD_NEEDS_DNS,
 };
-use burrow_syntax::web::NoCheck;
 use burrow_syntax::web::local_ca::{NotLocal, local_ca_refuses};
+use burrow_syntax::web::{HTTP_PORT, NoCheck};
 
 const WEB_PROXY: &str = "Settings, Web proxy";
 const DNS_CARD: &str = "DNS check providers";
 const OWN_CARD: &str = "Your own certificates";
 const OTHER_CHECK: &str = "pick another Let's Encrypt check";
 
-pub const CODES: [&str; 7] = [
+pub const CODES: [&str; 8] = [
     NO_CHECK,
+    CHALLENGE_UNUSED,
     WILDCARD_NEEDS_DNS,
     CHALLENGE_DNS,
     CHALLENGE_PORT,
@@ -62,6 +63,18 @@ fn uncovered(host: &str, domain: &str) -> String {
     }
 }
 
+fn unused(why: &str) -> String {
+    let clear = "clear its Let's Encrypt check";
+    match why {
+        "passthrough" => format!("The app keeps its own certificate, so Let's Encrypt does not check this site: {clear}"),
+        "off" => format!("This site has no HTTPS, so Let's Encrypt does not check it: {clear}"),
+        "internal" => format!("The local CA signs this site's certificate, so Let's Encrypt does not check it: {clear}"),
+        "tunnel-site" => "The tunnel uses the website's certificate for its name: clear the tunnel's Let's Encrypt check and set it on the website".into(),
+        "tunnel" => format!("The tunnel's name gets no certificate from Let's Encrypt: {clear}"),
+        _ => format!("This site uses its own certificate, so Let's Encrypt does not check it: {clear}"),
+    }
+}
+
 pub fn local_ca(host: &str) -> Option<String> {
     Some(match local_ca_refuses(host)? {
         NotLocal::PublicAddress => format!(
@@ -87,11 +100,14 @@ pub(crate) fn worded(code: &str, subjects: &[String]) -> Option<String> {
         WILDCARD_NEEDS_DNS => NoCheck::DnsNotSet,
         CHALLENGE_DNS if host.parse::<std::net::IpAddr>().is_ok() => NoCheck::DnsForIp,
         CHALLENGE_DNS => NoCheck::DnsNotSet,
-        CHALLENGE_PORT if second == Some("http") => NoCheck::NoHttpPort,
+        CHALLENGE_PORT if second.and_then(|p| p.parse().ok()) == Some(HTTP_PORT) => {
+            NoCheck::NoHttpPort
+        }
         CHALLENGE_PORT => NoCheck::NoTlsPort,
         CHALLENGE_WILDCARD => NoCheck::WildcardNotDns,
         DNS_UNCOVERED => return Some(uncovered(host, second.unwrap_or(host))),
         INTERNAL_NAME => return local_ca(host),
+        CHALLENGE_UNUSED => return Some(unused(host)),
         _ => return None,
     };
     Some(no_check(host, why))
@@ -112,8 +128,8 @@ mod tests {
             worded(WILDCARD_NEEDS_DNS, &s(&["*.apps.example.com"])),
             worded(CHALLENGE_DNS, &s(&["intra.example.com"])),
             worded(CHALLENGE_DNS, &s(&["203.0.113.10"])),
-            worded(CHALLENGE_PORT, &s(&["blog.example.com", "http"])),
-            worded(CHALLENGE_PORT, &s(&["blog.example.com", "tls"])),
+            worded(CHALLENGE_PORT, &s(&["blog.example.com", "80"])),
+            worded(CHALLENGE_PORT, &s(&["blog.example.com", "443"])),
             worded(CHALLENGE_WILDCARD, &s(&["*.apps.example.com"])),
             worded(
                 DNS_UNCOVERED,
@@ -126,6 +142,8 @@ mod tests {
             worded(INTERNAL_NAME, &s(&["blog.example.com"])),
             worded(INTERNAL_NAME, &s(&["203.0.113.10"])),
             worded(INTERNAL_NAME, &s(&["*.lan"])),
+            worded(CHALLENGE_UNUSED, &s(&["files"])),
+            worded(CHALLENGE_UNUSED, &s(&["tunnel-site"])),
         ];
         for w in &all {
             let w = w.as_deref().expect("worded");
@@ -151,6 +169,12 @@ mod tests {
                 .contains("apps.example.org: add it under")
         );
         assert!(all[9].as_deref().unwrap().contains("name it like blog.lan"));
+        assert!(
+            all[12]
+                .as_deref()
+                .unwrap()
+                .contains("uses its own certificate")
+        );
         assert_eq!(worded(INTERNAL_NAME, &s(&["nas.lan"])), None);
         assert_eq!(worded(NO_CHECK, &[]), None);
     }

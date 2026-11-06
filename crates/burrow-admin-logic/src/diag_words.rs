@@ -118,7 +118,6 @@ mod tests {
             "certificate-extra",
             "certificate-file",
             "certificate-source",
-            "challenge-unused",
             "client-auth",
             "client-auth-crl",
             "client-auth-tunnel",
