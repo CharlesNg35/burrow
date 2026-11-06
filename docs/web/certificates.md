@@ -157,7 +157,7 @@ services:
 ```
 
 - **Which entry a name uses:** the one whose domain covers it most specifically, so `corp.example.org` wins over `example.org`. A domain covers itself and every name under it; write `example.com`, not `*.example.com`. Each domain sits in one entry only.
-- **Which names use DNS:** wildcards always, and a site with `challenge: dns` (the tunnel's own name with `websocket.challenge: dns`). Other names keep the TLS or HTTP check.
+- **Which names use DNS:** wildcards always, a site with `challenge: dns` (the tunnel's own name with `websocket.challenge: dns`), and a name whose domain a DNS provider lists when neither `https` is on port 443 nor `http` on port 80. Other names keep the TLS or HTTP check.
 - **The record must be public.** The name may be internal, but Let's Encrypt reads the TXT record from the internet, so the zone's public nameservers must answer it. An `rfc2136` server on your LAN works as the zone's hidden primary that feeds the public nameservers. A split-horizon server that answers only inside the LAN cannot work.
 - **burrow waits for every nameserver.** Before it tells Let's Encrypt to look, burrow asks each of the zone's public nameservers directly until all of them answer the record, for up to `wait_secs` (120 when not set). `resolvers` (like `[1.1.1.1, 9.9.9.9]`) are used only to find those nameservers, and must give the public view. Without `resolvers`, the system's resolvers are used.
 - **CNAMEs are followed.** If `_acme-challenge.<name>` is a CNAME, burrow writes the record at its target (up to 8 steps), since Let's Encrypt reads it there. The entry is still chosen by the name's own domain: to delegate, list the name's domain on the entry that can write the target.

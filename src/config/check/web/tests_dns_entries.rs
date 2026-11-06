@@ -365,7 +365,26 @@ fn a_name_under_a_shared_wildcard_needs_no_check_of_its_own() {
         Some(Role::Server),
         &env,
     );
-    assert_eq!(errors(&o).len(), 2, "{:#?}", errors(&o));
+    assert_eq!(
+        errors(&o),
+        Vec::<String>::new(),
+        "without the wildcard each name falls back to the DNS check of the provider for example.com"
+    );
+    let other = bare.replace("domains: [example.com]", "domains: [example.net]");
+    let o = load_str_in(
+        dir.path(),
+        "server.yaml",
+        &other,
+        Format::Yaml,
+        Some(Role::Server),
+        &env,
+    );
+    assert_eq!(
+        errors(&o).len(),
+        2,
+        "no provider lists them: {:#?}",
+        errors(&o)
+    );
 }
 
 #[cfg(feature = "web")]

@@ -38,6 +38,23 @@ fn a_name_is_checked_over_dns_for_a_wildcard_else_over_tls_or_http() {
 }
 
 #[test]
+fn a_name_a_dns_provider_lists_uses_dns_when_neither_port_is_open_to_the_checks() {
+    let closed = ports(Some(8443), Some(8080));
+    assert_eq!(
+        checks_for("blog.example.com", closed, true, None),
+        Ok(vec![Check::Dns])
+    );
+    assert_eq!(
+        checks_for("blog.example.com", ports(Some(443), None), true, None),
+        Ok(vec![Check::Tls])
+    );
+    assert_eq!(
+        checks_for("203.0.113.10", closed, true, None),
+        Err(NoCheck::NoPort)
+    );
+}
+
+#[test]
 fn an_explicit_challenge_needs_its_port_or_its_provider() {
     let only443 = ports(Some(443), None);
     let pick = |n: &str, c| checks_for(n, only443, false, Some(c));
