@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- **Behaviour change: `burrow mcp` writes by default for a visitor with `admin: write`.** The AI can apply checked changes, revert, and update clients and the server without `--allow-write`; it still needs `check_change`, shows you the diff and the impacts, and applies only the plan you agreed to. To keep an AI app to checking, add `--read-only` to its arguments. `--allow-write` is no longer needed: burrow mcp still accepts it and says so on stderr. `--print-config` now adds `--read-only` when you give it, and nothing otherwise.
+- **`burrow mcp` can add clients, visitors and `basic_auth` users:** `new_secret` has the server make a secret behind a handle for a `secret_add` op, and `new_password` makes a random password for a `password_set` op. The AI never sees either: after `apply_change`, the new client's or visitor's connect config goes to a file only you can read, in `mcp-secrets/` in burrow's private state folder, and the password goes to a file there too; the AI gets the paths and the fingerprints.
+- **More admin sessions:** up to 32 per visitor and 64 per server (were 2 and 8), so several burrow admin tabs and AI apps can share one visitor.
+- **Up to 256 new secrets and passwords** wait for one Apply in an admin session (were 16), each for 30 minutes.
+- **`validate_config` and `check_text` take up to 4 MiB** (were 64 KiB), so a whole large server.yaml can be checked; burrow mcp's HTTP body limit grew to match.
+- **`burrow init server|client|visitor` on an existing file**, on a terminal, asks whether to replace it and keeps the old one as `FILE.bak`; `init visitor` asks first whether to update it from the server, as before. Without a terminal it still stops with the same error.
+
 ## [0.2.3]
 
 `burrow mcp` starts reliably from any AI app and checks examples with the server's own validation, the server can be updated from burrow admin with automatic rollback, and burrow admin shows the config file it runs. Clients, visitors and configs from 0.2.2 work unchanged.
