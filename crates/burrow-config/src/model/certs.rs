@@ -43,8 +43,7 @@ pub struct LetsEncrypt {
         label = "Trusted CA file",
         help = "The CA certificate to trust for another ACME server, for example certs/internal-ca.pem",
         none_label = "The public CAs",
-        advanced,
-        locked
+        advanced
     )]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,9 +135,8 @@ pub struct CertFile {
     #[admin(
         ty = path(must_exist, relative_to = "config"),
         label = "Files on the server",
-        help = "The certificate chain file, for example certs/fullchain.pem, named in server.yaml",
-        none_label = "Not set",
-        locked
+        help = "The certificate chain file on the server, for example certs/fullchain.pem or /etc/letsencrypt/live/example.com/fullchain.pem",
+        none_label = "Not set"
     )]
     pub cert: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -148,8 +146,7 @@ pub struct CertFile {
     #[admin(
         ty = path(must_exist, relative_to = "config"),
         label = "Private key file",
-        none_label = "Not set",
-        locked
+        none_label = "Not set"
     )]
     pub key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

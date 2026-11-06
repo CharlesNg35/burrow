@@ -58,6 +58,8 @@ mod tests {
     const FILE_LOAD: &str = "a file that does not load at all; the admin UI shows it with its line and column, as burrow validate does";
     const PLAIN: &str = "already a plain sentence about this server";
     const IMPACT: &str = "an impact or confirm line the server writes in plain words for Review";
+    const REFUSED: &str =
+        "a refusal or admin-only check the server writes as a plain sentence about this change";
     const TEST_ONLY: &str = "used only by a unit test fixture";
     const OLDER_UI: &str = "a session-only notice that only a burrow admin older than v0.2.0 receives and shows as written";
     const WHY_NOT: &str = "a reason the server gives in a plain sentence with its hint, shown as written where editing or saving is not possible";
@@ -89,7 +91,12 @@ mod tests {
             "restart-needed",
             "visitor-loses-access",
             "locked-kept",
+            "self-demoted",
+            "self-secret",
+            "self-source",
+            "self-transport",
         ];
+        let refused = ["self-removed", "last-writer", "access-log-outside"];
         let why_not = [
             "file-not-writable",
             "folder-not-writable",
@@ -98,6 +105,7 @@ mod tests {
         ];
         let mut out = Vec::new();
         out.extend(impact.map(|c| (c, IMPACT)));
+        out.extend(refused.map(|c| (c, REFUSED)));
         out.extend(why_not.map(|c| (c, WHY_NOT)));
         out
     }

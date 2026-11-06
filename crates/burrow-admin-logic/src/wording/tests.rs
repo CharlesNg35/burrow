@@ -479,3 +479,31 @@ fn a_dns_entry_message_drops_its_indexed_key_path() {
         "\"example.com\" is already listed in DNS provider 1; list it in one entry only"
     );
 }
+
+#[test]
+fn a_closed_session_says_what_to_do_for_each_reason() {
+    use burrow_admin_proto::msg::revoked;
+    assert_eq!(
+        super::revoked_words(revoked::SECRET_REMOVED).1,
+        "Run burrow admin again with the visitor's new secret."
+    );
+    assert_eq!(
+        super::revoked_words(revoked::LEVEL_CHANGED).0,
+        "Your admin level changed"
+    );
+    assert!(
+        super::revoked_words(revoked::SOURCE_NOT_ALLOWED)
+            .1
+            .contains("Admin only from")
+    );
+    for gone in [
+        revoked::ADMIN_REMOVED,
+        revoked::VISITOR_REMOVED,
+        "anything else",
+    ] {
+        assert_eq!(
+            super::revoked_words(gone).0,
+            "Your admin access was removed"
+        );
+    }
+}

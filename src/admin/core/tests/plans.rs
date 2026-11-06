@@ -214,20 +214,13 @@ fn the_guard_refuses_lockouts() {
             Op::Remove {
                 path: p(&["visitors", "ops", "admin"]),
             },
-            "self-demoted",
+            "last-writer",
         ),
         (
             Op::Remove {
                 path: p(&["visitors", "ops"]),
             },
             "self-removed",
-        ),
-        (
-            Op::Set {
-                path: p(&["visitors", "ops", "admin_from"]),
-                value: json!(["10.0.0.0/8"]),
-            },
-            "self-source",
         ),
     ];
     for (op, code) in cases {

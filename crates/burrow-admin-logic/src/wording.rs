@@ -181,6 +181,28 @@ pub const THIS_SERVER: &str = "This server";
 pub const PICK_VISITORS: &str =
     "Turn on a way in: Public port, Website, or Visitors with at least one visitor";
 pub const SESSION_ENDED_HINT: &str = "Run burrow admin again; it opens a new tab.";
+
+pub fn revoked_words(reason: &str) -> (&'static str, &'static str) {
+    use burrow_admin_proto::msg::revoked;
+    match reason {
+        revoked::SECRET_REMOVED => (
+            "The secret of this session was removed",
+            "Run burrow admin again with the visitor's new secret.",
+        ),
+        revoked::LEVEL_CHANGED => (
+            "Your admin level changed",
+            "Run burrow admin again to go on with the new level.",
+        ),
+        revoked::SOURCE_NOT_ALLOWED => (
+            "This address may no longer administer the server",
+            "Run burrow admin again from an address that Admin only from allows.",
+        ),
+        _ => (
+            "Your admin access was removed",
+            "Ask a write admin, then run burrow admin again.",
+        ),
+    }
+}
 pub const VERSION_GONE: &str = "The details of this change are no longer kept.";
 pub const TYPE_NAME_FIRST: &str = "Type a name first";
 pub const CLIENTS_OFFLINE: &str = "Clients offline";

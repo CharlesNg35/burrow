@@ -132,7 +132,7 @@ fn dns_credentials_and_where_they_go_are_set_from_the_admin() {
 }
 
 #[test]
-fn a_target_ca_set_with_the_whole_target_tls_is_refused() {
+fn a_target_ca_is_set_from_the_admin_alone_or_with_the_whole_target_tls() {
     let d = dns_world();
     let core = core_for(&d.w.text);
     let s = session(&d.w, AdminLevel::Write);
@@ -146,8 +146,54 @@ fn a_target_ca_set_with_the_whole_target_tls_is_refused() {
             value: json!({"hosts": ["app.example.com"], "tls": "off", "target_tls": {"ca": d.ca}}),
         },
     ] {
+        let base = text::rev(&core.read().unwrap());
+        let c = plan::compute(&core, &s, &base, std::slice::from_ref(&op))
+            .unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
+        assert!(c.new_text.contains(&d.ca), "{}", c.new_text);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dns_commands_are_compared_by_entry_not_by_place() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = dns_world();
+    let program = |name: &str| {
+        let path = d._dir.path().join(name);
+        std::fs::write(&path, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.display().to_string()
+    };
+    let (first_cmd, second_cmd) = (program("one"), program("two"));
+    let text = d.w.text.replace(
+        "      - domains: [example.com]\n        cloudflare: { token: 'file:",
+        &format!("      - domains: [example.org]\n        command: {first_cmd}\n      - domains: [example.net]\n        command: {second_cmd}\n      - domains: [example.com]\n        cloudflare: {{ token: 'file:"),
+    );
+    assert_ne!(text, d.w.text);
+    let core = core_for(&text);
+    let s = session(&d.w, AdminLevel::Write);
+    let one = json!({"domains": ["example.org"], "command": first_cmd});
+    let two = json!({"domains": ["example.net"], "command": second_cmd});
+    let set = |v: Value| Op::Set {
+        path: p(&["web", "letsencrypt", "dns"]),
+        value: v,
+    };
+    let base = text::rev(&core.read().unwrap());
+    for op in [
+        set(json!([two, one, first(&d)])),
+        set(json!([one, first(&d)])),
+    ] {
+        let c = plan::compute(&core, &s, &base, std::slice::from_ref(&op));
+        assert!(c.is_ok(), "{op:?}: {:?}", c.err().map(|e| e.message));
+    }
+    let mut moved = two.clone();
+    moved["command"] = json!("/bin/sh");
+    for op in [
+        set(json!([one, moved, first(&d)])),
+        set(json!([one, one, first(&d)])),
+    ] {
         let message = refused_at(&core, &s, std::slice::from_ref(&op));
-        assert!(message.contains("target_tls.ca"), "{message}");
+        assert!(message.contains("command"), "{message}");
     }
 }
 

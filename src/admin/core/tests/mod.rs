@@ -61,6 +61,9 @@ impl Store for MemStore {
     fn state_dir(&self) -> PathBuf {
         self.state.path().to_path_buf()
     }
+    fn log_dir(&self) -> Option<PathBuf> {
+        None
+    }
     fn format(&self) -> Format {
         Format::Yaml
     }

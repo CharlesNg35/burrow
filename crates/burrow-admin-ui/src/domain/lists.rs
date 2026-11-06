@@ -42,10 +42,6 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
                     .collect(),
             )
         });
-        if crate::grants::refuses(&fc2.path, v.as_ref()) {
-            store().edit.refuse(&fc2.path, true);
-            return;
-        }
         set_checked(&fc2, &node, v);
         let bad = list.iter().find_map(|t| {
             parse_input(&item3.sem, t)

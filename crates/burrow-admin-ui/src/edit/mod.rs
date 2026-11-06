@@ -64,7 +64,6 @@ pub struct Edit {
     pub outcome: RwSignal<Option<Outcome>>,
     pub reset_on_load: RwSignal<bool>,
     pub auto_apply: RwSignal<bool>,
-    pub refused: RwSignal<std::collections::BTreeSet<Path>>,
     pub editing: RwSignal<BTreeMap<Path, Option<Value>>>,
     pub after_apply: RwSignal<Option<crate::route::Route>>,
     pub scratch: RwSignal<Vec<Scratch>>,
@@ -167,7 +166,6 @@ impl Edit {
             outcome: RwSignal::new(None),
             reset_on_load: RwSignal::new(false),
             auto_apply: RwSignal::new(false),
-            refused: RwSignal::new(std::collections::BTreeSet::new()),
             editing: RwSignal::new(BTreeMap::new()),
             after_apply: RwSignal::new(None),
             scratch: RwSignal::new(Vec::new()),
@@ -316,18 +314,6 @@ impl Edit {
         self.with_doc(Value::clone)
     }
 
-    pub fn refuse(&self, path: &[String], refused: bool) {
-        if self.refused.with_untracked(|r| r.contains(path)) != refused {
-            self.refused.update(|r| {
-                if refused {
-                    r.insert(path.to_vec());
-                } else {
-                    r.remove(path);
-                }
-            });
-        }
-    }
-
     pub fn set(&self, path: &[String], v: Option<Value>) {
         if let [section, name, web, key] = path
             && section == ServiceEntry::SECTION
@@ -343,11 +329,6 @@ impl Edit {
         if self.scratch_set(path, v.clone()) {
             return;
         }
-        let refused = crate::grants::refuses(path, v.as_ref());
-        self.refuse(path, refused);
-        if refused {
-            return;
-        }
         self.draft.update(|d| d.set(path, v.unwrap_or(Value::Null)));
         self.changed();
     }
@@ -358,11 +339,6 @@ impl Edit {
     }
 
     pub fn set_text(&self, path: &[String], text: Option<String>) {
-        let refused = crate::grants::refuses_text(path, text.as_deref());
-        self.refuse(path, refused);
-        if refused {
-            return;
-        }
         self.texts.update(|t| match text {
             Some(x) => {
                 t.insert(path.to_vec(), x);
@@ -375,13 +351,6 @@ impl Edit {
     }
 
     pub fn add_secret(&self, path: &[String], handle: &str, fp: &str) {
-        let mut secrets = burrow_admin_proto::value::one_or_many(self.value(path).as_ref());
-        secrets.push(burrow_admin_logic::changeset::new_secret(handle, fp));
-        let refused = crate::grants::refuses(path, Some(&Value::Array(secrets)));
-        self.refuse(path, refused);
-        if refused {
-            return;
-        }
         self.draft.update(|d| d.add_secret(path, handle, fp));
         self.changed();
     }
@@ -435,7 +404,6 @@ impl Edit {
         self.end_conflict();
         self.check_error.set(None);
         self.confirms.set(BTreeMap::new());
-        self.clear_refused();
         self.clear_edits();
         self.clear_changed();
     }
@@ -503,10 +471,10 @@ mod tests {
         let locked = ErrorBody {
             code: ErrorCode::LockedOut,
             message: "no".into(),
-            body: json!({"reasons": [{"code": burrow_syntax::grant::SELF_DEMOTED, "message": "you would lose write access"}]}),
+            body: json!({"reasons": [{"code": burrow_admin_proto::codes::SELF_REMOVED, "message": "you would lose write access"}]}),
         };
         assert!(
-            matches!(outcome_of(&locked), Outcome::Refused(r) if r[0].code == burrow_syntax::grant::SELF_DEMOTED)
+            matches!(outcome_of(&locked), Outcome::Refused(r) if r[0].code == burrow_admin_proto::codes::SELF_REMOVED)
         );
         let reload = ErrorBody {
             code: ErrorCode::ReloadFailed,
@@ -539,17 +507,6 @@ mod tests {
             Outcome::Failed { message, .. } if message.contains("did not finish") && message.contains("nothing was applied")
         ));
         assert!(matches!(revert_outcome(&reload), Outcome::ReloadFailed(_)));
-    }
-
-    #[test]
-    fn a_discard_or_a_fresh_base_clears_the_refused_marks() {
-        let e = Edit::new();
-        e.refused.set([p(&["visitors", "lap", "admin"])].into());
-        e.discard();
-        assert!(e.refused.get_untracked().is_empty());
-        e.refused.set([p(&["visitors", "lap", "admin"])].into());
-        e.sync_base(&json!({"visitors": {}}), "b2s:1");
-        assert!(e.refused.get_untracked().is_empty());
     }
 
     #[test]

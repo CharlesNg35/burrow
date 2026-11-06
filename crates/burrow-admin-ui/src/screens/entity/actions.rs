@@ -82,17 +82,12 @@ fn more_menu(
     view! {
         <div class=burrow_ui_kit::menu_class("top-10 right-0 w-48", false) id="entity-more-menu" tabindex="-1" data-testid="more-menu" on:click=move |_| menu.set(false)>
             {can.then(|| {
-                let path = path.clone();
-                let blocked = Memo::new(move |_| e.draft.with(|d| burrow_admin_proto::value::get(d.draft(), &path).is_some_and(|v| burrow_admin_logic::grant::would_grant(None, v))));
                 view! {
                     <burrow_ui_kit::MenuItem
                         label="Rename…"
                         testid="rename-open"
-                        disabled=Signal::derive(move || blocked.get())
-                        reason=Signal::derive(move || if blocked.get() { burrow_admin_logic::grant::IN_THE_FILE.to_string() } else { String::new() })
                         on_click=move |_| renaming.set(true)
                     />
-                    {move || blocked.get().then(|| view! { <div class="px-2 pb-1">{crate::grants::in_the_file()}</div> })}
                 }
             })}
             {can.then(|| {

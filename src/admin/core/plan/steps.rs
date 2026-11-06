@@ -122,7 +122,7 @@ pub(super) fn judge(
 ) -> Verdict {
     let (raw, new_raw, applied) = (d.raw, d.new_raw, d.applied);
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
-    let shared = guard::shared_web_port(running, (raw, new_raw));
+    let sessions = core.live.sessions();
     if let Some(next) = &checked.settings {
         let who = guard::Who {
             visitor: &s.visitor,
@@ -134,23 +134,8 @@ pub(super) fn judge(
             (Some(settings), true) => settings,
             _ => running,
         };
-        let base = match (&file.settings, file.valid) {
-            (Some(settings), true) => guard::Base::Valid(settings),
-            _ => guard::Base::Broken {
-                raw,
-                next_raw: new_raw,
-            },
-        };
-        refusals = guard::refusals(
-            &who,
-            &guard::Change {
-                running,
-                base,
-                next,
-                renames: &applied.renames,
-                path: core.store.path(),
-            },
-        );
+        refusals = guard::refusals(&who, next);
+        impacts.extend(guard::lockouts(&who, running, next));
         if let Some(c) = running.listen_clash(next) {
             clash.push(listen_clash(c));
         }
@@ -171,16 +156,17 @@ pub(super) fn judge(
             .filter(|a| a.how == Applies::Restart)
             .map(|a| a.field.clone())
             .collect();
-        impacts = guard::impacts(
+        impacts.extend(guard::impacts(
             before,
             next,
             &core.live.status(),
-            &core.live.sessions(),
+            &sessions,
             &restart,
             &applied.renames,
-        );
+        ));
+        clash.extend(super::access_log::outside(core, raw, new_raw));
     }
-    refusals.extend(shared);
+    impacts.extend(guard::shared_web_port(running, (raw, new_raw), &sessions));
     Verdict {
         refusals,
         impacts,

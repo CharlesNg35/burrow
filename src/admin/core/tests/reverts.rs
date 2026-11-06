@@ -119,12 +119,8 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
     let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     for (path, value) in [
-        (p(&["listen"]), json!(7836)),
-        (p(&["insecure_plaintext"]), json!(true)),
-        (p(&["heartbeat", "interval_secs"]), json!(20)),
-        (p(&["limits", "handshake_timeout_secs"]), json!(9)),
-        (p(&["limits", "max_handshakes"]), json!(9)),
-        (p(&["heartbeat"]), json!({"interval_secs": 20})),
+        (p(&["update", "remote"]), json!(true)),
+        (p(&["update"]), json!({"remote": true})),
     ] {
         let e = plan::compute(
             &core,
@@ -144,61 +140,41 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
             e.message
         );
     }
-    let e = plan::compute(
-        &core,
-        &s,
-        &base,
-        &[Op::Remove {
+    for ops in [
+        vec![Op::Set {
+            path: p(&["listen"]),
+            value: json!(7836),
+        }],
+        vec![Op::Set {
+            path: p(&["insecure_plaintext"]),
+            value: json!(true),
+        }],
+        vec![Op::Set {
+            path: p(&["heartbeat"]),
+            value: json!({"interval_secs": 20}),
+        }],
+        vec![Op::Set {
+            path: p(&["limits", "handshake_timeout_secs"]),
+            value: json!(9),
+        }],
+        vec![Op::Remove {
             path: p(&["listen"]),
         }],
-    )
-    .err()
-    .unwrap();
-    assert_eq!(e.code, ErrorCode::LockedField);
-    let e = plan::compute(
-        &core,
-        &s,
-        &base,
-        &[Op::SetText {
+        vec![Op::SetText {
             path: p(&["websocket"]),
             text: "listen: 1\ntls: { cert: a.pem, key: a.key }\n".into(),
         }],
-    )
-    .err()
-    .unwrap();
-    assert_eq!(e.code, ErrorCode::LockedField);
+    ] {
+        let c = plan::compute(&core, &s, &base, &ops);
+        assert!(c.is_ok(), "{ops:?}: {:?}", c.err().map(|e| e.message));
+    }
     assert_eq!(core.read().unwrap(), w.text, "nothing was written");
-    assert_eq!(
-        core.schema.locked_paths(),
-        vec![
-            p(&["listen"]),
-            p(&["websocket", "tls", "cert"]),
-            p(&["websocket", "tls", "key"]),
-            p(&["web", "letsencrypt", "ca"]),
-            p(&["web", "letsencrypt", "dns", "*", "command"]),
-            p(&["web", "certificates", "*", "cert"]),
-            p(&["web", "certificates", "*", "key"]),
-            p(&["web", "proxy_protocol_from"]),
-            p(&["web", "access_log"]),
-            p(&["web", "error_pages"]),
-            p(&["services", "*", "web", "tls", "cert"]),
-            p(&["services", "*", "web", "tls", "key"]),
-            p(&["services", "*", "web", "target_tls", "ca"]),
-            p(&["services", "*", "web", "client_auth", "ca"]),
-            p(&["services", "*", "web", "client_auth", "crl"]),
-            p(&["services", "*", "web", "error_pages"]),
-            p(&["insecure_plaintext"]),
-            p(&["heartbeat", "interval_secs"]),
-            p(&["limits", "handshake_timeout_secs"]),
-            p(&["limits", "max_handshakes"]),
-            p(&["update", "remote"]),
-        ]
-    );
 }
 
 #[test]
 fn a_revert_keeps_the_current_values_of_locked_fields() {
-    let w = world();
+    let mut w = world();
+    w.text.push_str("\nupdate:\n  remote: false\n");
     let core = core_for(&w.text);
     let s = session(&w, AdminLevel::Write);
     apply_now(
@@ -223,7 +199,7 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
     let edited = core
         .read()
         .unwrap()
-        .replace("listen: 7835 # tcp", "listen: 7999 # tcp");
+        .replace("remote: false", "remote: true");
     core.store.write(&core.read().unwrap(), &edited).unwrap();
     let reply = dispatch(
         &core,
@@ -239,7 +215,10 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
         .iter()
         .find(|i| i.code == burrow_admin_proto::codes::LOCKED_KEPT)
         .expect("a note");
-    assert_eq!(kept.message, "Listen address kept at 7999 (locked)");
+    assert_eq!(
+        kept.message,
+        "Update from burrow admin kept at true (locked)"
+    );
     let computed = plan::compute(
         &core,
         &s,
@@ -250,7 +229,7 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
     )
     .unwrap();
     assert!(
-        computed.new_text.contains("listen: 7999 # tcp"),
+        computed.new_text.contains("remote: true"),
         "{}",
         computed.new_text
     );
@@ -306,8 +285,8 @@ fn set_text_is_parsed_by_the_server() {
         &s,
         &base,
         &[Op::SetText {
-            path: p(&["limits"]),
-            text: "max_pending: 9\nmax_handshakes: 9\n".into(),
+            path: p(&["update"]),
+            text: "remote: true\n".into(),
         }],
     )
     .err()
@@ -323,7 +302,7 @@ fn set_text_is_parsed_by_the_server() {
         &base,
         &[Op::SetText {
             path: p(&["limits"]),
-            text: "max_pending: 9\n".into(),
+            text: "max_pending: 9\nmax_handshakes: 9\n".into(),
         }],
     );
     assert!(

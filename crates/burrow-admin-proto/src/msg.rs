@@ -543,6 +543,14 @@ pub struct Revoked {
     pub reason: String,
 }
 
+pub mod revoked {
+    pub const VISITOR_REMOVED: &str = "visitor removed";
+    pub const SECRET_REMOVED: &str = "secret removed";
+    pub const ADMIN_REMOVED: &str = "admin removed";
+    pub const SOURCE_NOT_ALLOWED: &str = "source not allowed";
+    pub const LEVEL_CHANGED: &str = "admin level changed";
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LockedOut {
     pub reasons: Vec<crate::plan::Refusal>,

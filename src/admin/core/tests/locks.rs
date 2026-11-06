@@ -1,8 +1,8 @@
 #![cfg(test)]
 
+use burrow_admin_proto::msg::AdminLevel;
 #[cfg(feature = "web")]
 use burrow_admin_proto::msg::HistoryRequest;
-use burrow_admin_proto::msg::{AdminLevel, ErrorCode};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
 
@@ -13,16 +13,6 @@ use crate::base::testkit::cert_pair;
 #[cfg(feature = "web")]
 use super::apply_now;
 use super::{World, core_for, p, session, world};
-
-const BEFORE_P2: [&[&str]; 7] = [
-    &["listen"],
-    &["websocket"],
-    &["web"],
-    &["insecure_plaintext"],
-    &["heartbeat", "interval_secs"],
-    &["limits", "handshake_timeout_secs"],
-    &["limits", "max_handshakes"],
-];
 
 struct Site {
     w: World,
@@ -61,53 +51,26 @@ fn site() -> Site {
     Site { w, dir }
 }
 
-fn refused(core: &Core, s: &Session, ops: &[Op]) -> Vec<String> {
+fn allowed(core: &Core, s: &Session, ops: &[Op]) -> plan::Computed {
     let base = text::rev(&core.read().unwrap());
-    match plan::compute(core, s, &base, ops) {
-        Err(e) if e.code == ErrorCode::LockedField => {
-            e.message.split(' ').take(1).map(str::to_string).collect()
-        }
-        Err(e) => panic!("refused for another reason: {}", e.message),
-        Ok(c) => panic!("not refused: {}", c.new_text),
-    }
+    plan::compute(core, s, &base, ops).unwrap_or_else(|e| panic!("{ops:?}: {}", e.message))
 }
 
 #[test]
-fn every_field_locked_before_stays_locked_and_the_web_proxy_and_websocket_keep_their_files() {
+fn only_the_dns_command_and_the_update_opt_in_stay_locked() {
     let core = core_for(&world().text);
-    let now = core.schema.locked_paths();
-    for old in BEFORE_P2
-        .iter()
-        .filter(|o| **o != ["web"] && **o != ["websocket"])
-    {
-        assert!(now.contains(&p(old)), "{old:?} is still locked: {now:?}");
-    }
-    let finer: [&[&str]; 16] = [
-        &["websocket", "tls", "cert"],
-        &["websocket", "tls", "key"],
-        &["web", "letsencrypt", "ca"],
-        &["web", "letsencrypt", "dns", "*", "command"],
-        &["web", "certificates", "*", "cert"],
-        &["web", "certificates", "*", "key"],
-        &["web", "proxy_protocol_from"],
-        &["web", "access_log"],
-        &["web", "error_pages"],
-        &["services", "*", "web", "tls", "cert"],
-        &["services", "*", "web", "tls", "key"],
-        &["services", "*", "web", "target_tls", "ca"],
-        &["services", "*", "web", "client_auth", "ca"],
-        &["services", "*", "web", "client_auth", "crl"],
-        &["services", "*", "web", "error_pages"],
-        &["update", "remote"],
+    let mut now = core.schema.locked_paths();
+    now.sort();
+    let mut want = vec![
+        p(&["update", "remote"]),
+        p(&["web", "letsencrypt", "dns", "*", "command"]),
     ];
-    for f in finer {
-        assert!(now.contains(&p(f)), "{f:?}: {now:?}");
-    }
-    assert_eq!(now.len(), BEFORE_P2.len() - 2 + finer.len(), "{now:?}");
+    want.sort();
+    assert_eq!(now, want);
 }
 
 #[test]
-fn a_sites_own_certificate_files_are_refused_on_every_admin_path() {
+fn a_sites_own_certificate_files_are_set_on_every_admin_path() {
     let site = site();
     let core = core_for(&site.w.text);
     let s = session(&site.w, AdminLevel::Write);
@@ -139,8 +102,8 @@ fn a_sites_own_certificate_files_are_refused_on_every_admin_path() {
         }],
     ];
     for ops in cases {
-        let what = refused(&core, &s, &ops);
-        assert!(what[0].contains(".web.tls."), "{what:?} for {ops:?}");
+        let c = allowed(&core, &s, &ops);
+        assert!(c.new_text.contains(&other), "{ops:?}: {}", c.new_text);
     }
 }
 
@@ -177,7 +140,7 @@ fn edits_that_keep_the_files_are_allowed() {
 
 #[cfg(feature = "web")]
 #[test]
-fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
+fn a_revert_brings_back_the_files_of_that_version() {
     let site = site();
     let core = core_for(&site.w.text);
     let s = session(&site.w, AdminLevel::Write);
@@ -230,7 +193,7 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
         .to_json();
     assert_eq!(
         doc["services"]["nas"]["web"]["tls"]["cert"],
-        json!(site.file("b.pem")),
+        json!(site.file("a.pem")),
         "{}",
         reverted.new_text
     );
@@ -244,7 +207,7 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
             .plan
             .impacts
             .iter()
-            .any(|i| i.code == burrow_admin_proto::codes::LOCKED_KEPT),
+            .all(|i| i.code != burrow_admin_proto::codes::LOCKED_KEPT),
         "{:?}",
         reverted.plan.impacts
     );
@@ -252,7 +215,7 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
 
 #[cfg(feature = "web")]
 #[test]
-fn the_web_proxy_and_its_ports_are_open_to_edits_except_its_files() {
+fn the_web_proxy_its_ports_and_its_files_are_open_to_edits() {
     let site = site();
     let text = site.w.text.replace(
         "web:\n  https: 8443\n",
@@ -270,21 +233,13 @@ fn the_web_proxy_and_its_ports_are_open_to_edits_except_its_files() {
             value,
         }]
     };
+    let base = text::rev(&core.read().unwrap());
     for ops in [
-        set(&["web", "letsencrypt", "ca"], json!("certs/ca.pem")),
-        set(
-            &["web", "certificates", "0", "cert"],
-            json!(site.file("b.pem")),
-        ),
+        set(&["web", "letsencrypt", "ca"], json!(site.file("a.pem"))),
         set(
             &["web", "certificates"],
             json!([{"hosts": ["*.example.com"], "cert": site.file("b.pem"), "key": site.file("b.key")}]),
         ),
-    ] {
-        refused(&core, &s, &ops);
-    }
-    let base = text::rev(&core.read().unwrap());
-    for ops in [
         set(&["web", "letsencrypt"], json!({"email": "ops@example.com"})),
         set(
             &["web", "certificates"],
@@ -327,41 +282,34 @@ fn two_entries() -> (Site, String, serde_json::Value) {
 
 #[cfg(feature = "web")]
 #[test]
-fn certificate_entries_are_compared_by_their_own_files_not_by_place() {
+fn certificate_entries_take_any_files_and_validate_judges_their_hosts() {
     let (site, text, list) = two_entries();
     let core = core_for(&text);
     let s = session(&site.w, AdminLevel::Write);
-    let base = text::rev(&core.read().unwrap());
     let set = |v: serde_json::Value| {
         vec![Op::Set {
             path: p(&["web", "certificates"]),
             value: v,
         }]
     };
-    let fine = [set(json!([list[1], list[0]])), set(json!([list[1]]))];
-    for ops in fine {
-        let c = plan::compute(&core, &s, &base, &ops);
-        assert!(c.is_ok(), "{ops:?}: {:?}", c.err().map(|e| e.message));
-    }
     let mut moved = list.clone();
     moved[1]["cert"] = json!(site.file("b.pem"));
-    let mut mixed = list.clone();
-    mixed[1]["key"] = json!(site.file("a.key"));
     let mut twice = list.clone();
     twice[1] = list[0].clone();
-    for (ops, at) in [
-        (set(moved), "web.certificates.1.cert"),
-        (set(mixed), "web.certificates.1.cert"),
-        (set(twice), "web.certificates.0.cert"),
+    for ops in [
+        set(json!([list[1], list[0]])),
+        set(json!([list[1]])),
+        set(moved),
+        set(twice),
     ] {
-        assert_eq!(refused(&core, &s, &ops), vec![at.to_string()], "{ops:?}");
+        allowed(&core, &s, &ops);
     }
     let mut swapped = list.clone();
     for k in ["cert", "key"] {
         swapped[0][k] = list[1][k].clone();
         swapped[1][k] = list[0][k].clone();
     }
-    let c = plan::compute(&core, &s, &base, &set(swapped)).unwrap();
+    let c = allowed(&core, &s, &set(swapped));
     assert!(
         !c.plan.valid,
         "validate refuses files that do not cover their hosts"
@@ -419,7 +367,7 @@ fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
 
 #[cfg(feature = "web")]
 #[test]
-fn a_short_web_form_cannot_be_turned_into_one_with_files() {
+fn a_short_web_form_turns_into_one_with_files_and_back() {
     let site = site();
     let files = format!(
         "    web:\n      hosts: [nas.example.com]\n      tls: {{cert: {}, key: {}}}\n",
@@ -428,46 +376,20 @@ fn a_short_web_form_cannot_be_turned_into_one_with_files() {
     );
     assert!(site.w.text.contains(&files));
     let with_files = json!({"hosts": ["nas.example.com"], "tls": {"cert": site.file("b.pem"), "key": site.file("b.key")}});
+    let s = session(&site.w, AdminLevel::Write);
     for short in ["    web: [nas.example.com]\n", "    web: nas.example.com\n"] {
-        let core = core_for(&site.w.text.replace(&files, short));
-        let s = session(&site.w, AdminLevel::Write);
+        let core = super::core_running(&site.w.text.replace(&files, short), &site.w.text);
         let ops = [Op::Set {
             path: p(&["services", "nas", "web"]),
             value: with_files.clone(),
         }];
-        let what = refused(&core, &s, &ops);
-        assert!(what[0].contains("nas.web.tls."), "{what:?} for {short:?}");
+        let c = allowed(&core, &s, &ops);
+        assert!(c.new_text.contains(&site.file("b.pem")), "{}", c.new_text);
     }
     let core = core_for(&site.w.text);
-    let s = session(&site.w, AdminLevel::Write);
-    let base = text::rev(&core.read().unwrap());
     let back = [Op::Set {
         path: p(&["services", "nas", "web"]),
         value: json!(["nas.example.com"]),
     }];
-    let c = plan::compute(&core, &s, &base, &back);
-    assert!(c.is_ok(), "{:?}", c.err().map(|e| e.message));
-}
-
-#[cfg(feature = "web")]
-#[test]
-fn a_certificate_list_added_from_nothing_is_refused_and_removing_it_passes() {
-    let (site, text, list) = two_entries();
-    let core = core_for(&site.w.text);
-    let s = session(&site.w, AdminLevel::Write);
-    let ops = [Op::Set {
-        path: p(&["web", "certificates"]),
-        value: json!([list[0]]),
-    }];
-    assert_eq!(
-        refused(&core, &s, &ops),
-        vec!["web.certificates.0.cert".to_string()]
-    );
-    let core = core_for(&text);
-    let base = text::rev(&core.read().unwrap());
-    let ops = [Op::Remove {
-        path: p(&["web", "certificates"]),
-    }];
-    let c = plan::compute(&core, &s, &base, &ops);
-    assert!(c.is_ok(), "{:?}", c.err().map(|e| e.message));
+    allowed(&core, &s, &back);
 }

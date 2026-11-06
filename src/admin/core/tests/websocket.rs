@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use burrow_admin_proto::codes::SELF_TRANSPORT;
 #[cfg(feature = "web")]
 use burrow_admin_proto::codes::WEBSOCKET_HOST;
 use burrow_admin_proto::codes::{PORT_IN_USE, WEBSOCKET_MOVED, WEBSOCKET_OFF};
@@ -7,7 +8,6 @@ use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::Plan;
 use burrow_config::{ServerConfig, WebSocketConfig};
-use burrow_syntax::grant::SELF_TRANSPORT;
 use serde_json::json;
 
 use super::*;
@@ -75,7 +75,7 @@ fn impact<'a>(plan: &'a Plan, code: &str) -> Option<&'a str> {
 }
 
 #[test]
-fn an_admin_over_websocket_cannot_move_or_turn_off_its_own_listener() {
+fn an_admin_over_websocket_confirms_moving_or_turning_off_its_own_listener() {
     let w = with_ws("");
     let core = core_for(&w.text);
     let s = over_ws(&w);
@@ -87,11 +87,14 @@ fn an_admin_over_websocket_cannot_move_or_turn_off_its_own_listener() {
         }],
     ] {
         let plan = compute(&core, &s, &ops);
-        assert!(
-            plan.refusals.iter().any(|r| r.code == SELF_TRANSPORT),
-            "{ops:?}: {:?}",
-            plan.refusals
-        );
+        assert!(plan.refusals.is_empty(), "{ops:?}: {:?}", plan.refusals);
+        let own = plan
+            .impacts
+            .iter()
+            .find(|i| i.code == SELF_TRANSPORT)
+            .unwrap_or_else(|| panic!("{ops:?}: {:?}", plan.impacts));
+        assert_eq!(own.confirm.as_deref(), Some("websocket"));
+        assert!(!own.message.contains("config file"), "{}", own.message);
     }
     let plan = compute(
         &core,
@@ -101,7 +104,11 @@ fn an_admin_over_websocket_cannot_move_or_turn_off_its_own_listener() {
             json!(20),
         ),
     );
-    assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
+    assert!(
+        plan.impacts.iter().all(|i| i.code != SELF_TRANSPORT),
+        "{:?}",
+        plan.impacts
+    );
 }
 
 #[test]
@@ -179,7 +186,7 @@ fn a_new_tunnel_name_names_the_clients_that_use_it() {
 
 #[cfg(feature = "web")]
 #[test]
-fn an_admin_over_a_shared_tunnel_cannot_change_the_name_it_comes_in_by() {
+fn an_admin_over_a_shared_tunnel_confirms_changing_the_name_it_comes_in_by() {
     let w = with_ws("");
     let text = w.text.replace(
         "websocket: { listen: 7836 }",
@@ -191,17 +198,27 @@ fn an_admin_over_a_shared_tunnel_cannot_change_the_name_it_comes_in_by() {
         json!("t2.example.com"),
     );
     let plan = compute(&core, &over_ws(&w), &host);
+    assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
     assert!(
-        plan.refusals.iter().any(|r| r.code == SELF_TRANSPORT),
+        plan.impacts.iter().any(|i| i.code == SELF_TRANSPORT),
         "{:?}",
-        plan.refusals
+        plan.impacts
     );
     let plan = compute(&core, &session(&w, AdminLevel::Write), &host);
-    assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
+    assert!(
+        plan.impacts.iter().all(|i| i.code != SELF_TRANSPORT),
+        "{:?}",
+        plan.impacts
+    );
     let keepalive = set(
         ws_path(Some(WebSocketConfig::KEEPALIVE_SECS.key())),
         json!(20),
     );
     let plan = compute(&core, &over_ws(&w), &keepalive);
     assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
+    assert!(
+        plan.impacts.iter().all(|i| i.code != SELF_TRANSPORT),
+        "{:?}",
+        plan.impacts
+    );
 }

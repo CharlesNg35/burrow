@@ -5,7 +5,6 @@ use burrow_admin_proto::serde_json::{self, Value};
 use burrow_ui_kit::{Segmented, Select, TextArea, TextInput, Toggle};
 use leptos::prelude::*;
 
-use crate::grants::in_the_file;
 use crate::store::store;
 
 use super::{FieldCtx, placeholder, set_checked};
@@ -209,19 +208,6 @@ const UNSET: &str = "\u{1}unset";
 pub(super) fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
-    if fc.node.reduce_only
-        && e.draft
-            .with_untracked(|d| burrow_admin_proto::value::get(d.base(), &path).is_none())
-    {
-        let none = fc.node.none_label.clone().unwrap_or_else(|| "None".into());
-        return view! {
-            <div id=fc.id.clone() class="flex min-h-[38px] flex-col justify-center text-[13px]" data-testid="grant-none">
-                <span>{none}</span>
-                {crate::grants::in_the_file()}
-            </div>
-        }
-        .into_any();
-    }
     let optional = !fc.node.required;
     let default_label = fc
         .node
@@ -279,24 +265,6 @@ pub(super) fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
             .iter()
             .map(|o| (o.value.clone(), o.label.clone(), o.danger)),
     );
-    let gated = fc.path.clone();
-    let values: Vec<String> = options.iter().map(|o| o.0.clone()).collect();
-    let off = Signal::derive(move || {
-        values
-            .iter()
-            .filter(|v| {
-                let candidate = (*v != UNSET).then(|| Value::String(v.to_string()));
-                crate::grants::refuses(&gated, candidate.as_ref())
-            })
-            .cloned()
-            .collect::<Vec<_>>()
-    });
-    let set = move |v: String| {
-        if !off.with_untracked(|o| o.contains(&v)) {
-            set(v);
-        }
-    };
-    let locked = move || off.with(|o| !o.is_empty()).then(in_the_file);
     let help = {
         let c = c.clone();
         let field_help = !fc.node.help.is_empty();
@@ -319,9 +287,8 @@ pub(super) fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
         options,
         value,
         Callback::new(set),
-        off,
     );
-    view! { <div>{control}{locked}{help}</div> }.into_any()
+    view! { <div>{control}{help}</div> }.into_any()
 }
 
 const SEGMENTED_MAX: usize = 4;
@@ -332,10 +299,9 @@ pub(crate) fn choice(
     options: Vec<(String, String, bool)>,
     value: Signal<String>,
     on_change: Callback<String>,
-    off: Signal<Vec<String>>,
 ) -> AnyView {
     if options.len() <= SEGMENTED_MAX {
-        view! { <div id=id.clone()><Segmented name=id.clone() options=options value=value on_change=on_change label=label off=off/></div> }.into_any()
+        view! { <div id=id.clone()><Segmented name=id.clone() options=options value=value on_change=on_change label=label/></div> }.into_any()
     } else {
         let opts: Vec<(String, String)> = options.into_iter().map(|(v, l, _)| (v, l)).collect();
         view! { <Select id=id options=opts value=value on_change=on_change/> }.into_any()

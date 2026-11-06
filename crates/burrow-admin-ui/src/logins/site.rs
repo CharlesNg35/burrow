@@ -30,14 +30,7 @@ pub(crate) fn site_editor(fc: FieldCtx) -> AnyView {
     let control = move || {
         let mut options = vec![(String::new(), NONE.to_string(), false)];
         options.extend(names.get().into_iter().map(|n| (n.clone(), n, false)));
-        choice(
-            fc.id.clone(),
-            fc.node.label.clone(),
-            options,
-            value,
-            set,
-            Signal::stored(Vec::new()),
-        )
+        choice(fc.id.clone(), fc.node.label.clone(), options, value, set)
     };
     let line = move || {
         let n = value.get();

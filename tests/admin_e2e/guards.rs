@@ -72,6 +72,26 @@ fn e5_a_hand_edit_during_editing_is_a_conflict_and_the_draft_is_kept() {
     run("e5-conflict", Options::default(), false, conflict);
 }
 
+pub(super) async fn confirm_asked(c: &mut Ctx, code: &str, word: &str, step: &str) {
+    c.ui.wait_for(&format!("[data-impact={code}][data-level=danger]"), SECS)
+        .await;
+    c.ui.wait_for(
+        &format!("[data-testid=confirms] [data-confirm={word}]"),
+        SECS,
+    )
+    .await;
+    assert_eq!(
+        c.ui.count("[data-refusal]").await,
+        0,
+        "{code} is no refusal"
+    );
+    assert!(
+        !c.ui.enabled("[data-testid=apply]").await,
+        "Apply waits for the typed {word}"
+    );
+    super::letsencrypt::three(c, step).await;
+}
+
 pub(super) async fn refused(c: &mut Ctx, code: &str, step: &str) {
     c.ui.wait_for(&format!("[data-refusal={code}]"), SECS).await;
     assert!(
@@ -93,8 +113,7 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.choose("f-visitors-ops-admin", UNSET).await;
         wait_checked(c).await;
         open_review(c, "removing-my-admin-right").await;
-        refused(c, "self-demoted", "refused-self-demoted").await;
-        c.ui.wait_for("[data-testid=fix-undo]", SECS).await;
+        confirm_asked(c, "self-demoted", "ops", "confirm-self-demoted").await;
         discard_from_review(c).await;
 
         c.ui.nav("/visitors/laptop").await;
@@ -156,130 +175,73 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
 }
 
 #[test]
-fn e7_the_lockout_guard_refuses_and_read_access_cannot_edit() {
+fn e7_removing_yourself_is_refused_losing_your_access_is_confirmed_and_read_access_cannot_edit() {
     run("e7-lockout", Options::default(), false, lockout);
 }
 
-const IN_THE_FILE: &str = "Admin access is granted in the config file (burrow edit)";
-
-async fn off(c: &Ctx, visitor: &str, level: &str) -> bool {
-    c.ui.count(&format!(
-        "#f-visitors-{visitor}-admin label[data-off=true] input[value='{level}']"
-    ))
-    .await
-        == 1
-}
-
-fn grant_lock(c: &mut Ctx) -> Flow<'_> {
+fn admin_rights(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "boss").await;
         c.ui.nav("/visitors/viewer").await;
         edit_mode(c).await;
-        c.ui.wait_text(
-            "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
-            IN_THE_FILE,
-            SECS,
-        )
-        .await;
-        assert!(off(c, "viewer", "write").await, "read cannot become write");
-        assert!(!off(c, "viewer", "read").await);
+        assert_eq!(c.ui.count("[data-testid=grant-lock]").await, 0);
         c.ui.choose("f-visitors-viewer-admin", "write").await;
         assert!(
-            !c.ui.eval::<bool>("document.querySelector(\"#f-visitors-viewer-admin input[value='write']\").checked")
-                .await,
-            "a refused level is not chosen"
+            c.ui.eval::<bool>(
+                "document.querySelector(\"#f-visitors-viewer-admin input[value='write']\").checked"
+            )
+            .await,
+            "read becomes write"
         );
-        c.ui.shot("viewer-may-only-go-down").await;
-
-        c.ui.nav("/visitors/plain").await;
-        edit_mode(c).await;
-        assert_eq!(
-            c.ui.count("#f-visitors-plain-admin input").await,
-            0,
-            "no selector to offer when nothing may be chosen"
-        );
-        c.ui.wait_for(
-            "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
-            SECS,
-        )
-        .await;
-        c.ui.shot("no-admin-for-a-visitor-without-it").await;
-
-        c.ui.nav("/visitors/boss?tab=secrets").await;
-        c.ui.wait_for("[data-testid=secrets] [data-testid=grant-lock]", SECS)
-            .await;
-        assert!(
-            !c.ui.enabled("[data-testid=rotate]").await,
-            "an admin gets a new secret only in the file"
-        );
-        c.ui.shot("admin-secret-locked").await;
-        c.ui.click("[data-testid=more]").await;
-        c.ui.wait_for("[data-testid=more-menu] [data-testid=grant-lock]", SECS)
-            .await;
-        assert!(
-            !c.ui.enabled("[data-testid=rename-open]").await,
-            "an admin visitor is renamed only in the file"
-        );
-        c.ui.shot("admin-rename-locked").await;
-        c.ui.click("[data-testid=more]").await;
-        c.ui.nav("/visitors/plain").await;
-        c.ui.click("[data-testid=more]").await;
-        c.ui.wait_for("[data-testid=more-menu] [data-testid=rename-open]", SECS)
-            .await;
-        assert!(c.ui.enabled("[data-testid=rename-open]").await);
-        assert_eq!(
-            c.ui.count("[data-testid=more-menu] [data-testid=grant-lock]")
-                .await,
-            0
-        );
-        c.ui.click("[data-testid=more]").await;
-
-        c.ui.nav("/visitors/ops").await;
-        edit_mode(c).await;
-        let from = "#f-visitors-ops-admin-from";
-        let chips = "[data-schema='visitors/*/admin_from'] [data-chip]";
-        c.ui.click("[data-schema='visitors/*/admin_from'] [data-chip='127.0.0.1/32'] button")
-            .await;
-        c.ui.wait_text(
-            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
-            IN_THE_FILE,
-            SECS,
-        )
-        .await;
-        assert_eq!(c.ui.count(chips).await, 1, "the last entry stays");
-        c.ui.fill(from, "10.0.0.0/8").await;
-        c.ui.wait_for(
-            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
-            SECS,
-        )
-        .await;
-        assert_eq!(c.ui.count(chips).await, 1, "a wider entry is not added");
-        c.ui.shot("admin-from-may-not-widen").await;
-        c.ui.fill(from, "127.0.0.1").await;
-        c.ui.wait_for(
-            "[data-schema='visitors/*/admin_from'] [data-chip='127.0.0.1']",
-            SECS,
-        )
-        .await;
-        c.ui.wait_gone(
-            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
-            SECS,
-        )
-        .await;
-        wait_checked(c).await;
         c.ui.click("[data-testid=save]").await;
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 
-        c.ui.nav("/visitors/viewer").await;
+        c.ui.nav("/visitors/plain").await;
         edit_mode(c).await;
-        c.ui.choose("f-visitors-viewer-admin", UNSET).await;
+        c.ui.choose("f-visitors-plain-admin", "read").await;
+        c.ui.wait_for("#f-visitors-plain-admin-from", SECS).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
+        c.ui.nav("/visitors/ops").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-visitors-ops-admin-from", "10.0.0.0/8").await;
+        c.ui.wait_for(
+            "[data-schema='visitors/*/admin_from'] [data-chip='10.0.0.0/8']",
+            SECS,
+        )
+        .await;
         wait_checked(c).await;
-        open_review(c, "viewer-loses-admin").await;
-        applied(c, "viewer-is-no-admin").await;
-        let text = c.world.config();
-        assert!(!text.contains("admin: read"), "{text}");
+        c.ui.shot("admin-from-widened").await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
+        c.ui.nav("/visitors/boss?tab=secrets").await;
         assert!(
-            text.contains("admin_from: [127.0.0.1/32, 127.0.0.1]"),
+            c.ui.enabled("[data-testid=rotate]").await,
+            "an admin rotates its own secret here"
+        );
+        c.ui.click("[data-testid=more]").await;
+        c.ui.wait_for("[data-testid=more-menu] [data-testid=rename-open]", SECS)
+            .await;
+        assert!(
+            c.ui.enabled("[data-testid=rename-open]").await,
+            "an admin visitor is renamed like any other"
+        );
+        c.ui.click("[data-testid=more]").await;
+
+        open_review(c, "admin-rights-widened").await;
+        assert_eq!(c.ui.count("[data-refusal]").await, 0);
+        super::letsencrypt::three(c, "admin-rights-review").await;
+        applied(c, "admin-rights-applied").await;
+        let text = c.world.config();
+        assert!(!text.contains("admin: read\n  laptop"), "{text}");
+        assert!(
+            text.contains("  plain:\n") && text.contains("admin: read"),
+            "{text}"
+        );
+        assert!(
+            text.contains("admin_from: [127.0.0.1/32, 10.0.0.0/8]"),
             "{text}"
         );
         c.ui.assert_no_errors();
@@ -287,8 +249,8 @@ fn grant_lock(c: &mut Ctx) -> Flow<'_> {
 }
 
 #[test]
-fn admin_power_is_only_lowered_in_the_visitor_form() {
-    run("grant-lock", Options::default(), false, grant_lock);
+fn admin_rights_are_raised_and_widened_in_the_visitor_form() {
+    run("admin-rights", Options::default(), false, admin_rights);
 }
 
 fn typed_confirm(c: &mut Ctx) -> Flow<'_> {

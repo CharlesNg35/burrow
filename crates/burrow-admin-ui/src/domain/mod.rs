@@ -147,7 +147,6 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             let fc2 = FieldCtx {
                 node: Node {
                     required: false,
-                    reduce_only: inner_node.reduce_only || fc.node.reduce_only,
                     none_label: inner_node.none_label.clone().or(fc.node.none_label.clone()),
                     default: inner_node.default.clone().or(fc.node.default.clone()),
                     label: if inner_node.label.is_empty() {

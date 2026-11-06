@@ -361,6 +361,12 @@ pub async fn run(
                     break "server stopping";
                 }
                 if let Some(reason) = access.revoked() {
+                    let until = tokio::time::Instant::now() + RELOAD_WAIT;
+                    while let Ok(Some(done)) = tokio::time::timeout_at(until, jobs.join_next()).await {
+                        if let Ok(v) = done {
+                            let _ = send(v, heard + silence).await;
+                        }
+                    }
                     let ev = msg::event(msg::ev::REVOKED, serde_json::to_value(Revoked { reason }).unwrap_or_default());
                     let _ = send(encode(&ev), heard + silence).await;
                     break "revoked";

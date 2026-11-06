@@ -235,9 +235,8 @@ async fn a_crafted_change_of_a_locked_field_is_refused_and_nothing_is_written() 
     let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
     let before = std::fs::read_to_string(&w.path).unwrap();
     for ops in [
-        json!([{"op": "set", "path": ["listen"], "value": 7999}]),
-        json!([{"op": "set", "path": ["insecure_plaintext"], "value": true}]),
-        json!([{"op": "set", "path": ["websocket", "tls"], "value": {"cert": "a.pem", "key": "a.key"}}]),
+        json!([{"op": "set", "path": ["update", "remote"], "value": true}]),
+        json!([{"op": "set", "path": ["update"], "value": {"remote": true}}]),
     ] {
         let e = a.plan(ops.clone()).await.unwrap_err();
         assert_eq!(e.code, ErrorCode::LockedField, "{ops}");
@@ -252,35 +251,26 @@ async fn a_crafted_change_of_a_locked_field_is_refused_and_nothing_is_written() 
         assert_eq!(e.code, ErrorCode::LockedField);
     }
     assert_eq!(std::fs::read_to_string(&w.path).unwrap(), before);
-    let schema = a.call("schema", json!({})).await.unwrap();
-    assert_eq!(
-        schema["schema"]["root"]["sem"]["fields"][0]["node"]["locked"],
-        true
-    );
     let _ = w.stop.send(true);
 }
 
 #[tokio::test]
-async fn the_guard_refuses_every_lockout() {
+async fn the_guard_refuses_only_removing_yourself_and_the_last_writer() {
     let w = world().await;
     let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
     let before = std::fs::read_to_string(&w.path).unwrap();
     let cases = [
         (
             json!([{"op": "remove", "path": ["visitors", "ops", "admin"]}]),
-            "self-demoted",
+            "last-writer",
         ),
         (
             json!([{"op": "remove", "path": ["visitors", "ops"]}]),
             "self-removed",
         ),
         (
-            json!([{"op": "set", "path": ["visitors", "ops", "admin_from"], "value": ["10.0.0.0/8"]}]),
-            "self-source",
-        ),
-        (
             json!([{"op": "set", "path": ["visitors", "ops", "admin"], "value": "read"}]),
-            "self-demoted",
+            "last-writer",
         ),
     ];
     for (ops, code) in cases {
@@ -303,6 +293,19 @@ async fn the_guard_refuses_every_lockout() {
         assert_eq!(e.code, ErrorCode::LockedOut, "{code}");
     }
     assert_eq!(std::fs::read_to_string(&w.path).unwrap(), before);
+    let narrowed =
+        json!([{"op": "set", "path": ["visitors", "ops", "admin_from"], "value": ["10.0.0.0/8"]}]);
+    let plan = a.plan(narrowed.clone()).await.unwrap();
+    assert_eq!(plan["refusals"], json!([]), "{plan}");
+    let own = plan["impacts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["code"] == "self-source")
+        .unwrap_or_else(|| panic!("{plan}"))
+        .clone();
+    assert_eq!(own["level"], "danger");
+    assert_eq!(own["confirm"], "ops");
     let _ = w.stop.send(true);
 }
 

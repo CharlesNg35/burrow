@@ -19,7 +19,6 @@ const FIELD_KEYS: &[&str] = &[
     "advanced",
     "danger_when_set",
     "locked",
-    "reduce_only",
     "wide",
     "narrow",
     "none_label",
@@ -73,7 +72,6 @@ pub(crate) fn field_push(
     let help = str_of(&terms, "help", errors)
         .or(schemars.description.clone())
         .unwrap_or_default();
-    check_reduce_only(&terms, errors);
     if let Some(reason) = skip_reason(&terms, errors) {
         return Some(quote! {
             {
@@ -135,24 +133,6 @@ pub(crate) fn field_push(
     Some(field_tokens)
 }
 
-fn check_reduce_only(terms: &[Term], errors: &mut Errors) {
-    if let Some(t) = find(terms, "reduce_only") {
-        let clash = ["skip", "locked", "readonly"]
-            .into_iter()
-            .find(|k| find(terms, k).is_some());
-        match (t.as_word(), clash) {
-            (None, _) => errors.push(t.span(), "`reduce_only` is a flag: #[admin(reduce_only)]"),
-            (Some(_), Some(k)) => errors.push(
-                t.span(),
-                format!(
-                    "`reduce_only` and `{k}` contradict: a reduce_only field is edited in the admin UI, but only towards less power"
-                ),
-            ),
-            (Some(_), None) => {}
-        }
-    }
-}
-
 fn field_base(
     ident: &syn::Ident,
     terms: &[Term],
@@ -205,9 +185,6 @@ fn field_meta(o: &Owner, terms: &[Term], errors: &mut Errors) -> Vec<TokenStream
     }
     if has_flag(terms, "locked") {
         meta.push(quote!(n.locked = true;));
-    }
-    if has_flag(terms, "reduce_only") {
-        meta.push(quote!(n.reduce_only = true;));
     }
     match (find(terms, "wide"), find(terms, "narrow")) {
         (Some(t), Some(_)) => errors.push(t.span(), "`wide` and `narrow` contradict"),

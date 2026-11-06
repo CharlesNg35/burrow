@@ -30,10 +30,6 @@ pub fn names_of(entity: &Entity) -> Vec<String> {
 
 pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
     let e = store().edit;
-    if crate::grants::refuses(&fc.path, v.as_ref()) {
-        e.refuse(&fc.path, true);
-        return;
-    }
     let problem = match &v {
         None if node.required && node.default.is_none() => {
             Some(burrow_admin_logic::wording::required(&node.label))

@@ -210,6 +210,10 @@ impl Store for FileStore {
         crate::install::state_dir_for(&self.path)
     }
 
+    fn log_dir(&self) -> Option<PathBuf> {
+        crate::install::log_dir_for(&self.path)
+    }
+
     fn format(&self) -> Format {
         self.format
     }
@@ -373,7 +377,9 @@ impl Access for SettingsAccess {
         let settings = self.shared.current_settings();
         match settings.admin_access(&self.visitor, &self.secret, self.peer.ip()) {
             Err(why) => Some(why.into()),
-            Ok(level) if level != self.level => Some("admin level changed".into()),
+            Ok(level) if level != self.level => {
+                Some(burrow_admin_proto::msg::revoked::LEVEL_CHANGED.into())
+            }
             Ok(_) => None,
         }
     }

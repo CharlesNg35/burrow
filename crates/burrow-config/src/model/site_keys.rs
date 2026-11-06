@@ -84,8 +84,7 @@ pub struct TargetCa {
         ty = path(must_exist, relative_to = "config"),
         label = "CA file",
         help = "The CA that signed the app's certificate, for example certs/corp-ca.pem",
-        none_label = "Not set",
-        locked
+        none_label = "Not set"
     )]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

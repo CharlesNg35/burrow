@@ -46,14 +46,39 @@ async fn passthrough_shows_what_it_leaves_out(c: &mut Ctx) {
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
     c.ui.nav("/settings").await;
     edit_mode(c).await;
-    let listen = "[data-schema=listen]";
-    let text = c.ui.wait_text(listen, "server.yaml", SECS).await;
+    let remote = "[data-schema='update/remote']";
+    let text = c.ui.wait_text(remote, "server.yaml", SECS).await;
     assert!(
-        text.contains("burrow edit"),
+        text.contains("sudo burrow service install"),
         "a locked field says where: {text}"
     );
-    assert_eq!(c.ui.count(&format!("{listen} [data-locked]")).await, 1);
     both_widths(c, "locked-field").await;
+    c.ui.click("[data-testid=settings-tabs] [data-tab=proxy]")
+        .await;
+    for field in [
+        "web/access_log",
+        "web/proxy_protocol_from",
+        "web/error_pages",
+    ] {
+        super::open_more(c, field).await;
+        let row = format!("[data-schema='{field}']");
+        assert_eq!(
+            c.ui.count(&format!("{row} [data-locked]")).await,
+            0,
+            "{field} is edited here"
+        );
+        assert!(
+            c.ui.count(&format!("{row} [data-editor], {row} input"))
+                .await
+                > 0,
+            "{field}"
+        );
+    }
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector(\"[data-schema='web/access_log']\").scrollIntoView({block: 'center'}); return true; })()")
+        .await;
+    super::letsencrypt::three(c, "web-paths-editable").await;
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 }

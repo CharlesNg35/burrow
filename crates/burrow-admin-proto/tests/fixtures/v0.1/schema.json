@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:8e17f53ece888f01",
+  "hash": "b2s:e37ae8d6d4c44c20",
   "root": {
     "label": "Server",
     "sem": {
@@ -23,7 +23,6 @@
             },
             "applies": "restart",
             "group": "listener",
-            "locked": true,
             "none_label": "No TCP listener"
           }
         },
@@ -124,8 +123,7 @@
                                       "must_exist": true,
                                       "relative_to": "config"
                                     },
-                                    "required": true,
-                                    "locked": true
+                                    "required": true
                                   }
                                 },
                                 {
@@ -138,8 +136,7 @@
                                       "must_exist": true,
                                       "relative_to": "config"
                                     },
-                                    "required": true,
-                                    "locked": true
+                                    "required": true
                                   }
                                 }
                               ]
@@ -454,7 +451,6 @@
                                       }
                                     },
                                     "advanced": true,
-                                    "locked": true,
                                     "none_label": "The public CAs"
                                   }
                                 },
@@ -871,7 +867,7 @@
                                   "key": "cert",
                                   "node": {
                                     "label": "Files on the server",
-                                    "help": "The certificate chain file, for example certs/fullchain.pem, named in server.yaml",
+                                    "help": "The certificate chain file on the server, for example certs/fullchain.pem or /etc/letsencrypt/live/example.com/fullchain.pem",
                                     "sem": {
                                       "t": "optional",
                                       "inner": {
@@ -882,7 +878,6 @@
                                         }
                                       }
                                     },
-                                    "locked": true,
                                     "none_label": "Not set"
                                   }
                                 },
@@ -901,7 +896,6 @@
                                         }
                                       }
                                     },
-                                    "locked": true,
                                     "none_label": "Not set"
                                   }
                                 },
@@ -1078,7 +1072,6 @@
                           }
                         },
                         "advanced": true,
-                        "locked": true,
                         "empty_label": "None"
                       }
                     },
@@ -1154,7 +1147,6 @@
                           }
                         },
                         "advanced": true,
-                        "locked": true,
                         "none_label": "Off"
                       }
                     },
@@ -1307,7 +1299,6 @@
                           }
                         },
                         "advanced": true,
-                        "locked": true,
                         "none_label": "Built in"
                       }
                     }
@@ -1414,8 +1405,7 @@
                           "t": "secret_ref",
                           "max": 4
                         },
-                        "required": true,
-                        "reduce_only": true
+                        "required": true
                       }
                     },
                     {
@@ -1516,7 +1506,6 @@
                         },
                         "group": "admin",
                         "danger_when_set": true,
-                        "reduce_only": true,
                         "wide": true,
                         "none_label": "None"
                       }
@@ -1536,7 +1525,6 @@
                         },
                         "group": "admin",
                         "advanced": true,
-                        "reduce_only": true,
                         "empty_label": "Any address",
                         "relations": [
                           {
@@ -2213,7 +2201,7 @@
                                                           "key": "cert",
                                                           "node": {
                                                             "label": "Files on the server",
-                                                            "help": "The certificate chain file, for example certs/fullchain.pem, named in server.yaml",
+                                                            "help": "The certificate chain file on the server, for example certs/fullchain.pem or /etc/letsencrypt/live/example.com/fullchain.pem",
                                                             "sem": {
                                                               "t": "optional",
                                                               "inner": {
@@ -2224,7 +2212,6 @@
                                                                 }
                                                               }
                                                             },
-                                                            "locked": true,
                                                             "none_label": "Not set"
                                                           }
                                                         },
@@ -2243,7 +2230,6 @@
                                                                 }
                                                               }
                                                             },
-                                                            "locked": true,
                                                             "none_label": "Not set"
                                                           }
                                                         },
@@ -2600,7 +2586,6 @@
                                                                 }
                                                               }
                                                             },
-                                                            "locked": true,
                                                             "none_label": "Not set"
                                                           }
                                                         },
@@ -2847,7 +2832,6 @@
                                                           }
                                                         }
                                                       },
-                                                      "locked": true,
                                                       "none_label": "Not set"
                                                     }
                                                   },
@@ -2888,7 +2872,6 @@
                                                           }
                                                         }
                                                       },
-                                                      "locked": true,
                                                       "none_label": "None"
                                                     }
                                                   },
@@ -3186,7 +3169,6 @@
                                             }
                                           },
                                           "advanced": true,
-                                          "locked": true,
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
@@ -3278,8 +3260,7 @@
             "applies": "live",
             "group": "security",
             "advanced": true,
-            "danger_when_set": true,
-            "locked": true
+            "danger_when_set": true
           }
         },
         {
@@ -3300,8 +3281,7 @@
                       "min": 1,
                       "max": 3600
                     },
-                    "default": 10,
-                    "locked": true
+                    "default": 10
                   }
                 }
               ]
@@ -3330,8 +3310,7 @@
                       "max": 120
                     },
                     "default": 5,
-                    "applies": "live",
-                    "locked": true
+                    "applies": "live"
                   }
                 },
                 {
@@ -3346,8 +3325,7 @@
                       "unit": "connections"
                     },
                     "default": 2048,
-                    "applies": "reload",
-                    "locked": true
+                    "applies": "reload"
                   }
                 },
                 {

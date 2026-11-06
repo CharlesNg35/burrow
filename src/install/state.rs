@@ -34,6 +34,18 @@ pub fn state_dir_for(config: &Path) -> PathBuf {
     own_state_dir(&config, dirs::state_dir().or_else(dirs::data_local_dir))
 }
 
+pub fn log_dir_for(config: &Path) -> Option<PathBuf> {
+    let config = crate::base::fs::canonical_or_same(config);
+    let manifests = all_manifests();
+    let m = installed_for(&config, &manifests)?;
+    let file = if m.log_file.as_os_str().is_empty() {
+        Platform::current().log_file(m.short())
+    } else {
+        m.log_file.clone()
+    };
+    file.parent().map(Path::to_path_buf)
+}
+
 fn folder_of(m: &Manifest) -> PathBuf {
     m.web_state
         .clone()

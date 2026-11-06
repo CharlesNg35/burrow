@@ -248,14 +248,17 @@ fn Body() -> impl IntoView {
                 </div>
             }
             .into_any(),
-            Conn::Revoked { reason } => view! {
-                <div class="mx-auto max-w-2xl p-8" data-testid="revoked">
-                    <EmptyState icon="lock" title="Your admin access was removed" message=format!("The server closed this session: {reason}")>
-                        <p class="text-sm text-text-muted">"Ask a write admin, then run burrow admin again."</p>
-                    </EmptyState>
-                </div>
+            Conn::Revoked { reason } => {
+                let (title, hint) = burrow_admin_logic::wording::revoked_words(&reason);
+                view! {
+                    <div class="mx-auto max-w-2xl p-8" data-testid="revoked" data-reason=reason.clone()>
+                        <EmptyState icon="lock" title=title message=format!("The server closed this session: {reason}")>
+                            <p class="text-sm text-text-muted">{hint}</p>
+                        </EmptyState>
+                    </div>
+                }
+                .into_any()
             }
-            .into_any(),
             Conn::Ended if !loaded.get() => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="ended">
                     <EmptyState icon="wifi-off" title="This tab's admin session ended" message=burrow_admin_logic::wording::SESSION_ENDED_HINT/>

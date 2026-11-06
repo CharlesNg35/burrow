@@ -166,8 +166,7 @@ pub struct ClientAuthFiles {
         ty = path(must_exist, relative_to = "config"),
         label = "CA file",
         help = "The CA that signs your devices' certificates, with its intermediates, for example certs/devices-ca.pem",
-        none_label = "Not set",
-        locked
+        none_label = "Not set"
     )]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -189,8 +188,7 @@ pub struct ClientAuthFiles {
         ty = path(must_exist, relative_to = "config"),
         label = "Revocation list",
         help = "Devices you revoked, as the CA publishes them, for example certs/devices.crl; re-read when the file changes",
-        none_label = "None",
-        locked
+        none_label = "None"
     )]
     pub crl: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

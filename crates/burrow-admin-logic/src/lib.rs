@@ -13,7 +13,6 @@ mod diag_words;
 pub mod entity;
 pub mod entries;
 pub mod fallback;
-pub mod grant;
 pub mod health;
 pub mod history;
 pub mod input;

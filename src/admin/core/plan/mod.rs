@@ -1,6 +1,7 @@
 //! Turns admin edit operations into a checked plan with the new config text, and applies it.
 //! Start at `compute` for a plan and `apply_begin` to write it; `check_text` checks a whole file.
 
+mod access_log;
 mod apply;
 mod locks;
 mod steps;
