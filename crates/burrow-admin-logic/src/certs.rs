@@ -177,6 +177,41 @@ pub fn site_badge(status: &Status, now: u64, service: &str) -> Option<(String, L
         })
 }
 
+fn renew_hint(c: &CertStatus) -> &'static str {
+    match c.source {
+        CertSourceStatus::LetsEncrypt { .. } => {
+            "Let's Encrypt has not renewed it yet; burrow keeps trying."
+        }
+        CertSourceStatus::LocalCa => "burrow's local CA has not renewed it yet.",
+        _ => "Replace the file with a renewed one, or upload a new certificate.",
+    }
+}
+
+fn field_of(c: &CertStatus, service: Option<&str>) -> Option<Vec<String>> {
+    let le = ServerConfig::WEB.then(WebConfig::LETSENCRYPT);
+    if c.code.as_deref() == Some(PROFILE_NOT_OFFERED) {
+        return Some(le.then(LetsEncrypt::PROFILE).path());
+    }
+    match (&c.source, service) {
+        (CertSourceStatus::SharedFile { .. }, _) => {
+            Some(ServerConfig::WEB.then(WebConfig::CERTIFICATES).path())
+        }
+        (CertSourceStatus::TunnelFile { .. }, _) => Some(
+            ServerConfig::WEBSOCKET
+                .then(burrow_config::WebSocketConfig::TLS)
+                .path(),
+        ),
+        (_, Some(s)) => Some(
+            burrow_config::ServiceEntry::WEB
+                .of(s)
+                .into_iter()
+                .chain([burrow_config::WebSite::TLS.key().to_string()])
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
 pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
     let mut out: Vec<Notice> = Vec::new();
     let mut names: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -192,15 +227,7 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
             continue;
         }
         let service = service_of(status, &c.name);
-        let field = (c.code.as_deref() == Some(PROFILE_NOT_OFFERED)).then(|| {
-            [
-                ServerConfig::WEB.key(),
-                WebConfig::LETSENCRYPT.key(),
-                LetsEncrypt::PROFILE.key(),
-            ]
-            .map(str::to_string)
-            .to_vec()
-        });
+        let field = field_of(c, service.as_deref());
         let notice = |level, title: String, detail: String| Notice {
             key: key.clone(),
             level,
@@ -214,11 +241,20 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
                 0 | 1 => String::new(),
                 n => format!(" · tried {n} times"),
             };
+            let again = c
+                .next_renewal
+                .map(|t| format!(" · next try in {}", span(t.saturating_sub(now))))
+                .unwrap_or_default();
+            let verb = if c.expires.is_some() {
+                "renewed"
+            } else {
+                "issued"
+            };
             names.insert(key.clone(), 1);
             out.push(notice(
                 Level::Bad,
-                format!("The certificate {subject} cannot be renewed"),
-                format!("{reason}{tries}"),
+                format!("The certificate {subject} cannot be {verb}"),
+                format!("Last try: {reason}{tries}{again}"),
             ));
             continue;
         }
@@ -236,7 +272,7 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
                 out.push(notice(
                     Level::Warn,
                     format!("The certificate {subject} expires in {}", span(t - now)),
-                    "Replace the file, or let Let's Encrypt renew it.".into(),
+                    renew_hint(c).into(),
                 ))
             }
             _ => {}
@@ -411,10 +447,36 @@ mod tests {
                 "The certificate for soon.example.com expires in 3d",
             ]
         );
-        assert_eq!(n[0].detail, "rate limited · tried 3 times");
+        assert_eq!(
+            n[0].detail,
+            "Last try: rate limited · tried 3 times · next try in 10m"
+        );
         assert_eq!(n[0].service.as_deref(), Some("blog"));
         assert_eq!(n[1].service, None);
-        assert_eq!(n[0].field, None);
+        assert_eq!(
+            n[0].field.as_deref(),
+            Some(
+                &[
+                    "services".to_string(),
+                    "blog".into(),
+                    "web".into(),
+                    "tls".into()
+                ][..]
+            ),
+            "the notice links to the site's HTTPS setting"
+        );
+        assert_eq!(n[1].field, None);
+        assert_eq!(
+            n[2].detail,
+            "Let's Encrypt has not renewed it yet; burrow keeps trying."
+        );
+        let mut first = s.clone();
+        first.certificates[0].expires = None;
+        assert_eq!(
+            notices(&first, NOW)[0].title,
+            "The certificate for blog.example.com cannot be issued",
+            "a name that never had a certificate is not renewed"
+        );
         let mut p = s.clone();
         p.certificates[0].code = Some(PROFILE_NOT_OFFERED.into());
         assert_eq!(
@@ -449,7 +511,11 @@ mod tests {
         );
         assert_eq!(
             n[0].detail,
-            "It covers 3 names. Replace the file, or let Let's Encrypt renew it."
+            "It covers 3 names. Replace the file with a renewed one, or upload a new certificate."
+        );
+        assert_eq!(
+            n[0].field.as_deref(),
+            Some(&["web".to_string(), "certificates".into()][..])
         );
     }
 

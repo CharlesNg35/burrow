@@ -61,7 +61,12 @@ fn needs(node: &Node, keys: &[String]) -> String {
             _ => vec![f.node.label.clone()],
         })
         .collect();
-    format!("{} needs its {}", label(node, keys), wanted.join(", "))
+    let choice = label(node, keys);
+    if wanted.contains(&choice) {
+        format!("{}: not set yet", wanted.join(" and "))
+    } else {
+        format!("{choice} needs its {}", wanted.join(", "))
+    }
 }
 
 fn state_at(c: &Choice, shown: Memo<Option<usize>>) -> Signal<FieldState> {

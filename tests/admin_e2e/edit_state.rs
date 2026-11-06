@@ -341,11 +341,16 @@ async fn private_udp_needs_visitors(c: &mut Ctx) {
     c.ui.choose("f-services-web-protocol", "udp").await;
     let clear = "[data-schema='services/*/max_connections'] [data-testid=clear-unused]";
     c.ui.wait_for(clear, SECS).await;
+    assert_eq!(
+        c.ui.text(clear).await.trim(),
+        "Clear",
+        "a short button label"
+    );
     assert!(
-        c.ui.text(clear)
+        c.ui.attr_of(clear, "title")
             .await
             .contains("UDP services do not use this"),
-        "a value the protocol cannot use can be cleared in place"
+        "a value the protocol cannot use can be cleared in place, the reason on hover"
     );
     c.ui.click(clear).await;
     c.ui.wait_gone(clear, SECS).await;

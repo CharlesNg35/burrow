@@ -12,7 +12,7 @@ use super::FieldCtx;
 
 const FILES: &str = "files";
 const FILES_LABEL: &str = "My own certificate";
-const FILES_HELP: &str = "certificate and key files that you set on the website";
+const FILES_HELP: &str = "a certificate you upload, or its files on the server";
 
 pub(crate) fn https_options(off: impl Fn(&str) -> Option<String>) -> Vec<RadioOption> {
     use burrow_config::admin_schema::AdminEnum;
@@ -117,9 +117,31 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
         <div id=fc.id.clone() data-testid="website-tls">
             <RadioList name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() on_change=on_mode/>
             {below}
+            {cert_now(fc.path.clone())}
         </div>
     }
     .into_any()
+}
+
+pub(crate) fn cert_now(path: Vec<String>) -> impl IntoView + use<> {
+    let s = store();
+    move || {
+        let now = (s.now.get() / 1000.0) as u64;
+        let notice = s.status.with(|st| {
+            burrow_admin_logic::certs::notices(st.as_deref()?, now)
+                .into_iter()
+                .find(|n| n.field.as_deref() == Some(path.as_slice()))
+        })?;
+        let tone = match notice.level {
+            burrow_admin_logic::certs::Level::Bad => burrow_ui_kit::Tone::Danger,
+            _ => burrow_ui_kit::Tone::Warning,
+        };
+        Some(view! {
+            <div data-testid="website-cert-now">
+                {burrow_ui_kit::field_message(tone, format!("{}. {}", notice.title, notice.detail))}
+            </div>
+        })
+    }
 }
 
 fn web_off() -> impl IntoView {

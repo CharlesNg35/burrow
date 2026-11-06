@@ -207,8 +207,10 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
     let node = node.clone();
     let site = matches!(&inner(&node).sem, SemType::Union(u) if u.branches.iter().any(|b| matches!(inner(b).sem, SemType::HostName(_))));
     let rows = matches!(&inner(&node).sem, SemType::RefEntries(_));
+    let chooses = matches!(&inner(&node).sem, SemType::Union(u) if u.branches.iter().any(|b| matches!(&inner(b).sem, SemType::Object(o) if !o.one_of.is_empty())));
     Signal::derive(move || {
         let s = st.get();
+        let inner_choice = chooses && e.value(&path).is_some_and(|v| v.is_object());
         let picked = touched.get();
         let now = store().state.with(|st| {
             st.as_ref()
@@ -239,6 +241,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
                 .into_iter()
                 .filter(|d| picked || d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE)
                 .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))
+                .filter(|d| !inner_choice || d.path.as_deref() != Some(path.as_slice()))
                 .filter(|d| !rows || d.path.as_ref().is_none_or(|x| x.len() <= path.len()))
                 .map(|d| {
                     (
@@ -345,6 +348,7 @@ fn field_body(
                 p
             });
             let inherited = st.with_untracked(|s| s.default_from.clone());
+            let path2 = path.clone();
             let clear = {
                 let path = path.clone();
                 move || {
@@ -352,9 +356,9 @@ fn field_body(
                         st.with(|s| (!s.enabled).then(|| s.disabled_reason.clone()).flatten())?;
                     (can && editing.try_get().unwrap_or(false) && e.value(&path).is_some()).then(|| {
                         let path = path.clone();
-                        let label = format!("Clear ({})", reason.replace("do not support", "do not use"));
+                        let title = format!("Clear this value: {}", reason.replace("do not support", "do not use"));
                         view! {
-                            <button type="button" class=burrow_ui_kit::button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) data-testid="clear-unused" on:click=move |_| e.set(&path, None)>{label}</button>
+                            <button type="button" class=burrow_ui_kit::button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) data-testid="clear-unused" title=title on:click=move |_| e.set(&path, None)>"Clear"</button>
                         }
                     })
                 }
@@ -378,6 +382,7 @@ fn field_body(
                     }}
                     {clear}
                 </div>
+                {crate::domain::website::radio_field(&spath).then(|| crate::domain::website::cert_now(path2.clone()))}
             }
             .into_any()
         }

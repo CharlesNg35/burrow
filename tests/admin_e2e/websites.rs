@@ -474,7 +474,7 @@ fn profile_link(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         let item = "[data-testid=attention] [data-item='cert:blog.example.com']";
-        let text = c.ui.wait_text(item, "cannot be renewed", SECS).await;
+        let text = c.ui.wait_text(item, "cannot be issued", SECS).await;
         assert!(text.contains("does not offer the profile"), "{text}");
         overview_tab(c, "certs").await;
         let orders =

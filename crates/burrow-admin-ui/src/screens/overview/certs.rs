@@ -28,9 +28,13 @@ pub(super) fn items(status: &Status, now: u64) -> Vec<Item> {
             title: n.title,
             detail: n.detail,
             to: Some(match (n.service, &n.field) {
-                (_, Some(_)) => Route::Settings,
+                (Some(s), Some(f))
+                    if f.first().map(String::as_str) == Some(ServiceEntry::section()) =>
+                {
+                    Route::Detail(ServiceEntry::section().into(), s)
+                }
                 (Some(s), None) => Route::Detail(ServiceEntry::section().into(), s),
-                (None, None) => Route::Settings,
+                _ => Route::Settings,
             }),
             field: n.field,
             extra: None,

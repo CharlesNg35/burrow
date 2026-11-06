@@ -89,6 +89,10 @@ fn row_view(i: Item, icon: bool) -> AnyView {
                                     to.clone(),
                                     Some((crate::route::TAB_QUERY, burrow_admin_logic::settings_tabs::tab_of(k).key())),
                                 ),
+                                (Route::Detail(..), Some(_)) => crate::route::go_query(
+                                    to.clone(),
+                                    Some((crate::route::TAB_QUERY, crate::screens::placement::SETTINGS)),
+                                ),
                                 _ => crate::route::go(to.clone()),
                             }
                             let path = path.clone();
