@@ -1,5 +1,5 @@
 //! The web proxy value rules: host names and wildcards, certificate expiry and renewal timing, and the Let's Encrypt and DNS wait defaults.
-//! Child modules cover the certificate check of each site (`check`), settable header names (`headers`) and error page names (`pages`).
+//! Child modules cover the certificate check of each site (`check`), settable header names (`headers`), the names the local CA signs (`local_ca`) and error page names (`pages`).
 
 use std::net::IpAddr;
 
@@ -176,6 +176,7 @@ pub const DNS_WAIT_MAX_SECS: u64 = 3600;
 
 mod check;
 pub mod headers;
+pub mod local_ca;
 pub mod pages;
 
 pub use check::{
