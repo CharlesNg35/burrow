@@ -11,6 +11,7 @@ use super::DnsEntry;
     label = "Let's Encrypt settings",
     one_of(
         trusted_ca = "Trusted CA | The CA to trust for another ACME server",
+        default = ca_upload,
         ca,
         ca_upload
     )
@@ -114,6 +115,7 @@ pub enum DirectoryName {
     one_of(
         source = "Certificate | Files on the server or a certificate uploaded here",
         required,
+        default = upload,
         cert(key),
         upload
     )

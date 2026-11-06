@@ -71,6 +71,7 @@ pub enum TargetTls {
     one_of(
         ca_source = "The app's CA | A file on the server or a CA uploaded here",
         required,
+        default = ca_upload,
         ca,
         ca_upload
     )

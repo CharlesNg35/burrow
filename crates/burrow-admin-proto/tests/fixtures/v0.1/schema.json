@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:e37ae8d6d4c44c20",
+  "hash": "b2s:1f652e1a698a09a0",
   "root": {
     "label": "Server",
     "sem": {
@@ -821,7 +821,8 @@
                                     [
                                       "ca_upload"
                                     ]
-                                  ]
+                                  ],
+                                  "default": 1
                                 }
                               ]
                             }
@@ -936,7 +937,8 @@
                                     [
                                       "upload"
                                     ]
-                                  ]
+                                  ],
+                                  "default": 1
                                 }
                               ]
                             }
@@ -2270,7 +2272,8 @@
                                                             [
                                                               "upload"
                                                             ]
-                                                          ]
+                                                          ],
+                                                          "default": 1
                                                         }
                                                       ]
                                                     }
@@ -2625,7 +2628,8 @@
                                                             [
                                                               "ca_upload"
                                                             ]
-                                                          ]
+                                                          ],
+                                                          "default": 1
                                                         }
                                                       ]
                                                     }
@@ -2910,7 +2914,8 @@
                                                       [
                                                         "ca_upload"
                                                       ]
-                                                    ]
+                                                    ],
+                                                    "default": 1
                                                   },
                                                   {
                                                     "key": "crl_source",
@@ -2923,7 +2928,8 @@
                                                       [
                                                         "crl_upload"
                                                       ]
-                                                    ]
+                                                    ],
+                                                    "default": 1
                                                   }
                                                 ]
                                               }

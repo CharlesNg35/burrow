@@ -148,11 +148,13 @@ mod tests {
     label = "Device certificates",
     one_of(
         ca_source = "Devices' CA | A file on the server or a CA uploaded here",
+        default = ca_upload,
         ca,
         ca_upload
     ),
     one_of(
         crl_source = "Revocation list | A file on the server or a list uploaded here",
+        default = crl_upload,
         crl,
         crl_upload
     )

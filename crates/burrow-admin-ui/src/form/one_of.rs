@@ -1,5 +1,5 @@
 use burrow_admin_logic::fallback::needs_newer_ui;
-use burrow_admin_logic::one_of::{filled, label, options, picked, switch};
+use burrow_admin_logic::one_of::{entry_of, filled, label, opening, options, picked, switch};
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Field, Node, OneOf, SemType};
@@ -135,11 +135,10 @@ pub(super) fn choice_rows(c: Choice) -> AnyView {
     let editable: Vec<usize> = (0..g.choices.len())
         .filter(|i| !locked_choice(&node, &g.choices[*i]))
         .collect();
-    let auto = match editable.as_slice() {
-        [only] if g.required => Some(*only),
-        _ => None,
-    };
-    let wanted: RwSignal<Option<usize>> = RwSignal::new(auto);
+    let entry = e
+        .draft
+        .with_untracked(|d| entry_of(&g, burrow_admin_proto::value::get(d.base(), &path)));
+    let wanted: RwSignal<Option<usize>> = RwSignal::new(opening(&g, &editable, entry));
     let shown = Memo::new(move |_| picked_now.get().or(wanted.get()));
     let apply = {
         let (node, g, path) = (node.clone(), g.clone(), path.clone());

@@ -26,6 +26,27 @@ fn is_set(obj: &Value, key: &str) -> bool {
     obj.get(key).is_some_and(|v| !v.is_null())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Entry {
+    New,
+    Existing,
+}
+
+pub fn entry_of(g: &OneOf, base: Option<&Value>) -> Entry {
+    match base {
+        Some(v) if v.is_object() && (!g.required || g.picked(v).is_some()) => Entry::Existing,
+        _ => Entry::New,
+    }
+}
+
+pub fn opening(g: &OneOf, editable: &[usize], entry: Entry) -> Option<usize> {
+    match editable {
+        [only] if g.required => Some(*only),
+        _ if entry == Entry::New => g.default.filter(|d| editable.contains(d)),
+        _ => None,
+    }
+}
+
 pub fn picked(g: &OneOf, obj: Option<&Value>) -> Option<usize> {
     g.picked(obj?)
 }
@@ -90,6 +111,62 @@ mod tests {
     use burrow_admin_proto::serde_json::json;
     use burrow_config::admin_schema::AdminSchema;
     use burrow_config::{CertFile, DnsEntry};
+
+    #[test]
+    fn a_new_certificate_or_ca_opens_on_its_upload_and_a_dns_entry_on_pick_one() {
+        use burrow_config::{ClientAuthFiles, LetsEncrypt, SiteFiles, TargetCa};
+        let upload_first = |node: &Node, key: &str, upload: &str| {
+            let g = group_of(node, key).expect("a choice");
+            let all: Vec<usize> = (0..g.choices.len()).collect();
+            let at = opening(g, &all, Entry::New).expect("a default");
+            assert_eq!(g.choices[at], [upload.to_string()], "{}", g.key);
+            assert_eq!(opening(g, &all, Entry::Existing), None, "{}", g.key);
+        };
+        upload_first(&CertFile::node(), CertFile::UPLOAD.key(), "upload");
+        upload_first(&SiteFiles::node(), SiteFiles::UPLOAD.key(), "upload");
+        upload_first(
+            &LetsEncrypt::node(),
+            LetsEncrypt::CA_UPLOAD.key(),
+            "ca_upload",
+        );
+        upload_first(&TargetCa::node(), TargetCa::CA_UPLOAD.key(), "ca_upload");
+        let auth = ClientAuthFiles::node();
+        upload_first(&auth, ClientAuthFiles::CA_UPLOAD.key(), "ca_upload");
+        upload_first(&auth, ClientAuthFiles::CRL_UPLOAD.key(), "crl_upload");
+        let dns = DnsEntry::node();
+        let g = leads(&dns, DnsEntry::CLOUDFLARE.key()).expect("the provider choice");
+        let all: Vec<usize> = (0..g.choices.len()).collect();
+        assert_eq!(
+            opening(g, &all, Entry::New),
+            None,
+            "no provider is a sensible default"
+        );
+        assert_eq!(
+            opening(g, &[2], Entry::Existing),
+            Some(2),
+            "a required choice with one open option takes it"
+        );
+        assert_eq!(opening(g, &[1, 2], Entry::New), None);
+        let site = SiteFiles::node();
+        let files = group_of(&site, SiteFiles::UPLOAD.key()).unwrap();
+        assert_eq!(entry_of(files, None), Entry::New);
+        assert_eq!(
+            entry_of(files, Some(&json!("auto"))),
+            Entry::New,
+            "a site switching to its own certificate"
+        );
+        assert_eq!(
+            entry_of(files, Some(&json!({"cert": "a.pem", "key": "a.key"}))),
+            Entry::Existing
+        );
+        let le = LetsEncrypt::node();
+        let ca = group_of(&le, LetsEncrypt::CA_UPLOAD.key()).unwrap();
+        assert_eq!(
+            entry_of(ca, Some(&json!({"email": "ops@example.com"}))),
+            Entry::Existing,
+            "an optional CA of an existing block stays as it is"
+        );
+    }
 
     #[test]
     fn a_dns_entry_offers_its_providers_as_one_choice() {

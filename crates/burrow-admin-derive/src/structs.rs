@@ -145,9 +145,13 @@ fn one_of_groups(
     for t in container.iter().filter(|t| t.name() == Some("one_of")) {
         let mut key = None;
         let mut required = false;
+        let mut default: Option<String> = None;
         let mut choices: Vec<Vec<String>> = Vec::new();
         for a in t.args() {
             match a {
+                Term::Assign(k, v, _) if k == "default" && v.as_word().is_some() => {
+                    default = v.as_word().map(str::to_string);
+                }
                 Term::Assign(k, v, _) if v.as_str().is_some() => {
                     key = Some((k.clone(), v.as_str().unwrap_or_default().to_string()));
                 }
@@ -160,7 +164,7 @@ fn one_of_groups(
                 ),
                 other => errors.push(
                     other.span(),
-                    "one_of(key = \"Label | help\", required, field, field(with, these), ...)",
+                    "one_of(key = \"Label | help\", required, default = field, field, field(with, these), ...)",
                 ),
             }
         }
@@ -180,6 +184,19 @@ fn one_of_groups(
             );
             continue;
         };
+        let at = default
+            .as_ref()
+            .map(|d| choices.iter().position(|c| c.first() == Some(d)));
+        if at == Some(None) {
+            errors.push(
+                t.span(),
+                "one_of(default = ...) names the first field of one of its choices",
+            );
+        }
+        let default = match at.flatten() {
+            Some(i) => quote!(::core::option::Option::Some(#i)),
+            None => quote!(::core::option::Option::None),
+        };
         let (label, help) = label.split_once(" | ").unwrap_or((label.as_str(), ""));
         let lists = choices
             .iter()
@@ -190,6 +207,7 @@ fn one_of_groups(
             help: #help.into(),
             required: #required,
             choices: ::std::vec![#(#lists),*],
+            default: #default,
         }));
     }
     out

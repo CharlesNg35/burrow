@@ -242,6 +242,8 @@ pub struct OneOf {
     #[serde(default, skip_serializing_if = "is_false")]
     pub required: bool,
     pub choices: Vec<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<usize>,
 }
 
 impl OneOf {

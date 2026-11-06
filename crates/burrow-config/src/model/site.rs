@@ -325,6 +325,7 @@ pub enum SiteTls {
     one_of(
         source = "Certificate | Files on the server or a certificate uploaded here",
         required,
+        default = upload,
         cert(key),
         upload
     )
