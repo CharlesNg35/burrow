@@ -44,10 +44,22 @@ fn yaml(value: &Value, indent: usize, out: &mut String) {
         }
         Value::Array(items) => {
             for item in items {
-                out.push_str(&pad);
-                out.push_str("- ");
-                out.push_str(&flow(item));
-                out.push('\n');
+                let line = flow(item);
+                match item {
+                    Value::Object(m) if pad.len() + 2 + line.len() > LINE && m.len() > 1 => {
+                        for (i, (k, v)) in m.iter().enumerate() {
+                            out.push_str(&pad);
+                            out.push_str(if i == 0 { "- " } else { "  " });
+                            out.push_str(&format!("{}: {}\n", scalar_str(k), flow(v)));
+                        }
+                    }
+                    _ => {
+                        out.push_str(&pad);
+                        out.push_str("- ");
+                        out.push_str(&line);
+                        out.push('\n');
+                    }
+                }
             }
         }
         other => {
@@ -57,6 +69,8 @@ fn yaml(value: &Value, indent: usize, out: &mut String) {
         }
     }
 }
+
+const LINE: usize = 80;
 
 pub(crate) fn flow(v: &Value) -> String {
     match v {
@@ -132,6 +146,15 @@ mod tests {
         assert_eq!(
             render(&v, Format::Yaml),
             "clients:\n  - home\n  - { name: gw, target: 10.0.0.12:3000, weight: 2 }\n"
+        );
+    }
+
+    #[test]
+    fn a_long_entry_in_a_list_is_a_block_of_flow_values() {
+        let v = serde_json::json!({"dns": [{"domains": ["example.com"], "cloudflare": {"token": "${CF_TOKEN}"}, "wildcards": ["*.example.com"]}]});
+        assert_eq!(
+            render(&v, Format::Yaml),
+            "dns:\n  - domains: [example.com]\n    cloudflare: { token: \"${CF_TOKEN}\" }\n    wildcards: [\"*.example.com\"]\n"
         );
     }
 

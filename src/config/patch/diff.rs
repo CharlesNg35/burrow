@@ -26,11 +26,21 @@ pub(super) fn diff_map(
         return;
     };
     let first = line_start(src, entries[0].key_span.start.offset);
-    let indent = &src[first..entries[0].key_span.start.offset];
-    if indent.chars().any(|c| c != ' ') {
+    let before_key = &src[first..entries[0].key_span.start.offset];
+    let item = before_key
+        .trim_start_matches(' ')
+        .strip_prefix("- ")
+        .is_some_and(|r| r.chars().all(|c| c == ' '));
+    if !item && before_key.chars().any(|c| c != ' ') {
         edits.give_up(path, "the keys do not start their lines");
         return;
     }
+    if item && !wanted.contains_key(&entries[0].key) {
+        edits.give_up(path, "the first key of a list entry is removed");
+        return;
+    }
+    let spaces = " ".repeat(before_key.len());
+    let indent = spaces.as_str();
     let increasing = entries.windows(2).all(|w| {
         line_start(src, w[0].key_span.start.offset) < line_start(src, w[1].key_span.start.offset)
             && w[0].value.span.end.offset <= w[1].key_span.start.offset
@@ -92,7 +102,7 @@ fn quoted_like(src: &str, old: &Node, s: &str) -> String {
     }
 }
 
-fn scalar_text(src: &str, old: &Node, v: &Value) -> String {
+pub(super) fn scalar_text(src: &str, old: &Node, v: &Value) -> String {
     match v {
         Value::String(s) if old.quoted => quoted_like(src, old, s),
         other => inline(other),
@@ -167,9 +177,13 @@ fn diff_value(
         Value::Object(m) if block_map && !m.is_empty() => {
             diff_map(src, old, want, path, depth, unit, edits);
         }
+        Value::Array(items) if block_seq && items.iter().any(Value::is_object) => {
+            super::seq::patch_maps(src, old, items, path, (depth, unit), edits);
+        }
         Value::Array(items) if block_seq && !items.is_empty() => {
             replace_block_seq(src, old, items, path, edits);
         }
+        Value::Object(_) if super::seq::patch_flow_scalars(src, old, want, edits) => {}
         Value::Object(m) if !m.is_empty() => {
             let Some(end) = value_end(edits) else {
                 return;

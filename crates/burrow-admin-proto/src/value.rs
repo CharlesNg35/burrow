@@ -111,24 +111,37 @@ pub fn put(root: &mut Value, path: &[String], v: Option<Value>) -> bool {
         if cur.is_null() {
             *cur = Value::Object(serde_json::Map::new());
         }
-        let Some(m) = cur.as_object_mut() else {
-            return false;
+        cur = match cur {
+            Value::Object(m) => m.entry(k.clone()).or_insert(Value::Null),
+            Value::Array(a) => match k.parse::<usize>().ok().filter(|i| *i < a.len()) {
+                Some(i) => &mut a[i],
+                None => return false,
+            },
+            _ => return false,
         };
-        cur = m.entry(k.clone()).or_insert(Value::Null);
     }
     if cur.is_null() {
         *cur = Value::Object(serde_json::Map::new());
     }
-    let Some(m) = cur.as_object_mut() else {
-        return false;
-    };
-    match v {
-        Some(v) => {
+    match (cur, v) {
+        (Value::Object(m), Some(v)) => {
             m.insert(last.clone(), v);
         }
-        None => {
+        (Value::Object(m), None) => {
             m.shift_remove(last);
         }
+        (Value::Array(a), v) => {
+            let Some(i) = last.parse::<usize>().ok().filter(|i| *i < a.len()) else {
+                return false;
+            };
+            match v {
+                Some(v) => a[i] = v,
+                None => {
+                    a.remove(i);
+                }
+            }
+        }
+        _ => return false,
     }
     true
 }
@@ -174,6 +187,42 @@ pub fn display(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_field_inside_a_list_entry_is_set_in_place() {
+        let p = |s: &str| s.split('/').map(str::to_string).collect::<Vec<_>>();
+        let mut doc =
+            serde_json::json!({"web": {"letsencrypt": {"dns": [{"domains": ["a.example"]}, {}]}}});
+        assert!(put(
+            &mut doc,
+            &p("web/letsencrypt/dns/1/domains"),
+            Some(serde_json::json!(["b.example"]))
+        ));
+        assert!(put(
+            &mut doc,
+            &p("web/letsencrypt/dns/0/cloudflare/token"),
+            Some(serde_json::json!("${CF_TOKEN}"))
+        ));
+        assert_eq!(
+            doc,
+            serde_json::json!({"web": {"letsencrypt": {"dns": [
+                {"domains": ["a.example"], "cloudflare": {"token": "${CF_TOKEN}"}},
+                {"domains": ["b.example"]}
+            ]}}})
+        );
+        assert!(!put(
+            &mut doc,
+            &p("web/letsencrypt/dns/5/domains"),
+            Some(serde_json::json!([]))
+        ));
+        assert!(put(&mut doc, &p("web/letsencrypt/dns/0"), None));
+        assert_eq!(
+            get(&doc, &p("web/letsencrypt/dns"))
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+    }
 
     #[test]
     fn special_values_round_trip() {

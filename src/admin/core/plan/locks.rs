@@ -191,10 +191,11 @@ pub(super) fn keep_locked(
     let mut notes = Vec::new();
     let kept = concrete_locks(schema, [current, target])
         .into_iter()
-        .filter(|(p, entry, _)| {
-            !entry
-                || burrow_admin_proto::value::get(target, &p[..p.len() - 1])
-                    .is_some_and(Value::is_object)
+        .filter(|(p, entry, lists)| {
+            lists.is_empty()
+                && (!entry
+                    || burrow_admin_proto::value::get(target, &p[..p.len() - 1])
+                        .is_some_and(Value::is_object))
         })
         .map(|(p, _, _)| p);
     for path in kept {
