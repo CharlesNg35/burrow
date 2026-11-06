@@ -154,7 +154,7 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> An
             let owner = name.clone();
             let since = Memo::new(move |_| {
                 c().and_then(|c| match (c.connected_secs, c.left_secs_ago) {
-                    (Some(x), _) => Some(format!("for {}", format::coarse_length(x))),
+                    (Some(x), _) => Some(format::connected_for(x)),
                     (None, Some(a)) => Some(format!("left {}", format::coarse_ago(a))),
                     _ => None,
                 })

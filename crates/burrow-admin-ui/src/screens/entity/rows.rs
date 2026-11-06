@@ -134,11 +134,11 @@ pub(super) fn client_row(
                 .map(burrow_admin_logic::presence::from_ip)
                 .unwrap_or_default();
             let since =
-                format::coarse_length(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
+                format::connected_for(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
             let mut line = if host.is_empty() {
-                format!("for {since}")
+                since
             } else {
-                format!("{host} · for {since}")
+                format!("{host} · {since}")
             };
             if let Some(v) = c
                 .as_ref()

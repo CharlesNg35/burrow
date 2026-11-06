@@ -171,7 +171,7 @@ pub fn Overview() -> impl IntoView {
             parts.push(format!("v{}", w.server.version));
         }
         if let Some(st) = &st {
-            parts.push(format!("up {}", format::coarse_length(st.uptime_secs)));
+            parts.push(format::up(st.uptime_secs));
         }
         let version = s.current_version();
         if !version.is_empty() {

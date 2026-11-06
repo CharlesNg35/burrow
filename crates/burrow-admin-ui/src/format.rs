@@ -1,7 +1,9 @@
 use burrow_admin_logic::presence::{self, Presence};
 use burrow_admin_proto::status::Status;
 use burrow_config::ServiceEntry;
-pub use burrow_syntax::duration::{Elapsed, UNDER_A_MINUTE, coarse_ago, coarse_length};
+pub use burrow_syntax::duration::{
+    Elapsed, JUST_NOW, UNDER_A_MINUTE, coarse, coarse_ago, coarse_length,
+};
 pub use burrow_syntax::size::bytes;
 use burrow_ui_kit::Tone;
 use leptos::prelude::*;
@@ -150,6 +152,22 @@ pub fn clock(ms: f64) -> String {
         d.get_minutes(),
         d.get_seconds()
     )
+}
+
+pub fn connected_for(secs: u64) -> String {
+    if secs < 60 {
+        JUST_NOW.into()
+    } else {
+        format!("for {}", coarse(secs))
+    }
+}
+
+pub fn up(secs: u64) -> String {
+    if secs < 60 {
+        format!("started {JUST_NOW}")
+    } else {
+        format!("up {}", coarse(secs))
+    }
 }
 
 pub fn at_ms(secs_ago: u64) -> f64 {
