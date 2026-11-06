@@ -14,7 +14,7 @@ pub fn explain(e: &AdminOpenError, visitor: &str, server: &str) -> (Reason, Stri
         AdminOpenError::Refused(AdminRefusal::Busy) => (
             Reason::Busy,
             format!(
-                "{server} already has the most admin sessions it allows for visitor \"{visitor}\"; close another admin tab"
+                "{server} already has the most admin sessions it allows for visitor \"{visitor}\"; close admin tabs or AI apps you no longer use"
             ),
         ),
         AdminOpenError::Refused(AdminRefusal::NoAdmin) => (

@@ -4,6 +4,7 @@
 
 pub mod check;
 mod handler;
+pub mod handover;
 pub mod http;
 pub mod journal;
 pub mod mode;

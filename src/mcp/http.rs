@@ -19,7 +19,7 @@ use super::{HttpOptions, setup, token_file};
 use crate::base::failure::Failure;
 
 pub const ENDPOINT: &str = "/mcp";
-pub const MAX_BODY: usize = 1024 * 1024;
+pub const MAX_BODY: usize = 2 * burrow_admin_proto::frame::MAX_MESSAGE + 64 * 1024;
 pub const MAX_OPEN: usize = 8;
 pub const HEADER_TIMEOUT: Duration = Duration::from_secs(5);
 pub const BODY_TIMEOUT: Duration = Duration::from_secs(10);

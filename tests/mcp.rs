@@ -13,6 +13,8 @@ mod http;
 mod lifecycle;
 #[path = "mcp/limits.rs"]
 mod limits;
+#[path = "mcp/secrets.rs"]
+mod secrets;
 #[path = "mcp/startup.rs"]
 mod startup;
 #[path = "mcp/stdio.rs"]

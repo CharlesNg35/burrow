@@ -10,7 +10,7 @@ use crate::base::failure::{arg, found_on_path, program_arg};
 
 pub const SERVER_NAME: &str = "burrow";
 pub const TOKEN_VAR: &str = "BURROW_MCP_TOKEN";
-pub const ALLOW_WRITE: &str = "--allow-write";
+pub const READ_ONLY_FLAG: &str = "--read-only";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum App {
@@ -110,8 +110,8 @@ pub fn args(config: &Path, writes: Writes) -> Vec<String> {
         "-c".to_string(),
         absolute(config).display().to_string(),
     ];
-    if writes == Writes::Allowed {
-        args.push(ALLOW_WRITE.to_string());
+    if writes == Writes::Off {
+        args.push(READ_ONLY_FLAG.to_string());
     }
     args
 }
@@ -287,7 +287,7 @@ mod tests {
             let (command, args) = launch_of(&s);
             assert_eq!(command, PROGRAM);
             assert_eq!(args[..2], ["mcp", "-c"]);
-            assert_eq!(args.len(), 3 + usize::from(writes == Writes::Allowed));
+            assert_eq!(args.len(), 3 + usize::from(writes == Writes::Off));
             let form = s.form();
             let lines: Vec<&str> = form.lines().collect();
             assert_eq!(lines[1..3], ["Command:", "  /opt/my burrow/burrow"]);
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn each_app_format_wraps_the_same_command_and_arguments() {
         let config = Path::new("/home/me/ops \"x\".yaml");
-        let s = Setup::stdio(Path::new(PROGRAM), config, Writes::Allowed);
+        let s = Setup::stdio(Path::new(PROGRAM), config, Writes::Off);
         let (command, args) = launch_of(&s);
         let mut whole = vec![command.clone()];
         whole.extend(args.iter().cloned());
@@ -356,12 +356,12 @@ mod tests {
     #[test]
     fn the_hints_name_the_full_command_for_any_app_one_app_and_the_check() {
         let config = Path::new("/srv/ops laptop.yaml");
-        let h = hints(Path::new(PROGRAM), config, Writes::Allowed, None);
+        let h = hints(Path::new(PROGRAM), config, Writes::Off, None);
         let shown = absolute(config).display().to_string();
         let c = if cfg!(windows) {
-            format!("& \"/opt/my burrow/burrow\" mcp -c \"{shown}\" --allow-write")
+            format!("& \"/opt/my burrow/burrow\" mcp -c \"{shown}\" --read-only")
         } else {
-            format!("'/opt/my burrow/burrow' mcp -c '{shown}' --allow-write")
+            format!("'/opt/my burrow/burrow' mcp -c '{shown}' --read-only")
         };
         assert_eq!(
             h,
@@ -378,7 +378,7 @@ mod tests {
         let web = hints(
             Path::new("/usr/bin/burrow"),
             config,
-            Writes::Off,
+            Writes::Allowed,
             Some(7838),
         );
         let lines: Vec<&str> = web.lines().collect();
@@ -387,7 +387,7 @@ mod tests {
         let other = hints(
             Path::new("/usr/bin/burrow"),
             config,
-            Writes::Off,
+            Writes::Allowed,
             Some(9000),
         );
         assert!(

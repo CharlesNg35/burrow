@@ -181,6 +181,8 @@ mod tests {
         assert!(!v.to_string().contains(token), "{v}");
         let big = burrow_admin_proto::check::MAX_TEXT + 1;
         assert_eq!(too_large(big).unwrap()["error"], "too-large");
+        let call = json!({ "arguments": { "config": "\n".repeat(big - 1) } }).to_string();
+        assert!(call.len() <= crate::mcp::http::MAX_BODY, "{}", call.len());
         let a = ValidateArgs {
             config: "x: 1\n".into(),
             role: CheckRole::Server,

@@ -107,7 +107,7 @@ The web admin listens on `127.0.0.1` only, needs a random token that only you ca
 
 ## burrow mcp
 
-`burrow mcp` gives an AI app the same admin channel, with the same server rules. It is read-only unless started with `--allow-write` by a visitor with `admin: write`. It applies only a plan the AI checked first, and secrets never reach the AI. Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
+`burrow mcp` gives an AI app the same admin channel, with the same server rules. A visitor with `admin: write` can change the config through it unless it is started with `--read-only`. It applies only a plan the AI checked first, and secrets never reach the AI: new ones stay on the server behind a handle and reach you in files only you can read. Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
 
 ## Next steps
 

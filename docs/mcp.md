@@ -1,6 +1,6 @@
 # burrow mcp
 
-`burrow mcp` lets an AI app such as Claude Code, Claude Desktop or Cursor read a running server and, if you allow it, change its config. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). Like [burrow admin](admin.md), it runs on your machine with a visitor config and uses the same encrypted admin channel. The server opens no new port, and the visitor's `admin: read` or `admin: write` is the only permission.
+`burrow mcp` lets an AI app such as Claude Code, Claude Desktop or Cursor read a running server and, when the visitor has `admin: write`, change its config. It speaks the [Model Context Protocol](https://modelcontextprotocol.io/) (MCP). Like [burrow admin](admin.md), it runs on your machine with a visitor config and uses the same encrypted admin channel. The server opens no new port, and the visitor's `admin: read` or `admin: write` is the only permission.
 
 Ask your AI app questions like "which clients are offline?" or "why does this certificate fail?", or have it prepare a config change that you review before it applies. The AI sees what `burrow admin` shows, never a secret.
 
@@ -17,7 +17,7 @@ burrow mcp -c ops-laptop.yaml --print-config claude   # or codex, or cursor: tha
 burrow mcp -c ops-laptop.yaml --check                 # start as an app would, and report
 ```
 
-`--print-config` without an app name prints one standard config that works in any app: the JSON on stdout, so `> file` keeps only the JSON, and the same as fields on stderr. With `--allow-write`, the printed arguments include it too. The app then starts `burrow mcp` itself and talks to it over stdin and stdout, with no port and no token.
+`--print-config` without an app name prints one standard config that works in any app: the JSON on stdout, so `> file` keeps only the JSON, and the same as fields on stderr. With `--read-only`, the printed arguments include it too. The app then starts `burrow mcp` itself and talks to it over stdin and stdout, with no port and no token.
 
 The standard config, as `--print-config` prints it for burrow in `/home/me/bin`:
 
@@ -83,9 +83,9 @@ Without `-c`, `burrow mcp` uses `./visitor.yaml`, or else the installed visitor 
   config:  /home/me/ops-laptop.yaml (visitor "ops")
   server:  reached tunnel.example.com
   admin:   write
-  writes:  off; changes can be checked, not applied; add --allow-write to apply them
-  tools:   5 (check_change, describe_settings, get_config, get_status, list_versions)
-ok: an AI app that starts burrow mcp with this config gets these tools (check-only mode)
+  writes:  allowed
+  tools:   12 (apply_change, check_change, describe_settings, get_config, get_status, list_versions, new_password, new_secret, revert_to_version, update_clients, update_server, validate_config)
+ok: an AI app that starts burrow mcp with this config gets these tools (write mode)
 ```
 
 If something is wrong, it ends with exit code 1 and the same error an app would show: no config, the server not reached, or the visitor without admin rights.
@@ -119,7 +119,7 @@ Desktop apps hide what a program writes to stderr, so `burrow mcp` also tells th
 
 ## What the AI can do
 
-burrow gives the AI app these tools. Some are listed only when writing is allowed:
+burrow gives the AI app these tools. Some are listed only when writing is allowed, which is the default for a visitor with `admin: write`:
 
 | Tool | What it does | Listed when |
 |---|---|---|
@@ -129,27 +129,40 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 | `list_versions` | the kept versions, who changed what, which can be reverted | always |
 | `validate_config` | checks a config or a fragment, like a `web:` section: the server checks it with its own validation, environment variables and files, as `burrow validate` does there (`checked_by: server`); writes nothing | always |
 | `check_change` | validates a change and returns its diff, problems, impact and a plan id; writes nothing | `admin: write` |
-| `revert_to_version` | the plan to go back to a kept version; writes nothing | `admin: write` and `--allow-write` |
-| `apply_change` | applies a checked plan | `admin: write` and `--allow-write` |
-| `update_clients` | asks clients to update burrow to a newer release, one at a time; without `confirm` it only says which clients it would ask | `admin: write` and `--allow-write` |
-| `update_server` | updates the server itself to the latest release through its root updater; without `confirm` it only says from which version to which, or why it cannot | `admin: write` and `--allow-write`, and a server installed with `update.remote: true` |
+| `revert_to_version` | the plan to go back to a kept version; writes nothing | `admin: write`, without `--read-only` |
+| `apply_change` | applies a checked plan | `admin: write`, without `--read-only` |
+| `new_secret` | makes a secret for a new client or visitor, or a new secret for one; the server keeps it behind a handle for a `secret_add` op, and the AI never sees it | `admin: write`, without `--read-only` |
+| `new_password` | makes a random password for a website's `basic_auth` user, writes it to a file only you can read and gives the AI only the file's path and a handle for a `password_set` op | `admin: write`, without `--read-only` |
+| `update_clients` | asks clients to update burrow to a newer release, one at a time; without `confirm` it only says which clients it would ask | `admin: write`, without `--read-only` |
+| `update_server` | updates the server itself to the latest release through its root updater; without `confirm` it only says from which version to which, or why it cannot | `admin: write`, without `--read-only`, and a server installed with `update.remote: true` |
 
-In every mode, the instructions tell the AI to check a config example with `validate_config` (or read the exact keys with `describe_settings`) before it shows you one, and never to present an unchecked example as correct. `validate_config` checks a fragment as part of a larger config, so a missing `listen`, clients or services is not reported; give `"scope": "whole"` to check a complete file. The server checks it, with the rules of the burrow it runs and its own `${VAR}` values and files, and the result says `checked_by: server`; it takes up to 64 KiB and 10 seconds, also for `admin: read`. With a server older than v0.2.3, or when the server cannot be reached, burrow mcp checks it on your computer instead: the result says `checked_by: local`, and its note names both versions or why the server was not reached, since `${VAR}` values and files are then not checked. Secrets, the values of `${VAR}`s and long values are never echoed back.
+In every mode, the instructions tell the AI to check a config example with `validate_config` (or read the exact keys with `describe_settings`) before it shows you one, and never to present an unchecked example as correct. `validate_config` checks a fragment as part of a larger config, so a missing `listen`, clients or services is not reported; give `"scope": "whole"` to check a complete file. The server checks it, with the rules of the burrow it runs and its own `${VAR}` values and files, and the result says `checked_by: server`; it takes up to 4 MiB and 10 seconds, also for `admin: read`. With a server older than v0.2.3, or when the server cannot be reached, burrow mcp checks it on your computer instead: the result says `checked_by: local`, and its note names both versions or why the server was not reached, since `${VAR}` values and files are then not checked. Secrets, the values of `${VAR}`s and long values are never echoed back.
 
 Each session has one of three modes, and the instructions burrow mcp gives the AI say which, so the AI does not promise what it cannot do:
 
 | Mode | When | What the AI can do |
 |---|---|---|
-| read-only | the visitor has `admin: read` | read; it tells you that changes need `admin: write` and `--allow-write` |
-| check-only | `admin: write`, without `--allow-write` | read and check changes; `check_change` says the plan cannot be applied here, and the AI tells you to restart burrow mcp with `--allow-write` |
-| write | `admin: write` and `--allow-write` | read, check and apply changes, and update clients, each after your OK |
+| read-only | the visitor has `admin: read` | read; it tells you that changes need `admin: write` |
+| check-only | `admin: write`, started with `--read-only` | read and check changes; `check_change` says the plan cannot be applied here, and the AI tells you to remove `--read-only` and restart burrow mcp |
+| write | `admin: write` (the default) | read, check and apply changes, make secrets and passwords, and update clients and the server, each after your OK |
 
-`burrow mcp` is check-only or read-only unless you start it with `--allow-write`, and the visitor also needs `admin: write`. To allow writing in Claude Code:
+The visitor's admin level decides: with `admin: write`, the AI can apply changes, always through a checked plan you agree to. To keep an AI app to checking, add `--read-only` to its arguments, in Claude Code for example:
 
 ```sh
 # Claude Code
-claude mcp add burrow -- /home/me/bin/burrow mcp -c /home/me/ops-laptop.yaml --allow-write
+claude mcp add burrow -- /home/me/bin/burrow mcp -c /home/me/ops-laptop.yaml --read-only
 ```
+
+Up to v0.2.3, writes needed `--allow-write`. It is no longer needed; burrow mcp still accepts it, does nothing with it and says so on stderr.
+
+### New clients, visitors and passwords
+
+The AI can add a client or a visitor, give one a new secret, or add a `basic_auth` user to a website, without ever seeing the secret or the password:
+
+- `new_secret` asks the server for a secret. The server keeps it for 30 minutes behind a handle, the way burrow admin's **New secret** does, and the AI gets only the handle and the fingerprint. It uses the handle in a `secret_add` op of `check_change`, next to the op that adds the client.
+- After `apply_change`, burrow mcp writes the new client's or visitor's connect config, secret included, to a file only you can read, in burrow's private state folder (`mcp-secrets/` next to the [burrow admin](admin.md#security-notes) sessions, like `client-nas-3f2a9c1d.yaml`). The AI gets the file's path and the fingerprint, not the content. A new secret for something without a connect config is written alone, as `secret-<path>-<fingerprint>.txt`. Copy the file to the client's machine and delete it here.
+- `new_password` makes a random 24-character password on your computer, writes it to a file only you can read in the same folder (`password-alice-<random>.txt`), and sends it once to the server, which keeps only its hash behind a handle, as burrow admin's password field does. The AI gets the handle and the file's path, and uses the handle in a `password_set` op.
+- A session holds at most 256 unused handles; they expire after 30 minutes or at the next apply.
 
 Updating clients also takes two steps: `update_clients` without `confirm` returns the latest release and which clients it would ask, with the reason for each client it skips; called again with `confirm: ["update"]`, it asks them, one at a time. Progress and results show in `get_status`, under each client's `update`. See [updates.md](updates.md).
 
@@ -219,10 +232,10 @@ For an AI app on another machine, forward the port with `ssh -L 7838:127.0.0.1:7
 
 An AI app that can change your server must not be able to do harm by mistake or by a trick in the data it reads. These rules hold:
 
-- **No writes by default.** Writes need `--allow-write` on your machine and `admin: write` on the server; without them the session is check-only or read-only, and the AI is told so.
+- **The visitor's level decides.** Writes need `admin: write` on the server; `--read-only` on your machine keeps a write admin's session to checks, and the AI is told which mode it has.
 - **Client and server updates need your OK too.** `update_clients` asks nobody and `update_server` changes nothing until called again with `confirm`, and the clients and the server's root updater fetch the release from the official releases themselves; the AI cannot name a download or a version, and cannot turn server updates on.
 - **Only checked changes are applied.** `apply_change` takes a plan id from `check_change`; the server refuses another change or a config that changed since, and impacts that need confirming must be named.
-- **Secrets never reach the AI.** Results show secrets as fingerprints or `${ENV}` names, and the AI cannot generate secrets or ask for connect snippets.
+- **Secrets never reach the AI.** Results show secrets as fingerprints or `${ENV}` names. New secrets and passwords stay on the server behind a handle, and their connect configs and passwords go to files only you can read; the AI gets the paths. It cannot ask for the connect snippet of an existing client.
 - **The server's rules from [admin.md](admin.md#security-notes) apply unchanged:** admin access can be lowered but never granted or widened, and the last 20 versions are kept and can be reverted.
 - **Results are data, not instructions.** Names, host names, log lines and other text in results can be written by outsiders. The tool descriptions tell the AI so, and nothing applies without a diff you can see.
 - **Your app asks you** before each tool call unless you turned that off; keep it on for `apply_change`.

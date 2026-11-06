@@ -195,11 +195,7 @@ async fn burrow_mcp_reads_and_changes_an_older_server() {
     let visitor = s.visitor();
     let mcp = || {
         let mut cmd = tokio::process::Command::from(s.command(Path::new(NEW)));
-        cmd.arg("mcp")
-            .arg("-c")
-            .arg(&visitor)
-            .arg("--allow-write")
-            .kill_on_drop(true);
+        cmd.arg("mcp").arg("-c").arg(&visitor).kill_on_drop(true);
         TokioChildProcess::new(cmd).unwrap()
     };
     let mut client = None;

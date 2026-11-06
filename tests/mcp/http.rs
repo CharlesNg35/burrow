@@ -195,7 +195,7 @@ async fn http_needs_the_token_a_local_origin_and_a_post() {
     for method in ["GET", "DELETE"] {
         assert_eq!(raw(h.port, method, &good, "").await.status, 405, "{method}");
     }
-    let big = "x".repeat(1024 * 1024 + 1);
+    let big = "x".repeat(burrow::mcp::http::MAX_BODY + 1);
     assert_eq!(raw(h.port, "POST", &good, &big).await.status, 413);
     let _ = w.stop.send(true);
 }
