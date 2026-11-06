@@ -33,6 +33,8 @@ mod guards;
 mod header;
 #[path = "admin_e2e/hidden.rs"]
 mod hidden;
+#[path = "admin_e2e/le_places.rs"]
+mod le_places;
 #[path = "admin_e2e/letsencrypt.rs"]
 mod letsencrypt;
 #[path = "admin_e2e/logins.rs"]

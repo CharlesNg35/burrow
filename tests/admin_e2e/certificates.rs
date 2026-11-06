@@ -135,7 +135,7 @@ fn existing_dns_entries_show_edit_and_refuse_in_place() {
     run("le-existing", opts, false, existing);
 }
 
-fn pair(names: &[&str]) -> String {
+pub(super) fn pair(names: &[&str]) -> String {
     let key = rcgen::KeyPair::generate().expect("a key");
     let cert =
         rcgen::CertificateParams::new(names.iter().map(|n| n.to_string()).collect::<Vec<_>>())
