@@ -14,7 +14,7 @@ pub mod prompt;
 pub mod slots;
 pub mod style;
 pub mod suggest;
-#[cfg(test)]
+#[cfg(all(test, feature = "web"))]
 pub(crate) mod testkit;
 #[cfg(windows)]
 pub mod windows;

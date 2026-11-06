@@ -149,7 +149,7 @@ fn a_target_ca_is_set_from_the_admin_alone_or_with_the_whole_target_tls() {
         let base = text::rev(&core.read().unwrap());
         let c = plan::compute(&core, &s, &base, std::slice::from_ref(&op))
             .unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
-        assert!(c.new_text.contains(&d.ca), "{}", c.new_text);
+        assert!(super::yaml_has(&c.new_text, &d.ca), "{}", c.new_text);
     }
 }
 
