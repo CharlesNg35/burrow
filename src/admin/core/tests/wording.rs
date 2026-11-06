@@ -2,7 +2,8 @@
 
 use burrow_admin_logic::wording::shown;
 use burrow_admin_proto::codes::{
-    DUPLICATE_BIND, NO_CERTIFICATE, NO_CHECK, PLAIN_HTTP, WILDCARD_NEEDS_DNS,
+    CHALLENGE_PORT, DNS_UNCOVERED, DUPLICATE_BIND, NO_CERTIFICATE, NO_CHECK, PLAIN_HTTP,
+    WILDCARD_NEEDS_DNS,
 };
 use burrow_admin_proto::diag::Diag;
 use burrow_config::ServiceEntry;
@@ -40,7 +41,7 @@ fn the_ui_names_the_subject_validate_reports() {
         "web:\n  https: 8443\n  letsencrypt: { email: ops@example.com }\n",
         &(site("blog", "blog.example.com") + &site("apps", "\"*.apps.example.com\"")),
     );
-    assert!(one(&d, NO_CHECK).starts_with("Let's Encrypt cannot check blog.example.com:"));
+    assert!(one(&d, NO_CHECK).starts_with("Let's Encrypt cannot check blog.example.com,"));
     assert!(one(&d, WILDCARD_NEEDS_DNS).contains("*.apps.example.com only through a DNS check"));
     let d = diags("", "  web2: { client: home, bind: 7840, target: 3001 }\n");
     let clash = d
@@ -50,5 +51,49 @@ fn the_ui_names_the_subject_validate_reports() {
     assert!(
         clash.also.contains(&ServiceEntry::BIND.of("web")),
         "{clash:?}"
+    );
+}
+
+#[test]
+fn a_check_the_site_cannot_use_is_told_at_its_choice_in_plain_words() {
+    let d = diags(
+        "web:\n  https: 8443\n  http: 8080\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com]\n        cloudflare: { token: \"${CF}\" }\n",
+        "  blog: { client: home, target: 3000, web: { hosts: [blog.example.com], challenge: http } }\n  apps: { client: home, target: 3001, web: \"*.apps.example.org\" }\n",
+    );
+    let port = d
+        .iter()
+        .find(|x| x.code == CHALLENGE_PORT)
+        .expect("the HTTP check has no port 80");
+    assert_eq!(
+        port.path.as_deref(),
+        Some(
+            &[
+                "services".to_string(),
+                "blog".into(),
+                "web".into(),
+                "challenge".into()
+            ][..]
+        )
+    );
+    assert!(
+        one(&d, CHALLENGE_PORT).starts_with("The HTTP check needs the web proxy's HTTP port on 80")
+    );
+    let wild = one(&d, DNS_UNCOVERED);
+    assert!(
+        wild.contains("no DNS check provider lists apps.example.org"),
+        "{wild}"
+    );
+    assert!(!wild.contains("web.letsencrypt"), "{wild}");
+    let d = diags(
+        "web:\n  https: 8443\n  http: 8080\n  letsencrypt: { email: ops@example.com }\nwebsocket:\n  listen: 8443\n  host: tunnel.example.com\n  challenge: http\n",
+        "",
+    );
+    let tunnel = d
+        .iter()
+        .find(|x| x.code == CHALLENGE_PORT)
+        .expect("the tunnel's HTTP check has no port 80");
+    assert_eq!(
+        tunnel.path.as_deref(),
+        Some(&["websocket".to_string(), "challenge".into()][..])
     );
 }

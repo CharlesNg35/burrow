@@ -125,12 +125,10 @@ mod tests {
             "dns-acme-dns",
             "dns-command",
             "dns-resolver",
-            "dns-uncovered",
             "error-pages",
             "health-path",
             "health-path-grpc",
             "health-path-host",
-            "internal-name",
             "invalid-range",
             "invalid-size",
             "letsencrypt-ca",
@@ -293,7 +291,8 @@ mod tests {
             "the scan found the validator's codes: {codes:?}"
         );
         let allowed = allowed();
-        let shown_codes: Vec<&str> = crate::wording::SHOWN_CODES.to_vec();
+        let mut shown_codes: Vec<&str> = crate::wording::SHOWN_CODES.to_vec();
+        shown_codes.extend(crate::cert_words::CODES);
         let unmapped: Vec<&String> = codes
             .iter()
             .filter(|c| {

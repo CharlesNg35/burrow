@@ -1,4 +1,5 @@
 use super::*;
+use burrow_admin_proto::codes::{NO_CHECK, WILDCARD_NEEDS_DNS};
 
 #[test]
 fn a_missing_field_reads_as_required_not_as_the_validate_text() {
@@ -89,7 +90,7 @@ fn a_name_let_s_encrypt_cannot_check_says_which_ports_it_needs() {
     ] {
         let shown = shown(NO_CHECK, m, &["blog.example.com".into()]);
         assert!(
-            shown.starts_with("Let's Encrypt cannot check blog.example.com:"),
+            shown.starts_with("Let's Encrypt cannot check blog.example.com,"),
             "{shown}"
         );
     }
@@ -144,7 +145,7 @@ fn a_name_without_a_certificate_says_how_to_get_one_in_the_ui() {
         &["*.apps.example.com".into()],
     );
     assert!(
-        w.contains("*.apps.example.com only through a DNS check"),
+        w.contains("the wildcard *.apps.example.com only through a DNS check"),
         "{w}"
     );
 }

@@ -5,6 +5,7 @@
 
 pub mod addr;
 pub mod allow;
+pub mod cert_words;
 pub mod certs;
 pub mod changeset;
 pub mod check;

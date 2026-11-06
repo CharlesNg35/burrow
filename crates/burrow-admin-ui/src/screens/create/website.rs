@@ -292,12 +292,12 @@ fn website_problem(i: &Inputs, root: &Node, doc: &Value) -> Option<String> {
         if let Some(m) = email_problem(&i.email) {
             return Some(m);
         }
-        if let Some(n) = i
-            .names
-            .iter()
-            .find(|n| checks_for(n, i.ports.numbers, false, None).is_err())
-        {
-            return Some(burrow_admin_logic::wording::no_check(n));
+        if let Some(m) = i.names.iter().find_map(|n| {
+            checks_for(n, i.ports.numbers, false, None)
+                .err()
+                .map(|why| burrow_admin_logic::cert_words::no_check(n, why))
+        }) {
+            return Some(m);
         }
     }
     if i.service.is_empty() {

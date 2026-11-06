@@ -2,18 +2,12 @@
 
 use burrow_admin_proto::codes::{
     BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, INVALID_SOURCE, MAX_CONNECTIONS_TCP_ONLY,
-    MISSING_FIELD, NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PASSTHROUGH_FIXED, PLAIN_HTTP,
+    MISSING_FIELD, NO_CERTIFICATE, NO_HTTP, OUT_OF_RANGE, PASSTHROUGH_FIXED, PLAIN_HTTP,
     PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PLAIN, UNUSED_VISITOR,
-    WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
+    WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WRONG_TYPE,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
-
-pub fn no_check(subject: &str) -> String {
-    format!(
-        "Let's Encrypt cannot check {subject}: its TLS and HTTP checks reach only ports 443 and 80; set the HTTPS port to 443 or the HTTP port to 80 in {WEB_PROXY}, use the DNS check (a DNS provider under {WEB_PROXY}, Let's Encrypt), or use your own certificate file"
-    )
-}
 
 const TCP_ONLY: [(&str, &str); 4] = [
     (
@@ -102,6 +96,9 @@ pub fn add_label(field: &str, item: &str) -> String {
 }
 
 pub fn help_shown(code: &str, help: Option<&str>) -> Option<String> {
+    if crate::cert_words::CODES.contains(&code) {
+        return None;
+    }
     if code == UNUSED_VISITOR {
         return Some(
             "Add it to a service's Visitors, or give it direct access to a client.".into(),
@@ -339,17 +336,15 @@ pub fn diag_title(d: &burrow_admin_proto::diag::Diag) -> String {
 }
 
 #[cfg(test)]
-pub(crate) const SHOWN_CODES: [&str; 18] = [
+pub(crate) const SHOWN_CODES: [&str; 16] = [
     INVALID_SOURCE,
     WEIGHT_NOT_BALANCE,
     UNUSED_VISITOR,
     NO_HTTP,
     REDIRECT_NEEDS_HTTP,
     PLAIN_NEEDS_HTTP,
-    NO_CHECK,
     WEB_OFF,
     NO_CERTIFICATE,
-    WILDCARD_NEEDS_DNS,
     PLAIN_HTTP,
     PASSTHROUGH_FIXED,
     REDIRECT_PLAIN,
@@ -385,8 +380,8 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
             "plain HTTP needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in {WEB_PROXY}, or choose another HTTPS option"
         );
     }
-    if code == NO_CHECK {
-        return no_check(subject);
+    if let Some(text) = crate::cert_words::worded(code, subjects) {
+        return text;
     }
     if code == WEB_OFF {
         return format!("the web proxy is off; turn it on with its ports in {WEB_PROXY}");
@@ -394,11 +389,6 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     if code == NO_CERTIFICATE {
         return format!(
             "{subject} has no certificate: turn on Let's Encrypt under {WEB_PROXY}, choose My own certificate under HTTPS, or list the name under Your own certificates"
-        );
-    }
-    if code == WILDCARD_NEEDS_DNS {
-        return format!(
-            "Let's Encrypt gives {subject} only through a DNS check: add a DNS provider for its domain under DNS check providers, or list it under Your own certificates"
         );
     }
     if code == PLAIN_HTTP {

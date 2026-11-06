@@ -1,5 +1,8 @@
+use burrow_admin_proto::codes::{CHALLENGE_DNS, CHALLENGE_PORT, CHALLENGE_WILDCARD};
 use burrow_admin_proto::diag::{Diag, Severity};
-use burrow_config::{DnsEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, WebConfig};
+use burrow_config::{
+    DnsEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, WebConfig, WebSite, WebSocketConfig,
+};
 
 use crate::config::diagnostics::{Diagnostic, mask_text};
 use crate::config::tree::{Node, Span, Value};
@@ -58,7 +61,34 @@ fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
     }
 }
 
+fn challenge_of(path: &[String]) -> Option<Vec<String>> {
+    match path {
+        [section, name, web, ..]
+            if section == ServiceEntry::section() && web == ServiceEntry::WEB.key() =>
+        {
+            Some(
+                ServiceEntry::WEB
+                    .of(name)
+                    .into_iter()
+                    .chain([WebSite::CHALLENGE.key().to_string()])
+                    .collect(),
+            )
+        }
+        [ws, ..] if ws == ServerConfig::WEBSOCKET.key() => Some(
+            ServerConfig::WEBSOCKET
+                .then(WebSocketConfig::CHALLENGE)
+                .path(),
+        ),
+        _ => None,
+    }
+}
+
 fn own_field(d: &Diagnostic, mut path: Vec<String>) -> Vec<String> {
+    if matches!(d.code, CHALLENGE_DNS | CHALLENGE_PORT | CHALLENGE_WILDCARD)
+        && let Some(at) = challenge_of(&path)
+    {
+        return at;
+    }
     let list = ServerConfig::WEB
         .then(WebConfig::LETSENCRYPT)
         .then(LetsEncrypt::DNS)

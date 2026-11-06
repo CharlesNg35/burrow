@@ -387,7 +387,7 @@ Where each name gets its certificate:
 | `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false does not apply to a passthrough service (tls: passthrough); it is always true there, so remove https_redirect` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
 | `web.letsencrypt` with a wrong field | `web.letsencrypt.email: "ops" is not an email address`; `web.letsencrypt.directory: "stagging" is not production, staging or an https:// URL` (with `did you mean "staging"?`); `web.letsencrypt.ca: cannot read certs/ca.pem: file not found`, or `... certs/ca.pem holds no certificate` |
-| Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates` |
+| Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, list its domain in web.letsencrypt.dns, or list a file for it in web.certificates` |
 | a check without its port | `services.blog.web.challenge: http needs web.http on port 80: Let's Encrypt fetches a file there; add http: 80, or use challenge: tls or dns` |
 | a check where no certificate is ordered | `services.nas.web.challenge: the app keeps its own certificate (tls: passthrough); remove challenge` |
 | an entry in `web.certificates` without its files | `web.certificates[0]: needs cert and key, or an uploaded certificate` |
