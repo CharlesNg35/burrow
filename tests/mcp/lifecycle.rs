@@ -197,7 +197,7 @@ async fn it_stops_within_a_second_after_the_handshake() {
     let w = world().await;
     let v = visitor(&w, "ops", &w.ops);
     for how in every_stop() {
-        let mut a = app::mcp(&v.config, &["--allow-write"], &v.sessions());
+        let mut a = app::mcp(&v.config, &[], &v.sessions());
         a.ready().await;
         assert!(a.tools().await.len() > READ.len());
         stop(&mut a, how).await;

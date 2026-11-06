@@ -64,8 +64,8 @@ fn writes_line(mode: Mode) -> String {
     match mode {
         Mode::Write => "allowed".into(),
         Mode::CheckOnly => format!(
-            "off; changes can be checked, not applied; add {} to apply them",
-            setup::ALLOW_WRITE
+            "off; changes can be checked, not applied; remove {} to apply them",
+            setup::READ_ONLY_FLAG
         ),
         Mode::ReadOnly => {
             "off; the visitor has admin: read, so changes cannot be checked or applied".into()

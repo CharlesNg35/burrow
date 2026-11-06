@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::codes;
 
-pub const MAX_TEXT: usize = 64 * 1024;
+pub const MAX_TEXT: usize = crate::frame::MAX_MESSAGE;
 pub const WHOLE_FILE_ONLY: [&str; 3] = [codes::NO_LISTENER, codes::NO_CLIENTS, codes::NO_SERVICES];
 pub const READ_WHERE_BURROW_RUNS: [&str; 2] = [codes::ENV_UNSET, codes::TLS_UNREADABLE];
 
@@ -48,6 +48,7 @@ mod tests {
         let r: CheckText = serde_json::from_value(serde_json::json!({ "text": "x: 1" })).unwrap();
         assert_eq!((r.role, r.scope), (CheckRole::Server, CheckScope::Fragment));
         assert!(too_large(MAX_TEXT).is_none());
-        assert!(too_large(MAX_TEXT + 1).unwrap().contains("at most 65536"));
+        assert!(too_large(4 * 1024 * 1024).is_none());
+        assert!(too_large(MAX_TEXT + 1).unwrap().contains("at most 4194304"));
     }
 }

@@ -73,14 +73,18 @@ async fn only_admin_visitors_get_in_and_sessions_are_capped() {
         }
         other => panic!("{other:?}"),
     }
-    let a = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
-    let b = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
+    let mut held = Vec::new();
+    for _ in 0..burrow::admin::MAX_SESSIONS_PER_VISITOR {
+        held.push(connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap());
+    }
     let busy = connect(&w, "viewer", &w.viewer, 1, 1).await.err().unwrap();
     assert!(
         matches!(busy, AdminOpenError::Refused(AdminRefusal::Busy)),
         "{busy:?}"
     );
-    drop((a, b));
+    let other = connect(&w, "ops", &w.ops, 1, 1).await;
+    assert!(other.is_ok(), "another visitor still gets a session");
+    drop(held);
     let _ = w.stop.send(true);
 }
 

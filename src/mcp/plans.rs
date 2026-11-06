@@ -4,8 +4,6 @@ use std::time::{Duration, Instant};
 
 use burrow_admin_proto::msg::Apply;
 use burrow_admin_proto::ops::Op;
-use burrow_admin_proto::plan::Applied;
-use serde_json::Value;
 
 pub const MAX_KEPT: usize = 16;
 pub const KEEP_FOR: Duration = Duration::from_secs(30 * 60);
@@ -74,17 +72,6 @@ impl Plans {
     }
 }
 
-pub fn without_secrets(applied: Value) -> Value {
-    let Ok(mut a) = serde_json::from_value::<Applied>(applied) else {
-        return serde_json::json!({ "applied": true });
-    };
-    for s in &mut a.secrets {
-        s.value.clear();
-    }
-    a.snippets.clear();
-    serde_json::to_value(a).unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,17 +121,5 @@ mod tests {
             "{}",
             gone_text()
         );
-    }
-
-    #[test]
-    fn an_apply_result_never_carries_a_secret_or_a_snippet() {
-        let v = serde_json::json!({
-            "rev": "b2s:2",
-            "secrets": [{"handle": "h", "path": ["clients", "x", "secret"], "fp": "ab12", "value": "s3cr3t", "shown_once": true}],
-            "snippets": [{"kind": "client", "name": "x", "config": "secret: s3cr3t"}]
-        });
-        let out = without_secrets(v).to_string();
-        assert!(!out.contains("s3cr3t"), "{out}");
-        assert!(out.contains("ab12"));
     }
 }

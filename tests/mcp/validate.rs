@@ -105,8 +105,13 @@ async fn a_read_only_admin_checks_the_owner_s_example_and_gets_the_validate_refu
         )
         .await;
     assert!(!echoed.to_string().contains(&secret), "{echoed}");
-    let (failed, big) = a
+    let (failed, large) = a
         .call("validate_config", json!({ "config": "#".repeat(70_000) }))
+        .await;
+    assert!(!failed && large["checked_by"] == "server", "{large}");
+    let over = burrow_admin_proto::check::MAX_TEXT + 1;
+    let (failed, big) = a
+        .call("validate_config", json!({ "config": "#".repeat(over) }))
         .await;
     assert!(failed && big["error"] == "too-large", "{big}");
     a.close_stdin();

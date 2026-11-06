@@ -105,7 +105,7 @@ If the home machine has no copy of the server's files, run `./burrow init client
 
 
 ```sh
-./burrow init server|client|visitor           # write a new config (asks what it needs; on an existing visitor.yaml, offers to update it)
+./burrow init server|client|visitor           # write a new config (asks what it needs; on an existing file, offers to replace it, or to update a visitor.yaml)
 ./burrow server | client | visit              # run a server, a client or a visitor (-c FILE, or the file in this folder)
 ./burrow validate -c server.yaml              # check a config: exit 0 valid, 1 invalid, 2 usage error
 ./burrow client-config office --server myserver.example.com -o office.yaml  # the config for client "office" of server.yaml
