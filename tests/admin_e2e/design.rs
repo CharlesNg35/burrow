@@ -1,9 +1,10 @@
-use crate::ui::Ui;
+use crate::ui::{Screens, Ui};
 
 pub const DESIGN: &str = include_str!("design.js");
 
 pub async fn assert_clean(ui: &Ui, step: &str) {
-    if std::env::var("BURROW_E2E_SKIP_DESIGN").as_deref() == Ok("1") {
+    if ui.screens == Screens::Older || std::env::var("BURROW_E2E_SKIP_DESIGN").as_deref() == Ok("1")
+    {
         return;
     }
     ui.wait_true(

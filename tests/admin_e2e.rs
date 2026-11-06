@@ -212,9 +212,14 @@ fn run_gated(flow: &str, g: Option<Gate>, opts: Options, needs_hooks: bool, body
         .expect("a runtime");
     let flow_name = flow.to_string();
     rt.block_on(async move {
+        let screens = if opts.admin_bin.is_some() {
+            ui::Screens::Older
+        } else {
+            ui::Screens::Current
+        };
         let world = World::new(opts);
         let profile = world.file("chrome-profile");
-        let ui = Ui::launch(&g.chrome, Flow::new(&flow_name), &profile).await;
+        let ui = Ui::launch(&g.chrome, Flow::new(&flow_name), &profile, screens).await;
         let mut ctx = Ctx {
             ui,
             world,

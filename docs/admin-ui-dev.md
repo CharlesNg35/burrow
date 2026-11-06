@@ -104,7 +104,7 @@ On Linux and macOS, `make help` lists the same commands with the memory limits u
 
 These rules say where a message goes, how long it may be and how a row lines up. They apply to every screen and dialog; the owner's rulings still win. Each rule says how it is checked:
 
-- `e2e`: `tests/admin_e2e/design.js` runs before every screenshot of the browser flows (`Ui::shot`) and fails the step with the rule's number. `BURROW_E2E_SKIP_DESIGN=1` turns it off while you debug a flow.
+- `e2e`: `tests/admin_e2e/design.js` runs before every screenshot of the browser flows (`Ui::shot`) and fails the step with the rule's number. It checks this UI only: a compat flow that drives an older burrow admin (`Options::admin_bin`) skips it, since that UI is fixed. `BURROW_E2E_SKIP_DESIGN=1` turns it off while you debug a flow.
 - `arch-check`: `cargo xtask arch-check` (`xtask/src/glyphs.rs`) reads the UI crates' source.
 - `review`: no automatic check; reviewers and the screenshots catch it.
 
