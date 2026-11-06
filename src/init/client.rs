@@ -43,6 +43,7 @@ pub fn init_client(
     out: &mut dyn Write,
 ) -> Result<PathBuf, Failure> {
     let (path, format) = resolve_output(Role::Client, opts)?;
+    let opts = &super::keep_or_replace(&path, opts, prompt, out)?;
     let Login {
         server,
         name,
