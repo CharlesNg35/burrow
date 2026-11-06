@@ -173,7 +173,7 @@ fn client_stats(name: String) -> impl IntoView {
     });
     let shown = Memo::new(move |_| {
         connected()
-            .map(format::coarse_length)
+            .map(format::coarse)
             .unwrap_or_else(|| "—".into())
     });
     let title = Memo::new(move |_| {
@@ -285,8 +285,8 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
                                 <span class=tag_class(Tone::Danger)>"Down"</span>
                                 {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted break-words @max-[640px]:mt-1 @max-[640px]:ml-0 @max-[640px]:block" data-testid="health-reason">{w}</span> })}
                             }.into_any(),
-                            EntryHealth::Offline => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
-                            EntryHealth::NoCheck => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{format::NO_CHECK}</span> }.into_any(),
+                            EntryHealth::Offline => view! { <span class="block text-[13px] leading-5 text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
+                            EntryHealth::NoCheck => view! { <span class="block text-[13px] leading-5 text-text-faint">{format::NO_CHECK}</span> }.into_any(),
                         }}</td>
                         {skipped.then(|| view! { <td class=burrow_ui_kit::WIDE_ONLY>{set}</td> })}
                     </tr>

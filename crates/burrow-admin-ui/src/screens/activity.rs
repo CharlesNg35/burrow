@@ -185,7 +185,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         .map(|n| {
             let rev = format::stamp(n.at as f64 * 1000.0);
             view! {
-                <li class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
+                <li data-table-row="" class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-start gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
                     <Link to=Route::Activity(Some(n.id.to_string())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
                     <span class="truncate">{title_of(&n, &|r| store().version(r))}</span>
                     <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>

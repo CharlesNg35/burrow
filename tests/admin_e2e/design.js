@@ -139,14 +139,28 @@
       if (d > 2) { add('R8 text and a control off-centre by ' + d.toFixed(1) + 'px', row, `"${words(a).slice(0, 30)}" / "${words(b).slice(0, 40)}"`); break; }
     }
   }
-  for (const tr of document.querySelectorAll('tbody tr')) {
+  const middle = cell => {
+    const w = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (!n.textContent.trim() || !n.parentElement || !vis(n.parentElement)) continue;
+      const g = document.createRange();
+      g.selectNodeContents(n);
+      const q = [...g.getClientRects()].find(r => r.width > 0.5 && r.height > 0.5);
+      if (!q) continue;
+      const f = getComputedStyle(n.parentElement);
+      ctx.font = `${f.fontStyle} ${f.fontWeight} ${f.fontSize} ${f.fontFamily}`;
+      const m = ctx.measureText(n.textContent.trim()), x = ctx.measureText('x');
+      return q.top + m.fontBoundingBoxAscent - x.actualBoundingBoxAscent / 2;
+    }
+    return null;
+  };
+  for (const tr of document.querySelectorAll('tbody tr,[data-table-row]')) {
     if (!vis(tr)) continue;
-    const cells = [...tr.children].filter(vis).map(td => textRects(td)).filter(r => r.length);
+    const cells = [...tr.children].filter(vis).map(td => [middle(td), words(td).slice(0, 14)]).filter(c => c[0] !== null);
     if (cells.length < 2) continue;
-    const block = rs => (Math.min(...rs.map(q => q.top)) + Math.max(...rs.map(q => q.bottom))) / 2;
-    const off = f => Math.max(...cells.map(c => Math.abs(f(c) - f(cells[0]))));
-    const first = off(c => centre(c[0])), whole = off(block);
-    if (first > 2 && whole > 2) add('R8 table cells line up neither on their first line nor their middle (' + first.toFixed(1) + 'px)', tr, words(tr).slice(0, 80));
+    const top = Math.min(...cells.map(c => c[0]));
+    const first = Math.max(...cells.map(c => c[0])) - top;
+    if (first > 2) add('R8 table cells do not line up on their first line, ' + first.toFixed(1) + 'px apart', tr, cells.map(c => c[1] + ' +' + (c[0] - top).toFixed(1)).join(' | '));
   }
   return [...new Set(out)].slice(0, 40);
 })()

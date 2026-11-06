@@ -111,7 +111,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                     view! { <span class="text-text-faint">"—"</span> }.into_any()
                 };
                 view! {
-                    <li class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] items-center gap-4 border-b border-rowline px-4 py-3 last:border-b-0" data-fp=fp.clone() data-in-use=using.then_some("true")>
+                    <li data-table-row="" class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] items-start gap-4 text-[13px] leading-5 border-b border-rowline px-4 py-3 last:border-b-0" data-fp=fp.clone() data-in-use=using.then_some("true")>
                         <span class="flex items-center gap-2 font-mono text-[13px]"><burrow_ui_kit::Icon name="passkey" small=true/>{fp.clone()}</span>
                         <span class=if r.source.starts_with("env:") { "font-mono text-[13px]" } else { "text-[13px]" }>
                             {r.source.clone()}
