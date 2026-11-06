@@ -43,7 +43,7 @@ use zeroize::Zeroizing;
 use crate::wire::secret::Secret;
 use ports::{Env, Live, Store};
 
-pub const MAX_PENDING_SECRETS: usize = 16;
+pub const MAX_PENDING_SECRETS: usize = 256;
 pub const SECRET_PREFIX: &str = "s";
 pub const PENDING_SECRET_TTL: Duration = Duration::from_secs(30 * 60);
 const AUDIT_RING: usize = 200;
