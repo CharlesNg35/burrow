@@ -203,6 +203,11 @@ async fn plain_with_the_http_port(c: &mut Ctx) {
 
 async fn own_certificate(c: &mut Ctx) {
     click_js(c, "[data-schema='services/*/web/tls'] input[value=files]").await;
+    c.ui.select(
+        "[data-schema='services/*/web/tls'] [data-one-of=source] select",
+        "1",
+    )
+    .await;
     let input = "[data-schema='services/*/web/tls'] [data-testid=upload-input]";
     c.ui.wait_for(input, SECS).await;
     both_widths(c, "nas-own-certificate").await;

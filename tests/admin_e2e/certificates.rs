@@ -159,6 +159,11 @@ async fn t6_own_certificates(c: &mut Ctx) {
     edit_mode(c).await;
     c.ui.click("#f-web-certificates-add-button").await;
     chip(c, "f-web-certificates-1-hosts", "shop.example.com").await;
+    c.ui.select(
+        "[data-card='web.certificates'] [data-item='1'] [data-one-of=source] select",
+        "1",
+    )
+    .await;
     let input = "[data-card='web.certificates'] [data-item='1'] [data-testid=upload-input]";
     c.ui.wait_for(input, SECS).await;
     three(c, "t6-new-entry").await;
@@ -194,6 +199,11 @@ async fn t6_own_certificates(c: &mut Ctx) {
     validates(c);
     site_settings(c, "app").await;
     click_js(c, "[data-schema='services/*/web/tls'] input[value=files]").await;
+    c.ui.select(
+        "[data-schema='services/*/web/tls'] [data-one-of=source] select",
+        "1",
+    )
+    .await;
     let site = "[data-schema='services/*/web/tls'] [data-testid=upload-input]";
     c.ui.wait_for(site, SECS).await;
     c.ui.upload_file(site, "app.pem", &pair(&["app.example.com"]))

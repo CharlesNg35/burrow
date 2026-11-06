@@ -53,6 +53,11 @@ async fn a_header_and_a_path(c: &mut Ctx) {
         "[data-schema='services/*/web/target_tls'] input[value=own-ca]",
     )
     .await;
+    c.ui.select(
+        "[data-schema='services/*/web/target_tls'] [data-one-of=ca_source] select",
+        "1",
+    )
+    .await;
     c.ui.wait_for(
         "[data-schema='services/*/web/target_tls'] [data-testid=file-upload][data-kind=ca]",
         SECS,
