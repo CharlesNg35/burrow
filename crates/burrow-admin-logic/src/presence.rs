@@ -134,7 +134,12 @@ pub fn detail(status: Option<&Status>, reserved: &[String], name: &str) -> Strin
 
 pub fn away_text(status: &Status, name: &str, added_secs_ago: Option<u64>) -> String {
     let left = client(status, name).and_then(|c| c.left_secs_ago);
-    away(left, status.uptime_secs, added_secs_ago)
+    away(
+        left,
+        status.uptime_secs,
+        added_secs_ago,
+        burrow_syntax::duration::Elapsed::Coarse,
+    )
 }
 
 impl ClientInfo {

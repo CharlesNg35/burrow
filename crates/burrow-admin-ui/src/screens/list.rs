@@ -45,8 +45,9 @@ pub fn ListCard(
         "bg-surface-3 text-text-muted"
     };
     let key = row.key.clone();
+    let hover = row.moment.map(|m| m.on_hover(key.clone()));
     view! {
-        <div class=format!("relative mx-3 mb-2 grid grid-cols-[30px_minmax(0,1fr)_auto] gap-x-3 rounded-[11px] border px-3.5 py-3 {class} {bg}") data-row=key.clone() data-group=row.group.clone() data-selected=selected.then_some("true")>
+        <div class=format!("relative mx-3 mb-2 grid grid-cols-[30px_minmax(0,1fr)_auto] gap-x-3 rounded-[11px] border px-3.5 py-3 {class} {bg}") data-row=key.clone() data-group=row.group.clone() data-selected=selected.then_some("true") on:mouseenter=move |ev| if let Some(h) = &hover { h(ev) }>
             <span class=format!("relative flex size-[30px] items-center justify-center rounded-md {tile}")>
                 <Icon name=row.icon/>
                 {row.dot.map(|t| view! { <span class=format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-surface {}", t.dot()) aria-hidden="true"></span> })}
@@ -437,7 +438,7 @@ fn list_body(
     let Look { no_counts, compact } = look;
     let shape = Memo::new(move |_| visible.with(|v| v.iter().map(still).collect::<Vec<_>>()));
     let live_of = move |key: String| {
-        Signal::derive(move || {
+        Memo::new(move |_| {
             visible.with(|v| {
                 v.iter()
                     .find(|r| r.key == key)

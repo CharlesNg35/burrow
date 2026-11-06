@@ -508,7 +508,7 @@ pub fn chart(a: &[Option<f64>], b: &[Option<f64>], window: usize) -> ChartData {
     let empty_note = (a.len() < 30 && a.len() * 2 < window).then(|| {
         format!(
             "Recording since you opened this page: {} so far",
-            format::span(a.len() as u64)
+            format::UNDER_A_MINUTE
         )
     });
     ChartData {
@@ -660,7 +660,7 @@ mod tests {
         assert!((d.a[2].unwrap() - 50.0).abs() < 1e-9);
         assert_eq!(d.y_ticks, ["0", "15", "30", "45", "60"]);
         assert_eq!(d.x_ticks.last().map(String::as_str), Some("now"));
-        assert!(d.empty_note.unwrap().contains("3s so far"));
+        assert!(d.empty_note.unwrap().contains("less than a minute so far"));
         assert!(chart(&a[..1], &b[..1], 900).a.is_empty());
         let full: Vec<Option<f64>> = vec![Some(mb); 1000];
         let d = chart(&full, &full, 900);

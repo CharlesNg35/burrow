@@ -237,7 +237,7 @@ pub(super) fn Attention() -> impl IntoView {
                 .collect(),
         );
     });
-    let longest = move || {
+    let longest = Memo::new(move |_| {
         s.status.with(|st| {
             st.as_ref().and_then(|st| {
                 st.clients
@@ -248,12 +248,12 @@ pub(super) fn Attention() -> impl IntoView {
                         format!(
                             "Longest connected: {}, {}.",
                             c.name,
-                            format::span(c.connected_secs.unwrap_or(0))
+                            format::coarse_length(c.connected_secs.unwrap_or(0))
                         )
                     })
             })
         })
-    };
+    });
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
     let away_title: &'static str = burrow_admin_logic::wording::CLIENTS_OFFLINE;
     let away_grow = Signal::derive(move || {
@@ -278,7 +278,7 @@ pub(super) fn Attention() -> impl IntoView {
             format!("All {n} clients online")
         }
     });
-    let away_msg = Signal::derive(move || longest().unwrap_or_default());
+    let away_msg = Signal::derive(move || longest.get().unwrap_or_default());
     view! {
         <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
             <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">

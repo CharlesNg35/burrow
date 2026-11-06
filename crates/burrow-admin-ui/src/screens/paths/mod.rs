@@ -130,7 +130,7 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
 fn unseen(name: &str) -> String {
     let added = crate::store::try_store().and_then(|s| s.added_secs(VisitorEntry::section(), name));
     match added {
-        Some(a) => format!("added {}, not seen yet", crate::format::ago(a)),
+        Some(a) => format!("added {}, not seen yet", crate::format::coarse_ago(a)),
         None => "not seen since start".into(),
     }
 }
@@ -198,7 +198,9 @@ pub fn visitor(
                     (true, _) => "you, in burrow admin now".into(),
                     (false, Some(_)) if open > 0 => format!("in use now · {open} open"),
                     (false, Some(v)) => match v.last_seen_secs {
-                        Some(a) => format!("seen {} · no open connection", crate::format::ago(a)),
+                        Some(a) => {
+                            format!("seen {} · no open connection", crate::format::coarse_ago(a))
+                        }
                         None => unseen(name),
                     },
                     (false, None) if status.is_some() => unseen(name),

@@ -107,7 +107,7 @@ pub(super) fn mobile_cards(section: &'static str, kept: &[String]) -> impl IntoV
         .filter_map(|k| {
             let row = untrack(|| crate::screens::entity::row_for(section, k))?;
             let key = k.clone();
-            let live = Signal::derive(move || {
+            let live = Memo::new(move |_| {
                 crate::screens::entity::row_for(section, &key)
                     .map(|r| (r.meta, r.line2))
                     .unwrap_or_default()
@@ -171,7 +171,7 @@ pub fn Overview() -> impl IntoView {
             parts.push(format!("v{}", w.server.version));
         }
         if let Some(st) = &st {
-            parts.push(format!("up {}", format::span(st.uptime_secs)));
+            parts.push(format!("up {}", format::coarse_length(st.uptime_secs)));
         }
         let version = s.current_version();
         if !version.is_empty() {
@@ -184,7 +184,7 @@ pub fn Overview() -> impl IntoView {
             <header class="mb-[22px] flex flex-wrap items-start gap-3">
                 <div class="min-w-0 flex-1">
                     <h1 class="text-2xl font-bold tracking-[-0.015em]">"Overview"</h1>
-                    <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub" data-header-line=""><burrow_ui_kit::Inline items=Signal::derive(sub)/></p>
+                    <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub" data-header-line="" on:mouseenter=format::Moment::Server.on_hover(String::new())><burrow_ui_kit::Inline items=Memo::new(move |_| sub())/></p>
                     {own.line()}
                     {own.dialog()}
                 </div>

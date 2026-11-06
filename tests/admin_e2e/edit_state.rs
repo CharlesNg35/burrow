@@ -218,6 +218,25 @@ async fn navigation_keeps_the_edit(c: &mut Ctx) {
         row.contains("127.0.0.1"),
         "an online client row says where from and for how long: {row}"
     );
+    let steady = || async {
+        let before = c.ui.text("[data-testid=entity-list] [data-row=home]").await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let after = c.ui.text("[data-testid=entity-list] [data-row=home]").await;
+        (before, after)
+    };
+    let (mut before, mut after) = steady().await;
+    if before != after {
+        (before, after) = steady().await;
+    }
+    assert!(
+        before == after
+            && !before.split_whitespace().any(|w| {
+                w.len() > 1
+                    && w.ends_with('s')
+                    && w[..w.len() - 1].chars().all(|ch| ch.is_ascii_digit())
+            }),
+        "the row's time does not tick with each status push: {before} / {after}"
+    );
     edit_mode(c).await;
     assert!(
         !c.ui.enabled("[data-testid=save]").await,

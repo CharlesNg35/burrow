@@ -121,7 +121,7 @@ pub(super) fn client_row(
         meta: match (&c, on) {
             (Some(c), true) => format!("{} open", c.open),
             (Some(_), false) => left
-                .map(|a| format!("left {}", format::ago(a)))
+                .map(|a| format!("left {}", format::coarse_ago(a)))
                 .unwrap_or_else(|| "not seen".into()),
             (None, _) => String::new(),
         },
@@ -133,7 +133,8 @@ pub(super) fn client_row(
                 .and_then(|c| c.from.as_deref())
                 .map(burrow_admin_logic::presence::from_ip)
                 .unwrap_or_default();
-            let since = format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
+            let since =
+                format::coarse_length(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
             let mut line = if host.is_empty() {
                 format!("for {since}")
             } else {
@@ -162,6 +163,7 @@ pub(super) fn client_row(
         } else {
             crate::screens::OFFLINE_FILTER
         }],
+        moment: Some(format::Moment::Client),
         ..Row::default()
     }
 }
@@ -245,6 +247,7 @@ pub(super) fn visitor_row(
         },
         pending,
         filters,
+        moment: Some(format::Moment::Visitor),
         ..Row::default()
     }
 }

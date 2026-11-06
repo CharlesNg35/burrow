@@ -7,6 +7,7 @@ use super::render::{Paint, Rates, rates, render};
 use crate::base::failure::Failure;
 use crate::instance::publish::Entry;
 use crate::metrics::Status;
+use burrow_syntax::duration::Elapsed;
 
 use super::call::{self, Fetch};
 
@@ -350,6 +351,7 @@ pub fn screen(json: bool) -> Paint {
         color: tty && crate::base::style::Style::detect(true).color,
         boxed: tty && !json,
         width: if tty { super::live::width() } else { None },
+        elapsed: Elapsed::Exact,
     }
 }
 
@@ -423,7 +425,14 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
         return Err(none_answered(&first, &opts.pick));
     }
     let tty = std::io::stdout().is_terminal();
-    let paint = || screen(opts.json);
+    let elapsed = match opts.follow {
+        Some(_) => Elapsed::Coarse,
+        None => Elapsed::Exact,
+    };
+    let paint = || Paint {
+        elapsed,
+        ..screen(opts.json)
+    };
     let show = |scan: &Scan, rates: Option<&HashMap<u32, Rates>>| {
         if opts.json {
             json(scan)
