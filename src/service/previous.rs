@@ -228,9 +228,7 @@ impl Absent {
     fn remove(&self) {
         for path in &self.0 {
             #[cfg(unix)]
-            if let (Some(dir), Some(name)) =
-                (path.parent(), path.file_name().and_then(|n| n.to_str()))
-            {
+            if let (Some(dir), Some(name)) = (path.parent(), path.file_name()) {
                 super::nofollow::remove_entry(dir, name);
             }
             #[cfg(not(unix))]

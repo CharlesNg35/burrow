@@ -80,9 +80,9 @@ fn empty(dir: &OwnedFd) {
     }
 }
 
-pub fn remove_entry(parent: &Path, name: &str) {
+pub fn remove_entry(parent: &Path, name: impl AsRef<OsStr>) {
     if let Ok(dir) = folder(parent) {
-        remove_at(&dir, OsStr::new(name));
+        remove_at(&dir, name.as_ref());
     }
 }
 
