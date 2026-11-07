@@ -34,6 +34,22 @@ fn retarget(c: &Ctx, to: u16) {
     });
 }
 
+async fn empty_activity_follows_its_list_on_a_phone(c: &mut Ctx) {
+    c.ui.viewport(420, 900).await;
+    c.ui.nav("/activity").await;
+    c.ui.wait_for("[data-testid=activity-empty]", SECS).await;
+    let seen: Vec<f64> = c
+        .ui
+        .eval("(() => [document.querySelector('[data-testid=activity]').getBoundingClientRect().bottom, document.querySelector('[data-testid=detail-pane]').getBoundingClientRect().top])()")
+        .await;
+    assert!(
+        seen[1] - seen[0] <= 1.0,
+        "on a phone the empty Activity message follows the list without a gap [list bottom, message pane top]: {seen:?}"
+    );
+    c.ui.view_shot("activity-empty-phone").await;
+    c.ui.viewport(1440, 900).await;
+}
+
 async fn a_detail_page_shows_what_changed_while_away(c: &mut Ctx) {
     c.ui.nav("/services/web").await;
     c.ui.wait_for("[data-testid=detail][data-name=web]", SECS)
@@ -97,6 +113,7 @@ async fn the_connect_tab_loads_once_the_connection_is_back(c: &mut Ctx) {
 fn reconnects(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
+        empty_activity_follows_its_list_on_a_phone(c).await;
         a_detail_page_shows_what_changed_while_away(c).await;
         activity_shows_what_changed_while_away(c).await;
         the_file_loads_once_the_connection_is_back(c).await;
