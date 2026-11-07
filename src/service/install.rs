@@ -7,8 +7,8 @@ use super::checks::{
     refuse_another_source, refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
-    StartAgain, Takeover, Undo, give_old_files, given_note, release_previous, start_installed,
-    take_over,
+    Reached, StartAgain, Takeover, Undo, give_old_files, given_note, release_previous,
+    start_installed, take_over,
 };
 use super::uninstall::{Kept, keep_admin_copy};
 use super::{Backend, background, name_for, save_manifest, say, stray, system};
@@ -218,6 +218,24 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
 pub(super) fn place_files(
     backend: &dyn Backend,
     undo: Option<&Undo>,
+    paths: (&Path, &Path),
+    setup: (&Manifest, &BTreeMap<String, String>, &[String]),
+    finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let mut reached = Reached::Files;
+    let placed = place(backend, &mut reached, paths, setup, finish, out);
+    if placed.is_err()
+        && let Some(undo) = undo
+    {
+        let _ = undo.restore_setup(backend, reached);
+    }
+    placed
+}
+
+fn place(
+    backend: &dyn Backend,
+    reached: &mut Reached,
     (source, folder): (&Path, &Path),
     (m, env, admins): (&Manifest, &BTreeMap<String, String>, &[String]),
     finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,
@@ -226,8 +244,7 @@ pub(super) fn place_files(
     let (config, account, writable) = (&m.config, m.account.as_str(), m.admin_writable);
     let copies = source != crate::base::fs::canonical_or_same(config);
     if copies {
-        copy_config(backend, (source, config), (account, writable), out)
-            .inspect_err(|_| put_files_back(undo, backend))?;
+        copy_config(backend, (source, config), (account, writable), out)?;
     }
     #[cfg(unix)]
     if !copies {
@@ -239,8 +256,10 @@ pub(super) fn place_files(
         say_writable(admins, folder, out)?;
     }
     if let Some(f) = &m.env_file {
+        *reached = Reached::Env;
         save_env(backend, m, env, f, out)?;
     }
+    *reached = Reached::Unit;
     backend.install(m)?;
     finish(out)
 }
@@ -454,12 +473,6 @@ pub(super) fn copy_config(
     super::drop_ins::copy(backend, (source, config), account, writable, out)
 }
 
-pub(super) fn put_files_back(undo: Option<&Undo>, backend: &dyn super::Backend) {
-    if let Some(undo) = undo {
-        let _ = undo.restore_files(backend);
-    }
-}
-
 fn say_writable(admins: &[String], folder: &Path, out: &mut dyn Write) -> Result<(), Failure> {
     let why = match admins {
         [] => "--admin-writable was given".to_string(),
@@ -549,3 +562,6 @@ pub(super) fn place_binary(current: &Path, binary: &Path, usual: &Path) -> Resul
     let _ = usual;
     system::copy_file(current, binary, true)
 }
+
+#[cfg(test)]
+mod tests;

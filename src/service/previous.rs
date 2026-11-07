@@ -190,6 +190,13 @@ impl Drop for StartAgain<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Reached {
+    Files,
+    Env,
+    Unit,
+}
+
 pub(super) struct Undo {
     pub(super) manifest: Manifest,
     pub(super) config: Option<Vec<u8>>,
@@ -214,6 +221,26 @@ impl Undo {
         steps.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
+    pub(super) fn restore_setup(
+        &self,
+        backend: &dyn Backend,
+        reached: Reached,
+    ) -> Vec<Result<(), Failure>> {
+        let p = &self.manifest;
+        let mut steps = vec![self.restore_files(backend)];
+        if reached >= Reached::Env && p.env_file.is_some() {
+            steps.push(backend.write_env(p, &self.env));
+        }
+        if let Some((kept, binary)) = &self.binary {
+            steps.push(system::copy_file(kept, binary, true));
+            let _ = std::fs::remove_file(kept);
+        }
+        if reached == Reached::Unit {
+            steps.push(backend.install(p));
+        }
+        steps
+    }
+
     pub(super) fn put_back(
         self,
         backend: &dyn Backend,
@@ -224,15 +251,7 @@ impl Undo {
     ) -> Failure {
         let _ = backend.stop(new);
         let p = &self.manifest;
-        let mut steps: Vec<Result<(), Failure>> = vec![self.restore_files(backend)];
-        if p.env_file.is_some() {
-            steps.push(backend.write_env(p, &self.env));
-        }
-        if let Some((kept, binary)) = &self.binary {
-            steps.push(system::copy_file(kept, binary, true));
-            let _ = std::fs::remove_file(kept);
-        }
-        steps.push(backend.install(p));
+        let mut steps = self.restore_setup(backend, Reached::Unit);
         steps.push(save(p));
         steps.push(backend.start(p));
         if let Some(env) = &new.env_file

@@ -443,7 +443,9 @@ fn a_part_way_copy_over_a_stopped_install_puts_its_config_and_drop_ins_back() {
         ("burrow", false),
         &mut Vec::new(),
     )
-    .inspect_err(|_| crate::service::install::put_files_back(Some(&undo), &backend));
+    .inspect_err(|_| {
+        let _ = undo.restore_files(&backend);
+    });
     assert!(
         copied.is_err(),
         "b.yaml cannot replace a folder that holds a file"
