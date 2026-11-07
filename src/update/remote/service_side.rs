@@ -33,7 +33,7 @@ pub fn blocked(m: &Manifest) -> Option<String> {
 }
 
 pub(super) fn asked_file(m: &Manifest) -> PathBuf {
-    helper::own_dir(m).join("asked.json")
+    helper::own_dir(m).join(helper::ASKED)
 }
 
 fn result_of(m: &Manifest) -> Option<Record> {

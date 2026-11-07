@@ -148,3 +148,26 @@ fn a_put_back_removes_only_the_paths_the_reinstall_made() {
         assert_eq!(std::fs::read_to_string(&old.config).unwrap(), "old config");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn a_put_back_removes_a_path_it_made_whatever_its_name() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = tempfile::tempdir().unwrap();
+    let old = Manifest {
+        config: dir.path().join("server.yaml"),
+        env_file: None,
+        ..record(Platform::Linux)
+    };
+    let env = dir
+        .path()
+        .join(std::ffi::OsStr::from_bytes(b"server-\xff.env"));
+    let new = Manifest {
+        env_file: Some(env.clone()),
+        ..old.clone()
+    };
+    let absent = Absent::before(&old, &new);
+    std::fs::write(&env, "SECRET=y").unwrap();
+    absent.remove();
+    assert!(!env.exists(), "{}", env.display());
+}

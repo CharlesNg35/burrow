@@ -18,6 +18,7 @@ use crate::install::{Platform, Role};
 pub const SUFFIX: &str = "-update";
 pub const TRIGGER: &str = "update-now";
 pub const RESULT: &str = "result.json";
+pub const ASKED: &str = "asked.json";
 
 pub trait Helper {
     fn install(&self, m: &Manifest) -> Result<(), Failure>;
