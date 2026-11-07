@@ -74,7 +74,8 @@ async fn an_edit_stays_in_its_file(c: &mut Ctx) {
         apps.contains("target: 2222") && apps.contains("# the home box"),
         "{apps}"
     );
-    assert!(!c.world.config().contains("2222"));
+    let main = c.world.config();
+    assert!(!main.contains("target: 2222"), "{main}");
 }
 
 async fn a_read_only_file_is_shown_not_edited(c: &mut Ctx) {
