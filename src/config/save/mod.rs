@@ -273,6 +273,19 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_group_the_service_sees_as_unmapped_is_never_set_on_the_new_file() {
+        let groups = unix::keepable(vec![65534, 65534, 1000], Some(65534));
+        assert_eq!(groups, [1000]);
+        assert_eq!(
+            unix::owner_change((1000, 65534), (1000, 1000), false, &groups, 0o660),
+            (None, None, 0o600),
+            "burrow:admins 0660 seen through PrivateUsers is saved without that group"
+        );
+        assert_eq!(unix::keepable(vec![50, 1000], None), [50, 1000]);
+    }
+
     #[test]
     fn the_file_is_replaced_with_its_permissions_and_only_if_unchanged() {
         let dir = tempfile::tempdir().unwrap();

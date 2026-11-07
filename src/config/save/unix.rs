@@ -164,6 +164,19 @@ pub(super) fn owner_change(
     }
 }
 
+pub(super) fn keepable(groups: Vec<u32>, unmapped: Option<u32>) -> Vec<u32> {
+    groups
+        .into_iter()
+        .filter(|g| Some(*g) != unmapped)
+        .collect()
+}
+
+fn unmapped_gid() -> Option<u32> {
+    std::fs::read_to_string("/proc/sys/kernel/overflowgid")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+}
+
 fn write_temp(
     dir: &OwnedFd,
     temp: &str,
@@ -176,11 +189,14 @@ fn write_temp(
         rustix::process::geteuid().as_raw(),
         rustix::process::getegid().as_raw(),
     );
-    let groups: Vec<u32> = rustix::process::getgroups()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|g| g.as_raw())
-        .collect();
+    let groups = keepable(
+        rustix::process::getgroups()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|g| g.as_raw())
+            .collect(),
+        unmapped_gid(),
+    );
     let root = rustix::process::geteuid().is_root();
     let (uid, gid, mode) = owner_change(owner, mine, root, &groups, mode);
     let written = (|| -> std::io::Result<()> {
