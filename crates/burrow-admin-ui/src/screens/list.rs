@@ -179,7 +179,7 @@ pub fn ListPane(
     let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
     view! {
         <aside
-            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))] lg:mb-[calc(0px-var(--toast-pad,0px))]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
+            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))] mb-[calc(0px-var(--toast-pad,0px))] max-lg:pb-[var(--toast-pad,0px)]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
             aria-label=title.clone()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
