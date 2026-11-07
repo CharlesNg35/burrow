@@ -69,7 +69,7 @@ The bar at the top has:
 - On the left, the server's name opens a menu with its listening addresses, its config file and **About this server**.
 - On the right are search, the theme, **Review** with the number of changes waiting, and your account menu.
 
-The pages:
+What each page shows:
 
 - **Overview** shows:
   - live counts: clients online, services healthy, open connections, traffic now, visitors in use, refused connections per minute;
