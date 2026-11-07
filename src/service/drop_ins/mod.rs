@@ -8,6 +8,8 @@ use std::path::Path;
 use super::Backend;
 use super::system;
 
+#[cfg(unix)]
+mod given;
 #[cfg(not(unix))]
 mod other;
 mod snapshot;
@@ -17,6 +19,8 @@ mod unix;
 use crate::base::failure::Failure;
 use crate::base::output::say;
 use crate::config::docs::{self, Doc, Docs, drop_in_folder};
+#[cfg(unix)]
+pub(super) use given::{give_back, to_root};
 #[cfg(not(unix))]
 use other as place;
 pub(super) use snapshot::Snapshot;

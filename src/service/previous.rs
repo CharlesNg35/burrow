@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
-use super::uninstall::{give_drop_ins_to_root, give_history};
+use super::uninstall::give_history;
 use super::{
     Backend, admin_history, delete_hint, install_args, is_source, save_manifest, say, stray, system,
 };
@@ -382,7 +382,7 @@ pub(super) fn release_previous(
             let _ = system::give_plain_file(&old.config, 0, 0);
             give_history(&old.config, 0, 0);
             if !shares_drop_ins(&old.config, others.iter().chain([new])) {
-                give_drop_ins_to_root(&old.config, &old.account);
+                super::drop_ins::to_root(&old.config, &old.account);
             }
         }
         if !is_source(&old.config, &[&old.source_config, &new.source_config]) {

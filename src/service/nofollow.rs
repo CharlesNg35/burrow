@@ -87,6 +87,26 @@ fn empty(dir: &OwnedFd) {
     remove_matching(dir, |_| true);
 }
 
+pub fn plain_files(
+    folder: &Path,
+    mut each: impl FnMut(&std::ffi::CStr, &OwnedFd, &rustix::fs::Stat),
+) -> Option<OwnedFd> {
+    let dir = rustix::fs::open(folder, FOLDER, Mode::empty()).ok()?;
+    let file = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    for entry in Dir::read_from(&dir).into_iter().flatten().flatten() {
+        let Ok(f) = rustix::fs::openat(&dir, entry.file_name(), file, Mode::empty()) else {
+            continue;
+        };
+        if let Ok(st) = rustix::fs::fstat(&f)
+            && FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
+            && st.st_nlink == 1
+        {
+            each(entry.file_name(), &f, &st);
+        }
+    }
+    Some(dir)
+}
+
 pub fn remove_entry(parent: &Path, name: impl AsRef<OsStr>) {
     if let Ok(dir) = folder(parent) {
         remove_at(&dir, name.as_ref());
