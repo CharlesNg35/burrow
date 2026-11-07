@@ -145,10 +145,10 @@ pub fn restore(core: &Core, begun: &Begun) -> bool {
 }
 
 fn log(core: &Core, begun: &Begun, entry: AuditEntry) {
+    let recorded = core.record(entry);
     if begun.wrote {
-        core.store.note(&entry);
+        core.store.note(&recorded);
     }
-    core.record(entry);
 }
 
 pub fn finish(

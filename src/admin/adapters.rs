@@ -8,7 +8,7 @@ use burrow_admin_proto::frame::{self, AdminOpen};
 use tracing::{debug, warn};
 
 use super::Hub;
-use super::core::ports::{Store, Version, WhyNot, WriteError};
+use super::core::ports::{Noted, Store, Version, WhyNot, WriteError};
 use super::core::{Core, Session, text};
 use super::kept::parse_kept;
 #[cfg(unix)]
@@ -78,10 +78,10 @@ impl FileStore {
         out.into_iter().map(|(_, v, p)| (v, p)).collect()
     }
 
-    fn note_path(&self, rev: &str) -> Option<PathBuf> {
+    fn placed(&self, rev: &str) -> Option<(String, PathBuf)> {
         let (_, file) = self.files().into_iter().find(|(v, _)| v.rev == rev)?;
-        let name = super::notes::name_for(&file.file_name()?.to_string_lossy())?;
-        Some(self.dir().join(name))
+        let stem = super::notes::stem(&file.file_name()?.to_string_lossy())?.to_string();
+        Some((stem, self.dir().join(super::notes::name_for(rev)?)))
     }
 
     fn kept_name(&self, rev: &str, newest: u128) -> String {
@@ -152,7 +152,7 @@ impl FileStore {
         for (_, _, old) in kept_at(&fd)?.into_iter().skip(KEEP) {
             let _ = rustix::fs::unlinkat(&fd, old.as_str(), AtFlags::empty());
         }
-        for old in super::notes::stale(&names_at(&fd)?, |n| parse_kept(n).is_some()) {
+        for old in super::notes::stale(&names_at(&fd)?, |n| parse_kept(n).map(|(_, v)| v.rev)) {
             let _ = rustix::fs::unlinkat(&fd, old.as_str(), AtFlags::empty());
         }
         Ok(())
@@ -191,7 +191,7 @@ impl FileStore {
         for (_, old) in self.files().into_iter().skip(KEEP) {
             let _ = std::fs::remove_file(old);
         }
-        for old in super::notes::stale(&self.names(), |n| parse_kept(n).is_some()) {
+        for old in super::notes::stale(&self.names(), |n| parse_kept(n).map(|(_, v)| v.rev)) {
             let _ = std::fs::remove_file(dir.join(old));
         }
         Ok(())
@@ -336,8 +336,10 @@ impl Store for FileStore {
     }
 
     fn note(&self, entry: &AuditEntry) {
-        let (Some(path), Some(body)) = (self.note_path(&entry.rev), super::notes::body(entry))
-        else {
+        let Some((stem, path)) = self.placed(&entry.rev) else {
+            return;
+        };
+        let Some(body) = super::notes::added(&path, &stem, entry, super::core::AUDIT_RING) else {
             return;
         };
         let name = path
@@ -349,8 +351,11 @@ impl Store for FileStore {
         }
     }
 
-    fn noted(&self, rev: &str) -> Option<AuditEntry> {
-        super::notes::read(&self.note_path(rev)?, rev)
+    fn noted(&self, v: &Version) -> Noted {
+        match self.placed(&v.rev) {
+            Some((stem, path)) => super::notes::read(&path, &stem, &v.rev),
+            None => Noted::by_hand(v),
+        }
     }
 }
 

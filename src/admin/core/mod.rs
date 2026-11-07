@@ -48,7 +48,7 @@ use ports::{Env, Live, Store};
 pub const MAX_PENDING_SECRETS: usize = 256;
 pub const SECRET_PREFIX: &str = "s";
 pub const PENDING_SECRET_TTL: Duration = Duration::from_secs(30 * 60);
-const AUDIT_RING: usize = 200;
+pub(crate) const AUDIT_RING: usize = 200;
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -235,30 +235,20 @@ pub fn features() -> Vec<String> {
 
 impl Core {
     pub fn new(store: Box<dyn Store>, live: Box<dyn Live>, env: Box<dyn Env>) -> Self {
-        let mut audit = VecDeque::new();
+        let mut found: Vec<(u128, AuditEntry)> = Vec::new();
         for v in store.versions().into_iter().take(AUDIT_RING).rev() {
-            let id = next_id(audit.front(), v.at);
-            let entry = match store.noted(&v.rev) {
-                Some(noted) => AuditEntry {
-                    id,
-                    rev: v.rev,
-                    ..noted
-                },
-                None => AuditEntry {
-                    id,
-                    at: v.at,
-                    visitor: String::new(),
-                    from: String::new(),
-                    base: String::new(),
-                    rev: v.rev,
-                    changes: Vec::new(),
-                    result: "kept".into(),
-                    revertible: true,
-                    details_kept: false,
-                    reverts: None,
-                },
-            };
-            audit.push_front(entry);
+            let noted = store.noted(&v);
+            found.extend(noted.entries);
+            if let Some(order) = noted.kept {
+                found.push((order, kept(v)));
+            }
+        }
+        found.sort_by_key(|(order, _)| *order);
+        let mut audit = VecDeque::new();
+        let skip = found.len().saturating_sub(AUDIT_RING);
+        for (_, mut e) in found.into_iter().skip(skip) {
+            e.id = next_id(audit.front(), e.at);
+            audit.push_front(e);
         }
         Core {
             store,
@@ -547,11 +537,28 @@ impl Core {
         }
     }
 
-    pub fn record(&self, mut entry: AuditEntry) {
+    pub fn record(&self, mut entry: AuditEntry) -> AuditEntry {
         let mut a = self.audit.lock().expect("audit lock");
         entry.id = next_id(a.front(), entry.at);
-        a.push_front(entry);
+        a.push_front(entry.clone());
         a.truncate(AUDIT_RING);
+        entry
+    }
+}
+
+fn kept(v: ports::Version) -> AuditEntry {
+    AuditEntry {
+        id: 0,
+        at: v.at,
+        visitor: String::new(),
+        from: String::new(),
+        base: String::new(),
+        rev: v.rev,
+        changes: Vec::new(),
+        result: "kept".into(),
+        revertible: true,
+        details_kept: false,
+        reverts: None,
     }
 }
 

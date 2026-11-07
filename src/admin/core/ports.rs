@@ -21,6 +21,21 @@ pub struct Version {
     pub at: u64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Noted {
+    pub entries: Vec<(u128, burrow_admin_proto::msg::AuditEntry)>,
+    pub kept: Option<u128>,
+}
+
+impl Noted {
+    pub fn by_hand(v: &Version) -> Noted {
+        Noted {
+            entries: Vec::new(),
+            kept: Some(u128::from(v.at) * 1_000_000_000),
+        }
+    }
+}
+
 pub trait Store: Send + Sync {
     fn path(&self) -> &Path;
     fn state_dir(&self) -> PathBuf;
@@ -41,8 +56,8 @@ pub trait Store: Send + Sync {
         false
     }
     fn note(&self, _entry: &burrow_admin_proto::msg::AuditEntry) {}
-    fn noted(&self, _rev: &str) -> Option<burrow_admin_proto::msg::AuditEntry> {
-        None
+    fn noted(&self, v: &Version) -> Noted {
+        Noted::by_hand(v)
     }
 }
 
