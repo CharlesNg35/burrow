@@ -61,6 +61,34 @@ fn a_replaced_quoted_scalar_keeps_its_quotes_and_its_comment() {
 }
 
 #[test]
+fn a_replaced_list_item_or_multi_line_string_keeps_its_quotes_and_its_comment() {
+    for q in ["\"", "'", ""] {
+        let (was, now) = (format!("{q}a{q}"), format!("{q}z{q}"));
+        let list = format!("allow:\n  - {was} # c\n  - b\n");
+        let out = yaml(&list, |v| v["allow"] = json!(["z", "b"]));
+        assert_eq!(out.text, list.replace(&was, &now), "{q}");
+        let multi = format!("name: {q}one\n  two{q}   # c\nnext: 1\n");
+        let out = yaml(&multi, |v| v["name"] = json!("three"));
+        let quoted = format!("name: {q}three{q}   # c\nnext: 1\n");
+        if !q.is_empty() {
+            assert_eq!(out.text, quoted, "{q}");
+            let item = format!("allow:\n  - {q}one\n    two{q} # c\n  - b\n");
+            let out = yaml(&item, |v| v["allow"] = json!(["three", "b"]));
+            assert_eq!(out.text, format!("allow:\n  - {q}three{q} # c\n  - b\n"));
+        }
+    }
+    let out = yaml(FILE, |v| {
+        v["services"]["web"]["allow_from"] = json!(["192.168.0.0/16", "172.16.0.0/12"])
+    });
+    assert!(
+        out.text
+            .contains("    allow_from:\n      - 192.168.0.0/16\n      - 172.16.0.0/12\n  ssh"),
+        "a moved item keeps no other item's comment: {}",
+        out.text
+    );
+}
+
+#[test]
 fn added_keys_go_after_their_siblings_with_their_indentation() {
     let out = yaml(FILE, |v| {
         v["services"]["db"] = json!({"client": "home", "bind": 5432, "target": 5432})
