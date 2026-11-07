@@ -128,7 +128,11 @@ async fn the_local_page_is_only_served_to_this_machine() {
     )
     .await;
     assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
-    assert!(ok.contains("Clear-Site-Data: \"cache\""), "{ok}");
+    assert!(ok.contains("Cache-Control: no-store"), "{ok}");
+    assert!(
+        !ok.to_ascii_lowercase().contains("clear-site-data"),
+        "a page that asks the browser to clear its cache holds every load: {ok}"
+    );
     if !ok.contains("was not built into this binary") {
         assert!(ok.contains(&format!("src=\"{}/", l.run)), "{ok}");
     }
@@ -143,6 +147,10 @@ async fn the_local_page_is_only_served_to_this_machine() {
         "{root}"
     );
     assert!(root.contains("Cache-Control: no-store"), "{root}");
+    assert!(
+        !root.to_ascii_lowercase().contains("clear-site-data"),
+        "{root}"
+    );
     let api = http_get(
         l.port,
         &format!(
@@ -170,6 +178,11 @@ async fn the_local_page_is_only_served_to_this_machine() {
     for page in ["/services/api.v2", "/services/a..b", "/services/api"] {
         let got = get(format!("{}{page}", l.run)).await;
         assert!(got.starts_with("HTTP/1.1 200"), "{page}: {got}");
+        assert!(got.contains("Cache-Control: no-store"), "{page}: {got}");
+        assert!(
+            !got.to_ascii_lowercase().contains("clear-site-data"),
+            "{page}: {got}"
+        );
         let moved = get(page.to_string()).await;
         assert!(moved.starts_with("HTTP/1.1 302"), "{page}: {moved}");
         assert!(

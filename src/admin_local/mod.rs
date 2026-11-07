@@ -106,11 +106,8 @@ fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-fn fresh_index() -> Vec<(&'static str, String)> {
-    vec![
-        ("Cache-Control", "no-store".into()),
-        ("Clear-Site-Data", "\"cache\"".into()),
-    ]
+fn no_store() -> Vec<(&'static str, String)> {
+    vec![("Cache-Control", "no-store".into())]
 }
 
 fn page(shared: &Shared, path: &str, spa: bool, gzip: bool) -> Response<http::Body> {
@@ -122,21 +119,14 @@ fn page(shared: &Shared, path: &str, spa: bool, gzip: bool) -> Response<http::Bo
             from_disk(dir, path)
         };
         return match found {
-            Some((body, mime)) => {
-                let extra = if spa {
-                    fresh_index()
-                } else {
-                    vec![("Cache-Control", "no-store".into())]
-                };
-                http::response(200, mime, &extra, body)
-            }
+            Some((body, mime)) => http::response(200, mime, &no_store(), body),
             None => http::response(404, "text/plain", &[], &b"not found\n"[..]),
         };
     }
     if spa || path == "/index.html" {
         let (body, _) = assets::body(assets::index(), false);
         let body = index_for_run(&body, &shared.prefix);
-        return http::response(200, assets::index().mime, &fresh_index(), body);
+        return http::response(200, assets::index().mime, &no_store(), body);
     }
     let Some(asset) = assets::find(path) else {
         return http::response(404, "text/plain", &[], &b"not found\n"[..]);
@@ -200,7 +190,7 @@ fn handle(req: Request<Incoming>, shared: &Arc<Shared>, bridge: &Bridge) -> Resp
         Ok((_, Decision::Alive)) => http::response(
             200,
             "text/plain; charset=utf-8",
-            &[("Cache-Control", "no-store".into())],
+            &no_store(),
             &b"running\n"[..],
         ),
         Ok((_, Decision::Api)) => {
