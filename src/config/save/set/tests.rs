@@ -444,3 +444,17 @@ fn a_new_file_whose_name_is_taken_by_an_entry_the_listing_skips_names_it() {
     assert!(!crate::config::docs::taken(&main, "server.d/a.yaml"));
     assert!(!crate::config::docs::taken(&main, "server.d/free.yaml"));
 }
+
+#[test]
+fn saving_one_config_never_holds_back_the_reload_of_another() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("a.yaml"), dir.path().join("b.yaml"));
+    std::fs::write(&a, "").unwrap();
+    assert!(std::ptr::eq(
+        gate(&a),
+        gate(&dir.path().join(".").join("a.yaml"))
+    ));
+    assert!(!std::ptr::eq(gate(&a), gate(&b)));
+    let _saving = saving_set(&a);
+    drop(whole_set(&b));
+}

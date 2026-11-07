@@ -160,16 +160,29 @@ fn undo_all(done: &[Staged], failed: std::io::Error) -> Refused {
     )))
 }
 
-static SAVING: std::sync::RwLock<()> = std::sync::RwLock::new(());
+type Gate = &'static std::sync::RwLock<()>;
 
-pub fn saving_set() -> std::sync::RwLockWriteGuard<'static, ()> {
-    SAVING
+static GATES: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Gate>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn gate(main: &Path) -> Gate {
+    let key = std::fs::canonicalize(main).unwrap_or_else(|_| main.to_path_buf());
+    let mut gates = GATES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    gates
+        .entry(key)
+        .or_insert_with(|| Box::leak(Box::default()))
+}
+
+pub fn saving_set(main: &Path) -> std::sync::RwLockWriteGuard<'static, ()> {
+    gate(main)
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-pub fn whole_set() -> std::sync::RwLockReadGuard<'static, ()> {
-    SAVING
+pub fn whole_set(main: &Path) -> std::sync::RwLockReadGuard<'static, ()> {
+    gate(main)
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -208,7 +221,7 @@ pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused
             }
         }
     }
-    let _saving = saving_set();
+    let _saving = saving_set(main);
     for (at, s) in staged.iter().enumerate() {
         if let Err(e) = commit(&s.step, at) {
             discard(&staged[at + 1..]);

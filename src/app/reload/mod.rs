@@ -289,7 +289,7 @@ fn load_whole(
     role: Role,
     env: &Env,
 ) -> Result<crate::config::Outcome, crate::config::load::LoadError> {
-    let _whole = crate::config::save::whole_set();
+    let _whole = crate::config::save::whole_set(file);
     load_file(file, Some(role), env)
 }
 
@@ -615,7 +615,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(1500)).await;
         let folder = dir.path().join("server.d");
         let saved = tokio::task::spawn_blocking(move || {
-            let _saving = crate::config::save::saving_set();
+            let _saving = crate::config::save::saving_set(&config);
             crate::base::fs::write_private(
                 &config,
                 &format!("{head}  web: {{ client: home, target: 82, bind: 7900 }}\n"),
