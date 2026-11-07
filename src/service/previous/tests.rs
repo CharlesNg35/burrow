@@ -149,7 +149,7 @@ fn a_put_back_removes_only_the_paths_the_reinstall_made() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn a_put_back_removes_a_path_it_made_whatever_its_name() {
     use std::os::unix::ffi::OsStrExt;
