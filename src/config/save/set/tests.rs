@@ -421,3 +421,26 @@ fn a_new_drop_in_folder_swapped_for_a_link_is_never_followed() {
     assert_eq!(mode & 0o777, 0o755, "the link's target keeps its mode");
     assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
 }
+
+#[test]
+fn a_new_file_whose_name_is_taken_by_an_entry_the_listing_skips_names_it() {
+    let (dir, main, before) = setup();
+    std::fs::create_dir(dir.path().join("server.d/new.yaml")).unwrap();
+    let mut after = before.clone();
+    after.list.push(Doc {
+        name: "server.d/new.yaml".into(),
+        text: "visitors: {}\n".into(),
+    });
+    let r = write_set(&main, &before, &after);
+    match r {
+        Err(Refused::Io(e)) => assert!(
+            e.to_string()
+                .contains("server.d/new.yaml: a file or folder with this name already exists"),
+            "{e}"
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert!(crate::config::docs::taken(&main, "server.d/new.yaml"));
+    assert!(!crate::config::docs::taken(&main, "server.d/a.yaml"));
+    assert!(!crate::config::docs::taken(&main, "server.d/free.yaml"));
+}

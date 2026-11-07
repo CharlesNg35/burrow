@@ -161,7 +161,13 @@ pub(super) fn refuse_files(
     new: &Docs,
 ) -> Result<(), ApiError> {
     let main = &old.main().name;
-    for (name, _) in crate::config::save::changes(old, new) {
+    for (name, change) in crate::config::save::changes(old, new) {
+        if matches!(change, crate::config::save::Change::Create { .. }) && core.store.taken(&name) {
+            return Err(ApiError::new(
+                ErrorCode::BadRequest,
+                crate::config::docs::taken_message(&name),
+            ));
+        }
         let why = if let Some(why) = core.store.read_only(&name) {
             WhyNot {
                 code: burrow_admin_proto::codes::FILE_READ_ONLY.into(),

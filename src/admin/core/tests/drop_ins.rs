@@ -601,3 +601,27 @@ fn an_empty_or_comment_only_drop_in_is_never_rewritten_by_an_unrelated_save() {
     set.apply(&older, &edit).unwrap();
     assert!(set.read("server.yaml").unwrap().contains("3006"));
 }
+
+#[test]
+fn a_new_file_named_like_an_entry_the_listing_skips_is_refused_at_plan_time() {
+    let set = Set::new(&[]);
+    std::fs::create_dir(set.path("server.d/blog.yaml")).unwrap();
+    let s = set.session(true);
+    let ops = [Op::Place {
+        path: p(&["services", "web"]),
+        file: "server.d/blog.yaml".into(),
+    }];
+    let e = set.plan(&s, &ops).err().unwrap();
+    assert_eq!(e.code, ErrorCode::BadRequest, "{}", e.message);
+    assert!(
+        e.message
+            .contains("server.d/blog.yaml: a file or folder with this name already exists"),
+        "{}",
+        e.message
+    );
+    assert!(
+        !e.message.contains("changed on the server"),
+        "{}",
+        e.message
+    );
+}

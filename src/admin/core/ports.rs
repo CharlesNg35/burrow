@@ -37,6 +37,9 @@ pub trait Store: Send + Sync {
     fn read_only(&self, _name: &str) -> Option<String> {
         None
     }
+    fn taken(&self, _name: &str) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

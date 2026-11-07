@@ -334,6 +334,10 @@ impl Store for FileStore {
             None => Some("its name is not a file in the drop-in folder".into()),
         }
     }
+
+    fn taken(&self, name: &str) -> bool {
+        crate::config::docs::taken(&self.path, name)
+    }
 }
 
 pub(super) fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {

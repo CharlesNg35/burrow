@@ -258,6 +258,21 @@ pub fn read_only(path: &Path) -> Option<ReadOnly> {
     (!crate::base::access::can_write(path)).then_some(ReadOnly::NotWritable)
 }
 
+pub fn taken(main: &Path, name: &str) -> bool {
+    let there = path_of(main, name).is_some_and(|p| std::fs::symlink_metadata(p).is_ok());
+    there
+        && !list(main)
+            .ok()
+            .flatten()
+            .is_some_and(|l| l.names.iter().any(|n| n == name))
+}
+
+pub fn taken_message(name: &str) -> String {
+    format!(
+        "{name}: a file or folder with this name already exists (names may differ only in case); pick another name"
+    )
+}
+
 pub fn open_to_others(path: &Path) -> bool {
     #[cfg(unix)]
     {

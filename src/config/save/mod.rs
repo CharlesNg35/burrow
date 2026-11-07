@@ -57,7 +57,7 @@ use unix as platform;
 
 #[cfg(test)]
 pub use set::saving_set;
-pub use set::{changes, whole_set, write_set};
+pub use set::{Change, changes, whole_set, write_set};
 
 pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> {
     Ok(platform::stage_replace(path, before, text)?.commit()?)
