@@ -413,6 +413,49 @@ fn a_reinstall_put_back_restores_the_drop_ins_it_found() {
 }
 
 #[cfg(unix)]
+#[test]
+fn a_part_way_copy_over_a_stopped_install_puts_its_config_and_drop_ins_back() {
+    let p = place();
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    let blog = "  blog: { client: home, target: 81, bind: 7901 }\n";
+    write(&p.config, &server(blog));
+    let to = p.config.with_file_name("server.d");
+    write(&to.join("a.yaml"), "# the old a\n");
+    write(&p.source, &server(""));
+    write(&p.source.with_file_name("mine.d/a.yaml"), "services: {}\n");
+    write(&p.source.with_file_name("mine.d/b.yaml"), "clients: {}\n");
+    write(&to.join("b.yaml").join("inside"), "a folder with a file\n");
+    let old = crate::install::Manifest {
+        config: p.config.clone(),
+        env_file: None,
+        ..crate::service::tests::record(crate::install::Platform::Linux)
+    };
+    let undo = crate::service::previous::Undo {
+        manifest: old,
+        config: crate::service::system::read_plain_file(&p.config),
+        drop_ins: Snapshot::take(&p.config),
+        env: BTreeMap::new(),
+        binary: None,
+    };
+    let copied = crate::service::install::copy_config(
+        &backend,
+        (&p.source, &p.config),
+        ("burrow", false),
+        &mut Vec::new(),
+    )
+    .inspect_err(|_| crate::service::install::put_files_back(Some(&undo), &backend));
+    assert!(
+        copied.is_err(),
+        "b.yaml cannot replace a folder that holds a file"
+    );
+    assert_eq!(std::fs::read_to_string(&p.config).unwrap(), server(blog));
+    assert_eq!(
+        std::fs::read_to_string(to.join("a.yaml")).unwrap(),
+        "# the old a\n"
+    );
+}
+
+#[cfg(unix)]
 fn owner(path: &Path) -> (u32, u32) {
     use std::os::unix::fs::MetadataExt;
     let meta = std::fs::symlink_metadata(path).unwrap();

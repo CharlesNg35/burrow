@@ -166,7 +166,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     if !system::same_content(&current, &binary) {
         copy_service_binary(&current, &binary, platform, &name, out)?;
     }
-    let undo = again.manifest.map(|p| Undo {
+    let undo = previous.as_ref().map(|p| Undo {
         manifest: p.clone(),
         config: system::read_plain_file(&p.config),
         drop_ins: super::drop_ins::Snapshot::take(&p.config),
@@ -208,7 +208,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             &manifest,
             &arg,
             &mut again,
-            undo,
+            undo.filter(|_| was_running),
             save_manifest,
             out,
         )?;
@@ -398,7 +398,7 @@ fn copy_service_binary(
     Ok(())
 }
 
-fn copy_config(
+pub(super) fn copy_config(
     backend: &dyn super::Backend,
     (source, config): (&Path, &Path),
     (account, writable): (&str, bool),
@@ -428,7 +428,7 @@ fn copy_config(
     super::drop_ins::copy(backend, (source, config), account, writable, out)
 }
 
-fn put_files_back(undo: Option<&Undo>, backend: &dyn super::Backend) {
+pub(super) fn put_files_back(undo: Option<&Undo>, backend: &dyn super::Backend) {
     if let Some(undo) = undo {
         let _ = undo.restore_files(backend);
     }
