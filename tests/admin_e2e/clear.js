@@ -4,9 +4,12 @@
   const STACK = '[data-testid=toast],[data-sticky-bar]';
   if (!rects(STACK).length || rects('[role=dialog]').length) return [];
   const y = scrollY;
-  scrollTo(0, document.documentElement.scrollHeight);
+  const end = () => scrollTo(0, document.documentElement.scrollHeight);
+  end();
   await frames();
   await new Promise(r => setTimeout(r, 300));
+  end();
+  await frames();
   const stack = [...document.querySelectorAll(STACK)].map(e => [e.getBoundingClientRect(), e.matches('[data-sticky-bar]') ? 'the save bar' : 'a toast']).filter(([r]) => r.width > 1 && r.height > 1);
   const seen = el => {
     const r = el.getBoundingClientRect();
