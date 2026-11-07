@@ -133,7 +133,7 @@ pub(super) fn renew(
         files: files.to_vec(),
         folders: Vec::new(),
     };
-    renew_set(watch, &w, tx, event);
+    let _ = renew_set(watch, &w, tx, event);
 }
 
 pub(super) fn renew_set(
@@ -141,7 +141,7 @@ pub(super) fn renew_set(
     w: &Watching,
     tx: &mpsc::Sender<&'static str>,
     event: bool,
-) {
+) -> bool {
     let files = w.files.as_slice();
     let mut dirs = watched_dirs(files);
     dirs.extend(w.folders.iter().filter(|f| f.is_dir()).map(|f| real(f)));
@@ -154,14 +154,14 @@ pub(super) fn renew_set(
         .collect();
     let stale = watch.stale.load(Ordering::Acquire);
     if wanted == watch.tried && !(KQUEUE && event) && !stale {
-        return;
+        return false;
     }
     if std::thread::Builder::new()
         .spawn(|| {})
         .map(std::thread::JoinHandle::join)
         .is_err()
     {
-        return;
+        return false;
     }
     let (fresh, failed) = match watch_files(&dirs, files, tx.clone(), watch.stale.clone()) {
         Ok(made) => made,
@@ -169,10 +169,14 @@ pub(super) fn renew_set(
             if !std::mem::replace(&mut watch.broken, true) {
                 warn!("cannot watch the config for changes ({e}); {}", by_hand());
             }
-            return;
+            return false;
         }
     };
     watch.broken = false;
+    let grew = !watch.tried.is_empty()
+        && dirs
+            .iter()
+            .any(|d| !watch.tried.iter().any(|(p, _)| p == d));
     watch.tried = wanted;
     watch.stale.store(false, Ordering::Release);
     for (dir, e) in &failed {
@@ -188,6 +192,7 @@ pub(super) fn renew_set(
     if watch.failing.is_empty() || watch.watcher.is_none() {
         watch.watcher = Some(fresh);
     }
+    grew
 }
 
 pub(super) fn watch_files(

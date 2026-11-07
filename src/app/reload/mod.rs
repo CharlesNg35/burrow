@@ -164,7 +164,7 @@ pub async fn follow_nudged<S: Watched>(
                 "admin"
             }
         };
-        let (asked, event) = gather(first, &mut trig, &mut nudges, &mut waiting).await;
+        let (mut asked, event) = gather(first, &mut trig, &mut nudges, &mut waiting).await;
         let outcome = 'step: {
             let why = if first == "admin" {
                 "burrow admin"
@@ -175,18 +175,30 @@ pub async fn follow_nudged<S: Watched>(
             };
             let files = watching(&current, &path);
             let triggers = trig_tx.clone();
-            let Some((back, now)) = worker
+            let Some((back, now, grew)) = worker
                 .run(move || {
                     let mut watch = watch;
-                    renew_set(&mut watch, &files, &triggers, event);
+                    let grew = renew_set(&mut watch, &files, &triggers, event);
                     let now = fingerprint(&files);
-                    (watch, now)
+                    (watch, now, grew)
                 })
                 .await
             else {
                 return;
             };
             watch = back;
+            let now = if grew && first != "admin" {
+                asked |= gather("file changed", &mut trig, &mut nudges, &mut waiting)
+                    .await
+                    .0;
+                let files = watching(&current, &path);
+                let Some(again) = worker.run(move || fingerprint(&files)).await else {
+                    return;
+                };
+                again
+            } else {
+                now
+            };
             if now == seen && !asked {
                 break 'step Some(ReloadOutcome::Unchanged);
             }
@@ -538,7 +550,7 @@ mod tests {
                 ),
             )
             .unwrap();
-            tokio::time::sleep(Duration::from_millis(40)).await;
+            tokio::time::sleep(Duration::from_millis(80)).await;
         }
         let first = tokio::time::timeout(Duration::from_secs(8), rx.recv())
             .await
