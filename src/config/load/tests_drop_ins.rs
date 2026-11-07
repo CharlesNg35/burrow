@@ -204,6 +204,8 @@ fn a_drop_in_or_folder_anyone_can_change_is_refused() {
         "{}",
         shown(&o)
     );
+    let place = format!("server.d{}apps.yaml:1:1", std::path::MAIN_SEPARATOR);
+    assert!(shown(&o).contains(&place), "{}", shown(&o));
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert!(d.load().loaded.is_some());
     let folder = file.parent().unwrap();

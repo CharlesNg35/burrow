@@ -6,7 +6,7 @@ use super::{Format, Input};
 use crate::base::failure::{file_reason, path_arg};
 use crate::config::diagnostics::Diagnostic;
 use crate::config::docs::{self, drop_in_folder, open_to_others, path_of};
-use crate::config::tree::{FileId, Span};
+use crate::config::tree::{FileId, Pos, Span};
 
 pub fn read(main: &Path, inputs: &mut Vec<Input>, out: &mut Vec<Diagnostic>) {
     let folder = drop_in_folder(main);
@@ -82,10 +82,15 @@ pub fn checks(main: &Path, inputs: &[Input], out: &mut Vec<Diagnostic>) {
         if !path.exists() {
             continue;
         }
-        if open_to_others(path) {
-            out.push(unsafe_one(path, "file"));
-        }
         let file = FileId(u16::try_from(i).unwrap_or(u16::MAX));
+        if open_to_others(path) {
+            let top = Pos {
+                offset: 0,
+                line: 1,
+                col: 1,
+            };
+            out.push(unsafe_one(path, "file").at(Span::point(top).in_file(file)));
+        }
         out.extend(super::permission_warning(path).map(|d| d.at(Span::default().in_file(file))));
     }
 }
