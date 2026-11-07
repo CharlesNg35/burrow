@@ -278,6 +278,27 @@ async fn close_edit(c: &mut Ctx) {
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 }
 
+const ROOM_AND_CARD: &str = "(() => { const c = [...document.querySelectorAll('[data-testid=detail] .rounded-card')].map(e => e.getBoundingClientRect()).filter(r => r.height > 0).pop(); return [parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--toast-room')) || 0, c.top, scrollY]; })()";
+
+async fn the_room_holds_while_the_page_stays(c: &Ctx) {
+    c.ui.viewport(420, 500).await;
+    let _: bool =
+        c.ui.eval("(() => { scrollTo(0, document.documentElement.scrollHeight); return true; })()")
+            .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let before: Vec<f64> = c.ui.eval(ROOM_AND_CARD).await;
+    assert!(before[0] > 0.0, "a toast reserves room: {before:?}");
+    c.ui.wait_gone("[data-testid=toast]", Duration::from_secs(15))
+        .await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let after: Vec<f64> = c.ui.eval(ROOM_AND_CARD).await;
+    assert!(
+        after[0] >= before[0] && (after[1] - before[1]).abs() < 0.5,
+        "the room and the page stay put when the toasts fade [room, card top, scroll]: {before:?} then {after:?}"
+    );
+    c.ui.viewport(1440, 900).await;
+}
+
 async fn a_new_client_after_undone_changes_shows_one_toast(c: &mut Ctx) {
     c.ui.nav("/clients").await;
     c.ui.click("[data-testid=new]").await;
@@ -293,7 +314,14 @@ async fn a_new_client_after_undone_changes_shows_one_toast(c: &mut Ctx) {
     c.ui.wait_for("[data-testid=entity-list] [data-pending=new]", SECS)
         .await;
     both_widths(c, "files-renamed-new").await;
+    the_room_holds_while_the_page_stays(c).await;
     close_edit(c).await;
+    c.ui.wait_true(
+        "getComputedStyle(document.documentElement).getPropertyValue('--toast-room') === ''",
+        "the room goes once the edit ends and no toast shows",
+        SECS,
+    )
+    .await;
     c.ui.click(MENU).await;
     c.ui.click("[data-testid=delete]").await;
     c.ui.wait_gone("[data-testid=review-open]", SECS).await;

@@ -13,6 +13,7 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         toast_sits_above_the_bar(c).await;
         private_udp_needs_visitors(c).await;
         narrow_window(c).await;
+        a_focused_field_clears_the_toasts(c).await;
     })
 }
 
@@ -455,6 +456,59 @@ async fn narrow_window(c: &mut Ctx) {
         !wide,
         "Health per client fits a narrow screen without scrolling sideways"
     );
+    c.ui.viewport(1440, 900).await;
+    c.ui.assert_no_errors();
+}
+
+const MAX_ROW: &str = "document.querySelector(\"[data-schema='services/*/max_connections']\")";
+
+async fn focus_under_the_toasts(c: &Ctx, width: i64) {
+    c.ui.viewport(width, 900).await;
+    let seen: Vec<f64> = c
+        .ui
+        .eval(&format!("(() => {{ const row = {MAX_ROW}; const t = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); scrollBy(0, row.getBoundingClientRect().bottom - t.top - 10); const r = row.getBoundingClientRect(); const s = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); return [r.top, r.bottom, s.top, s.bottom]; }})()"))
+        .await;
+    assert!(
+        seen[1] > seen[2] && seen[0] < seen[2],
+        "at {width} px the field row starts above the toasts and ends under them: {seen:?}"
+    );
+    let _: bool = c
+        .ui
+        .eval("(() => { document.getElementById('f-services-web-max-connections').focus(); return true; })()")
+        .await;
+    let clear = format!(
+        "(() => {{ const r = {MAX_ROW}.getBoundingClientRect(); const s = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); return s.height > 0 && r.bottom <= s.top + 0.5; }})()"
+    );
+    c.ui.wait_true(
+        &clear,
+        &format!("at {width} px a field focused under the toasts scrolls above them"),
+        SECS,
+    )
+    .await;
+    let _: bool = c
+        .ui
+        .eval("(() => { document.getElementById('f-services-web-max-connections').blur(); return true; })()")
+        .await;
+}
+
+async fn a_focused_field_clears_the_toasts(c: &mut Ctx) {
+    c.ui.nav("/services/web?tab=settings").await;
+    edit_mode(c).await;
+    open_more(c, "services/*/max_connections").await;
+    c.ui.fill("#f-services-web-max-connections", "11").await;
+    wait_checked(c).await;
+    c.ui.click("[data-testid=save]").await;
+    c.ui.wait_for("[data-testid=toast]", SECS).await;
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector('[data-testid=toast]').dispatchEvent(new MouseEvent('mouseenter')); return true; })()")
+        .await;
+    focus_under_the_toasts(c, 1440).await;
+    focus_under_the_toasts(c, 420).await;
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector('[data-testid=toast]').dispatchEvent(new MouseEvent('mouseleave')); return true; })()")
+        .await;
     c.ui.viewport(1440, 900).await;
     c.ui.assert_no_errors();
 }
