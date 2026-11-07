@@ -7,7 +7,7 @@ use super::place_files;
 use crate::base::failure::Failure;
 use crate::install::{Manifest, Platform};
 use crate::service::drop_ins::Snapshot;
-use crate::service::previous::Undo;
+use crate::service::previous::{Absent, Undo};
 use crate::service::{Backend, Status};
 
 struct FailAt {
@@ -126,6 +126,7 @@ fn a_reinstall_that_fails_after_the_copy_puts_the_previous_files_back() {
             drop_ins: Snapshot::take(&config),
             env: [("SECRET".to_string(), "old".to_string())].into(),
             binary: Some((kept.clone(), binary.clone())),
+            absent: Absent::default(),
         };
         let backend = FailAt::new(step);
         let env = [("SECRET".to_string(), "new".to_string())].into();
@@ -161,4 +162,111 @@ fn a_reinstall_that_fails_after_the_copy_puts_the_previous_files_back() {
         let unit_written = ["install", "finish"].contains(&step);
         assert_eq!(backend.ran("install old"), unit_written, "{step}");
     }
+}
+
+struct NewPath {
+    dir: tempfile::TempDir,
+    old: Manifest,
+    new: Manifest,
+}
+
+impl NewPath {
+    fn new() -> NewPath {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join("mine.yaml"), "new config\n");
+        write(&dir.path().join("mine.d/a.yaml"), "# the new a\n");
+        let folder = dir.path().join("etc");
+        write(&folder.join("client.yaml"), "old config\n");
+        let old = Manifest {
+            config: folder.join("client.yaml"),
+            env_file: None,
+            account: "old".into(),
+            ..crate::service::tests::record(Platform::Linux)
+        };
+        let new = Manifest {
+            config: folder.join("server.yaml"),
+            account: "new".into(),
+            ..old.clone()
+        };
+        NewPath { dir, old, new }
+    }
+
+    fn undo(&self) -> Undo {
+        Undo {
+            manifest: self.old.clone(),
+            config: crate::service::system::read_plain_file(&self.old.config),
+            drop_ins: Snapshot::take(&self.old.config),
+            env: BTreeMap::new(),
+            binary: None,
+            absent: Absent::before(&self.old, &self.new),
+        }
+    }
+
+    fn place(&self, backend: &FailAt, undo: &Undo) -> Result<(), Failure> {
+        place_files(
+            backend,
+            Some(undo),
+            (
+                &self.dir.path().join("mine.yaml"),
+                &self.dir.path().join("etc"),
+            ),
+            (&self.new, &BTreeMap::new(), &[]),
+            |_| backend.run("finish", "new"),
+            &mut Vec::new(),
+        )
+    }
+}
+
+#[test]
+fn a_failed_reinstall_removes_the_config_it_made_at_a_new_path_and_keeps_what_was_there() {
+    for step in ["secure", "install", "finish"] {
+        let t = NewPath::new();
+        let undo = t.undo();
+        let backend = FailAt::new(step);
+        assert!(t.place(&backend, &undo).is_err(), "{step}");
+        let etc = t.dir.path().join("etc");
+        assert_eq!(
+            std::fs::read_to_string(&t.old.config).unwrap(),
+            "old config\n"
+        );
+        assert!(!t.new.config.exists(), "{step}");
+        assert!(!etc.join("server.d").exists(), "{step}");
+    }
+    let t = NewPath::new();
+    let etc = t.dir.path().join("etc");
+    write(&t.new.config, "left by an earlier install\n");
+    write(&etc.join("server.d/kept.yaml"), "# kept by hand\n");
+    let undo = t.undo();
+    assert!(t.place(&FailAt::new("install"), &undo).is_err());
+    assert!(t.new.config.is_file(), "a file that was there stays");
+    assert!(etc.join("server.d/kept.yaml").is_file());
+    let t = NewPath::new();
+    let undo = t.undo();
+    t.place(&FailAt::new("none"), &undo).unwrap();
+    let etc = t.dir.path().join("etc");
+    assert_eq!(
+        std::fs::read_to_string(&t.new.config).unwrap(),
+        "new config\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(etc.join("server.d/a.yaml")).unwrap(),
+        "# the new a\n"
+    );
+}
+
+#[test]
+fn a_put_back_after_a_failed_start_removes_the_config_it_made_at_a_new_path() {
+    let t = NewPath::new();
+    let undo = t.undo();
+    t.place(&FailAt::new("none"), &undo).unwrap();
+    assert!(t.new.config.is_file());
+    let backend = FailAt::new("none");
+    let _ = undo.put_back(&backend, &t.new, "exited", |_| Ok(()), &mut Vec::new());
+    assert!(backend.ran("start old"));
+    assert!(!t.new.config.exists());
+    assert!(!t.dir.path().join("etc/server.d").exists());
+    assert_eq!(
+        std::fs::read_to_string(&t.old.config).unwrap(),
+        "old config\n"
+    );
 }

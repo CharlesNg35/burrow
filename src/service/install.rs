@@ -10,7 +10,7 @@ use super::checks::{
     refuse_another_source, refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
-    Reached, StartAgain, Takeover, Undo, give_old_files, given_note, release_previous,
+    Absent, Reached, StartAgain, Takeover, Undo, give_old_files, given_note, release_previous,
     start_installed, take_over,
 };
 use super::uninstall::{Kept, keep_admin_copy};
@@ -162,6 +162,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     };
     check_files_readable(&*backend, &checked, &account)?;
 
+    let absent = previous.as_ref().map(|p| Absent::before(p, &manifest));
     backend.prepare_dirs(&account)?;
     super::uninstall::say_skipped(&backend.state_folder(&manifest)?, &account, out)?;
     let kept_binary = keep_previous_binary(again.manifest, &binary, &current);
@@ -169,12 +170,13 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     if !system::same_content(&current, &binary) {
         copy_service_binary(&current, &binary, platform, &name, out)?;
     }
-    let undo = previous.as_ref().map(|p| Undo {
+    let undo = previous.as_ref().zip(absent).map(|(p, absent)| Undo {
         manifest: p.clone(),
         config: system::read_plain_file(&p.config),
         drop_ins: super::drop_ins::Snapshot::take(&p.config),
         env: backend.read_env(p),
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
+        absent,
     });
     backend.config_folder(&folder, &config, &account, writable)?;
     place_files(

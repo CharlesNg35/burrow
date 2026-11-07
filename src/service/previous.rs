@@ -200,12 +200,51 @@ pub(super) enum Reached {
     Unit,
 }
 
+#[derive(Debug, Default)]
+pub(super) struct Absent(Vec<PathBuf>);
+
+impl Absent {
+    pub(super) fn before(old: &Manifest, new: &Manifest) -> Absent {
+        let docs = crate::config::docs::drop_in_folder;
+        let pairs = [
+            (Some(old.config.clone()), Some(new.config.clone())),
+            (Some(docs(&old.config)), Some(docs(&new.config))),
+            (old.env_file.clone(), new.env_file.clone()),
+            (old.web_state.clone(), new.web_state.clone()),
+        ];
+        Absent(
+            pairs
+                .into_iter()
+                .filter_map(|(was, made)| made.filter(|m| was.as_ref() != Some(m)))
+                .filter(|p| {
+                    std::fs::symlink_metadata(p)
+                        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+                })
+                .collect(),
+        )
+    }
+
+    fn remove(&self) {
+        for path in &self.0 {
+            #[cfg(unix)]
+            if let (Some(dir), Some(name)) =
+                (path.parent(), path.file_name().and_then(|n| n.to_str()))
+            {
+                super::nofollow::remove_entry(dir, name);
+            }
+            #[cfg(not(unix))]
+            let _ = std::fs::remove_file(path).or_else(|_| std::fs::remove_dir_all(path));
+        }
+    }
+}
+
 pub(super) struct Undo {
     pub(super) manifest: Manifest,
     pub(super) config: Option<Vec<u8>>,
     pub(super) drop_ins: super::drop_ins::Snapshot,
     pub(super) env: BTreeMap<String, String>,
     pub(super) binary: Option<(PathBuf, PathBuf)>,
+    pub(super) absent: Absent,
 }
 
 impl Undo {
@@ -231,6 +270,7 @@ impl Undo {
     ) -> Vec<Result<(), Failure>> {
         let p = &self.manifest;
         let mut steps = vec![self.restore_files(backend)];
+        self.absent.remove();
         if reached >= Reached::Env && p.env_file.is_some() {
             steps.push(backend.write_env(p, &self.env));
         }
@@ -257,11 +297,6 @@ impl Undo {
         let mut steps = self.restore_setup(backend, Reached::Unit);
         steps.push(save(p));
         steps.push(backend.start(p));
-        if let Some(env) = &new.env_file
-            && p.env_file.as_ref() != Some(env)
-        {
-            let _ = std::fs::remove_file(env);
-        }
         if new.created_account && new.account != p.account {
             let _ = backend.remove_account(&new.account);
         }

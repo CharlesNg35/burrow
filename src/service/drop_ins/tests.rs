@@ -390,6 +390,7 @@ fn a_reinstall_put_back_restores_the_drop_ins_it_found() {
         drop_ins: Snapshot::take(&p.config),
         env: BTreeMap::new(),
         binary: None,
+        absent: Default::default(),
     };
     write(&p.config, &server(""));
     write(&to.join("apps.yaml"), &format!("services:\n{blog}"));
@@ -436,6 +437,7 @@ fn a_part_way_copy_over_a_stopped_install_puts_its_config_and_drop_ins_back() {
         drop_ins: Snapshot::take(&p.config),
         env: BTreeMap::new(),
         binary: None,
+        absent: Default::default(),
     };
     let copied = crate::service::install::copy_config(
         &backend,

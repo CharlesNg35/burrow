@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::Undo;
+use super::{Absent, Undo};
 use crate::install::{Manifest, Platform};
 use crate::service::tests::{Recorder, record};
 
@@ -16,7 +16,6 @@ fn a_reinstall_that_does_not_run_puts_the_previous_one_back() {
         ..record(Platform::Linux)
     };
     let new_env = dir.path().join("home-new.env");
-    std::fs::write(&new_env, "SECRET=y").unwrap();
     let new = Manifest {
         config: config.clone(),
         env_file: Some(new_env.clone()),
@@ -25,6 +24,8 @@ fn a_reinstall_that_does_not_run_puts_the_previous_one_back() {
         admin_writable: true,
         ..record(Platform::Linux)
     };
+    let absent = Absent::before(&old, &new);
+    std::fs::write(&new_env, "SECRET=y").unwrap();
     let binary = dir.path().join("burrow");
     let kept = dir.path().join("burrow.previous");
     std::fs::write(&binary, "new binary").unwrap();
@@ -35,6 +36,7 @@ fn a_reinstall_that_does_not_run_puts_the_previous_one_back() {
         drop_ins: Default::default(),
         env: [("SECRET".to_string(), "x".to_string())].into(),
         binary: Some((kept.clone(), binary.clone())),
+        absent,
     };
     let rec = Recorder(Default::default(), true);
     let saved = std::cell::RefCell::new(Vec::new());
@@ -87,6 +89,7 @@ fn a_put_back_that_does_not_run_either_says_so() {
         drop_ins: Default::default(),
         env: BTreeMap::new(),
         binary: None,
+        absent: Absent::default(),
     };
     let f = undo.put_back(
         &Recorder(Default::default(), false),
@@ -96,4 +99,52 @@ fn a_put_back_that_does_not_run_either_says_so() {
         &mut Vec::new(),
     );
     assert!(f.message.contains("does not run either"), "{}", f.message);
+}
+
+#[test]
+fn a_put_back_removes_only_the_paths_the_reinstall_made() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = Manifest {
+        config: dir.path().join("client.yaml"),
+        env_file: None,
+        web_state: None,
+        ..record(Platform::Linux)
+    };
+    std::fs::write(&old.config, "old config").unwrap();
+    let new = Manifest {
+        config: dir.path().join("server.yaml"),
+        env_file: Some(dir.path().join("server.env")),
+        web_state: Some(dir.path().join("state")),
+        ..old.clone()
+    };
+    let there = dir.path().join("server.d");
+    let state = dir.path().join("state");
+    let made = |m: &Manifest| {
+        std::fs::write(&m.config, "new config").unwrap();
+        std::fs::write(m.env_file.as_ref().unwrap(), "SECRET=y").unwrap();
+        for d in [&there, &state] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join("a.yaml"), "services: {}").unwrap();
+        }
+    };
+    for made_before in [false, true] {
+        if made_before {
+            made(&new);
+        }
+        let undo = Undo {
+            manifest: old.clone(),
+            config: Some(b"old config".to_vec()),
+            drop_ins: Default::default(),
+            env: BTreeMap::new(),
+            binary: None,
+            absent: Absent::before(&old, &new),
+        };
+        made(&new);
+        let rec = Recorder(Default::default(), true);
+        let _ = undo.put_back(&rec, &new, "exited", |_| Ok(()), &mut Vec::new());
+        for p in [&new.config, new.env_file.as_ref().unwrap(), &there, &state] {
+            assert_eq!(p.exists(), made_before, "{}", p.display());
+        }
+        assert_eq!(std::fs::read_to_string(&old.config).unwrap(), "old config");
+    }
 }
