@@ -52,13 +52,15 @@ struct Choice {
 
 fn choices(path: &[String]) -> Vec<Choice> {
     let s = store();
-    let Some((main, own, base)) = s.with_files(|i| {
-        (
-            files::main_name(i),
-            files::own_file(i, path.get(1).map_or("", String::as_str)),
-            files::file_of(i, path),
-        )
-    }) else {
+    let Some(((main, own), base)) = s
+        .with_files(|i| {
+            (
+                files::main_name(i),
+                files::own_file(i, path.get(1).map_or("", String::as_str)),
+            )
+        })
+        .zip(s.base_file(path))
+    else {
         return Vec::new();
     };
     if s.edit.files.with(|f| f.placed(path).is_some()) {
@@ -88,9 +90,7 @@ pub(super) fn file_menu(path: Path) -> impl IntoView + use<> {
     if !s.files_on() {
         return ().into_any();
     }
-    let base = s
-        .with_files(|i| files::file_of(i, &path))
-        .unwrap_or_default();
+    let base = s.base_file(&path).unwrap_or_default();
     choices(&path)
         .into_iter()
         .map(|c| {

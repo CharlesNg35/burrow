@@ -126,16 +126,26 @@ pub fn ListPane(
         .find(|k| asked.as_deref() == Some(*k));
     let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
     let hay = Memo::new(move |_| rows.with(|r| r.iter().map(Row::haystack).collect::<Vec<_>>()));
+    let files = Memo::new(move |_| {
+        crate::store::store()
+            .with_files(|i| {
+                i.files
+                    .iter()
+                    .map(|f| f.name.to_lowercase())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
     let visible = Memo::new(move |_| {
         let needle = q.get().to_lowercase();
         let f = filter.get();
+        let files = files.get();
         hay.with(|h| {
             rows.with(|r| {
                 r.iter()
                     .zip(h)
                     .filter(|(r, h)| {
-                        (needle.is_empty() || h.contains(&needle))
-                            && (f == "all" || r.filters.contains(&f))
+                        r.found(h, &needle, &files) && (f == "all" || r.filters.contains(&f))
                     })
                     .map(|(r, _)| r.clone())
                     .collect::<Vec<_>>()

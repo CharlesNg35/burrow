@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::world::{self, Options};
-use super::{Ctx, SECS, applied, both_widths, edit_mode, open, open_review, run, wait_checked};
+use super::{
+    Ctx, SECS, applied, both_widths, edit_mode, open, open_review, review_now, run, wait_checked,
+};
 
 const MENU: &str = "[data-testid=more]";
 
@@ -18,8 +20,17 @@ fn opts() -> Options {
                 false,
             ),
             (
+                "old-server.yaml",
+                "services:\n  cache:\n    client: home\n    target: 24\n    visitors: [laptop]\n"
+                    .into(),
+                false,
+            ),
+            (
                 "tool.yaml",
-                "# written by a tool\nservices:\n  wiki:\n    client: home\n    target: 23\n    visitors: [laptop]\n".into(),
+                format!(
+                    "# written by a tool\nservices:\n  wiki:\n    client: home\n    target: 23\n    visitors: [laptop]\nclients:\n  box:\n    secret: {}\n",
+                    world::secret()
+                ),
                 true,
             ),
         ],
@@ -75,8 +86,61 @@ async fn a_read_only_file_is_shown_not_edited(c: &mut Ctx) {
         !c.ui.enabled("[data-testid=edit]").await,
         "Edit is off for a read-only file"
     );
-    assert_eq!(c.ui.count(MENU).await, 1);
+    let hidden: bool = c
+        .ui
+        .eval("(() => { const m = document.querySelector('[data-testid=more]'); if (!m) return true; const shown = m.checkVisibility(); m.click(); return !shown; })()")
+        .await;
+    assert!(hidden, "the More button of a read-only item is not shown");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    for action in [
+        "file-split",
+        "file-merge",
+        "file-keep",
+        "rename-open",
+        "delete",
+    ] {
+        assert_eq!(
+            c.ui.count(&format!("[data-testid={action}]")).await,
+            0,
+            "{action} is not reachable on a read-only item"
+        );
+    }
     both_widths(c, "files-read-only").await;
+}
+
+async fn a_read_only_client_keeps_its_secrets(c: &mut Ctx) {
+    c.ui.nav("/clients/box?tab=secrets").await;
+    let list =
+        c.ui.wait_text("[data-testid=secrets]", "in server.d/tool.yaml", SECS)
+            .await;
+    assert!(!list.contains("in server.yaml"), "{list}");
+    for action in ["rotate", "remove-secret"] {
+        assert_eq!(
+            c.ui.count(&format!("[data-testid={action}]")).await,
+            0,
+            "{action} is not offered for a client in a read-only file"
+        );
+    }
+    both_widths(c, "files-read-only-secrets").await;
+    c.ui.click("[data-testid=search-open]").await;
+    c.ui.fill("[data-testid=search] input", "rotate").await;
+    let hits =
+        c.ui.wait_text("[data-testid=search]", "Rotate secret of home", SECS)
+            .await;
+    assert!(!hits.contains("Rotate secret of box"), "{hits}");
+    c.ui.press("[data-testid=search]", "Escape").await;
+    c.ui.wait_gone("[data-testid=search]", SECS).await;
+}
+
+async fn services_of(c: &Ctx, file: &str, shown: &str) {
+    let links = format!("[data-file='{file}'] [data-testid=file-items]");
+    c.ui.wait_for(&links, SECS).await;
+    let _: bool = c
+        .ui
+        .eval(&format!("(() => {{ [...document.querySelectorAll(\"{links}\")].find(b => b.innerText.includes('service')).click(); return true; }})()"))
+        .await;
+    c.ui.wait_text("[data-testid=entity-list]", shown, SECS)
+        .await;
 }
 
 async fn the_files_tab_lists_every_file(c: &mut Ctx) {
@@ -85,19 +149,29 @@ async fn the_files_tab_lists_every_file(c: &mut Ctx) {
     assert_eq!(
         c.ui.all_attrs("[data-testid=config-file]", "data-file")
             .await,
-        ["server.yaml", "server.d/apps.yaml", "server.d/tool.yaml"]
+        [
+            "server.yaml",
+            "server.d/apps.yaml",
+            "server.d/old-server.yaml",
+            "server.d/tool.yaml"
+        ]
     );
     assert_eq!(c.ui.count("[data-testid=file-read-only]").await, 1);
     both_widths(c, "files-settings").await;
-    c.ui.click("[data-file='server.d/tool.yaml'] [data-testid=file-items]")
-        .await;
-    c.ui.wait_for("[data-testid=entity-list]", SECS).await;
+    services_of(c, "server.d/tool.yaml", "wiki").await;
     let list = c.ui.text("[data-testid=entity-list]").await;
     assert!(
         list.contains("wiki") && !list.contains("blog"),
         "the list shows that file's items: {list}"
     );
     both_widths(c, "files-filtered-list").await;
+    c.ui.nav("/settings?tab=files").await;
+    services_of(c, "server.yaml", "web").await;
+    let list = c.ui.text("[data-testid=entity-list]").await;
+    assert!(
+        list.contains("web") && !list.contains("cache") && !list.contains("blog"),
+        "server.yaml's link lists only its own items, not those of old-server.yaml: {list}"
+    );
 }
 
 async fn split_and_merge_back(c: &mut Ctx) {
@@ -139,6 +213,83 @@ async fn split_and_merge_back(c: &mut Ctx) {
     assert!(c.world.config().contains("  web:"));
 }
 
+async fn keeping_an_item_undoes_deleting_its_file(c: &mut Ctx) {
+    c.ui.nav("/services/blog").await;
+    c.ui.wait_text("[data-testid=file-tag]", "server.d/apps.yaml", SECS)
+        .await;
+    c.ui.click(MENU).await;
+    c.ui.click("[data-testid=file-merge]").await;
+    open_review(c, "files-keep-review").await;
+    c.ui.wait_for("[data-testid=empty-file]", SECS).await;
+    c.ui.click("[data-testid=drop-file]").await;
+    c.ui.wait_text(
+        "[data-file='server.d/apps.yaml']",
+        "deleted",
+        Duration::from_secs(15),
+    )
+    .await;
+    c.ui.nav("/services/blog").await;
+    c.ui.click(MENU).await;
+    c.ui.click("[data-testid=file-keep]").await;
+    c.ui.wait_gone("[data-testid=review-open]", SECS).await;
+    c.ui.shot("files-kept").await;
+}
+
+async fn a_renamed_item_keeps_its_file(c: &mut Ctx) {
+    c.ui.nav("/services/blog").await;
+    c.ui.click(MENU).await;
+    c.ui.click("[data-testid=rename-open]").await;
+    c.ui.wait_for("[data-testid=rename-entity] #rename-to", SECS)
+        .await;
+    c.ui.fill("#rename-to", "journal").await;
+    c.ui.click("[data-testid=rename]:not([disabled])").await;
+    c.ui.wait_for("[data-testid=detail][data-name=journal]", SECS)
+        .await;
+    let tag =
+        c.ui.wait_text("[data-testid=file-tag]", "server.d/apps.yaml", SECS)
+            .await;
+    assert!(tag.contains("server.d/apps.yaml"), "{tag}");
+    let list = c.ui.text("[data-testid=entity-list]").await;
+    assert!(list.contains("server.d/apps.yaml"), "{list}");
+    c.ui.click(MENU).await;
+    c.ui.wait_for("[data-testid=file-merge]", SECS).await;
+    assert_eq!(c.ui.count("[data-testid=file-split]").await, 0);
+    both_widths(c, "files-renamed").await;
+    c.ui.click(MENU).await;
+    review_now(c).await;
+    c.ui.click("[data-testid=discard]").await;
+    c.ui.wait_gone("[data-testid=review-open]", SECS).await;
+}
+
+async fn a_new_client_saved_in_its_own_file_counts_once(c: &mut Ctx) {
+    c.ui.nav("/clients").await;
+    c.ui.click("[data-testid=new]").await;
+    c.ui.fill("#new-name", "rack").await;
+    c.ui.select("#new-save-in", "*own").await;
+    c.ui.click("[data-testid=create]:not([disabled])").await;
+    c.ui.wait_for("[data-testid=detail][data-name=rack]", SECS)
+        .await;
+    c.ui.nav("/services/web").await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+    wait_checked(c).await;
+    assert_eq!(
+        c.ui.text("[data-testid=review-count]").await.trim(),
+        "1",
+        "a new client in a file of its own is one change"
+    );
+    both_widths(c, "files-new-in-own-file").await;
+    open_review(c, "files-new-in-own-file-review").await;
+    c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+        .await;
+    assert_eq!(
+        c.ui.count("[data-testid=review-list] [data-testid=list-row]")
+            .await,
+        1
+    );
+    c.ui.click("[data-testid=discard]").await;
+    c.ui.wait_gone("[data-testid=review-open]", SECS).await;
+}
+
 async fn a_new_client_in_a_file_of_its_own(c: &mut Ctx) {
     c.ui.nav("/clients").await;
     c.ui.click("[data-testid=new]").await;
@@ -159,15 +310,20 @@ async fn a_new_client_in_a_file_of_its_own(c: &mut Ctx) {
 fn files(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
+        let tool = read(c, "server.d/tool.yaml").unwrap();
         items_name_their_file(c).await;
         an_edit_stays_in_its_file(c).await;
         a_read_only_file_is_shown_not_edited(c).await;
+        a_read_only_client_keeps_its_secrets(c).await;
         the_files_tab_lists_every_file(c).await;
         split_and_merge_back(c).await;
+        keeping_an_item_undoes_deleting_its_file(c).await;
+        a_renamed_item_keeps_its_file(c).await;
+        a_new_client_saved_in_its_own_file_counts_once(c).await;
         a_new_client_in_a_file_of_its_own(c).await;
         assert_eq!(
             read(c, "server.d/tool.yaml").unwrap(),
-            "# written by a tool\nservices:\n  wiki:\n    client: home\n    target: 23\n    visitors: [laptop]\n",
+            tool,
             "the read-only file was never written"
         );
         c.ui.assert_no_errors();
