@@ -4,7 +4,7 @@ use super::super::Format;
 use super::super::emit::render;
 use super::super::tree::{self, Node};
 use super::diff::{diff_map, scalar_text};
-use super::{Edits, child, content_end, end_of, is_flow, line_end, line_start};
+use super::{Edits, child, content_end, end_of, is_flow, line_end, line_start, scalar_end};
 
 fn item_text(v: &Value, indent: &str) -> String {
     render(&Value::Array(vec![v.clone()]), Format::Yaml)
@@ -107,7 +107,7 @@ pub(super) fn patch_flow_scalars(src: &str, old: &Node, want: &Value, edits: &mu
     for (e, v) in changed {
         edits.push(
             e.value.span.start.offset,
-            e.value.span.end.offset,
+            scalar_end(src, &e.value),
             scalar_text(src, &e.value, v),
         );
     }

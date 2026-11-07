@@ -31,14 +31,7 @@ impl FileMoves {
 
     pub fn counted(&self, draft: &Changeset) -> usize {
         let added = |p: &Path| match p.as_slice() {
-            [section, name] => {
-                draft
-                    .base()
-                    .get(section)
-                    .and_then(|s| s.get(name))
-                    .is_none()
-                    && draft.renamed_from(section, name).is_none()
-            }
+            [section, name] => draft.base_name(section, name).is_none(),
             _ => false,
         };
         self.places.keys().filter(|p| !added(p)).count() + self.drops.len()

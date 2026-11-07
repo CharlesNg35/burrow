@@ -59,8 +59,11 @@ pub fn RenameEntity(entity: Entity, name: String, open: RwSignal<bool>) -> impl 
         open.set(false);
         let mut path = entity_path(&ent);
         path.push(old.clone());
-        if n != old && store().edit.rename(&path, &n) && ent != Entity::Login {
-            go(Route::Detail(ent.section().to_string(), n));
+        if n != old && store().edit.rename(&path, &n) {
+            store().added_to_changes();
+            if ent != Entity::Login {
+                go(Route::Detail(ent.section().to_string(), n));
+            }
         }
     });
     view! {

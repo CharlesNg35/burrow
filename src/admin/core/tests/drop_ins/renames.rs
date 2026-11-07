@@ -211,3 +211,55 @@ fn a_place_sent_before_a_rename_or_delete_follows_the_item() {
         "{main}"
     );
 }
+
+fn add(name: &str, bind: u16) -> Op {
+    Op::Add {
+        path: p(&["services", name]),
+        value: json!({"client": "home", "bind": bind, "target": 3005}),
+    }
+}
+
+#[test]
+fn a_name_freed_by_a_rename_and_a_delete_holds_a_new_item_in_the_main_file() {
+    for (drop_ins, name) in [(&[][..], "web"), (&[("apps.yaml", BLOG)][..], "blog")] {
+        let set = Set::new(drop_ins);
+        let s = set.session(true);
+        let ops = [rename(name, "www"), remove("www"), add("www", 7845)];
+        let plan = set.plan(&s, &ops).unwrap();
+        assert_eq!(
+            said(&plan),
+            [
+                "New service www".to_string(),
+                format!("Service {name} removed")
+            ],
+            "{:?}",
+            said(&plan)
+        );
+        set.apply(&s, &ops).unwrap();
+        let main = set.read("server.yaml").unwrap();
+        assert!(main.contains("  www:"), "{main}");
+        assert!(
+            !main.contains("www: {"),
+            "a new item, not the old line: {main}"
+        );
+        if let Some(apps) = set.read("server.d/apps.yaml") {
+            assert!(!apps.contains("www") && !apps.contains("blog:"), "{apps}");
+        }
+    }
+}
+
+#[test]
+fn the_end_of_a_rename_chain_reads_as_one_rename_and_a_rename_back_as_none() {
+    for (drop_ins, name) in [(&[][..], "web"), (&[("apps.yaml", BLOG)][..], "blog")] {
+        let set = Set::new(drop_ins);
+        let s = set.session(true);
+        let chain = set
+            .plan(&s, &[rename(name, "a"), rename("a", "b")])
+            .unwrap();
+        assert_eq!(said(&chain), [format!("Service {name} renamed to b")]);
+        let back = set
+            .plan(&s, &[rename(name, "a"), rename("a", name)])
+            .unwrap();
+        assert!(said(&back).is_empty(), "{:?}", said(&back));
+    }
+}

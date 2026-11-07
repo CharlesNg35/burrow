@@ -181,6 +181,12 @@ pub fn App() -> impl IntoView {
         let _ = document().add_event_listener_with_callback(ev, cb.as_ref().unchecked_ref());
         cb.forget();
     }
+    Effect::new(move |_| {
+        let review = |t: &burrow_ui_kit::Toast| t.action.as_deref() == Some(crate::store::REVIEW);
+        if s.edit.pending() == 0 && s.toasts.with(|t| t.iter().any(review)) {
+            s.toasts.update(|t| t.retain(|x| !review(x)));
+        }
+    });
     api::connect(s);
     let no_token = Memo::new(move |_| s.conn.get() == Conn::NoToken);
     view! {
