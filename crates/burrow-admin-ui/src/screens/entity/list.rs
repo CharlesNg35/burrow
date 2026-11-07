@@ -76,6 +76,7 @@ fn one_row(
     if let Some(m) = mark {
         row.tags.insert(0, m);
     }
+    row.file = s.item_file(&entity_path).unwrap_or_default();
     if let Some((file, locked)) = super::file::file_label(&entity_path) {
         row.terms.push('\n');
         row.terms.push_str(&file);

@@ -103,6 +103,7 @@ pub struct Row {
     pub title_tag: Option<(String, Tone)>,
     pub health: Option<entity::HealthMark>,
     pub terms: String,
+    pub file: String,
     pub moment: Option<crate::format::Moment>,
 }
 
@@ -119,6 +120,13 @@ impl Row {
 
     pub(crate) fn matches(&self, q: &str) -> bool {
         q.is_empty() || self.haystack().contains(q)
+    }
+
+    fn found(&self, hay: &str, needle: &str, files: &[String]) -> bool {
+        if !self.file.is_empty() && files.iter().any(|f| f == needle) {
+            return self.file.to_lowercase() == needle;
+        }
+        needle.is_empty() || hay.contains(needle)
     }
 
     pub fn is_placeholder(&self) -> bool {
