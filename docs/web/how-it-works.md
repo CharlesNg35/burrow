@@ -26,10 +26,17 @@ visitor ──TCP──> web.https
 ```
 
 1. **The visitor's address.** When the connection comes from an address in `web.proxy_protocol_from`, burrow first reads the PROXY header the balancer sends. The address in it is the visitor from then on. A connection from there without a valid header within 10 seconds is closed. See [Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer).
-2. **The handshake budget.** Connections that have not finished TLS yet are counted like the tunnel's own handshakes (`limits.max_handshakes`), on their own counter. When all are in use, a new connection waits for one, reading nothing, until its `limits.handshake_timeout_secs` deadline; up to four times as many may wait. When that waiting room is full too, burrow stops accepting for a moment, so further connections queue in the system's backlog instead of being dropped. When more than half of the waiting room is in use, one address (an IPv6 /64) cannot wait with more than its share. A connection that has not sent its hello 1 second after it arrived, or not finished TLS 1 second after its hello, counts against its address: when more than half of the budget is in use, an address over its share loses such stalled connections. A quick burst from one address, such as many visitors behind one router, is never cut.
+2. **The handshake budget.** Connections that have not finished TLS yet are counted like the tunnel's own handshakes (`limits.max_handshakes`), on their own counter.
+   - When all are in use, a new connection waits for one, reading nothing, until its `limits.handshake_timeout_secs` deadline; up to four times as many may wait.
+   - When that waiting room is full too, burrow stops accepting for a moment, so further connections queue in the system's backlog instead of being dropped.
+   - When more than half of the waiting room is in use, one address (an IPv6 /64) cannot wait with more than its share.
+   - A connection that has not sent its hello 1 second after it arrived, or not finished TLS 1 second after its hello, counts against its address: when more than half of the budget is in use, an address over its share loses such stalled connections.
+   - A quick burst from one address, such as many visitors behind one router, is never cut.
 3. **The name.** burrow reads the TLS hello, the first message of the connection, within the same deadline and at most 16 KiB. Something that is not TLS is closed.
 4. **Let's Encrypt's TLS check.** A hello that offers only `acme-tls/1`, for a name burrow is getting a certificate for, is answered with the check's own certificate and closed ([step 4](#4-lets-encrypt-checks-and-renewal)). This comes before anything about the site, so `allow_from` never blocks it.
-5. **The site.** The name is looked up as it is written, then as the wildcard one label up: `x.apps.example.com` finds `*.apps.example.com` when no site has the exact name. A hello without a name (a visitor who typed an IP address) finds the site for the address it reached. An unknown name, or a plain-HTTP site's name (`tls: off`), is closed: burrow has no certificate for it, so it cannot show a page.
+5. **The site.** The name is looked up as it is written, then as the wildcard one label up: `x.apps.example.com` finds `*.apps.example.com` when no site has the exact name.
+   - A hello without a name (a visitor who typed an IP address) finds the site for the address it reached.
+   - An unknown name, or a plain-HTTP site's name (`tls: off`), is closed: burrow has no certificate for it, so it cannot show a page.
 6. **What the site is.**
    - A **passthrough** site (`tls: passthrough`) gets the bytes as they came, the TLS hello included, through the tunnel ([Passthrough](../web.md#passthrough)).
    - The **tunnel's name**, or a name where only the tunnel's path is served, does TLS and then the tunnel's own handshake ([The tunnel on the same port](tunnel.md#the-tunnel-on-the-same-port)).
@@ -62,7 +69,13 @@ Each check below can stop the request. Before the app has started its answer, bu
    4. `basic_auth`: no or a wrong password gets `401`; too many wrong passwords from one address get `429`.
    5. `forward_auth`: the login service decides; its own answer goes back to the visitor when it says no.
    6. `max_body_size`: a body that says it is larger gets `413` at once; one that grows larger on the way is cut, and `413` is the answer.
-6. **To the app.** `app_path` replaces the matched path ([Paths](routing.md#paths-several-apps-on-one-name)). burrow picks the client first, as the service's `mode` says, then takes an idle connection to the app from one pool that all visitors share, or opens a new one through the tunnel. It sends the request with `request_headers` and the `X-Forwarded-*` headers ([Headers, limits and pages](headers-limits-pages.md)). An app connection that stays idle for 60 seconds is closed, or after 5 seconds while the service or client is busy. A GET, HEAD, OPTIONS or TRACE without a body that fails on a connection that had been idle, before any byte of the answer arrived, is sent once more on a new connection; nothing else is sent twice. If it cannot:
+6. **To the app.** `app_path` replaces the matched path ([Paths](routing.md#paths-several-apps-on-one-name)).
+   - burrow picks the client first, as the service's `mode` says, then takes an idle connection to the app from one pool that all visitors share, or opens a new one through the tunnel.
+   - It sends the request with `request_headers` and the `X-Forwarded-*` headers ([Headers, limits and pages](headers-limits-pages.md)).
+   - An app connection that stays idle for 60 seconds is closed, or after 5 seconds while the service or client is busy.
+   - A GET, HEAD, OPTIONS or TRACE without a body that fails on a connection that had been idle, before any byte of the answer arrived, is sent once more on a new connection; nothing else is sent twice.
+
+   If it cannot:
 
    | Why | Answer |
    | --- | --- |
@@ -74,9 +87,18 @@ Each check below can stop the request. Before the app has started its answer, bu
 
 7. **The answer.** `response_headers`, `hsts`, `X-Request-Id` and `compress` are applied to every answer of the site, the pages from burrow included. The access log writes its line when the answer has been sent ([Access log and request ids](logs.md)).
 
-**Page or close.** Once the app has sent its headers, the status code has gone to the visitor. If the app or the tunnel fails after that, burrow cannot send a page any more. On HTTP/1.1 it closes the connection. On HTTP/2 it ends only that stream (`RST_STREAM`), so the visitor's other requests on the connection go on. An HTTP/2 stream that makes no progress for 10 seconds is closed the same way ([gRPC streams](http2-grpc.md#grpc-streams)).
+**Page or close.** Once the app has sent its headers, the status code has gone to the visitor. If the app or the tunnel fails after that, burrow cannot send a page any more.
 
-**The connection.** On HTTP/1.1 the connection is kept for the next request, which the visitor has `web.request_header_timeout_secs` to send. When burrow answers itself before the visitor has sent the whole body, like a `401` or a `413`, it first reads and drops the rest, up to 256 KiB and for at most 1 second, and keeps the connection. A larger or slower body gets `Connection: close`; burrow then reads what the visitor still sends for a few seconds, so the visitor gets the answer and not a reset. Any connection that moves no data for `web.idle_timeout_secs` is closed; WebSockets stay open as long as they carry data ([Limits](headers-limits-pages.md#limits)).
+- On HTTP/1.1 it closes the connection.
+- On HTTP/2 it ends only that stream (`RST_STREAM`), so the visitor's other requests on the connection go on.
+- An HTTP/2 stream that makes no progress for 10 seconds is closed the same way ([gRPC streams](http2-grpc.md#grpc-streams)).
+
+**The connection.**
+
+- On HTTP/1.1 the connection is kept for the next request, which the visitor has `web.request_header_timeout_secs` to send.
+- When burrow answers itself before the visitor has sent the whole body, like a `401` or a `413`, it first reads and drops the rest, up to 256 KiB and for at most 1 second, and keeps the connection.
+- A larger or slower body gets `Connection: close`; burrow then reads what the visitor still sends for a few seconds, so the visitor gets the answer and not a reset.
+- Any connection that moves no data for `web.idle_timeout_secs` is closed; WebSockets stay open as long as they carry data ([Limits](headers-limits-pages.md#limits)).
 
 ## 3. Which certificate a name gets
 
@@ -113,7 +135,12 @@ order ──> check (TLS on 443 / HTTP on 80 / DNS TXT) ──> certificate ─�
 2. **The answer.** The TLS check is answered when the connection arrives ([step 1](#1-a-connection-arrives-on-the-https-port)). The HTTP check is answered on port 80 before anything else ([step 6](#6-port-80)). For DNS, burrow sets the TXT record through the provider, waits until the record is seen, and removes it afterwards.
 3. **Until the certificate is there**, an HTTPS handshake for the name fails, and `http://` gets a `503` page that says the certificate is on its way.
 4. **Renewal** comes at two thirds of the certificate's life, and at half for short-lived ones (under 10 days). When Let's Encrypt suggests a time (ARI, RFC 9773), burrow follows it. The certificate in use stays until the new one is there.
-5. **Failures** are tried again after 1 minute, 10 minutes, 100 minutes, then once a day. Short-lived certificates try every 6 hours, and in their last 2 days every 15 minutes to 4 hours. A rate limit from Let's Encrypt is waited out. burrow orders at most 4 new certificates for the same names in 7 days, under Let's Encrypt's limit of 5. See [When a certificate fails](certificates.md#when-a-certificate-fails).
+5. **Failures** are tried again after 1 minute, 10 minutes, 100 minutes, then once a day.
+   - Short-lived certificates try every 6 hours, and in their last 2 days every 15 minutes to 4 hours.
+   - A rate limit from Let's Encrypt is waited out.
+   - burrow orders at most 4 new certificates for the same names in 7 days, under Let's Encrypt's limit of 5.
+
+   See [When a certificate fails](certificates.md#when-a-certificate-fails).
 
 ## 5. Saving a config
 

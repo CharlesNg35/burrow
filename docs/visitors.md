@@ -83,7 +83,18 @@ With `--service`, `--client` or `--socks`, only the forward on the command line 
 ./burrow init visitor --update   # later: ask the server again and update the forwards
 ```
 
-On a terminal, `./burrow init visitor` in a folder that already has visitor.yaml says so and asks "visitor.yaml already exists. Update it from the server (keeps your forwards, like --update)? [Y/n]": yes runs `--update`; no asks "visitor.yaml already exists. Replace it (the old one is kept as visitor.yaml.bak)? [y/N]": yes keeps a copy as visitor.yaml.bak and writes a new config, no leaves the file and names `--force` (replace it) and `-o FILE` (write elsewhere). Without a terminal, as in a script, it stops with that same error and hints, and writes nothing. When you pass `--server`, `--name` or a secret, it is a new config, so it asks only whether to replace the file. `burrow init server` and `burrow init client` ask the same on a terminal, before anything else, and keep the old file as `.bak`; without a terminal they stop with the same hints.
+On a terminal, `./burrow init visitor` in a folder that already has visitor.yaml says so and asks:
+
+1. "visitor.yaml already exists. Update it from the server (keeps your forwards, like --update)? [Y/n]"
+   - yes runs `--update`;
+   - no asks the next question.
+2. "visitor.yaml already exists. Replace it (the old one is kept as visitor.yaml.bak)? [y/N]"
+   - yes keeps a copy as visitor.yaml.bak and writes a new config;
+   - no leaves the file and names `--force` (replace it) and `-o FILE` (write elsewhere).
+
+Without a terminal, as in a script, it stops with that same error and hints, and writes nothing.
+
+When you pass `--server`, `--name` or a secret, it is a new config, so it asks only whether to replace the file. `burrow init server` and `burrow init client` ask the same on a terminal, before anything else, and keep the old file as `.bak`; without a terminal they stop with the same hints.
 
 `--update` shows the changes and asks before writing. New grants are added and revoked ones removed; kept forwards keep their local ports and names, TCP and UDP alike. The rest of the file stays. A server older than v0.1.2 lists only its TCP services; `--update` then says so and leaves your UDP forwards as they are.
 

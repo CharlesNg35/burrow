@@ -153,12 +153,17 @@ forwards:
 You never need to restart burrow to change what it does: saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
 
 - **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. Only a change to `listen` needs a restart.
-- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` and `max_udp_peers` included; a new limit counts for new connections and new UDP peers. Open connections keep running, except those whose target the new `allow` no longer permits.
+- **Client:**
+  - A change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it.
+  - Other changes apply at once, `max_connections` and `max_udp_peers` included; a new limit counts for new connections and new UDP peers.
+  - Open connections keep running, except those whose target the new `allow` no longer permits.
 - **Visitor:** only the forwards that changed are opened or closed.
 
 burrow also checks the file every 30 seconds, so changes through a Docker file mount or a network share apply too.
 
-burrow waits until the files have been quiet for half a second before it reloads, so an editor that saves through a temporary file, or a tool that writes several files, causes one reload. A config with an error is never applied: the server keeps running the last good one and logs each error with its file and line.
+burrow waits until the files have been quiet for half a second before it reloads, so an editor that saves through a temporary file, or a tool that writes several files, causes one reload.
+
+A config with an error is never applied: the server keeps running the last good one and logs each error with its file and line.
 
 ## Drop-in files
 
@@ -355,7 +360,12 @@ allow:
   - unix:/run/postgresql/* # Unix sockets: one path, or every socket in a folder
 ```
 
-`allow` is the list of targets this client agrees to connect to; anything else is refused, even when the server asks for it. Each entry is an address range in CIDR form, optionally with `:port` or `:low-high`: `192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, and `/32` means one address. A network starts at its first address: `192.168.1.5/24` is refused, so write `192.168.1.0/24` for the network or `192.168.1.5/32` for that one machine (`/128` for IPv6). The same holds wherever networks are written: `allow_from`, `deny_from`, `reach`, `admin_from` and `web.trusted_proxies`. Host names are checked after they are resolved. `burrow client-config` writes this list from the server's services.
+`allow` is the list of targets this client agrees to connect to; anything else is refused, even when the server asks for it.
+
+- Each entry is an address range in CIDR form, optionally with `:port` or `:low-high`: `192.168.1.0/24` means 192.168.1.0 to 192.168.1.255, and `/32` means one address.
+- A network starts at its first address: `192.168.1.5/24` is refused, so write `192.168.1.0/24` for the network or `192.168.1.5/32` for that one machine (`/128` for IPv6). The same holds wherever networks are written: `allow_from`, `deny_from`, `reach`, `admin_from` and `web.trusted_proxies`.
+- Host names are checked after they are resolved.
+- `burrow client-config` writes this list from the server's services.
 
 <details>
 <summary><b>All client.yaml keys</b></summary>
@@ -429,7 +439,13 @@ Each client and visitor logs in with its own secret. A secret is 32 random bytes
 ./burrow gensecret
 ```
 
-Never use a password: burrow refuses a secret that is not exactly 32 bytes or does not look random. To change a secret without downtime, list both on the server (`secret: [old, new]`), switch the client to the new one, then remove the old one ([security.md](security.md)).
+Never use a password: burrow refuses a secret that is not exactly 32 bytes or does not look random.
+
+To change a secret without downtime ([security.md](security.md)):
+
+1. List both on the server (`secret: [old, new]`).
+2. Switch the client to the new one.
+3. Remove the old one.
 
 ## Next steps
 

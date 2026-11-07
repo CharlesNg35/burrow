@@ -40,11 +40,20 @@ These folders are in layers (model, controls, editor, pages; see [CONTRIBUTING.m
 
 ### Recipes
 
-**Add a config key.** Add the field to the model in `crates/burrow-config/src/model/` with its `#[admin(...)]` label, help (with an example when the format is not obvious) and, if it does not always apply, its relation. Add the server's check in `src/config/check/` and the runtime setting; the code that turns the model into settings destructures the struct, so the compiler shows where. The UI needs nothing more: the field appears on its entity's tab through `domain::editor`. `placement.rs` and `agree.rs` tell you if the help, the tab or a check is missing. Add the key to the docs; their YAML blocks are tested.
+**Add a config key.**
+
+1. Add the field to the model in `crates/burrow-config/src/model/` with its `#[admin(...)]` label, help (with an example when the format is not obvious) and, if it does not always apply, its relation.
+2. Add the server's check in `src/config/check/` and the runtime setting; the code that turns the model into settings destructures the struct, so the compiler shows where.
+3. The UI needs nothing more: the field appears on its entity's tab through `domain::editor`. `placement.rs` and `agree.rs` tell you if the help, the tab or a check is missing.
+4. Add the key to the docs; their YAML blocks are tested.
 
 **Add a picker.** Never build a list of options in a screen. Get the choices from `burrow_admin_logic::choices` (extend it there, with a unit test, if it lacks a case), and show them through the shared picker in `addr/picker.rs` or `burrow_ui_kit::Combo`. Whether a client is online, is the server itself, or where it connects from comes from `burrow_admin_logic::presence` (or `format::presence_of`, which adds this server's reserved names), never from a lookup in the screen; arch-check refuses `clients.iter().find(` elsewhere.
 
-**Add a screen.** Add a variant to `Route` in `route.rs` (with its `parse` and `path`), a module in `screens/`, and its arm in `screens::screen`; add it to the header in `app/header.rs` if it is a top-level page. Build it from `burrow-ui-kit` components and the shared `form/` and `domain/` controls; a schema field on the screen goes through `domain::editor`, never a hand-made input. Add a browser flow in `tests/admin_e2e/` that opens it, and record its baselines.
+**Add a screen.**
+
+1. Add a variant to `Route` in `route.rs` (with its `parse` and `path`), a module in `screens/`, and its arm in `screens::screen`; add it to the header in `app/header.rs` if it is a top-level page.
+2. Build it from `burrow-ui-kit` components and the shared `form/` and `domain/` controls; a schema field on the screen goes through `domain::editor`, never a hand-made input.
+3. Add a browser flow in `tests/admin_e2e/` that opens it, and record its baselines.
 
 ## Build and run
 

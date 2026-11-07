@@ -73,7 +73,11 @@ The app never sees the password: burrow removes the `Authorization` header.
 
 - **In the admin UI**, a site's **Passwords** list takes a user name and a password. The server hashes it the way `burrow passwd` does and writes only the hash; nobody can read a password back, and existing users show as set. **Paste a hash instead** takes one from `burrow passwd` or `htpasswd -B`.
 - **Make a hash** with `burrow passwd alice`: it asks for the password twice without showing it and prints the line to paste, `alice: $argon2id$...`. Piped in, it reads one line, for scripts.
-- **Hashes** are argon2id, or bcrypt (`$2a$`, `$2b$`, `$2y$`) from tools like `htpasswd -B` or `caddy hash-password`. Validate refuses other kinds. It also refuses a hash that asks for more work than burrow allows, which would let one visitor keep the server busy: argon2 up to 64 MiB, 10 passes and 4 lanes; bcrypt cost 4 to 14. bcrypt reads only the first 72 bytes of a password.
+- **Hashes** are argon2id, or bcrypt (`$2a$`, `$2b$`, `$2y$`) from tools like `htpasswd -B` or `caddy hash-password`. Validate refuses other kinds. It also refuses a hash that asks for more work than burrow allows, which would let one visitor keep the server busy:
+  - argon2 up to 64 MiB, 10 passes and 4 lanes;
+  - bcrypt cost 4 to 14.
+
+  bcrypt reads only the first 72 bytes of a password.
 - **Wrong passwords:** each visitor address (IPv6 per /64) may get the password wrong 10 times a minute, on all sites together. After that, even the right password gets `429` with `Retry-After` until the budget refills, a few seconds per attempt. A request with no password, or an unreadable one, does not count: a browser asks once without one before it shows the login box.
 - **Busy:** checking a password takes real work on purpose. At most 2 checks run at once; a request that waits more than a second for its turn gets `503`. A right password is remembered for 10 minutes, so a page with many requests is checked once.
 - **Over plain HTTP** (`tls: off`) passwords travel unencrypted; validate warns.
@@ -183,7 +187,13 @@ services:
 
 Device certificates need a small CA of your own, which signs one certificate per device and can revoke a lost one. Two ways to run it follow.
 
-With [step-ca](https://smallstep.com/docs/step-ca/), turn on its CRL in `ca.json` with `"crl": {"enabled": true, "generateOnRevoke": true}`. Give each device a certificate, and point `ca` at a file with step-ca's intermediate and root certificates. Without `generateOnRevoke`, step-ca writes a new list only every 16 hours or so, so a lost phone would stay admitted until then ([its configuration docs](https://smallstep.com/docs/step-ca/configuration/): `generateOnRevoke` is off by default, and the list renews after about 2/3 of `cacheDuration`, 24 h). step-ca serves the list at `/1.0/crl`. Fetch it into the file after a revoke, and now and then, for example from cron:
+With [step-ca](https://smallstep.com/docs/step-ca/):
+
+1. Turn on its CRL in `ca.json` with `"crl": {"enabled": true, "generateOnRevoke": true}`.
+
+   Without `generateOnRevoke`, step-ca writes a new list only every 16 hours or so, so a lost phone would stay admitted until then ([its configuration docs](https://smallstep.com/docs/step-ca/configuration/): `generateOnRevoke` is off by default, and the list renews after about 2/3 of `cacheDuration`, 24 h).
+2. Give each device a certificate, and point `ca` at a file with step-ca's intermediate and root certificates.
+3. step-ca serves the list at `/1.0/crl`. Fetch it into the file after a revoke, and now and then, for example from cron:
 
 ```bash
 step ca revoke 2832... # the serial of the lost phone's certificate
