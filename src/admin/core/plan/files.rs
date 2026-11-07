@@ -225,6 +225,24 @@ fn ignored(at: usize, share: &Value, owners: &Owners, docs: &[Doc]) -> String {
     out.join(", ")
 }
 
+fn appended(text: &str, target: &Value) -> Option<String> {
+    let (bom, eol, src) = patch::split_text(text);
+    if !tree::parse(&src).ok()?.to_json().is_null() {
+        return None;
+    }
+    let gap = if src.is_empty() || src.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    let out = format!(
+        "{src}{gap}{}",
+        crate::config::emit::render(target, Format::Yaml)
+    );
+    let wanted = tree::parse(&out).is_ok_and(|t| t.to_json() == *target);
+    wanted.then(|| format!("{bom}{}", out.replace('\n', eol)))
+}
+
 pub struct Written {
     pub docs: Docs,
     pub reformat: Option<patch::Reformat>,
@@ -336,6 +354,13 @@ pub fn write(
                 doc.name,
                 ignored(i, &olds[i], &owners, &base.list)
             )));
+        }
+        if let Some(text) = (i > 0).then(|| appended(&doc.text, target)).flatten() {
+            list.push(Doc {
+                name: doc.name.clone(),
+                text,
+            });
+            continue;
         }
         let renamed = renames_in(&owners, &places, i, renames);
         let format = if i == 0 { main_format } else { Format::Yaml };

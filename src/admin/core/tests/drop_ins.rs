@@ -618,6 +618,24 @@ fn an_empty_or_comment_only_drop_in_is_never_rewritten_by_an_unrelated_save() {
 }
 
 #[test]
+fn an_item_placed_in_a_comment_only_drop_in_keeps_its_comments() {
+    let set = Set::new(&[("notes.yaml", "# placeholder for team A\n# owner: ops\n")]);
+    let s = set.session(true);
+    let ops = [Op::Place {
+        path: p(&["services", "web"]),
+        file: "server.d/notes.yaml".into(),
+    }];
+    assert_eq!(set.plan(&s, &ops).unwrap().reformat, None);
+    set.apply(&s, &ops).unwrap();
+    let notes = set.read("server.d/notes.yaml").unwrap();
+    assert!(
+        notes.starts_with("# placeholder for team A\n# owner: ops\nservices:")
+            && notes.contains("web"),
+        "{notes}"
+    );
+}
+
+#[test]
 fn a_new_file_named_like_an_entry_the_listing_skips_is_refused_at_plan_time() {
     let set = Set::new(&[]);
     std::fs::create_dir(set.path("server.d/blog.yaml")).unwrap();
