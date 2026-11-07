@@ -625,3 +625,73 @@ fn a_new_file_named_like_an_entry_the_listing_skips_is_refused_at_plan_time() {
         e.message
     );
 }
+
+fn rename(from: &str, to: &str) -> Op {
+    Op::Rename {
+        path: p(&["services", from]),
+        to: to.into(),
+        refs: true,
+    }
+}
+
+const WIKI: &str = "  wiki:\n    client: home # also home\n    bind: 7842\n    target: 3003\n";
+
+#[test]
+fn an_item_renamed_twice_in_one_change_stays_in_its_drop_in_with_its_comments() {
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let s = set.session(true);
+    set.apply(&s, &[rename("blog", "journal"), rename("journal", "diary")])
+        .unwrap();
+    assert_eq!(set.read("server.yaml").unwrap(), set.w.text);
+    assert_eq!(
+        set.read("server.d/apps.yaml").unwrap(),
+        BLOG.replace("  blog:", "  diary:")
+    );
+    let there_and_back = [
+        rename("diary", "journal"),
+        Op::Set {
+            path: p(&["services", "journal", "target"]),
+            value: json!(3002),
+        },
+        rename("journal", "diary"),
+    ];
+    set.apply(&s, &there_and_back).unwrap();
+    assert_eq!(set.read("server.yaml").unwrap(), set.w.text);
+    assert_eq!(
+        set.read("server.d/apps.yaml").unwrap(),
+        BLOG.replace("  blog:", "  diary:").replace("3001", "3002")
+    );
+}
+
+#[test]
+fn swapping_two_names_keeps_each_item_in_its_own_file() {
+    let set = Set::new(&[("apps.yaml", &format!("{BLOG}{WIKI}"))]);
+    let s = set.session(true);
+    let swap = |a: &str, b: &str| [rename(a, "tmp"), rename(b, a), rename("tmp", b)];
+    set.apply(&s, &swap("blog", "wiki")).unwrap();
+    assert_eq!(set.read("server.yaml").unwrap(), set.w.text);
+    assert_eq!(
+        set.read("server.d/apps.yaml").unwrap(),
+        format!(
+            "{}{}",
+            BLOG.replace("  blog:", "  wiki:"),
+            WIKI.replace("  wiki:", "  blog:")
+        )
+    );
+    set.apply(&s, &swap("web", "wiki")).unwrap();
+    assert!(
+        set.read("server.yaml")
+            .unwrap()
+            .contains("  wiki: { client: home, bind: 7840, target: 3000 }\n"),
+        "{}",
+        set.read("server.yaml").unwrap()
+    );
+    assert_eq!(
+        set.read("server.d/apps.yaml").unwrap(),
+        format!(
+            "{}{}",
+            BLOG.replace("  blog:", "  web:"),
+            WIKI.replace("  wiki:", "  blog:")
+        )
+    );
+}

@@ -201,7 +201,7 @@ fn rename_key(src: &str, root: &mut Node, r: &Rename, edits: &mut Edits) {
         edits.give_up(&r.path, "the key spans several lines");
         return;
     }
-    edits.push(span.start.offset, span.end.offset, scalar_str(&r.to));
+    edits.rekey(span.start.offset, span.end.offset, scalar_str(&r.to));
     e.key = r.to.clone();
 }
 

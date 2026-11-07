@@ -142,6 +142,13 @@ impl Edits {
         self.list.push((from, to, with));
     }
 
+    fn rekey(&mut self, from: usize, to: usize, with: String) {
+        match self.list.iter_mut().find(|e| (e.0, e.1) == (from, to)) {
+            Some(e) => e.2 = with,
+            None => self.push(from, to, with),
+        }
+    }
+
     fn give_up(&mut self, path: &[String], why: &str) {
         if self.unsupported.is_none() {
             self.unsupported = Some((path.to_vec(), why.to_string()));

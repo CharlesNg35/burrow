@@ -56,14 +56,38 @@ impl Owners {
     }
 }
 
-fn was_named(renames: &[Rename], section: &str, name: &str) -> String {
+fn first_name(renames: &[Rename], section: &str, name: &str) -> String {
     renames
         .iter()
-        .find(|r| r.path.len() == 2 && r.path[0] == section && r.to == name)
-        .map_or_else(|| name.to_string(), |r| r.path[1].clone())
+        .rev()
+        .fold(name.to_string(), |name, r| match r.path.as_slice() {
+            [s, from] if s == section && r.to == name => from.clone(),
+            _ => name,
+        })
+}
+
+fn last_name(renames: &[Rename], section: &str, name: &str) -> String {
+    renames
+        .iter()
+        .fold(name.to_string(), |name, r| match r.path.as_slice() {
+            [s, from] if s == section && *from == name => r.to.clone(),
+            _ => name,
+        })
 }
 
 pub type Places = BTreeMap<Item, usize>;
+
+fn home(
+    owners: &Owners,
+    places: &Places,
+    renames: &[Rename],
+    (section, name): (&str, &str),
+) -> usize {
+    places
+        .get(&(section.to_string(), name.to_string()))
+        .copied()
+        .unwrap_or_else(|| owners.file_of(section, &first_name(renames, section, name)))
+}
 
 pub fn split(
     owners: &Owners,
@@ -85,11 +109,7 @@ pub fn split(
         };
         let mut parts: Vec<Map<String, Value>> = vec![Map::new(); count];
         for (name, item) in items {
-            let owner = places
-                .get(&(key.clone(), name.clone()))
-                .copied()
-                .unwrap_or_else(|| owners.file_of(key, &was_named(renames, key, name)))
-                .min(count - 1);
+            let owner = home(owners, places, renames, (key, name)).min(count - 1);
             parts[owner].insert(name.clone(), item.clone());
         }
         let elsewhere = (1..count).any(|i| owners.has_key(i, key));
@@ -110,16 +130,15 @@ pub fn split(
 fn renames_in(owners: &Owners, places: &Places, doc: usize, renames: &[Rename]) -> Vec<Rename> {
     renames
         .iter()
-        .filter(|r| match r.path.as_slice() {
+        .enumerate()
+        .filter(|(k, r)| match r.path.as_slice() {
             [section, name, ..] if is_section(section) => {
-                let moved = places
-                    .get(&(section.clone(), r.to.clone()))
-                    .is_some_and(|to| *to != doc);
-                owners.file_of(section, name) == doc && !moved
+                let last = last_name(&renames[*k..], section, name);
+                home(owners, places, renames, (section, &last)) == doc
             }
             _ => doc == 0,
         })
-        .cloned()
+        .map(|(_, r)| r.clone())
         .collect()
 }
 
@@ -288,7 +307,7 @@ pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &
         let [section, name] = path.as_slice() else {
             continue;
         };
-        let from = name_of(owners.file_of(section, &was_named(&applied.renames, section, name)));
+        let from = name_of(owners.file_of(section, &first_name(&applied.renames, section, name)));
         if from == *file {
             continue;
         }
