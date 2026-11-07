@@ -131,3 +131,58 @@ fn a_revert_and_a_hand_edit_read_as_before_after_a_restart() {
         "{all:#?}"
     );
 }
+
+fn facts(e: &AuditEntry) -> impl PartialEq + std::fmt::Debug {
+    (
+        e.visitor.clone(),
+        e.from.clone(),
+        e.base.clone(),
+        e.rev.clone(),
+        e.at,
+        e.changes.clone(),
+        e.result.clone(),
+        e.reverts.clone(),
+    )
+}
+
+#[test]
+fn every_change_that_brought_a_version_back_is_listed_after_a_restart() {
+    let w = world();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    std::fs::write(&path, &w.text).unwrap();
+    let s = session(&w, AdminLevel::Write);
+    let before = {
+        let core = started(&path);
+        apply_now(&core, &s, &target(3001), &[]).unwrap();
+        let base = activity(&core)[0].base.clone();
+        apply_now(
+            &core,
+            &s,
+            &[Op::ReplaceDocument { from_history: base }],
+            &[],
+        )
+        .unwrap();
+        apply_now(&core, &s, &target(3001), &[]).unwrap();
+        activity(&core)
+    };
+    assert_eq!(before.len(), 3);
+    assert_eq!(before[0].rev, before[2].rev);
+    let after = activity(&started(&path));
+    let by_ops: Vec<_> = after
+        .iter()
+        .filter(|e| e.visitor == "ops")
+        .map(facts)
+        .collect();
+    assert_eq!(
+        by_ops,
+        before.iter().map(facts).collect::<Vec<_>>(),
+        "{after:#?}"
+    );
+    assert!(
+        after.iter().filter(|e| e.visitor != "ops").all(by_hand),
+        "{after:#?}"
+    );
+    let ids: Vec<u64> = after.iter().map(|e| e.id).collect();
+    assert!(ids.windows(2).all(|w| w[0] > w[1]), "newest first: {ids:?}");
+}
