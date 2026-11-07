@@ -473,6 +473,7 @@ mod tests {
                 admin_writable: false,
                 web_state: None,
                 remote_updates: false,
+                account_ids: None,
             };
             let unit = Systemd.render(&m);
             assert!(
@@ -507,6 +508,7 @@ mod tests {
             admin_writable: false,
             web_state: None,
             remote_updates: false,
+            account_ids: None,
         }
     }
 

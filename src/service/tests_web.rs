@@ -23,6 +23,7 @@ fn manifest(web_state: Option<&str>) -> Manifest {
         admin_writable: false,
         web_state: web_state.map(PathBuf::from),
         remote_updates: false,
+        account_ids: None,
     }
 }
 
