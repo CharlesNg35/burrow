@@ -751,3 +751,22 @@ fn a_change_to_a_file_with_ignored_content_is_refused_by_name() {
     let zz = plan.files.iter().find(|f| f.file == "server.d/zz.yaml");
     assert_eq!(zz.map(|f| f.change.clone()), Some(FileChange::Same));
 }
+
+#[test]
+fn a_credential_only_one_drop_in_holds_never_shows_in_review() {
+    let copy = "services:\n  web:\n    client: home\n    target: 3000\n    web:\n      hosts: [x.example.com]\n      request_headers:\n        Authorization: Basic c2VjcmV0LXZhbHVl\n";
+    let set = Set::new(&[("zz.yaml", copy)]);
+    let s = set.session(true);
+    let plan = set
+        .plan(
+            &s,
+            &[Op::DropFile {
+                file: "server.d/zz.yaml".into(),
+            }],
+        )
+        .unwrap();
+    let zz = plan.files.iter().find(|f| f.file == "server.d/zz.yaml");
+    assert_eq!(zz.map(|f| f.change.clone()), Some(FileChange::Remove));
+    let shown = serde_json::to_string(&plan).unwrap();
+    assert!(!shown.contains("c2VjcmV0LXZhbHVl"), "{shown}");
+}

@@ -162,7 +162,7 @@ fn present_at(
 
 pub const HASH_SHOWN: &str = "«password hash»";
 
-pub fn hashes(v: &Value, node: Option<&Node>, out: &mut Vec<String>) {
+fn hashes(v: &Value, node: Option<&Node>, out: &mut Vec<String>) {
     match v {
         Value::String(s) if is_hash(node) => out.push(s.clone()),
         Value::Object(m) => m.iter().for_each(|(k, x)| hashes(x, child(node, k), out)),
@@ -175,17 +175,6 @@ pub fn hashes(v: &Value, node: Option<&Node>, out: &mut Vec<String>) {
         }
         _ => {}
     }
-}
-
-pub fn hashes_in(texts: &[&str], root: &Node) -> Vec<String> {
-    let mut out = Vec::new();
-    for t in texts {
-        let (_, _, src) = crate::config::patch::split_text(t);
-        if let Ok(tree) = crate::config::tree::parse(&src) {
-            hashes(&tree.to_json(), Some(root), &mut out);
-        }
-    }
-    out
 }
 
 pub fn veil(text: &str, hashes: &[String]) -> String {
@@ -207,7 +196,7 @@ pub fn veil_value(v: &Value, hashes: &[String]) -> Value {
     }
 }
 
-pub fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String, String)>) {
+fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String, String)>) {
     match v {
         Value::String(s)
             if is_reference(node) && !s.is_empty() && !burrow_syntax::env::is_reference(s) =>
@@ -226,17 +215,6 @@ pub fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(Str
         }
         _ => {}
     }
-}
-
-pub fn credentials_in(texts: &[&str], root: &Node) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for t in texts {
-        let (_, _, src) = crate::config::patch::split_text(t);
-        if let Ok(tree) = crate::config::tree::parse(&src) {
-            credentials(&tree.to_json(), Some(root), "", &mut out);
-        }
-    }
-    out
 }
 
 pub fn veil_written(v: &Value, pairs: &[(String, String)]) -> Value {
@@ -269,7 +247,7 @@ fn hidden_written(name: &str, v: &Value) -> bool {
     hidden_header(name, v) && v.as_str().is_some_and(|s| !s.contains("${"))
 }
 
-pub fn header_values(v: &Value, out: &mut Vec<(String, String)>) {
+fn header_values(v: &Value, out: &mut Vec<(String, String)>) {
     match v {
         Value::Object(m) => {
             for (k, x) in m {
@@ -289,17 +267,6 @@ pub fn header_values(v: &Value, out: &mut Vec<(String, String)>) {
         Value::Array(a) => a.iter().for_each(|x| header_values(x, out)),
         _ => {}
     }
-}
-
-pub fn header_values_in(texts: &[&str]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for t in texts {
-        let (_, _, src) = crate::config::patch::split_text(t);
-        if let Ok(tree) = crate::config::tree::parse(&src) {
-            header_values(&tree.to_json(), &mut out);
-        }
-    }
-    out
 }
 
 fn written_forms(value: &str) -> Vec<String> {
@@ -329,8 +296,36 @@ pub fn veil_headers(line: &str, pairs: &[(String, String)]) -> String {
     out
 }
 
-pub fn veil_line(line: &str, hashes: &[String], headers: &[(String, String)]) -> String {
-    veil_headers(&veil(line, hashes), headers)
+pub struct Hidden {
+    hashes: Vec<String>,
+    headers: Vec<(String, String)>,
+}
+
+impl Hidden {
+    pub fn in_texts(texts: &[&str], root: &Node) -> Hidden {
+        let mut out = Hidden {
+            hashes: Vec::new(),
+            headers: Vec::new(),
+        };
+        for t in texts {
+            let (_, _, src) = crate::config::patch::split_text(t);
+            if let Ok(tree) = crate::config::tree::parse(&src) {
+                let v = tree.to_json();
+                hashes(&v, Some(root), &mut out.hashes);
+                header_values(&v, &mut out.headers);
+                credentials(&v, Some(root), "", &mut out.headers);
+            }
+        }
+        out
+    }
+
+    pub fn line(&self, line: &str) -> String {
+        veil_headers(&veil(line, &self.hashes), &self.headers)
+    }
+
+    pub fn value(&self, v: &Value) -> Value {
+        veil_written(&veil_value(v, &self.hashes), &self.headers)
+    }
 }
 
 pub fn hide_headers(old: &Value, new: &Value) -> (Value, Value) {

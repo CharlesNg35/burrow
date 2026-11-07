@@ -52,12 +52,8 @@ impl Core {
                             .chain(&a.list)
                             .map(|d| d.text.as_str())
                             .collect();
-                        let hashes = values::hashes_in(&texts, &self.schema().root);
-                        let mut headers = values::header_values_in(&texts);
-                        headers.extend(values::credentials_in(&texts, &self.schema().root));
-                        let mask = |l: &str| {
-                            text::mask_secrets(&values::veil_line(l, &hashes, &headers), &[])
-                        };
+                        let hidden = values::Hidden::in_texts(&texts, &self.schema().root);
+                        let mask = |l: &str| text::mask_secrets(&hidden.line(l), &[]);
                         files = plan::files::diffs(&b, &a, &mask);
                         Some(diff::unified(&b.main().text, &a.main().text, &mask))
                     }

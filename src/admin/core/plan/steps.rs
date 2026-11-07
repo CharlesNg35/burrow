@@ -26,10 +26,10 @@ pub(super) fn conflict(core: &Core, base: &str, old_docs: &Docs, current: String
             .chain(&old_docs.list)
             .map(|d| d.text.as_str())
             .collect();
-        let written = values::credentials_in(&texts, &core.schema().root);
+        let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
         Some(summary::changes(
-            &values::veil_written(&before, &written),
-            &values::veil_written(&after, &written),
+            &hidden.value(&before),
+            &hidden.value(&after),
             &[],
         ))
     });
@@ -308,21 +308,21 @@ pub(super) fn assemble(
         .iter()
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
-    let root = &core.schema().root;
-    let (mut hashes, mut headers) = (Vec::new(), Vec::new());
-    for v in [raw, new_raw] {
-        values::hashes(v, Some(root), &mut hashes);
-        values::header_values(v, &mut headers);
-        values::credentials(v, Some(root), "", &mut headers);
-    }
-    let mask = |l: &str| text::mask_secrets(&values::veil_line(l, &hashes, &headers), &fresh_pairs);
+    let texts: Vec<&str> = old_docs
+        .list
+        .iter()
+        .chain(&new_docs.list)
+        .map(|d| d.text.as_str())
+        .collect();
+    let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
+    let mask = |l: &str| text::mask_secrets(&hidden.line(l), &fresh_pairs);
     let diff =
         crate::admin::core::diff::unified(&old_docs.main().text, &new_docs.main().text, &mask);
     let file_diffs = files::diffs(old_docs, new_docs, &mask);
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let mut changes = summary::changes(
-        &values::veil_written(&values::veil_value(&old_shown, &hashes), &headers),
-        &values::veil_written(&values::veil_value(&new_shown, &hashes), &headers),
+        &hidden.value(&old_shown),
+        &hidden.value(&new_shown),
         &applied.renames,
     );
     files::note_moves(old_docs, applied, &mut changes);
