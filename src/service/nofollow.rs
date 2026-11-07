@@ -6,10 +6,7 @@ use rustix::fs::{AtFlags, Dir, FileType, Gid, Mode, OFlags, Uid};
 
 use crate::base::failure::Failure;
 
-const FOLDER: OFlags = OFlags::RDONLY
-    .union(OFlags::DIRECTORY)
-    .union(OFlags::NOFOLLOW)
-    .union(OFlags::CLOEXEC);
+const FOLDER: OFlags = crate::base::fs::NO_FOLLOW_FOLDER;
 
 pub(crate) fn failed(what: &str, path: &Path, e: impl std::fmt::Display) -> Failure {
     Failure::new(format!("cannot {what} {}: {e}", path.display()))
@@ -28,18 +25,15 @@ pub fn folder(path: &Path) -> Result<OwnedFd, Failure> {
 pub fn made_subfolder(parent: &Path, name: &OsStr) -> Result<OwnedFd, Failure> {
     let path = parent.join(name);
     let holder = folder(parent)?;
-    if let Err(e) = rustix::fs::mkdirat(&holder, name, Mode::from_bits_truncate(0o700))
-        && e != rustix::io::Errno::EXIST
-    {
-        return Err(failed("create", &path, e));
-    }
-    rustix::fs::openat(&holder, name, FOLDER, Mode::empty()).map_err(|e| {
-        failed(
-            "open",
-            &path,
-            format!("{e}; it must be a folder, not a link"),
-        )
-    })
+    crate::base::fs::folder_at(&holder, name, 0o700)
+        .map(|(dir, _)| dir)
+        .map_err(|e| {
+            failed(
+                "make or open",
+                &path,
+                format!("{e}; it must be a folder, not a link"),
+            )
+        })
 }
 
 pub fn subfolder(

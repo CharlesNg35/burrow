@@ -396,3 +396,28 @@ fn a_drop_in_with_a_second_name_is_read_but_never_written() {
     assert!(write_set(&main, &before, &after).is_err());
     assert_eq!(std::fs::read_to_string(&other).unwrap(), "services: {}\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_new_drop_in_folder_swapped_for_a_link_is_never_followed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("server.yaml");
+    std::fs::write(&main, "listen: 1\n").unwrap();
+    let elsewhere = dir.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::set_permissions(&elsewhere, std::fs::Permissions::from_mode(0o755)).unwrap();
+    super::super::platform::SWAP_MADE.with(|f| f.replace(Some(elsewhere.clone())));
+    let made = super::super::platform::stage_create(
+        &dir.path().join("server.d/new.yaml"),
+        "visitors: {}\n",
+        &main,
+    );
+    super::super::platform::SWAP_MADE.with(|f| f.replace(None));
+    if let Ok(p) = &made {
+        p.discard();
+    }
+    let mode = std::fs::metadata(&elsewhere).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o755, "the link's target keeps its mode");
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+}
