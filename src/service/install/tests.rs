@@ -1,0 +1,164 @@
+#![cfg(all(test, unix))]
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use super::place_files;
+use crate::base::failure::Failure;
+use crate::install::{Manifest, Platform};
+use crate::service::drop_ins::Snapshot;
+use crate::service::previous::Undo;
+use crate::service::{Backend, Status};
+
+struct FailAt {
+    step: &'static str,
+    failed: Cell<bool>,
+    log: RefCell<Vec<String>>,
+}
+
+impl FailAt {
+    fn new(step: &'static str) -> FailAt {
+        FailAt {
+            step,
+            failed: Cell::new(false),
+            log: RefCell::default(),
+        }
+    }
+
+    fn run(&self, what: &str, account: &str) -> Result<(), Failure> {
+        self.log.borrow_mut().push(format!("{what} {account}"));
+        if what == self.step && !self.failed.replace(true) {
+            return Err(Failure::new(format!("{what} failed")));
+        }
+        Ok(())
+    }
+
+    fn ran(&self, what: &str) -> bool {
+        self.log.borrow().iter().any(|l| l == what)
+    }
+}
+
+impl Backend for FailAt {
+    fn kind(&self) -> &'static str {
+        "fail-at"
+    }
+    fn render(&self, _: &Manifest) -> String {
+        String::new()
+    }
+    fn ensure_account(&self, _: &str) -> Result<bool, Failure> {
+        Ok(false)
+    }
+    fn remove_account(&self, account: &str) -> Result<(), Failure> {
+        self.run("remove", account)
+    }
+    fn can_read(&self, _: &str, _: &Path) -> bool {
+        true
+    }
+    fn secure_file(&self, _: &Path, account: &str) -> Result<(), Failure> {
+        self.run("secure", account)
+    }
+    fn config_folder(&self, _: &Path, _: &Path, account: &str, _: bool) -> Result<(), Failure> {
+        self.run("folder", account)
+    }
+    fn prepare_dirs(&self, _: &str) -> Result<(), Failure> {
+        Ok(())
+    }
+    fn write_env(&self, m: &Manifest, _: &BTreeMap<String, String>) -> Result<(), Failure> {
+        self.run("env", &m.account)
+    }
+    fn install(&self, m: &Manifest) -> Result<(), Failure> {
+        self.run("install", &m.account)
+    }
+    fn uninstall(&self, m: &Manifest) -> Result<(), Failure> {
+        self.run("uninstall", &m.account)
+    }
+    fn start(&self, m: &Manifest) -> Result<(), Failure> {
+        self.run("start", &m.account)
+    }
+    fn stop(&self, m: &Manifest) -> Result<(), Failure> {
+        self.run("stop", &m.account)
+    }
+    fn reload(&self, _: &Manifest) -> Result<(), Failure> {
+        Ok(())
+    }
+    fn status(&self, _: &Manifest) -> Status {
+        Status {
+            installed: true,
+            running: false,
+            pid: None,
+            detail: String::new(),
+        }
+    }
+}
+
+fn write(path: &Path, text: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    crate::base::fs::write_private(path, text).unwrap();
+}
+
+#[test]
+fn a_reinstall_that_fails_after_the_copy_puts_the_previous_files_back() {
+    for step in ["secure", "folder", "env", "install", "finish", "none"] {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("mine.yaml");
+        write(&source, "new config\n");
+        write(&dir.path().join("mine.d/a.yaml"), "# the new a\n");
+        let folder = dir.path().join("etc");
+        let config = folder.join("server.yaml");
+        write(&config, "old config\n");
+        write(&folder.join("server.d/a.yaml"), "# the old a\n");
+        let (binary, kept) = (dir.path().join("burrow"), dir.path().join("burrow.kept"));
+        write(&binary, "new binary");
+        write(&kept, "old binary");
+        let old = Manifest {
+            config: config.clone(),
+            env_file: Some(dir.path().join("server.env")),
+            account: "old".into(),
+            ..crate::service::tests::record(Platform::Linux)
+        };
+        let new = Manifest {
+            account: "new".into(),
+            ..old.clone()
+        };
+        let undo = Undo {
+            manifest: old,
+            config: crate::service::system::read_plain_file(&config),
+            drop_ins: Snapshot::take(&config),
+            env: [("SECRET".to_string(), "old".to_string())].into(),
+            binary: Some((kept.clone(), binary.clone())),
+        };
+        let backend = FailAt::new(step);
+        let env = [("SECRET".to_string(), "new".to_string())].into();
+        let placed = place_files(
+            &backend,
+            Some(&undo),
+            (&source, &folder),
+            (&new, &env, &[]),
+            |_| backend.run("finish", "new"),
+            &mut Vec::new(),
+        );
+        let read = |p: &Path| std::fs::read_to_string(p).unwrap();
+        if step == "none" {
+            placed.unwrap();
+            assert_eq!(read(&config), "new config\n");
+            assert_eq!(read(&folder.join("server.d/a.yaml")), "# the new a\n");
+            assert_eq!(read(&binary), "new binary");
+            assert!(!backend.ran("install old"));
+            continue;
+        }
+        assert!(placed.is_err(), "{step}");
+        assert_eq!(read(&config), "old config\n", "{step}");
+        assert_eq!(
+            read(&folder.join("server.d/a.yaml")),
+            "# the old a\n",
+            "{step}"
+        );
+        assert_eq!(read(&binary), "old binary", "{step}");
+        assert!(!kept.exists(), "{step}");
+        assert!(backend.ran("secure old"), "{step}");
+        let env_written = ["env", "install", "finish"].contains(&step);
+        assert_eq!(backend.ran("env old"), env_written, "{step}");
+        let unit_written = ["install", "finish"].contains(&step);
+        assert_eq!(backend.ran("install old"), unit_written, "{step}");
+    }
+}

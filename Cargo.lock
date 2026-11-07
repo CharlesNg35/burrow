@@ -501,6 +501,7 @@ dependencies = [
  "tracing-subscriber",
  "webpki-roots",
  "which",
+ "winapi-util",
  "windows-service",
  "zeroize",
 ]

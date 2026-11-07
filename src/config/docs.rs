@@ -255,7 +255,25 @@ pub fn read_only(path: &Path) -> Option<ReadOnly> {
     if meta.permissions().readonly() {
         return Some(ReadOnly::Marked);
     }
+    #[cfg(windows)]
+    if links(path).is_some_and(|n| n > 1) {
+        return Some(ReadOnly::HardLink);
+    }
     (!crate::base::access::can_write(path)).then_some(ReadOnly::NotWritable)
+}
+
+#[cfg(windows)]
+fn links(path: &Path) -> Option<u64> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .ok()?;
+    winapi_util::file::information(&file)
+        .ok()
+        .map(|i| i.number_of_links())
 }
 
 pub fn taken(main: &Path, name: &str) -> bool {
@@ -348,5 +366,17 @@ mod tests {
         let mut other_main = two;
         other_main.list[0].name = "other.yaml".into();
         assert_eq!(Docs::unbundle(main, &other_main.bundle()), None);
+    }
+
+    #[test]
+    fn a_file_with_a_second_name_is_read_only_on_every_system() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.yaml");
+        std::fs::write(&file, "services: {}\n").unwrap();
+        assert_eq!(read_only(&file), None);
+        std::fs::hard_link(&file, dir.path().join("b.yaml")).unwrap();
+        assert_eq!(read_only(&file), Some(ReadOnly::HardLink));
+        std::fs::remove_file(dir.path().join("b.yaml")).unwrap();
+        assert_eq!(read_only(&file), None);
     }
 }

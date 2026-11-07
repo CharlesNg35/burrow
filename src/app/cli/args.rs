@@ -328,8 +328,7 @@ pub struct InitArgs {
     pub update: bool,
     #[arg(
         long,
-        requires = "update",
-        help = "With --update: write the changes without asking"
+        help = "Ask nothing, for scripts: take each question's default (no website, no remote updates, no replacing an existing file) and stop with an error where a value is missing; with --update: write the changes without asking"
     )]
     pub yes: bool,
     #[arg(long, help = "Overwrite an existing file")]
