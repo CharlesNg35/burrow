@@ -193,11 +193,27 @@ impl Drop for StartAgain<'_> {
 pub(super) struct Undo {
     pub(super) manifest: Manifest,
     pub(super) config: Option<Vec<u8>>,
+    pub(super) drop_ins: super::drop_ins::Snapshot,
     pub(super) env: BTreeMap<String, String>,
     pub(super) binary: Option<(PathBuf, PathBuf)>,
 }
 
 impl Undo {
+    pub(super) fn restore_files(&self, backend: &dyn Backend) -> Result<(), Failure> {
+        let p = &self.manifest;
+        let mut steps: Vec<Result<(), Failure>> = Vec::new();
+        if let Some(bytes) = &self.config {
+            steps.push(system::write_file_mode(&p.config, bytes, 0o600));
+            steps.push(backend.secure_file(&p.config, &p.account));
+        }
+        steps.push(
+            self.drop_ins
+                .put_back(backend, &p.config, &p.account, p.admin_writable),
+        );
+        steps.push(backend.config_folder(p.folder(), &p.config, &p.account, p.admin_writable));
+        steps.into_iter().find_map(Result::err).map_or(Ok(()), Err)
+    }
+
     pub(super) fn put_back(
         self,
         backend: &dyn Backend,
@@ -208,12 +224,7 @@ impl Undo {
     ) -> Failure {
         let _ = backend.stop(new);
         let p = &self.manifest;
-        let mut steps: Vec<Result<(), Failure>> = Vec::new();
-        if let Some(bytes) = &self.config {
-            steps.push(system::write_file_mode(&p.config, bytes, 0o600));
-            steps.push(backend.secure_file(&p.config, &p.account));
-        }
-        steps.push(backend.config_folder(p.folder(), &p.config, &p.account, p.admin_writable));
+        let mut steps: Vec<Result<(), Failure>> = vec![self.restore_files(backend)];
         if p.env_file.is_some() {
             steps.push(backend.write_env(p, &self.env));
         }

@@ -169,12 +169,14 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let undo = again.manifest.map(|p| Undo {
         manifest: p.clone(),
         config: system::read_plain_file(&p.config),
+        drop_ins: super::drop_ins::Snapshot::take(&p.config),
         env: backend.read_env(p),
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
     backend.config_folder(&folder, &config, &account, writable)?;
     if source != crate::base::fs::canonical_or_same(&config) {
-        copy_config(&*backend, (&source, &config), (&account, writable), out)?;
+        copy_config(&*backend, (&source, &config), (&account, writable), out)
+            .inspect_err(|_| put_files_back(undo.as_ref(), &*backend))?;
     }
     backend.secure_file(&config, &account)?;
     backend.config_folder(&folder, &config, &account, writable)?;
@@ -424,6 +426,12 @@ fn copy_config(
         format!("copied {} -> {}", source.display(), config.display()),
     )?;
     super::drop_ins::copy(backend, (source, config), account, writable, out)
+}
+
+fn put_files_back(undo: Option<&Undo>, backend: &dyn super::Backend) {
+    if let Some(undo) = undo {
+        let _ = undo.restore_files(backend);
+    }
 }
 
 fn say_writable(checked: &Checked, folder: &Path, out: &mut dyn Write) -> Result<(), Failure> {

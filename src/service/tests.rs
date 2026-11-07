@@ -446,6 +446,7 @@ fn a_reinstall_that_does_not_run_puts_the_previous_one_back() {
     let undo = Undo {
         manifest: old.clone(),
         config: Some(b"old config".to_vec()),
+        drop_ins: Default::default(),
         env: [("SECRET".to_string(), "x".to_string())].into(),
         binary: Some((kept.clone(), binary.clone())),
     };
@@ -517,6 +518,7 @@ fn a_put_back_that_does_not_run_either_says_so() {
     let undo = Undo {
         manifest: old.clone(),
         config: Some(b"old config".to_vec()),
+        drop_ins: Default::default(),
         env: BTreeMap::new(),
         binary: None,
     };

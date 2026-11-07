@@ -10,6 +10,7 @@ use super::system;
 
 #[cfg(not(unix))]
 mod other;
+mod snapshot;
 #[cfg(unix)]
 mod unix;
 
@@ -18,6 +19,7 @@ use crate::base::output::say;
 use crate::config::docs::{self, Doc, Docs, drop_in_folder};
 #[cfg(not(unix))]
 use other as place;
+pub(super) use snapshot::Snapshot;
 #[cfg(unix)]
 use unix as place;
 
@@ -166,8 +168,22 @@ pub(super) fn copy(
     if names.is_empty() && installed.is_empty() {
         return Ok(());
     }
+    let kept = Snapshot::take(config);
     let folder = place::Folder::open(backend, (config, &to), account, writable)?;
-    let before = copied_before(&to);
+    let copied = fill(&folder, (&from, &to), (&wanted, &installed), out);
+    if copied.is_err() {
+        let _ = kept.restore(&folder, config);
+    }
+    copied
+}
+
+fn fill(
+    folder: &place::Folder,
+    (from, to): (&Path, &Path),
+    (wanted, installed): (&[&str], &[String]),
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let before = copied_before(to);
     for old in installed.iter().map(|n| file_part(n)) {
         if wanted.contains(&old) {
             continue;
@@ -193,7 +209,7 @@ pub(super) fn copy(
             )?;
         }
     }
-    for file in &wanted {
+    for file in wanted {
         let src = from.join(file);
         let text = std::fs::read(&src)
             .map_err(|e| Failure::new(format!("cannot read {}: {e}", src.display())))?;

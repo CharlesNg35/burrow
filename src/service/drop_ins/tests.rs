@@ -343,3 +343,70 @@ fn a_linked_source_file_is_installed_read_only_with_its_content() {
     );
     assert!(!read_only(&to.join("own.yaml")));
 }
+
+#[test]
+fn a_copy_that_fails_part_way_puts_the_installed_folder_back() {
+    let p = place();
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    write(&p.source, &server(""));
+    write(&p.source.with_file_name("mine.d/a.yaml"), "services: {}\n");
+    write(&p.source.with_file_name("mine.d/b.yaml"), "clients: {}\n");
+    let to = p.config.with_file_name("server.d");
+    write(&to.join("a.yaml"), "# the old a\n");
+    write(&to.join("old.yaml"), "# copied before\n");
+    write(&to.join(COPIED), "old.yaml");
+    std::fs::create_dir(to.join("b.yaml")).unwrap();
+    let e = copy(
+        &backend,
+        (&p.source, &p.config),
+        "burrow",
+        true,
+        &mut Vec::new(),
+    )
+    .expect_err("b.yaml cannot replace a folder");
+    assert!(e.message.contains("b.yaml"), "{}", e.message);
+    let read = |f: &str| std::fs::read_to_string(to.join(f)).unwrap();
+    assert_eq!(read("a.yaml"), "# the old a\n");
+    assert_eq!(read("old.yaml"), "# copied before\n");
+    assert_eq!(read(COPIED), "old.yaml");
+}
+
+#[test]
+fn a_reinstall_put_back_restores_the_drop_ins_it_found() {
+    let p = place();
+    let blog = "  blog: { client: home, target: 81, bind: 7901 }\n";
+    write(&p.config, &server(blog));
+    let to = p.config.with_file_name("server.d");
+    write(&to.join("apps.yaml"), "# kept by hand\nservices: {}\n");
+    let old = crate::install::Manifest {
+        config: p.config.clone(),
+        env_file: None,
+        ..crate::service::tests::record(crate::install::Platform::Linux)
+    };
+    let undo = crate::service::previous::Undo {
+        manifest: old.clone(),
+        config: crate::service::system::read_plain_file(&p.config),
+        drop_ins: Snapshot::take(&p.config),
+        env: BTreeMap::new(),
+        binary: None,
+    };
+    write(&p.config, &server(""));
+    write(&to.join("apps.yaml"), &format!("services:\n{blog}"));
+    write(&to.join("more.yaml"), "clients: {}\n");
+    write(&to.join(COPIED), "apps.yaml\nmore.yaml");
+    let f = undo.put_back(
+        &crate::service::tests::Recorder(Default::default(), true),
+        &old,
+        "exited with status 3",
+        |_| Ok(()),
+        &mut Vec::new(),
+    );
+    assert!(f.message.contains("runs again"), "{}", f.message);
+    assert_eq!(std::fs::read_to_string(&p.config).unwrap(), server(blog));
+    assert_eq!(
+        std::fs::read_to_string(to.join("apps.yaml")).unwrap(),
+        "# kept by hand\nservices: {}\n"
+    );
+    assert!(!to.join("more.yaml").exists());
+    assert!(!to.join(COPIED).exists());
+}
