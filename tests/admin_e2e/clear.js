@@ -7,7 +7,7 @@
   scrollTo(0, document.documentElement.scrollHeight);
   await frames();
   await new Promise(r => setTimeout(r, 300));
-  const stack = rects(STACK);
+  const stack = [...document.querySelectorAll(STACK)].map(e => [e.getBoundingClientRect(), e.matches('[data-sticky-bar]') ? 'the save bar' : 'a toast']).filter(([r]) => r.width > 1 && r.height > 1);
   const seen = el => {
     const r = el.getBoundingClientRect();
     let { top, bottom, left, right } = r;
@@ -24,10 +24,10 @@
     if (c.closest('[data-sticky-bar]') || c.querySelector(STACK)) continue;
     const r = seen(c);
     if (r.bottom - r.top < 2 || r.right - r.left < 2) continue;
-    for (const s of stack) {
+    for (const [s, kind] of stack) {
       if (r.left < s.right && s.left < r.right && r.top < s.bottom && s.top < r.bottom - 1) {
         const what = (c.getAttribute('data-testid') || (c.innerText || '').trim().split('\n')[0]).slice(0, 60);
-        out.push(`"${what}" ends at ${r.bottom.toFixed(1)}, under a toast or the save bar from ${s.top.toFixed(1)} (scrolled to the end, ${innerWidth} px wide)`);
+        out.push(`"${what}" ends at ${r.bottom.toFixed(1)}, under ${kind} from ${s.top.toFixed(1)} (scrolled to the end, ${innerWidth} px wide)`);
         break;
       }
     }
