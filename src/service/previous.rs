@@ -270,6 +270,9 @@ impl Undo {
     ) -> Vec<Result<(), Failure>> {
         let p = &self.manifest;
         let mut steps = vec![self.restore_files(backend)];
+        if new.account != p.account && p.web_state.is_some() {
+            steps.push(backend.state_folder(p).map(drop));
+        }
         self.absent.remove();
         if reached >= Reached::Env && p.env_file.is_some() {
             steps.push(backend.write_env(p, &self.env));

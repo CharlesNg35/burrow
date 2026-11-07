@@ -9,6 +9,22 @@ use crate::service::{Backend, system};
 struct Kept {
     bytes: Vec<u8>,
     put: Put,
+    owner: Option<(u32, u32)>,
+}
+
+fn owner(path: &Path) -> Option<(u32, u32)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::symlink_metadata(path)
+            .ok()
+            .map(|m| (m.uid(), m.gid()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
 }
 
 #[derive(Debug, Default)]
@@ -44,7 +60,11 @@ impl Snapshot {
                     Some(_) => Put::Locked,
                     None => Put::Config,
                 };
-                let kept = system::read_plain_file(&path).map(|bytes| Kept { bytes, put });
+                let kept = system::read_plain_file(&path).map(|bytes| Kept {
+                    bytes,
+                    put,
+                    owner: owner(&path),
+                });
                 (name, kept)
             })
             .collect();
@@ -58,7 +78,9 @@ impl Snapshot {
             && self.files.iter().all(|(name, kept)| {
                 now.contains(name)
                     && kept.as_ref().is_none_or(|k| {
-                        system::read_plain_file(&to.join(name)).as_ref() == Some(&k.bytes)
+                        let path = to.join(name);
+                        system::read_plain_file(&path).as_ref() == Some(&k.bytes)
+                            && owner(&path) == k.owner
                     })
             })
     }
