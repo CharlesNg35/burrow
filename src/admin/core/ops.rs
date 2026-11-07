@@ -138,6 +138,12 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                     return Err(err(format!("{} does not exist", show(path))));
                 }
                 places.retain(|(placed, _)| placed != path);
+                let pairs = renames
+                    .iter()
+                    .map(|r: &Rename| (r.path.as_slice(), r.to.as_str()));
+                for at in burrow_config::renames::arrivals(pairs, path) {
+                    renames.remove(at);
+                }
             }
             Op::Rename { path, to, refs } => {
                 rename_entry(&mut target, path, to, *refs, &mut renames)?;
