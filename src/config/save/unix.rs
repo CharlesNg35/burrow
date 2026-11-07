@@ -152,11 +152,15 @@ pub(super) fn owner_change(
     owner: (u32, u32),
     mine: (u32, u32),
     root: bool,
-) -> (Option<u32>, Option<u32>) {
+    groups: &[u32],
+    mode: u32,
+) -> (Option<u32>, Option<u32>, u32) {
     match (root, owner == mine) {
-        (true, true) => (None, None),
-        (true, false) => (Some(owner.0), Some(owner.1)),
-        (false, _) => (None, (owner.1 != mine.1).then_some(owner.1)),
+        (true, true) => (None, None, mode),
+        (true, false) => (Some(owner.0), Some(owner.1), mode),
+        (false, _) if owner.1 == mine.1 => (None, None, mode),
+        (false, _) if groups.contains(&owner.1) => (None, Some(owner.1), mode),
+        (false, _) => (None, None, mode & !0o070),
     }
 }
 
@@ -168,6 +172,17 @@ fn write_temp(
     owner: (u32, u32),
 ) -> std::io::Result<()> {
     let _ = rustix::fs::unlinkat(dir, temp, AtFlags::empty());
+    let mine = (
+        rustix::process::geteuid().as_raw(),
+        rustix::process::getegid().as_raw(),
+    );
+    let groups: Vec<u32> = rustix::process::getgroups()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|g| g.as_raw())
+        .collect();
+    let root = rustix::process::geteuid().is_root();
+    let (uid, gid, mode) = owner_change(owner, mine, root, &groups, mode);
     let written = (|| -> std::io::Result<()> {
         let mut f = std::fs::File::from(rustix::fs::openat(
             dir,
@@ -177,11 +192,6 @@ fn write_temp(
         )?);
         f.write_all(text.as_bytes())?;
         f.sync_all()?;
-        let mine = (
-            rustix::process::geteuid().as_raw(),
-            rustix::process::getegid().as_raw(),
-        );
-        let (uid, gid) = owner_change(owner, mine, rustix::process::geteuid().is_root());
         if uid.is_some() || gid.is_some() {
             std::os::unix::fs::fchown(&f, uid, gid)?;
         }

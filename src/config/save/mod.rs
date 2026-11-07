@@ -237,25 +237,40 @@ mod tests {
     #[test]
     fn a_file_of_another_user_that_burrow_may_write_keeps_its_group_and_mode() {
         let burrow = (1000, 1000);
+        let change = |owner, mine, root| unix::owner_change(owner, mine, root, &[1000, 50], 0o660);
         assert_eq!(
-            unix::owner_change((0, 50), burrow, false),
-            (None, Some(50)),
+            change((0, 50), burrow, false),
+            (None, Some(50), 0o660),
             "root:admins 0660 becomes burrow:admins 0660"
         );
+        assert_eq!(change((1000, 50), burrow, false), (None, Some(50), 0o660));
+        assert_eq!(change(burrow, burrow, false), (None, None, 0o660));
+        assert_eq!(change((0, 50), (0, 0), true), (Some(0), Some(50), 0o660));
         assert_eq!(
-            unix::owner_change((1000, 50), burrow, false),
-            (None, Some(50))
+            change((1000, 50), (0, 0), true),
+            (Some(1000), Some(50), 0o660)
         );
-        assert_eq!(unix::owner_change(burrow, burrow, false), (None, None));
+        assert_eq!(change((0, 0), (0, 0), true), (None, None, 0o660));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_in_a_group_burrow_is_not_in_is_saved_without_giving_that_group_access() {
+        let burrow = (1000, 1000);
         assert_eq!(
-            unix::owner_change((0, 50), (0, 0), true),
-            (Some(0), Some(50))
+            unix::owner_change((1000, 0), burrow, false, &[1000, 50], 0o640),
+            (None, None, 0o600),
+            "burrow:root 0640 becomes burrow:burrow 0600"
         );
         assert_eq!(
-            unix::owner_change((1000, 50), (0, 0), true),
-            (Some(1000), Some(50))
+            unix::owner_change((1000, 0), burrow, false, &[], 0o664),
+            (None, None, 0o604)
         );
-        assert_eq!(unix::owner_change((0, 0), (0, 0), true), (None, None));
+        assert_eq!(
+            unix::owner_change((1000, 0), (0, 0), true, &[0], 0o640),
+            (Some(1000), Some(0), 0o640),
+            "root keeps the owner and group as they were"
+        );
     }
 
     #[test]
