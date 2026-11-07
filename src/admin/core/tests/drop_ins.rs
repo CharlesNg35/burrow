@@ -782,3 +782,13 @@ fn the_config_file_view_puts_a_duplicate_where_the_server_reads_it() {
     assert!(!body.contains("# from server.d/zz.yaml"), "{body}");
     assert!(body.contains("target: 3000"), "{body}");
 }
+
+#[test]
+fn a_server_without_drop_ins_lists_its_main_file_with_its_items() {
+    let set = Set::new(&[]);
+    let state = set.core.state(&set.session(true)).unwrap();
+    assert_eq!(state.file.files.len(), 1);
+    let main = &state.file.files[0];
+    assert_eq!(main.name, "server.yaml");
+    assert!(main.items.contains(&p(&["services", "web"])), "{main:?}");
+}

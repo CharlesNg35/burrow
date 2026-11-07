@@ -357,9 +357,6 @@ impl Core {
     }
 
     fn config_files(&self, docs: &Docs) -> Vec<ConfigFile> {
-        if docs.list.len() < 2 {
-            return Vec::new();
-        }
         let owners = plan::files::Owners::of(docs);
         docs.list
             .iter()
