@@ -212,6 +212,7 @@ mod tests {
         d.span = Some(Span {
             start: pos(at),
             end: pos(at + 2),
+            file: crate::config::tree::FileId::MAIN,
         });
         let shown = m.convert(&d);
         assert_eq!(

@@ -106,9 +106,9 @@ fn a_sites_own_certificate_files_are_set_on_every_admin_path() {
     for ops in cases {
         let c = allowed(&core, &s, &ops);
         assert!(
-            super::yaml_has(&c.new_text, &other),
+            super::yaml_has(&c.new_docs.main().text, &other),
             "{ops:?}: {}",
-            c.new_text
+            c.new_docs.main().text
         );
     }
 }
@@ -402,9 +402,9 @@ fn a_short_web_form_turns_into_one_with_files_and_back() {
         }];
         let c = allowed(&core, &s, &ops);
         assert!(
-            super::yaml_has(&c.new_text, &site.file("b.pem")),
+            super::yaml_has(&c.new_docs.main().text, &site.file("b.pem")),
             "{}",
-            c.new_text
+            c.new_docs.main().text
         );
     }
     let core = core_for(&site.w.text);

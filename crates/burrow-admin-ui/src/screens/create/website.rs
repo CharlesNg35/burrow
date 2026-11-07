@@ -272,6 +272,18 @@ fn problem_of(f: Fields) -> (Memo<Option<String>>, Memo<bool>) {
     (problem, at_field)
 }
 
+fn open_tls_field(name: &str) {
+    let at = ServiceEntry::WEB
+        .of(name)
+        .into_iter()
+        .chain([burrow_config::WebSite::TLS.key().to_string()])
+        .collect::<Vec<_>>();
+    set_timeout(
+        move || crate::form::go_to_field(&at),
+        std::time::Duration::from_millis(150),
+    );
+}
+
 #[component]
 pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl IntoView {
     let s = store();
@@ -374,15 +386,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         draft_name.set(String::new());
         go(Route::Detail(ServiceEntry::section().into(), name.clone()));
         if tls.get_untracked() == crate::domain::website::files_choice() {
-            let at = ServiceEntry::WEB
-                .of(&name)
-                .into_iter()
-                .chain([burrow_config::WebSite::TLS.key().to_string()])
-                .collect::<Vec<_>>();
-            set_timeout(
-                move || crate::form::go_to_field(&at),
-                std::time::Duration::from_millis(150),
-            );
+            open_tls_field(&name);
         }
     };
     let diagram = Signal::derive(move || {

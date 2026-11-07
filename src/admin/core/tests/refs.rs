@@ -68,7 +68,7 @@ fn an_admin_plan_writes_environment_and_file_references_like_the_file() {
     ] {
         let c = plan::compute(&core, &s, &base(), std::slice::from_ref(&op))
             .unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
-        assert!(c.new_text.contains(written), "{}", c.new_text);
+        assert!(c.new_docs.main().text.contains(written), "{}", c.new_docs.main().text);
         let shown = format!(
             "{}{}",
             c.plan.diff.unified,

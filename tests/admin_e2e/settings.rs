@@ -54,7 +54,14 @@ async fn the_five_tabs(c: &mut Ctx) {
     assert_eq!(
         c.ui.all_attrs(&format!("{TABS} [role=tab]"), "data-tab")
             .await,
-        ["server", "connections", "proxy", "monitoring", "files", "file"]
+        [
+            "server",
+            "connections",
+            "proxy",
+            "monitoring",
+            "files",
+            "file"
+        ]
     );
     c.ui.wait_for("[data-testid=settings] [data-schema=listen]", SECS)
         .await;

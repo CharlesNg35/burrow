@@ -119,7 +119,7 @@ fn dns_credentials_and_where_they_go_are_set_from_the_admin() {
     ] {
         let c = plan::compute(&core, &s, &base(), std::slice::from_ref(&op));
         let c = c.unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
-        assert!(c.new_text.contains(written), "{}", c.new_text);
+        assert!(c.new_docs.main().text.contains(written), "{}", c.new_docs.main().text);
         assert!(
             !c.plan.diff.unified.contains("cf-literal-token")
                 && !serde_json::to_string(&c.plan.changes)
@@ -149,7 +149,7 @@ fn a_target_ca_is_set_from_the_admin_alone_or_with_the_whole_target_tls() {
         let base = text::rev(&core.read().unwrap());
         let c = plan::compute(&core, &s, &base, std::slice::from_ref(&op))
             .unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
-        assert!(super::yaml_has(&c.new_text, &d.ca), "{}", c.new_text);
+        assert!(super::yaml_has(&c.new_docs.main().text, &d.ca), "{}", c.new_docs.main().text);
     }
 }
 

@@ -13,7 +13,6 @@ use crate::admin::core::*;
 use crate::config::settings::ServerSettings;
 use crate::metrics::Status;
 
-use super::one;
 use super::{MemStore, World, apply_now, core_for, core_running, p, session, settings_of, world};
 
 #[test]
