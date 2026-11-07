@@ -202,7 +202,10 @@ services:
     web: ha.example.com
 ```
 
-Home Assistant's pages and apps keep a WebSocket open (`/api/websocket`), which burrow passes through like any other request. Home Assistant blocks requests from a reverse proxy it does not trust, as its [HTTP integration docs](https://www.home-assistant.io/integrations/http/) say. So in Home Assistant, open Settings > System > Network, and under HTTP server turn on Trust X-Forwarded-For. Then add the address of the machine that runs the burrow client to Trusted proxies (`127.0.0.1` when the client runs on the Home Assistant machine).
+Home Assistant's pages and apps keep a WebSocket open (`/api/websocket`), which burrow passes through like any other request. Home Assistant blocks requests from a reverse proxy it does not trust, as its [HTTP integration docs](https://www.home-assistant.io/integrations/http/) say. So in Home Assistant:
+
+1. Open Settings > System > Network, and under HTTP server turn on Trust X-Forwarded-For.
+2. Add the address of the machine that runs the burrow client to Trusted proxies (`127.0.0.1` when the client runs on the Home Assistant machine).
 
 ### Nextcloud behind Cloudflare
 
