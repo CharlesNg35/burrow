@@ -411,3 +411,114 @@ fn a_reinstall_put_back_restores_the_drop_ins_it_found() {
     assert!(!to.join("more.yaml").exists());
     assert!(!to.join(COPIED).exists());
 }
+
+#[cfg(unix)]
+fn owner(path: &Path) -> (u32, u32) {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path).unwrap();
+    (meta.uid(), meta.gid())
+}
+
+#[cfg(unix)]
+fn account_drop_ins(p: &Place) -> Option<((u32, u32), std::path::PathBuf)> {
+    if !rustix::process::geteuid().is_root() {
+        return None;
+    }
+    let ids = crate::base::process::account_ids("nobody").ok()?;
+    let to = p.config.with_file_name("server.d");
+    write(&p.config, "listen: 1\n");
+    write(&to.join("apps.yaml"), "services: {}\n");
+    write(&to.join("locked.yaml"), "clients: {}\n");
+    let shared = p.config.with_file_name("shared.yaml");
+    write(&shared, "visitors: {}\n");
+    std::fs::hard_link(&shared, to.join("twice.yaml")).unwrap();
+    for path in [to.join("apps.yaml"), shared, to.clone()] {
+        std::os::unix::fs::chown(path, Some(ids.0), Some(ids.1)).unwrap();
+    }
+    std::os::unix::fs::chown(to.join("locked.yaml"), Some(0), Some(ids.1)).unwrap();
+    Some((ids, to))
+}
+
+#[cfg(unix)]
+fn nobody(config: &Path) -> crate::install::Manifest {
+    crate::install::Manifest {
+        config: config.to_path_buf(),
+        account: "nobody".into(),
+        env_file: None,
+        log_file: config.with_file_name("logs/server.log"),
+        copied_binary: false,
+        created_account: false,
+        ..crate::service::tests::record(crate::install::Platform::Linux)
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn an_uninstall_that_keeps_the_config_gives_the_account_drop_ins_to_root() {
+    let p = place();
+    let Some((ids, to)) = account_drop_ins(&p) else {
+        return;
+    };
+    let m = nobody(&p.config);
+    crate::service::uninstall::give_kept_to_root(
+        &m,
+        std::slice::from_ref(&p.config),
+        Some(m.folder()),
+    );
+    assert_eq!(owner(&to.join("apps.yaml")), (0, 0));
+    assert_eq!(owner(&to), (0, 0));
+    assert_eq!(
+        owner(&to.join("locked.yaml")),
+        (0, ids.1),
+        "a locked file stays as it is"
+    );
+    assert_eq!(
+        owner(&to.join("twice.yaml")),
+        ids,
+        "a file with two links is not followed"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_elsewhere_gives_the_old_drop_ins_to_root_unless_the_new_config_uses_them() {
+    let p = place();
+    let Some((ids, to)) = account_drop_ins(&p) else {
+        return;
+    };
+    let old = nobody(&p.config);
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    let release = |new: &crate::install::Manifest| {
+        crate::service::previous::release_previous(&backend, &old, new, &mut Vec::new()).unwrap()
+    };
+    release(&nobody(&p.config.with_file_name("server.yml")));
+    assert_eq!(
+        owner(&to.join("apps.yaml")),
+        ids,
+        "server.yml uses server.d too"
+    );
+    release(&nobody(&p.config.with_file_name("other/server.yaml")));
+    assert_eq!(owner(&to.join("apps.yaml")), (0, 0));
+    assert_eq!(owner(&to), (0, 0));
+    assert_eq!(owner(&to.join("locked.yaml")), (0, ids.1));
+}
+
+#[cfg(unix)]
+#[test]
+fn old_drop_ins_are_shared_when_another_install_reads_the_same_folder() {
+    let old = Path::new("/etc/burrow/home/server.yaml");
+    let m = |config: &str| crate::install::Manifest {
+        config: config.into(),
+        ..crate::service::tests::record(crate::install::Platform::Linux)
+    };
+    let same = [m("/etc/burrow/home/server.yml")];
+    assert!(crate::service::previous::shares_drop_ins(old, same.iter()));
+    let apart = [
+        m("/etc/burrow/away/server.yaml"),
+        m("/etc/burrow/home/client.yaml"),
+    ];
+    assert!(!crate::service::previous::shares_drop_ins(
+        old,
+        apart.iter()
+    ));
+}

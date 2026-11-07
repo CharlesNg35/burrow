@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
-use super::give_history;
+use super::uninstall::{give_drop_ins_to_root, give_history};
 use super::{
     Backend, admin_history, delete_hint, install_args, is_source, save_manifest, say, stray, system,
 };
@@ -279,6 +279,15 @@ impl Undo {
     }
 }
 
+#[cfg(unix)]
+pub(super) fn shares_drop_ins<'a>(
+    config: &Path,
+    mut others: impl Iterator<Item = &'a Manifest>,
+) -> bool {
+    let folder = crate::config::docs::drop_in_folder(config);
+    others.any(|o| crate::config::docs::drop_in_folder(&o.config) == folder)
+}
+
 pub(super) fn release_previous(
     backend: &dyn Backend,
     old: &Manifest,
@@ -312,6 +321,9 @@ pub(super) fn release_previous(
         {
             let _ = system::give_plain_file(&old.config, 0, 0);
             give_history(&old.config, 0, 0);
+            if !shares_drop_ins(&old.config, others.iter().chain([new])) {
+                give_drop_ins_to_root(&old.config, &old.account);
+            }
         }
         if !is_source(&old.config, &[&old.source_config, &new.source_config]) {
             say(
