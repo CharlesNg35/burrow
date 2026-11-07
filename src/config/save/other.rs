@@ -45,7 +45,8 @@ impl Pending {
                     }
                     return Err(e);
                 }
-                std::fs::remove_file(&self.spare)
+                let _ = std::fs::remove_file(&self.spare);
+                Ok(())
             }
             None => {
                 let placed = match hard_link(&self.spare, &self.real) {
