@@ -75,19 +75,12 @@ impl Folder {
             .map_err(|e| failed("set permissions on", to, e))
     }
 
-    fn settle_note(&self) -> Result<(), Failure> {
-        let shown = self.shown.join(super::COPIED);
-        let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-        let Ok(f) = rustix::fs::openat(&self.dir, super::COPIED, flags, Mode::empty()) else {
+    fn settle_entry(&self, name: &str, put: Put) -> Result<(), Failure> {
+        let shown = self.shown.join(name);
+        let Some(f) = plain_at(&self.dir, name) else {
             return Ok(());
         };
-        let plain = rustix::fs::fstat(&f).is_ok_and(|st| {
-            FileType::from_raw_mode(st.st_mode) == FileType::RegularFile && st.st_nlink == 1
-        });
-        if !plain {
-            return Ok(());
-        }
-        let (owner, mode) = owner_and_mode(Put::Note, (self.owner, self.group), self.writable);
+        let (owner, mode) = owner_and_mode(put, (self.owner, self.group), self.writable);
         if let Some((uid, gid)) = owner {
             std::os::unix::fs::fchown(&f, Some(uid), Some(gid))
                 .map_err(|e| failed("give", &shown, e))?;
@@ -97,10 +90,28 @@ impl Folder {
     }
 
     pub(super) fn put(&self, file: &str, text: &[u8], put: Put) -> Result<(), Failure> {
+        let (owner, mode) = owner_and_mode(put, (self.owner, self.group), self.writable);
+        self.write(file, text, (owner, Mode::from_bits_truncate(mode)))
+    }
+
+    pub(super) fn put_exact(
+        &self,
+        file: &str,
+        text: &[u8],
+        (uid, gid, mode): (u32, u32, Mode),
+    ) -> Result<(), Failure> {
+        self.write(file, text, (Some((uid, gid)), mode))
+    }
+
+    fn write(
+        &self,
+        file: &str,
+        text: &[u8],
+        (owner, mode): (Option<(u32, u32)>, Mode),
+    ) -> Result<(), Failure> {
         let shown = self.shown.join(file);
         let temp = format!(".{file}.burrow-new");
         let _ = rustix::fs::unlinkat(&self.dir, temp.as_str(), AtFlags::empty());
-        let (owner, mode) = owner_and_mode(put, (self.owner, self.group), self.writable);
         let written = (|| -> std::io::Result<()> {
             let mut f = std::fs::File::from(rustix::fs::openat(
                 &self.dir,
@@ -113,7 +124,7 @@ impl Folder {
             if let Some((uid, gid)) = owner {
                 std::os::unix::fs::fchown(&f, Some(uid), Some(gid))?;
             }
-            rustix::fs::fchmod(&f, Mode::from_bits_truncate(mode))?;
+            rustix::fs::fchmod(&f, mode)?;
             rustix::fs::renameat(&self.dir, temp.as_str(), &self.dir, file)?;
             Ok(())
         })();
@@ -141,7 +152,40 @@ pub(in crate::service) fn settle(
     };
     let folder = Folder::of(dir, &to, account, writable);
     folder.settle_dir()?;
-    folder.settle_note()
+    folder.settle_entry(super::COPIED, Put::Note)
+}
+
+fn plain_at(dir: &OwnedFd, name: &str) -> Option<OwnedFd> {
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    if name.is_empty() || name == ".." || name.contains('/') {
+        return None;
+    }
+    let f = rustix::fs::openat(dir, name, flags, Mode::empty()).ok()?;
+    let st = rustix::fs::fstat(&f).ok()?;
+    let plain = FileType::from_raw_mode(st.st_mode) == FileType::RegularFile && st.st_nlink == 1;
+    plain.then_some(f)
+}
+
+pub(in crate::service) fn give_copied(config: &Path, account: &str, writable: bool) {
+    let to = super::drop_in_folder(config);
+    let Ok(dir) = rustix::fs::open(&to, crate::base::fs::NO_FOLLOW_FOLDER, Mode::empty()) else {
+        return;
+    };
+    let mut text = String::new();
+    let note = plain_at(&dir, super::COPIED)
+        .filter(|f| rustix::fs::fstat(f).is_ok_and(|st| st.st_uid == 0))
+        .map(|f| std::io::Read::read_to_string(&mut std::fs::File::from(f), &mut text));
+    if !matches!(note, Some(Ok(_))) {
+        return;
+    }
+    let folder = Folder::of(dir, &to, account, writable);
+    for name in text.lines().filter(|n| !n.starts_with('.')) {
+        let put = match crate::config::docs::read_only(&to.join(name)) {
+            Some(_) => Put::Locked,
+            None => Put::Config,
+        };
+        let _ = folder.settle_entry(name, put);
+    }
 }
 
 #[cfg(test)]

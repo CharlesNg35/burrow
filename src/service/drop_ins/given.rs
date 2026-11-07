@@ -109,6 +109,28 @@ fn write(dir: &OwnedFd, given: &Given) {
     }
 }
 
+fn move_parts(folder: &Path, from: (u32, u32), to: (u32, u32)) -> Option<(OwnedFd, Given)> {
+    let mut given = Given::new();
+    let dir = plain_files(folder, |name, f, st| {
+        let parts = Parts::of(st, from);
+        let name = name
+            .to_str()
+            .ok()
+            .filter(|n| *n != GIVEN && !n.contains('\n'));
+        if parts.any() && parts.give(f, to) {
+            given.extend(name.map(|n| (parts, n.to_string())));
+        }
+    })?;
+    let parts = rustix::fs::fstat(&dir).map(|st| Parts::of(&st, from));
+    if let Ok(parts) = parts
+        && parts.any()
+        && parts.give(&dir, to)
+    {
+        given.push((parts, FOLDER.to_string()));
+    }
+    Some((dir, given))
+}
+
 pub(in crate::service) fn to_root(config: &Path, account: &str) {
     let Ok(ids) = crate::base::process::account_ids(account) else {
         return;
@@ -116,26 +138,9 @@ pub(in crate::service) fn to_root(config: &Path, account: &str) {
     if ids.0 == 0 {
         return;
     }
-    let mut given = Given::new();
-    let Some(dir) = plain_files(&drop_in_folder(config), |name, f, st| {
-        let parts = Parts::of(st, ids);
-        let name = name
-            .to_str()
-            .ok()
-            .filter(|n| *n != GIVEN && !n.contains('\n'));
-        if parts.any() && parts.give(f, (0, 0)) {
-            given.extend(name.map(|n| (parts, n.to_string())));
-        }
-    }) else {
+    let Some((dir, given)) = move_parts(&drop_in_folder(config), ids, (0, 0)) else {
         return;
     };
-    let parts = rustix::fs::fstat(&dir).map(|st| Parts::of(&st, ids));
-    if let Ok(parts) = parts
-        && parts.any()
-        && parts.give(&dir, (0, 0))
-    {
-        given.push((parts, FOLDER.to_string()));
-    }
     if given.is_empty() {
         return;
     }
@@ -143,6 +148,21 @@ pub(in crate::service) fn to_root(config: &Path, account: &str) {
     all.retain(|(_, n)| !given.iter().any(|(_, g)| g == n));
     all.extend(given);
     write(&dir, &all);
+}
+
+pub(in crate::service) fn hand_over(config: &Path, (from, to): (&str, &str), writable: bool) {
+    let ids = crate::base::process::account_ids;
+    let (Ok(old), Ok(new)) = (ids(from), ids(to)) else {
+        return;
+    };
+    if old == new {
+        return;
+    }
+    if old.0 == 0 {
+        super::place::give_copied(config, to, writable);
+    } else {
+        move_parts(&drop_in_folder(config), old, new);
+    }
 }
 
 pub(in crate::service) fn give_back(config: &Path, account: &str) {

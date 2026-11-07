@@ -639,3 +639,128 @@ fn old_drop_ins_are_shared_when_another_install_reads_the_same_folder() {
         apart.iter()
     ));
 }
+
+#[cfg(unix)]
+fn as_root_with(
+    p: &Place,
+    files: &[(&str, (u32, u32), u32)],
+) -> Option<((u32, u32), (u32, u32), std::path::PathBuf)> {
+    use std::os::unix::fs::{PermissionsExt, chown};
+    if !rustix::process::geteuid().is_root() {
+        return None;
+    }
+    let ids = crate::base::process::account_ids;
+    let (a, b) = (ids("nobody").ok()?, ids("daemon").ok()?);
+    let to = p.config.with_file_name("server.d");
+    write(&p.config, "listen: 1\n");
+    for (name, owner, mode) in files {
+        let path = to.join(name);
+        write(&path, "services: {}\n");
+        let owner = match owner {
+            (1, _) => a,
+            other => *other,
+        };
+        chown(&path, Some(owner.0), Some(owner.1)).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(*mode)).unwrap();
+    }
+    Some((a, b, to))
+}
+
+#[cfg(unix)]
+fn undo_for(m: &crate::install::Manifest) -> crate::service::previous::Undo {
+    crate::service::previous::Undo {
+        manifest: m.clone(),
+        config: crate::service::system::read_plain_file(&m.config),
+        drop_ins: Snapshot::take(&m.config),
+        env: BTreeMap::new(),
+        binary: None,
+        absent: Default::default(),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_from_the_installed_path_as_another_account_gives_it_the_drop_ins_burrow_made() {
+    for before in ["nobody", "root"] {
+        let p = place();
+        let a_or_root = if before == "root" { (0, 0) } else { (1, 1) };
+        let Some((a, b, to)) = as_root_with(
+            &p,
+            &[
+                ("apps.yaml", a_or_root, 0o600),
+                ("locked.yaml", (0, 0), 0o440),
+                ("hand.yaml", (0, 0), 0o644),
+                ("handro.yaml", (0, 0), 0o444),
+                (COPIED, (0, 0), 0o644),
+            ],
+        ) else {
+            return;
+        };
+        if before != "root" {
+            std::os::unix::fs::chown(to.join("locked.yaml"), Some(0), Some(a.1)).unwrap();
+        }
+        std::fs::write(to.join(COPIED), "apps.yaml\nlocked.yaml").unwrap();
+        let old = crate::install::Manifest {
+            account: before.into(),
+            ..nobody(&p.config)
+        };
+        let new = crate::install::Manifest {
+            account: "daemon".into(),
+            ..old.clone()
+        };
+        crate::service::install::place_files(
+            &crate::service::tests::Recorder(Default::default(), false),
+            Some(&undo_for(&old)),
+            (&std::fs::canonicalize(&p.config).unwrap(), new.folder()),
+            (&new, &BTreeMap::new(), &[]),
+            |_| Ok(()),
+            &mut Vec::new(),
+        )
+        .unwrap();
+        let state = |n: &str| (owner(&to.join(n)), mode(&to.join(n)) & 0o777);
+        assert_eq!(state("apps.yaml"), (b, 0o600), "{before}");
+        assert_eq!(state("locked.yaml"), ((0, b.1), 0o440), "{before}");
+        assert_eq!(state("hand.yaml"), ((0, 0), 0o644), "{before}");
+        assert_eq!(state("handro.yaml"), ((0, 0), 0o444), "{before}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_put_back_restores_only_what_changed_with_its_recorded_owner_and_mode() {
+    let p = place();
+    let Some((a, b, to)) = as_root_with(
+        &p,
+        &[
+            ("apps.yaml", (1, 1), 0o600),
+            ("hand.yaml", (0, 0), 0o644),
+            ("handro.yaml", (0, 0), 0o444),
+            ("odd.yaml", (1, 1), 0o640),
+            (COPIED, (0, 0), 0o644),
+        ],
+    ) else {
+        return;
+    };
+    let old = nobody(&p.config);
+    let undo = undo_for(&old);
+    let give = |n: &str, ids: (u32, u32)| {
+        std::os::unix::fs::chown(to.join(n), Some(ids.0), Some(ids.1)).unwrap()
+    };
+    give(COPIED, b);
+    give("odd.yaml", b);
+    std::fs::write(to.join("apps.yaml"), "clients: {}\n").unwrap();
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    undo.drop_ins
+        .put_back(&backend, &p.config, "nobody", false)
+        .unwrap();
+    let state = |n: &str| (owner(&to.join(n)), mode(&to.join(n)) & 0o777);
+    assert_eq!(state(COPIED), ((0, 0), 0o644));
+    assert_eq!(state("odd.yaml"), (a, 0o640), "its own mode, not 0600");
+    assert_eq!(state("apps.yaml"), (a, 0o600));
+    assert_eq!(
+        std::fs::read_to_string(to.join("apps.yaml")).unwrap(),
+        "services: {}\n"
+    );
+    assert_eq!(state("hand.yaml"), ((0, 0), 0o644), "untouched");
+    assert_eq!(state("handro.yaml"), ((0, 0), 0o444), "untouched");
+}

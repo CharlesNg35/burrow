@@ -5,25 +5,36 @@ use crate::base::failure::Failure;
 use crate::config::docs::{self, drop_in_folder};
 use crate::service::{Backend, system};
 
+#[cfg(unix)]
+type Stat = (u32, u32, rustix::fs::Mode);
+#[cfg(not(unix))]
+type Stat = ();
+
 #[derive(Debug)]
 struct Kept {
     bytes: Vec<u8>,
     put: Put,
-    owner: Option<(u32, u32)>,
+    stat: Option<Stat>,
 }
 
-fn owner(path: &Path) -> Option<(u32, u32)> {
+fn stat_of(path: &Path) -> Option<Stat> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::symlink_metadata(path)
-            .ok()
-            .map(|m| (m.uid(), m.gid()))
+        rustix::fs::lstat(path).ok().map(|st| {
+            let mode = rustix::fs::Mode::from_raw_mode(st.st_mode);
+            (st.st_uid, st.st_gid, mode)
+        })
     }
     #[cfg(not(unix))]
     {
         let _ = path;
         None
+    }
+}
+
+impl Kept {
+    fn changed(&self, path: &Path) -> bool {
+        system::read_plain_file(path).as_ref() != Some(&self.bytes) || stat_of(path) != self.stat
     }
 }
 
@@ -63,7 +74,7 @@ impl Snapshot {
                 let kept = system::read_plain_file(&path).map(|bytes| Kept {
                     bytes,
                     put,
-                    owner: owner(&path),
+                    stat: stat_of(&path),
                 });
                 (name, kept)
             })
@@ -76,12 +87,7 @@ impl Snapshot {
         let to = drop_in_folder(config);
         now.len() == self.files.len()
             && self.files.iter().all(|(name, kept)| {
-                now.contains(name)
-                    && kept.as_ref().is_none_or(|k| {
-                        let path = to.join(name);
-                        system::read_plain_file(&path).as_ref() == Some(&k.bytes)
-                            && owner(&path) == k.owner
-                    })
+                now.contains(name) && kept.as_ref().is_none_or(|k| !k.changed(&to.join(name)))
             })
     }
 
@@ -92,10 +98,21 @@ impl Snapshot {
                 steps.push(folder.remove(&name));
             }
         }
-        for (name, kept) in &self.files {
-            if let Some(k) = kept {
-                steps.push(folder.put(name, &k.bytes, k.put));
+        let to = drop_in_folder(config);
+        for (name, k) in self
+            .files
+            .iter()
+            .filter_map(|(n, k)| Some((n, k.as_ref()?)))
+        {
+            if !k.changed(&to.join(name)) {
+                continue;
             }
+            #[cfg(unix)]
+            if let Some(stat) = k.stat {
+                steps.push(folder.put_exact(name, &k.bytes, stat));
+                continue;
+            }
+            steps.push(folder.put(name, &k.bytes, k.put));
         }
         steps.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }

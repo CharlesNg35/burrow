@@ -229,7 +229,8 @@ pub(super) fn place_files(
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     let mut reached = Reached::Files;
-    let placed = place(backend, &mut reached, paths, setup, finish, out);
+    let before = undo.map(|u| u.manifest.account.as_str());
+    let placed = place(backend, (&mut reached, before), paths, setup, finish, out);
     if placed.is_err()
         && let Some(undo) = undo
     {
@@ -240,7 +241,7 @@ pub(super) fn place_files(
 
 fn place(
     backend: &dyn Backend,
-    reached: &mut Reached,
+    (reached, before): (&mut Reached, Option<&str>),
     (source, folder): (&Path, &Path),
     (m, env, admins): (&Manifest, &BTreeMap<String, String>, &[String]),
     finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,
@@ -249,6 +250,12 @@ fn place(
     let (config, account, writable) = (&m.config, m.account.as_str(), m.admin_writable);
     #[cfg(unix)]
     super::drop_ins::give_back(config, account);
+    #[cfg(unix)]
+    if let Some(before) = before {
+        super::drop_ins::hand_over(config, (before, account), writable);
+    }
+    #[cfg(not(unix))]
+    let _ = before;
     if source != crate::base::fs::canonical_or_same(config) {
         copy_config(backend, (source, config), (account, writable), out)?;
     }
