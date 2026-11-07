@@ -149,8 +149,7 @@ pub fn set_up(m: &Manifest, out: &mut dyn Write) -> Result<(), Failure> {
         }
         return Ok(());
     }
-    results_folder(m)?;
-    h.install(m)?;
+    install_with(&*h, m)?;
     let (who, healthy) = match m.role {
         Role::Server => (
             "an admin with write access in burrow admin or burrow mcp may update it",
@@ -169,6 +168,25 @@ pub fn set_up(m: &Manifest, out: &mut dyn Write) -> Result<(), Failure> {
             helper_name(m)
         ),
     )
+}
+
+fn install_with(h: &dyn Helper, m: &Manifest) -> Result<(), Failure> {
+    results_folder(m)?;
+    h.install(m)
+}
+
+pub fn restore(old: &Manifest, new: &Manifest) -> Result<(), Failure> {
+    match helper() {
+        Some(h) if wanted(old) => install_with(&*h, old),
+        Some(h) if wanted(new) => remove_with(
+            &*h,
+            &Manifest {
+                web_state: old.web_state.clone().or_else(|| new.web_state.clone()),
+                ..new.clone()
+            },
+        ),
+        _ => Ok(()),
+    }
 }
 
 pub fn remove(m: &Manifest) -> Result<(), Failure> {

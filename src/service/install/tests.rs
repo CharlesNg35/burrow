@@ -81,6 +81,9 @@ impl Backend for FailAt {
     fn reload(&self, _: &Manifest) -> Result<(), Failure> {
         Ok(())
     }
+    fn restore_updater(&self, old: &Manifest, _: &Manifest) -> Result<(), Failure> {
+        self.run("updater", &old.account)
+    }
     fn status(&self, _: &Manifest) -> Status {
         Status {
             installed: true,
@@ -145,6 +148,7 @@ fn a_reinstall_that_fails_after_the_copy_puts_the_previous_files_back() {
             assert_eq!(read(&folder.join("server.d/a.yaml")), "# the new a\n");
             assert_eq!(read(&binary), "new binary");
             assert!(!backend.ran("install old"));
+            assert!(!backend.ran("updater old"));
             continue;
         }
         assert!(placed.is_err(), "{step}");
@@ -161,6 +165,7 @@ fn a_reinstall_that_fails_after_the_copy_puts_the_previous_files_back() {
         assert_eq!(backend.ran("env old"), env_written, "{step}");
         let unit_written = ["install", "finish"].contains(&step);
         assert_eq!(backend.ran("install old"), unit_written, "{step}");
+        assert_eq!(backend.ran("updater old"), step == "finish", "{step}");
     }
 }
 
@@ -255,13 +260,14 @@ fn a_failed_reinstall_removes_the_config_it_made_at_a_new_path_and_keeps_what_wa
 }
 
 #[test]
-fn a_put_back_after_a_failed_start_removes_the_config_it_made_at_a_new_path() {
+fn a_put_back_after_a_failed_start_undoes_the_updater_and_the_config_at_a_new_path() {
     let t = NewPath::new();
     let undo = t.undo();
     t.place(&FailAt::new("none"), &undo).unwrap();
     assert!(t.new.config.is_file());
     let backend = FailAt::new("none");
     let _ = undo.put_back(&backend, &t.new, "exited", |_| Ok(()), &mut Vec::new());
+    assert!(backend.ran("updater old"));
     assert!(backend.ran("start old"));
     assert!(!t.new.config.exists());
     assert!(!t.dir.path().join("etc/server.d").exists());

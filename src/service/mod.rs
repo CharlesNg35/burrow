@@ -139,6 +139,9 @@ pub trait Backend {
     fn journal_hint(&self, _m: &Manifest) -> Option<String> {
         None
     }
+    fn restore_updater(&self, old: &Manifest, new: &Manifest) -> Result<(), Failure> {
+        helper::restore(old, new)
+    }
     fn units(&self) -> Vec<stray::Unit> {
         Vec::new()
     }

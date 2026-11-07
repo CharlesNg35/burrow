@@ -198,6 +198,7 @@ pub(super) enum Reached {
     Files,
     Env,
     Unit,
+    Helper,
 }
 
 #[derive(Debug, Default)]
@@ -266,6 +267,7 @@ impl Undo {
     pub(super) fn restore_setup(
         &self,
         backend: &dyn Backend,
+        new: &Manifest,
         reached: Reached,
     ) -> Vec<Result<(), Failure>> {
         let p = &self.manifest;
@@ -278,8 +280,11 @@ impl Undo {
             steps.push(system::copy_file(kept, binary, true));
             let _ = std::fs::remove_file(kept);
         }
-        if reached == Reached::Unit {
+        if reached >= Reached::Unit {
             steps.push(backend.install(p));
+        }
+        if reached == Reached::Helper {
+            steps.push(backend.restore_updater(p, new));
         }
         steps
     }
@@ -294,7 +299,7 @@ impl Undo {
     ) -> Failure {
         let _ = backend.stop(new);
         let p = &self.manifest;
-        let mut steps = self.restore_setup(backend, Reached::Unit);
+        let mut steps = self.restore_setup(backend, new, Reached::Helper);
         steps.push(save(p));
         steps.push(backend.start(p));
         if new.created_account && new.account != p.account {

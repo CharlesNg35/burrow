@@ -233,7 +233,7 @@ pub(super) fn place_files(
     if placed.is_err()
         && let Some(undo) = undo
     {
-        let _ = undo.restore_setup(backend, reached);
+        let _ = undo.restore_setup(backend, setup.0, reached);
     }
     placed
 }
@@ -266,6 +266,7 @@ fn place(
     }
     *reached = Reached::Unit;
     backend.install(m)?;
+    *reached = Reached::Helper;
     finish(out)
 }
 
