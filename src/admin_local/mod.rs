@@ -106,10 +106,6 @@ fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-fn no_store() -> Vec<(&'static str, String)> {
-    vec![("Cache-Control", "no-store".into())]
-}
-
 fn page(shared: &Shared, path: &str, spa: bool, gzip: bool) -> Response<http::Body> {
     if let Some(dir) = shared.ui_dir.as_ref().filter(|_| cfg!(debug_assertions)) {
         let index = spa || path == "/index.html";
@@ -119,23 +115,20 @@ fn page(shared: &Shared, path: &str, spa: bool, gzip: bool) -> Response<http::Bo
             from_disk(dir, path)
         };
         return match found {
-            Some((body, mime)) => http::response(200, mime, &no_store(), body),
+            Some((body, mime)) => http::response(200, mime, &[], body),
             None => http::response(404, "text/plain", &[], &b"not found\n"[..]),
         };
     }
     if spa || path == "/index.html" {
         let (body, _) = assets::body(assets::index(), false);
         let body = index_for_run(&body, &shared.prefix);
-        return http::response(200, assets::index().mime, &no_store(), body);
+        return http::response(200, assets::index().mime, &[], body);
     }
     let Some(asset) = assets::find(path) else {
         return http::response(404, "text/plain", &[], &b"not found\n"[..]);
     };
     let (body, encoded) = assets::body(asset, gzip);
-    let mut extra = vec![
-        ("ETag", format!("\"{}\"", asset.etag)),
-        ("Cache-Control", "no-store".into()),
-    ];
+    let mut extra = vec![("ETag", format!("\"{}\"", asset.etag))];
     if encoded {
         extra.push(("Content-Encoding", "gzip".into()));
         extra.push(("Vary", "Accept-Encoding".into()));
@@ -183,16 +176,13 @@ fn handle(req: Request<Incoming>, shared: &Arc<Shared>, bridge: &Bridge) -> Resp
         Ok((_, Decision::Redirect(to))) => http::response(
             302,
             "text/plain; charset=utf-8",
-            &[("Location", to), ("Cache-Control", "no-store".into())],
+            &[("Location", to)],
             Vec::new(),
         ),
         Ok((_, Decision::NotFound | Decision::Reject)) => plain(404, "not found"),
-        Ok((_, Decision::Alive)) => http::response(
-            200,
-            "text/plain; charset=utf-8",
-            &no_store(),
-            &b"running\n"[..],
-        ),
+        Ok((_, Decision::Alive)) => {
+            http::response(200, "text/plain; charset=utf-8", &[], &b"running\n"[..])
+        }
         Ok((_, Decision::Api)) => {
             let Some(accept) = accept_key(&req) else {
                 return plain(400, "bad request");
