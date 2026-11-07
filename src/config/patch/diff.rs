@@ -169,7 +169,7 @@ fn diff_value(
             return None;
         }
         let own = src[after_colon()..line].trim_end_matches('\n');
-        if own.contains('\n') && scalar_old {
+        if own.contains('\n') && scalar_old && !old.quoted {
             edits.give_up(path, "a multi-line scalar");
             return None;
         }
@@ -286,20 +286,32 @@ fn replace_block_seq(src: &str, old: &Node, items: &[Value], path: &[String], ed
         let ls = line_start(src, it.span.start.offset);
         let le = line_end(src, content_end(it));
         let own = src[ls..le].starts_with(&format!("{item_indent}-"));
-        lines.push((it.to_json(), own.then(|| src[ls..le].to_string())));
+        lines.push((it.to_json(), own.then_some((ls, le))));
     }
+    let mut used = vec![false; lines.len()];
+    let matched: Vec<Option<usize>> = items
+        .iter()
+        .map(|v| {
+            let at =
+                (0..lines.len()).find(|&j| !used[j] && lines[j].0 == *v && lines[j].1.is_some());
+            at.inspect(|&j| used[j] = true)
+        })
+        .collect();
     let mut text = String::new();
-    for v in items {
+    for (i, v) in items.iter().enumerate() {
         if matches!(v, Value::Object(o) if !o.is_empty()) {
             edits.give_up(path, "a list of mappings");
             return;
         }
-        match lines
-            .iter()
-            .position(|(old, line)| old == v && line.is_some())
-        {
-            Some(pos) => {
-                let line = lines.remove(pos).1.unwrap_or_default();
+        let line = match matched[i] {
+            Some(j) => lines[j].1.map(|(ls, le)| src[ls..le].to_string()),
+            None => lines
+                .get(i)
+                .filter(|_| !used[i])
+                .and_then(|(_, at)| replaced_item(src, &old_items[i], *at, v)),
+        };
+        match line {
+            Some(line) => {
                 text.push_str(&line);
                 if !line.ends_with('\n') {
                     text.push('\n');
@@ -314,6 +326,25 @@ fn replace_block_seq(src: &str, old: &Node, items: &[Value], path: &[String], ed
         }
     }
     edits.push(first, end, text);
+}
+
+fn replaced_item(src: &str, it: &Node, at: Option<(usize, usize)>, v: &Value) -> Option<String> {
+    let (ls, le) = at?;
+    let scalar = !matches!(
+        it.value,
+        tree::Value::Map(_) | tree::Value::Seq(_) | tree::Value::Null
+    );
+    let one_piece = it.quoted || it.span.start.line == it.span.end.line;
+    if !scalar || !one_piece || v.is_object() || v.is_array() {
+        return None;
+    }
+    let (from, to) = (it.span.start.offset, scalar_end(src, it));
+    Some(format!(
+        "{}{}{}",
+        src.get(ls..from)?,
+        scalar_text(src, it, v),
+        src.get(to..le)?
+    ))
 }
 
 fn flow_subset(

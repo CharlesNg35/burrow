@@ -247,13 +247,10 @@ fn place(
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     let (config, account, writable) = (&m.config, m.account.as_str(), m.admin_writable);
-    let copies = source != crate::base::fs::canonical_or_same(config);
-    if copies {
-        copy_config(backend, (source, config), (account, writable), out)?;
-    }
     #[cfg(unix)]
-    if !copies {
-        super::uninstall::give_locked_drop_ins(config, account);
+    super::drop_ins::give_back(config, account);
+    if source != crate::base::fs::canonical_or_same(config) {
+        copy_config(backend, (source, config), (account, writable), out)?;
     }
     backend.secure_file(config, account)?;
     backend.config_folder(folder, config, account, writable)?;

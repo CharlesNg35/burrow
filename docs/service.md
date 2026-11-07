@@ -119,6 +119,7 @@ sudo nano /etc/burrow/server/server.yaml   # or edit the file directly
 - When the service may change its config (`--admin-writable` or an admin visitor), the installed set is first kept as a version in Activity, as for `server.yaml`.
 - An installed `server.d` that is a link or a file is refused.
 - With `--admin-writable`, the service may also change `server.d/`.
+- An uninstall that removes the service account gives the account's drop-in files and their group to root, noting which in `server.d/.burrow-given`; the next install gives exactly those back and leaves any other root-owned file alone.
 - Add files to `/etc/burrow/<name>/server.d/` by hand later; the service picks them up on save.
 
 **Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only. Its hint gives the exact command: `install the service again so it may change its config; nothing moves: sudo burrow service install -c /etc/burrow/server/server.yaml --admin-writable`. Add the admin visitor to the installed config, then install again from that file:

@@ -500,29 +500,99 @@ fn nobody(config: &Path) -> crate::install::Manifest {
 }
 
 #[cfg(unix)]
+fn mode(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::symlink_metadata(path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o7777
+}
+
+#[cfg(unix)]
 #[test]
-fn an_uninstall_that_keeps_the_config_gives_the_account_drop_ins_to_root() {
+fn an_uninstall_gives_the_account_drop_ins_to_root_and_a_reinstall_gives_exactly_those_back() {
+    use std::os::unix::fs::{PermissionsExt, chown};
     let p = place();
     let Some((ids, to)) = account_drop_ins(&p) else {
         return;
     };
+    let set = |name: &str, owner: (u32, u32), mode: u32| {
+        let path = to.join(name);
+        write(&path, "visitors: {}\n");
+        chown(&path, Some(owner.0), Some(owner.1)).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+    std::fs::set_permissions(
+        to.join("locked.yaml"),
+        std::fs::Permissions::from_mode(0o440),
+    )
+    .unwrap();
+    set("group-read.yaml", (0, ids.1), 0o640);
+    set("group-write.yaml", (0, ids.1), 0o660);
+    set("root.yaml", (0, 0), 0o400);
     let m = nobody(&p.config);
     crate::service::uninstall::give_kept_to_root(
         &m,
         std::slice::from_ref(&p.config),
         Some(m.folder()),
     );
-    assert_eq!(owner(&to.join("apps.yaml")), (0, 0));
+    let all = [
+        "apps.yaml",
+        "locked.yaml",
+        "group-read.yaml",
+        "group-write.yaml",
+    ];
+    for name in all {
+        assert_eq!(
+            owner(&to.join(name)),
+            (0, 0),
+            "{name} keeps nothing of the account"
+        );
+    }
     assert_eq!(owner(&to), (0, 0));
-    assert_eq!(
-        owner(&to.join("locked.yaml")),
-        (0, 0),
-        "a locked file keeps no group of the removed account"
-    );
     assert_eq!(
         owner(&to.join("twice.yaml")),
         ids,
         "a file with two links is not followed"
+    );
+    let note = to.join(".burrow-given");
+    assert_eq!((owner(&note), mode(&note)), ((0, 0), 0o600));
+    std::fs::write(to.join("apps.yaml"), "services: {}\n").unwrap();
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    let reinstall = || {
+        crate::service::install::place_files(
+            &backend,
+            None,
+            (&std::fs::canonicalize(&p.config).unwrap(), m.folder()),
+            (&m, &BTreeMap::new(), &[]),
+            |_| Ok(()),
+            &mut Vec::new(),
+        )
+        .unwrap()
+    };
+    reinstall();
+    let back = |name: &str| (owner(&to.join(name)), mode(&to.join(name)) & 0o777);
+    assert_eq!(back("apps.yaml"), (ids, 0o600));
+    assert_eq!(back("locked.yaml"), ((0, ids.1), 0o440));
+    assert_eq!(back("group-read.yaml"), ((0, ids.1), 0o640));
+    assert_eq!(back("group-write.yaml"), ((0, ids.1), 0o660));
+    assert_eq!(
+        back("root.yaml"),
+        ((0, 0), 0o400),
+        "a root-only file stays root's"
+    );
+    assert_eq!(owner(&to), ids);
+    assert!(
+        std::fs::symlink_metadata(&note).is_err(),
+        "the note is used once"
+    );
+    chown(to.join("apps.yaml"), Some(0), Some(0)).unwrap();
+    reinstall();
+    assert_eq!(
+        owner(&to.join("apps.yaml")),
+        (0, 0),
+        "root's on purpose later"
     );
 }
 
@@ -548,41 +618,6 @@ fn a_reinstall_elsewhere_gives_the_old_drop_ins_to_root_unless_the_new_config_us
     assert_eq!(owner(&to.join("apps.yaml")), (0, 0));
     assert_eq!(owner(&to), (0, 0));
     assert_eq!(owner(&to.join("locked.yaml")), (0, 0));
-}
-
-#[cfg(unix)]
-#[test]
-fn a_reinstall_from_the_installed_path_gives_locked_drop_ins_the_service_group() {
-    use std::os::unix::fs::{PermissionsExt, chown};
-    let p = place();
-    let Some((ids, to)) = account_drop_ins(&p) else {
-        return;
-    };
-    let lock = |path: &Path| {
-        chown(path, Some(0), Some(0)).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o440)).unwrap();
-    };
-    lock(&to.join("locked.yaml"));
-    let outside = p.config.with_file_name("outside.yaml");
-    write(&outside, "visitors: {}\n");
-    lock(&outside);
-    std::fs::hard_link(&outside, to.join("linked.yaml")).unwrap();
-    write(&to.join("root.yaml"), "services: {}\n");
-    let m = nobody(&p.config);
-    let backend = crate::service::tests::Recorder(Default::default(), false);
-    crate::service::install::place_files(
-        &backend,
-        None,
-        (&std::fs::canonicalize(&p.config).unwrap(), m.folder()),
-        (&m, &BTreeMap::new(), &[]),
-        |_| Ok(()),
-        &mut Vec::new(),
-    )
-    .unwrap();
-    assert_eq!(owner(&to.join("locked.yaml")), (0, ids.1));
-    assert_eq!(owner(&to.join("linked.yaml")), (0, 0), "two links");
-    assert_eq!(owner(&to.join("root.yaml")), (0, 0), "not locked");
-    assert_eq!(owner(&to.join("apps.yaml")), ids);
 }
 
 #[cfg(unix)]

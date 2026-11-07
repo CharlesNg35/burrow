@@ -11,62 +11,13 @@ pub(super) fn admin_history(config: &Path) -> PathBuf {
 }
 
 #[cfg(unix)]
-fn give_plain_files(
-    folder: &Path,
-    (uid, gid): (u32, u32),
-    taken: impl Fn(&rustix::fs::Stat) -> bool,
-) {
-    use rustix::fs::{FileType, Mode, OFlags};
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    if let Ok(dir) = rustix::fs::open(folder, flags, Mode::empty()) {
-        let file = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-        for entry in rustix::fs::Dir::read_from(&dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
-            let Ok(f) = rustix::fs::openat(&dir, entry.file_name(), file, Mode::empty()) else {
-                continue;
-            };
-            if rustix::fs::fstat(&f).is_ok_and(|st| {
-                FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
-                    && st.st_nlink == 1
-                    && taken(&st)
-            }) {
-                let _ = std::os::unix::fs::fchown(&f, Some(uid), Some(gid));
-            }
-        }
-        if rustix::fs::fstat(&dir).is_ok_and(|st| taken(&st)) {
-            let _ = std::os::unix::fs::fchown(&dir, Some(uid), Some(gid));
-        }
-    }
-}
-
-#[cfg(unix)]
 pub(super) fn give_history(config: &Path, uid: u32, gid: u32) {
-    give_plain_files(&admin_history(config), (uid, gid), |_| true);
-}
-
-#[cfg(unix)]
-pub(super) fn give_drop_ins_to_root(config: &Path, account: &str) {
-    let Ok((uid, gid)) = crate::base::process::account_ids(account) else {
-        return;
+    let give = |f: &std::os::fd::OwnedFd| {
+        let _ = std::os::unix::fs::fchown(f, Some(uid), Some(gid));
     };
-    let folder = crate::config::docs::drop_in_folder(config);
-    give_plain_files(&folder, (0, 0), |st| {
-        uid != 0 && (st.st_uid == uid || (gid != 0 && st.st_gid == gid))
-    });
-}
-
-#[cfg(unix)]
-pub(super) fn give_locked_drop_ins(config: &Path, account: &str) {
-    let Ok((_, gid)) = crate::base::process::account_ids(account) else {
-        return;
-    };
-    let folder = crate::config::docs::drop_in_folder(config);
-    give_plain_files(&folder, (0, gid), |st| {
-        st.st_uid == 0 && st.st_mode & 0o222 == 0
-    });
+    if let Some(dir) = super::nofollow::plain_files(&admin_history(config), |_, f, _| give(f)) {
+        give(&dir);
+    }
 }
 
 pub(super) fn say_skipped(
@@ -374,7 +325,7 @@ pub(super) fn give_kept_to_root(m: &Manifest, kept: &[PathBuf], kept_folder: Opt
     }
     if let Some(d) = kept_folder {
         give_history(&m.config, 0, 0);
-        give_drop_ins_to_root(&m.config, &m.account);
+        super::drop_ins::to_root(&m.config, &m.account);
         let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
     }
 }
