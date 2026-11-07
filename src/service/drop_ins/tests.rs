@@ -355,7 +355,7 @@ fn a_copy_that_fails_part_way_puts_the_installed_folder_back() {
     write(&to.join("a.yaml"), "# the old a\n");
     write(&to.join("old.yaml"), "# copied before\n");
     write(&to.join(COPIED), "old.yaml");
-    std::fs::create_dir(to.join("b.yaml")).unwrap();
+    write(&to.join("b.yaml").join("inside"), "a folder with a file\n");
     let e = copy(
         &backend,
         (&p.source, &p.config),
@@ -363,7 +363,7 @@ fn a_copy_that_fails_part_way_puts_the_installed_folder_back() {
         true,
         &mut Vec::new(),
     )
-    .expect_err("b.yaml cannot replace a folder");
+    .expect_err("b.yaml cannot replace a folder that holds a file");
     assert!(e.message.contains("b.yaml"), "{}", e.message);
     let read = |f: &str| std::fs::read_to_string(to.join(f)).unwrap();
     assert_eq!(read("a.yaml"), "# the old a\n");
