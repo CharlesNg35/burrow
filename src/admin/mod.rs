@@ -4,9 +4,11 @@
 pub mod adapters;
 pub mod core;
 pub mod hooks;
+mod kept;
 pub mod latest;
 pub mod live;
 pub mod local;
+mod notes;
 pub mod own_update;
 pub mod transport;
 
