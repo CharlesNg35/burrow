@@ -256,7 +256,9 @@ impl Edit {
                 Self::saved_of(d, &open).changed_entities()
             }
         });
-        saved + self.texts.with(BTreeMap::len) + self.files.with(FileMoves::len)
+        saved
+            + self.texts.with(BTreeMap::len)
+            + self.files.with(|f| self.draft.with(|d| f.counted(d)))
     }
 
     pub fn with_saved<T>(&self, f: impl FnOnce(&Changeset) -> T) -> T {

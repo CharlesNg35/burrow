@@ -4,6 +4,8 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{ConfigFile, FileInfo};
 use burrow_admin_proto::ops::Op;
 
+use crate::changeset::Changeset;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FileMoves {
     pub places: BTreeMap<Path, String>,
@@ -27,11 +29,23 @@ impl FileMoves {
         self.places.is_empty() && self.drops.is_empty()
     }
 
-    pub fn len(&self) -> usize {
-        self.places.len() + self.drops.len()
+    pub fn counted(&self, draft: &Changeset) -> usize {
+        let added = |p: &Path| match p.as_slice() {
+            [section, name] => {
+                draft
+                    .base()
+                    .get(section)
+                    .and_then(|s| s.get(name))
+                    .is_none()
+                    && draft.renamed_from(section, name).is_none()
+            }
+            _ => false,
+        };
+        self.places.keys().filter(|p| !added(p)).count() + self.drops.len()
     }
 
     pub fn place(&mut self, item: &[String], file: &str, now: &str) {
+        self.drops.remove(file);
         if file == now {
             self.places.remove(item);
         } else {
@@ -203,7 +217,12 @@ mod tests {
         let mut m = FileMoves::default();
         m.place(&p(&["services", "web"]), "server.d/web.yaml", "server.yaml");
         m.drops.insert("server.d/old.yaml".into());
-        assert_eq!(m.len(), 2);
+        assert_eq!(
+            m.counted(&Changeset::new(
+                burrow_admin_proto::serde_json::json!({"services": {"web": {}}})
+            )),
+            2
+        );
         assert_eq!(
             m.ops(),
             [
@@ -223,6 +242,45 @@ mod tests {
         );
         m.place(&p(&["services", "www"]), "server.yaml", "server.yaml");
         assert!(m.places.is_empty(), "back to where it is: no move");
+    }
+
+    #[test]
+    fn placing_an_item_back_into_a_file_keeps_that_file() {
+        let mut m = FileMoves::default();
+        let blog = p(&["services", "blog"]);
+        m.place(&blog, "server.yaml", "server.d/apps.yaml");
+        m.drops.insert("server.d/apps.yaml".into());
+        m.place(&blog, "server.d/apps.yaml", "server.d/apps.yaml");
+        assert!(
+            m.is_empty(),
+            "keeping blog in its file undoes the delete: {m:?}"
+        );
+        m.place(&blog, "server.yaml", "server.d/apps.yaml");
+        m.drops.insert("server.d/apps.yaml".into());
+        m.place(&p(&["clients", "lab"]), "server.d/apps.yaml", "server.yaml");
+        assert!(m.drops.is_empty(), "a new item saved in it keeps it too");
+    }
+
+    #[test]
+    fn a_new_item_saved_in_a_file_counts_once() {
+        let mut c = Changeset::new(
+            burrow_admin_proto::serde_json::json!({"services": {"web": {}}, "clients": {"home": {}}}),
+        );
+        c.set(
+            &p(&["clients", "lab"]),
+            burrow_admin_proto::serde_json::json!({}),
+        );
+        assert!(c.rename(&p(&["clients", "home"]), "house"));
+        let mut m = FileMoves::default();
+        m.place(&p(&["clients", "lab"]), "server.d/lab.yaml", "server.yaml");
+        assert_eq!(m.counted(&c), 0, "the new client is counted as its add");
+        m.place(
+            &p(&["clients", "house"]),
+            "server.d/house.yaml",
+            "server.yaml",
+        );
+        m.place(&p(&["services", "web"]), "server.d/web.yaml", "server.yaml");
+        assert_eq!(m.counted(&c), 2);
     }
 
     #[test]
