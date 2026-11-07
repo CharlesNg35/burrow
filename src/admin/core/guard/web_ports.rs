@@ -234,6 +234,7 @@ pub fn busy(
                 path: Some(path),
                 also: Vec::new(),
                 subjects: Vec::new(),
+                file: None,
                 label: None,
                 help: f.hint,
                 line: None,

@@ -65,6 +65,7 @@ pub fn not_here(
             line: None,
             col: None,
             before: false,
+            file: None,
         })
         .collect()
 }

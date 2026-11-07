@@ -85,6 +85,9 @@ fn names(doc: &Value, sec: &str) -> Vec<String> {
 
 fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
     for c in names(doc, ClientEntry::section()) {
+        if !s.can_write_item(&[ClientEntry::section().into(), c.clone()]) {
+            continue;
+        }
         let label = format!("Rotate secret of {c}…");
         if !needle.is_empty() && word_at(&label.to_lowercase(), needle).is_some() {
             out.push(Hit {

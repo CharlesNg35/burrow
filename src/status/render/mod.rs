@@ -332,6 +332,9 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
                 if let Some(h) = &v.http {
                     extra.push(http_counts(h));
                 }
+                if let Some(f) = &v.file {
+                    extra.push(format!("in {f}"));
+                }
                 if let Some(why) = &v.not_listening {
                     extra.push(burrow_admin_proto::status::not_listening(why));
                 }

@@ -17,6 +17,7 @@ mod input;
 mod overlay;
 mod path;
 mod radio;
+mod room;
 mod scroll;
 mod spark;
 mod stepper;
@@ -49,6 +50,7 @@ pub use overlay::{
 };
 pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
 pub use radio::{RadioList, RadioOption};
+pub use room::cover_top;
 pub use scroll::{ScrollRow, active_item};
 pub use spark::{ChartData, LineChart, segments, spark_max, spark_path};
 pub use stepper::{Stepper, stepped};

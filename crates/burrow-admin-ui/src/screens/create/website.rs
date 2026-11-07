@@ -272,6 +272,18 @@ fn problem_of(f: Fields) -> (Memo<Option<String>>, Memo<bool>) {
     (problem, at_field)
 }
 
+fn open_tls_field(name: &str) {
+    let at = ServiceEntry::WEB
+        .of(name)
+        .into_iter()
+        .chain([burrow_config::WebSite::TLS.key().to_string()])
+        .collect::<Vec<_>>();
+    set_timeout(
+        move || crate::form::go_to_field(&at),
+        std::time::Duration::from_millis(150),
+    );
+}
+
 #[component]
 pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl IntoView {
     let s = store();
@@ -313,6 +325,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         burrow_admin_logic::web::site_name_problem(&t, plain.get_untracked())
     });
     let (svc_name, service, name_issue) = service_name_of(names);
+    let save_in = RwSignal::new(String::new());
     Effect::new(move |_| {
         let n = if names.with(Vec::is_empty) {
             String::new()
@@ -368,19 +381,12 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                 Some(json!({ LetsEncrypt::EMAIL.key(): email.get_untracked().trim() })),
             );
         }
+        super::save_in::place_new(ServiceEntry::section(), &name, &save_in.get_untracked());
         open.set(false);
         draft_name.set(String::new());
         go(Route::Detail(ServiceEntry::section().into(), name.clone()));
         if tls.get_untracked() == crate::domain::website::files_choice() {
-            let at = ServiceEntry::WEB
-                .of(&name)
-                .into_iter()
-                .chain([burrow_config::WebSite::TLS.key().to_string()])
-                .collect::<Vec<_>>();
-            set_timeout(
-                move || crate::form::go_to_field(&at),
-                std::time::Duration::from_millis(150),
-            );
+            open_tls_field(&name);
         }
     };
     let diagram = Signal::derive(move || {
@@ -401,6 +407,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="new-website-name">
                 {move || step(if asks_email.get() { 6 } else { 5 }, "Service name", "A short name for lists, commands and Review.")}
                 {crate::rename::name_input("new-website-service", "Service name", svc_name, name_issue, true, "blog or shop")}
+                {super::save_in::save_in_field(svc_name, save_in)}
             </section>
             {move || problem.get().filter(|_| !names.with(Vec::is_empty) && !at_field.get()).map(|m| view! {
                 <p class="mb-2 flex items-center gap-1.5 text-sm text-danger" data-testid="new-website-problem">

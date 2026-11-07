@@ -222,3 +222,9 @@ Check: arch-check refuses any other character in the product code of `burrow-adm
 Good: the client page header on a phone: name, then the status dot and tags, then the buttons on one row. Bad: the Edit button pushed off-screen by a long header line.
 
 Check: e2e, the header line on a phone (rule 2) and the layout checks of every flow at 390 px; review for the rest.
+
+### 11. Toasts and the save bar leave room
+
+While a toast or the save bar shows, the page leaves room below its last card, so every card can be scrolled fully above them. The room only grows while the same page stays open, so nothing jumps when a toast fades.
+
+Check: e2e, `tests/admin_e2e/clear.js` runs with `design.js` before every screenshot: scrolled to the end, no visible card lies under a toast or the save bar.

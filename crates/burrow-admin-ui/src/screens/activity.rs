@@ -143,7 +143,8 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
 #[component]
 fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     let s = store();
-    let diff: RwSignal<Option<Result<Vec<DiffLine>, String>>> = RwSignal::new(None);
+    type Shown = (Vec<DiffLine>, Vec<burrow_admin_proto::plan::FileDiff>);
+    let diff: RwSignal<Option<Result<Shown, String>>> = RwSignal::new(None);
     let ids = burrow_admin_logic::history::has_ids(s.welcome.get_untracked().as_deref());
     let asked = burrow_admin_logic::history::diff_request(&entry, &newer, ids);
     if entry.details_kept
@@ -154,8 +155,9 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                 .map_err(|e| e.message)
                 .and_then(|v| serde_json::from_value::<HistoryReply>(v).map_err(|e| e.to_string()))
                 .and_then(|h| {
+                    let files = h.files;
                     h.diff
-                        .map(|d| diff_lines(&d))
+                        .map(|d| (diff_lines(&d), files))
                         .ok_or_else(|| burrow_admin_logic::wording::VERSION_GONE.to_string())
                 });
             let _ = diff.try_set(Some(lines));
@@ -219,7 +221,8 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
             {move || match diff.get() {
                 None => view! { <div class="p-4"><Skeleton lines=3/></div> }.into_any(),
-                Some(Ok(lines)) => view! { <DiffView lines=lines testid="activity-diff"/> }.into_any(),
+                Some(Ok((_, files))) if !files.is_empty() => view! { <div class="p-3" data-testid="activity-files">{crate::review::files::file_diffs(&files, RwSignal::new(false), false)}</div> }.into_any(),
+                Some(Ok((lines, _))) => view! { <DiffView lines=lines testid="activity-diff"/> }.into_any(),
                 Some(Err(e)) => view! { <p class="px-4 py-3 text-text-muted">{e}</p> }.into_any(),
             }}
         </div>

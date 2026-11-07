@@ -8,7 +8,7 @@ use leptos::prelude::*;
 
 use crate::edit::Outcome;
 use crate::route::{self, Link, Route};
-use crate::screens::{DetailPane, ListPane, Row, master_detail};
+use crate::screens::{DetailPane, ListPane, PhoneList, Row, master_detail};
 use crate::store::{Store, store};
 
 use super::detail::{detail, outcome_view};
@@ -20,12 +20,16 @@ use super::{change_groups, group_line, kind_look};
 pub fn ReviewPage() -> impl IntoView {
     let s = store();
     let e = s.edit;
-    let reverting = e
-        .review
-        .with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()));
-    if !reverting && untrack(|| e.dirty()) {
-        e.open_review();
-    }
+    let fresh = move || {
+        let reverting = e
+            .review
+            .with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()));
+        if !reverting && untrack(|| e.dirty()) {
+            e.open_review();
+        }
+    };
+    fresh();
+    crate::store::on_reconnect(fresh);
     follow_applied(s);
     on_cleanup(move || {
         let _ = e.auto_apply.try_set(false);
@@ -57,6 +61,7 @@ pub fn ReviewPage() -> impl IntoView {
             rows=rows
             selected=Signal::derive(move || plan.with(Option::is_none).then(String::new))
             testid="review-list"
+            phone=PhoneList::AboveDetail
         />
     }
     .into_any();

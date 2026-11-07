@@ -1,3 +1,6 @@
+//! Installs or reinstalls burrow as a system service, and puts the previous install back when a step fails.
+//! Start at `install`; `place_files` copies the config and registers the unit.
+
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -7,8 +10,8 @@ use super::checks::{
     refuse_another_source, refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
-    StartAgain, Takeover, Undo, give_old_files, given_note, release_previous, start_installed,
-    take_over,
+    Absent, Reached, StartAgain, Takeover, Undo, give_old_files, given_note, release_previous,
+    start_installed, take_over,
 };
 use super::uninstall::{Kept, keep_admin_copy};
 use super::{Backend, background, name_for, save_manifest, say, stray, system};
@@ -41,6 +44,23 @@ pub(super) fn installs_from(existing: &Manifest, source: &Path) -> bool {
         || crate::base::fs::canonical_or_same(&existing.config) == source
 }
 
+fn installed_config(
+    folder: &Path,
+    checked: &Checked,
+    source: &Path,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<PathBuf, Failure> {
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("yaml");
+    let config = folder.join(format!("{}.{ext}", checked.role.as_str()));
+    if checked.role == Role::Server {
+        super::drop_ins::check_leftovers(source, &config, env)?;
+    }
+    Ok(config)
+}
+
 fn say_created(created: bool, account: &str, out: &mut dyn Write) -> Result<(), Failure> {
     if created {
         say(
@@ -64,15 +84,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .run_as
         .clone()
         .unwrap_or_else(|| platform.default_account(&name));
-    let ext = source
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("yaml");
     let short = crate::install::short_name(&name).to_string();
     let folder = platform.config_dir().join(&short);
     let writable =
         checked.role == Role::Server && (opts.admin_writable || !checked.admins.is_empty());
-    let config = folder.join(format!("{}.{ext}", checked.role.as_str()));
+    let config = installed_config(&folder, &checked, &source, &env)?;
     let env_file = (!env.is_empty()).then(|| platform.config_dir().join(format!("{short}.env")));
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
@@ -146,6 +162,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     };
     check_files_readable(&*backend, &checked, &account)?;
 
+    let absent = previous.as_ref().map(|p| Absent::before(p, &manifest));
     backend.prepare_dirs(&account)?;
     super::uninstall::say_skipped(&backend.state_folder(&manifest)?, &account, out)?;
     let kept_binary = keep_previous_binary(again.manifest, &binary, &current);
@@ -153,30 +170,29 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     if !system::same_content(&current, &binary) {
         copy_service_binary(&current, &binary, platform, &name, out)?;
     }
-    let undo = again.manifest.map(|p| Undo {
+    let undo = previous.as_ref().zip(absent).map(|(p, absent)| Undo {
         manifest: p.clone(),
         config: system::read_plain_file(&p.config),
+        drop_ins: super::drop_ins::Snapshot::take(&p.config),
         env: backend.read_env(p),
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
+        absent,
     });
     backend.config_folder(&folder, &config, &account, writable)?;
-    if source != crate::base::fs::canonical_or_same(&config) {
-        copy_config(&source, &config, writable, out)?;
-    }
-    backend.secure_file(&config, &account)?;
-    backend.config_folder(&folder, &config, &account, writable)?;
-    if writable {
-        say_writable(&checked, &folder, out)?;
-    }
-    if let Some(f) = &env_file {
-        save_env(&*backend, &manifest, &env, f, out)?;
-    }
-    backend.install(&manifest)?;
-    super::helper::set_up(&manifest, out)?;
-    if !opts.start {
-        again.manifest = None;
-    }
-    save_manifest(&manifest)?;
+    place_files(
+        &*backend,
+        undo.as_ref(),
+        (&source, &folder),
+        (&manifest, &env, &checked.admins),
+        |out| {
+            super::helper::set_up(&manifest, out)?;
+            if !opts.start {
+                again.manifest = None;
+            }
+            save_manifest(&manifest)
+        },
+        out,
+    )?;
     fresh.account = None;
     say_installed(
         &*backend,
@@ -193,7 +209,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             &manifest,
             &arg,
             &mut again,
-            undo,
+            undo.filter(|_| was_running),
             save_manifest,
             out,
         )?;
@@ -202,6 +218,56 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         release_previous(&*backend, p, &manifest, out)?;
     }
     say_next_steps(&config, &arg, out)
+}
+
+pub(super) fn place_files(
+    backend: &dyn Backend,
+    undo: Option<&Undo>,
+    paths: (&Path, &Path),
+    setup: (&Manifest, &BTreeMap<String, String>, &[String]),
+    finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let mut reached = Reached::Files;
+    let placed = place(backend, &mut reached, paths, setup, finish, out);
+    if placed.is_err()
+        && let Some(undo) = undo
+    {
+        let _ = undo.restore_setup(backend, setup.0, reached);
+    }
+    placed
+}
+
+fn place(
+    backend: &dyn Backend,
+    reached: &mut Reached,
+    (source, folder): (&Path, &Path),
+    (m, env, admins): (&Manifest, &BTreeMap<String, String>, &[String]),
+    finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let (config, account, writable) = (&m.config, m.account.as_str(), m.admin_writable);
+    let copies = source != crate::base::fs::canonical_or_same(config);
+    if copies {
+        copy_config(backend, (source, config), (account, writable), out)?;
+    }
+    #[cfg(unix)]
+    if !copies {
+        super::uninstall::give_locked_drop_ins(config, account);
+    }
+    backend.secure_file(config, account)?;
+    backend.config_folder(folder, config, account, writable)?;
+    if writable {
+        say_writable(admins, folder, out)?;
+    }
+    if let Some(f) = &m.env_file {
+        *reached = Reached::Env;
+        save_env(backend, m, env, f, out)?;
+    }
+    *reached = Reached::Unit;
+    backend.install(m)?;
+    *reached = Reached::Helper;
+    finish(out)
 }
 
 fn readable_source(opts: &InstallOptions) -> Result<PathBuf, Failure> {
@@ -383,10 +449,10 @@ fn copy_service_binary(
     Ok(())
 }
 
-fn copy_config(
-    source: &Path,
-    config: &Path,
-    writable: bool,
+pub(super) fn copy_config(
+    backend: &dyn super::Backend,
+    (source, config): (&Path, &Path),
+    (account, writable): (&str, bool),
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     if writable {
@@ -409,11 +475,12 @@ fn copy_config(
     say(
         out,
         format!("copied {} -> {}", source.display(), config.display()),
-    )
+    )?;
+    super::drop_ins::copy(backend, (source, config), account, writable, out)
 }
 
-fn say_writable(checked: &Checked, folder: &Path, out: &mut dyn Write) -> Result<(), Failure> {
-    let why = match checked.admins.as_slice() {
+fn say_writable(admins: &[String], folder: &Path, out: &mut dyn Write) -> Result<(), Failure> {
+    let why = match admins {
         [] => "--admin-writable was given".to_string(),
         [one] => format!("visitor {one} has admin access"),
         many => format!("visitors {} have admin access", many.join(", ")),
@@ -501,3 +568,6 @@ pub(super) fn place_binary(current: &Path, binary: &Path, usual: &Path) -> Resul
     let _ = usual;
     system::copy_file(current, binary, true)
 }
+
+#[cfg(test)]
+mod tests;

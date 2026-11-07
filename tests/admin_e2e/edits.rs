@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use super::world::{Options, free_range};
 use super::{
-    Ctx, SECS, applied, echo_server, edit_mode, open, open_review, round_trip, run, wait_checked,
+    Ctx, SECS, added_toasts, applied, echo_server, edit_mode, open, open_review, round_trip, run,
+    wait_checked,
 };
 
 pub(super) type Flow<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
@@ -143,6 +144,7 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.wait_text("[data-testid=toasts]", "Added to changes", SECS)
             .await;
+        assert_eq!(added_toasts(c).await, 1, "a new service shows one toast");
 
         open_review(c, "review-new-service").await;
         let changes = c.ui.text("[data-testid=review-list]").await;

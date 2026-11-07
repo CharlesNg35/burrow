@@ -50,6 +50,7 @@ fn a_v0_1_2_admin_is_told_which_settings_it_cannot_edit_and_a_new_one_is_not() {
     let new = opened_by(&w, &format!("{UI_CLIENT}/0.2.0"));
     let hello = serde_json::to_value(WelcomeRequest {
         burrow: Some("0.2.0".into()),
+        understands: Vec::new(),
     })
     .unwrap();
     dispatch(&core, &new, req::WELCOME, &hello).unwrap();

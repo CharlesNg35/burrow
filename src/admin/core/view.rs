@@ -1,10 +1,12 @@
 use burrow_admin_proto::schema::{Node, SemType};
 use burrow_admin_proto::value::{self, SecretSrc};
 use burrow_admin_proto::view::{ConfigView, Shown, ViewSection};
+use burrow_config::drop_ins::is_section;
 use serde_json::{Map, Value, json};
 
 use super::{ApiError, Core, plan, text, values};
 use crate::config::Format;
+use crate::config::docs::Docs;
 use crate::config::emit::render;
 
 pub fn shown_values(core: &Core, raw: &Value, show: Shown) -> Value {
@@ -16,28 +18,53 @@ pub fn shown_values(core: &Core, raw: &Value, show: Shown) -> Value {
 }
 
 pub fn config_view(core: &Core, show: Shown) -> Result<ConfigView, ApiError> {
-    let file = core.read()?;
-    let shown = plan::check_text(core, &file)
+    let docs = core.docs()?;
+    let shown = plan::check_docs(core, &docs)
         .raw
         .map(|raw| shown_values(core, &raw, show))
         .unwrap_or(Value::Null);
     Ok(ConfigView {
-        rev: text::rev(&file),
+        rev: text::docs_rev(&docs),
         path: core.store.path().display().to_string(),
         show,
-        sections: sections(&shown),
+        sections: sections(&shown, &docs),
     })
 }
 
-pub fn sections(shown: &Value) -> Vec<ViewSection> {
+pub fn sections(shown: &Value, docs: &Docs) -> Vec<ViewSection> {
     let Value::Object(top) = plain(shown) else {
         return Vec::new();
     };
-    top.into_iter()
-        .map(|(key, v)| ViewSection {
-            text: render(&json!({ key.clone(): v }), Format::Yaml),
-            key,
-            origin: None,
+    let owners = plan::files::Owners::of(docs);
+    let mut files = vec![Map::new(); docs.list.len().max(1)];
+    for (key, v) in top {
+        match v {
+            Value::Object(items) if is_section(&key) && !items.is_empty() => {
+                for (item, x) in items {
+                    let i = owners.file_of(&key, &item).min(files.len() - 1);
+                    if let Value::Object(m) = files[i]
+                        .entry(key.clone())
+                        .or_insert_with(|| Value::Object(Map::new()))
+                    {
+                        m.insert(item, x);
+                    }
+                }
+            }
+            v => {
+                files[0].insert(key, v);
+            }
+        }
+    }
+    files
+        .into_iter()
+        .enumerate()
+        .flat_map(|(i, m)| {
+            let origin = (i > 0).then(|| docs.list[i].name.clone());
+            m.into_iter().map(move |(key, v)| ViewSection {
+                text: render(&json!({ key.clone(): v }), Format::Yaml),
+                key,
+                origin: origin.clone(),
+            })
         })
         .collect()
 }

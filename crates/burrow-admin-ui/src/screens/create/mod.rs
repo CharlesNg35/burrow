@@ -2,6 +2,7 @@
 
 mod https_choice;
 mod new;
+mod save_in;
 mod website;
 
 use burrow_admin_proto::schema::Entity;

@@ -103,7 +103,9 @@ sudo burrow edit                       # pick an installed service's config, edi
 sudo nano /etc/burrow/server/server.yaml   # or edit the file directly
 ```
 
-`burrow edit` refuses a change that the service could not run after a restart, such as a port below 1024 it was not installed for.
+`burrow edit` refuses a change that the service could not run after a restart, such as a port below 1024 it was not installed for. It edits `server.yaml` and checks it together with the drop-in files next to it.
+
+**Drop-in files.** A server's `server.d/` folder ([configuration.md](configuration.md#drop-in-files)) is copied with the config: `service install -c ./home.yaml` copies `./home.d/*.yaml` to `/etc/burrow/home/server.d/`. Writable files get the same owner and mode as `server.yaml`; a file that is read-only in the source stays read-only (owned by root, readable by the service's group, `0440`; the read-only attribute on Windows). A file the source has replaces the installed file of the same name. burrow notes the files it copied (in `server.d/.burrow-copied`): an installed file that an earlier install copied and the source no longer has is removed, and any other installed file, such as one a tool or a person added later, is left in place and named in the output. Before anything changes, the install checks the source together with the files it leaves in place, and refuses, naming the file, when they do not make a valid config (for example the same service in both). When the service may change its config (`--admin-writable` or an admin visitor), the installed set is first kept as a version in Activity, as for `server.yaml`. An installed `server.d` that is a link or a file is refused. With `--admin-writable`, the service may also change `server.d/`. Add files to `/etc/burrow/<name>/server.d/` by hand later; the service picks them up on save.
 
 **Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only. Its hint gives the exact command: `install the service again so it may change its config; nothing moves: sudo burrow service install -c /etc/burrow/server/server.yaml --admin-writable`. Add the admin visitor to the installed config, then install again from that file:
 
@@ -151,7 +153,7 @@ sudo burrow update --to 0.1.0 # install this release (also an older one)
 - Downloads go through `HTTPS_PROXY` (or `ALL_PROXY`) when set, and `NO_PROXY` is respected.
 - `BURROW_UPDATE_URL` points to a mirror with the same layout as the GitHub releases. It must use `https://`, unless it is on the same machine.
 - Clients from 0.2.2 on can also be updated from the server's burrow admin, when their config allows it, and from 0.2.3 on the server too, when root installed it with `update.remote: true` in server.yaml: see [updates.md](updates.md#update-the-server-from-burrow-admin).
-- `sudo ./burrow service update` does the same with a binary you downloaded yourself (`--force` also allows an older one). A binary installed by a package manager is upgraded there instead, and in a container you pull the new image.
+- `sudo ./burrow service update` does the same with a binary you downloaded yourself (`--force` also allows an older one, or the same version again). Give a service name to update only that service. A binary installed by a package manager is upgraded there instead, and in a container you pull the new image.
 
 </details>
 

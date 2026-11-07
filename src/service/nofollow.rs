@@ -6,12 +6,9 @@ use rustix::fs::{AtFlags, Dir, FileType, Gid, Mode, OFlags, Uid};
 
 use crate::base::failure::Failure;
 
-const FOLDER: OFlags = OFlags::RDONLY
-    .union(OFlags::DIRECTORY)
-    .union(OFlags::NOFOLLOW)
-    .union(OFlags::CLOEXEC);
+const FOLDER: OFlags = crate::base::fs::NO_FOLLOW_FOLDER;
 
-fn failed(what: &str, path: &Path, e: impl std::fmt::Display) -> Failure {
+pub(crate) fn failed(what: &str, path: &Path, e: impl std::fmt::Display) -> Failure {
     Failure::new(format!("cannot {what} {}: {e}", path.display()))
 }
 
@@ -25,6 +22,20 @@ pub fn folder(path: &Path) -> Result<OwnedFd, Failure> {
     })
 }
 
+pub fn made_subfolder(parent: &Path, name: &OsStr) -> Result<OwnedFd, Failure> {
+    let path = parent.join(name);
+    let holder = folder(parent)?;
+    crate::base::fs::folder_at(&holder, name, 0o700)
+        .map(|(dir, _)| dir)
+        .map_err(|e| {
+            failed(
+                "make or open",
+                &path,
+                format!("{e}; it must be a folder, not a link"),
+            )
+        })
+}
+
 pub fn subfolder(
     parent: &Path,
     name: &str,
@@ -32,19 +43,7 @@ pub fn subfolder(
     owner: Option<(u32, u32)>,
 ) -> Result<(), Failure> {
     let path = parent.join(name);
-    let holder = folder(parent)?;
-    if let Err(e) = rustix::fs::mkdirat(&holder, name, Mode::from_bits_truncate(0o700))
-        && e != rustix::io::Errno::EXIST
-    {
-        return Err(failed("create", &path, e));
-    }
-    let dir = rustix::fs::openat(&holder, name, FOLDER, Mode::empty()).map_err(|e| {
-        failed(
-            "open",
-            &path,
-            format!("{e}; it must be a folder, not a link"),
-        )
-    })?;
+    let dir = made_subfolder(parent, OsStr::new(name))?;
     let (uid, gid) = owner.unwrap_or((0, 0));
     rustix::fs::fchown(&dir, Some(Uid::from_raw(uid)), Some(Gid::from_raw(gid)))
         .map_err(|e| failed("give", &path, e))?;
@@ -66,7 +65,8 @@ fn remove_at(dir: &OwnedFd, name: &OsStr) {
     }
 }
 
-fn empty(dir: &OwnedFd) {
+fn remove_matching(dir: &OwnedFd, wanted: impl Fn(&OsStr) -> bool) {
+    use std::os::unix::ffi::OsStrExt;
     let Ok(entries) = Dir::read_from(dir) else {
         return;
     };
@@ -76,14 +76,27 @@ fn empty(dir: &OwnedFd) {
         .filter(|n| !matches!(n.as_bytes(), b"." | b".."))
         .collect();
     for n in names {
-        use std::os::unix::ffi::OsStrExt;
-        remove_at(dir, OsStr::from_bytes(n.as_bytes()));
+        let name = OsStr::from_bytes(n.as_bytes());
+        if wanted(name) {
+            remove_at(dir, name);
+        }
     }
 }
 
-pub fn remove_entry(parent: &Path, name: &str) {
+fn empty(dir: &OwnedFd) {
+    remove_matching(dir, |_| true);
+}
+
+pub fn remove_entry(parent: &Path, name: impl AsRef<OsStr>) {
     if let Ok(dir) = folder(parent) {
-        remove_at(&dir, OsStr::new(name));
+        remove_at(&dir, name.as_ref());
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn remove_entries(parent: &Path, wanted: impl Fn(&OsStr) -> bool) {
+    if let Ok(dir) = folder(parent) {
+        remove_matching(&dir, wanted);
     }
 }
 
@@ -141,5 +154,33 @@ mod tests {
         subfolder(root.path(), "real", 0o700, Some((mine, gid))).unwrap();
         let made = std::fs::metadata(root.path().join("real")).unwrap();
         assert_eq!(made.permissions().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn a_made_subfolder_is_new_and_private_or_the_one_already_there_and_never_a_link() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        made_subfolder(root.path(), OsStr::new("new")).unwrap();
+        let made = std::fs::symlink_metadata(root.path().join("new")).unwrap();
+        assert!(made.is_dir());
+        assert_eq!(made.permissions().mode() & 0o777, 0o700);
+        std::fs::create_dir(root.path().join("there")).unwrap();
+        std::fs::write(root.path().join("there/keep"), "x").unwrap();
+        made_subfolder(root.path(), OsStr::new("there")).unwrap();
+        assert!(
+            root.path().join("there/keep").exists(),
+            "an existing folder is opened as it is"
+        );
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, root.path().join("link")).unwrap();
+        let err = made_subfolder(root.path(), OsStr::new("link")).unwrap_err();
+        assert!(err.message.contains("not a link"), "{}", err.message);
+        let err = made_subfolder(&root.path().join("link"), OsStr::new("inner")).unwrap_err();
+        assert!(err.message.contains("not a link"), "{}", err.message);
+        assert!(
+            !target.join("inner").exists(),
+            "nothing is made through a link"
+        );
     }
 }

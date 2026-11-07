@@ -40,6 +40,7 @@ pub struct Options {
     pub extra_top: String,
     pub server_bin: Option<PathBuf>,
     pub admin_bin: Option<PathBuf>,
+    pub drop_ins: Vec<(&'static str, String, bool)>,
 }
 
 pub fn wait_until(what: &str, timeout: Duration, mut ok: impl FnMut() -> bool) {
@@ -100,6 +101,18 @@ impl World {
                 .replace("HTTP_PORT", &p["http"].to_string()),
         );
         w.write("server.yaml", &yaml);
+        for (name, text, read_only) in &opts.drop_ins {
+            fs::create_dir_all(w.file("server.d")).expect("the drop-in folder");
+            let name = format!("server.d/{name}");
+            w.write(&name, text);
+            if *read_only {
+                let mut perms = fs::metadata(w.file(&name))
+                    .expect("a drop-in")
+                    .permissions();
+                perms.set_readonly(true);
+                fs::set_permissions(w.file(&name), perms).expect("read-only");
+            }
+        }
         let env: Vec<(&str, &str)> = opts
             .server_env
             .iter()

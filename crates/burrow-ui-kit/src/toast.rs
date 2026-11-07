@@ -26,9 +26,10 @@ pub fn ToastHost(
     #[prop(into)] on_hover: Callback<bool>,
 ) -> impl IntoView {
     let tick = RwSignal::new(0u32);
+    let room = StoredValue::new(crate::room::Room::default());
     if let Ok(h) = set_interval_with_handle(
         move || {
-            if toasts.with_untracked(|t| !t.is_empty()) {
+            if toasts.with_untracked(|t| !t.is_empty()) || room.with_value(|r| r.held()) {
                 tick.update(|n| *n = n.wrapping_add(1));
             }
         },
@@ -38,14 +39,16 @@ pub fn ToastHost(
     }
     let host: NodeRef<leptos::html::Div> = NodeRef::new();
     let place = move || {
+        let Some(el) = host.get_untracked() else {
+            return;
+        };
+        let el: &web_sys::HtmlElement = &el;
+        room.update_value(|r| r.keep(f64::from(el.offset_height())));
         let bottom = match crate::bar::bar_top() {
             Some(t) => (crate::bar::view_height() - t + 8.0).max(16.0),
             None => 16.0,
         };
-        if let Some(el) = host.get_untracked() {
-            let el: &web_sys::HtmlElement = &el;
-            let _ = el.style().set_property("bottom", &format!("{bottom}px"));
-        }
+        let _ = el.style().set_property("bottom", &format!("{bottom}px"));
     };
     Effect::new(move |_| {
         toasts.track();
@@ -64,6 +67,7 @@ pub fn ToastHost(
             node_ref=host
             aria-live="polite"
             data-testid="toasts"
+            data-toast-stack=""
         >
             {move || {
                 toasts

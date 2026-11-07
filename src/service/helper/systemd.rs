@@ -14,6 +14,21 @@ fn state(m: &Manifest) -> PathBuf {
     Path::new("/var/lib/burrow").join(m.short())
 }
 
+fn updaters(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    let temp = name
+        .strip_prefix('.')
+        .and_then(|n| n.strip_suffix(crate::base::fs::TEMP_EXTENSION));
+    [super::TRIGGER, super::ASKED]
+        .into_iter()
+        .any(|own| name == own || temp.is_some_and(|t| t.starts_with(&format!("{own}."))))
+}
+
+fn clear(dir: &Path) {
+    crate::service::nofollow::remove_entries(dir, updaters);
+    let _ = std::fs::remove_dir(dir);
+}
+
 pub(super) fn render_path(m: &Manifest, dir: &Path) -> String {
     format!(
         "[Unit]\nDescription=burrow {} \"{}\": update requests from the server's admin\n\n[Path]\nPathExists={}\nUnit={}.service\n\n[Install]\nWantedBy=paths.target\n",
@@ -59,7 +74,7 @@ impl Helper for PathUnit {
         run("systemctl", &["daemon-reload"])?;
         let service = format!("{}.service", helper_name(m));
         let _ = run("systemctl", &["reset-failed", &path, &service]);
-        let _ = std::fs::remove_dir_all(state(m));
+        clear(&state(m));
         Ok(())
     }
 
@@ -75,6 +90,37 @@ impl Helper for PathUnit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removing_the_updater_removes_only_its_own_files_and_keeps_web_state_left_there() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = root.path().join("outside");
+        std::fs::write(&outside, "keep").unwrap();
+        let dir = root.path().join("home");
+        std::fs::create_dir_all(dir.join("letsencrypt")).unwrap();
+        std::fs::write(dir.join("letsencrypt/account.key"), "k").unwrap();
+        std::fs::write(dir.join("ca.key"), "k").unwrap();
+        std::fs::write(dir.join(super::super::TRIGGER), "").unwrap();
+        std::fs::write(dir.join(".asked.json.7-0.tmp"), "{}").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join(super::super::ASKED)).unwrap();
+        clear(&dir);
+        let mut left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["ca.key", "letsencrypt"]);
+        assert!(dir.join("letsencrypt/account.key").exists());
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep");
+        std::fs::remove_dir_all(dir.join("letsencrypt")).unwrap();
+        std::fs::remove_file(dir.join("ca.key")).unwrap();
+        std::fs::write(dir.join(super::super::ASKED), "{}").unwrap();
+        clear(&dir);
+        assert!(
+            !dir.exists(),
+            "a folder that held only the updater's files goes"
+        );
+    }
 
     #[test]
     fn the_path_unit_starts_the_root_updater_when_the_client_writes_a_request() {

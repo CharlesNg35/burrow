@@ -45,6 +45,7 @@ pub mod features {
     pub const HISTORY_IDS: &str = "history.ids";
     pub const LOCAL_CA: &str = "local-ca";
     pub const CLIENT_ALLOW: &str = "client.allow";
+    pub const CONFIG_FILES: &str = "config.files";
     pub const CLIENT_UPDATES: &str = "client.updates";
     pub const SERVER_UPDATES: &str = "server.updates";
     pub const CONFIG_VIEW: &str = "config.view";
@@ -65,6 +66,7 @@ pub mod features {
         HISTORY_IDS,
         LOCAL_CA,
         CLIENT_ALLOW,
+        CONFIG_FILES,
         CLIENT_UPDATES,
         SERVER_UPDATES,
         CONFIG_VIEW,

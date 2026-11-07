@@ -241,7 +241,7 @@ async fn writer_task(
 }
 
 fn file_rev(hub: &Hub) -> Option<String> {
-    hub.core.store.read().ok().map(|t| core::text::rev(&t))
+    hub.core.store.read().ok().map(|d| core::text::docs_rev(&d))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -444,8 +444,8 @@ async fn config_event(hub: &Arc<Hub>, last_rev: &mut Option<String>) -> Option<V
             let hub = hub.clone();
             move || {
                 hub.core
-                    .read()
-                    .map(|t| plan::check_text(&hub.core, &t).valid)
+                    .docs()
+                    .map(|d| plan::check_docs(&hub.core, &d).valid)
                     .unwrap_or(false)
             }
         })

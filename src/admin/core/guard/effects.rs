@@ -1,7 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use burrow_admin_proto::codes;
 use burrow_admin_proto::plan::{Impact, Level};
+use burrow_config::renames::{Origin, base_name, origins, within};
 use burrow_config::{SELF, ServerConfig};
 
 use crate::admin::core::ports::LiveSession;
@@ -69,7 +70,7 @@ pub fn impacts(
         new,
         status,
         sessions,
-        renames,
+        names: names_in(old, renames),
     };
     let mut out = Vec::new();
     service_impacts(&cx, &mut out);
@@ -99,21 +100,47 @@ struct Before<'a> {
     new: &'a ServerSettings,
     status: &'a Status,
     sessions: &'a [LiveSession],
-    renames: &'a [Rename],
+    names: BTreeMap<&'static str, BTreeMap<String, Origin>>,
+}
+
+fn names_in(
+    old: &ServerSettings,
+    renames: &[Rename],
+) -> BTreeMap<&'static str, BTreeMap<String, Origin>> {
+    use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+    let names = |section: &'static str, base: Vec<&str>| {
+        let pairs = renames.iter().map(|r| (r.path.as_slice(), r.to.as_str()));
+        (section, origins(base, within(section, pairs)))
+    };
+    BTreeMap::from([
+        names(
+            ServiceEntry::section(),
+            old.services.keys().map(String::as_str).collect(),
+        ),
+        names(
+            ClientEntry::section(),
+            old.clients.keys().map(String::as_str).collect(),
+        ),
+        names(
+            VisitorEntry::section(),
+            old.visitors.keys().map(String::as_str).collect(),
+        ),
+    ])
 }
 
 impl Before<'_> {
     fn renamed_to(&self, section: &str, name: &str) -> Option<String> {
-        self.renames
+        self.names
+            .get(section)?
             .iter()
-            .find(|r| r.path.len() == 2 && r.path[0] == section && r.path[1] == name)
-            .map(|r| r.to.clone())
+            .find(|(now, o)| o.base && o.name == name && *now != name)
+            .map(|(now, _)| now.clone())
     }
 
-    fn renamed_in(&self, section: &str, name: &str) -> bool {
-        self.renames
-            .iter()
-            .any(|r| r.path.len() == 2 && r.path[0] == section && r.to == name)
+    fn is_new(&self, section: &str, name: &str) -> bool {
+        self.names
+            .get(section)
+            .is_none_or(|names| base_name(names, name).is_none())
     }
 
     fn client_open(&self, name: &str) -> u64 {
@@ -129,7 +156,6 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
     use burrow_config::{Entry, ServiceEntry};
     let (old, new, status) = (cx.old, cx.new, cx.status);
     let renamed_to = |section: &str, name: &str| cx.renamed_to(section, name);
-    let renamed_in = |section: &str, name: &str| cx.renamed_in(section, name);
     let services = ServiceEntry::section();
     let open_of = |name: &str| {
         status
@@ -230,7 +256,7 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
         ),
     }
     for (name, svc) in &new.services {
-        if !old.services.contains_key(name) && !renamed_in(services, name) {
+        if cx.is_new(services, name) {
             let msg = match svc.bind {
                 Some(_) => format!("adds service {name}; port {} opens", ports_of(svc)),
                 None => format!("adds private service {name}"),
@@ -244,7 +270,6 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
     use burrow_config::{ClientEntry, Entry};
     let (old, new, sessions) = (cx.old, cx.new, cx.sessions);
     let renamed_to = |section: &str, name: &str| cx.renamed_to(section, name);
-    let renamed_in = |section: &str, name: &str| cx.renamed_in(section, name);
     let clients = ClientEntry::section();
     let client_open = |name: &str| cx.client_open(name);
     let connected = |name: &str| sessions.iter().find(|s| s.client == name);
@@ -328,11 +353,7 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
             }
         }
     }
-    for name in new
-        .clients
-        .keys()
-        .filter(|n| !old.clients.contains_key(*n) && !renamed_in(clients, n))
-    {
+    for name in new.clients.keys().filter(|n| cx.is_new(clients, n)) {
         push(
             Level::Info,
             codes::ADDS_CLIENT,

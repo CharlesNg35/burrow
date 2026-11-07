@@ -1,8 +1,10 @@
-use std::io::Write;
+//! Writes a checked config back to disk: one file over itself, or a set of drop-in files all or nothing.
+//! Start at `write_back` and `write_set`; `unix` and `other` hold each platform's safe file steps.
+
 use std::path::{Path, PathBuf};
 
 use crate::config::env::EnvSource;
-use crate::config::load::load_str_at;
+use crate::config::load::{Input, finish, load_inputs, load_set, read_set};
 use crate::config::{Format, Outcome, Role};
 
 pub fn check(
@@ -14,13 +16,19 @@ pub fn check(
 ) -> Outcome {
     let dir = original.parent().unwrap_or(Path::new("."));
     let state = crate::install::state_dir_for(original);
-    load_str_at(
-        (dir, Some(&state)),
-        &original.display().to_string(),
-        text,
+    let main = Input {
+        name: original.display().to_string(),
+        text: text.to_string(),
         format,
-        Some(role),
-        env,
+    };
+    if role != Role::Server {
+        return load_inputs((dir, Some(&state)), &[main], Some(role), env);
+    }
+    let mut found = Vec::new();
+    let inputs = read_set(original, main, &mut found);
+    finish(
+        load_set(original, (dir, &state), inputs, Some(role), env),
+        found,
     )
 }
 
@@ -36,83 +44,23 @@ impl From<std::io::Error> for Refused {
     }
 }
 
+#[cfg(not(unix))]
+mod other;
+mod set;
 #[cfg(unix)]
-pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> {
-    use rustix::fs::{AtFlags, FileType, Mode, OFlags};
-    use std::io::Read;
-    let real = std::fs::canonicalize(path)?;
-    let (Some(folder), Some(name)) = (real.parent(), real.file_name()) else {
-        return Err(Refused::Io(std::io::ErrorKind::InvalidInput.into()));
-    };
-    let dir = open_folder(folder)?;
-    let stat =
-        rustix::fs::statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW).map_err(std::io::Error::from)?;
-    if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
-        return Err(Refused::Io(std::io::Error::other(
-            "the config is no longer a regular file",
-        )));
-    }
-    let mut now = String::new();
-    std::fs::File::from(
-        rustix::fs::openat(
-            &dir,
-            name,
-            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .map_err(std::io::Error::from)?,
-    )
-    .read_to_string(&mut now)?;
-    if now != before {
-        return Err(Refused::Changed);
-    }
-    let mode = stat.st_mode as u32 & 0o777;
-    let next = format!(
-        "{}{}",
-        spare_prefix(&name.to_string_lossy()),
-        std::process::id()
-    );
-    let _ = rustix::fs::unlinkat(&dir, next.as_str(), AtFlags::empty());
-    let written = (|| -> std::io::Result<()> {
-        let mut f = std::fs::File::from(rustix::fs::openat(
-            &dir,
-            next.as_str(),
-            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_bits_truncate(mode as _),
-        )?);
-        f.write_all(text.as_bytes())?;
-        f.sync_all()?;
-        rustix::fs::fchmod(&f, Mode::from_bits_truncate(mode as _))?;
-        let mine = (
-            rustix::process::geteuid().as_raw(),
-            rustix::process::getegid().as_raw(),
-        );
-        if (stat.st_uid, stat.st_gid) != mine {
-            std::os::unix::fs::fchown(&f, Some(stat.st_uid), Some(stat.st_gid))?;
-        }
-        rustix::fs::renameat(&dir, next.as_str(), &dir, name)?;
-        Ok(())
-    })();
-    if written.is_err() {
-        let _ = rustix::fs::unlinkat(&dir, next.as_str(), AtFlags::empty());
-    }
-    Ok(written?)
-}
+mod unix;
 
+#[cfg(not(unix))]
+use other as platform;
 #[cfg(unix)]
-fn open_folder(folder: &Path) -> std::io::Result<rustix::fd::OwnedFd> {
-    use rustix::fs::{Mode, OFlags};
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    if !rustix::process::geteuid().is_root() {
-        return Ok(rustix::fs::open(folder, flags, Mode::empty())?);
-    }
-    let mut dir = rustix::fs::openat(rustix::fs::CWD, "/", flags, Mode::empty())?;
-    for part in folder.components() {
-        if let std::path::Component::Normal(part) = part {
-            dir = rustix::fs::openat(&dir, part, flags, Mode::empty())?;
-        }
-    }
-    Ok(dir)
+use unix as platform;
+
+#[cfg(test)]
+pub use set::saving_set;
+pub use set::{Change, changes, whole_set, write_set};
+
+pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> {
+    Ok(platform::stage_replace(path, before, text)?.commit()?)
 }
 
 fn spare_prefix(name: &str) -> String {
@@ -171,44 +119,6 @@ pub fn spare_next_to(path: &Path) -> Option<std::path::PathBuf> {
                 .and_then(|n| n.to_str())
                 .is_some_and(|n| n.starts_with(&prefix))
         })
-}
-
-#[cfg(not(unix))]
-pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> {
-    if std::fs::read_to_string(path)? != before {
-        return Err(Refused::Changed);
-    }
-    replace(path, text)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn replace(path: &Path, text: &str) -> std::io::Result<()> {
-    let real = std::fs::canonicalize(path)?;
-    let (Some(folder), Some(name)) = (real.parent(), real.file_name()) else {
-        return Err(std::io::ErrorKind::InvalidInput.into());
-    };
-    let spare = folder.join(format!(
-        "{}{}",
-        spare_prefix(&name.to_string_lossy()),
-        std::process::id()
-    ));
-    let _ = std::fs::remove_file(&spare);
-    let mut copy = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&spare)?;
-    copy.write_all(text.as_bytes())?;
-    copy.sync_all()?;
-    drop(copy);
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(&real)?;
-    f.write_all(text.as_bytes())?;
-    f.sync_all()?;
-    drop(f);
-    std::fs::remove_file(&spare)
 }
 
 #[cfg(test)]
@@ -277,9 +187,9 @@ mod tests {
         let link = base.path().join("link");
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let real = std::fs::canonicalize(&real).unwrap();
-        assert!(open_folder(&real).is_ok());
+        assert!(unix::open_folder(&real).is_ok());
         let through = std::fs::canonicalize(base.path()).unwrap().join("link");
-        assert!(open_folder(&through).is_err());
+        assert!(unix::open_folder(&through).is_err());
     }
 
     #[cfg(unix)]
@@ -321,6 +231,59 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "name: office\n");
         let mode = std::fs::metadata(&target).unwrap().permissions().mode();
         assert_eq!(mode & 0o7777, 0o640);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_of_another_user_that_burrow_may_write_keeps_its_group_and_mode() {
+        let burrow = (1000, 1000);
+        let change = |owner, mine, root| unix::owner_change(owner, mine, root, &[1000, 50], 0o660);
+        assert_eq!(
+            change((0, 50), burrow, false),
+            (None, Some(50), 0o660),
+            "root:admins 0660 becomes burrow:admins 0660"
+        );
+        assert_eq!(change((1000, 50), burrow, false), (None, Some(50), 0o660));
+        assert_eq!(change(burrow, burrow, false), (None, None, 0o660));
+        assert_eq!(change((0, 50), (0, 0), true), (Some(0), Some(50), 0o660));
+        assert_eq!(
+            change((1000, 50), (0, 0), true),
+            (Some(1000), Some(50), 0o660)
+        );
+        assert_eq!(change((0, 0), (0, 0), true), (None, None, 0o660));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_in_a_group_burrow_is_not_in_is_saved_without_giving_that_group_access() {
+        let burrow = (1000, 1000);
+        assert_eq!(
+            unix::owner_change((1000, 0), burrow, false, &[1000, 50], 0o640),
+            (None, None, 0o600),
+            "burrow:root 0640 becomes burrow:burrow 0600"
+        );
+        assert_eq!(
+            unix::owner_change((1000, 0), burrow, false, &[], 0o664),
+            (None, None, 0o604)
+        );
+        assert_eq!(
+            unix::owner_change((1000, 0), (0, 0), true, &[0], 0o640),
+            (Some(1000), Some(0), 0o640),
+            "root keeps the owner and group as they were"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_group_the_service_sees_as_unmapped_is_never_set_on_the_new_file() {
+        let groups = unix::keepable(vec![65534, 65534, 1000], Some(65534));
+        assert_eq!(groups, [1000]);
+        assert_eq!(
+            unix::owner_change((1000, 65534), (1000, 1000), false, &groups, 0o660),
+            (None, None, 0o600),
+            "burrow:admins 0660 seen through PrivateUsers is saved without that group"
+        );
+        assert_eq!(unix::keepable(vec![50, 1000], None), [50, 1000]);
     }
 
     #[test]

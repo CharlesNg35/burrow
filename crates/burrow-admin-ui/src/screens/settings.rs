@@ -239,12 +239,26 @@ fn tab_bar(
     look: Look,
     search: AnyView,
 ) -> impl IntoView {
-    let keys = Tab::ALL.map(|t| (t.key(), t.label().to_string())).to_vec();
-    let counts =
-        Signal::derive(move || rows.with(|r| Tab::ALL.map(|t| pill_count(r, t, look)).to_vec()));
+    let shown = Tab::shown(store().files_on());
+    let keys = shown
+        .iter()
+        .map(|t| (t.key(), t.label().to_string()))
+        .collect::<Vec<_>>();
+    let (a, b) = (shown.clone(), shown);
+    let counts = Signal::derive(move || {
+        rows.with(|r| {
+            a.iter()
+                .map(|t| pill_count(r, *t, look))
+                .collect::<Vec<_>>()
+        })
+    });
     let marks = Signal::derive(move || {
         let problems = problem_paths();
-        rows.with(|r| Tab::ALL.map(|t| pill_marks(r, t, &problems)).to_vec())
+        rows.with(|r| {
+            b.iter()
+                .map(|t| pill_marks(r, *t, &problems))
+                .collect::<Vec<_>>()
+        })
     });
     view! {
         <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-border bg-surface px-2 py-1.5" data-testid="settings-tabs">
@@ -286,6 +300,9 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
         })
     });
     move || {
+        if tab.get() == Tab::Files {
+            return Some(super::files::files_panel().into_any());
+        }
         let schema = s.schema.get()?;
         let skip = burrow_admin_logic::tree::entity_sections(&schema);
         let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
@@ -544,6 +561,7 @@ mod tests {
             col: None,
             before: false,
             subjects: Vec::new(),
+            file: None,
         }
     }
 

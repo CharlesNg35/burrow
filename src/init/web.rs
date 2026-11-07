@@ -154,7 +154,7 @@ pub(super) fn site_choice(
         }
         return site(&w.domain, email, client, w.target.as_deref(), true).map(Some);
     }
-    if !prompt.interactive() || opts.yes || opts.email.is_some() {
+    if !prompt.interactive() || opts.email.is_some() {
         return Ok(None);
     }
     if !prompt.confirm("Serve websites (HTTPS for your apps)?", false) {

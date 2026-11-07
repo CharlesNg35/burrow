@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::admin::core::plan;
 use crate::admin::core::*;
 
+use super::one;
 use super::{core_for, p, session, world};
 
 #[test]
@@ -48,22 +49,27 @@ fn a_renamed_client_keeps_its_place_in_reach_and_the_file_changes_only_the_names
     );
     assert!(c.plan.confirms().is_empty(), "nothing to type for a rename");
     assert!(
-        c.new_text
+        c.new_docs
+            .main()
+            .text
             .contains("    reach:\n      home2: any # first\n      office: any\n"),
         "{}",
-        c.new_text
+        c.new_docs.main().text
     );
     assert!(
-        c.new_text.contains("  # the home box\n  home2:\n"),
+        c.new_docs
+            .main()
+            .text
+            .contains("  # the home box\n  home2:\n"),
         "{}",
-        c.new_text
+        c.new_docs.main().text
     );
     let changed: Vec<(&str, &str)> = text
         .lines()
-        .zip(c.new_text.lines())
+        .zip(c.new_docs.main().text.lines())
         .filter(|(a, b)| a != b)
         .collect();
-    assert_eq!(text.lines().count(), c.new_text.lines().count());
+    assert_eq!(text.lines().count(), c.new_docs.main().text.lines().count());
     assert!(!changed.is_empty());
     for (a, b) in changed {
         assert_eq!(
@@ -86,9 +92,16 @@ fn a_plan_keeps_comments_and_shows_a_masked_diff() {
     }];
     let c = plan::compute(&core, &s, &base, &ops).unwrap();
     assert!(c.plan.valid, "{:?}", c.plan.diags);
-    assert!(c.new_text.starts_with("# my server\nlisten: 7835 # tcp\n"));
     assert!(
-        c.new_text
+        c.new_docs
+            .main()
+            .text
+            .starts_with("# my server\nlisten: 7835 # tcp\n")
+    );
+    assert!(
+        c.new_docs
+            .main()
+            .text
             .contains("  ssh:\n    client: home\n    bind: 2222\n    target: 22\n")
     );
     assert!(c.plan.diff.unified.contains("+  ssh:"));
@@ -194,7 +207,7 @@ fn a_hand_edit_after_the_state_was_read_is_described_in_the_conflict() {
     let s = session(&w, AdminLevel::Write);
     let base = core.state(&s).unwrap().rev;
     let edited = w.text.replace("target: 3000", "target: 3001");
-    core.store.write(&w.text, &edited).unwrap();
+    core.store.write(&one(&w.text), &one(&edited)).unwrap();
     let e = plan::compute(&core, &s, &base, &[]).err().unwrap();
     assert_eq!(e.code, ErrorCode::Conflict);
     let c: burrow_admin_proto::plan::Conflict = serde_json::from_value(e.body).unwrap();

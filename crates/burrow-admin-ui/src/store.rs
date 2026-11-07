@@ -2,6 +2,7 @@ use burrow_config::ServerConfig;
 use std::sync::Arc;
 
 use burrow_admin_logic::rates::{Rates, Recorder, rates};
+use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{AuditEntry, ConfigEvent, State, Welcome};
 use burrow_admin_proto::schema::Schema;
 use burrow_admin_proto::status::Status;
@@ -55,6 +56,7 @@ impl Conn {
 #[derive(Clone, Copy)]
 pub struct Store {
     pub conn: RwSignal<Conn>,
+    pub opened: RwSignal<u64>,
     pub welcome: RwSignal<Option<Arc<Welcome>>>,
     pub schema: RwSignal<Option<Arc<Schema>>>,
     pub state: RwSignal<Option<Arc<State>>>,
@@ -115,6 +117,7 @@ impl Store {
     pub fn new(route: Route) -> Self {
         Store {
             conn: RwSignal::new(Conn::Connecting),
+            opened: RwSignal::new(0),
             welcome: RwSignal::new(None),
             schema: RwSignal::new(None),
             state: RwSignal::new(None),
@@ -174,6 +177,58 @@ impl Store {
         self.status_at.set(now_ms);
     }
 
+    pub fn files_on(&self) -> bool {
+        self.welcome.with(|w| {
+            w.as_ref()
+                .is_some_and(|w| w.has(burrow_admin_proto::features::CONFIG_FILES))
+        })
+    }
+
+    pub fn with_files<T>(
+        &self,
+        f: impl FnOnce(&burrow_admin_proto::msg::FileInfo) -> T,
+    ) -> Option<T> {
+        self.state.with(|s| s.as_ref().map(|s| f(&s.file)))
+    }
+
+    pub fn item_file(&self, item: &[String]) -> Option<String> {
+        if !self.files_on() {
+            return None;
+        }
+        let item = item.get(..2)?;
+        let placed = self.edit.files.with(|f| f.placed(item).map(str::to_string));
+        placed.or_else(|| self.base_file(item))
+    }
+
+    fn was_named(&self, item: &[String]) -> Option<Option<Path>> {
+        let [section, name] = item.get(..2)? else {
+            return None;
+        };
+        let was = self.edit.draft.with(|d| d.base_name(section, name));
+        Some(was.map(|was| vec![section.clone(), was]))
+    }
+
+    pub fn base_file(&self, item: &[String]) -> Option<String> {
+        let was = self.was_named(item)?;
+        self.with_files(|i| match &was {
+            Some(was) => burrow_admin_logic::files::file_of(i, was),
+            None => burrow_admin_logic::files::main_name(i),
+        })
+    }
+
+    pub fn item_locked(&self, item: &[String]) -> Option<String> {
+        let was = self.was_named(item)??;
+        self.with_files(|i| {
+            burrow_admin_logic::files::locked_file(i, &was)
+                .map(burrow_admin_logic::files::read_only_line)
+        })
+        .flatten()
+    }
+
+    pub fn can_write_item(&self, item: &[String]) -> bool {
+        self.can_write_now() && untrack(|| self.item_locked(item)).is_none()
+    }
+
     pub fn can_write_now(&self) -> bool {
         untrack(|| self.can_write())
     }
@@ -192,16 +247,15 @@ impl Store {
     pub fn toast(&self, tone: Tone, text: impl Into<String>, action: Option<&str>) {
         let id = self.next_toast.get_value() + 1;
         self.next_toast.set_value(id);
+        let toast = Toast {
+            id,
+            tone,
+            text: text.into(),
+            action: action.map(str::to_string),
+        };
         self.toasts.update(|t| {
-            burrow_ui_kit::push_toast(
-                t,
-                Toast {
-                    id,
-                    tone,
-                    text: text.into(),
-                    action: action.map(str::to_string),
-                },
-            );
+            t.retain(|x| (x.tone, &x.text, &x.action) != (toast.tone, &toast.text, &toast.action));
+            burrow_ui_kit::push_toast(t, toast);
         });
         let me = *self;
         set_timeout(move || me.drop_toast(id), std::time::Duration::from_secs(5));
@@ -344,4 +398,15 @@ pub fn store() -> Store {
 
 pub fn try_store() -> Option<Store> {
     use_context::<Store>()
+}
+
+pub fn on_reconnect(again: impl Fn() + 'static) {
+    let s = store();
+    Effect::new(move |seen: Option<u64>| {
+        let now = s.opened.get();
+        if seen.is_some_and(|n| n != now) {
+            untrack(&again);
+        }
+        now
+    });
 }

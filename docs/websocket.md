@@ -29,7 +29,7 @@ websocket:
   path: /burrow
 ```
 
-Then point your web server at `127.0.0.1:7836` ([examples below](#examples)). Clients and visitors use the URL as their server:
+`--ws-listen IP:PORT` and `--ws-path PATH` pick another address or path. Then point your web server at `127.0.0.1:7836` ([examples below](#examples)). Clients and visitors use the URL as their server:
 
 ```yaml
 # client.yaml

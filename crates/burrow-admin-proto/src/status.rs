@@ -195,6 +195,8 @@ pub struct ServiceStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<HttpCounts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_listening: Option<String>,
 }
 

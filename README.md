@@ -106,6 +106,7 @@ If the home machine has no copy of the server's files, run `./burrow init client
 
 ```sh
 ./burrow init server|client|visitor           # write a new config (asks what it needs; on an existing file, offers to replace it, or to update a visitor.yaml)
+./burrow init visitor --update                # ask the server again what this visitor may use, and update the forwards of visitor.yaml
 ./burrow server | client | visit              # run a server, a client or a visitor (-c FILE, or the file in this folder)
 ./burrow validate -c server.yaml              # check a config: exit 0 valid, 1 invalid, 2 usage error
 ./burrow client-config office --server myserver.example.com -o office.yaml  # the config for client "office" of server.yaml
@@ -116,8 +117,8 @@ If the home machine has no copy of the server's files, run `./burrow init client
 ./burrow status                               # clients, services and traffic of the servers running here (-f to follow)
 ./burrow clients update --all                 # update the server's clients to the latest release, see docs/updates.md
 ./burrow admin -c ops.yaml                    # the web admin, see docs/admin.md
-./burrow mcp -c ops.yaml --print-config claude # let an AI app read the server over MCP, see docs/mcp.md
-./burrow ca export --out burrow-local-ca.crt  # the local CA's certificate (tls: internal), to trust on your devices
+./burrow mcp -c ops.yaml --print-config claude # let an AI app read and change the server over MCP, see docs/mcp.md
+./burrow ca export --out burrow-local-ca.crt  # the local CA's certificate (tls: internal), to trust on your devices (SERVICE, -c FILE or --state-dir DIR)
 ./burrow service install                      # run as a system service, see docs/service.md
 ./burrow update                               # install the latest release
 ./burrow schema server > server.schema.json   # JSON Schema, for completion in your editor
@@ -324,9 +325,9 @@ A service page: how connections flow, and "Reached by", the ways in to this serv
 
 ![A service page of burrow admin with its flow and its Reached by settings](docs/images/admin-service.png)
 
-Settings, in five tabs: Server, Connections, Web, Monitoring and Config file, with one search across all of them. Config file shows the whole config as YAML, secrets as fingerprints, to read, copy or download. Here the Web tab, with the web proxy's ports, Let's Encrypt and the local certificate authority.
+Settings, in six tabs: Server, Connections, Web, Monitoring, Files (server.yaml and its drop-in files in `server.d/`) and Config file, with one search across all of them. Config file shows the whole config as YAML, secrets as fingerprints, to read, copy or download. Here the Web tab, with the web proxy's ports, login services and names that only redirect, Let's Encrypt (still off), your own certificates and the local certificate authority.
 
-![The Settings page of burrow admin with its five tabs](docs/images/admin-settings.png)
+![The Settings page of burrow admin with its six tabs, on the Web tab](docs/images/admin-settings.png)
 
 On a phone, and in dark mode:
 

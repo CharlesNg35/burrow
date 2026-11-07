@@ -5,7 +5,7 @@ use super::super::emit::{inline, render, scalar_str};
 use super::super::tree::{self, Node};
 use super::{
     Edits, child, comment_at, content_end, end_of, entry_bounds, entry_yaml, is_flow, lead,
-    line_end, line_start,
+    line_end, line_start, scalar_end,
 };
 
 pub(super) fn diff_map(
@@ -158,6 +158,8 @@ fn diff_value(
     let value_end = |edits: &mut Edits| -> Option<usize> {
         let end = if is_flow(src, old) {
             flow_end(src, old.span.start.offset)
+        } else if old.quoted {
+            scalar_end(src, old)
         } else {
             content_end(old).max(entry.key_span.end.offset)
         };

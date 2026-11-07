@@ -1,6 +1,7 @@
 use crate::ui::{Screens, Ui};
 
 pub const DESIGN: &str = include_str!("design.js");
+pub const CLEAR: &str = include_str!("clear.js");
 
 pub async fn assert_clean(ui: &Ui, step: &str) {
     if ui.screens == Screens::Older || std::env::var("BURROW_E2E_SKIP_DESIGN").as_deref() == Ok("1")
@@ -17,5 +18,10 @@ pub async fn assert_clean(ui: &Ui, step: &str) {
     assert!(
         bad.is_empty(),
         "{step}: the screen breaks the design rules of docs/admin-ui-dev.md: {bad:#?}"
+    );
+    let hidden: Vec<String> = ui.eval(CLEAR).await;
+    assert!(
+        hidden.is_empty(),
+        "{step}: a card stays under the toasts or the save bar at the end of the page: {hidden:#?}"
     );
 }

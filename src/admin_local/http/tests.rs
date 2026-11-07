@@ -143,6 +143,7 @@ fn every_response_carries_the_security_headers() {
         .collect();
     for h in [
         "content-security-policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'",
+        "cache-control: no-store",
         "x-content-type-options: nosniff",
         "referrer-policy: no-referrer",
         "cross-origin-opener-policy: same-origin",
@@ -152,6 +153,15 @@ fn every_response_carries_the_security_headers() {
         "connection: close",
     ] {
         assert!(r.contains(h), "{h}");
+    }
+    assert_eq!(r.matches("cache-control").count(), 1);
+    for code in [302, 400, 403, 404, 500] {
+        let r = response(code, "text/plain", &[], Vec::new());
+        assert_eq!(
+            r.headers().get("cache-control").unwrap(),
+            "no-store",
+            "{code}"
+        );
     }
     assert!(!r.to_ascii_lowercase().contains("set-cookie"));
     assert!(!r.to_ascii_lowercase().contains("access-control"));

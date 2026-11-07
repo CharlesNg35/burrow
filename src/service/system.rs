@@ -443,9 +443,10 @@ pub(crate) mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn securing_a_path_never_changes_what_a_link_there_points_to() {
+    fn securing_a_path_in_a_folder_others_can_write_never_changes_what_a_link_there_points_to() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o1777)).unwrap();
         let target = dir.path().join("com.example.daemon.plist");
         std::fs::write(&target, "x").unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();

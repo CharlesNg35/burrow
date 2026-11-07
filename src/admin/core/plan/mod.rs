@@ -1,8 +1,9 @@
 //! Turns admin edit operations into a checked plan with the new config text, and applies it.
-//! Start at `compute` for a plan and `apply_begin` to write it; `check_text` checks a whole file.
+//! Start at `compute` for a plan and `apply_begin` to write it; `check_docs` checks the main file with its drop-ins.
 
 mod access_log;
 mod apply;
+pub mod files;
 mod locks;
 mod steps;
 
@@ -15,15 +16,16 @@ use burrow_admin_proto::plan::{ApplyHow, Plan};
 use burrow_admin_proto::schema::{Applies, SemType};
 use serde_json::Value;
 
+use crate::config::docs::Docs;
 use crate::config::settings::ServerSettings;
-use crate::config::{Loaded, Role, load::load_str_at, patch, tree};
+use crate::config::{Loaded, Role, load::load_set, load::load_str_at, tree};
 
 use super::diags::Mapper;
 use super::ops::{self, Fresh};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
 use locks::{refuse_changed_locks, refuse_locked};
-use steps::{Draft, assemble, conflict, judge, new_document, parse_current};
+use steps::{Draft, assemble, conflict, judge, new_document, parse_current, refuse_files};
 
 pub struct Checked {
     pub raw: Option<Value>,
@@ -32,23 +34,26 @@ pub struct Checked {
     pub settings: Option<ServerSettings>,
 }
 
+#[cfg(test)]
+pub fn check_text(core: &Core, text: &str) -> Checked {
+    check_docs(
+        core,
+        &Docs::one(crate::config::docs::main_name(core.store.path()), text),
+    )
+}
+
 pub fn load_as(
     core: &Core,
     text: &str,
     role: Role,
     format: crate::config::Format,
 ) -> crate::config::Outcome {
-    let dir = core
-        .store
-        .path()
-        .parent()
-        .filter(|d| !d.as_os_str().is_empty())
-        .unwrap_or(std::path::Path::new("."))
-        .to_path_buf();
+    let path = core.store.path();
+    let dir = crate::config::docs::folder_of(path);
     let state = core.store.state_dir();
     load_str_at(
         (&dir, Some(&state)),
-        &core.store.path().display().to_string(),
+        &path.display().to_string(),
         text,
         format,
         Some(role),
@@ -56,11 +61,29 @@ pub fn load_as(
     )
 }
 
-pub fn check_text(core: &Core, text: &str) -> Checked {
-    let src = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let outcome = load_as(core, text, Role::Server, core.store.format());
-    let parsed = tree::parse(src).ok();
-    let mapper = Mapper::new(parsed.as_ref());
+fn positions(docs: &Docs) -> Option<tree::Node> {
+    let mut trees = Vec::with_capacity(docs.list.len());
+    for (i, d) in docs.list.iter().enumerate() {
+        let body = d.text.strip_prefix('\u{feff}').unwrap_or(&d.text);
+        let file = tree::FileId(u16::try_from(i).unwrap_or(u16::MAX));
+        trees.push(tree::parse_in(body, file).ok()?);
+    }
+    Some(crate::config::load::merge(trees))
+}
+
+pub fn check_docs(core: &Core, docs: &Docs) -> Checked {
+    let path = core.store.path();
+    let dir = crate::config::docs::folder_of(path);
+    let state = core.store.state_dir();
+    let outcome = load_set(
+        path,
+        (&dir, &state),
+        docs.inputs(path, core.store.format()),
+        Some(Role::Server),
+        &*core.env,
+    );
+    let parsed = positions(docs);
+    let mapper = Mapper::new(parsed.as_ref()).named(docs.names().map(str::to_string).collect());
     let diags: Vec<Diag> = outcome
         .report
         .diagnostics
@@ -79,9 +102,9 @@ pub fn check_text(core: &Core, text: &str) -> Checked {
     }
 }
 
-pub fn used_ports(core: &Core, text: &str) -> BTreeSet<u16> {
+pub fn used_ports(core: &Core, docs: &Docs) -> BTreeSet<u16> {
     let mut out = BTreeSet::new();
-    if let Some(s) = check_text(core, text).settings {
+    if let Some(s) = check_docs(core, docs).settings {
         out.extend(s.listen.map(|a| a.port()));
         out.extend(s.websocket.as_ref().map(|w| w.listen.port()));
         out.extend(s.metrics.map(|a| a.port()));
@@ -94,8 +117,8 @@ pub fn used_ports(core: &Core, text: &str) -> BTreeSet<u16> {
 
 pub struct Computed {
     pub plan: Plan,
-    pub old_text: String,
-    pub new_text: String,
+    pub old_docs: Docs,
+    pub new_docs: Docs,
     pub fresh: Vec<Fresh>,
     pub passwords: Vec<String>,
     pub reverts: Option<String>,
@@ -113,7 +136,7 @@ impl ops::Context for Cx<'_> {
     fn password(&self, handle: &str) -> Option<String> {
         self.session.pending_password(handle)
     }
-    fn history(&self, rev: &str) -> Option<String> {
+    fn history(&self, rev: &str) -> Option<Docs> {
         self.core.store.version(rev)
     }
     fn env(&self) -> &dyn crate::config::env::EnvSource {
@@ -186,30 +209,28 @@ pub fn compute(
     base: &str,
     ops_list: &[Op],
 ) -> Result<Computed, ApiError> {
-    let old_text = core.read()?;
-    let current = text::rev(&old_text);
+    let old_docs = core.docs()?;
+    let current = text::docs_rev(&old_docs);
     if current != base {
-        return Err(conflict(core, base, &old_text, current));
+        return Err(conflict(core, base, &old_docs, current));
     }
-    let (_, _, src) = patch::split_text(&old_text);
-    let raw = parse_current(&src)?;
+    let raw = parse_current(&old_docs)?;
     refuse_locked(core, ops_list)?;
     locks::refuse_misplaced_passwords(core, ops_list)?;
     let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
         .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
-    let (new_text, reformat, kept) = new_document(core, &raw, &old_text, &applied)?;
-    let checked = check_text(core, &new_text);
-    let new_raw = tree::parse(&patch::split_text(&new_text).2)
-        .map(|n| n.to_json())
-        .unwrap_or(Value::Null);
+    let (new_docs, reformat, kept) = new_document(core, &raw, &old_docs, &applied)?;
+    refuse_files(core, s, &old_docs, &new_docs)?;
+    let checked = check_docs(core, &new_docs);
+    let new_raw = new_docs.tree().map(|n| n.to_json()).unwrap_or(Value::Null);
     refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
-    let file = check_text(core, &old_text);
+    let file = check_docs(core, &old_docs);
     let d = Draft {
         raw: &raw,
         new_raw: &new_raw,
-        old_text: &old_text,
-        new_text: &new_text,
+        old_docs: &old_docs,
+        new_docs: &new_docs,
         applied: &applied,
     };
     let mut v = judge(core, s, &d, &running, &file, &checked);
@@ -217,8 +238,8 @@ pub fn compute(
     let plan = assemble(core, base, &d, checked, file, v, reformat);
     Ok(Computed {
         plan,
-        old_text,
-        new_text,
+        old_docs,
+        new_docs,
         fresh: applied.fresh,
         passwords: applied.passwords,
         reverts: ops_list.iter().find_map(|o| match o {
