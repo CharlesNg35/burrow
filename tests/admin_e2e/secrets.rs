@@ -338,6 +338,23 @@ fn e9_revoked_access_is_shown_and_a_restart_keeps_the_draft() {
     );
 }
 
+const HELD: &str = "(() => { const r = document.querySelector('[data-testid=review]'); return [r && r.dataset.held === 'yes' ? 1 : 0, scrollY, document.querySelectorAll('[data-testid=outcome-failed]').length]; })()";
+
+async fn the_page_holds_while_reconnecting(c: &Ctx) {
+    c.ui.wait_for("[data-testid=outcome-failed]", SECS).await;
+    let before: Vec<f64> = c
+        .ui
+        .eval("(() => { scrollTo(0, document.documentElement.scrollHeight); document.querySelector('[data-testid=review]').dataset.held = 'yes'; return [1, scrollY, document.querySelectorAll('[data-testid=outcome-failed]').length]; })()")
+        .await;
+    assert!(before[1] > 0.0, "the review page scrolls: {before:?}");
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let after: Vec<f64> = c.ui.eval(HELD).await;
+    assert_eq!(
+        after, before,
+        "while it reconnects, the page keeps its content, its scroll and the failed outcome [same page, scroll, outcome]"
+    );
+}
+
 fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -356,6 +373,7 @@ fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
         )
         .await;
         c.ui.click("[data-testid=apply]").await;
+        the_page_holds_while_reconnecting(c).await;
         c.ui.shot("apply-while-reconnecting").await;
         c.world
             .start("server", &["server", "-c", "server.yaml"], &[]);
