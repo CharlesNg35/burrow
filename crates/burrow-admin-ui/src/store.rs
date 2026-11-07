@@ -2,6 +2,7 @@ use burrow_config::ServerConfig;
 use std::sync::Arc;
 
 use burrow_admin_logic::rates::{Rates, Recorder, rates};
+use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{AuditEntry, ConfigEvent, State, Welcome};
 use burrow_admin_proto::schema::Schema;
 use burrow_admin_proto::status::Status;
@@ -194,16 +195,33 @@ impl Store {
         }
         let item = item.get(..2)?;
         let placed = self.edit.files.with(|f| f.placed(item).map(str::to_string));
-        placed.or_else(|| self.with_files(|i| burrow_admin_logic::files::file_of(i, item)))
+        placed.or_else(|| self.base_file(item))
+    }
+
+    fn was_named(&self, item: &[String]) -> Option<Path> {
+        let [section, name] = item.get(..2)? else {
+            return None;
+        };
+        let from = self.edit.draft.with(|d| d.renamed_from(section, name));
+        Some(vec![section.clone(), from.unwrap_or_else(|| name.clone())])
+    }
+
+    pub fn base_file(&self, item: &[String]) -> Option<String> {
+        let was = self.was_named(item)?;
+        self.with_files(|i| burrow_admin_logic::files::file_of(i, &was))
     }
 
     pub fn item_locked(&self, item: &[String]) -> Option<String> {
-        let item = item.get(..2)?;
+        let was = self.was_named(item)?;
         self.with_files(|i| {
-            burrow_admin_logic::files::locked_file(i, item)
+            burrow_admin_logic::files::locked_file(i, &was)
                 .map(burrow_admin_logic::files::read_only_line)
         })
         .flatten()
+    }
+
+    pub fn can_write_item(&self, item: &[String]) -> bool {
+        self.can_write_now() && untrack(|| self.item_locked(item)).is_none()
     }
 
     pub fn can_write_now(&self) -> bool {

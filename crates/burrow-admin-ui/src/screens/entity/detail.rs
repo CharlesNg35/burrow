@@ -98,7 +98,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
         })
     });
     let locked = s.item_locked(&path);
-    let can = s.can_write_now() && locked.is_none();
+    let can = s.can_write_item(&path);
     let parts = Parts {
         locked,
         section: section.clone(),
