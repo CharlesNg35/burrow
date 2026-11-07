@@ -10,6 +10,9 @@ use tracing::{debug, warn};
 use super::Hub;
 use super::core::ports::{Store, Version, WhyNot, WriteError};
 use super::core::{Core, Session, text};
+use super::kept::parse_kept;
+#[cfg(unix)]
+use super::kept::{kept_at, names_at, put_at};
 use super::transport::{self, Access};
 use crate::config::Format;
 use crate::config::docs::{Docs, main_name};
@@ -19,9 +22,9 @@ use crate::server::Shared;
 use crate::server::admin_hook::{AdminHook, Opened, answer};
 use crate::wire::protocol::Status as Answer;
 use crate::wire::transport::Channel;
-use burrow_admin_proto::msg::AdminLevel;
+use burrow_admin_proto::msg::{AdminLevel, AuditEntry};
 
-const KEEP: usize = 20;
+pub(super) const KEEP: usize = 20;
 
 pub struct FileStore {
     path: PathBuf,
@@ -51,19 +54,34 @@ impl FileStore {
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
     }
 
-    fn files(&self) -> Vec<(Version, PathBuf)> {
+    fn names(&self) -> Vec<String> {
         let Ok(entries) = std::fs::read_dir(self.dir()) else {
             return Vec::new();
         };
-        let mut out: Vec<(u128, Version, PathBuf)> = entries
+        entries
             .flatten()
-            .filter_map(|e| {
-                let (nanos, v) = parse_kept(&e.file_name().to_string_lossy())?;
-                Some((nanos, v, e.path()))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    fn files(&self) -> Vec<(Version, PathBuf)> {
+        let dir = self.dir();
+        let mut out: Vec<(u128, Version, PathBuf)> = self
+            .names()
+            .into_iter()
+            .filter_map(|name| {
+                let (nanos, v) = parse_kept(&name)?;
+                Some((nanos, v, dir.join(name)))
             })
             .collect();
         out.sort_by_key(|(n, _, _)| std::cmp::Reverse(*n));
         out.into_iter().map(|(_, v, p)| (v, p)).collect()
+    }
+
+    fn note_path(&self, rev: &str) -> Option<PathBuf> {
+        let (_, file) = self.files().into_iter().find(|(v, _)| v.rev == rev)?;
+        let name = super::notes::name_for(&file.file_name()?.to_string_lossy())?;
+        Some(self.dir().join(name))
     }
 
     fn kept_name(&self, rev: &str, newest: u128) -> String {
@@ -80,23 +98,22 @@ impl FileStore {
     }
 
     #[cfg(unix)]
-    fn write_history(&self, rev: &str, body: &str) -> std::io::Result<()> {
+    fn owner(&self) -> Option<(u32, u32)> {
         use std::os::unix::fs::MetadataExt;
-        let owner = std::fs::symlink_metadata(&self.path)
+        std::fs::symlink_metadata(&self.path)
             .ok()
             .filter(|_| rustix::process::geteuid().is_root())
-            .map(|cfg| (cfg.uid(), cfg.gid()));
-        self.write_history_for(rev, body, owner)
+            .map(|cfg| (cfg.uid(), cfg.gid()))
     }
 
     #[cfg(unix)]
-    fn write_history_for(
-        &self,
-        rev: &str,
-        body: &str,
-        owner: Option<(u32, u32)>,
-    ) -> std::io::Result<()> {
-        use rustix::fs::{AtFlags, Mode, OFlags};
+    fn write_history(&self, rev: &str, body: &str) -> std::io::Result<()> {
+        self.write_history_for(rev, body, self.owner())
+    }
+
+    #[cfg(unix)]
+    fn open_dir(&self, owner: Option<(u32, u32)>) -> std::io::Result<rustix::fd::OwnedFd> {
+        use rustix::fs::{Mode, OFlags};
         let dir = self.dir();
         if let Err(e) = std::fs::create_dir(&dir)
             && e.kind() != std::io::ErrorKind::AlreadyExists
@@ -113,51 +130,43 @@ impl FileStore {
         if let Some(owner) = owner {
             hand_over(&fd, owner)?;
         }
-        let list = |fd: &rustix::fd::OwnedFd| -> std::io::Result<Vec<(u128, Version, String)>> {
-            let mut out = Vec::new();
-            for entry in rustix::fs::Dir::read_from(fd)? {
-                let name = entry?.file_name().to_string_lossy().into_owned();
-                if let Some((nanos, v)) = parse_kept(&name) {
-                    out.push((nanos, v, name));
-                }
-            }
-            out.sort_by_key(|(n, _, _)| std::cmp::Reverse(*n));
-            Ok(out)
-        };
-        let files = list(&fd)?;
+        Ok(fd)
+    }
+
+    #[cfg(unix)]
+    fn write_history_for(
+        &self,
+        rev: &str,
+        body: &str,
+        owner: Option<(u32, u32)>,
+    ) -> std::io::Result<()> {
+        use rustix::fs::AtFlags;
+        let fd = self.open_dir(owner)?;
+        let files = kept_at(&fd)?;
         let name = self.kept_name(rev, files.first().map_or(0, |f| f.0));
-        if let Some(pos) = files.iter().position(|(_, v, _)| v.rev == rev) {
-            if pos > 0 {
-                rustix::fs::renameat(&fd, files[pos].2.as_str(), &fd, name.as_str())?;
-            }
-            return Ok(());
+        match files.iter().position(|(_, v, _)| v.rev == rev) {
+            Some(0) => return Ok(()),
+            Some(pos) => rustix::fs::renameat(&fd, files[pos].2.as_str(), &fd, name.as_str())?,
+            None => put_at(&fd, &name, body, owner)?,
         }
-        let draft = format!(".{name}.burrow-new-{}", std::process::id());
-        let _ = rustix::fs::unlinkat(&fd, draft.as_str(), AtFlags::empty());
-        let written = (|| -> std::io::Result<()> {
-            use std::io::Write;
-            let mut file = std::fs::File::from(rustix::fs::openat(
-                &fd,
-                draft.as_str(),
-                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                Mode::from_bits_truncate(0o600),
-            )?);
-            file.write_all(body.as_bytes())?;
-            file.sync_all()?;
-            if let Some(owner) = owner {
-                let _ = hand_over(&file, owner);
-            }
-            rustix::fs::renameat(&fd, draft.as_str(), &fd, name.as_str())?;
-            Ok(())
-        })();
-        if written.is_err() {
-            let _ = rustix::fs::unlinkat(&fd, draft.as_str(), AtFlags::empty());
+        for (_, _, old) in kept_at(&fd)?.into_iter().skip(KEEP) {
+            let _ = rustix::fs::unlinkat(&fd, old.as_str(), AtFlags::empty());
         }
-        written?;
-        for (_, _, old) in list(&fd)?.into_iter().skip(KEEP) {
+        for old in super::notes::stale(&names_at(&fd)?, |n| parse_kept(n).is_some()) {
             let _ = rustix::fs::unlinkat(&fd, old.as_str(), AtFlags::empty());
         }
         Ok(())
+    }
+
+    #[cfg(unix)]
+    fn put(&self, name: &str, body: &str) -> std::io::Result<()> {
+        let owner = self.owner();
+        put_at(&self.open_dir(owner)?, name, body, owner)
+    }
+
+    #[cfg(not(unix))]
+    fn put(&self, name: &str, body: &str) -> std::io::Result<()> {
+        crate::base::fs::write_private(&self.dir().join(name), body)
     }
 
     #[cfg(not(unix))]
@@ -174,32 +183,19 @@ impl FileStore {
             .and_then(|(_, p)| parse_kept(&p.file_name()?.to_string_lossy()))
             .map_or(0, |(n, _)| n);
         let file = dir.join(self.kept_name(rev, newest));
-        if let Some(pos) = files.iter().position(|(v, _)| v.rev == rev) {
-            if pos > 0 {
-                std::fs::rename(&files[pos].1, &file)?;
-            }
-            return Ok(());
+        match files.iter().position(|(v, _)| v.rev == rev) {
+            Some(0) => return Ok(()),
+            Some(pos) => std::fs::rename(&files[pos].1, &file)?,
+            None => crate::base::fs::write_private(&file, body)?,
         }
-        crate::base::fs::write_private(&file, body)?;
         for (_, old) in self.files().into_iter().skip(KEEP) {
             let _ = std::fs::remove_file(old);
         }
+        for old in super::notes::stale(&self.names(), |n| parse_kept(n).is_some()) {
+            let _ = std::fs::remove_file(dir.join(old));
+        }
         Ok(())
     }
-}
-
-fn parse_kept(name: &str) -> Option<(u128, Version)> {
-    let (at, rest) = name.split_once('-')?;
-    let hex = rest.split('.').next()?;
-    let nanos: u128 = at.parse().ok()?;
-    let rev = text::rev_from_hex(hex)?;
-    Some((
-        nanos,
-        Version {
-            rev,
-            at: (nanos / 1_000_000_000) as u64,
-        },
-    ))
 }
 
 impl Store for FileStore {
@@ -338,6 +334,24 @@ impl Store for FileStore {
     fn taken(&self, name: &str) -> bool {
         crate::config::docs::taken(&self.path, name)
     }
+
+    fn note(&self, entry: &AuditEntry) {
+        let (Some(path), Some(body)) = (self.note_path(&entry.rev), super::notes::body(entry))
+        else {
+            return;
+        };
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if let Err(e) = self.put(&name, &body) {
+            debug!(target: "burrow::admin", "cannot keep who made the change beside {}: {}", path.display(), crate::base::failure::file_reason(&e));
+        }
+    }
+
+    fn noted(&self, rev: &str) -> Option<AuditEntry> {
+        super::notes::read(&self.note_path(rev)?, rev)
+    }
 }
 
 pub(super) fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> std::io::Result<()> {
@@ -350,7 +364,7 @@ pub(super) fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> st
 pub use super::latest::use_latest;
 
 #[cfg(unix)]
-fn hand_over(fd: impl std::os::fd::AsFd, (uid, gid): (u32, u32)) -> std::io::Result<()> {
+pub(super) fn hand_over(fd: impl std::os::fd::AsFd, (uid, gid): (u32, u32)) -> std::io::Result<()> {
     let now = rustix::fs::fstat(&fd)?;
     if (now.st_uid, now.st_gid) == (uid, gid) {
         return Ok(());

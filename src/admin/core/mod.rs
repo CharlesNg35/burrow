@@ -238,19 +238,27 @@ impl Core {
         let mut audit = VecDeque::new();
         for v in store.versions().into_iter().take(AUDIT_RING).rev() {
             let id = next_id(audit.front(), v.at);
-            audit.push_front(AuditEntry {
-                id,
-                at: v.at,
-                visitor: String::new(),
-                from: String::new(),
-                base: String::new(),
-                rev: v.rev,
-                changes: Vec::new(),
-                result: "kept".into(),
-                revertible: true,
-                details_kept: false,
-                reverts: None,
-            });
+            let entry = match store.noted(&v.rev) {
+                Some(noted) => AuditEntry {
+                    id,
+                    rev: v.rev,
+                    ..noted
+                },
+                None => AuditEntry {
+                    id,
+                    at: v.at,
+                    visitor: String::new(),
+                    from: String::new(),
+                    base: String::new(),
+                    rev: v.rev,
+                    changes: Vec::new(),
+                    result: "kept".into(),
+                    revertible: true,
+                    details_kept: false,
+                    reverts: None,
+                },
+            };
+            audit.push_front(entry);
         }
         Core {
             store,

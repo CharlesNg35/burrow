@@ -21,6 +21,7 @@ mod reach;
 #[cfg(feature = "web")]
 mod refs;
 mod requests;
+mod restart;
 mod reverts;
 mod snippets;
 mod status;

@@ -40,6 +40,10 @@ pub trait Store: Send + Sync {
     fn taken(&self, _name: &str) -> bool {
         false
     }
+    fn note(&self, _entry: &burrow_admin_proto::msg::AuditEntry) {}
+    fn noted(&self, _rev: &str) -> Option<burrow_admin_proto::msg::AuditEntry> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -144,6 +144,13 @@ pub fn restore(core: &Core, begun: &Begun) -> bool {
             .is_ok()
 }
 
+fn log(core: &Core, begun: &Begun, entry: AuditEntry) {
+    if begun.wrote {
+        core.store.note(&entry);
+    }
+    core.record(entry);
+}
+
 pub fn finish(
     core: &Core,
     s: &Session,
@@ -176,11 +183,15 @@ pub fn finish(
                 "the server rejected the config written by burrow admin ({why}); {}",
                 if restored { "the previous file was written back" } else { "the previous file could NOT be written back" }
             );
-            core.record(entry(if restored {
-                "rejected, restored"
-            } else {
-                "rejected"
-            }));
+            log(
+                core,
+                &begun,
+                entry(if restored {
+                    "rejected, restored"
+                } else {
+                    "rejected"
+                }),
+            );
             let body = ReloadFailed {
                 restored,
                 reason: why.clone(),
@@ -214,11 +225,15 @@ pub fn finish(
                 changes = %summary.join("; "),
                 "config changed by admin"
             );
-            core.record(entry(if unbound.is_empty() {
-                "applied"
-            } else {
-                "applied, some ports could not listen"
-            }));
+            log(
+                core,
+                &begun,
+                entry(if unbound.is_empty() {
+                    "applied"
+                } else {
+                    "applied, some ports could not listen"
+                }),
+            );
             let handles: Vec<String> = begun
                 .computed
                 .fresh
