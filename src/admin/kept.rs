@@ -1,6 +1,3 @@
-//! The history folder's file names and steps: which files are kept versions, and on unix the listing and private atomic writes at the folder handle.
-//! `FileStore` in `adapters` decides what to keep; this file only names, lists and writes.
-
 use super::core::ports::Version;
 use super::core::text;
 

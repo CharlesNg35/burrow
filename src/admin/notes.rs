@@ -1,6 +1,3 @@
-//! The facts of each admin change (who, from where, what), kept beside its history version so Activity still shows them after a restart.
-//! A note is `audit-<version stem>.json` with the masked change summaries only; older burrow ignores it, and it goes when its version goes.
-
 use std::io::Read;
 use std::path::Path;
 
