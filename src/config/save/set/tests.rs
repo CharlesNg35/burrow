@@ -376,3 +376,23 @@ fn a_create_that_loses_the_race_is_the_changed_on_disk_refusal() {
     RACE_CREATE.with(|f| f.replace(None));
     assert!(matches!(r, Err(Refused::Changed)), "{r:?}");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_drop_in_with_a_second_name_is_read_but_never_written() {
+    let (dir, main, before) = setup();
+    let other = dir.path().join("other.yaml");
+    std::fs::write(&other, "services: {}\n").unwrap();
+    let file = dir.path().join("server.d/a.yaml");
+    std::fs::remove_file(&file).unwrap();
+    std::fs::hard_link(&other, &file).unwrap();
+    assert_eq!(
+        read_only(&file),
+        Some(crate::config::docs::ReadOnly::HardLink)
+    );
+    assert!(read_only(&file).unwrap().why().contains("link"));
+    let mut after = before.clone();
+    after.list[1].text = "services: { x: {} }\n".into();
+    assert!(write_set(&main, &before, &after).is_err());
+    assert_eq!(std::fs::read_to_string(&other).unwrap(), "services: {}\n");
+}

@@ -220,6 +220,7 @@ pub fn read(main: &Path) -> std::io::Result<Docs> {
 pub enum ReadOnly {
     Marked,
     Link,
+    HardLink,
     NotWritable,
 }
 
@@ -229,6 +230,7 @@ impl ReadOnly {
             ReadOnly::Marked if cfg!(windows) => "it has the read-only attribute",
             ReadOnly::Marked => "it has no write permission",
             ReadOnly::Link => "it is a link to another file",
+            ReadOnly::HardLink => "it is linked: another file name shares its content",
             ReadOnly::NotWritable => "burrow's user cannot write it",
         }
     }
@@ -241,9 +243,12 @@ pub fn read_only(path: &Path) -> Option<ReadOnly> {
     let meta = std::fs::metadata(path).ok()?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         if meta.permissions().mode() & 0o222 == 0 {
             return Some(ReadOnly::Marked);
+        }
+        if meta.nlink() > 1 {
+            return Some(ReadOnly::HardLink);
         }
     }
     #[cfg(not(unix))]

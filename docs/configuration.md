@@ -194,7 +194,7 @@ Each file has one owner. burrow admin edits every item in the file it came from,
 
 - it has no write permission for anyone (`chmod 0440`), or it is the Windows read-only attribute (`attrib +R`);
 - or burrow's user cannot write it (for example `root:burrow 0640` while burrow runs as `burrow`);
-- or it is a link to a file elsewhere.
+- or it is a link to a file elsewhere, or has a second name (a hard link, on Linux, macOS and BSD).
 
 A tool that writes the file sets this in one line, for example with Ansible:
 
