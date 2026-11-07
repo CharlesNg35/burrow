@@ -26,6 +26,8 @@ use other as place;
 pub(super) use snapshot::Snapshot;
 #[cfg(unix)]
 use unix as place;
+#[cfg(unix)]
+pub(super) use unix::settle;
 
 fn file_part(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)

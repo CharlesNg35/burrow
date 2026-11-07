@@ -95,7 +95,7 @@ pub trait Backend {
             if let Ok((uid, gid)) = crate::base::process::account_ids(owner) {
                 give_history(config, uid, gid);
             }
-            Ok(())
+            drop_ins::settle(config, account, writable)
         }
         #[cfg(not(unix))]
         {

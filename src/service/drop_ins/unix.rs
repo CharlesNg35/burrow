@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 
 use rustix::fd::OwnedFd;
-use rustix::fs::{AtFlags, Mode, OFlags};
+use rustix::fs::{AtFlags, FileType, Mode, OFlags};
 
 use super::Put;
 use crate::base::failure::Failure;
@@ -42,31 +42,58 @@ impl Folder {
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
         let dir = made_subfolder(parent, to.file_name().unwrap_or_default())?;
+        let folder = Folder::of(dir, to, account, writable);
+        folder.settle_dir()?;
+        Ok(folder)
+    }
+
+    fn of(dir: OwnedFd, to: &Path, account: &str, writable: bool) -> Folder {
         let root = rustix::process::geteuid().is_root();
         let ids = root
             .then(|| crate::base::process::account_ids(account).ok())
             .flatten();
-        let owner = root.then(|| {
-            if writable {
-                ids.unwrap_or((0, 0))
-            } else {
-                (0, 0)
-            }
-        });
-        if let Some((uid, gid)) = owner {
-            std::os::unix::fs::fchown(&dir, Some(uid), Some(gid))
-                .map_err(|e| failed("give", to, e))?;
-        }
-        let mode = if writable { 0o700 } else { 0o755 };
-        rustix::fs::fchmod(&dir, Mode::from_bits_truncate(mode))
-            .map_err(|e| failed("set permissions on", to, e))?;
-        Ok(Folder {
+        Folder {
             dir,
             shown: to.to_path_buf(),
             owner: root.then(|| ids.unwrap_or((0, 0))),
             group: ids.map(|(_, g)| g),
             writable,
-        })
+        }
+    }
+
+    fn settle_dir(&self) -> Result<(), Failure> {
+        let to = &self.shown;
+        let owner = self
+            .owner
+            .map(|ids| if self.writable { ids } else { (0, 0) });
+        if let Some((uid, gid)) = owner {
+            std::os::unix::fs::fchown(&self.dir, Some(uid), Some(gid))
+                .map_err(|e| failed("give", to, e))?;
+        }
+        let mode = if self.writable { 0o700 } else { 0o755 };
+        rustix::fs::fchmod(&self.dir, Mode::from_bits_truncate(mode))
+            .map_err(|e| failed("set permissions on", to, e))
+    }
+
+    fn settle_note(&self) -> Result<(), Failure> {
+        let shown = self.shown.join(super::COPIED);
+        let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let Ok(f) = rustix::fs::openat(&self.dir, super::COPIED, flags, Mode::empty()) else {
+            return Ok(());
+        };
+        let plain = rustix::fs::fstat(&f).is_ok_and(|st| {
+            FileType::from_raw_mode(st.st_mode) == FileType::RegularFile && st.st_nlink == 1
+        });
+        if !plain {
+            return Ok(());
+        }
+        let (owner, mode) = owner_and_mode(Put::Note, (self.owner, self.group), self.writable);
+        if let Some((uid, gid)) = owner {
+            std::os::unix::fs::fchown(&f, Some(uid), Some(gid))
+                .map_err(|e| failed("give", &shown, e))?;
+        }
+        rustix::fs::fchmod(&f, Mode::from_bits_truncate(mode))
+            .map_err(|e| failed("set permissions on", &shown, e))
     }
 
     pub(super) fn put(&self, file: &str, text: &[u8], put: Put) -> Result<(), Failure> {
@@ -103,6 +130,20 @@ impl Folder {
     }
 }
 
+pub(in crate::service) fn settle(
+    config: &Path,
+    account: &str,
+    writable: bool,
+) -> Result<(), Failure> {
+    let to = super::drop_in_folder(config);
+    let Ok(dir) = rustix::fs::open(&to, crate::base::fs::NO_FOLLOW_FOLDER, Mode::empty()) else {
+        return Ok(());
+    };
+    let folder = Folder::of(dir, &to, account, writable);
+    folder.settle_dir()?;
+    folder.settle_note()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +171,53 @@ mod tests {
             owner_and_mode(Put::Note, (None, None), false),
             (None, 0o644)
         );
+    }
+
+    #[test]
+    fn settling_gives_the_folder_and_the_copy_note_what_a_fresh_install_with_the_setting_gives() {
+        use std::os::unix::fs::{MetadataExt, chown};
+        if !rustix::process::geteuid().is_root() {
+            return;
+        }
+        let Ok(ids) = crate::base::process::account_ids("nobody") else {
+            return;
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let config = tmp.path().join("server.yaml");
+        let (to, note) = (
+            tmp.path().join("server.d"),
+            tmp.path().join("server.d/.burrow-copied"),
+        );
+        std::fs::create_dir(&to).unwrap();
+        std::fs::write(&note, "apps.yaml").unwrap();
+        let state = |p: &Path| {
+            let meta = std::fs::symlink_metadata(p).unwrap();
+            ((meta.uid(), meta.gid()), meta.mode() & 0o777)
+        };
+        for writable in [false, true, false] {
+            let backend = crate::service::tests::Recorder(Default::default(), false);
+            let fresh = tmp.path().join(format!("fresh-{writable}/server.yaml"));
+            std::fs::create_dir_all(fresh.parent().unwrap()).unwrap();
+            let made = Folder::open(
+                &backend,
+                (&fresh, &fresh.with_file_name("server.d")),
+                "nobody",
+                writable,
+            )
+            .unwrap();
+            made.put(super::super::COPIED, b"apps.yaml", Put::Note)
+                .unwrap();
+            let want = fresh.with_file_name("server.d");
+            chown(&to, Some(if writable { 0 } else { ids.0 }), Some(0)).unwrap();
+            settle(&config, "nobody", writable).unwrap();
+            assert_eq!(state(&to), state(&want), "writable={writable}");
+            assert_eq!(
+                state(&note),
+                state(&want.join(".burrow-copied")),
+                "writable={writable}"
+            );
+        }
+        settle(&tmp.path().join("none/server.yaml"), "nobody", true).unwrap();
     }
 
     #[test]

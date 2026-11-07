@@ -118,7 +118,7 @@ sudo nano /etc/burrow/server/server.yaml   # or edit the file directly
 - Before anything changes, the install checks the source together with the files it leaves in place, and refuses, naming the file, when they do not make a valid config (for example the same service in both).
 - When the service may change its config (`--admin-writable` or an admin visitor), the installed set is first kept as a version in Activity, as for `server.yaml`.
 - An installed `server.d` that is a link or a file is refused.
-- With `--admin-writable`, the service may also change `server.d/`.
+- With `--admin-writable`, the service may also change `server.d/`. Installing again from `/etc/burrow/<name>/server.yaml` with or without it sets the folder either way.
 - An uninstall that removes the service account gives the account's drop-in files and their group to root, noting which in `server.d/.burrow-given`; the next install gives exactly those back and leaves any other root-owned file alone.
 - Add files to `/etc/burrow/<name>/server.d/` by hand later; the service picks them up on save.
 
