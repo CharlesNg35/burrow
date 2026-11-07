@@ -46,7 +46,11 @@ Several checks decide what a connection may reach, and the client has the last w
 
 ## Guessing names
 
-Wrong names and wrong secrets get exactly the same answer, after the same amount of work, so nobody can find out which client or visitor names exist. Connections that have not logged in yet are limited in number and time (`limits.max_handshakes`, `limits.handshake_timeout_secs`). When they run short, one address cannot take more than its share. On the web ports a connection over the limit waits for a free slot within its deadline, and an address loses connections that stall for more than a second while the server is busy.
+Wrong names and wrong secrets get exactly the same answer, after the same amount of work, so nobody can find out which client or visitor names exist.
+
+Connections that have not logged in yet are limited in number and time (`limits.max_handshakes`, `limits.handshake_timeout_secs`). When they run short, one address cannot take more than its share.
+
+On the web ports a connection over the limit waits for a free slot within its deadline, and an address loses connections that stall for more than a second while the server is busy.
 
 <details>
 <summary><b>More details</b></summary>
@@ -94,13 +98,27 @@ A website is open to every browser, so burrow checks each request before it reac
 
 ## Client updates
 
-A client updates itself only when its own config has `update.remote: true`. The server only asks. The client, or its updater, finds the latest official release itself, or uses a mirror set on the client machine. It checks the release against its `SHA256SUMS` and refuses anything that is not newer than what it runs. For a service, a small updater that runs as root does the replacing, and it takes no input from the client's account. It reads the opt-in from the installed config itself. The account can only start it, by a trigger file that the updater removes without reading, or on Windows by starting the updater service. The updater writes its result only into a folder the account may read but not change. Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
+A client updates itself only when its own config has `update.remote: true`. The server only asks.
+
+- The client, or its updater, finds the latest official release itself, or uses a mirror set on the client machine.
+- It checks the release against its `SHA256SUMS` and refuses anything that is not newer than what it runs.
+- For a service, a small updater that runs as root does the replacing, and it takes no input from the client's account. It reads the opt-in from the installed config itself.
+- The account can only start it, by a trigger file that the updater removes without reading, or on Windows by starting the updater service.
+- The updater writes its result only into a folder the account may read but not change.
+
+Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
 
 `burrow clients update` on the server machine asks through the server's local status endpoint on `127.0.0.1`, with the token that only the server's own account can read. That account can already change the server's config, so it gains nothing new ([D79](decisions.md#d79-burrow-clients-updates-clients-from-the-server-machine-through-one-write-route-of-the-local-status-endpoint)).
 
 ## Server updates
 
-A server can be updated from burrow admin or `burrow mcp` only when root turned it on: `update.remote: true` in server.yaml counts only after `sudo burrow service install`, which records it in the service's root-owned install record. The root updater trusts that record alone and never reads server.yaml, which the server's account may be allowed to change. The server's account can only start the updater, as a client's can; it still cannot write the binary, and it passes no version, file or path. The updater takes the newest official release, checks `SHA256SUMS`, never goes back to an older release, and puts the old binary back when the new server is not healthy within a minute. An admin with `admin: write` can therefore move the server to the latest official release, and nothing else. Clients are never asked to update past the server's own version ([updates.md](updates.md#update-the-server-from-burrow-admin)).
+A server can be updated from burrow admin or `burrow mcp` only when root turned it on: `update.remote: true` in server.yaml counts only after `sudo burrow service install`, which records it in the service's root-owned install record.
+
+- The root updater trusts that record alone and never reads server.yaml, which the server's account may be allowed to change.
+- The server's account can only start the updater, as a client's can; it still cannot write the binary, and it passes no version, file or path.
+- The updater takes the newest official release, checks `SHA256SUMS`, never goes back to an older release, and puts the old binary back when the new server is not healthy within a minute.
+
+An admin with `admin: write` can therefore move the server to the latest official release, and nothing else. Clients are never asked to update past the server's own version ([updates.md](updates.md#update-the-server-from-burrow-admin)).
 
 ## burrow admin
 
@@ -108,7 +126,12 @@ The web admin listens on `127.0.0.1` only and needs a random token that only you
 
 ## burrow mcp
 
-`burrow mcp` gives an AI app the same admin channel, with the same server rules. A visitor with `admin: write` can change the config through it unless it is started with `--read-only`. It applies only a plan the AI checked first, and secrets never reach the AI: new ones stay on the server behind a handle and reach you in files only you can read. Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
+`burrow mcp` gives an AI app the same admin channel, with the same server rules.
+
+- A visitor with `admin: write` can change the config through it unless it is started with `--read-only`.
+- It applies only a plan the AI checked first.
+- Secrets never reach the AI: new ones stay on the server behind a handle and reach you in files only you can read.
+- Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
 
 ## Next steps
 
