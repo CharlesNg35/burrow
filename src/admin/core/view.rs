@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use burrow_admin_proto::schema::{Node, SemType};
 use burrow_admin_proto::value::{self, SecretSrc};
 use burrow_admin_proto::view::{ConfigView, Shown, ViewSection};
-use burrow_config::drop_ins::{self, is_section};
+use burrow_config::drop_ins::is_section;
 use serde_json::{Map, Value, json};
 
 use super::{ApiError, Core, plan, text, values};
@@ -37,16 +35,13 @@ pub fn sections(shown: &Value, docs: &Docs) -> Vec<ViewSection> {
     let Value::Object(top) = plain(shown) else {
         return Vec::new();
     };
-    let owners = owners(docs);
+    let owners = plan::files::Owners::of(docs);
     let mut files = vec![Map::new(); docs.list.len().max(1)];
     for (key, v) in top {
         match v {
             Value::Object(items) if is_section(&key) && !items.is_empty() => {
                 for (item, x) in items {
-                    let i = owners
-                        .get(&(key.clone(), item.clone()))
-                        .copied()
-                        .unwrap_or(0);
+                    let i = owners.file_of(&key, &item).min(files.len() - 1);
                     if let Value::Object(m) = files[i]
                         .entry(key.clone())
                         .or_insert_with(|| Value::Object(Map::new()))
@@ -72,25 +67,6 @@ pub fn sections(shown: &Value, docs: &Docs) -> Vec<ViewSection> {
             })
         })
         .collect()
-}
-
-fn owners(docs: &Docs) -> HashMap<(String, String), usize> {
-    let mut out = HashMap::new();
-    for (i, d) in docs.list.iter().enumerate().skip(1) {
-        let body = d.text.strip_prefix('\u{feff}').unwrap_or(&d.text);
-        let Ok(tree) = crate::config::tree::parse(body) else {
-            continue;
-        };
-        let json = tree.to_json();
-        for (section, _) in drop_ins::sections() {
-            if let Some(Value::Object(items)) = json.get(section) {
-                for name in items.keys() {
-                    out.insert((section.to_string(), name.clone()), i);
-                }
-            }
-        }
-    }
-    out
 }
 
 pub fn plain(v: &Value) -> Value {

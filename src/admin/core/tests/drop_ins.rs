@@ -770,3 +770,15 @@ fn a_credential_only_one_drop_in_holds_never_shows_in_review() {
     let shown = serde_json::to_string(&plan).unwrap();
     assert!(!shown.contains("c2VjcmV0LXZhbHVl"), "{shown}");
 }
+
+#[test]
+fn the_config_file_view_puts_a_duplicate_where_the_server_reads_it() {
+    let copy = "services:\n  web: { client: home, bind: 7849, target: 3009 }\n";
+    let set = Set::new(&[("zz.yaml", copy)]);
+    let view =
+        crate::admin::core::view::config_view(&set.core, burrow_admin_proto::view::Shown::Written)
+            .unwrap();
+    let body = view.body();
+    assert!(!body.contains("# from server.d/zz.yaml"), "{body}");
+    assert!(body.contains("target: 3000"), "{body}");
+}
