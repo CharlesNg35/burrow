@@ -50,7 +50,11 @@ fn a_read_admin_checks_text_with_the_server_s_env_and_nothing_is_written() {
         messages(&whole).iter().any(|m| m.contains("no clients")),
         "{whole}"
     );
-    assert_eq!(core.store.read().unwrap().main().text, w.text, "nothing is written");
+    assert_eq!(
+        core.store.read().unwrap().main().text,
+        w.text,
+        "nothing is written"
+    );
     let e = dispatch(&core, &s, req::VALIDATE, &json!({ "base": "x", "ops": [] })).unwrap_err();
     assert_eq!(e.code, ErrorCode::Forbidden, "VALIDATE stays write-only");
 }
