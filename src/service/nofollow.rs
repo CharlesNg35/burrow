@@ -93,7 +93,7 @@ pub fn remove_entry(parent: &Path, name: impl AsRef<OsStr>) {
     }
 }
 
-#[cfg(any(test, target_os = "linux"))]
+#[cfg(target_os = "linux")]
 pub fn remove_entries(parent: &Path, wanted: impl Fn(&OsStr) -> bool) {
     if let Ok(dir) = folder(parent) {
         remove_matching(&dir, wanted);
