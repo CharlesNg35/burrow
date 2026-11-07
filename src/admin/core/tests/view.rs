@@ -37,7 +37,12 @@ fn the_config_file_view_is_get_configs_view_as_text_written_and_with_defaults() 
             view::plain(&state.values),
             "{show:?}"
         );
-        assert_eq!(file.sections, view::sections(&state.values), "{show:?}");
+        let docs = core.docs().unwrap();
+        assert_eq!(
+            file.sections,
+            view::sections(&state.values, &docs),
+            "{show:?}"
+        );
     }
 }
 

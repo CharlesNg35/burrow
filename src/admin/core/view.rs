@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use burrow_admin_proto::schema::{Node, SemType};
 use burrow_admin_proto::value::{self, SecretSrc};
 use burrow_admin_proto::view::{ConfigView, Shown, ViewSection};
+use burrow_config::drop_ins::{self, is_section};
 use serde_json::{Map, Value, json};
 
 use super::{ApiError, Core, plan, text, values};
 use crate::config::Format;
+use crate::config::docs::Docs;
 use crate::config::emit::render;
 
 pub fn shown_values(core: &Core, raw: &Value, show: Shown) -> Value {
@@ -25,21 +29,68 @@ pub fn config_view(core: &Core, show: Shown) -> Result<ConfigView, ApiError> {
         rev: text::docs_rev(&docs),
         path: core.store.path().display().to_string(),
         show,
-        sections: sections(&shown),
+        sections: sections(&shown, &docs),
     })
 }
 
-pub fn sections(shown: &Value) -> Vec<ViewSection> {
+pub fn sections(shown: &Value, docs: &Docs) -> Vec<ViewSection> {
     let Value::Object(top) = plain(shown) else {
         return Vec::new();
     };
-    top.into_iter()
-        .map(|(key, v)| ViewSection {
-            text: render(&json!({ key.clone(): v }), Format::Yaml),
-            key,
-            origin: None,
+    let owners = owners(docs);
+    let mut files = vec![Map::new(); docs.list.len().max(1)];
+    for (key, v) in top {
+        match v {
+            Value::Object(items) if is_section(&key) && !items.is_empty() => {
+                for (item, x) in items {
+                    let i = owners
+                        .get(&(key.clone(), item.clone()))
+                        .copied()
+                        .unwrap_or(0);
+                    if let Value::Object(m) = files[i]
+                        .entry(key.clone())
+                        .or_insert_with(|| Value::Object(Map::new()))
+                    {
+                        m.insert(item, x);
+                    }
+                }
+            }
+            v => {
+                files[0].insert(key, v);
+            }
+        }
+    }
+    files
+        .into_iter()
+        .enumerate()
+        .flat_map(|(i, m)| {
+            let origin = (i > 0).then(|| docs.list[i].name.clone());
+            m.into_iter().map(move |(key, v)| ViewSection {
+                text: render(&json!({ key.clone(): v }), Format::Yaml),
+                key,
+                origin: origin.clone(),
+            })
         })
         .collect()
+}
+
+fn owners(docs: &Docs) -> HashMap<(String, String), usize> {
+    let mut out = HashMap::new();
+    for (i, d) in docs.list.iter().enumerate().skip(1) {
+        let body = d.text.strip_prefix('\u{feff}').unwrap_or(&d.text);
+        let Ok(tree) = crate::config::tree::parse(body) else {
+            continue;
+        };
+        let json = tree.to_json();
+        for (section, _) in drop_ins::sections() {
+            if let Some(Value::Object(items)) = json.get(section) {
+                for name in items.keys() {
+                    out.insert((section.to_string(), name.clone()), i);
+                }
+            }
+        }
+    }
+    out
 }
 
 pub fn plain(v: &Value) -> Value {

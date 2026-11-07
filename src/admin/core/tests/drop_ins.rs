@@ -544,3 +544,21 @@ fn names_that_differ_only_in_case_are_refused_with_a_clear_message() {
         );
     }
 }
+
+#[test]
+fn the_config_file_view_names_the_drop_in_each_item_comes_from() {
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let view =
+        crate::admin::core::view::config_view(&set.core, burrow_admin_proto::view::Shown::Written)
+            .unwrap();
+    let body = view.body();
+    let from = body.find("# from server.d/apps.yaml\n").expect(&body);
+    let blog = body.find("  blog:\n").expect(&body);
+    assert!(blog > from, "{body}");
+    let main_services = body.find("services:\n").unwrap();
+    assert!(
+        main_services < from,
+        "server.yaml's own services come first: {body}"
+    );
+    assert_eq!(body.matches("# from ").count(), 1, "{body}");
+}
