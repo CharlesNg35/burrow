@@ -295,8 +295,6 @@ type Waits<'a> = (
     &'a mut Vec<tokio::sync::oneshot::Sender<ReloadOutcome>>,
 );
 
-/// A folder watched only from this step on sent no events for the files written into it
-/// before, so the load waits for its own quiet first: a burst into a new folder reloads once.
 async fn quiet_again(
     worker: &Worker,
     files: Watching,
