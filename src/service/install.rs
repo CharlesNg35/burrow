@@ -231,7 +231,7 @@ pub(super) fn place_files(
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     let mut reached = Reached::Files;
-    let before = undo.map(|u| (u.manifest.account.as_str(), u.manifest.account_ids));
+    let before = undo.map(|u| &u.manifest);
     let placed = place(backend, (&mut reached, before), paths, setup, finish, out);
     if placed.is_err()
         && let Some(undo) = undo
@@ -243,7 +243,7 @@ pub(super) fn place_files(
 
 fn place(
     backend: &dyn Backend,
-    (reached, before): (&mut Reached, Option<(&str, Option<(u32, u32)>)>),
+    (reached, before): (&mut Reached, Option<&Manifest>),
     (source, folder): (&Path, &Path),
     (m, env, admins): (&Manifest, &BTreeMap<String, String>, &[String]),
     finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,

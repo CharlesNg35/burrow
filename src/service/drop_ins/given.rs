@@ -152,14 +152,14 @@ pub(in crate::service) fn to_root(config: &Path, account: &str) {
 
 pub(in crate::service) fn hand_over(
     config: &Path,
-    ((from, recorded), to): ((&str, Option<(u32, u32)>), &str),
+    (before, to): (&crate::install::Manifest, &str),
     writable: bool,
 ) {
     let ids = crate::base::process::account_ids;
     let Ok(new) = ids(to) else {
         return;
     };
-    match recorded.or_else(|| ids(from).ok()) {
+    match before.account_ids.or_else(|| ids(&before.account).ok()) {
         Some(old) if old == new => {}
         Some((0, _)) => super::place::give_copied(config, to, writable),
         Some(old) => {
