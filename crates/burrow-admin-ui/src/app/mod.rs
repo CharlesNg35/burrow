@@ -226,6 +226,7 @@ pub fn App() -> impl IntoView {
             })
             on_action=move |_| route::go(Route::Review)
             on_hover=move |h: bool| s.toast_hold.set(h)
+            page=Signal::derive(move || s.route.with(Route::path))
         />
     }
 }

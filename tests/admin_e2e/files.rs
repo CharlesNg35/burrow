@@ -280,6 +280,8 @@ async fn close_edit(c: &mut Ctx) {
 
 const ROOM_AND_CARD: &str = "(() => { const c = [...document.querySelectorAll('[data-testid=detail] .rounded-card')].map(e => e.getBoundingClientRect()).filter(r => r.height > 0).pop(); return [parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--toast-room')) || 0, c.top, scrollY]; })()";
 
+const COUNT_STACK_READS: &str = "(() => { const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'); window.__stackReads = 0; Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { if (this.matches('[data-toast-stack]')) window.__stackReads++; return d.get.call(this); } }); window.__stackRestore = () => Object.defineProperty(HTMLElement.prototype, 'offsetHeight', d); return true; })()";
+
 async fn the_room_holds_while_the_page_stays(c: &Ctx) {
     c.ui.viewport(420, 500).await;
     let _: bool =
@@ -295,6 +297,15 @@ async fn the_room_holds_while_the_page_stays(c: &Ctx) {
     assert!(
         after[0] >= before[0] && (after[1] - before[1]).abs() < 0.5,
         "the room and the page stay put when the toasts fade [room, card top, scroll]: {before:?} then {after:?}"
+    );
+    let _: bool = c.ui.eval(COUNT_STACK_READS).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let reads: u32 =
+        c.ui.eval("(() => { window.__stackRestore(); return window.__stackReads; })()")
+            .await;
+    assert_eq!(
+        reads, 0,
+        "no timer measures the toast stack once the toasts are gone"
     );
     c.ui.viewport(1440, 900).await;
 }

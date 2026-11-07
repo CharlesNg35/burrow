@@ -1,7 +1,20 @@
+use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 const ROOM: &str = "--toast-room";
 const STACK: &str = "[data-toast-stack]";
+
+thread_local! {
+    static BARS: ArcRwSignal<u32> = ArcRwSignal::new(0);
+}
+
+pub(crate) fn bars_changed() {
+    BARS.with(|b| b.update(|n| *n = n.wrapping_add(1)));
+}
+
+pub(crate) fn track_bars() {
+    BARS.with(|b| b.track());
+}
 
 #[derive(Default)]
 pub(crate) struct Room {
@@ -14,16 +27,12 @@ impl Room {
         self.px > 0.0
     }
 
-    pub(crate) fn keep(&mut self, tall: f64) {
+    pub(crate) fn keep(&mut self, tall: f64, route: &str) {
         let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
             return;
         };
         let bar = matches!(doc.query_selector("[data-sticky-bar]"), Ok(Some(_)));
-        let href = doc
-            .location()
-            .and_then(|l| l.href().ok())
-            .unwrap_or_default();
-        let page = format!("{href} {bar}");
+        let page = format!("{route} {bar}");
         let wanted = if tall > 0.0 {
             tall + if bar { 8.0 } else { 24.0 }
         } else {
