@@ -49,11 +49,24 @@ pub(super) fn give_history(config: &Path, uid: u32, gid: u32) {
 
 #[cfg(unix)]
 pub(super) fn give_drop_ins_to_root(config: &Path, account: &str) {
-    let Ok((uid, _)) = crate::base::process::account_ids(account) else {
+    let Ok((uid, gid)) = crate::base::process::account_ids(account) else {
         return;
     };
     let folder = crate::config::docs::drop_in_folder(config);
-    give_plain_files(&folder, (0, 0), |st| uid != 0 && st.st_uid == uid);
+    give_plain_files(&folder, (0, 0), |st| {
+        uid != 0 && (st.st_uid == uid || (gid != 0 && st.st_gid == gid))
+    });
+}
+
+#[cfg(unix)]
+pub(super) fn give_locked_drop_ins(config: &Path, account: &str) {
+    let Ok((_, gid)) = crate::base::process::account_ids(account) else {
+        return;
+    };
+    let folder = crate::config::docs::drop_in_folder(config);
+    give_plain_files(&folder, (0, gid), |st| {
+        st.st_uid == 0 && st.st_mode & 0o222 == 0
+    });
 }
 
 pub(super) fn say_skipped(

@@ -512,8 +512,8 @@ fn an_uninstall_that_keeps_the_config_gives_the_account_drop_ins_to_root() {
     assert_eq!(owner(&to), (0, 0));
     assert_eq!(
         owner(&to.join("locked.yaml")),
-        (0, ids.1),
-        "a locked file stays as it is"
+        (0, 0),
+        "a locked file keeps no group of the removed account"
     );
     assert_eq!(
         owner(&to.join("twice.yaml")),
@@ -543,7 +543,42 @@ fn a_reinstall_elsewhere_gives_the_old_drop_ins_to_root_unless_the_new_config_us
     release(&nobody(&p.config.with_file_name("other/server.yaml")));
     assert_eq!(owner(&to.join("apps.yaml")), (0, 0));
     assert_eq!(owner(&to), (0, 0));
+    assert_eq!(owner(&to.join("locked.yaml")), (0, 0));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_from_the_installed_path_gives_locked_drop_ins_the_service_group() {
+    use std::os::unix::fs::{PermissionsExt, chown};
+    let p = place();
+    let Some((ids, to)) = account_drop_ins(&p) else {
+        return;
+    };
+    let lock = |path: &Path| {
+        chown(path, Some(0), Some(0)).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o440)).unwrap();
+    };
+    lock(&to.join("locked.yaml"));
+    let outside = p.config.with_file_name("outside.yaml");
+    write(&outside, "visitors: {}\n");
+    lock(&outside);
+    std::fs::hard_link(&outside, to.join("linked.yaml")).unwrap();
+    write(&to.join("root.yaml"), "services: {}\n");
+    let m = nobody(&p.config);
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    crate::service::install::place_files(
+        &backend,
+        None,
+        (&std::fs::canonicalize(&p.config).unwrap(), m.folder()),
+        (&m, &BTreeMap::new(), &[]),
+        |_| Ok(()),
+        &mut Vec::new(),
+    )
+    .unwrap();
     assert_eq!(owner(&to.join("locked.yaml")), (0, ids.1));
+    assert_eq!(owner(&to.join("linked.yaml")), (0, 0), "two links");
+    assert_eq!(owner(&to.join("root.yaml")), (0, 0), "not locked");
+    assert_eq!(owner(&to.join("apps.yaml")), ids);
 }
 
 #[cfg(unix)]

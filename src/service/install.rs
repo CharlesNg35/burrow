@@ -224,9 +224,14 @@ pub(super) fn place_files(
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     let (config, account, writable) = (&m.config, m.account.as_str(), m.admin_writable);
-    if source != crate::base::fs::canonical_or_same(config) {
+    let copies = source != crate::base::fs::canonical_or_same(config);
+    if copies {
         copy_config(backend, (source, config), (account, writable), out)
             .inspect_err(|_| put_files_back(undo, backend))?;
+    }
+    #[cfg(unix)]
+    if !copies {
+        super::uninstall::give_locked_drop_ins(config, account);
     }
     backend.secure_file(config, account)?;
     backend.config_folder(folder, config, account, writable)?;
