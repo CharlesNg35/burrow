@@ -1,3 +1,6 @@
+//! The previous install of a service during a reinstall: what it left, and how `Undo` puts it back when a step fails.
+//! `restore_setup` undoes as far as the reinstall got (`Reached`); `put_back` also restarts the previous service.
+
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -400,3 +403,6 @@ pub(super) fn release_previous(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
