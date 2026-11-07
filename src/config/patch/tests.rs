@@ -63,8 +63,8 @@ fn a_replaced_quoted_scalar_keeps_its_quotes_and_its_comment() {
 #[test]
 fn a_replaced_list_item_or_multi_line_string_keeps_its_quotes_and_its_comment() {
     for q in ["\"", "'", ""] {
-        let (was, now) = (format!("{q}a{q}"), format!("{q}z{q}"));
-        let list = format!("allow:\n  - {was} # c\n  - b\n");
+        let (was, now) = (format!("- {q}a{q}"), format!("- {q}z{q}"));
+        let list = format!("allow:\n  {was} # c\n  - b\n");
         let out = yaml(&list, |v| v["allow"] = json!(["z", "b"]));
         assert_eq!(out.text, list.replace(&was, &now), "{q}");
         let multi = format!("name: {q}one\n  two{q}   # c\nnext: 1\n");
