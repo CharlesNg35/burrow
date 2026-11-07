@@ -17,6 +17,7 @@ mod input;
 mod overlay;
 mod path;
 mod radio;
+mod room;
 mod scroll;
 mod spark;
 mod stepper;
@@ -24,6 +25,7 @@ mod toast;
 mod version;
 
 pub use bar::{StickyBar, bar_status, bar_top, view_height};
+pub use room::cover_top;
 pub use basic::{
     CARD_VIEW, Card, Chip, Dot, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, PageHeader, PillTabs,
     SectionHead, Stat, Stats, StatusDot, TABLE_VIEW, TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY,

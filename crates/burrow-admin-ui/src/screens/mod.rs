@@ -163,12 +163,8 @@ pub fn clear_of_bar() {
     else {
         return;
     };
-    let Some(bar) = doc.query_selector("[data-sticky-bar]").ok().flatten() else {
-        let _ = root.style().remove_property("scroll-padding-bottom");
-        return;
-    };
     let h = burrow_ui_kit::view_height();
-    let Some(top) = burrow_ui_kit::bar_top() else {
+    let Some(top) = burrow_ui_kit::cover_top(None) else {
         let _ = root.style().remove_property("scroll-padding-bottom");
         return;
     };
@@ -179,7 +175,11 @@ pub fn clear_of_bar() {
     let Some(active) = doc.active_element() else {
         return;
     };
-    if bar.contains(Some(&active)) || active.tag_name() == "BODY" {
+    let fixed = matches!(
+        active.closest("[data-sticky-bar],[data-toast-stack]"),
+        Ok(Some(_))
+    );
+    if fixed || active.tag_name() == "BODY" {
         return;
     }
     let row = active
@@ -189,7 +189,9 @@ pub fn clear_of_bar() {
         .filter(|r| r.get_bounding_client_rect().height() < h / 2.0)
         .unwrap_or(active);
     let r = row.get_bounding_client_rect();
-    let limit = top;
+    let Some(limit) = burrow_ui_kit::cover_top(Some((r.left(), r.right()))) else {
+        return;
+    };
     if r.bottom() > limit && r.top() < h {
         let by = (r.bottom() - limit + 12.0).min(r.top() - 80.0).max(0.0);
         window().scroll_by_with_x_and_y(0.0, by);
