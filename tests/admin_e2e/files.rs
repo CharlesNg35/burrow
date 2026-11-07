@@ -21,7 +21,8 @@ fn opts() -> Options {
             ),
             (
                 "old-server.yaml",
-                "services:\n  cache:\n    client: home\n    target: 24\n    visitors: [laptop]\n".into(),
+                "services:\n  cache:\n    client: home\n    target: 24\n    visitors: [laptop]\n"
+                    .into(),
                 false,
             ),
             (
@@ -131,6 +132,17 @@ async fn a_read_only_client_keeps_its_secrets(c: &mut Ctx) {
     c.ui.wait_gone("[data-testid=search]", SECS).await;
 }
 
+async fn services_of(c: &Ctx, file: &str, shown: &str) {
+    let links = format!("[data-file='{file}'] [data-testid=file-items]");
+    c.ui.wait_for(&links, SECS).await;
+    let _: bool = c
+        .ui
+        .eval(&format!("(() => {{ [...document.querySelectorAll(\"{links}\")].find(b => b.innerText.includes('service')).click(); return true; }})()"))
+        .await;
+    c.ui.wait_text("[data-testid=entity-list]", shown, SECS)
+        .await;
+}
+
 async fn the_files_tab_lists_every_file(c: &mut Ctx) {
     c.ui.nav("/settings?tab=files").await;
     c.ui.wait_for("[data-testid=files-panel]", SECS).await;
@@ -146,9 +158,7 @@ async fn the_files_tab_lists_every_file(c: &mut Ctx) {
     );
     assert_eq!(c.ui.count("[data-testid=file-read-only]").await, 1);
     both_widths(c, "files-settings").await;
-    c.ui.click("[data-file='server.d/tool.yaml'] [data-testid=file-items]")
-        .await;
-    c.ui.wait_for("[data-testid=entity-list]", SECS).await;
+    services_of(c, "server.d/tool.yaml", "wiki").await;
     let list = c.ui.text("[data-testid=entity-list]").await;
     assert!(
         list.contains("wiki") && !list.contains("blog"),
@@ -156,15 +166,7 @@ async fn the_files_tab_lists_every_file(c: &mut Ctx) {
     );
     both_widths(c, "files-filtered-list").await;
     c.ui.nav("/settings?tab=files").await;
-    c.ui.wait_for("[data-file='server.yaml'] [data-testid=file-items]", SECS)
-        .await;
-    let _: bool = c
-        .ui
-        .eval("(() => { [...document.querySelectorAll(\"[data-file='server.yaml'] [data-testid=file-items]\")].find(b => b.innerText.includes('service')).click(); return true; })()")
-        .await;
-    c.ui.wait_for("[data-testid=entity-list]", SECS).await;
-    c.ui.wait_text("[data-testid=entity-list]", "web", SECS)
-        .await;
+    services_of(c, "server.yaml", "web").await;
     let list = c.ui.text("[data-testid=entity-list]").await;
     assert!(
         list.contains("web") && !list.contains("cache") && !list.contains("blog"),
