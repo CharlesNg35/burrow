@@ -118,7 +118,7 @@ If the home machine has no copy of the server's files, run `./burrow init client
 ./burrow clients update --all                 # update the server's clients to the latest release, see docs/updates.md
 ./burrow admin -c ops.yaml                    # the web admin, see docs/admin.md
 ./burrow mcp -c ops.yaml --print-config claude # let an AI app read and change the server over MCP, see docs/mcp.md
-./burrow ca export --out burrow-local-ca.crt  # the local CA's certificate (tls: internal), to trust on your devices
+./burrow ca export --out burrow-local-ca.crt  # the local CA's certificate (tls: internal), to trust on your devices (SERVICE, -c FILE or --state-dir DIR)
 ./burrow service install                      # run as a system service, see docs/service.md
 ./burrow update                               # install the latest release
 ./burrow schema server > server.schema.json   # JSON Schema, for completion in your editor

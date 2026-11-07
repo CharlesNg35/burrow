@@ -84,7 +84,7 @@ services:
 
 ### Installing the CA on your devices
 
-Each device that opens these sites must trust the CA once. Get the certificate from the admin UI (Settings, **Local certificate authority**, **Download CA certificate**), or on the server: `burrow ca export --out burrow-local-ca.crt` for an installed service, `burrow ca export -c server.yaml --out burrow-local-ca.crt` for a server you run by hand (add `--der` for tools that want DER). Before you trust it, compare its SHA-256 fingerprint with the `Local CA` line of `burrow status` (`local_ca.sha256` in `burrow status --json`) or the admin UI.
+Each device that opens these sites must trust the CA once. Get the certificate from the admin UI (Settings, **Local certificate authority**, **Download CA certificate**), or on the server: `burrow ca export --out burrow-local-ca.crt` for an installed service (`burrow ca export burrow-server --out burrow-local-ca.crt` when several server services are installed), `burrow ca export -c server.yaml --out burrow-local-ca.crt` for a server you run by hand, or `burrow ca export --state-dir DIR --out burrow-local-ca.crt` for a server started with `--state-dir DIR` (add `--der` for tools that want DER). Without `--out` it prints the certificate. Before you trust it, compare its SHA-256 fingerprint with the `Local CA` line of `burrow status` (`local_ca.sha256` in `burrow status --json`) or the admin UI.
 
 | Device | How |
 | --- | --- |
