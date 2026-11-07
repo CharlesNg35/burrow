@@ -562,3 +562,42 @@ fn the_config_file_view_names_the_drop_in_each_item_comes_from() {
     );
     assert_eq!(body.matches("# from ").count(), 1, "{body}");
 }
+
+#[test]
+fn an_empty_or_comment_only_drop_in_is_never_rewritten_by_an_unrelated_save() {
+    let untouched = [
+        ("empty.yaml", ""),
+        ("placeholder.yaml", "# placeholder\n"),
+        ("open.yaml", "services:\n"),
+        (
+            "mixed.yaml",
+            "services:\n  wiki: { client: home, bind: 7850, target: 3009 }\nvisitors:\n",
+        ),
+    ];
+    let set = Set::new(&untouched);
+    let s = set.session(true);
+    let edit = [Op::Set {
+        path: p(&["services", "web", "target"]),
+        value: json!(3005),
+    }];
+    let plan = set.plan(&s, &edit).unwrap();
+    for f in plan.files.iter().filter(|f| f.file != "server.yaml") {
+        assert_eq!(f.change, FileChange::Same, "{}", f.file);
+    }
+    set.apply(&s, &edit).unwrap();
+    assert!(set.read("server.yaml").unwrap().contains("3005"));
+    for (name, text) in untouched {
+        assert_eq!(
+            set.read(&format!("server.d/{name}")).unwrap(),
+            text,
+            "{name}"
+        );
+    }
+    let older = set.session(false);
+    let edit = [Op::Set {
+        path: p(&["services", "web", "target"]),
+        value: json!(3006),
+    }];
+    set.apply(&older, &edit).unwrap();
+    assert!(set.read("server.yaml").unwrap().contains("3006"));
+}

@@ -132,6 +132,25 @@ pub fn holds_items(target: &Value) -> bool {
     })
 }
 
+fn same_items(raw: &Value, target: &Value) -> bool {
+    let top = |v: &Value| match v {
+        Value::Null => Some(Map::new()),
+        Value::Object(m) => Some(m.clone()),
+        _ => None,
+    };
+    let (Some(mut a), Some(mut b)) = (top(raw), top(target)) else {
+        return raw == target;
+    };
+    for m in [&mut a, &mut b] {
+        for (key, value) in m.iter_mut() {
+            if is_section(key) && value.is_null() {
+                *value = Value::Object(Map::new());
+            }
+        }
+    }
+    a == b
+}
+
 pub struct Written {
     pub docs: Docs,
     pub reformat: Option<patch::Reformat>,
@@ -229,18 +248,18 @@ pub fn write(
             });
             continue;
         }
-        if i > 0 && owners.raws.get(i) == Some(target) {
+        let renamed = renames_in(&owners, &places, i, renames);
+        let same = owners
+            .raws
+            .get(i)
+            .is_some_and(|raw| same_items(raw, target));
+        if same && (i > 0 || renamed.is_empty()) {
             list.push(doc.clone());
             continue;
         }
         let format = if i == 0 { main_format } else { Format::Yaml };
-        let Patched { text, reformat: r } = patch::patch(
-            &doc.text,
-            format,
-            target,
-            &renames_in(&owners, &places, i, renames),
-        )
-        .map_err(WriteError::Patch)?;
+        let Patched { text, reformat: r } =
+            patch::patch(&doc.text, format, target, &renamed).map_err(WriteError::Patch)?;
         reformat = reformat.or(r);
         list.push(Doc {
             name: doc.name.clone(),
