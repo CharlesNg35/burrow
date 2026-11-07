@@ -344,6 +344,7 @@ fn a_linked_source_file_is_installed_read_only_with_its_content() {
     assert!(!read_only(&to.join("own.yaml")));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_copy_that_fails_part_way_puts_the_installed_folder_back() {
     let p = place();
