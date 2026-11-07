@@ -53,6 +53,69 @@ server.yaml: 2 errors, 0 warnings
 
 The same checks run when burrow starts and at each reload. A config that fails them is not applied, and the running one stays.
 
+- `--format json` prints the report as JSON, for scripts and editors: `valid`, the counts, and each problem with its code, file, line and column.
+- `--role server`, `client` or `visitor` checks the file as that role, when burrow cannot tell it from the file.
+
+<details>
+<summary><b>Writing a config with burrow init, client-config and visitor-config</b></summary>
+
+`burrow init` writes a new config. Without a role it asks which one. On a terminal it asks for what it needs; in a script, pass the answers as options:
+
+```sh
+./burrow init server                                    # server.yaml with one client "home", its secret generated, and one service "web"
+./burrow init server --client-name office --server myserver.example.com   # name the first client; --server is saved as public_address
+./burrow init client --server myserver.example.com --name home --env-secret HOME_SECRET
+./burrow init visitor --server myserver.example.com --name laptop --secret "..."
+```
+
+| option | for | meaning |
+| --- | --- | --- |
+| `-o FILE` | all | write this file instead of `server.yaml`, `client.yaml` or `visitor.yaml` |
+| `--format yaml\|json` | all | the format; taken from the `-o` name when it ends in `.json`, `.yaml` or `.yml` |
+| `--force` | all | replace an existing file without asking |
+| `--env-secret VAR` | all | write the secret as `${VAR}`; a server then prints the generated secret once, to set on both machines |
+| `--server HOST` | all | client and visitor: the server to connect to, port 7835 unless you add `:PORT`, or a `ws://` or `wss://` URL. Server: its public name, saved as `public_address` |
+| `--name NAME`, `--secret VALUE` | client, visitor | the name and secret from the server's config; asked on a terminal when missing |
+| `--client-name NAME` | server | the first client's name, `home` by default |
+| `--remote-updates` | client, server | write `update: { remote: true }` ([updates.md](updates.md)). `init client` asks about it on a terminal |
+| `--ws`, `--ws-listen IP:PORT`, `--ws-path PATH`, `--ws-tls-cert FILE`, `--ws-tls-key FILE` | server | accept clients over WebSocket only, with no TCP port for clients ([websocket.md](websocket.md)); the listen address is `127.0.0.1:7836` by default, or `0.0.0.0:7837` with the TLS files |
+| `--email ADDRESS`, `--web NAME`, `--web-client NAME`, `--web-target TARGET` | server | a first website with automatic HTTPS ([web.md](web.md)), or with `--ws` the tunnel on port 443 ([websocket.md](websocket.md#automatic-https-for-the-tunnel)) |
+| `--update`, `--yes` | visitor | ask the server again what the visitor may use and update the forwards ([visitors.md](visitors.md#use-a-private-service)) |
+
+On an existing file, `init` asks on a terminal whether to replace it, and keeps the old one as `FILE.bak`; `init visitor` first offers to update it from the server. Without a terminal it stops and writes nothing.
+
+On the server, `burrow client-config NAME` and `burrow visitor-config NAME` print a ready config for a client or visitor of server.yaml. The name can be left out when there is only one.
+
+- `--server HOST` is how that machine reaches the server; it defaults to `public_address`, and a host alone gets its port from `listen`.
+- `-o FILE` writes the config to a file only you can read, instead of printing it; `--force` replaces an existing file; `--format json` writes JSON.
+- `-c FILE` reads another server config than `./server.yaml`.
+- The secret is copied as server.yaml writes it: a `${VAR}` stays a `${VAR}`, and during a [secret change](#secrets) the newest secret is used.
+
+</details>
+
+<details>
+<summary><b>Editing a config with burrow edit</b></summary>
+
+`burrow edit` finds the configs in the current folder, of the installed services and of the running servers, clients and visitors, and opens one in your editor. With several, it lists them and asks which one; or name it:
+
+```sh
+burrow edit                            # pick from a list, or open the only one
+burrow edit burrow-home                # the config of this installed service (home works too)
+burrow edit client                     # the only client config found
+burrow edit ./work.yaml                # this file
+burrow edit --editor "code --wait"     # another editor
+```
+
+- The editor is `--editor`, else `SUDO_EDITOR`, `VISUAL` or `EDITOR`, else nano, vim or vi (Notepad on Windows). A graphical editor needs its wait flag, like `code --wait`, or burrow sees no change.
+- You edit a private copy. When you close the editor, the copy is checked like `burrow validate` does. With a mistake in a YAML file, the editor opens again with the problems listed at the top; close it without saving to cancel. For a JSON file, burrow asks whether to open it again.
+- When the only problem is a `${VAR}` that is not set in your terminal, burrow asks whether to save anyway.
+- It saves only if nobody changed the file meanwhile, and keeps the file's owner and permissions. If the file changed, your version is kept in a file it names.
+- For an installed service, the check uses the service's saved variables, and refuses a change the service could not run after a restart, such as a port below 1024 it was not installed for. When the file it was installed from was the same, that file is saved too.
+- Whatever runs the config applies it by itself; a stopped service uses it at its next start.
+- A config of an installed service may need `sudo burrow edit`.
+
+</details>
+
 ## Short forms
 
 Addresses can be written in full or shortened. In each line below, the short form and the comment mean the same thing:
