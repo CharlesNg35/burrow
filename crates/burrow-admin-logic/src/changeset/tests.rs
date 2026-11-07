@@ -464,24 +464,20 @@ fn a_rename_back_after_the_name_was_reused_and_moved_on_keeps_both_items() {
     assert!(c.rename(&s("a"), "web"));
     assert_eq!(
         c.ops(),
-        [
-            Op::Rename {
-                path: s("web"),
-                to: "a".into(),
-                refs: true
-            },
-            Op::Rename {
-                path: s("a"),
-                to: "web".into(),
-                refs: true
-            },
-            Op::Add {
-                path: s("z"),
-                value: json!({"client": "home", "target": 81})
-            }
-        ]
+        [Op::Add {
+            path: s("z"),
+            value: json!({"client": "home", "target": 81})
+        }]
     );
     assert_eq!(c.base_name("services", "web").as_deref(), Some("web"));
     assert_eq!(c.base_name("services", "z"), None);
-    assert_eq!(c.changed_entities(), 2);
+    assert_eq!(c.renamed_to("services", "web"), None);
+    assert_eq!(c.changed_entities(), 1);
+    let mut b = Changeset::new(json!({"services": {"web": {"target": 1}, "x": {"target": 2}}}));
+    for (from, to) in [("web", "a"), ("x", "web"), ("web", "z"), ("a", "web")] {
+        assert!(b.rename(&s(from), to));
+    }
+    assert_eq!(b.renamed_to("services", "x").as_deref(), Some("z"));
+    assert_eq!(b.base_name("services", "web").as_deref(), Some("web"));
+    assert_eq!(b.base_name("services", "z").as_deref(), Some("x"));
 }
