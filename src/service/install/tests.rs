@@ -332,3 +332,68 @@ fn a_failed_fresh_install_gives_what_it_gave_the_new_account_to_root_before_remo
     );
     assert!(backend.ran("remove nobody"));
 }
+
+#[test]
+fn a_failed_install_as_another_account_gives_the_previous_account_its_drop_ins_and_web_state() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt, chown};
+    if !rustix::process::geteuid().is_root() {
+        return;
+    }
+    let (Ok(a), Ok(b)) = (
+        crate::base::process::account_ids("nobody"),
+        crate::base::process::account_ids("daemon"),
+    ) else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("etc/server.yaml");
+    let drop_ins = dir.path().join("etc/server.d");
+    let state = dir.path().join("state");
+    write(&config, "listen: 1\n");
+    write(&drop_ins.join("apps.yaml"), "services: {}\n");
+    write(&drop_ins.join("locked.yaml"), "clients: {}\n");
+    write(&state.join("ca/ca.key"), "key\n");
+    let locked = drop_ins.join("locked.yaml");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o440)).unwrap();
+    let give = |p: &Path, (uid, gid): (u32, u32)| chown(p, Some(uid), Some(gid)).unwrap();
+    give(&drop_ins.join("apps.yaml"), a);
+    give(&locked, (0, a.1));
+    for p in [state.clone(), state.join("ca"), state.join("ca/ca.key")] {
+        give(&p, a);
+    }
+    let old = Manifest {
+        config: config.clone(),
+        account: "nobody".into(),
+        env_file: None,
+        web_state: Some(state.clone()),
+        ..crate::service::tests::record(Platform::Linux)
+    };
+    let new = Manifest {
+        account: "daemon".into(),
+        ..old.clone()
+    };
+    let undo = Undo {
+        manifest: old,
+        config: crate::service::system::read_plain_file(&config),
+        drop_ins: Snapshot::take(&config),
+        env: BTreeMap::new(),
+        binary: None,
+        absent: Absent::default(),
+    };
+    give(&drop_ins.join("apps.yaml"), b);
+    give(&locked, (0, b.1));
+    for p in [state.clone(), state.join("ca"), state.join("ca/ca.key")] {
+        give(&p, b);
+    }
+    let steps = undo.restore_setup(&FailAt::new("none"), &new, super::Reached::Files);
+    assert!(steps.iter().all(Result::is_ok), "{steps:?}");
+    let owner = |p: &Path| {
+        let meta = std::fs::symlink_metadata(p).unwrap();
+        (meta.uid(), meta.gid())
+    };
+    assert_eq!(owner(&drop_ins.join("apps.yaml")), a);
+    assert_eq!(owner(&locked), (0, a.1));
+    for p in [state.clone(), state.join("ca"), state.join("ca/ca.key")] {
+        assert_eq!(owner(&p), a, "{}", p.display());
+    }
+}

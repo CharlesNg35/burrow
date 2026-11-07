@@ -165,7 +165,6 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
 
     let absent = previous.as_ref().map(|p| Absent::before(p, &manifest));
     backend.prepare_dirs(&account)?;
-    super::uninstall::say_skipped(&backend.state_folder(&manifest)?, &account, out)?;
     let kept_binary = keep_previous_binary(again.manifest, &binary, &current);
     let _leftover = Leftover(kept_binary.clone());
     if !system::same_content(&current, &binary) {
@@ -255,6 +254,7 @@ fn place(
     }
     backend.secure_file(config, account)?;
     backend.config_folder(folder, config, account, writable)?;
+    super::uninstall::say_skipped(&backend.state_folder(m)?, account, out)?;
     if writable {
         say_writable(admins, folder, out)?;
     }
