@@ -695,3 +695,59 @@ fn swapping_two_names_keeps_each_item_in_its_own_file() {
         )
     );
 }
+
+const COPY: &str = "# an old copy\nservices:\n  blog: { client: home, bind: 7849, target: 3009 }\n  lab: { client: home, bind: 7848, target: 3008 }\n";
+
+#[test]
+fn a_drop_in_with_content_the_server_ignores_stays_as_it_is() {
+    let listen = format!("listen: 9000\n{BLOG}");
+    let set = Set::new(&[("apps.yaml", &listen), ("zz.yaml", COPY)]);
+    let s = set.session(true);
+    for edit in [
+        Op::Set {
+            path: p(&["listen"]),
+            value: json!(7836),
+        },
+        Op::Set {
+            path: p(&["services", "web", "target"]),
+            value: json!(3005),
+        },
+    ] {
+        let plan = set.plan(&s, &[edit]).unwrap();
+        for f in plan.files.iter().filter(|f| f.file != "server.yaml") {
+            assert_eq!(f.change, FileChange::Same, "{}", f.file);
+        }
+    }
+}
+
+#[test]
+fn a_change_to_a_file_with_ignored_content_is_refused_by_name() {
+    let set = Set::new(&[("apps.yaml", BLOG), ("zz.yaml", COPY)]);
+    let s = set.session(true);
+    let e = set
+        .plan(
+            &s,
+            &[Op::Set {
+                path: p(&["services", "lab", "target"]),
+                value: json!(3010),
+            }],
+        )
+        .err()
+        .unwrap();
+    assert_eq!(e.code, ErrorCode::BadRequest);
+    assert_eq!(
+        e.message,
+        "server.d/zz.yaml holds content the server ignores (services.blog is also in server.d/apps.yaml); fix that file by hand first"
+    );
+    let plan = set
+        .plan(
+            &s,
+            &[Op::Set {
+                path: p(&["services", "blog", "target"]),
+                value: json!(3002),
+            }],
+        )
+        .unwrap();
+    let zz = plan.files.iter().find(|f| f.file == "server.d/zz.yaml");
+    assert_eq!(zz.map(|f| f.change.clone()), Some(FileChange::Same));
+}

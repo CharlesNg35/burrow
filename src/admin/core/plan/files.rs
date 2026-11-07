@@ -30,9 +30,9 @@ impl Owners {
                 .map(|t| t.to_json())
                 .unwrap_or(Value::Null);
             if let Value::Object(top) = &raw {
-                for (key, value) in top {
+                for (key, value) in top.iter().filter(|(key, _)| is_section(key)) {
                     out.keys.entry(key.clone()).or_insert(i);
-                    if let (true, Value::Object(items)) = (is_section(key), value) {
+                    if let Value::Object(items) = value {
                         for name in items.keys() {
                             out.items.entry((key.clone(), name.clone())).or_insert(i);
                         }
@@ -170,6 +170,36 @@ fn same_items(raw: &Value, target: &Value) -> bool {
     a == b
 }
 
+fn ignored(at: usize, share: &Value, owners: &Owners, docs: &[Doc]) -> String {
+    let name_of = |i: usize| docs.get(i).map_or("", |d| d.name.as_str());
+    let Some(Value::Object(top)) = owners.raws.get(at) else {
+        return "it is not a list of services, clients or visitors".into();
+    };
+    let mut out = Vec::new();
+    for (key, value) in top {
+        match value {
+            _ if !is_section(key) => out.push(format!(
+                "{key} is a server-wide setting, which only {} holds",
+                name_of(0)
+            )),
+            Value::Null => {}
+            Value::Object(items) => {
+                let unread = items
+                    .keys()
+                    .filter(|n| share.get(key).and_then(|s| s.get(n.as_str())).is_none());
+                for name in unread {
+                    out.push(match owners.file_of(key, name) {
+                        i if i == at => format!("{key}.{name} is not read"),
+                        i => format!("{key}.{name} is also in {}", name_of(i)),
+                    });
+                }
+            }
+            _ => out.push(format!("{key} does not list items by name")),
+        }
+    }
+    out.join(", ")
+}
+
 pub struct Written {
     pub docs: Docs,
     pub reformat: Option<patch::Reformat>,
@@ -248,6 +278,10 @@ pub fn write(
     let mut docs = base.list.clone();
     let places = placed(&mut docs, moves)?;
     let targets = split(&owners, (docs.len(), &places), target, renames);
+    let olds = match base.tree() {
+        Ok(t) => split(&owners, (docs.len(), &Places::new()), &t.to_json(), &[]),
+        Err(_) => owners.raws.clone(),
+    };
     let mut list = Vec::with_capacity(docs.len());
     let mut reformat = None;
     for (i, (doc, target)) in docs.iter().zip(&targets).enumerate() {
@@ -267,15 +301,18 @@ pub fn write(
             });
             continue;
         }
-        let renamed = renames_in(&owners, &places, i, renames);
-        let same = owners
-            .raws
-            .get(i)
-            .is_some_and(|raw| same_items(raw, target));
-        if same && (i > 0 || renamed.is_empty()) {
+        if same_items(&olds[i], target) {
             list.push(doc.clone());
             continue;
         }
+        if !same_items(&owners.raws[i], &olds[i]) {
+            return Err(WriteError::Bad(format!(
+                "{} holds content the server ignores ({}); fix that file by hand first",
+                doc.name,
+                ignored(i, &olds[i], &owners, &base.list)
+            )));
+        }
+        let renamed = renames_in(&owners, &places, i, renames);
         let format = if i == 0 { main_format } else { Format::Yaml };
         let Patched { text, reformat: r } =
             patch::patch(&doc.text, format, target, &renamed).map_err(WriteError::Patch)?;
