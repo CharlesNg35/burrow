@@ -34,6 +34,32 @@ pub fn base_name(origins: &BTreeMap<String, Origin>, name: &str) -> Option<Strin
     origins.get(name).filter(|o| o.base).map(|o| o.name.clone())
 }
 
+pub fn arrivals<'a>(
+    renames: impl DoubleEndedIterator<Item = (&'a [String], &'a str)> + ExactSizeIterator,
+    item: &[String],
+) -> Vec<usize> {
+    let Some((name, parent)) = item.split_last() else {
+        return Vec::new();
+    };
+    let mut name = name.as_str();
+    let mut out = Vec::new();
+    for (i, (path, to)) in renames.enumerate().rev() {
+        let Some((from, at)) = path.split_last() else {
+            continue;
+        };
+        if at != parent {
+            continue;
+        }
+        if to == name {
+            out.push(i);
+            name = from;
+        } else if from == name {
+            break;
+        }
+    }
+    out
+}
+
 pub fn within<'a>(
     section: &'a str,
     renames: impl IntoIterator<Item = (&'a [String], &'a str)>,
@@ -98,6 +124,36 @@ mod tests {
                 base: false
             })
         );
+    }
+
+    #[test]
+    fn the_renames_that_brought_an_item_to_its_name_are_found_back_to_its_first_name() {
+        let p = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let of = |renames: &[(&[&str], &str)], item: &[&str]| {
+            let owned: Vec<(Vec<String>, &str)> = renames.iter().map(|(f, t)| (p(f), *t)).collect();
+            arrivals(owned.iter().map(|(f, t)| (f.as_slice(), *t)), &p(item))
+        };
+        let chain: [(&[&str], &str); 3] = [
+            (&["services", "blog"], "a"),
+            (&["clients", "a"], "z"),
+            (&["services", "a"], "b"),
+        ];
+        assert_eq!(of(&chain, &["services", "b"]), [2, 0]);
+        assert_eq!(of(&chain, &["clients", "z"]), [1]);
+        assert!(of(&chain, &["services", "a"]).is_empty());
+        let swap: [(&[&str], &str); 3] = [
+            (&["services", "a"], "t"),
+            (&["services", "b"], "a"),
+            (&["services", "t"], "b"),
+        ];
+        assert_eq!(of(&swap, &["services", "b"]), [2, 0]);
+        assert_eq!(of(&swap, &["services", "a"]), [1]);
+        let freed: [(&[&str], &str); 2] = [(&["services", "x"], "y"), (&["services", "y"], "z")];
+        assert!(of(&freed, &["services", "y"]).is_empty());
+        assert_eq!(of(&freed, &["services", "z"]), [1, 0]);
+        let login: [(&[&str], &str); 1] = [(&["web", "forward_auth", "sso"], "auth")];
+        assert_eq!(of(&login, &["web", "forward_auth", "auth"]), [0]);
+        assert!(of(&login, &["services", "auth"]).is_empty());
     }
 
     #[test]
