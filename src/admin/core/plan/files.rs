@@ -344,8 +344,9 @@ pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &
         let [section, name] = path.as_slice() else {
             continue;
         };
-        let from = name_of(owners.file_of(section, &first_name(&applied.renames, section, name)));
-        if from == *file {
+        let first = (section.clone(), first_name(&applied.renames, section, name));
+        let from = owners.items.get(&first).map(|at| name_of(*at));
+        if from.as_ref().unwrap_or(&old.main().name) == file {
             continue;
         }
         let kind = burrow_config::drop_ins::sections()
@@ -353,13 +354,17 @@ pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &
             .find(|(s, _)| s == section)
             .map_or(ServiceEntry::ENTITY, |(_, k)| k);
         let known = out.iter().any(|c| c.path == *path);
+        let to = if old.get(file).is_some() || file == &old.main().name {
+            file.clone()
+        } else {
+            format!("a new file, {file}")
+        };
         out.push(Change {
             kind: ChangeKind::Other,
             path: path.clone(),
-            summary: if old.get(file).is_some() || file == &old.main().name {
-                format!("moves {kind} {name} from {from} to {file}")
-            } else {
-                format!("moves {kind} {name} from {from} to a new file, {file}")
+            summary: match from {
+                Some(from) => format!("moves {kind} {name} from {from} to {to}"),
+                None => format!("adds {kind} {name} in {to}"),
             },
             part_of: known.then(|| path.clone()),
         });

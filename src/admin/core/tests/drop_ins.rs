@@ -134,6 +134,16 @@ fn an_item_added_to_a_file_of_its_own_creates_that_file_only() {
         .collect();
     assert_eq!(created.len(), 1);
     assert_eq!(created[0].file, "server.d/wiki.yaml");
+    let placed: Vec<&str> = plan
+        .changes
+        .iter()
+        .map(|c| c.summary.as_str())
+        .filter(|c| c.contains("server.d/wiki.yaml"))
+        .collect();
+    assert_eq!(
+        placed,
+        ["adds service wiki in a new file, server.d/wiki.yaml"]
+    );
     set.apply(&s, &ops).unwrap();
     assert_eq!(set.read("server.yaml").unwrap(), set.w.text);
     let wiki = set.read("server.d/wiki.yaml").unwrap();
