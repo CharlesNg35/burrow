@@ -171,3 +171,43 @@ fn swapping_two_names_and_moving_one_out_keeps_the_comments_of_the_other() {
     let moved = set.read("server.d/a.yaml").unwrap();
     assert!(moved.contains("  a:") && moved.contains("3002"), "{moved}");
 }
+
+#[test]
+fn a_place_sent_before_a_rename_or_delete_follows_the_item() {
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let s = set.session(true);
+    let gone = set
+        .plan(&s, &[place("blog", "server.yaml"), remove("blog")])
+        .unwrap();
+    assert!(
+        !said(&gone).iter().any(|c| c.starts_with("moves ")),
+        "{:?}",
+        said(&gone)
+    );
+    let ops = [place("blog", "server.yaml"), rename("blog", "journal")];
+    let plan = set.plan(&s, &ops).unwrap();
+    assert!(
+        said(&plan)
+            .contains(&"moves service journal from server.d/apps.yaml to server.yaml".into()),
+        "{:?}",
+        said(&plan)
+    );
+    set.apply(&s, &ops).unwrap();
+    assert!(set.read("server.yaml").unwrap().contains("  journal:"));
+    assert!(!set.read("server.d/apps.yaml").unwrap().contains("journal"));
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let s = set.session(true);
+    let ops = [
+        place("web", "server.d/apps.yaml"),
+        rename("web", "www"),
+        rename("blog", "web"),
+    ];
+    set.apply(&s, &ops).unwrap();
+    let apps = set.read("server.d/apps.yaml").unwrap();
+    assert!(apps.contains("  www:") && apps.contains("  web:"), "{apps}");
+    let main = set.read("server.yaml").unwrap();
+    assert!(
+        !main.contains("  www") && !main.contains("  web:"),
+        "{main}"
+    );
+}

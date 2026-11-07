@@ -137,9 +137,13 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                 if map.shift_remove(last).is_none() {
                     return Err(err(format!("{} does not exist", show(path))));
                 }
+                places.retain(|(placed, _)| placed != path);
             }
             Op::Rename { path, to, refs } => {
                 rename_entry(&mut target, path, to, *refs, &mut renames)?;
+                for (placed, _) in places.iter_mut().filter(|(placed, _)| placed == path) {
+                    *placed = [&path[..path.len() - 1], std::slice::from_ref(to)].concat();
+                }
             }
             Op::SecretAdd { path, handle } => {
                 add_secret(&mut target, path, handle, cx, &mut fresh)?;
