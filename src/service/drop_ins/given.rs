@@ -1,6 +1,3 @@
-//! Gives the service account's drop-in files to root when the account goes, and notes which, so the next install gives exactly those back.
-//! Start at `to_root` (uninstall, or a reinstall that leaves the folder) and `give_back` (install).
-
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::path::Path;

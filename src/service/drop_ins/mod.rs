@@ -1,5 +1,5 @@
 //! Copies a server's drop-in folder with its config at `burrow service install`, and checks the files an earlier install left there.
-//! Start at `copy`; `unix` and `other` place each file through the opened folder.
+//! Start at `copy`; `unix` and `other` place each file through the opened folder; `given` notes the files an uninstall gave to root and gives them back.
 
 use std::collections::BTreeMap;
 use std::io::Write;
