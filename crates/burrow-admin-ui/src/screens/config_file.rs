@@ -93,6 +93,11 @@ pub fn ConfigFile() -> impl IntoView {
             fetch(now, loaded, latest);
         }
     });
+    crate::store::on_reconnect(move || {
+        if offered.get_untracked() && loaded.with_untracked(|l| matches!(l, Some(Err(_)))) {
+            fetch(show.get_untracked(), loaded, latest);
+        }
+    });
     let toggle = move || {
         offered.get().then(|| {
             view! {

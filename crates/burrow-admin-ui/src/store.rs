@@ -56,6 +56,7 @@ impl Conn {
 #[derive(Clone, Copy)]
 pub struct Store {
     pub conn: RwSignal<Conn>,
+    pub opened: RwSignal<u64>,
     pub welcome: RwSignal<Option<Arc<Welcome>>>,
     pub schema: RwSignal<Option<Arc<Schema>>>,
     pub state: RwSignal<Option<Arc<State>>>,
@@ -116,6 +117,7 @@ impl Store {
     pub fn new(route: Route) -> Self {
         Store {
             conn: RwSignal::new(Conn::Connecting),
+            opened: RwSignal::new(0),
             welcome: RwSignal::new(None),
             schema: RwSignal::new(None),
             state: RwSignal::new(None),
@@ -396,4 +398,15 @@ pub fn store() -> Store {
 
 pub fn try_store() -> Option<Store> {
     use_context::<Store>()
+}
+
+pub fn on_reconnect(again: impl Fn() + 'static) {
+    let s = store();
+    Effect::new(move |seen: Option<u64>| {
+        let now = s.opened.get();
+        if seen.is_some_and(|n| n != now) {
+            untrack(&again);
+        }
+        now
+    });
 }

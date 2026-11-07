@@ -338,6 +338,34 @@ fn e9_revoked_access_is_shown_and_a_restart_keeps_the_draft() {
     );
 }
 
+const HELD: &str = "(() => { const r = document.querySelector('[data-testid=review]'); return [r && r.dataset.held === 'yes' ? 1 : 0, scrollY, document.querySelectorAll('[data-testid=outcome-failed]').length]; })()";
+
+async fn the_page_holds_while_reconnecting(c: &Ctx) {
+    c.ui.wait_for("[data-testid=outcome-failed]", SECS).await;
+    let before: Vec<f64> = c
+        .ui
+        .eval("(() => { scrollTo(0, document.documentElement.scrollHeight); document.querySelector('[data-testid=review]').dataset.held = 'yes'; return [1, scrollY, document.querySelectorAll('[data-testid=outcome-failed]').length]; })()")
+        .await;
+    assert!(before[1] > 0.0, "the review page scrolls: {before:?}");
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let after: Vec<f64> = c.ui.eval(HELD).await;
+    assert_eq!(
+        after, before,
+        "while it reconnects, the page keeps its content, its scroll and the failed outcome [same page, scroll, outcome]"
+    );
+}
+
+const BANNER_BELOW_HEADER: &str = "(async () => { scrollTo(0, 0); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); const b = document.querySelector('[data-testid=banner-reconnecting]').getBoundingClientRect(); return [h.top, h.bottom, b.top, b.bottom, innerHeight]; })()";
+
+async fn banner_in_view(c: &mut Ctx, step: &str) {
+    let seen: Vec<f64> = c.ui.eval(BANNER_BELOW_HEADER).await;
+    assert!(
+        seen[0] == 0.0 && seen[2] >= seen[1] - 0.5 && seen[3] <= seen[4],
+        "{step}: at the top of the page the reconnect banner sits fully below the header [header top, header bottom, banner top, banner bottom, viewport]: {seen:?}"
+    );
+    c.ui.view_shot(step).await;
+}
+
 fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -356,7 +384,11 @@ fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
         )
         .await;
         c.ui.click("[data-testid=apply]").await;
-        c.ui.shot("apply-while-reconnecting").await;
+        the_page_holds_while_reconnecting(c).await;
+        banner_in_view(c, "apply-while-reconnecting").await;
+        c.ui.viewport(420, 900).await;
+        banner_in_view(c, "apply-while-reconnecting-phone").await;
+        c.ui.viewport(1440, 900).await;
         c.world
             .start("server", &["server", "-c", "server.yaml"], &[]);
         c.ui.wait_text(

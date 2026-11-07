@@ -458,7 +458,6 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
         VisitorEntry::ENTITY
     };
     let fetch = move |name: String, addr: Option<String>| {
-        data.set(None);
         let body = api::body(&msg::ConnectInfo {
             kind: kind.to_string(),
             name,
@@ -475,6 +474,13 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
         address.set(known.clone());
     }
     fetch(name.clone(), (!known.is_empty()).then_some(known));
+    {
+        let name = name.clone();
+        crate::store::on_reconnect(move || {
+            let at = address.get_untracked();
+            fetch(name.clone(), (!at.is_empty()).then_some(at));
+        });
+    }
     let n2 = StoredValue::new(name.clone());
     let body = move || match data.get() {
         None => view! { <p class="text-text-muted">"Loading…"</p> }.into_any(),
@@ -490,7 +496,10 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
                                     <label class="sr-only" for="connect-address">"Server address"</label>
                                     <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
                                 </div>
-                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) reason=Signal::derive(move || if address.with(|a| a.trim().is_empty()) { "Type the server address first".to_string() } else { String::new() }) on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
+                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) reason=Signal::derive(move || if address.with(|a| a.trim().is_empty()) { "Type the server address first".to_string() } else { String::new() }) on_click=move |_| {
+                                    data.set(None);
+                                    fetch(n2.get_value(), Some(address.get_untracked()));
+                                }/>
                             </div>
                         })}
                     </SnippetView>

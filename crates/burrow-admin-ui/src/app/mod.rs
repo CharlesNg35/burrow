@@ -233,10 +233,19 @@ pub fn App() -> impl IntoView {
 #[component]
 fn Body() -> impl IntoView {
     let s = store();
-    let conn = Memo::new(move |_| s.conn.get());
     let loaded =
         Memo::new(move |_| s.state.with(Option::is_some) && s.schema.with(Option::is_some));
+    let face = Memo::new(move |_| {
+        let c = s.conn.get();
+        match c {
+            Conn::Refused { .. } | Conn::Revoked { .. } => Some(c),
+            Conn::Ended | Conn::Closed { .. } if !loaded.get() => Some(c),
+            _ if !loaded.get() => Some(Conn::Connecting),
+            _ => None,
+        }
+    });
     let route = Memo::new(move |_| s.route.get());
+    let schema = Memo::new(move |_| s.schema.with(|x| x.as_ref().map(|x| x.hash.clone())));
     let dim = Memo::new(move |_| {
         matches!(
             s.conn.get(),
@@ -244,9 +253,8 @@ fn Body() -> impl IntoView {
         )
     });
     move || {
-        let c = conn.get();
-        match c {
-            Conn::Refused { reason, message } => view! {
+        match face.get() {
+            Some(Conn::Refused { reason, message }) => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="refused" data-reason=reason.clone()>
                     <EmptyState icon="wifi-off" title="The server refused the admin session" message=message>
                         <p class="text-sm text-text-muted">"Run burrow admin again in your terminal to open a new session."</p>
@@ -254,7 +262,7 @@ fn Body() -> impl IntoView {
                 </div>
             }
             .into_any(),
-            Conn::Revoked { reason } => {
+            Some(Conn::Revoked { reason }) => {
                 let (title, hint) = burrow_admin_logic::wording::revoked_words(&reason);
                 view! {
                     <div class="mx-auto max-w-2xl p-8" data-testid="revoked" data-reason=reason.clone()>
@@ -265,13 +273,13 @@ fn Body() -> impl IntoView {
                 }
                 .into_any()
             }
-            Conn::Ended if !loaded.get() => view! {
+            Some(Conn::Ended) => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="ended">
                     <EmptyState icon="wifi-off" title="This tab's admin session ended" message=burrow_admin_logic::wording::SESSION_ENDED_HINT/>
                 </div>
             }
             .into_any(),
-            Conn::Closed { message } if !loaded.get() => view! {
+            Some(Conn::Closed { message }) => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="closed">
                     <EmptyState icon="wifi-off" title="Disconnected" message=message>
                         <Button label="Reconnect" variant=burrow_ui_kit::ButtonLook::Primary on_click=move |_| api::reconnect(s)/>
@@ -279,10 +287,13 @@ fn Body() -> impl IntoView {
                 </div>
             }
             .into_any(),
-            _ if !loaded.get() => view! { <div data-testid="loading" class="p-8"><Skeleton lines=6/></div> }.into_any(),
-            _ => view! {
+            Some(_) => view! { <div data-testid="loading" class="p-8"><Skeleton lines=6/></div> }.into_any(),
+            None => view! {
                 <div class=move || if dim.get() { "opacity-45 grayscale-50" } else { "" } data-dimmed=move || dim.get().then_some("true")>
-                    {move || screens::screen(route.get())}
+                    {move || {
+                        schema.track();
+                        screens::screen(route.get())
+                    }}
                 </div>
             }
             .into_any(),

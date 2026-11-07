@@ -517,6 +517,7 @@ pub fn load_state(store: Store) {
                 store.state.set(Some(Arc::new(s)));
                 if store.conn.get_untracked() != Conn::Open {
                     store.conn.set(Conn::Open);
+                    store.opened.update(|n| *n += 1);
                 }
             }
             Ok(Err(e)) => store.error.set(Some(store.protocol_problem("state", e))),
