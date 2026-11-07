@@ -303,3 +303,43 @@ fn a_forged_copy_note_can_only_name_files_in_the_folder() {
     assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep\n");
     assert!(folder.join("mine.yaml").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn a_linked_source_file_is_installed_read_only_with_its_content() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("mine.yaml");
+    std::fs::write(&source, "listen: 1\n").unwrap();
+    let from = tmp.path().join("mine.d");
+    std::fs::create_dir(&from).unwrap();
+    let kept = tmp.path().join("kept.yaml");
+    std::fs::write(&kept, "services: {}\n").unwrap();
+    std::os::unix::fs::symlink(&kept, from.join("linked.yaml")).unwrap();
+    let shared = tmp.path().join("shared.yaml");
+    std::fs::write(&shared, "visitors: {}\n").unwrap();
+    std::fs::hard_link(&shared, from.join("twice.yaml")).unwrap();
+    std::fs::write(from.join("own.yaml"), "clients: {}\n").unwrap();
+    let folder = tmp.path().join("etc");
+    std::fs::create_dir(&folder).unwrap();
+    let config = folder.join("server.yaml");
+    std::fs::write(&config, "listen: 1\n").unwrap();
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    copy(
+        &backend,
+        (&source, &config),
+        "burrow",
+        true,
+        &mut Vec::new(),
+    )
+    .unwrap();
+    let to = folder.join("server.d");
+    let linked = to.join("linked.yaml");
+    assert!(!std::fs::symlink_metadata(&linked).unwrap().is_symlink());
+    assert_eq!(std::fs::read_to_string(&linked).unwrap(), "services: {}\n");
+    assert!(read_only(&linked), "a linked source stays read-only");
+    assert!(
+        read_only(&to.join("twice.yaml")),
+        "a hard-linked source too"
+    );
+    assert!(!read_only(&to.join("own.yaml")));
+}

@@ -15,7 +15,7 @@ mod unix;
 
 use crate::base::failure::Failure;
 use crate::base::output::say;
-use crate::config::docs::{self, Doc, Docs, ReadOnly, drop_in_folder};
+use crate::config::docs::{self, Doc, Docs, drop_in_folder};
 #[cfg(not(unix))]
 use other as place;
 #[cfg(unix)]
@@ -197,7 +197,7 @@ pub(super) fn copy(
         let src = from.join(file);
         let text = std::fs::read(&src)
             .map_err(|e| Failure::new(format!("cannot read {}: {e}", src.display())))?;
-        let put = if docs::read_only(&src) == Some(ReadOnly::Marked) {
+        let put = if docs::read_only(&src).is_some() {
             Put::Locked
         } else {
             Put::Config
