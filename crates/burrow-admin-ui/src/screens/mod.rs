@@ -23,7 +23,7 @@ use leptos::prelude::*;
 use crate::route::{Link, Route};
 use crate::store::store;
 
-pub(crate) use list::{ListCard, ListPane, NewChoice, filter_chips, search_box};
+pub(crate) use list::{ListCard, ListPane, NewChoice, PhoneList, filter_chips, search_box};
 
 pub fn crumbs(
     to: Route,
@@ -200,7 +200,7 @@ pub fn clear_of_bar() {
 
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
     view! {
-        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px)-var(--toast-pad,0px))] items-start lg:grid-cols-[380px_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-surface)_379px,var(--color-border)_379px,var(--color-border)_380px,transparent_380px)]">
+        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px)-var(--toast-pad,0px))] items-start max-lg:content-start lg:grid-cols-[380px_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-surface)_379px,var(--color-border)_379px,var(--color-border)_380px,transparent_380px)]">
             {list}
             {detail}
         </div>

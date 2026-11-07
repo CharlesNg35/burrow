@@ -95,6 +95,13 @@ pub fn ListCard(
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PhoneList {
+    #[default]
+    FillScreen,
+    AboveDetail,
+}
+
 #[component]
 pub fn ListPane(
     #[prop(into)] title: String,
@@ -116,6 +123,7 @@ pub fn ListPane(
     #[prop(optional)] empty_icon: Option<&'static str>,
     #[prop(optional)] query: Option<RwSignal<String>>,
     #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
+    #[prop(optional)] phone: PhoneList,
 ) -> impl IntoView {
     let q = query
         .unwrap_or_else(|| RwSignal::new(route::query(route::SEARCH_QUERY).unwrap_or_default()));
@@ -179,7 +187,7 @@ pub fn ListPane(
     let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
     view! {
         <aside
-            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))] mb-[calc(0px-var(--toast-pad,0px))] max-lg:pb-[var(--toast-pad,0px)]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
+            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))] mb-[calc(0px-var(--toast-pad,0px))] max-lg:pb-[var(--toast-pad,0px)]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() || phone == PhoneList::AboveDetail { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
             aria-label=title.clone()
             data-testid=(!testid.is_empty()).then_some(testid)
         >

@@ -357,6 +357,16 @@ async fn the_page_holds_while_reconnecting(c: &Ctx) {
 
 const BANNER_BELOW_HEADER: &str = "(async () => { scrollTo(0, 0); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); const b = document.querySelector('[data-testid=banner-reconnecting]').getBoundingClientRect(); return [h.top, h.bottom, b.top, b.bottom, innerHeight]; })()";
 
+const LIST_TO_REVIEW: &str = "(() => { const rows = [...document.querySelectorAll('[data-testid=review-list] [data-testid=list-row]')]; const l = rows[rows.length - 1].getBoundingClientRect(); const r = document.querySelector('[data-testid=detail-pane]').getBoundingClientRect(); return [l.bottom, r.top]; })()";
+
+async fn review_follows_the_list(c: &Ctx) {
+    let seen: Vec<f64> = c.ui.eval(LIST_TO_REVIEW).await;
+    assert!(
+        seen[1] - seen[0] <= 64.0,
+        "on a phone the review follows the last change without a gap [last change bottom, review top]: {seen:?}"
+    );
+}
+
 async fn banner_in_view(c: &mut Ctx, step: &str) {
     let seen: Vec<f64> = c.ui.eval(BANNER_BELOW_HEADER).await;
     assert!(
@@ -387,6 +397,7 @@ fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
         the_page_holds_while_reconnecting(c).await;
         banner_in_view(c, "apply-while-reconnecting").await;
         c.ui.viewport(420, 900).await;
+        review_follows_the_list(c).await;
         banner_in_view(c, "apply-while-reconnecting-phone").await;
         c.ui.viewport(1440, 900).await;
         c.world
