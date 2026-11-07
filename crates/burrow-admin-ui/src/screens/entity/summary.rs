@@ -75,8 +75,7 @@ fn mode_label(m: Mode) -> String {
     burrow_config::labels::option_label::<Mode>(m.wire()).unwrap_or_else(|| m.wire().to_string())
 }
 
-fn since_date(secs: u64) -> String {
-    let at = js_sys::Date::now() - secs as f64 * 1000.0;
+fn since_date(at: f64) -> String {
     let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(at));
     let months = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -160,19 +159,38 @@ fn client_stats(name: String) -> impl IntoView {
                 .unwrap_or_else(|| "0".into())
         })
     };
-    let since = move || match connected() {
-        Some(secs) => since_date(secs),
-        None => c.with(|c| {
+    let left = move || c.with(|c| c.as_ref().and_then(|c| c.left_secs_ago));
+    let at = Memo::new(move |prev: Option<&Option<f64>>| {
+        format::steady_at(prev.copied().flatten(), connected().or_else(left))
+    });
+    let since = Memo::new(move |_| match (connected(), at.get()) {
+        (Some(_), Some(ms)) => since_date(ms),
+        _ => c.with(|c| {
             c.as_ref()
                 .map(|c| key.with_value(|n| format::left_of(n, c.left_secs_ago, uptime())))
                 .unwrap_or_default()
         }),
-    };
+    });
+    let shown = Memo::new(move |_| {
+        connected()
+            .map(format::coarse)
+            .unwrap_or_else(|| "—".into())
+    });
+    let title = Memo::new(move |_| {
+        let label = if connected().is_some() {
+            "connected since"
+        } else {
+            "left at"
+        };
+        at.get()
+            .map(|ms| format::moment_text(label, ms))
+            .unwrap_or_default()
+    });
     view! {
         <Stats testid="live">
             <Stat label="Open" value=Signal::derive(open) detail=Signal::derive(open_detail)/>
             <Stat label=ready_label value=Signal::derive(ready) detail=Signal::derive(move || pool_range(&s.edit.doc()))/>
-            <Stat label="Connected" value=Signal::derive(move || connected().map(format::span).unwrap_or_else(|| "—".into())) detail=Signal::derive(since)/>
+            <Stat label="Connected" value=shown detail=since title=title/>
             {update.stat()}
         </Stats>
         {update.below()}
@@ -267,8 +285,8 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
                                 <span class=tag_class(Tone::Danger)>"Down"</span>
                                 {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted break-words @max-[640px]:mt-1 @max-[640px]:ml-0 @max-[640px]:block" data-testid="health-reason">{w}</span> })}
                             }.into_any(),
-                            EntryHealth::Offline => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
-                            EntryHealth::NoCheck => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{format::NO_CHECK}</span> }.into_any(),
+                            EntryHealth::Offline => view! { <span class="block text-[13px] leading-5 text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
+                            EntryHealth::NoCheck => view! { <span class="block text-[13px] leading-5 text-text-faint">{format::NO_CHECK}</span> }.into_any(),
                         }}</td>
                         {skipped.then(|| view! { <td class=burrow_ui_kit::WIDE_ONLY>{set}</td> })}
                     </tr>
@@ -441,7 +459,7 @@ fn served_services(name: &str) -> impl IntoView + use<> {
             .map(|r| {
                 let t = targets.get(&r.key).cloned().unwrap_or_default();
                 let key = r.key.clone();
-                let live = Signal::derive(move || {
+                let live = Memo::new(move |_| {
                     super::list::row_for(ServiceEntry::section(), &key)
                         .map(|r| (r.meta, r.line2))
                         .unwrap_or_default()

@@ -2,7 +2,7 @@ use burrow_admin_logic::certs::{Level, notices, rows};
 use burrow_admin_logic::top::top;
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, ServerConfig, ServiceEntry};
-use burrow_ui_kit::{Tone, tag_class};
+use burrow_ui_kit::{Table, Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
@@ -67,36 +67,22 @@ fn table(status: &Status, now: u64) -> impl IntoView + use<> {
                 view! { <p class="mt-1 text-xs text-danger" data-testid="cert-problem">{p}{link}</p> }
             });
             view! {
-                <tr class="border-b border-rowline align-top last:border-b-0" data-cert=key>
-                    <td class="px-4 py-2.5 text-[13px]">
+                <tr data-cert=key>
+                    <td class="whitespace-normal! text-[13px]">
                         <span class="font-mono">{r.name}</span>
                         {problem}
                     </td>
-                    <td class="px-2 py-2.5 text-[13px]">{r.source}</td>
-                    {checks.then(|| view! { <td class="px-2 py-2.5 text-[13px]">{r.check.clone()}</td> })}
-                    <td class="px-2 py-2.5 text-[13px]"><span class=tag_class(tone(st))>{state}</span></td>
-                    <td class=format!("px-2 py-2.5 text-[13px] {}", if ex == Level::Good || ex == Level::Info { "" } else { tone(ex).text() }) title=(!on.is_empty()).then_some(on)>{expires}</td>
-                    <td class="px-2 py-2.5 pr-4 text-[13px]">{r.next}</td>
+                    <td class="text-[13px]">{r.source}</td>
+                    {checks.then(|| view! { <td class="text-[13px]">{r.check.clone()}</td> })}
+                    <td class="text-[13px]"><span class=tag_class(tone(st))>{state}</span></td>
+                    <td class=format!("text-[13px] {}", if ex == Level::Good || ex == Level::Info { "" } else { tone(ex).text() }) title=(!on.is_empty()).then_some(on)>{expires}</td>
+                    <td class="text-[13px]">{r.next}</td>
                 </tr>
             }
         })
         .collect_view();
     view! {
-        <div class="overflow-x-auto">
-            <table class="w-full min-w-[640px] text-left">
-                <thead class="text-xs text-text-muted">
-                    <tr class="border-b border-border">
-                        <th scope="col" class="px-4 py-2 font-semibold">"Name"</th>
-                        <th scope="col" class="px-2 py-2 font-semibold">"Certificate"</th>
-                        {checks.then(|| view! { <th scope="col" class="px-2 py-2 font-semibold">"Check"</th> })}
-                        <th scope="col" class="px-2 py-2 font-semibold">"State"</th>
-                        <th scope="col" class="px-2 py-2 font-semibold">"Expires"</th>
-                        <th scope="col" class="px-2 py-2 pr-4 font-semibold">"Next renewal"</th>
-                    </tr>
-                </thead>
-                <tbody>{body}</tbody>
-            </table>
-        </div>
+        <Table head=if checks { vec!["Name", "Certificate", "Check", "State", "Expires", "Next renewal"] } else { vec!["Name", "Certificate", "State", "Expires", "Next renewal"] } testid="certs-table">{body}</Table>
         {view_all_link(Route::Settings, Some((route::CARD_QUERY, ServerConfig::WEB.key())), shown, total)}
     }
 }

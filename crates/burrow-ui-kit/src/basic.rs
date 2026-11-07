@@ -364,7 +364,7 @@ pub fn Table(
     view! {
         <div class="@container overflow-x-auto">
             <table
-                class="w-full border-collapse text-left text-base @max-[480px]:[&_td]:px-2.5 @max-[480px]:[&_tbody_th]:px-2.5 @max-[480px]:[&_thead_th]:px-2.5 [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
+                class="w-full border-collapse text-left text-base @max-[480px]:[&_td]:px-2.5 @max-[480px]:[&_tbody_th]:px-2.5 @max-[480px]:[&_thead_th]:px-2.5 [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:py-[11px] [&_td]:align-baseline [&_.inline-flex]:align-middle [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:py-[11px] [&_tbody_th]:align-baseline [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
                 data-testid=(!testid.is_empty()).then_some(testid)
             >
                 <thead>

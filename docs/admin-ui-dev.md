@@ -198,7 +198,7 @@ Check: review.
 
 Good: `Client 0.2.2 [Update]` with the button centred on the text. Bad: the button 6 px lower than the text, or a line on a phone that starts with "· 2 services".
 
-Check: e2e, for every visible flex row, a control and a text item on the same line have centres within 2 px, measured on the first line of the text or on the whole text; the cells of a table row line up within 2 px on their first line or on their middle; every visible "·" has text on its own line on both sides. The ui-kit `Inline` component draws its separators in CSS and hides one that would start a line.
+Check: e2e, for every visible flex row, a control and a text item on the same line have centres within 2 px, measured on the first line of the text or on the whole text; the cells of a table row have the middles of their first lines (baseline minus half the x-height) within 2 px; every visible "·" has text on its own line on both sides. The ui-kit `Inline` component draws its separators in CSS and hides one that would start a line.
 
 ### 9. Icons come from the ui-kit
 

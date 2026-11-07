@@ -311,7 +311,7 @@ fn client_nodes(
                 sub: match cs {
                     Some(x) if x.connected => format!("{} open · {} idle", x.open, x.idle_channels),
                     Some(x) => match x.left_secs_ago {
-                        Some(a) => format!("left {}", format::ago(a)),
+                        Some(a) => format!("left {}", format::coarse_ago(a)),
                         None => "not seen since start".into(),
                     },
                     None => "not seen since start".into(),

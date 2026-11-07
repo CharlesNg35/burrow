@@ -1,7 +1,9 @@
 use burrow_admin_logic::presence::{self, Presence};
 use burrow_admin_proto::status::Status;
 use burrow_config::ServiceEntry;
-pub use burrow_syntax::duration::{ago, span};
+pub use burrow_syntax::duration::{
+    Elapsed, JUST_NOW, UNDER_A_MINUTE, coarse, coarse_ago, coarse_length,
+};
 pub use burrow_syntax::size::bytes;
 use burrow_ui_kit::Tone;
 use leptos::prelude::*;
@@ -37,13 +39,13 @@ pub fn left_of(client: &str, left_secs_ago: Option<u64>, uptime: u64) -> String 
             client,
         )
     });
-    burrow_admin_proto::status::away(left_secs_ago, uptime, added)
+    burrow_admin_proto::status::away(left_secs_ago, uptime, added, Elapsed::Coarse)
 }
 
 pub fn visitor_use_short(open: u64, last_seen_secs: Option<u64>) -> String {
     match (open, last_seen_secs) {
         (1.., _) => format!("{open} open"),
-        (0, Some(s)) => ago(s),
+        (0, Some(s)) => coarse_ago(s),
         (0, None) => "not seen".into(),
     }
 }
@@ -150,6 +152,88 @@ pub fn clock(ms: f64) -> String {
         d.get_minutes(),
         d.get_seconds()
     )
+}
+
+pub fn connected_for(secs: u64) -> String {
+    if secs < 60 {
+        JUST_NOW.into()
+    } else {
+        format!("for {}", coarse(secs))
+    }
+}
+
+pub fn up(secs: u64) -> String {
+    if secs < 60 {
+        format!("started {JUST_NOW}")
+    } else {
+        format!("up {}", coarse(secs))
+    }
+}
+
+pub fn at_ms(secs_ago: u64) -> f64 {
+    js_sys::Date::now() - secs_ago as f64 * 1000.0
+}
+
+pub fn steady_at(prev: Option<f64>, secs_ago: Option<u64>) -> Option<f64> {
+    let next = secs_ago.map(at_ms);
+    match (prev, next) {
+        (Some(p), Some(n)) if (p - n).abs() < 2000.0 => Some(p),
+        _ => next,
+    }
+}
+
+pub fn moment_text(label: &str, at_ms: f64) -> String {
+    format!("{label} {}", stamp(at_ms))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Moment {
+    Client,
+    Visitor,
+    Server,
+}
+
+impl Moment {
+    fn of(self, st: &Status, name: &str) -> Option<(&'static str, u64)> {
+        match self {
+            Moment::Client => {
+                let c = presence::client(st, name)?;
+                c.connected_secs
+                    .map(|x| ("connected since", x))
+                    .or(c.left_secs_ago.map(|x| ("left at", x)))
+            }
+            Moment::Visitor => st
+                .visitors
+                .iter()
+                .find(|v| v.name == name && v.open == 0)?
+                .last_seen_secs
+                .map(|x| ("last seen at", x)),
+            Moment::Server => Some(("up since", st.uptime_secs)),
+        }
+    }
+
+    pub fn title(self, name: &str) -> Option<String> {
+        let (label, secs) = crate::store::try_store()?
+            .status
+            .with_untracked(|st| self.of(st.as_deref()?, name))?;
+        Some(moment_text(label, at_ms(secs)))
+    }
+
+    pub fn on_hover(self, name: String) -> impl Fn(leptos::ev::MouseEvent) + 'static {
+        move |ev| {
+            use wasm_bindgen::JsCast;
+            let Some(el) = ev
+                .current_target()
+                .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            else {
+                return;
+            };
+            let _ = match self.title(&name) {
+                Some(t) => el.set_attribute("title", &t),
+                None => el.remove_attribute("title"),
+            };
+        }
+    }
 }
 
 #[cfg(test)]

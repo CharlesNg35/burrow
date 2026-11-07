@@ -5,11 +5,13 @@ use burrow_admin_proto::updates::{job_text, platform_text, remote_text, run_text
 
 use super::{Paint, Tone};
 use burrow_admin_proto::status::ONLINE;
-use burrow_syntax::duration::span;
 
 pub(super) fn render_local(out: &mut String, c: &LocalClient, version: &str, paint: Paint) {
     let state = match c.connected_secs {
-        Some(secs) => paint.tone(&format!("{ONLINE} for {}", span(secs)), Tone::Good),
+        Some(secs) => paint.tone(
+            &format!("{ONLINE} for {}", paint.elapsed.length(secs)),
+            Tone::Good,
+        ),
         None => paint.tone("connecting", Tone::Warn),
     };
     let _ = writeln!(

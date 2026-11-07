@@ -212,12 +212,17 @@ async fn navigation_keeps_the_edit(c: &mut Ctx) {
     );
     c.ui.nav("/clients/home").await;
     let row =
-        c.ui.wait_text("[data-testid=entity-list] [data-row=home]", " · for ", SECS)
-            .await;
+        c.ui.wait_text(
+            "[data-testid=entity-list] [data-row=home]",
+            "127.0.0.1",
+            SECS,
+        )
+        .await;
     assert!(
         row.contains("127.0.0.1"),
         "an online client row says where from and for how long: {row}"
     );
+    super::tables::ticks(c, "[data-testid=entity-list] [data-row=home]").await;
     edit_mode(c).await;
     assert!(
         !c.ui.enabled("[data-testid=save]").await,
