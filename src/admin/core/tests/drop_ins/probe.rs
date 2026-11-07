@@ -114,7 +114,7 @@ fn init_for(seed: u64, set: &Set) -> Init {
                     Some(v) if r.chance(30) => format!("    visitors: [{v}]\n"),
                     _ => String::new(),
                 };
-                let web = if r.chance(25) {
+                let web = if cfg!(feature = "web") && r.chance(25) {
                     let h = format!("Basic {}", Secret::generate().encode());
                     secrets.push(h.clone());
                     format!(
@@ -136,7 +136,12 @@ fn init_for(seed: u64, set: &Set) -> Init {
     }
     let w = &set.w;
     let mut main = format!(
-        "# my server\nlisten: 7835 # tcp\nweb: {{ https: 443, http: 80, letsencrypt: {{ email: ops@example.com }} }}\n\nclients:\n  # the home box\n  home:\n    secret: {}\n{}\nvisitors:\n  ops:\n    secret: {}\n    admin: write\n{}\nservices:\n  web: {{ client: home, bind: 7840, target: 3000 }} # id0\n{}",
+        "# my server\nlisten: 7835 # tcp\n{}\nclients:\n  # the home box\n  home:\n    secret: {}\n{}\nvisitors:\n  ops:\n    secret: {}\n    admin: write\n{}\nservices:\n  web: {{ client: home, bind: 7840, target: 3000 }} # id0\n{}",
+        if cfg!(feature = "web") {
+            "web: { https: 443, http: 80, letsencrypt: { email: ops@example.com } }\n"
+        } else {
+            ""
+        },
         w.home.encode(),
         per_file[0]
             .get("clients")
