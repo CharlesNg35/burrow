@@ -300,13 +300,6 @@ fn client_item(
     status: &Status,
 ) -> Item {
     let mut parts = Vec::new();
-    if !down.is_empty() {
-        parts.push(format!(
-            "{} {} down",
-            and_list(&down),
-            if down.len() == 1 { "is" } else { "are" }
-        ));
-    }
     let mut shapes: Vec<(usize, usize)> = partial.iter().map(|(_, u, n)| (*u, *n)).collect();
     shapes.sort();
     shapes.dedup();
@@ -327,15 +320,35 @@ fn client_item(
         burrow_admin_logic::presence::client(status, &c).and_then(|x| x.left_secs_ago),
         status.uptime_secs,
     );
+    let offline = burrow_admin_logic::wording::OFFLINE;
+    let (tone, title, first) = if down.is_empty() {
+        (
+            Tone::Warning,
+            format!("Client {c} is {offline}"),
+            burrow_admin_logic::wording::capital(&when),
+        )
+    } else {
+        (
+            Tone::Danger,
+            format!(
+                "{} {} {} down",
+                if down.len() == 1 {
+                    "Service"
+                } else {
+                    "Services"
+                },
+                and_list(&down),
+                if down.len() == 1 { "is" } else { "are" }
+            ),
+            format!("Its client {c} is {offline}, {when}"),
+        )
+    };
+    parts.insert(0, first);
     Item {
         key: format!("client:{c}"),
-        tone: if down.is_empty() {
-            Tone::Warning
-        } else {
-            Tone::Danger
-        },
-        title: format!("Client {c} is {}", burrow_admin_logic::wording::OFFLINE),
-        detail: format!("{} · {when}", parts.join("; ")),
+        tone,
+        title,
+        detail: parts.join("; "),
         to: Some(Route::Detail(ClientEntry::section().into(), c)),
         field: None,
         extra: None,
@@ -494,8 +507,8 @@ pub fn chart(a: &[Option<f64>], b: &[Option<f64>], window: usize) -> ChartData {
     let samples = a.iter().filter(|v| v.is_some()).count();
     let empty_note = (a.len() < 30 && a.len() * 2 < window).then(|| {
         format!(
-            "Recording since you opened this page · {} so far",
-            format::span(a.len() as u64)
+            "Recording since you opened this page: {} so far",
+            format::UNDER_A_MINUTE
         )
     });
     ChartData {
@@ -585,10 +598,10 @@ mod tests {
         let st = status(&["a"], &["b", "c", "d"]);
         let items = attention(&v, None, Some(&st), 0);
         let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
-        assert_eq!(titles, ["Client b is offline", "Service both is down"]);
+        assert_eq!(titles, ["Service zz-down is down", "Service both is down"]);
         assert_eq!(
             items[0].detail,
-            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d ago"
+            "Its client b is offline, left 2d ago; aa-partial runs on 1 of 2 clients"
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
@@ -647,7 +660,7 @@ mod tests {
         assert!((d.a[2].unwrap() - 50.0).abs() < 1e-9);
         assert_eq!(d.y_ticks, ["0", "15", "30", "45", "60"]);
         assert_eq!(d.x_ticks.last().map(String::as_str), Some("now"));
-        assert!(d.empty_note.unwrap().contains("3s so far"));
+        assert!(d.empty_note.unwrap().contains("less than a minute so far"));
         assert!(chart(&a[..1], &b[..1], 900).a.is_empty());
         let full: Vec<Option<f64>> = vec![Some(mb); 1000];
         let d = chart(&full, &full, 900);

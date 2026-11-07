@@ -64,9 +64,17 @@ pub(super) fn target_tls_editor(fc: FieldCtx) -> AnyView {
     let fc2 = fc.clone();
     let shown = move || {
         (mode.get() == CA).then(|| {
-            ca_fields
-                .as_ref()
-                .map(|o| crate::uploads::certificate_source(&fc2, o))
+            ca_fields.as_ref().map(|o| {
+                let node = burrow_admin_proto::schema::Node::new(
+                    burrow_admin_proto::schema::SemType::Object(o.clone()),
+                );
+                crate::form::object_view(
+                    &node,
+                    fc2.path.clone(),
+                    fc2.spath.clone(),
+                    fc2.entity.clone(),
+                )
+            })
         })
     };
     let choice = super::Choice {

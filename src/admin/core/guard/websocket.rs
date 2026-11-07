@@ -9,7 +9,7 @@ fn at(w: &WebSocketSettings) -> String {
     format!("{}{}", w.listen, w.path)
 }
 
-fn cut_off(clients: &[String]) -> String {
+pub(super) fn cut_off(clients: &[String]) -> String {
     if clients.is_empty() {
         "no client is connected over WebSocket now".into()
     } else {
@@ -29,11 +29,7 @@ fn warning(code: &str, message: String) -> Impact {
     }
 }
 
-pub fn impacts(
-    old: &ServerSettings,
-    new: &ServerSettings,
-    sessions: &[LiveSession],
-) -> Vec<Impact> {
+pub(super) fn over_websocket(sessions: &[LiveSession]) -> Vec<String> {
     let mut over: Vec<String> = sessions
         .iter()
         .filter(|s| s.over_websocket)
@@ -41,6 +37,15 @@ pub fn impacts(
         .collect();
     over.sort();
     over.dedup();
+    over
+}
+
+pub fn impacts(
+    old: &ServerSettings,
+    new: &ServerSettings,
+    sessions: &[LiveSession],
+) -> Vec<Impact> {
+    let over = over_websocket(sessions);
     let Some(was) = &old.websocket else {
         return Vec::new();
     };

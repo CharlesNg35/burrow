@@ -5,6 +5,7 @@
 
 pub mod addr;
 pub mod allow;
+pub mod cert_words;
 pub mod certs;
 pub mod changeset;
 pub mod check;
@@ -13,13 +14,13 @@ mod diag_words;
 pub mod entity;
 pub mod entries;
 pub mod fallback;
-pub mod grant;
 pub mod health;
 pub mod history;
 pub mod input;
 pub mod logins;
 pub mod more;
 pub mod off;
+pub mod one_of;
 pub mod own_update;
 pub mod presence;
 pub mod rates;

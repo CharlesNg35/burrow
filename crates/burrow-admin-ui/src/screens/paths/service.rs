@@ -19,7 +19,10 @@ pub fn service(
     let open = st.map(|x| x.open).unwrap_or(0);
     let public = burrow_admin_logic::web::is_public(svc);
     let source = source_hop(svc, public, problems);
-    let server = server_hop(svc, public, st.is_some());
+    let mut server = server_hop(svc, public, st.is_some());
+    if server.badge.is_none() {
+        server.badge = problems.site.clone();
+    }
     let clients = clients_of(svc);
     let local = |c: &String| reserved.contains(c);
     let on_server = !clients.is_empty() && clients.iter().all(local);
@@ -122,7 +125,7 @@ fn source_hop(svc: &Value, public: bool, problems: &Problems) -> Hop {
             value: match allow.len() {
                 0 => "anyone".into(),
                 1 => allow[0].clone(),
-                n => format!("{n} CIDRs"),
+                n => format!("{n} networks"),
             },
             mono: !allow.is_empty(),
             dot: problems.source.as_ref().map(|_| Tone::Danger),

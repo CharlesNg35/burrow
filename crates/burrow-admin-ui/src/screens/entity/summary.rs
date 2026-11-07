@@ -45,25 +45,25 @@ fn mode_line(svc: &Value) -> String {
     ) {
         (true, Some(Mode::Balance)) => {
             format!(
-                "{}: new connections spread over healthy clients by weight",
+                "{}: spread by weight over healthy clients",
                 mode_label(Mode::Balance)
             )
         }
         (true, Some(Mode::LeastConnections)) => {
             format!(
-                "{}: the healthy client with the fewest open connections takes the next one",
+                "{}: fewest open connections goes first",
                 mode_label(Mode::LeastConnections)
             )
         }
         (true, Some(Mode::IpHash)) => {
             format!(
-                "{}: each visitor address stays on one healthy client, chosen by weight",
+                "{}: each visitor address keeps its client",
                 mode_label(Mode::IpHash)
             )
         }
         (true, _) => {
             format!(
-                "{}: the first healthy client takes new connections",
+                "{}: the first healthy client in the list",
                 mode_label(Mode::Failover)
             )
         }
@@ -75,8 +75,7 @@ fn mode_label(m: Mode) -> String {
     burrow_config::labels::option_label::<Mode>(m.wire()).unwrap_or_else(|| m.wire().to_string())
 }
 
-fn since_date(secs: u64) -> String {
-    let at = js_sys::Date::now() - secs as f64 * 1000.0;
+fn since_date(at: f64) -> String {
     let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(at));
     let months = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -160,19 +159,38 @@ fn client_stats(name: String) -> impl IntoView {
                 .unwrap_or_else(|| "0".into())
         })
     };
-    let since = move || match connected() {
-        Some(secs) => since_date(secs),
-        None => c.with(|c| {
+    let left = move || c.with(|c| c.as_ref().and_then(|c| c.left_secs_ago));
+    let at = Memo::new(move |prev: Option<&Option<f64>>| {
+        format::steady_at(prev.copied().flatten(), connected().or_else(left))
+    });
+    let since = Memo::new(move |_| match (connected(), at.get()) {
+        (Some(_), Some(ms)) => since_date(ms),
+        _ => c.with(|c| {
             c.as_ref()
                 .map(|c| key.with_value(|n| format::left_of(n, c.left_secs_ago, uptime())))
                 .unwrap_or_default()
         }),
-    };
+    });
+    let shown = Memo::new(move |_| {
+        connected()
+            .map(format::coarse)
+            .unwrap_or_else(|| "—".into())
+    });
+    let title = Memo::new(move |_| {
+        let label = if connected().is_some() {
+            "connected since"
+        } else {
+            "left at"
+        };
+        at.get()
+            .map(|ms| format::moment_text(label, ms))
+            .unwrap_or_default()
+    });
     view! {
         <Stats testid="live">
             <Stat label="Open" value=Signal::derive(open) detail=Signal::derive(open_detail)/>
             <Stat label=ready_label value=Signal::derive(ready) detail=Signal::derive(move || pool_range(&s.edit.doc()))/>
-            <Stat label="Connected" value=Signal::derive(move || connected().map(format::span).unwrap_or_else(|| "—".into())) detail=Signal::derive(since)/>
+            <Stat label="Connected" value=shown detail=since title=title/>
             {update.stat()}
         </Stats>
         {update.below()}
@@ -202,9 +220,16 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
             let r = s.rates.get().service(&name);
             let (i, iu) = human_bits(r.bytes_in);
             let (o, ou) = human_bits(r.bytes_out);
-            let limit = ServiceEntry::BANDWIDTH
-                .at(&doc, &name)
-                .map(|b| format!("limit {}", plain(b)));
+            let limit = ServiceEntry::BANDWIDTH.at(&doc, &name).map(|b| {
+                let text = plain(b);
+                match burrow_syntax::rate::parse_rate(&text) {
+                    Ok(bps) => {
+                        let (v, u) = human_bits(bps as f64);
+                        format!("limit {v} {u}")
+                    }
+                    Err(_) => format!("limit {text}"),
+                }
+            });
             return view! {
                 <Stats testid="live">
                     <Stat label="Open" value=x.as_ref().map(|x| format::count(x.open)).unwrap_or_else(|| "0".into()) detail=x.as_ref().map(|x| format!("{} total", format::count(x.total))).unwrap_or_default()/>
@@ -225,6 +250,7 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
         let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
         let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
         let reserved = crate::domain::reserved_clients();
+        let skipped = !aside.is_empty();
         let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
         let default_target = ServiceEntry::TARGET
             .get(&svc)
@@ -254,15 +280,15 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
                             None => view! { <span class="text-[13px] text-text-faint" aria-label=burrow_admin_logic::wording::OFFLINE>{format::NONE_MARK}</span> }.into_any(),
                         }}</td>
                         <td class="whitespace-normal!">{match h {
-                            EntryHealth::Up => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
+                            EntryHealth::Up => view! { <span class=tag_class(Tone::Success)>"Up"</span> }.into_any(),
                             EntryHealth::Down(why) => view! {
-                                <span class=tag_class(Tone::Danger)>"down"</span>
-                                {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted [overflow-wrap:anywhere] @max-[640px]:mt-1 @max-[640px]:ml-0 @max-[640px]:block" data-testid="health-reason">{w}</span> })}
+                                <span class=tag_class(Tone::Danger)>"Down"</span>
+                                {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted break-words @max-[640px]:mt-1 @max-[640px]:ml-0 @max-[640px]:block" data-testid="health-reason">{w}</span> })}
                             }.into_any(),
-                            EntryHealth::Offline => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
-                            EntryHealth::NoCheck => view! { <span class="text-[13px] whitespace-nowrap text-text-faint">{format::NO_CHECK}</span> }.into_any(),
+                            EntryHealth::Offline => view! { <span class="block text-[13px] leading-5 text-text-faint">{burrow_admin_logic::wording::OFFLINE}</span> }.into_any(),
+                            EntryHealth::NoCheck => view! { <span class="block text-[13px] leading-5 text-text-faint">{format::NO_CHECK}</span> }.into_any(),
                         }}</td>
-                        <td class=burrow_ui_kit::WIDE_ONLY>{set}</td>
+                        {skipped.then(|| view! { <td class=burrow_ui_kit::WIDE_ONLY>{set}</td> })}
                     </tr>
                 }
             })
@@ -271,7 +297,7 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
         view! {
             <div class="mb-4">
                 <Card title="Health per client" sub=mode flush=true testid="health">
-                    <Table head=vec!["Client and target", "Open", "~Connected from", "Health", "~Skipped"]>{rows}</Table>
+                    <Table head=if skipped { vec!["Client and target", "Open", "~Connected from", "Health", "~Skipped"] } else { vec!["Client and target", "Open", "~Connected from", "Health"] }>{rows}</Table>
                 </Card>
             </div>
         }
@@ -433,7 +459,7 @@ fn served_services(name: &str) -> impl IntoView + use<> {
             .map(|r| {
                 let t = targets.get(&r.key).cloned().unwrap_or_default();
                 let key = r.key.clone();
-                let live = Signal::derive(move || {
+                let live = Memo::new(move |_| {
                     super::list::row_for(ServiceEntry::section(), &key)
                         .map(|r| (r.meta, r.line2))
                         .unwrap_or_default()

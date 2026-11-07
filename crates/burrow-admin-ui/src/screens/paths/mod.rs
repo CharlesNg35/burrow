@@ -35,6 +35,7 @@ pub struct Problems {
     pub source: Option<String>,
     pub clients: Option<String>,
     pub ports: Option<String>,
+    pub site: Option<(String, burrow_ui_kit::Tone)>,
 }
 
 pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) -> PathData {
@@ -129,7 +130,7 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
 fn unseen(name: &str) -> String {
     let added = crate::store::try_store().and_then(|s| s.added_secs(VisitorEntry::section(), name));
     match added {
-        Some(a) => format!("added {}, not seen yet", crate::format::ago(a)),
+        Some(a) => format!("added {}, not seen yet", crate::format::coarse_ago(a)),
         None => "not seen since start".into(),
     }
 }
@@ -197,7 +198,9 @@ pub fn visitor(
                     (true, _) => "you, in burrow admin now".into(),
                     (false, Some(_)) if open > 0 => format!("in use now · {open} open"),
                     (false, Some(v)) => match v.last_seen_secs {
-                        Some(a) => format!("seen {} · no open connection", crate::format::ago(a)),
+                        Some(a) => {
+                            format!("seen {} · no open connection", crate::format::coarse_ago(a))
+                        }
                         None => unseen(name),
                     },
                     (false, None) if status.is_some() => unseen(name),
@@ -320,6 +323,7 @@ mod tests {
             source: None,
             clients: None,
             ports: None,
+            site: None,
         };
         let p = service("web", &svc, Some(&st), &none, false, &[]);
         assert_eq!(p.hops[2].unit, "0 of 2 up");
@@ -394,7 +398,8 @@ mod tests {
             &Problems {
                 source: Some("invalid CIDR".into()),
                 clients: None,
-                ports: Some("6 ≠ 11 ports".into()),
+                ports: Some("6 vs 11 ports".into()),
+                site: None,
             },
             true,
             &[],
@@ -405,7 +410,7 @@ mod tests {
         assert_eq!(p.hops[2].value, "a · b");
         assert_eq!(p.edges[1].above, "Balance");
         assert_eq!(p.edges[2].state, EdgeState::Error);
-        assert_eq!(p.hops[3].badge.as_ref().unwrap().0, "6 ≠ 11 ports");
+        assert_eq!(p.hops[3].badge.as_ref().unwrap().0, "6 vs 11 ports");
         assert!(
             p.edges[0].above.is_empty() && p.edges[0].below.is_empty(),
             "counts and rates live in the stat cards, not on the path"
@@ -419,6 +424,7 @@ mod tests {
                 source: None,
                 clients: None,
                 ports: None,
+                site: None,
             },
             false,
             &[],
@@ -433,6 +439,7 @@ mod tests {
             source: None,
             clients: None,
             ports: None,
+            site: None,
         };
         let dns =
             json!({"client": "a", "protocol": "udp", "target": 53, "visitors": ["lap", "ops"]});
@@ -469,6 +476,7 @@ mod tests {
             source: None,
             clients: None,
             ports: None,
+            site: None,
         };
         let reserved = ["self".to_string()];
         let svc = json!({"client": "self", "bind": 8080, "target": "127.0.0.1:3000", "proxy_protocol": "v2"});

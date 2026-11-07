@@ -248,14 +248,17 @@ fn Body() -> impl IntoView {
                 </div>
             }
             .into_any(),
-            Conn::Revoked { reason } => view! {
-                <div class="mx-auto max-w-2xl p-8" data-testid="revoked">
-                    <EmptyState icon="lock" title="Your admin access was removed" message=format!("The server closed this session: {reason}")>
-                        <p class="text-sm text-text-muted">"Ask a write admin, then run burrow admin again."</p>
-                    </EmptyState>
-                </div>
+            Conn::Revoked { reason } => {
+                let (title, hint) = burrow_admin_logic::wording::revoked_words(&reason);
+                view! {
+                    <div class="mx-auto max-w-2xl p-8" data-testid="revoked" data-reason=reason.clone()>
+                        <EmptyState icon="lock" title=title message=format!("The server closed this session: {reason}")>
+                            <p class="text-sm text-text-muted">{hint}</p>
+                        </EmptyState>
+                    </div>
+                }
+                .into_any()
             }
-            .into_any(),
             Conn::Ended if !loaded.get() => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="ended">
                     <EmptyState icon="wifi-off" title="This tab's admin session ended" message=burrow_admin_logic::wording::SESSION_ENDED_HINT/>
@@ -290,7 +293,12 @@ fn Banners() -> impl IntoView {
         Conn::Reconnecting { attempt } => {
             let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
             let n = s.edit.pending();
-            let at = format::clock(s.values_at.get());
+            let at = s.values_at.get();
+            let at = if at > 0.0 {
+                format!(" Values are from {}.", format::clock(at))
+            } else {
+                String::new()
+            };
             let (title, why) = if s.admin_down.get() && api::gone_a_while(attempt) {
                 (
                     "burrow admin is not running here.".to_string(),
@@ -327,7 +335,7 @@ fn Banners() -> impl IntoView {
                 <Banner
                     tone=tone
                     title=title
-                    message=format!("{why}Reconnecting in {left} s · attempt {attempt}.{kept} Values are from {at}.")
+                    message=format!("{why}Reconnecting in {left} s, attempt {attempt}.{kept}{at}")
                     testid="banner-reconnecting"
                 >
                     <Button label="Retry now" size=burrow_ui_kit::ButtonSize::Small on_click=move |_| api::reconnect(s)/>

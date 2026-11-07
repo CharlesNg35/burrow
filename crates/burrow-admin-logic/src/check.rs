@@ -98,7 +98,13 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                 let names: Vec<String> = c
                     .options
                     .iter()
-                    .map(|o| if o.label.is_empty() { o.value.clone() } else { o.label.clone() })
+                    .map(|o| {
+                        if o.label.is_empty() {
+                            o.value.clone()
+                        } else {
+                            o.label.clone()
+                        }
+                    })
                     .collect();
                 Err(format!("Pick one: {}", names.join(", ")))
             }
@@ -178,12 +184,6 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::RefMap(c) => match v {
             Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
             _ => Err(GROUP.into()),
-        },
-        SemType::SecretRef(c) if c.reference => match v {
-            Value::String(s) if !burrow_syntax::env::is_reference(s) => Err(
-                "write an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/token, never the secret itself".into(),
-            ),
-            _ => Ok(()),
         },
         SemType::SecretRef(_) | SemType::Unknown(_) => Ok(()),
     }
@@ -443,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn a_reference_secret_takes_a_variable_or_a_file_only() {
+    fn a_dns_credential_takes_a_variable_a_file_or_the_secret_itself() {
         use burrow_admin_proto::schema::SecretRefC;
         let node = Node::new(SemType::SecretRef(SecretRefC {
             max: 1,
@@ -451,8 +451,7 @@ mod tests {
         }));
         assert!(check(&node, &json!("${CF_TOKEN}")).is_ok());
         assert!(check(&node, &json!("file:/etc/burrow/cf.token")).is_ok());
-        let e = check(&node, &json!("pasted-token")).unwrap_err();
-        assert!(e.contains("never the secret itself"), "{e}");
+        assert!(check(&node, &json!("pasted-token")).is_ok());
         let tunnel = Node::new(SemType::SecretRef(SecretRefC {
             max: 4,
             reference: false,

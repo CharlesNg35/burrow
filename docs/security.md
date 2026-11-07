@@ -82,11 +82,13 @@ A website is open to every browser, so burrow checks each request before it reac
   - `forward_auth` removes a visitor's own copies of the headers every login service passes on (also written with `_`). A login service that is down or slow gives `502`, `503` or `504`, never the app.
   - `client_auth` checks device certificates in the TLS handshake, and refuses the devices in its revocation list. It answers `421` to a request for another name than the connection's, so a wildcard certificate cannot carry a visitor from an open name to a protected one.
 - **`target_tls` checks the app's certificate** unless you write `insecure_skip_verify: true`, which validate notes.
-- **DNS provider secrets** (`cloudflare.token`, `rfc2136.secret`, `acme_dns.password`) come only from `${VAR}` or `file:`; validate refuses one written in the config. They are never printed, and burrow wipes them from memory when they are no longer needed. Give a Cloudflare token only Zone: Read and DNS: Edit on the zones it serves, and an RFC 2136 key only the `_acme-challenge` names.
+- **DNS provider secrets** (`cloudflare.token`, `rfc2136.secret`, `acme_dns.password`) may be written in the config, like Caddy and Nginx Proxy Manager allow, or come from `${VAR}` or `file:`, which keep them out of the file. A write admin may set them in burrow admin. They are never printed, and burrow wipes them from memory when they are no longer needed. Give a Cloudflare token only Zone: Read and DNS: Edit on the zones it serves, and an RFC 2136 key only the `_acme-challenge` names.
 - **A DNS `command` hook** gets no secrets and only `PATH`; validate warns when others can change it.
 - **Certificates and keys** from Let's Encrypt live in a folder only the service account can read (0700, files 0600). Your own key files must be readable by the account burrow runs as.
-- **The admin UI cannot read files or run programs.** `web.proxy_protocol_from`, every certificate, key and CA path, `error_pages`, `access_log`, and a DNS provider's `command`, secrets and server are changed in server.yaml only ([web.md](web.md)).
-  - A write admin may set the web proxy's ports (`web.https`, `web.http`), as with a service's public `bind`. The review names each port it opens and the websites a removal stops. A port shared with the tunnel stays a file edit, and a port another program holds is refused before anything is written.
+- **The admin UI cannot run programs.** A DNS provider's `command` is changed in server.yaml only ([web.md](web.md)). A write admin may set every other web setting, as Caddy's admin API and Nginx Proxy Manager allow: certificate, key and CA paths, `error_pages`, `proxy_protocol_from`, and the access log (D87).
+  - From burrow admin, the access log may only be a file inside the server's own folders: its state folder, or the service's log folder. A log line holds text a visitor chose, and a shell runs what it finds in its startup files, so a log written to a file like `~/.bashrc` could run that text as code. A file anywhere else is set in server.yaml.
+  - A write admin may set a DNS provider's credentials and where they go (`rfc2136.server`, `acme_dns.api`), and may write `${VAR}` and `file:` references wherever server.yaml allows them, as Caddy and Nginx Proxy Manager let their admins do. So a stolen write admin could send a credential, or a variable or file the server's account can read, to a server it names. Admin access is the protection here: keep admin secrets and `admin_from` tight (owner, 2026-11-06, D85).
+  - A write admin may set the web proxy's ports (`web.https`, `web.http`), as with a service's public `bind`. The review names each port it opens and the websites a removal stops. Moving a port the tunnel shares asks for a typed confirm and names the clients it cuts off, and a port another program holds is refused before anything is written. The same goes for the tunnel's own `listen`.
   - Instead of a file path, a write admin may upload a certificate, CA or revocation list. burrow checks it, keeps it private in its state folder, and never sends a key back ([Uploading files](web/certificates.md#uploading-files-in-the-admin-ui)).
 - **The local CA (`tls: internal`)** may sign only LAN names and addresses (X.509 name constraints in its root). Its key stays in the state folder, readable only by the service account, and the admin UI offers its certificate, never the key.
 
@@ -102,11 +104,11 @@ A server can be updated from burrow admin or `burrow mcp` only when root turned 
 
 ## burrow admin
 
-The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).
+The web admin listens on `127.0.0.1` only and needs a random token that only you can read. Admin access is the protection: a write admin may give or widen admin access, as in Portainer, Nginx Proxy Manager or Cloudflare, so keep admin secrets and `admin_from` tight. The server refuses only a change that removes your own visitor or leaves no visitor with write access. See [admin.md](admin.md#security-notes).
 
 ## burrow mcp
 
-`burrow mcp` gives an AI app the same admin channel, with the same server rules. It is read-only unless started with `--allow-write` by a visitor with `admin: write`. It applies only a plan the AI checked first, and secrets never reach the AI. Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
+`burrow mcp` gives an AI app the same admin channel, with the same server rules. A visitor with `admin: write` can change the config through it unless it is started with `--read-only`. It applies only a plan the AI checked first, and secrets never reach the AI: new ones stay on the server behind a handle and reach you in files only you can read. Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
 
 ## Next steps
 

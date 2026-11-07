@@ -2,6 +2,8 @@
 //! The entry point is `editor`, which takes a `FieldCtx`.
 
 mod basic;
+mod credential;
+mod enum_text;
 mod hidden;
 mod keyed;
 mod lists;
@@ -25,6 +27,7 @@ use crate::store::store;
 pub(crate) use basic::choice;
 use basic::{bool_editor, enum_editor, text_editor, yaml_editor};
 use lists::{list_editor, map_editor, union_editor};
+pub(crate) use objects::object_list_card;
 use units::{duration_editor, rate_editor};
 
 pub use crate::field::{FieldCtx, names_of, set_checked};
@@ -135,7 +138,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             crate::passwords::passwords_editor(fc)
         }
         SemType::Map(m) => map_editor(fc, None, Some((*m.key).clone()), (*m.value).clone()),
-        SemType::SecretRef(c) if c.reference => text_editor(fc, Some(sem.clone())),
+        SemType::SecretRef(c) if c.reference => credential::credential_editor(fc),
         SemType::SecretRef(c) => crate::secrets::secret_list(fc.path.clone(), fc.id.clone(), c.max),
         SemType::Union(u) if picks_login(u) => crate::logins::site_editor(fc),
         SemType::Union(u) => union_editor(fc, u.clone()),
@@ -144,7 +147,6 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             let fc2 = FieldCtx {
                 node: Node {
                     required: false,
-                    reduce_only: inner_node.reduce_only || fc.node.reduce_only,
                     none_label: inner_node.none_label.clone().or(fc.node.none_label.clone()),
                     default: inner_node.default.clone().or(fc.node.default.clone()),
                     label: if inner_node.label.is_empty() {

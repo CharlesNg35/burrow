@@ -153,6 +153,68 @@ fn fields_changed(
     }
 }
 
+fn entries(list: &[Value]) -> bool {
+    !list.is_empty() && list.iter().all(Value::is_object)
+}
+
+fn fields_of(
+    path: &[String],
+    was: &serde_json::Map<String, Value>,
+    now: &serde_json::Map<String, Value>,
+    out: &mut Vec<String>,
+) {
+    for (k, v) in now {
+        if was.get(k) != Some(v) {
+            nested(&under(path, k), was.get(k), Some(v), out);
+        }
+    }
+    for k in was.keys().filter(|k| !now.contains_key(*k)) {
+        nested(&under(path, k), was.get(k), None, out);
+    }
+}
+
+fn nested(path: &[String], was: Option<&Value>, now: Option<&Value>, out: &mut Vec<String>) {
+    let none = Value::Array(Vec::new());
+    let list = |v: Option<&Value>| v.and_then(Value::as_array).is_some_and(|a| entries(a));
+    let (was, now) = match (was, now) {
+        (None, Some(_)) if list(now) => (Some(&none), now),
+        (Some(_), None) if list(was) => (was, Some(&none)),
+        other => other,
+    };
+    match (was, now) {
+        (Some(Value::Object(a)), Some(Value::Object(b))) => {
+            let mut inner = Vec::new();
+            fields_of(path, a, b, &mut inner);
+            if !inner.is_empty() {
+                out.push(format!("{}: {}", named(path), inner.join(", ")));
+            }
+        }
+        (Some(Value::Array(a)), Some(Value::Array(b))) if entries(a) || entries(b) => {
+            for i in 0..a.len().max(b.len()) {
+                let at = under(path, &i.to_string());
+                let name = |v: &Value| burrow_config::labels::entry_name(&at, v);
+                match (a.get(i), b.get(i)) {
+                    (None, Some(v)) => out.push(format!("{} added", name(v))),
+                    (Some(v), None) => out.push(format!("{} removed", name(v))),
+                    (Some(Value::Object(x)), Some(w @ Value::Object(y))) if x != y => {
+                        let mut inner = Vec::new();
+                        fields_of(&at, x, y, &mut inner);
+                        out.push(format!("{}: {}", name(w), inner.join(", ")));
+                    }
+                    (Some(x), Some(y)) if x != y => {
+                        out.push(format!("{} {} → {}", name(y), short(x), short(y)))
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (None, Some(v)) => out.push(format!("{} set to {}", named(path), short(v))),
+        (Some(_), None) => out.push(format!("{} back to its default", named(path))),
+        (Some(a), Some(b)) => out.push(format!("{} {} → {}", named(path), short(a), short(b))),
+        (None, None) => {}
+    }
+}
+
 pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
     let mut out = Vec::new();
     let empty = serde_json::Map::new();
@@ -255,19 +317,21 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
         let summary = match (ov, nv) {
             (Some(Value::Object(a)), Some(Value::Object(b))) => {
                 let mut parts = Vec::new();
-                for (k, v) in b {
-                    match a.get(k) {
-                        None => parts.push(format!("{} set to {}", field(k), short(v))),
-                        Some(was) if was != v => {
-                            parts.push(format!("{} {} → {}", field(k), short(was), short(v)))
-                        }
-                        _ => {}
+                fields_of(&path, a, b, &mut parts);
+                let changed: Vec<&String> = b
+                    .keys()
+                    .filter(|k| a.get(*k) != b.get(*k))
+                    .chain(a.keys().filter(|k| !b.contains_key(*k)))
+                    .collect();
+                match (changed.as_slice(), parts.as_slice()) {
+                    ([k], [one])
+                        if a.get(*k).is_some_and(Value::is_object)
+                            && b.get(*k).is_some_and(Value::is_object) =>
+                    {
+                        one.clone()
                     }
+                    _ => format!("{section}: {}", parts.join("; ")),
                 }
-                for k in a.keys().filter(|k| !b.contains_key(*k)) {
-                    parts.push(format!("{} back to its default", field(k)));
-                }
-                format!("{section}: {}", parts.join("; "))
             }
             (None, Some(Value::Object(b))) if !b.is_empty() => format!(
                 "{section}: {}",
@@ -388,6 +452,50 @@ mod tests {
             !changes(&new, &old, &[])
                 .iter()
                 .any(|c| c.summary.contains(&s))
+        );
+    }
+
+    #[test]
+    fn a_dns_provider_change_names_the_entry_and_its_provider() {
+        let le = |dns: Value| json!({"web": {"https": 443, "letsencrypt": {"email": "a@example.com", "dns": dns}}});
+        let one = json!({"domains": ["example.com"], "cloudflare": {"token": "${CF}"}});
+        let two = json!({"domains": ["corp.example.org"], "rfc2136": {"server": "192.0.2.1:53", "key_name": "k", "secret": "${T}"}});
+        let text = |a: Value, b: Value| {
+            changes(&a, &b, &[])
+                .into_iter()
+                .map(|c| c.summary)
+                .collect::<Vec<_>>()
+        };
+        let mut bare = le(json!([]));
+        bare["web"]["letsencrypt"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dns");
+        assert_eq!(
+            text(bare, le(json!([one]))),
+            ["Let's Encrypt: DNS provider 1 (Cloudflare) added"]
+        );
+        assert_eq!(
+            text(le(json!([one])), le(json!([one, two]))),
+            ["Let's Encrypt: DNS provider 2 (RFC 2136) added"]
+        );
+        assert_eq!(
+            text(le(json!([one, two])), le(json!([one]))),
+            ["Let's Encrypt: DNS provider 2 (RFC 2136) removed"]
+        );
+        let mut wider = one.clone();
+        wider["domains"] = json!(["example.com", "example.net"]);
+        assert_eq!(
+            text(le(json!([one])), le(json!([wider]))),
+            [
+                "Let's Encrypt: DNS provider 1 (Cloudflare): Domains example.com → example.com and example.net"
+            ]
+        );
+        let mut both = le(json!([one]));
+        both["web"]["https"] = json!(8443);
+        assert_eq!(
+            text(le(json!([])), both),
+            ["Web proxy: HTTPS port 443 → 8443; Let's Encrypt: DNS provider 1 (Cloudflare) added"]
         );
     }
 }

@@ -3,8 +3,10 @@
 
 mod cards;
 mod controls;
+mod le_off;
 mod more;
 mod off_group;
+mod one_of;
 mod reach;
 mod row;
 mod view;
@@ -121,7 +123,7 @@ fn is_wide(n: &Node) -> bool {
 fn applies_tag(n: &Node) -> Option<(String, Tone)> {
     let how = n.applies.as_ref()?;
     let tone = match how {
-        Applies::Live => Tone::Success,
+        Applies::Live => Tone::Neutral,
         Applies::Reload => Tone::Accent,
         Applies::Restart | Applies::Unknown => Tone::Warning,
     };
@@ -163,6 +165,20 @@ impl Section<'_> {
                 ));
             }
             let (fp, fs) = (under(path, &f.key), under(spath, &f.key));
+            if let Some(group) = burrow_admin_logic::one_of::leads(self.node, &f.key) {
+                let choice = one_of::Choice {
+                    node: self.node,
+                    group,
+                    path,
+                    spath,
+                    entity,
+                };
+                rows.push((
+                    off_group::off_of(&f.node, entity.clone()),
+                    one_of::choice_rows(choice),
+                ));
+                continue;
+            }
             if f.key.contains('/') {
                 let site = fp[..fp.len() - 1].to_vec();
                 rows.push((
@@ -288,6 +304,7 @@ pub(crate) fn object_view_marked(
     let all: Vec<&Field> = fields(node)
         .iter()
         .filter(|f| !skip.contains(&f.key.as_str()) && merged_into(node, &f.key).is_none())
+        .filter(|f| !burrow_admin_logic::one_of::follows(node, &f.key))
         .chain(site.iter())
         .collect();
     for f in &all {

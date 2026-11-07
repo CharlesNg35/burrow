@@ -7,7 +7,9 @@ mod check_text;
 mod files;
 #[cfg(feature = "web")]
 mod headers;
+#[cfg(feature = "web")]
 mod locks;
+#[cfg(feature = "web")]
 mod locks_web;
 mod older;
 #[cfg(feature = "web")]
@@ -15,6 +17,7 @@ mod passwords;
 mod plans;
 #[cfg(feature = "web")]
 mod reach;
+#[cfg(feature = "web")]
 mod refs;
 mod requests;
 mod reverts;
@@ -60,6 +63,9 @@ impl Store for MemStore {
     }
     fn state_dir(&self) -> PathBuf {
         self.state.path().to_path_buf()
+    }
+    fn log_dir(&self) -> Option<PathBuf> {
+        None
     }
     fn format(&self) -> Format {
         Format::Yaml
@@ -304,4 +310,9 @@ fn apply_at(
         },
     )?;
     plan::finish(core, s, begun, ReloadResult::unchanged(), None)
+}
+
+#[cfg(feature = "web")]
+pub(super) fn yaml_has(text: &str, path: &str) -> bool {
+    text.contains(path) || text.contains(&format!("{path:?}"))
 }

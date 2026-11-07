@@ -55,7 +55,7 @@ services:
 ```
 
 - A field takes a file or an upload, never both: `tls` takes `cert` and `key` or `upload`; `target_tls` and `client_auth` take `ca` or `ca_upload`, and `crl` or `crl_upload`; `letsencrypt` takes `ca` or `ca_upload`.
-- Paths stay in server.yaml only: the admin UI never sets one, and a field that names a file there shows it as locked.
+- The admin UI sets paths too: pick **Files on the server** instead of an upload to name files another tool keeps current, like certbot's.
 - The key never leaves the server again: the UI shows only the names, the issuer, the expiry and the SHA-256 of what was uploaded.
 - Uploading the same file twice keeps one copy. Files that neither the config nor a version kept in the admin's Activity names are removed after the next change is applied, so a revert still finds its files, and burrow keeps at most 64 uploads waiting.
 
@@ -157,12 +157,12 @@ services:
 ```
 
 - **Which entry a name uses:** the one whose domain covers it most specifically, so `corp.example.org` wins over `example.org`. A domain covers itself and every name under it; write `example.com`, not `*.example.com`. Each domain sits in one entry only.
-- **Which names use DNS:** wildcards always, and a site with `challenge: dns` (the tunnel's own name with `websocket.challenge: dns`). Other names keep the TLS or HTTP check.
+- **Which names use DNS:** wildcards always, a site with `challenge: dns` (the tunnel's own name with `websocket.challenge: dns`), and a name whose domain a DNS provider lists when neither `https` is on port 443 nor `http` on port 80. Other names keep the TLS or HTTP check.
 - **The record must be public.** The name may be internal, but Let's Encrypt reads the TXT record from the internet, so the zone's public nameservers must answer it. An `rfc2136` server on your LAN works as the zone's hidden primary that feeds the public nameservers. A split-horizon server that answers only inside the LAN cannot work.
 - **burrow waits for every nameserver.** Before it tells Let's Encrypt to look, burrow asks each of the zone's public nameservers directly until all of them answer the record, for up to `wait_secs` (120 when not set). `resolvers` (like `[1.1.1.1, 9.9.9.9]`) are used only to find those nameservers, and must give the public view. Without `resolvers`, the system's resolvers are used.
 - **CNAMEs are followed.** If `_acme-challenge.<name>` is a CNAME, burrow writes the record at its target (up to 8 steps), since Let's Encrypt reads it there. The entry is still chosen by the name's own domain: to delegate, list the name's domain on the entry that can write the target.
 - **Records are removed** after each order, also when it fails.
-- **Secrets** (`token`, `secret`, `password`) come only from `${VAR}` or `file:path` (relative to the config file); validate refuses one written in the file. They are never printed: `burrow status`, the logs and the admin UI show only that they are set.
+- **Secrets** (`token`, `secret`, `password`) may be written in the file, or come from `${VAR}` or `file:path` (relative to the config file). `${VAR}` or `file:` keeps the secret out of server.yaml, so the file can be shared or kept in git. Secrets are never printed: `burrow status`, `burrow validate`, the logs and the admin UI show only that they are set.
 
 ### Shared wildcards
 
@@ -246,6 +246,10 @@ esac
 ```
 
 Scripts written for lego's exec provider work unchanged when they read their credentials themselves.
+
+### In the admin UI
+
+All of this is set in burrow admin under Settings, **Web**: the Let's Encrypt card, then **DNS check providers**, which shows while Let's Encrypt is on. Each provider entry has its domains, the provider picked from a list with only its fields below, and its shared wildcards; a credential comes from a variable, a file or a value typed in, and is never shown again. A `command` is set in server.yaml, since it runs a program on the server. See [admin.md](../admin.md#certificates-and-lets-encrypt).
 
 ## When a certificate fails
 

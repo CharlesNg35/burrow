@@ -6,9 +6,11 @@ use super::app::{self, STOP};
 use super::common::admin::world;
 use super::visitor;
 
-const WRITE_TOOLS: [&str; 4] = [
+const WRITE_TOOLS: [&str; 6] = [
     "apply_change",
     "check_change",
+    "new_password",
+    "new_secret",
     "revert_to_version",
     "update_clients",
 ];
@@ -124,8 +126,8 @@ async fn the_instructions_and_the_tools_agree_in_each_mode() {
     let w = world().await;
     let cases: [(&str, &burrow::wire::secret::Secret, &[&str], &str); 3] = [
         ("viewer", &w.viewer, &[], "read-only"),
-        ("ops", &w.ops, &[], "check-only"),
-        ("ops", &w.ops, &["--allow-write"], "write"),
+        ("ops", &w.ops, &["--read-only"], "check-only"),
+        ("ops", &w.ops, &[], "write"),
     ];
     for (name, secret, args, mode) in cases {
         let v = visitor(&w, name, secret);
@@ -147,7 +149,7 @@ async fn the_instructions_and_the_tools_agree_in_each_mode() {
                 assert!(!tools.iter().any(|t| t == "check_change"), "{tools:?}");
             }
             "check-only" => {
-                assert!(text.contains("--allow-write"), "{text}");
+                assert!(text.contains("--read-only"), "{text}");
                 assert!(text.contains("cannot be applied"), "{text}");
                 assert_eq!(
                     tools
@@ -159,7 +161,7 @@ async fn the_instructions_and_the_tools_agree_in_each_mode() {
                 let (failed, plan) = a.call("check_change", set_target()).await;
                 assert!(!failed, "{plan}");
                 let note = plan["apply"].as_str().unwrap_or_default();
-                assert!(note.contains("--allow-write"), "{plan}");
+                assert!(note.contains("--read-only"), "{plan}");
             }
             _ => {
                 assert!(text.contains("apply_change"), "{text}");
@@ -182,7 +184,7 @@ async fn print_config_prints_one_standard_config_with_full_paths() {
     let out = tokio::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
         .args(["mcp", "-c"])
         .arg(&v.config)
-        .args(["--allow-write", "--print-config"])
+        .args(["--read-only", "--print-config"])
         .current_dir(elsewhere.path())
         .stdin(Stdio::null())
         .output()
@@ -198,8 +200,8 @@ async fn print_config_prints_one_standard_config_with_full_paths() {
         .unwrap()
         .display()
         .to_string();
-    assert_eq!(entry["args"], json!(["mcp", "-c", config, "--allow-write"]));
-    let form = format!("Arguments, one per line:\n  mcp\n  -c\n  {config}\n  --allow-write\n");
+    assert_eq!(entry["args"], json!(["mcp", "-c", config, "--read-only"]));
+    let form = format!("Arguments, one per line:\n  mcp\n  -c\n  {config}\n  --read-only\n");
     assert!(stderr.contains(&form), "{stderr}");
     assert!(
         stderr.contains(&format!("Command:\n  {command}\n")),
@@ -208,7 +210,7 @@ async fn print_config_prints_one_standard_config_with_full_paths() {
     let codex = tokio::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
         .args(["mcp", "-c"])
         .arg(&v.config)
-        .args(["--allow-write", "--print-config", "codex"])
+        .args(["--read-only", "--print-config", "codex"])
         .current_dir(elsewhere.path())
         .output()
         .await

@@ -22,6 +22,7 @@ pub(crate) fn worded(code: &str, subject: &str) -> Option<String> {
         PUBLIC_PORT_SKIPS_LOGIN => {
             "The public port reaches the app without the website's login; turn the public port off, or keep it on a trusted network".into()
         }
+        "dns-provider" => "Pick the DNS provider that sets the records for these domains".into(),
         _ => return None,
     };
     Some(text)
@@ -35,7 +36,8 @@ pub(crate) const SCHEMA: [&str; 3] = [
 ];
 
 #[cfg(test)]
-pub(crate) const WORDED: [&str; 8] = [
+pub(crate) const WORDED: [&str; 9] = [
+    "dns-provider",
     CLIENT_AND_CLIENTS,
     MISSING_CLIENT,
     DUPLICATE_CLIENT,
@@ -56,6 +58,8 @@ mod tests {
     const FILE_LOAD: &str = "a file that does not load at all; the admin UI shows it with its line and column, as burrow validate does";
     const PLAIN: &str = "already a plain sentence about this server";
     const IMPACT: &str = "an impact or confirm line the server writes in plain words for Review";
+    const REFUSED: &str =
+        "a refusal or admin-only check the server writes as a plain sentence about this change";
     const TEST_ONLY: &str = "used only by a unit test fixture";
     const OLDER_UI: &str = "a session-only notice that only a burrow admin older than v0.2.0 receives and shows as written";
     const WHY_NOT: &str = "a reason the server gives in a plain sentence with its hint, shown as written where editing or saving is not possible";
@@ -87,7 +91,12 @@ mod tests {
             "restart-needed",
             "visitor-loses-access",
             "locked-kept",
+            "self-demoted",
+            "self-secret",
+            "self-source",
+            "self-transport",
         ];
+        let refused = ["self-removed", "last-writer", "access-log-outside"];
         let why_not = [
             "file-not-writable",
             "folder-not-writable",
@@ -96,6 +105,7 @@ mod tests {
         ];
         let mut out = Vec::new();
         out.extend(impact.map(|c| (c, IMPACT)));
+        out.extend(refused.map(|c| (c, REFUSED)));
         out.extend(why_not.map(|c| (c, WHY_NOT)));
         out
     }
@@ -108,20 +118,16 @@ mod tests {
             "certificate-extra",
             "certificate-file",
             "certificate-source",
-            "challenge-unused",
             "client-auth",
             "client-auth-crl",
             "client-auth-tunnel",
             "dns-acme-dns",
             "dns-command",
-            "dns-provider",
             "dns-resolver",
-            "dns-uncovered",
             "error-pages",
             "health-path",
             "health-path-grpc",
             "health-path-host",
-            "internal-name",
             "invalid-range",
             "invalid-size",
             "letsencrypt-ca",
@@ -284,7 +290,8 @@ mod tests {
             "the scan found the validator's codes: {codes:?}"
         );
         let allowed = allowed();
-        let shown_codes: Vec<&str> = crate::wording::SHOWN_CODES.to_vec();
+        let mut shown_codes: Vec<&str> = crate::wording::SHOWN_CODES.to_vec();
+        shown_codes.extend(crate::cert_words::CODES);
         let unmapped: Vec<&String> = codes
             .iter()
             .filter(|c| {

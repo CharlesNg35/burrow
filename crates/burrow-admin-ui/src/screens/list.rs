@@ -45,8 +45,9 @@ pub fn ListCard(
         "bg-surface-3 text-text-muted"
     };
     let key = row.key.clone();
+    let hover = row.moment.map(|m| m.on_hover(key.clone()));
     view! {
-        <div class=format!("relative mx-3 mb-2 grid grid-cols-[30px_minmax(0,1fr)_auto] gap-x-3 rounded-[11px] border px-3.5 py-3 {class} {bg}") data-row=key.clone() data-group=row.group.clone() data-selected=selected.then_some("true")>
+        <div class=format!("relative mx-3 mb-2 grid grid-cols-[30px_minmax(0,1fr)_auto] gap-x-3 rounded-[11px] border px-3.5 py-3 {class} {bg}") data-row=key.clone() data-group=row.group.clone() data-selected=selected.then_some("true") on:mouseenter=move |ev| if let Some(h) = &hover { h(ev) }>
             <span class=format!("relative flex size-[30px] items-center justify-center rounded-md {tile}")>
                 <Icon name=row.icon/>
                 {row.dot.map(|t| view! { <span class=format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-surface {}", t.dot()) aria-hidden="true"></span> })}
@@ -60,7 +61,11 @@ pub fn ListCard(
                 </span>
                 {(!row.line2.is_empty()).then(|| {
                     let line2 = row.line2.clone();
-                    view! { <span class="line-clamp-2 text-sm text-text-muted [overflow-wrap:anywhere]">{move || live.map_or_else(|| line2.clone(), |l| l.get().1)}</span> }
+                    let parts = Memo::new(move |_| {
+                        let text = live.map_or_else(|| line2.clone(), |l| l.get().1);
+                        text.split(" · ").map(String::from).collect::<Vec<_>>()
+                    });
+                    view! { <span class="block max-h-[2lh] overflow-hidden text-sm text-text-muted [overflow-wrap:anywhere]"><burrow_ui_kit::Inline items=parts/></span> }
                 })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
                 {(!row.tags.is_empty() || row.health.is_some() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
@@ -437,7 +442,7 @@ fn list_body(
     let Look { no_counts, compact } = look;
     let shape = Memo::new(move |_| visible.with(|v| v.iter().map(still).collect::<Vec<_>>()));
     let live_of = move |key: String| {
-        Signal::derive(move || {
+        Memo::new(move |_| {
             visible.with(|v| {
                 v.iter()
                     .find(|r| r.key == key)

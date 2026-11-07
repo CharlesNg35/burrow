@@ -357,13 +357,16 @@ fn an_existing_visitor_config_keeps_the_error_without_a_terminal_and_asks_on_one
     );
     assert!(err.hint.unwrap().contains("--force"));
 
-    let mut no = Terminal::answering(&[false]);
+    let replace =
+        "visitor.yaml already exists. Replace it (the old one is kept as visitor.yaml.bak)?";
+    let mut no = Terminal::answering(&[false, false]);
     let mut out = Vec::new();
     let err = burrow::init::init_visitor(&again, &mut no, &mut out).unwrap_err();
     assert_eq!(
         no.asked,
         [
-            "visitor.yaml already exists. Update it from the server (keeps your forwards, like --update)?"
+            "visitor.yaml already exists. Update it from the server (keeps your forwards, like --update)?",
+            replace
         ]
     );
     let out = String::from_utf8(out).unwrap();
@@ -381,8 +384,19 @@ fn an_existing_visitor_config_keeps_the_error_without_a_terminal_and_asks_on_one
         err.message
     );
 
-    let mut terminal = Terminal::answering(&[true]);
+    let mut terminal = Terminal::answering(&[false]);
     assert!(burrow::init::init_visitor(&full, &mut terminal, &mut Vec::new()).is_err());
-    assert!(terminal.asked.is_empty(), "a new login is never an update");
+    assert_eq!(terminal.asked, [replace], "a new login is never an update");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+
+    let mut terminal = Terminal::answering(&[true]);
+    let renamed = InitOptions {
+        name: Some("tablet".into()),
+        ..full.clone()
+    };
+    burrow::init::init_visitor(&renamed, &mut terminal, &mut Vec::new()).unwrap();
+    assert_eq!(terminal.asked, [replace]);
+    let bak = dir.path().join("visitor.yaml.bak");
+    assert_eq!(std::fs::read_to_string(&bak).unwrap(), before);
+    assert!(std::fs::read_to_string(&path).unwrap().contains("tablet"));
 }

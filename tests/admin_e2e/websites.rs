@@ -46,14 +46,39 @@ async fn passthrough_shows_what_it_leaves_out(c: &mut Ctx) {
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
     c.ui.nav("/settings").await;
     edit_mode(c).await;
-    let listen = "[data-schema=listen]";
-    let text = c.ui.wait_text(listen, "server.yaml", SECS).await;
+    let remote = "[data-schema='update/remote']";
+    let text = c.ui.wait_text(remote, "server.yaml", SECS).await;
     assert!(
-        text.contains("burrow edit"),
+        text.contains("sudo burrow service install"),
         "a locked field says where: {text}"
     );
-    assert_eq!(c.ui.count(&format!("{listen} [data-locked]")).await, 1);
     both_widths(c, "locked-field").await;
+    c.ui.click("[data-testid=settings-tabs] [data-tab=proxy]")
+        .await;
+    for field in [
+        "web/access_log",
+        "web/proxy_protocol_from",
+        "web/error_pages",
+    ] {
+        super::open_more(c, field).await;
+        let row = format!("[data-schema='{field}']");
+        assert_eq!(
+            c.ui.count(&format!("{row} [data-locked]")).await,
+            0,
+            "{field} is edited here"
+        );
+        assert!(
+            c.ui.count(&format!("{row} [data-editor], {row} input"))
+                .await
+                > 0,
+            "{field}"
+        );
+    }
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector(\"[data-schema='web/access_log']\").scrollIntoView({block: 'center'}); return true; })()")
+        .await;
+    super::letsencrypt::three(c, "web-paths-editable").await;
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 }
@@ -449,7 +474,7 @@ fn profile_link(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         let item = "[data-testid=attention] [data-item='cert:blog.example.com']";
-        let text = c.ui.wait_text(item, "cannot be renewed", SECS).await;
+        let text = c.ui.wait_text(item, "cannot be issued", SECS).await;
         assert!(text.contains("does not offer the profile"), "{text}");
         overview_tab(c, "certs").await;
         let orders =
@@ -503,10 +528,15 @@ fn new_website(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=new-website-email]", SECS).await;
         c.ui.fill("[data-testid=new-website-email] input", "ops@example.com")
             .await;
-        let problem = c.ui.text("[data-testid=new-website-problem]").await;
+        let problem = c.ui.text("[data-testid=new-website-tls-problem]").await;
         assert!(
             problem.contains("Let's Encrypt cannot check shop.example.com"),
-            "this test's HTTPS port is not 443: {problem}"
+            "this test's HTTPS port is not 443, shown at the HTTPS step: {problem}"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=new-website-problem]").await,
+            0,
+            "the problem is not repeated above the save bar"
         );
         assert!(!c.ui.enabled("[data-testid=create]").await);
         both_widths(c, "new-website-no-check").await;

@@ -37,8 +37,7 @@ pub struct ServerConfig {
         label = "Listen address",
         group = listener,
         applies = restart,
-        none_label = "No TCP listener",
-        locked
+        none_label = "No TCP listener"
     )]
     pub listen: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,7 +105,6 @@ pub struct ServerConfig {
         group = security,
         applies = live,
         danger_when_set,
-        locked,
         advanced
     )]
     pub insecure_plaintext: bool,
@@ -245,8 +243,7 @@ pub struct TlsFiles {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        label = "Certificate file",
-        locked
+        label = "Certificate file"
     )]
     pub cert: String,
     #[schemars(
@@ -254,8 +251,7 @@ pub struct TlsFiles {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        label = "Private key file",
-        locked
+        label = "Private key file"
     )]
     pub key: String,
 }

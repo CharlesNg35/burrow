@@ -64,7 +64,7 @@ fn Traffic() -> impl IntoView {
         <section class="flex flex-col rounded-card border border-border bg-surface min-[1200px]:col-span-8" data-testid="traffic">
             <div class="flex flex-wrap items-center gap-3 px-4 pt-3.5">
                 <h2 class="text-[13.5px] font-bold">"Traffic"</h2>
-                <span class="text-xs text-text-muted">"live · recorded while this page is open"</span>
+                <span class="text-xs text-text-muted">"live"</span>
                 <span class="ml-auto"></span>
                 <div class="w-36">
                     <Select id="traffic-service" small=true label="Service" options=options value=service on_change=Callback::new(move |v: String| service.set(v))/>
@@ -87,7 +87,7 @@ fn Traffic() -> impl IntoView {
                     <div class="text-2xl font-bold tabular-nums">{move || now(true).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(true).1}</small></div>
                 </div>
                 <div class="ml-auto text-right text-[11.5px] text-text-muted" data-testid="traffic-note">
-                    <div>{move || format!("{} · Mbit/s", if service.get().is_empty() { "all services".to_string() } else { service.get() })}</div>
+                    <div>"Mbit/s"</div>
                 </div>
             </div>
             <div class="flex h-[240px] px-4 pt-3">
@@ -107,7 +107,7 @@ pub(super) fn mobile_cards(section: &'static str, kept: &[String]) -> impl IntoV
         .filter_map(|k| {
             let row = untrack(|| crate::screens::entity::row_for(section, k))?;
             let key = k.clone();
-            let live = Signal::derive(move || {
+            let live = Memo::new(move |_| {
                 crate::screens::entity::row_for(section, &key)
                     .map(|r| (r.meta, r.line2))
                     .unwrap_or_default()
@@ -171,20 +171,20 @@ pub fn Overview() -> impl IntoView {
             parts.push(format!("v{}", w.server.version));
         }
         if let Some(st) = &st {
-            parts.push(format!("up {}", format::span(st.uptime_secs)));
+            parts.push(format::up(st.uptime_secs));
         }
         let version = s.current_version();
         if !version.is_empty() {
             parts.push(version);
         }
-        parts.join(" · ")
+        parts
     };
     view! {
         <div class="px-8 pt-7 pb-12 max-sm:px-4" data-testid="overview">
             <header class="mb-[22px] flex flex-wrap items-start gap-3">
                 <div class="min-w-0 flex-1">
                     <h1 class="text-2xl font-bold tracking-[-0.015em]">"Overview"</h1>
-                    <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub">{sub}</p>
+                    <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub" data-header-line="" on:mouseenter=format::Moment::Server.on_hover(String::new())><burrow_ui_kit::Inline items=Memo::new(move |_| sub())/></p>
                     {own.line()}
                     {own.dialog()}
                 </div>

@@ -550,11 +550,14 @@ fn mcp(args: crate::app::cli::McpArgs) -> Result<u8, Failure> {
     if let Some(note) = &chosen.note {
         crate::say_errln!("{note}");
     }
+    if args.allow_write {
+        crate::say_errln!("{}", crate::mcp::mode::ALLOW_WRITE_NOTE);
+    }
     let opts = crate::mcp::Options {
-        writes: if args.allow_write {
-            crate::mcp::mode::Writes::Allowed
-        } else {
+        writes: if args.read_only {
             crate::mcp::mode::Writes::Off
+        } else {
+            crate::mcp::mode::Writes::Allowed
         },
         http: args.http.then_some(crate::mcp::HttpOptions {
             port: args.port.unwrap_or(burrow_syntax::ports::MCP_PORT),

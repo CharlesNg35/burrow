@@ -102,6 +102,7 @@ pub struct Row {
     pub title_tag: Option<(String, Tone)>,
     pub health: Option<entity::HealthMark>,
     pub terms: String,
+    pub moment: Option<crate::format::Moment>,
 }
 
 pub const NEW_ROW: &str = "__new";

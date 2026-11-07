@@ -2,6 +2,7 @@
 //! Start at `patch`; a YAML result is read back and must give the wanted values.
 
 mod diff;
+mod seq;
 mod yaml;
 
 use serde_json::{Map, Value};

@@ -70,11 +70,20 @@ fn badge_class(t: Tone) -> &'static str {
     }
 }
 
-fn hop_view(mut h: Hop) -> impl IntoView {
-    let removed = h.state == HopState::Removed;
-    if removed && h.badge.is_none() {
-        h.badge = Some(("removed".into(), Tone::Danger));
+fn removed_badges(mut hops: Vec<Hop>) -> Vec<Hop> {
+    let mut before = false;
+    for h in &mut hops {
+        let removed = h.state == HopState::Removed;
+        if removed && !before && h.badge.is_none() {
+            h.badge = Some(("removed".into(), Tone::Danger));
+        }
+        before = removed;
     }
+    hops
+}
+
+fn hop_view(h: Hop) -> impl IntoView {
+    let removed = h.state == HopState::Removed;
     view! {
         <div
             class=format!(
@@ -201,7 +210,7 @@ pub fn PathDiagram(
                 {move || {
                     let d = data.get();
                     let mut edges = d.edges.into_iter();
-                    d.hops
+                    removed_badges(d.hops)
                         .into_iter()
                         .enumerate()
                         .map(|(i, h)| {
@@ -230,5 +239,33 @@ pub fn PathDiagram(
                 }}
             </ol>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hop(state: HopState) -> Hop {
+        Hop {
+            state,
+            ..Hop::default()
+        }
+    }
+
+    #[test]
+    fn a_removed_path_says_removed_once() {
+        let hops = removed_badges(vec![
+            hop(HopState::Removed),
+            hop(HopState::Removed),
+            hop(HopState::Removed),
+        ]);
+        let badges: Vec<bool> = hops.iter().map(|h| h.badge.is_some()).collect();
+        assert_eq!(badges, [true, false, false]);
+        let mixed = removed_badges(vec![hop(HopState::Normal), hop(HopState::Removed)]);
+        assert!(
+            mixed[1].badge.is_some(),
+            "a removed hop after a kept one is marked"
+        );
     }
 }

@@ -387,16 +387,16 @@ Where each name gets its certificate:
 | `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false does not apply to a passthrough service (tls: passthrough); it is always true there, so remove https_redirect` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
 | `web.letsencrypt` with a wrong field | `web.letsencrypt.email: "ops" is not an email address`; `web.letsencrypt.directory: "stagging" is not production, staging or an https:// URL` (with `did you mean "staging"?`); `web.letsencrypt.ca: cannot read certs/ca.pem: file not found`, or `... certs/ca.pem holds no certificate` |
-| Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates` |
+| Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, list its domain in web.letsencrypt.dns, or list a file for it in web.certificates` |
 | a check without its port | `services.blog.web.challenge: http needs web.http on port 80: Let's Encrypt fetches a file there; add http: 80, or use challenge: tls or dns` |
 | a check where no certificate is ordered | `services.nas.web.challenge: the app keeps its own certificate (tls: passthrough); remove challenge` |
 | an entry in `web.certificates` without its files | `web.certificates[0]: needs cert and key, or an uploaded certificate` |
 | a wildcard from Let's Encrypt without a DNS provider | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS): add web.letsencrypt.dns, or a certificate file under web.certificates or tls` |
 | a DNS check under no provider's domain | `services.erp.web.hosts: "erp.corp.example.org" needs a DNS check (challenge: dns), but no web.letsencrypt.dns entry lists corp.example.org (or a domain above it)` |
-| a DNS entry without one provider, or without domains | `web.letsencrypt.dns[1]: name exactly one of cloudflare, rfc2136, acme_dns or command`; `web.letsencrypt.dns[1].domains is required: the domains this provider manages, like domains: [example.com]` |
-| a wildcard in `domains`, or a domain twice | `web.letsencrypt.dns[0].domains: write the domain example.com; it already covers *.example.com and every name under it`; `domain "example.com" is listed in web.letsencrypt.dns[0] and [2]; list it in one entry only` |
-| a shared wildcard on the wrong entry | `web.letsencrypt.dns[0].wildcards: "*.apps.example.com" belongs to apps.example.com, which dns[1] manages; list it in dns[1].wildcards` |
-| a DNS secret written in the config | `web.letsencrypt.dns[0].cloudflare.token is written in the file; use ${CF_TOKEN} or file: so it stays out of the config` |
+| a DNS entry without one provider, or without domains | `web.letsencrypt.dns[1]: name exactly one of cloudflare, rfc2136, acme_dns or command`; `web.letsencrypt.dns[1].domains: list the domains this provider manages, like domains: [example.com]` |
+| a wildcard in `domains`, or a domain twice | `web.letsencrypt.dns[0].domains: write the domain example.com; it already covers *.example.com and every name under it`; `web.letsencrypt.dns[2].domains: "example.com" is already listed in DNS provider 1; list it in one entry only` |
+| a shared wildcard on the wrong entry | `web.letsencrypt.dns[0].wildcards: "*.apps.example.com" belongs to apps.example.com, which DNS provider 2 manages; list it there` |
+| a DNS secret from an empty file or variable | `web.letsencrypt.dns[0].cloudflare.token: cf.token is empty` |
 | a DNS hook that cannot run | `web.letsencrypt.dns[3].command: /usr/local/bin/burrow-dns does not exist or is not executable` |
 | note: three sites that one wildcard would cover | `wiki, blog and auth.example.com each get their own certificate; one wildcard would cover them: add "*.example.com" to wildcards in the letsencrypt.dns entry for example.com` |
 | a certificate file that cannot be used | `web.certificates[0]: cannot read cert "certs/home.pem": file not found`, or `... certs/home.key does not fit certs/home.pem` |

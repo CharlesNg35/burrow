@@ -22,10 +22,10 @@ fn set_target(port: u16) -> Value {
 }
 
 #[tokio::test]
-async fn a_read_admin_gets_only_the_read_tools_even_with_allow_write() {
+async fn a_read_admin_gets_only_the_read_tools() {
     let w = world().await;
     let v = visitor(&w, "viewer", &w.viewer);
-    for args in [&[][..], &["--allow-write"][..]] {
+    for args in [&[][..], &["--read-only"][..]] {
         let a = ai(&v, args).await;
         assert_eq!(a.tools().await, names(&[]), "{args:?}");
         let (failed, _) = a.call("check_change", set_target(3001)).await;
@@ -36,24 +36,26 @@ async fn a_read_admin_gets_only_the_read_tools_even_with_allow_write() {
 }
 
 #[tokio::test]
-async fn a_write_admin_checks_changes_but_applies_them_only_with_allow_write() {
+async fn a_write_admin_gets_the_write_tools_unless_started_read_only() {
     let w = world().await;
     let v = visitor(&w, "ops", &w.ops);
-    let a = ai(&v, &[]).await;
+    let a = ai(&v, &["--read-only"]).await;
     assert_eq!(a.tools().await, names(&["check_change"]));
     let plan = a.ok("check_change", set_target(3001)).await;
     assert_eq!(plan["can_apply"], true, "{plan}");
     let (failed, _) = a
         .call("apply_change", json!({ "plan": plan["plan"] }))
         .await;
-    assert!(failed, "apply_change is not offered without --allow-write");
+    assert!(failed, "apply_change is not offered with --read-only");
     a.stop().await;
-    let a = ai(&v, &["--allow-write"]).await;
+    let a = ai(&v, &[]).await;
     assert_eq!(
         a.tools().await,
         names(&[
             "apply_change",
             "check_change",
+            "new_password",
+            "new_secret",
             "revert_to_version",
             "update_clients",
             "update_server"
@@ -149,7 +151,7 @@ async fn the_read_tools_answer_from_the_server() {
 async fn a_checked_plan_is_applied_and_reverted_through_the_same_tool() {
     let w = world().await;
     let v = visitor(&w, "ops", &w.ops);
-    let a = ai(&v, &["--allow-write"]).await;
+    let a = ai(&v, &[]).await;
     let plan = a.ok("check_change", set_target(3001)).await;
     assert!(
         plan["diff"]["unified"].as_str().unwrap().contains("3001"),
@@ -211,7 +213,7 @@ async fn a_checked_plan_is_applied_and_reverted_through_the_same_tool() {
 async fn a_plan_is_refused_after_the_config_changed() {
     let w = world().await;
     let v = visitor(&w, "ops", &w.ops);
-    let a = ai(&v, &["--allow-write"]).await;
+    let a = ai(&v, &[]).await;
     let first = a.ok("check_change", set_target(3001)).await;
     let second = a.ok("check_change", set_target(3002)).await;
     a.ok("apply_change", json!({ "plan": second["plan"] }))

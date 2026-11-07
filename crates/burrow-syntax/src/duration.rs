@@ -111,9 +111,59 @@ pub fn span(secs: u64) -> String {
 
 pub fn ago(secs: u64) -> String {
     if secs < 5 {
-        "just now".into()
+        JUST_NOW.into()
     } else {
         format!("{} ago", span(secs))
+    }
+}
+
+pub const JUST_NOW: &str = "just now";
+pub const UNDER_A_MINUTE: &str = "less than a minute";
+
+pub fn coarse(secs: u64) -> String {
+    if secs < 60 {
+        JUST_NOW.into()
+    } else {
+        span(secs - secs % 60)
+    }
+}
+
+pub fn coarse_length(secs: u64) -> String {
+    if secs < 60 {
+        UNDER_A_MINUTE.into()
+    } else {
+        coarse(secs)
+    }
+}
+
+pub fn coarse_ago(secs: u64) -> String {
+    if secs < 60 {
+        JUST_NOW.into()
+    } else {
+        format!("{} ago", coarse(secs))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Elapsed {
+    #[default]
+    Exact,
+    Coarse,
+}
+
+impl Elapsed {
+    pub fn length(self, secs: u64) -> String {
+        match self {
+            Elapsed::Exact => span(secs),
+            Elapsed::Coarse => coarse_length(secs),
+        }
+    }
+
+    pub fn ago(self, secs: u64) -> String {
+        match self {
+            Elapsed::Exact => ago(secs),
+            Elapsed::Coarse => coarse_ago(secs),
+        }
     }
 }
 
@@ -172,6 +222,41 @@ mod tests {
         assert_eq!(span(60 * 86_400 + 1800), "60d");
         assert_eq!(ago(4), "just now");
         assert_eq!(ago(7500), "2h 5m ago");
+    }
+
+    #[test]
+    fn coarse_reads_like_5m_and_never_shows_seconds() {
+        assert_eq!(coarse(0), "just now");
+        assert_eq!(coarse(59), "just now");
+        assert_eq!(coarse(60), "1m");
+        assert_eq!(coarse(3599), "59m");
+        assert_eq!(coarse(3600), "1h");
+        assert_eq!(coarse(3600 + 5 * 60 + 59), "1h 5m");
+        assert_eq!(coarse(86_399), "23h 59m");
+        assert_eq!(coarse(86_400), "1d");
+        assert_eq!(coarse(90_000), "1d 1h");
+        assert_eq!(coarse(3 * 86_400 + 4 * 3600 + 59 * 60), "3d 4h");
+        assert_eq!(coarse_length(59), "less than a minute");
+        assert_eq!(coarse_length(7500), "2h 5m");
+    }
+
+    #[test]
+    fn coarse_ago_says_just_now_under_a_minute() {
+        assert_eq!(coarse_ago(0), "just now");
+        assert_eq!(coarse_ago(59), "just now");
+        assert_eq!(coarse_ago(60), "1m ago");
+        assert_eq!(coarse_ago(3599), "59m ago");
+        assert_eq!(coarse_ago(7500), "2h 5m ago");
+        assert_eq!(coarse_ago(90_000), "1d 1h ago");
+    }
+
+    #[test]
+    fn elapsed_picks_the_precise_or_the_coarse_form() {
+        assert_eq!(Elapsed::Exact.length(150), "2m 30s");
+        assert_eq!(Elapsed::Coarse.length(150), "2m");
+        assert_eq!(Elapsed::Coarse.length(30), "less than a minute");
+        assert_eq!(Elapsed::Exact.ago(150), "2m 30s ago");
+        assert_eq!(Elapsed::Coarse.ago(30), "just now");
     }
 
     #[test]

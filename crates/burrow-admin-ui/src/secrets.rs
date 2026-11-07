@@ -1,5 +1,4 @@
-use burrow_admin_logic::changeset::{as_new_secret, new_secret};
-use burrow_admin_logic::grant::IN_THE_FILE;
+use burrow_admin_logic::changeset::as_new_secret;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::plan::{Applied, Snippets};
@@ -78,12 +77,6 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         });
     };
     let full = Signal::derive(move || list.with(|l| l.len() as u32 >= max.max(1)));
-    let p5 = path.clone();
-    let granting = Signal::derive(move || {
-        let mut secrets = burrow_admin_proto::value::one_or_many(e.value(&p5).as_ref());
-        secrets.push(new_secret("", ""));
-        crate::grants::refuses(&p5, Some(&Value::Array(secrets)))
-    });
     let label = Signal::derive(move || {
         if list.with(Vec::is_empty) {
             "Generate a secret".to_string()
@@ -118,7 +111,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                     view! { <span class="text-text-faint">"—"</span> }.into_any()
                 };
                 view! {
-                    <li class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] items-center gap-4 border-b border-rowline px-4 py-3 last:border-b-0" data-fp=fp.clone() data-in-use=using.then_some("true")>
+                    <li data-table-row="" class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] items-start gap-4 text-[13px] leading-5 border-b border-rowline px-4 py-3 last:border-b-0" data-fp=fp.clone() data-in-use=using.then_some("true")>
                         <span class="flex items-center gap-2 font-mono text-[13px]"><burrow_ui_kit::Icon name="passkey" small=true/>{fp.clone()}</span>
                         <span class=if r.source.starts_with("env:") { "font-mono text-[13px]" } else { "text-[13px]" }>
                             {r.source.clone()}
@@ -174,8 +167,8 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                         size=burrow_ui_kit::ButtonSize::Small
                         icon="refresh"
                         testid="rotate"
-                        disabled=Signal::derive(move || full.get() || granting.get())
-                        reason=Signal::derive(move || if granting.get() { IN_THE_FILE.to_string() } else if full.get() { format!("A {what} may have at most {max} secrets.") } else { String::new() })
+                        disabled=full
+                        reason=Signal::derive(move || if full.get() { format!("A {what} may have at most {max} secrets.") } else { String::new() })
                         on_click=add
                     />
                 })}
@@ -184,7 +177,6 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                 <span>"Fingerprint"</span><span>"Source"</span><span>"Session"</span><span></span>
             </div>
             <ul>{body}</ul>
-            {move || granting.get().then(|| view! { <div class="border-t border-border px-4 pb-1.5">{crate::grants::in_the_file()}</div> })}
             <p class="border-t border-border px-4 py-3 text-[12.5px] text-text-muted">{note}</p>
         </section>
     }

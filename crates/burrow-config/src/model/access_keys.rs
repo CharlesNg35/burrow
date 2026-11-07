@@ -144,7 +144,21 @@ mod tests {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "Device certificates")]
+#[admin(
+    label = "Device certificates",
+    one_of(
+        ca_source = "Devices' CA | A file on the server or a CA uploaded here",
+        default = ca_upload,
+        ca,
+        ca_upload
+    ),
+    one_of(
+        crl_source = "Revocation list | A file on the server or a list uploaded here",
+        default = crl_upload,
+        crl,
+        crl_upload
+    )
+)]
 pub struct ClientAuthFiles {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -154,8 +168,7 @@ pub struct ClientAuthFiles {
         ty = path(must_exist, relative_to = "config"),
         label = "CA file",
         help = "The CA that signs your devices' certificates, with its intermediates, for example certs/devices-ca.pem",
-        none_label = "Not set",
-        locked
+        none_label = "Not set"
     )]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -177,8 +190,7 @@ pub struct ClientAuthFiles {
         ty = path(must_exist, relative_to = "config"),
         label = "Revocation list",
         help = "Devices you revoked, as the CA publishes them, for example certs/devices.crl; re-read when the file changes",
-        none_label = "None",
-        locked
+        none_label = "None"
     )]
     pub crl: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -4,7 +4,7 @@ use super::edits::Flow;
 use super::world::Options;
 use super::{Ctx, SECS, applied, both_widths, edit_mode, open, review_now, run, wait_checked};
 
-const MANGLE: &str = r#"(() => { if (window.__mangled) return true; window.__mangled = true; const send = WebSocket.prototype.send; WebSocket.prototype.send = function (d) { let m; try { m = JSON.parse(d); } catch (_) { return send.call(this, d); } const how = window.__mangle; if (m.t !== 'validate' || !how) return send.call(this, d); if (how === 'drop') return; if (how === 'close') { this.close(); return; } if (how === 'lock') m.body.ops.push({ op: 'set', path: ['heartbeat', 'interval_secs'], value: 11 }); if (how === 'bad') m.body.ops = 'not a list'; if (how === 'conflict') m.body.base = 'f'.repeat(64); return send.call(this, JSON.stringify(m)); }; return true; })()"#;
+const MANGLE: &str = r#"(() => { if (window.__mangled) return true; window.__mangled = true; const send = WebSocket.prototype.send; WebSocket.prototype.send = function (d) { let m; try { m = JSON.parse(d); } catch (_) { return send.call(this, d); } const how = window.__mangle; if (m.t !== 'validate' || !how) return send.call(this, d); if (how === 'drop') return; if (how === 'close') { this.close(); return; } if (how === 'lock') m.body.ops.push({ op: 'set', path: ['update', 'remote'], value: true }); if (how === 'bad') m.body.ops = 'not a list'; if (how === 'conflict') m.body.base = 'f'.repeat(64); return send.call(this, JSON.stringify(m)); }; return true; })()"#;
 
 async fn mangle(c: &Ctx, how: &str) {
     let _: bool =
@@ -70,7 +70,7 @@ fn check_failed(c: &mut Ctx) -> Flow<'_> {
         let why = failed(c, "locked-field", refused, SECS).await;
         assert!(why.contains("is locked"), "{why}");
         assert!(
-            why.contains("Interval"),
+            why.contains("Update from burrow admin"),
             "the locked field by its label: {why}"
         );
         both_widths(c, "review-locked-field").await;

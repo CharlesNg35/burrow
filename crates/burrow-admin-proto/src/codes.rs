@@ -6,6 +6,12 @@ pub const NO_CERTIFICATE: &str = "no-certificate";
 pub const WEB_OFF: &str = "web-off";
 pub const NO_CHECK: &str = "no-check";
 pub const WILDCARD_NEEDS_DNS: &str = "wildcard-needs-dns";
+pub const CHALLENGE_DNS: &str = "challenge-dns";
+pub const CHALLENGE_PORT: &str = "challenge-port";
+pub const CHALLENGE_WILDCARD: &str = "challenge-wildcard";
+pub const CHALLENGE_UNUSED: &str = "challenge-unused";
+pub const DNS_UNCOVERED: &str = "dns-uncovered";
+pub const INTERNAL_NAME: &str = "internal-name";
 pub const PLAIN_HTTP: &str = "plain-http";
 pub const WEB_TCP_ONLY: &str = "web-tcp-only";
 pub const PROXY_PROTOCOL_TCP_ONLY: &str = "proxy-protocol-tcp-only";
@@ -16,6 +22,14 @@ pub const WEIGHT_NOT_BALANCE: &str = "weight-not-balance";
 pub const DUPLICATE_BIND: &str = "duplicate-bind";
 pub const PORT_IN_USE: &str = "port-in-use";
 pub const WEB_PORT_SHARED: &str = "web-port-shared";
+pub const DNS_DOMAINS: &str = "dns-domains";
+pub const SELF_REMOVED: &str = "self-removed";
+pub const SELF_DEMOTED: &str = "self-demoted";
+pub const SELF_SECRET: &str = "self-secret";
+pub const SELF_SOURCE: &str = "self-source";
+pub const SELF_TRANSPORT: &str = "self-transport";
+pub const LAST_WRITER: &str = "last-writer";
+pub const ACCESS_LOG_OUTSIDE: &str = "access-log-outside";
 pub const OPENS_PORT: &str = "opens-port";
 pub const STOPS_WEBSITES: &str = "stops-websites";
 pub const WEBSOCKET_MOVED: &str = "websocket-moved";
@@ -71,7 +85,7 @@ pub const FOLDER_NOT_WRITABLE: &str = "folder-not-writable";
 pub const OLDER_ADMIN: &str = "older-admin";
 pub const TLS_UNREADABLE: &str = "tls-unreadable";
 
-pub const READ_BY_THE_UI: [&str; 18] = [
+pub const READ_BY_THE_UI: [&str; 24] = [
     PLAIN_NEEDS_HTTP,
     PASSTHROUGH_FIXED,
     REDIRECT_PLAIN,
@@ -80,6 +94,12 @@ pub const READ_BY_THE_UI: [&str; 18] = [
     WEB_OFF,
     NO_CHECK,
     WILDCARD_NEEDS_DNS,
+    CHALLENGE_DNS,
+    CHALLENGE_PORT,
+    CHALLENGE_WILDCARD,
+    CHALLENGE_UNUSED,
+    DNS_UNCOVERED,
+    INTERNAL_NAME,
     PLAIN_HTTP,
     WEB_TCP_ONLY,
     PROXY_PROTOCOL_TCP_ONLY,

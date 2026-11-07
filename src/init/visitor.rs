@@ -6,7 +6,10 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value, json};
 
 use super::export::{ConfigOutput, VISITOR, connect_address, load_server, pick_name, secret_text};
-use super::{InitOptions, Login, already_exists, ask_login, resolve_output, write_new};
+use super::{
+    InitOptions, Login, already_exists, ask_login, file_label, keep_or_replace, resolve_output,
+    write_new,
+};
 use crate::base::failure::Failure;
 use crate::base::output::say;
 use crate::base::prompt::Prompter;
@@ -23,9 +26,18 @@ pub fn init_visitor(
         return update_visitor(opts, prompt, out);
     }
     let (path, format) = resolve_output(Role::Visitor, opts)?;
-    if path.exists() && !opts.force {
-        return existing(opts, &path, format, prompt, out);
-    }
+    let replaced;
+    let opts = if path.exists() && !opts.force {
+        match existing(opts, &path, format, prompt, out)? {
+            Existing::Updated(p) => return Ok(p),
+            Existing::Replace(o) => {
+                replaced = *o;
+                &replaced
+            }
+        }
+    } else {
+        opts
+    };
     let Login {
         server,
         name,
@@ -115,19 +127,27 @@ pub fn init_visitor(
     say(out, &text).map(|()| path)
 }
 
+enum Existing {
+    Updated(PathBuf),
+    Replace(Box<InitOptions>),
+}
+
 fn existing(
     opts: &InitOptions,
     path: &Path,
     format: Format,
     prompt: &mut dyn Prompter,
     out: &mut dyn Write,
-) -> Result<PathBuf, Failure> {
+) -> Result<Existing, Failure> {
     let new_login = opts.server.is_some()
         || opts.name.is_some()
         || opts.secret.is_some()
         || opts.env_secret.is_some();
-    if new_login || !prompt.interactive() {
+    if !prompt.interactive() {
         return Err(already_exists(path));
+    }
+    if new_login {
+        return keep_or_replace(path, opts, prompt, out).map(|o| Existing::Replace(Box::new(o)));
     }
     let known = std::fs::read_to_string(path)
         .ok()
@@ -138,22 +158,19 @@ fn existing(
         out,
         format!("info: {} is already here{known}", path.display()),
     )?;
-    let file = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
     let question = format!(
-        "{file} already exists. Update it from the server (keeps your forwards, like --update)?"
+        "{} already exists. Update it from the server (keeps your forwards, like --update)?",
+        file_label(path)
     );
     if !prompt.confirm(&question, true) {
-        return Err(already_exists(path));
+        return keep_or_replace(path, opts, prompt, out).map(|o| Existing::Replace(Box::new(o)));
     }
     let update = InitOptions {
         update: true,
         output: Some(path.to_path_buf()),
         ..opts.clone()
     };
-    update_visitor(&update, prompt, out)
+    update_visitor(&update, prompt, out).map(Existing::Updated)
 }
 
 fn update_visitor(

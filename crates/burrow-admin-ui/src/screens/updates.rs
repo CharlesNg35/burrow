@@ -96,7 +96,7 @@ fn shown_detail(c: Option<&ClientInfo>) -> String {
         Some(c) if c.local => "this server".into(),
         Some(c) if c.older => format!("older than {FIRST_REPORTING}"),
         Some(c) if c.system.is_none() => "shown once it connects".into(),
-        Some(c) => c.system_short(),
+        Some(c) => c.system_short().replace(" · ", ", "),
     }
 }
 

@@ -1,5 +1,6 @@
 //! The create screens for new entries and websites, with the path preview of a new entry.
 
+mod https_choice;
 mod new;
 mod website;
 
@@ -38,7 +39,7 @@ pub fn new_path(section: &str, name: &str, host: &str, picked: usize) -> PathDat
         head: head.into(),
         value: value.into(),
         dot: Some(Tone::Neutral),
-        unit: "set next".into(),
+        unit: String::new(),
         ..Hop::default()
     };
     let added = |above: &str| Edge {

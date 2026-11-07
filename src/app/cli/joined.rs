@@ -67,7 +67,7 @@ mod tests {
         assert!(hint.contains("its own line"), "{hint}");
         assert!(hint.contains("mcp, -c, /Users/me/visitor.yaml"), "{hint}");
         assert!(of(&["mcp", "-c /Users/me/visitor.yaml"]).is_some());
-        assert!(of(&["mcp", "-c", "/x/v.yaml", "--allow-write --http"]).is_some());
+        assert!(of(&["mcp", "-c", "/x/v.yaml", "--read-only --http"]).is_some());
         assert!(of(&["validate", "--config my.yaml"]).is_some());
     }
 

@@ -23,9 +23,14 @@ pub(super) fn line(target: &str, main: bool, weight: Option<&str>) -> String {
 }
 
 pub(super) fn target_line(target: String, main: bool, weight: Option<String>) -> AnyView {
-    let tail = rest(main, weight.as_deref());
+    let tail = rest(main, None);
     let whole = line(&target, main, weight.as_deref());
-    view! { <span class="text-text-muted" title=whole data-entry-to="">"→ "<span class="font-mono">{target}</span>{tail}</span> }.into_any()
+    let to = view! { "→ "<span class="font-mono">{target}</span>{tail} }.into_any();
+    let items = match weight {
+        Some(w) => vec![to, format!("weight {w}").into_any()],
+        None => vec![to],
+    };
+    view! { <span class="text-text-muted" title=whole data-entry-to="">{burrow_ui_kit::inline(items)}</span> }.into_any()
 }
 
 pub(super) fn summary(

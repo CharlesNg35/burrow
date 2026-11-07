@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::edits::{Flow, click_js};
-use super::guards::refused;
+use super::guards::confirm_asked;
 use super::world::Options;
 use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
 
@@ -65,7 +65,7 @@ fn reverting_to_an_earlier_version_restores_the_file() {
     run("revert", Options::default(), false, revert);
 }
 
-fn revert_refused(c: &mut Ctx) -> Flow<'_> {
+fn revert_confirm(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "boss").await;
         c.ui.nav("/visitors/ops").await;
@@ -116,14 +116,14 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
         c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
             .await;
         c.ui.click("[data-testid=revert]").await;
-        refused(c, "self-demoted", "revert-refused-by-the-guard").await;
+        confirm_asked(c, "self-demoted", "ops", "revert-asks-to-confirm").await;
         c.ui.take_errors();
     })
 }
 
 #[test]
-fn a_revert_that_would_lock_me_out_is_refused() {
-    run("revert-refused", Options::default(), false, revert_refused);
+fn a_revert_that_takes_my_write_access_asks_to_confirm() {
+    run("revert-confirm", Options::default(), false, revert_confirm);
 }
 
 fn revert_conflict(c: &mut Ctx) -> Flow<'_> {

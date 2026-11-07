@@ -89,6 +89,10 @@ fn row_view(i: Item, icon: bool) -> AnyView {
                                     to.clone(),
                                     Some((crate::route::TAB_QUERY, burrow_admin_logic::settings_tabs::tab_of(k).key())),
                                 ),
+                                (Route::Detail(..), Some(_)) => crate::route::go_query(
+                                    to.clone(),
+                                    Some((crate::route::TAB_QUERY, crate::screens::placement::SETTINGS)),
+                                ),
                                 _ => crate::route::go(to.clone()),
                             }
                             let path = path.clone();
@@ -169,7 +173,7 @@ fn Section(
                         <div class="flex h-full items-center justify-center py-6">
                             <div class="flex flex-col items-center gap-1.5 px-4 text-center">
                                 <span class="text-success"><Icon name=empty.0 large=true/></span>
-                                <span class="text-sm font-semibold">{move || empty.1.get()}</span>
+                                <span class="text-sm font-semibold" data-calm=(testid == "attention").then_some("")>{move || empty.1.get()}</span>
                                 <span class="text-[12.5px] text-text-muted">{move || empty.2.get()}</span>
                             </div>
                         </div>
@@ -237,7 +241,7 @@ pub(super) fn Attention() -> impl IntoView {
                 .collect(),
         );
     });
-    let longest = move || {
+    let longest = Memo::new(move |_| {
         s.status.with(|st| {
             st.as_ref().and_then(|st| {
                 st.clients
@@ -248,12 +252,12 @@ pub(super) fn Attention() -> impl IntoView {
                         format!(
                             "Longest connected: {}, {}.",
                             c.name,
-                            format::span(c.connected_secs.unwrap_or(0))
+                            format::coarse_length(c.connected_secs.unwrap_or(0))
                         )
                     })
             })
         })
-    };
+    });
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
     let away_title: &'static str = burrow_admin_logic::wording::CLIENTS_OFFLINE;
     let away_grow = Signal::derive(move || {
@@ -278,7 +282,7 @@ pub(super) fn Attention() -> impl IntoView {
             format!("All {n} clients online")
         }
     });
-    let away_msg = Signal::derive(move || longest().unwrap_or_default());
+    let away_msg = Signal::derive(move || longest.get().unwrap_or_default());
     view! {
         <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
             <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">

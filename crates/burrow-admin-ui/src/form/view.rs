@@ -68,7 +68,7 @@ fn object_static(node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
             })
         })
         .collect_view();
-    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
+    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_td]:align-top [&_th]:py-1 [&_th]:text-left [&_th]:align-top [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
 }
 
 fn raw_view(v: Option<&Value>) -> AnyView {
@@ -245,7 +245,7 @@ fn ref_map_view(c: &RefMapC, v: &Value, ctx: &Ctx) -> AnyView {
             }
         })
         .collect_view();
-    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
+    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_td]:align-top [&_th]:py-1 [&_th]:text-left [&_th]:align-top [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
 }
 
 fn secrets_view(v: &Value) -> AnyView {
@@ -307,7 +307,7 @@ fn map_view(c: &MapC, v: &Value, ctx: &Ctx) -> AnyView {
             }
         })
         .collect_view();
-    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
+    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_td]:align-top [&_th]:py-1 [&_th]:text-left [&_th]:align-top [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
 }
 
 fn union_view(u: &UnionC, v: &Value, ctx: &Ctx) -> AnyView {

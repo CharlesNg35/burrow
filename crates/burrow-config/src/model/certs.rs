@@ -7,7 +7,15 @@ use super::DnsEntry;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "Let's Encrypt settings")]
+#[admin(
+    label = "Let's Encrypt settings",
+    one_of(
+        trusted_ca = "Trusted CA | The CA to trust for another ACME server",
+        default = ca_upload,
+        ca,
+        ca_upload
+    )
+)]
 pub struct LetsEncrypt {
     #[schemars(
         description = "The account's contact address, for example ops@example.com; writing it accepts Let's Encrypt's terms"
@@ -36,8 +44,7 @@ pub struct LetsEncrypt {
         label = "Trusted CA file",
         help = "The CA certificate to trust for another ACME server, for example certs/internal-ca.pem",
         none_label = "The public CAs",
-        advanced,
-        locked
+        advanced
     )]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,10 +76,9 @@ pub struct LetsEncrypt {
     )]
     #[admin(
         ty = list(object(DnsEntry)),
-        label = "DNS checks",
-        help = "How burrow sets DNS records for Let's Encrypt's DNS check, needed for wildcards and names not reachable from the internet; each provider lists the domains it manages, for example example.com through Cloudflare",
-        empty_label = "None",
-        advanced
+        label = "DNS check providers",
+        help = "How burrow sets DNS records for Let's Encrypt's DNS check, needed for wildcards and names the internet cannot reach; each provider lists the domains it manages, for example example.com through Cloudflare",
+        empty_label = "None"
     )]
     pub dns: Vec<DnsEntry>,
 }
@@ -104,7 +110,16 @@ pub enum DirectoryName {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "Certificate file")]
+#[admin(
+    label = "Certificate",
+    one_of(
+        source = "Certificate | Files on the server or a certificate uploaded here",
+        required,
+        default = upload,
+        cert(key),
+        upload
+    )
+)]
 pub struct CertFile {
     #[schemars(
         description = "The names this file is used for, each listed in one entry only, for example [\"*.example.com\", example.com]"
@@ -121,9 +136,9 @@ pub struct CertFile {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        label = "Certificate file",
-        none_label = "Not set",
-        locked
+        label = "Files on the server",
+        help = "The certificate chain file on the server, for example certs/fullchain.pem or /etc/letsencrypt/live/example.com/fullchain.pem",
+        none_label = "Not set"
     )]
     pub cert: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,8 +148,7 @@ pub struct CertFile {
     #[admin(
         ty = path(must_exist, relative_to = "config"),
         label = "Private key file",
-        none_label = "Not set",
-        locked
+        none_label = "Not set"
     )]
     pub key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

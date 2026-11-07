@@ -95,7 +95,7 @@ pub(super) fn review_or_read_only(
                 <span class="relative">
                     <button type="button" class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-hdr-line bg-hdr-raised px-2.5 text-[12.5px] font-semibold text-hdr-text dark:border-hdr-raised-2" aria-haspopup="true" aria-expanded=move || why_open.get().to_string() aria-controls="read-only-why" id="read-only-tag" data-testid="read-only-tag" on:click=move |_| why_open.update(|o| *o = !*o)>
                         <Icon name="eye" small=true/>
-                        "Read-only"
+                        <span class="max-sm:sr-only">"Read-only"</span>
                     </button>
                     <Show when=move || why_open.get()>
                         <div class=burrow_ui_kit::menu_class("top-8 right-0 w-80", true) id="read-only-why" tabindex="-1" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">

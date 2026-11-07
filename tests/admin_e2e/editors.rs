@@ -14,6 +14,11 @@ async fn not_added_yet(c: &mut Ctx) {
         "{note}"
     );
     assert!(!c.ui.text("body").await.contains("Nothing to apply"));
+    assert_eq!(
+        c.ui.count("[data-review-path='web']").await,
+        0,
+        "the review draws no path for edits that are not added yet"
+    );
     c.ui.shot("review-with-edits-not-added").await;
     c.ui.click("[data-testid=review-not-added] button").await;
     c.ui.wait_for("#f-services-web-bind", SECS).await;
@@ -263,60 +268,9 @@ fn e8_a_field_of_a_newer_type_is_edited_as_text_and_checked_by_the_server() {
     run("e8-fallback-edit", opts, true, fallback_edit);
 }
 
-async fn read_only_in_view(c: &mut Ctx, field: &str) {
-    let row = format!("[data-schema='{field}']");
-    open_more(c, field).await;
-    assert_eq!(
-        c.ui.count(&format!("{row} [data-editor]")).await,
-        0,
-        "{field} has no edit control"
-    );
-    assert_eq!(
-        c.ui.count(&format!("{row} input, {row} select")).await,
-        0,
-        "{field} has no input"
-    );
-    assert_eq!(
-        c.ui.count(&format!("{row} [data-locked]")).await,
-        0,
-        "{field} reads as a plain value in view mode, not a box"
-    );
-    let text =
-        c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
-            .await;
-    assert_eq!(
-        text.contains("then restart"),
-        field == "listen",
-        "{field}: only listen needs a restart: {text}"
-    );
-    assert_eq!(
-        text.matches("Change this").count(),
-        1,
-        "{field} says it once"
-    );
-}
-
-fn locked_fields(c: &mut Ctx) -> Flow<'_> {
+fn server_fields(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
-        for (tab, fields) in [
-            ("server", &["listen", "insecure_plaintext"][..]),
-            (
-                "connections",
-                &[
-                    "heartbeat/interval_secs",
-                    "limits/handshake_timeout_secs",
-                    "limits/max_handshakes",
-                ][..],
-            ),
-        ] {
-            c.ui.nav(&format!("/settings?tab={tab}")).await;
-            c.ui.wait_for("[data-testid=settings] [data-card]", SECS)
-                .await;
-            for field in fields {
-                read_only_in_view(c, field).await;
-            }
-        }
         c.ui.nav("/settings").await;
         c.ui.wait_for("[data-schema=listen]", SECS).await;
         assert_eq!(
@@ -325,17 +279,13 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             "view mode shows values"
         );
         edit_mode(c).await;
-        assert!(
-            c.ui.text("[data-schema=listen]")
-                .await
-                .contains("Change this in server.yaml"),
-            "a locked address keeps its help while editing: {}",
-            c.ui.text("[data-schema=listen]").await
-        );
-        assert!(
-            c.ui.count("[data-schema=public_address] input").await > 0,
-            "unlocked fields are editable in edit mode"
-        );
+        for field in ["listen", "public_address"] {
+            assert!(
+                c.ui.count(&format!("[data-schema={field}] input")).await > 0,
+                "{field} is edited here"
+            );
+        }
+        assert_eq!(c.ui.count("[data-schema=listen] [data-locked]").await, 0);
         let remote = c.ui.text("[data-schema='update/remote']").await;
         assert!(
             remote.contains("Only root turns this on")
@@ -352,6 +302,10 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             public.contains("when WebSocket is on; connect commands made here use it"),
             "the public address keeps its whole help while editing: {public}"
         );
+        let port = super::world::free_port();
+        c.ui.fill("#f-listen", &format!("127.0.0.1:{port}")).await;
+        open_more(c, "insecure_plaintext").await;
+        click_js(c, "#f-insecure-plaintext").await;
         c.ui.click("[data-testid=settings-tabs] [data-tab=connections]")
             .await;
         c.ui.wait_for("[data-card=websocket]", SECS).await;
@@ -359,20 +313,48 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             c.ui.count("[data-card=websocket] #f-websocket").await > 0,
             "WebSocket is turned on here (owner 0y)"
         );
-        open_more(c, "limits/max_pending").await;
-        assert!(
-            c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
-            "the rest of limits stays editable"
-        );
-        c.ui.shot("locked-fields-are-read-only").await;
-        assert_eq!(c.ui.count("[data-testid=review-open]").await, 0);
+        for field in [
+            "heartbeat/interval_secs",
+            "limits/handshake_timeout_secs",
+            "limits/max_handshakes",
+            "limits/max_pending",
+        ] {
+            open_more(c, field).await;
+            assert!(
+                c.ui.count(&format!("[data-schema='{field}'] input")).await > 0,
+                "{field} is edited here"
+            );
+        }
+        c.ui.fill("#f-limits-max-handshakes", "4096").await;
+        super::letsencrypt::three(c, "connections-editable").await;
+        c.ui.click("[data-testid=settings-tabs] [data-tab=server]")
+            .await;
+        c.ui.wait_for("[data-schema=listen] input", SECS).await;
+        super::letsencrypt::three(c, "server-editable").await;
+        wait_checked(c).await;
+        open_review(c, "server-fields-review").await;
+        super::letsencrypt::three(c, "server-fields-review-widths").await;
+        for (code, word) in [
+            ("changes-listen", "listen"),
+            ("plaintext-toggled", "insecure_plaintext"),
+        ] {
+            c.ui.wait_for(&format!("[data-impact={code}][data-level=danger]"), SECS)
+                .await;
+            c.ui.wait_for(
+                &format!("[data-testid=confirms] [data-confirm={word}]"),
+                SECS,
+            )
+            .await;
+        }
+        assert!(!c.ui.enabled("[data-testid=apply]").await);
+        super::edits::discard_from_review(c).await;
         c.ui.assert_no_errors();
     })
 }
 
 #[test]
-fn locked_server_fields_are_read_only() {
-    run("locked-fields", Options::default(), false, locked_fields);
+fn server_fields_are_edited_and_their_risks_confirmed_in_review() {
+    run("server-fields", Options::default(), false, server_fields);
 }
 
 async fn create_in_picker(c: &mut Ctx, field: &str, name: &str, by_button: bool) {

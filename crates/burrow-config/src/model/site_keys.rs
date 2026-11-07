@@ -66,7 +66,16 @@ pub enum TargetTls {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "The app's CA")]
+#[admin(
+    label = "The app's CA",
+    one_of(
+        ca_source = "The app's CA | A file on the server or a CA uploaded here",
+        required,
+        default = ca_upload,
+        ca,
+        ca_upload
+    )
+)]
 pub struct TargetCa {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -76,8 +85,7 @@ pub struct TargetCa {
         ty = path(must_exist, relative_to = "config"),
         label = "CA file",
         help = "The CA that signed the app's certificate, for example certs/corp-ca.pem",
-        none_label = "Not set",
-        locked
+        none_label = "Not set"
     )]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

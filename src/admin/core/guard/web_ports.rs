@@ -2,9 +2,11 @@ use std::net::SocketAddr;
 
 use burrow_admin_proto::codes::{OPENS_PORT, PORT_IN_USE, STOPS_WEBSITES, WEB_PORT_SHARED};
 use burrow_admin_proto::diag::{Diag, Severity};
-use burrow_admin_proto::plan::{Impact, Level, Refusal};
+use burrow_admin_proto::plan::{Impact, Level};
 use burrow_config::{Protocol, ServerConfig, ServiceEntry, WebConfig, WebSocketConfig};
 
+use super::websocket::over_websocket;
+use crate::admin::core::ports::LiveSession;
 use crate::config::check::binds_conflict;
 use crate::config::settings::{ServerSettings, Shares, WebTls};
 
@@ -59,10 +61,11 @@ fn raw_at(v: &serde_json::Value, p: Port) -> Option<&serde_json::Value> {
     p.path().iter().try_fold(v, |v, k| v.get(k))
 }
 
-pub fn refusals(
+pub fn shared(
     old: &ServerSettings,
     (before, after): (&serde_json::Value, &serde_json::Value),
-) -> Vec<Refusal> {
+    sessions: &[LiveSession],
+) -> Vec<Impact> {
     let Some(ws) = &old.websocket else {
         return Vec::new();
     };
@@ -71,12 +74,15 @@ pub fn refusals(
         .filter(|p| ws.shares == p.shares() && raw_at(before, *p) != raw_at(after, *p))
         .filter_map(|p| {
             let addr = p.of(old)?;
-            Some(Refusal {
+            Some(Impact {
+                level: Level::Warning,
                 code: WEB_PORT_SHARED.into(),
                 message: format!(
-                    "{} {addr} is shared with the tunnel (websocket.listen); moving or removing it disconnects every client, so change both in the config file on the server",
-                    p.key()
+                    "moves or removes {} {addr}, which the tunnel shares (websocket.listen); {}",
+                    p.key(),
+                    super::websocket::cut_off(&over_websocket(sessions))
                 ),
+                confirm: Some(ServerConfig::WEBSOCKET.key().into()),
             })
         })
         .collect()
@@ -168,6 +174,9 @@ fn wanted(running: &ServerSettings, next: &ServerSettings) -> Vec<Wanted> {
             Some((p.path(), Protocol::Tcp, addr))
         })
         .collect();
+    if let Some(addr) = next.listen.filter(|a| running.listen != Some(*a)) {
+        out.push((ServerConfig::LISTEN.path(), Protocol::Tcp, addr));
+    }
     let own = |s: &ServerSettings| {
         s.websocket
             .as_ref()

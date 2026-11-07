@@ -36,16 +36,15 @@ pub struct ClientEntry {
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(entity = visitor, label = "Visitor", groups(
-    admin = "Admin access | May this visitor run burrow admin against this server?",
-    access = "Direct access | Clients this visitor may reach directly, with burrow visit.",
+    admin = "Admin access",
+    access = "Direct access",
     traffic = "Traffic | Limits for this visitor."
 ))]
 pub struct VisitorEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
     #[admin(
         help = "Secrets this visitor may sign in with; it has several only during a rotation",
-        label = "Secrets",
-        reduce_only
+        label = "Secrets"
     )]
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -79,7 +78,6 @@ pub struct VisitorEntry {
         group = admin,
         none_label = "None",
         danger_when_set,
-        reduce_only,
         wide
     )]
     pub admin: Option<AdminLevel>,
@@ -93,7 +91,6 @@ pub struct VisitorEntry {
         group = admin,
         enabled_if(set(admin), "This applies only to a visitor with admin access"),
         empty_label = "Any address",
-        reduce_only,
         advanced
     )]
     pub admin_from: Vec<String>,
@@ -177,9 +174,9 @@ impl Secrets {
     groups(
         exposure = "Target | The protocol, and where connections lead.",
         who = "Where it runs | Clients that reach the target.",
-        reach = "Reached by | The ways in to this service; any mix of them works.",
+        reach = "Reached by | The ways in; any mix of them works.",
         website = "Website | How the web proxy reaches it.",
-        access = "Who may connect | All ways in: the addresses that may connect, and limits.",
+        access = "Who may connect | Addresses and limits, for all ways in.",
         traffic = "What the target sees | Whether the target learns the visitor's address."
     )
 )]

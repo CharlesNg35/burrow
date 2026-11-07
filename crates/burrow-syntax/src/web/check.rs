@@ -68,7 +68,7 @@ pub fn checks_for(
                 out.push(Check::Http);
             }
             if out.is_empty() {
-                return Err(NoCheck::NoPort);
+                return dns_check().map_err(|_| NoCheck::NoPort);
             }
             Ok(out)
         }

@@ -53,11 +53,11 @@ fn with_neither_443_nor_80_no_name_can_be_checked() {
         [
             (
                 "no-check".to_string(),
-                "wiki.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates".to_string()
+                "wiki.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, list its domain in web.letsencrypt.dns, or list a file for it in web.certificates".to_string()
             ),
             (
                 "no-check".to_string(),
-                "docs.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates".to_string()
+                "docs.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, list its domain in web.letsencrypt.dns, or list a file for it in web.certificates".to_string()
             ),
         ]
     );

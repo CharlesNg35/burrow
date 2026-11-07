@@ -1,8 +1,6 @@
-use burrow_admin_logic::grant::IN_THE_FILE;
 use burrow_admin_proto::diag::Diag;
-use burrow_admin_proto::plan::{Plan, Refusal};
+use burrow_admin_proto::plan::Plan;
 use burrow_admin_proto::value::get;
-use burrow_syntax::grant::is_grant_code;
 use burrow_ui_kit::DiffLine;
 use burrow_ui_kit::{
     Button, Callout, ConfirmInput, DiffView, Icon, PathDiagram, Segmented, Tone, button_class,
@@ -29,7 +27,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         Vec::new()
     } else {
         let status = s.status.get_untracked();
-        e.draft.with_untracked(|d| {
+        e.with_saved(|d| {
             service_paths(
                 d.base(),
                 d.draft(),
@@ -46,13 +44,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let destructive = !plan.confirms().is_empty();
     let can = plan.can_apply();
     let refused = !plan.refusals.is_empty();
-    let lockouts: Vec<Refusal> = plan
-        .refusals
-        .iter()
-        .filter(|r| !is_grant_code(&r.code))
-        .cloned()
-        .collect();
-    let guard_view = (!lockouts.is_empty()).then(|| guard(&lockouts));
+    let guard_view = refused.then(|| guard(&plan.refusals));
     let impacts = impacts_view(&plan);
     let restart: Vec<String> = plan
         .applies
@@ -100,7 +92,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     view! {
         <div data-testid="review" data-valid=plan.valid.to_string()>
             <nav class="mb-1.5 text-sm font-semibold text-text" aria-label="Breadcrumb">"Review"</nav>
-            {header_view(&facts, lockouts.is_empty(), applies)}
+            {header_view(&facts, applies)}
             {refused.then(|| view! { <Refused refusals=plan.refusals.clone()/> })}
             {paths.into_iter().map(|(name, p)| view! { <div data-review-path=name><PathDiagram data=p/></div> }).collect_view()}
             {plan.reformat.clone().map(|r| {
@@ -229,7 +221,20 @@ fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
         .collect_view()
 }
 
-fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl IntoView + use<> {
+const CHECKED: &str = "Checked with the same rules as burrow validate";
+
+fn state_words(first: String, warnings: usize) -> String {
+    if warnings == 0 {
+        first
+    } else {
+        format!(
+            "{first} · {}",
+            burrow_admin_logic::wording::count_of(warnings, "warning")
+        )
+    }
+}
+
+fn header_view(f: &Facts, applies: &'static str) -> impl IntoView + use<> {
     let Facts {
         n,
         errors,
@@ -243,23 +248,20 @@ fn header_view(f: &Facts, no_lockouts: bool, applies: &'static str) -> impl Into
     <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
         <div class="min-w-0 flex-1">
             <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {}", burrow_admin_logic::wording::count_of(n, "change")) }}</h1>
-            <p class="mt-1 text-base text-text-muted" class:hidden=empty>
+            <p class="mt-1 text-base text-text-muted" class:hidden=empty data-header-line="">
                 {if refused {
-                    format!(
-                        "Refused by the {}",
-                        if no_lockouts { "admin grant guard" } else { "lockout guard" }
-                    )
+                    "Refused by the lockout guard".to_string()
                 } else {
-                    format!("Checked with the same rules as burrow validate · {applies}")
+                    burrow_admin_logic::wording::capital(applies)
                 }}
             </p>
         </div>
         {if refused || empty {
             ().into_any()
         } else if errors > 0 {
-            view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{} · {}", burrow_admin_logic::wording::count_of(errors, "error"), burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Danger) data-testid="review-state" title=CHECKED>{state_words(burrow_admin_logic::wording::count_of(errors, "error"), warnings)}</span> }.into_any()
         } else {
-            view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {}", burrow_admin_logic::wording::count_of(warnings, "warning"))}</span> }.into_any()
+            view! { <span class=tag_class(Tone::Success) data-testid="review-state" title=CHECKED><Icon name="check" small=true/>{state_words("Valid".to_string(), warnings)}</span> }.into_any()
         }}
     </header>
     }
@@ -348,8 +350,6 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
             }
         } else if let Some(g) = guard_view.clone() {
             footer_text(&g)
-        } else if refused {
-            format!("{IN_THE_FILE}.")
         } else {
             format!("The {} stays in Activity; you can go back to it.", store().version(&base))
         }}</span>
