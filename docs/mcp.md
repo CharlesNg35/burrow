@@ -8,7 +8,10 @@ Back to the [README](../README.md).
 
 ## Setup
 
-Setup takes two steps: an admin visitor on the server, and one entry in your AI app's settings. First give a visitor admin rights and copy its config to your machine, as [admin.md](admin.md#setup) shows. Then let `burrow mcp` print the config for your app, with the full paths of this burrow and of the visitor config filled in:
+Setup takes two steps:
+
+1. An admin visitor on the server: give a visitor admin rights and copy its config to your machine, as [admin.md](admin.md#setup) shows.
+2. One entry in your AI app's settings: let `burrow mcp` print the config for your app, with the full paths of this burrow and of the visitor config filled in:
 
 ```sh
 # a terminal on your machine
@@ -17,7 +20,12 @@ burrow mcp -c ops-laptop.yaml --print-config claude   # or codex, or cursor: tha
 burrow mcp -c ops-laptop.yaml --check                 # start as an app would, and report
 ```
 
-`--print-config` without an app name prints one standard config that works in any app: the JSON on stdout, so `> file` keeps only the JSON, and the same as fields on stderr. With `--read-only`, the printed arguments include it too. The app then starts `burrow mcp` itself and talks to it over stdin and stdout, with no port and no token.
+`--print-config` without an app name prints one standard config that works in any app:
+
+- the JSON on stdout, so `> file` keeps only the JSON;
+- the same as fields on stderr.
+
+With `--read-only`, the printed arguments include it too. The app then starts `burrow mcp` itself and talks to it over stdin and stdout, with no port and no token.
 
 The standard config, as `--print-config` prints it for burrow in `/home/me/bin`:
 
@@ -95,8 +103,14 @@ If something is wrong, it ends with exit code 1 and the same error an app would 
 - `burrow mcp` answers the app's handshake within 2 seconds and connects to the server in the background. A tool call waits for that link for up to 30 seconds.
 - Until the link is up, it lists the tools of a write admin. When the server says the visitor has `admin: read`, it tells the app that the tool list changed (over stdin and stdout), and a write tool called anyway answers that it is not offered in this session.
 - Each `burrow mcp` holds one admin session on the server, like a burrow admin tab: up to 32 per visitor and 64 per server, so several AI apps and tabs can share one visitor.
-- If the link fails or drops, for example while the laptop sleeps or changes network, each tool returns an error that says where it failed and what to do, like "burrow mcp on this computer could not connect to tunnel.example.com: could not look up tunnel.example.com (DNS: ...)" with the hint to check this computer's network. The next call connects again, with a fresh DNS lookup; after failures it waits 1, 2, 4, then at most 8 seconds between tries.
-- `get_status` shows the link under `mcp_link`: its state (`up`, `down` or `connecting`), the server, the visitor, the session's mode under `session` (`read-only`, `check-only` or `write`) and how often it reconnected.
+- If the link fails or drops, for example while the laptop sleeps or changes network, each tool returns an error that says where it failed and what to do. For example "burrow mcp on this computer could not connect to tunnel.example.com: could not look up tunnel.example.com (DNS: ...)", with the hint to check this computer's network.
+
+  The next call connects again, with a fresh DNS lookup; after failures it waits 1, 2, 4, then at most 8 seconds between tries.
+- `get_status` shows the link under `mcp_link`:
+  - its state: `up`, `down` or `connecting`;
+  - the server and the visitor;
+  - the session's mode under `session`: `read-only`, `check-only` or `write`;
+  - how often it reconnected.
 - It stops within a second when the app closes its stdin, on Ctrl-C and on SIGTERM, also while a call is still waiting for the server.
 - Started by hand in a terminal, it says on stderr that an app is meant to start it, and shows the full commands that print the setup and check it, with `-c` and the config's full path, so they work from any folder:
 
@@ -116,7 +130,9 @@ If something is wrong, it ends with exit code 1 and the same error an app would 
 Desktop apps hide what a program writes to stderr, so `burrow mcp` also tells the app:
 
 - If it cannot start, for example because the visitor config is missing or has an error, it answers the app's handshake with an MCP error that says why, what to do and where the log is, instead of only exiting. The app shows that message, rather than a bare "Connection closed".
-- It keeps a small log, `burrow-mcp.log`, next to the visitor config, or in burrow's private state folder when that folder is not writable or the config was not found. It holds the start, link failures and reconnects, and startup errors, never a secret, up to 256 KiB, then one older file, `burrow-mcp.log.old`.
+- It keeps a small log, `burrow-mcp.log`, next to the visitor config, or in burrow's private state folder when that folder is not writable or the config was not found.
+  - It holds the start, link failures and reconnects, and startup errors, never a secret.
+  - It grows up to 256 KiB, then one older file is kept, `burrow-mcp.log.old`.
 - If burrow is started without any app talking to it and stdin closes, it says so plainly: no AI app spoke to it.
 
 ## What the AI can do
@@ -138,7 +154,14 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 | `update_clients` | asks clients to update burrow to a newer release, one at a time; without `confirm` it only says which clients it would ask | `admin: write`, without `--read-only` |
 | `update_server` | updates the server itself to the latest release through its root updater; without `confirm` it only says from which version to which, or why it cannot | `admin: write`, without `--read-only`; it only works on a server installed with `update.remote: true`, and says why otherwise |
 
-In every mode, the instructions tell the AI to check a config example with `validate_config` (or read the exact keys with `describe_settings`) before it shows you one, and never to present an unchecked example as correct. `validate_config` checks a fragment as part of a larger config, so a missing `listen`, clients or services is not reported; give `"scope": "whole"` to check a complete file. The server checks it, with the rules of the burrow it runs and its own `${VAR}` values and files, and the result says `checked_by: server`; it takes up to 4 MiB and 10 seconds, also for `admin: read`. With a server older than v0.2.3, or when the server cannot be reached, burrow mcp checks it on your computer instead: the result says `checked_by: local`, and its note names both versions or why the server was not reached, since `${VAR}` values and files are then not checked. Secrets, the values of `${VAR}`s and long values are never echoed back.
+In every mode, the instructions tell the AI to check a config example with `validate_config` (or read the exact keys with `describe_settings`) before it shows you one, and never to present an unchecked example as correct.
+
+How `validate_config` checks:
+
+- It checks a fragment as part of a larger config, so a missing `listen`, clients or services is not reported. Give `"scope": "whole"` to check a complete file.
+- The server checks it, with the rules of the burrow it runs and its own `${VAR}` values and files, and the result says `checked_by: server`. It takes up to 4 MiB and 10 seconds, also for `admin: read`.
+- With a server older than v0.2.3, or when the server cannot be reached, burrow mcp checks it on your computer instead. The result says `checked_by: local`, and its note names both versions or why the server was not reached, since `${VAR}` values and files are then not checked.
+- Secrets, the values of `${VAR}`s and long values are never echoed back.
 
 Each session has one of three modes, and the instructions burrow mcp gives the AI say which, so the AI does not promise what it cannot do:
 
@@ -162,17 +185,40 @@ Up to v0.2.3, writes needed `--allow-write`. It is no longer needed; burrow mcp 
 The AI can add a client or a visitor, give one a new secret, or add a `basic_auth` user to a website, without ever seeing the secret or the password:
 
 - `new_secret` asks the server for a secret. The server keeps it for 30 minutes behind a handle, the way burrow admin's **New secret** does, and the AI gets only the handle and the fingerprint. It uses the handle in a `secret_add` op of `check_change`, next to the op that adds the client.
-- After `apply_change`, burrow mcp writes the new client's or visitor's connect config, secret included, to a file only you can read, in burrow's private state folder (`mcp-secrets/` next to the [burrow admin](admin.md#security-notes) sessions, like `client-nas-3f2a9c1d.yaml`). The AI gets the file's path and the fingerprint, not the content. A new secret for something without a connect config is written alone, as `secret-<path>-<fingerprint>.txt`. Copy the file to the client's machine and delete it here.
+- After `apply_change`, burrow mcp writes the new client's or visitor's connect config, secret included, to a file only you can read, in burrow's private state folder (`mcp-secrets/` next to the [burrow admin](admin.md#security-notes) sessions, like `client-nas-3f2a9c1d.yaml`).
+
+  The AI gets the file's path and the fingerprint, not the content. A new secret for something without a connect config is written alone, as `secret-<path>-<fingerprint>.txt`. Copy the file to the client's machine and delete it here.
 - `new_password` makes a random 24-character password on your computer, writes it to a file only you can read in the same folder (`password-alice-<random>.txt`), and sends it once to the server, which keeps only its hash behind a handle, as burrow admin's password field does. The AI gets the handle and the file's path, and uses the handle in a `password_set` op.
 - A session holds at most 256 handles not yet applied. Each lasts 30 minutes, and `apply_change` uses up the ones its plan takes. Handles belong to the session: after the link to the server drops and comes back, ask for new ones.
 
-Updating clients also takes two steps: `update_clients` without `confirm` returns the latest release and which clients it would ask, with the reason for each client it skips; called again with `confirm: ["update"]`, it asks them, one at a time. Progress and results show in `get_status`, under each client's `update`. See [updates.md](updates.md).
+Updating clients also takes two steps:
 
-Updating the server works the same way: `update_server` without `confirm` returns the server's version, the latest release and, when it cannot update, why (started by hand, a container, or a service installed without `update.remote: true`); called again with `confirm: ["update"]`, the server's root updater installs the release and the server restarts. Clients, visitors and the `burrow mcp` session pause for a few seconds and reconnect. The result shows in `get_status` under `server_update.last`, "rolled back" with the reason if the new release was not healthy within a minute. It is the same entry point as burrow admin's **Update** button ([updates.md](updates.md#update-the-server-from-burrow-admin)).
+1. `update_clients` without `confirm` returns the latest release and which clients it would ask, with the reason for each client it skips.
+2. Called again with `confirm: ["update"]`, it asks them, one at a time.
 
-A change always takes two steps: `check_change` returns the diff and a plan id, and `apply_change` applies exactly that plan. Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, with at most 16 plans at a time.
+Progress and results show in `get_status`, under each client's `update`. See [updates.md](updates.md).
 
-With drop-in files ([configuration.md](configuration.md#drop-in-files)), the AI edits each item in its own file, moves an item between files with a `place` operation in `check_change`, and removes an empty drop-in file with `drop_file`. It follows the admin's rules: files read-only on disk are never written, and a change is written to every file it touches or to none.
+Updating the server works the same way:
+
+1. `update_server` without `confirm` returns the server's version, the latest release and, when it cannot update, why: started by hand, a container, or a service installed without `update.remote: true`.
+2. Called again with `confirm: ["update"]`, the server's root updater installs the release and the server restarts.
+
+Clients, visitors and the `burrow mcp` session pause for a few seconds and reconnect. The result shows in `get_status` under `server_update.last`, "rolled back" with the reason if the new release was not healthy within a minute. It is the same entry point as burrow admin's **Update** button ([updates.md](updates.md#update-the-server-from-burrow-admin)).
+
+A change always takes two steps:
+
+1. `check_change` returns the diff and a plan id.
+2. `apply_change` applies exactly that plan.
+
+Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, with at most 16 plans at a time.
+
+With drop-in files ([configuration.md](configuration.md#drop-in-files)), the AI:
+
+- edits each item in its own file;
+- moves an item between files with a `place` operation in `check_change`;
+- removes an empty drop-in file with `drop_file`.
+
+It follows the admin's rules: files read-only on disk are never written, and a change is written to every file it touches or to none.
 
 As in burrow admin, the AI may set a DNS provider's credentials, `rfc2136.server` and `acme_dns.api`, and write `${VAR}` and `file:` references wherever server.yaml takes them, like `${CF_TOKEN}`. Results show a reference as written, never its value. A DNS provider's `command` stays a file edit.
 
@@ -198,7 +244,9 @@ Setup for your AI app:
 ```
 
 - It listens on `127.0.0.1` only, on 7838, on every system; `--port N` uses another port and `--port 0` a free one.
-- Every request needs that header. The token is made once per visitor config, so the app's setup keeps working after a restart. It is kept in a file only you can read (mode 0600, or an access list for you alone on Windows), in burrow's private state folder, next to the [burrow admin](admin.md#security-notes) sessions. `--token-file FILE` keeps it in FILE instead. On Linux, macOS and FreeBSD, a token file that other users can read is not used: `chmod 600` it, or delete it to make a new token.
+- Every request needs that header. The token is made once per visitor config, so the app's setup keeps working after a restart.
+  - It is kept in a file only you can read (mode 0600, or an access list for you alone on Windows), in burrow's private state folder, next to the [burrow admin](admin.md#security-notes) sessions. `--token-file FILE` keeps it in FILE instead.
+  - On Linux, macOS and FreeBSD, a token file that other users can read is not used: `chmod 600` it, or delete it to make a new token.
 - `--no-print-token` prints only the URL line: use it in a service, or when the output goes to a log or a shared screen. `--print-token` prints just the token and exits.
 - `--new-token` makes a new token. The old one stops working at once, also in a `burrow mcp` that is running. The token is never a command-line argument.
 - Requests from a web page (an `Origin` other than `http://127.0.0.1:<port>` or `http://localhost:<port>`) get 403, so a website cannot reach it through your browser.
