@@ -198,21 +198,24 @@ impl Store {
         placed.or_else(|| self.base_file(item))
     }
 
-    fn was_named(&self, item: &[String]) -> Option<Path> {
+    fn was_named(&self, item: &[String]) -> Option<Option<Path>> {
         let [section, name] = item.get(..2)? else {
             return None;
         };
-        let from = self.edit.draft.with(|d| d.renamed_from(section, name));
-        Some(vec![section.clone(), from.unwrap_or_else(|| name.clone())])
+        let was = self.edit.draft.with(|d| d.base_name(section, name));
+        Some(was.map(|was| vec![section.clone(), was]))
     }
 
     pub fn base_file(&self, item: &[String]) -> Option<String> {
         let was = self.was_named(item)?;
-        self.with_files(|i| burrow_admin_logic::files::file_of(i, &was))
+        self.with_files(|i| match &was {
+            Some(was) => burrow_admin_logic::files::file_of(i, was),
+            None => burrow_admin_logic::files::main_name(i),
+        })
     }
 
     pub fn item_locked(&self, item: &[String]) -> Option<String> {
-        let was = self.was_named(item)?;
+        let was = self.was_named(item)??;
         self.with_files(|i| {
             burrow_admin_logic::files::locked_file(i, &was)
                 .map(burrow_admin_logic::files::read_only_line)

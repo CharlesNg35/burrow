@@ -35,9 +35,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
         Memo::new(move |_| e.draft.with(|d| get(d.draft(), &path).is_some()))
     };
     let fresh = e.draft.with_untracked(|d| {
-        get(d.base(), &path).is_none()
-            && get(d.draft(), &path).is_some()
-            && d.renamed_from(&section, &name).is_none()
+        get(d.draft(), &path).is_some() && d.base_name(&section, &name).is_none()
     }) && untrack(|| crate::secrets::revealed_for(&section, &name)).is_none();
     if fresh && s.can_write_now() {
         e.start_edit(&path);

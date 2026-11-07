@@ -44,11 +44,11 @@ fn one_row(
         .and_then(|w| WebConfig::HTTPS.get(w))
         .is_some_and(|h| !h.is_null());
     let in_base = base_items.and_then(|b| b.get(name));
-    let pending = (in_base.is_none()
-        && s.edit
-            .draft
-            .with(|d| d.renamed_from(section, name).is_none()))
-    .then_some("new");
+    let pending = s
+        .edit
+        .draft
+        .with(|d| d.base_name(section, name).is_none())
+        .then_some("new");
     let entity_path = vec![section.to_string(), name.to_string()];
     let mark = if s.edit.unsaved(&entity_path) {
         Some((
