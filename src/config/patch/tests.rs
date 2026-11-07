@@ -660,3 +660,54 @@ fn a_list_entry_is_added_switched_or_removed_without_touching_the_others() {
         "web:\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com, example.net] # these domains\n        cloudflare: { token: \"${CF_TOKEN}\" } # quoted\n        wildcards: [\"*.example.com\"]\n# after\n"
     );
 }
+
+const KEYS: &str = "services:\n  a: # keep a\n    target: 1\n  x: # bye\n    target: 2\n  b: # keep b\n    target: 3\n";
+
+fn renamed(renames: &[(&str, &str)], services: Value) -> Patched {
+    let renames: Vec<Rename> = renames
+        .iter()
+        .map(|(from, to)| Rename {
+            path: vec!["services".into(), from.to_string()],
+            to: to.to_string(),
+        })
+        .collect();
+    patch(
+        KEYS,
+        Format::Yaml,
+        &json!({ "services": services }),
+        &renames,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_renamed_key_that_is_removed_or_taken_leaves_the_other_entries_as_they_are() {
+    let without_x = json!({"a": {"target": 1}, "b": {"target": 3}});
+    let rest = "services:\n  a: # keep a\n    target: 1\n  b: # keep b\n    target: 3\n";
+    for renames in [&[("x", "y")][..], &[("x", "y"), ("y", "x")][..]] {
+        let out = renamed(renames, without_x.clone());
+        assert_eq!((out.text.as_str(), out.reformat), (rest, None));
+    }
+    let taken = renamed(
+        &[("b", "x")],
+        json!({"a": {"target": 1}, "x": {"target": 3}}),
+    );
+    assert_eq!(
+        (taken.text.as_str(), taken.reformat),
+        (
+            "services:\n  a: # keep a\n    target: 1\n  x: # keep b\n    target: 3\n",
+            None
+        )
+    );
+    let swapped = renamed(
+        &[("a", "t"), ("t", "b")],
+        json!({"b": {"target": 1}, "x": {"target": 2}}),
+    );
+    assert_eq!(
+        (swapped.text.as_str(), swapped.reformat),
+        (
+            "services:\n  b: # keep a\n    target: 1\n  x: # bye\n    target: 2\n",
+            None
+        )
+    );
+}

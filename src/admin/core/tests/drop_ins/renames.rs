@@ -108,3 +108,66 @@ fn a_new_item_under_a_name_a_swap_freed_goes_to_the_main_file() {
         "{main}"
     );
 }
+
+const THREE: &str = "# apps\nservices:\n  old: # bye\n    client: home\n    bind: 7841\n    target: 3001\n  other: # untouched\n    client: home # really\n    bind: 7843\n    target: 3003\n  new: # and me\n    client: home\n    bind: 7842\n    target: 3002\n";
+
+const OLD: &str = "  old: # bye\n    client: home\n    bind: 7841\n    target: 3001\n";
+
+#[test]
+fn renames_mixed_with_deletes_keep_the_comments_of_untouched_items() {
+    let cases = [
+        (
+            vec![rename("old", "gone"), remove("gone")],
+            THREE.replace(OLD, ""),
+        ),
+        (
+            vec![remove("old"), rename("new", "old")],
+            THREE
+                .replace(OLD, "")
+                .replace("  new: # and me", "  old: # and me"),
+        ),
+        (
+            vec![rename("old", "x"), rename("x", "old"), remove("old")],
+            THREE.replace(OLD, ""),
+        ),
+    ];
+    for (ops, want) in cases {
+        let set = Set::new(&[("apps.yaml", THREE)]);
+        let s = set.session(true);
+        let plan = set.plan(&s, &ops).unwrap();
+        assert_eq!(plan.reformat, None, "{ops:?}");
+        set.apply(&s, &ops).unwrap();
+        assert_eq!(set.read("server.d/apps.yaml").unwrap(), want, "{ops:?}");
+        assert_eq!(set.read("server.yaml").unwrap(), set.w.text, "{ops:?}");
+    }
+}
+
+#[test]
+fn swapping_two_names_and_moving_one_out_keeps_the_comments_of_the_other() {
+    let set = Set::new(&[]);
+    let main = format!(
+        "{}  a: {{ client: home, bind: 7841, target: 3001 }} # a\n  b: {{ client: home, bind: 7842, target: 3002 }} # b\n",
+        set.w.text
+    );
+    std::fs::write(set.path("server.yaml"), &main).unwrap();
+    let s = set.session(true);
+    let ops = [
+        rename("a", "t"),
+        rename("b", "a"),
+        rename("t", "b"),
+        place("a", "server.d/a.yaml"),
+    ];
+    let plan = set.plan(&s, &ops).unwrap();
+    assert_eq!(plan.reformat, None);
+    set.apply(&s, &ops).unwrap();
+    let after = set.read("server.yaml").unwrap();
+    assert_eq!(
+        after,
+        format!(
+            "{}  b: {{ client: home, bind: 7841, target: 3001 }} # a\n",
+            set.w.text
+        )
+    );
+    let moved = set.read("server.d/a.yaml").unwrap();
+    assert!(moved.contains("  a:") && moved.contains("3002"), "{moved}");
+}
