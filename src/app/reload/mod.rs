@@ -175,7 +175,7 @@ pub async fn follow_nudged<S: Watched>(
             };
             let files = watching(&current, &path);
             let triggers = trig_tx.clone();
-            let Some((back, now, grew)) = worker
+            let Some((back, mut now, grew)) = worker
                 .run(move || {
                     let mut watch = watch;
                     let grew = renew_set(&mut watch, &files, &triggers, event);
@@ -187,18 +187,11 @@ pub async fn follow_nudged<S: Watched>(
                 return;
             };
             watch = back;
-            let now = if grew && first != "admin" {
-                asked |= gather("file changed", &mut trig, &mut nudges, &mut waiting)
-                    .await
-                    .0;
-                let files = watching(&current, &path);
-                let Some(again) = worker.run(move || fingerprint(&files)).await else {
-                    return;
-                };
-                again
-            } else {
-                now
-            };
+            if grew && first != "admin" {
+                let w = (&mut trig, &mut nudges, &mut waiting);
+                let (more, again) = quiet_again(&worker, watching(&current, &path), w, now).await;
+                (asked, now) = (asked | more, again);
+            }
             if now == seen && !asked {
                 break 'step Some(ReloadOutcome::Unchanged);
             }
@@ -294,6 +287,25 @@ pub async fn follow_nudged<S: Watched>(
             let _ = r.send(outcome.clone());
         }
     }
+}
+
+type Waits<'a> = (
+    &'a mut mpsc::Receiver<&'static str>,
+    &'a mut Option<mpsc::Receiver<Nudge>>,
+    &'a mut Vec<tokio::sync::oneshot::Sender<ReloadOutcome>>,
+);
+
+/// A folder watched only from this step on sent no events for the files written into it
+/// before, so the load waits for its own quiet first: a burst into a new folder reloads once.
+async fn quiet_again(
+    worker: &Worker,
+    files: Watching,
+    (trig, nudges, waiting): Waits<'_>,
+    before: Vec<(PathBuf, Option<u64>)>,
+) -> (bool, Vec<(PathBuf, Option<u64>)>) {
+    let asked = gather("file changed", trig, nudges, waiting).await.0;
+    let now = worker.run(move || fingerprint(&files)).await;
+    (asked, now.unwrap_or(before))
 }
 
 fn load_whole(
