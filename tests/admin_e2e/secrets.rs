@@ -355,6 +355,17 @@ async fn the_page_holds_while_reconnecting(c: &Ctx) {
     );
 }
 
+const BANNER_BELOW_HEADER: &str = "(async () => { scrollTo(0, 0); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); const b = document.querySelector('[data-testid=banner-reconnecting]').getBoundingClientRect(); return [h.top, h.bottom, b.top, b.bottom, innerHeight]; })()";
+
+async fn banner_in_view(c: &mut Ctx, step: &str) {
+    let seen: Vec<f64> = c.ui.eval(BANNER_BELOW_HEADER).await;
+    assert!(
+        seen[0] == 0.0 && seen[2] >= seen[1] - 0.5 && seen[3] <= seen[4],
+        "{step}: at the top of the page the reconnect banner sits fully below the header [header top, header bottom, banner top, banner bottom, viewport]: {seen:?}"
+    );
+    c.ui.view_shot(step).await;
+}
+
 fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -374,7 +385,10 @@ fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
         .await;
         c.ui.click("[data-testid=apply]").await;
         the_page_holds_while_reconnecting(c).await;
-        super::both_widths(c, "apply-while-reconnecting").await;
+        banner_in_view(c, "apply-while-reconnecting").await;
+        c.ui.viewport(420, 900).await;
+        banner_in_view(c, "apply-while-reconnecting-phone").await;
+        c.ui.viewport(1440, 900).await;
         c.world
             .start("server", &["server", "-c", "server.yaml"], &[]);
         c.ui.wait_text(

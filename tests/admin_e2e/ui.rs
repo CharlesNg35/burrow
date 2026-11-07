@@ -56,6 +56,12 @@ pub fn chrome() -> Option<PathBuf> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capture {
+    Page,
+    Viewport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screens {
     Current,
     Older,
@@ -541,13 +547,39 @@ impl Ui {
             .expect("element screenshot")
     }
 
+    async fn view_png(&self) -> Vec<u8> {
+        self.page
+            .screenshot(
+                ScreenshotParams::builder()
+                    .format(CaptureScreenshotFormat::Png)
+                    .build(),
+            )
+            .await
+            .expect("viewport screenshot")
+    }
+
+    async fn capture(&self, how: Capture) -> Vec<u8> {
+        match how {
+            Capture::Page => self.png().await,
+            Capture::Viewport => self.view_png().await,
+        }
+    }
+
     pub async fn shot(&mut self, step: &str) {
+        self.shot_as(step, Capture::Page).await;
+    }
+
+    pub async fn view_shot(&mut self, step: &str) {
+        self.shot_as(step, Capture::Viewport).await;
+    }
+
+    async fn shot_as(&mut self, step: &str, how: Capture) {
         crate::design::assert_clean(self, step).await;
-        let png = self.png().await;
+        let png = self.capture(how).await;
         self.flow.save(step, &png);
         let dark = self.is_dark.load(std::sync::atomic::Ordering::Relaxed);
         self.scheme(!dark).await;
-        let other = self.png().await;
+        let other = self.capture(how).await;
         self.scheme(dark).await;
         self.flow.save(
             &format!("{step}-{}", if dark { "light" } else { "dark" }),
