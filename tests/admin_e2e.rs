@@ -53,6 +53,8 @@ mod passwords;
 mod ports;
 #[path = "admin_e2e/reach.rs"]
 mod reach;
+#[path = "admin_e2e/reconnects.rs"]
+mod reconnects;
 #[path = "common/releases.rs"]
 mod releases;
 #[path = "admin_e2e/reverts.rs"]

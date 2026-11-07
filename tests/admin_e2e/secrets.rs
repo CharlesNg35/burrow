@@ -374,7 +374,7 @@ fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
         .await;
         c.ui.click("[data-testid=apply]").await;
         the_page_holds_while_reconnecting(c).await;
-        c.ui.shot("apply-while-reconnecting").await;
+        super::both_widths(c, "apply-while-reconnecting").await;
         c.world
             .start("server", &["server", "-c", "server.yaml"], &[]);
         c.ui.wait_text(
