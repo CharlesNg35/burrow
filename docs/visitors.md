@@ -94,6 +94,8 @@ The changes are listed one per line: `+` for a new forward, `-` for one no longe
 ./burrow init visitor --update --yes          # write the changes without asking, for scripts
 ```
 
+`--yes` asks nothing for any `burrow init`; see [the init options](configuration.md).
+
 Without a terminal and without `--yes`, `--update` prints the changes and writes nothing.
 
 To write a new visitor.yaml without questions, as in a script, pass the three answers:

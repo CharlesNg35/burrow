@@ -80,7 +80,8 @@ The same checks run when burrow starts and at each reload. A config that fails t
 | `--remote-updates` | client, server | write `update: { remote: true }` ([updates.md](updates.md)). `init client` asks about it on a terminal |
 | `--ws`, `--ws-listen IP:PORT`, `--ws-path PATH`, `--ws-tls-cert FILE`, `--ws-tls-key FILE` | server | accept clients over WebSocket only, with no TCP port for clients ([websocket.md](websocket.md)); the listen address is `127.0.0.1:7836` by default, or `0.0.0.0:7837` with the TLS files |
 | `--email ADDRESS`, `--web NAME`, `--web-client NAME`, `--web-target TARGET` | server | a first website with automatic HTTPS ([web.md](web.md)), or with `--ws` the tunnel on port 443 ([websocket.md](websocket.md#automatic-https-for-the-tunnel)) |
-| `--update`, `--yes` | visitor | ask the server again what the visitor may use and update the forwards ([visitors.md](visitors.md#use-a-private-service)) |
+| `--update` | visitor | ask the server again what the visitor may use and update the forwards ([visitors.md](visitors.md#use-a-private-service)) |
+| `--yes` | all | ask nothing, for scripts: each question takes its default (no website, no remote updates, an existing file is not replaced) and a missing value is an error naming its flag; with `--update`, write the changes without asking |
 
 On an existing file, `init` asks on a terminal whether to replace it, and keeps the old one as `FILE.bak`; `init visitor` first offers to update it from the server. Without a terminal it stops and writes nothing.
 
@@ -194,7 +195,7 @@ Each file has one owner. burrow admin edits every item in the file it came from,
 
 - it has no write permission for anyone (`chmod 0440`), or it is the Windows read-only attribute (`attrib +R`);
 - or burrow's user cannot write it (for example `root:burrow 0640` while burrow runs as `burrow`);
-- or it is a link to a file elsewhere, or has a second name (a hard link, on Linux, macOS and BSD).
+- or it is a link to a file elsewhere, or has a second name (a hard link).
 
 A tool that writes the file sets this in one line, for example with Ansible:
 
