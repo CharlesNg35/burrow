@@ -641,10 +641,10 @@ fn old_drop_ins_are_shared_when_another_install_reads_the_same_folder() {
 }
 
 #[cfg(unix)]
-fn as_root_with(
-    p: &Place,
-    files: &[(&str, (u32, u32), u32)],
-) -> Option<((u32, u32), (u32, u32), std::path::PathBuf)> {
+type Ids = (u32, u32);
+
+#[cfg(unix)]
+fn as_root_with(p: &Place, files: &[(&str, Ids, u32)]) -> Option<(Ids, Ids, std::path::PathBuf)> {
     use std::os::unix::fs::{PermissionsExt, chown};
     if !rustix::process::geteuid().is_root() {
         return None;
