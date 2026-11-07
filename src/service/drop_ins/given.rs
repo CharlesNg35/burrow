@@ -19,7 +19,7 @@ struct Parts {
 impl Parts {
     fn of(st: &Stat, (uid, gid): (u32, u32)) -> Parts {
         Parts {
-            owner: st.st_uid == uid,
+            owner: uid != 0 && st.st_uid == uid,
             group: gid != 0 && st.st_gid == gid,
         }
     }
@@ -150,18 +150,57 @@ pub(in crate::service) fn to_root(config: &Path, account: &str) {
     write(&dir, &all);
 }
 
-pub(in crate::service) fn hand_over(config: &Path, (from, to): (&str, &str), writable: bool) {
+pub(in crate::service) fn hand_over(
+    config: &Path,
+    ((from, recorded), to): ((&str, Option<(u32, u32)>), &str),
+    writable: bool,
+) {
     let ids = crate::base::process::account_ids;
-    let (Ok(old), Ok(new)) = (ids(from), ids(to)) else {
+    let Ok(new) = ids(to) else {
         return;
     };
-    if old == new {
+    match recorded.or_else(|| ids(from).ok()) {
+        Some(old) if old == new => {}
+        Some((0, _)) => super::place::give_copied(config, to, writable),
+        Some(old) => {
+            move_parts(&drop_in_folder(config), old, new);
+        }
+        None => hand_over_unknown(config, new),
+    }
+}
+
+fn hand_over_unknown(config: &Path, new: (u32, u32)) {
+    let folder = drop_in_folder(config);
+    let Ok(dir) = rustix::fs::open(&folder, crate::base::fs::NO_FOLLOW_FOLDER, Mode::empty())
+    else {
+        return;
+    };
+    if let Ok(st) = rustix::fs::fstat(&dir)
+        && st.st_uid != 0
+    {
+        move_parts(&folder, (st.st_uid, st.st_gid), new);
         return;
     }
-    if old.0 == 0 {
-        super::place::give_copied(config, to, writable);
-    } else {
-        move_parts(&drop_in_folder(config), old, new);
+    let entries: Vec<(OwnedFd, Stat)> = super::place::copied_names(&dir)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|n| super::place::plain_at(&dir, n))
+        .filter_map(|f| {
+            let st = rustix::fs::fstat(&f).ok()?;
+            Some((f, st))
+        })
+        .collect();
+    let uid = entries.iter().map(|(_, st)| st).find(|st| st.st_uid != 0);
+    let gid = entries.iter().map(|(_, st)| st).find(|st| st.st_gid != 0);
+    let old = (
+        uid.map_or(0, |st| st.st_uid),
+        uid.or(gid).map_or(0, |st| st.st_gid),
+    );
+    for (f, st) in &entries {
+        let parts = Parts::of(st, old);
+        if parts.any() {
+            parts.give(f, new);
+        }
     }
 }
 

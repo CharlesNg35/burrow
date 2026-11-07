@@ -23,6 +23,7 @@ fn manifest(web_state: Option<&str>) -> Manifest {
         admin_writable: false,
         web_state: web_state.map(PathBuf::from),
         remote_updates: false,
+        account_ids: None,
     }
 }
 
@@ -400,6 +401,7 @@ fn a_reinstall_refused_for_a_port_another_program_holds_never_stops_the_service(
         admins: Vec::new(),
         needs_state: false,
         remote_updates: false,
+        account_ids: None,
     };
     let rec = super::tests::Recorder(Default::default(), true);
     let m = super::tests::record(crate::install::Platform::Linux);

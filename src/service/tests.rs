@@ -456,6 +456,7 @@ pub(super) fn record(p: Platform) -> Manifest {
         admin_writable: false,
         web_state: None,
         remote_updates: false,
+        account_ids: None,
     }
 }
 
@@ -513,6 +514,7 @@ fn an_edit_the_installed_unit_cannot_run_is_named_with_the_way_out() {
         let stateful = Manifest {
             web_state: Some(PathBuf::from("/var/lib/burrow/edge")),
             remote_updates: false,
+            account_ids: None,
             ..m.clone()
         };
         let low = misfits_of(&backend, &stateful, &web);

@@ -764,3 +764,84 @@ fn a_put_back_restores_only_what_changed_with_its_recorded_owner_and_mode() {
     assert_eq!(state("hand.yaml"), ((0, 0), 0o644), "untouched");
     assert_eq!(state("handro.yaml"), ((0, 0), 0o444), "untouched");
 }
+
+#[cfg(unix)]
+fn reinstall_as_daemon(p: &Place, old: &crate::install::Manifest) {
+    let new = crate::install::Manifest {
+        account: "daemon".into(),
+        ..old.clone()
+    };
+    crate::service::install::place_files(
+        &crate::service::tests::Recorder(Default::default(), false),
+        Some(&undo_for(old)),
+        (&std::fs::canonicalize(&p.config).unwrap(), new.folder()),
+        (&new, &BTreeMap::new(), &[]),
+        |_| Ok(()),
+        &mut Vec::new(),
+    )
+    .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_as_another_account_after_the_old_one_was_deleted_reads_the_ids_from_burrows_files() {
+    const GONE: (u32, u32) = (4242, 4243);
+    for writable in [false, true] {
+        let p = place();
+        let Some((_, b, to)) = as_root_with(
+            &p,
+            &[
+                ("apps.yaml", GONE, 0o600),
+                ("locked.yaml", (0, GONE.1), 0o440),
+                ("hand.yaml", (0, GONE.1), 0o640),
+                (COPIED, (0, 0), 0o644),
+            ],
+        ) else {
+            return;
+        };
+        std::fs::write(to.join(COPIED), "apps.yaml\nlocked.yaml").unwrap();
+        if writable {
+            std::os::unix::fs::chown(&to, Some(GONE.0), Some(GONE.1)).unwrap();
+            std::os::unix::fs::chown(to.join(COPIED), Some(GONE.0), Some(GONE.1)).unwrap();
+        }
+        let old = crate::install::Manifest {
+            account: "burrow-gone-account".into(),
+            admin_writable: writable,
+            ..nobody(&p.config)
+        };
+        reinstall_as_daemon(&p, &old);
+        let state = |n: &str| (owner(&to.join(n)), mode(&to.join(n)) & 0o777);
+        assert_eq!(state("apps.yaml"), (b, 0o600), "writable={writable}");
+        assert_eq!(
+            state("locked.yaml"),
+            ((0, b.1), 0o440),
+            "writable={writable}"
+        );
+        let hand = if writable { (0, b.1) } else { (0, GONE.1) };
+        assert_eq!(state("hand.yaml"), (hand, 0o640), "writable={writable}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_as_another_account_uses_the_ids_its_manifest_recorded() {
+    const GONE: (u32, u32) = (4242, 4243);
+    let p = place();
+    let Some((_, b, to)) = as_root_with(
+        &p,
+        &[
+            ("apps.yaml", GONE, 0o600),
+            ("hand.yaml", (0, GONE.1), 0o640),
+        ],
+    ) else {
+        return;
+    };
+    let old = crate::install::Manifest {
+        account: "burrow-gone-account".into(),
+        account_ids: Some(GONE),
+        ..nobody(&p.config)
+    };
+    reinstall_as_daemon(&p, &old);
+    assert_eq!(owner(&to.join("apps.yaml")), b);
+    assert_eq!(owner(&to.join("hand.yaml")), (0, b.1));
+}

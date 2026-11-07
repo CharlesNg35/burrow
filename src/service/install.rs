@@ -113,6 +113,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         web_state: (checked.needs_state && checked.role == Role::Server)
             .then(|| crate::install::service_state_dir(&short)),
         remote_updates: checked.remote_updates,
+        account_ids: None,
     };
     refuse_unfit(&*backend, &checked, &manifest)?;
 
@@ -159,6 +160,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             previous.as_ref(),
             || backend.made_for_burrow(&account),
         ),
+        account_ids: ids_of(&account),
         ..manifest
     };
     check_files_readable(&*backend, &checked, &account)?;
@@ -229,7 +231,7 @@ pub(super) fn place_files(
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     let mut reached = Reached::Files;
-    let before = undo.map(|u| u.manifest.account.as_str());
+    let before = undo.map(|u| (u.manifest.account.as_str(), u.manifest.account_ids));
     let placed = place(backend, (&mut reached, before), paths, setup, finish, out);
     if placed.is_err()
         && let Some(undo) = undo
@@ -241,7 +243,7 @@ pub(super) fn place_files(
 
 fn place(
     backend: &dyn Backend,
-    (reached, before): (&mut Reached, Option<&str>),
+    (reached, before): (&mut Reached, Option<(&str, Option<(u32, u32)>)>),
     (source, folder): (&Path, &Path),
     (m, env, admins): (&Manifest, &BTreeMap<String, String>, &[String]),
     finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,
@@ -546,6 +548,18 @@ impl Drop for Leftover {
         if let Some(path) = self.0.take() {
             let _ = std::fs::remove_file(path);
         }
+    }
+}
+
+fn ids_of(account: &str) -> Option<(u32, u32)> {
+    #[cfg(unix)]
+    {
+        crate::base::process::account_ids(account).ok()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = account;
+        None
     }
 }
 

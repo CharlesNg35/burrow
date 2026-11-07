@@ -155,7 +155,7 @@ pub(in crate::service) fn settle(
     folder.settle_entry(super::COPIED, Put::Note)
 }
 
-fn plain_at(dir: &OwnedFd, name: &str) -> Option<OwnedFd> {
+pub(super) fn plain_at(dir: &OwnedFd, name: &str) -> Option<OwnedFd> {
     let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
     if name.is_empty() || name == ".." || name.contains('/') {
         return None;
@@ -166,20 +166,29 @@ fn plain_at(dir: &OwnedFd, name: &str) -> Option<OwnedFd> {
     plain.then_some(f)
 }
 
+pub(super) fn copied_names(dir: &OwnedFd) -> Option<Vec<String>> {
+    let mut text = String::new();
+    let f = plain_at(dir, super::COPIED)
+        .filter(|f| rustix::fs::fstat(f).is_ok_and(|st| st.st_uid == 0))?;
+    std::io::Read::read_to_string(&mut std::fs::File::from(f), &mut text).ok()?;
+    Some(
+        text.lines()
+            .filter(|n| !n.starts_with('.'))
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
 pub(in crate::service) fn give_copied(config: &Path, account: &str, writable: bool) {
     let to = super::drop_in_folder(config);
     let Ok(dir) = rustix::fs::open(&to, crate::base::fs::NO_FOLLOW_FOLDER, Mode::empty()) else {
         return;
     };
-    let mut text = String::new();
-    let note = plain_at(&dir, super::COPIED)
-        .filter(|f| rustix::fs::fstat(f).is_ok_and(|st| st.st_uid == 0))
-        .map(|f| std::io::Read::read_to_string(&mut std::fs::File::from(f), &mut text));
-    if !matches!(note, Some(Ok(_))) {
+    let Some(names) = copied_names(&dir) else {
         return;
-    }
+    };
     let folder = Folder::of(dir, &to, account, writable);
-    for name in text.lines().filter(|n| !n.starts_with('.')) {
+    for name in &names {
         let put = match crate::config::docs::read_only(&to.join(name)) {
             Some(_) => Put::Locked,
             None => Put::Config,
