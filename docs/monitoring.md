@@ -23,7 +23,7 @@ burrow status -f --interval 5     # refresh every 5 seconds
 burrow status --json              # the raw data, for scripts
 ```
 
-A server installed as a service needs `sudo` (an administrator terminal on Windows). A server that does not answer is shown as not answering, not as stopped. With `-f`, times are shown to the minute (`5m`, `just now`), so they do not change every second. The output looks like this:
+A server installed as a service needs `sudo` (an administrator terminal on Windows). A server that does not answer is shown as not answering, not as stopped. `--interval` takes seconds from 0.2 to 3600, fractions allowed, and needs `-f`. With `-f`, times are shown to the minute (`5m`, `just now`), so they do not change every second. The output looks like this:
 
 ```
 $ sudo burrow status
