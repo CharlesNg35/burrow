@@ -8,7 +8,7 @@ use leptos::prelude::*;
 
 use crate::edit::Outcome;
 use crate::route::{self, Link, Route};
-use crate::screens::{DetailPane, ListPane, Row, master_detail};
+use crate::screens::{DetailPane, ListPane, PhoneList, Row, master_detail};
 use crate::store::{Store, store};
 
 use super::detail::{detail, outcome_view};
@@ -61,6 +61,7 @@ pub fn ReviewPage() -> impl IntoView {
             rows=rows
             selected=Signal::derive(move || plan.with(Option::is_none).then(String::new))
             testid="review-list"
+            phone=PhoneList::AboveDetail
         />
     }
     .into_any();
