@@ -272,6 +272,25 @@ mod tests {
     }
 
     #[test]
+    fn every_init_takes_yes_so_a_script_is_never_asked() {
+        for role in ["server", "client", "visitor"] {
+            let cli = Cli::try_parse_from(["burrow", "init", role, "--yes"])
+                .unwrap_or_else(|e| panic!("init {role} --yes: {e}"));
+            let Command::Init(args) = cli.command else {
+                panic!("init {role} parses as another command");
+            };
+            assert!(args.yes, "{role}");
+        }
+        assert!(Cli::try_parse_from(["burrow", "init", "visitor", "--update", "--yes"]).is_ok());
+        let help = Cli::command()
+            .find_subcommand_mut("init")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("Ask nothing, for scripts"), "{help}");
+    }
+
+    #[test]
     fn help_and_schema_text_name_burrow_s_ports_by_their_constants() {
         let mut text = String::new();
         help_of(&mut Cli::command(), &mut text);
