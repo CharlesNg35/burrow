@@ -245,6 +245,7 @@ fn Body() -> impl IntoView {
         }
     });
     let route = Memo::new(move |_| s.route.get());
+    let schema = Memo::new(move |_| s.schema.with(|x| x.as_ref().map(|x| x.hash.clone())));
     let dim = Memo::new(move |_| {
         matches!(
             s.conn.get(),
@@ -289,7 +290,10 @@ fn Body() -> impl IntoView {
             Some(_) => view! { <div data-testid="loading" class="p-8"><Skeleton lines=6/></div> }.into_any(),
             None => view! {
                 <div class=move || if dim.get() { "opacity-45 grayscale-50" } else { "" } data-dimmed=move || dim.get().then_some("true")>
-                    {move || screens::screen(route.get())}
+                    {move || {
+                        schema.track();
+                        screens::screen(route.get())
+                    }}
                 </div>
             }
             .into_any(),

@@ -29,13 +29,7 @@ pub fn ReviewPage() -> impl IntoView {
         }
     };
     fresh();
-    Effect::new(move |was: Option<bool>| {
-        let open = s.conn.with(|c| *c == crate::store::Conn::Open);
-        if was == Some(false) && open {
-            fresh();
-        }
-        open
-    });
+    crate::store::on_reconnect(fresh);
     follow_applied(s);
     on_cleanup(move || {
         let _ = e.auto_apply.try_set(false);
