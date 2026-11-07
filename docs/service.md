@@ -30,8 +30,13 @@ The install copies burrow and the config to system folders (see [below](#where-t
 - **Copies the config** into the service's own folder, readable only by the service. `burrow service status` tells you when the file you installed from has changed since.
 - **Copies the binary** to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\burrow.exe` on Windows), creating the folder if needed, so the service never depends on your download folder. If other users can change `/usr/local/bin`, the service gets its own copy in a folder only root can change. Installing again from the same file copies nothing new.
 - **Runs the service under its own account,** without login or home folder: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as USER` picks another existing account.
-- **Ports below 1024:** on Linux, the service gets only the one permission it needs (`CAP_NET_BIND_SERVICE`). It gets it when the config has such a port at install time; after adding one later (with burrow admin or `burrow edit`), run `sudo burrow service install -c /etc/burrow/<name>/server.yaml` again, which grants it and moves nothing. `setcap` on the binary does not help a service, whose unit drops every other capability. On macOS, the service account may open such a port only on all addresses (a bare port like `https: 443`, or `0.0.0.0`); another address, like `127.0.0.1:443`, needs `--run-as root`.
-- **Keeps the web state in a private folder** for every server with `web:`: the Let's Encrypt account and certificates, the local CA's key that your devices trust (`tls: internal`), and uploaded certificates and keys. It is `/var/lib/burrow/<name>` on Linux, `/Library/Application Support/burrow/<name>` on macOS, and `%ProgramData%\burrow\services\<name>` on Windows. Only the service account can read it, and `burrow status` names it. `burrow service uninstall` keeps it and says how to delete it, so a reinstall needs no new certificates; `--purge` deletes it.
+- **Ports below 1024:**
+  - On Linux, the service gets only the one permission it needs (`CAP_NET_BIND_SERVICE`). It gets it when the config has such a port at install time; after adding one later (with burrow admin or `burrow edit`), run `sudo burrow service install -c /etc/burrow/<name>/server.yaml` again, which grants it and moves nothing. `setcap` on the binary does not help a service, whose unit drops every other capability.
+  - On macOS, the service account may open such a port only on all addresses (a bare port like `https: 443`, or `0.0.0.0`); another address, like `127.0.0.1:443`, needs `--run-as root`.
+- **Keeps the web state in a private folder** for every server with `web:`: the Let's Encrypt account and certificates, the local CA's key that your devices trust (`tls: internal`), and uploaded certificates and keys.
+  - It is `/var/lib/burrow/<name>` on Linux, `/Library/Application Support/burrow/<name>` on macOS, and `%ProgramData%\burrow\services\<name>` on Windows.
+  - Only the service account can read it, and `burrow status` names it.
+  - `burrow service uninstall` keeps it and says how to delete it, so a reinstall needs no new certificates; `--purge` deletes it.
 - **Writes logs to a file,** rotated at 10 MB with 5 old files kept, so a log never fills the disk.
 - **Checks the files the config uses.** Only the config is copied, so every certificate, key, CA, error-pages folder, DNS command and `file:` secret must be an absolute path the service account can read.
 - **Checks the access log path.** Besides its state folder, the service may write only to its log folder. So a website access log (`web.access_log`) must be a file of its own directly in that folder: like `/var/log/burrow/<name>/access.log`, or `%ProgramData%\burrow\logs\<name>-access.log` on Windows, where the folder is shared. The install names the path to use.
@@ -105,7 +110,16 @@ sudo nano /etc/burrow/server/server.yaml   # or edit the file directly
 
 `burrow edit` refuses a change that the service could not run after a restart, such as a port below 1024 it was not installed for. It edits `server.yaml` and checks it together with the drop-in files next to it.
 
-**Drop-in files.** A server's `server.d/` folder ([configuration.md](configuration.md#drop-in-files)) is copied with the config: `service install -c ./home.yaml` copies `./home.d/*.yaml` to `/etc/burrow/home/server.d/`. Writable files get the same owner and mode as `server.yaml`; a file that is read-only in the source stays read-only (owned by root, readable by the service's group, `0440`; the read-only attribute on Windows). A file the source has replaces the installed file of the same name. burrow notes the files it copied (in `server.d/.burrow-copied`): an installed file that an earlier install copied and the source no longer has is removed, and any other installed file, such as one a tool or a person added later, is left in place and named in the output. Before anything changes, the install checks the source together with the files it leaves in place, and refuses, naming the file, when they do not make a valid config (for example the same service in both). When the service may change its config (`--admin-writable` or an admin visitor), the installed set is first kept as a version in Activity, as for `server.yaml`. An installed `server.d` that is a link or a file is refused. With `--admin-writable`, the service may also change `server.d/`. Add files to `/etc/burrow/<name>/server.d/` by hand later; the service picks them up on save.
+**Drop-in files.** A server's `server.d/` folder ([configuration.md](configuration.md#drop-in-files)) is copied with the config: `service install -c ./home.yaml` copies `./home.d/*.yaml` to `/etc/burrow/home/server.d/`.
+
+- Writable files get the same owner and mode as `server.yaml`; a file that is read-only in the source stays read-only (owned by root, readable by the service's group, `0440`; the read-only attribute on Windows).
+- A file the source has replaces the installed file of the same name.
+- burrow notes the files it copied (in `server.d/.burrow-copied`): an installed file that an earlier install copied and the source no longer has is removed, and any other installed file, such as one a tool or a person added later, is left in place and named in the output.
+- Before anything changes, the install checks the source together with the files it leaves in place, and refuses, naming the file, when they do not make a valid config (for example the same service in both).
+- When the service may change its config (`--admin-writable` or an admin visitor), the installed set is first kept as a version in Activity, as for `server.yaml`.
+- An installed `server.d` that is a link or a file is refused.
+- With `--admin-writable`, the service may also change `server.d/`.
+- Add files to `/etc/burrow/<name>/server.d/` by hand later; the service picks them up on save.
 
 **Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only. Its hint gives the exact command: `install the service again so it may change its config; nothing moves: sudo burrow service install -c /etc/burrow/server/server.yaml --admin-writable`. Add the admin visitor to the installed config, then install again from that file:
 
@@ -143,7 +157,14 @@ burrow update --check         # only tell whether a newer release exists
 sudo burrow update --to 0.1.0 # install this release (also an older one)
 ```
 
-`burrow update` downloads the release for your system, checks it against the release's `SHA256SUMS`, and runs it to confirm its version. It then replaces the installed binary and restarts every service that uses it. If a service does not come up again, the old binary is put back. Without `sudo`, it replaces only the binary you ran.
+`burrow update`:
+
+1. downloads the release for your system;
+2. checks it against the release's `SHA256SUMS`;
+3. runs it to confirm its version;
+4. replaces the installed binary and restarts every service that uses it.
+
+If a service does not come up again, the old binary is put back. Without `sudo`, it replaces only the binary you ran.
 
 <details>
 <summary><b>More about updating</b></summary>
@@ -162,7 +183,11 @@ sudo burrow update --to 0.1.0 # install this release (also an older one)
 <details>
 <summary><b>Linux (systemd)</b></summary>
 
-The unit is sandboxed: a read-only system, no home folders, no new privileges, and no capabilities unless a port below 1024 needs one. A config error stops it with exit code 3, instead of restarting it in a loop. `sudo burrow service install --print` shows the unit without installing anything, if you prefer to manage it yourself. burrow starts one worker thread per CPU it may use (its CPU quota or affinity) when it starts, so after you raise the limit of a running service, for example with `systemctl set-property burrow-server CPUQuota=400%`, restart it to use the new CPUs.
+The unit is sandboxed: a read-only system, no home folders, no new privileges, and no capabilities unless a port below 1024 needs one.
+
+- A config error stops it with exit code 3, instead of restarting it in a loop.
+- `sudo burrow service install --print` shows the unit without installing anything, if you prefer to manage it yourself.
+- burrow starts one worker thread per CPU it may use (its CPU quota or affinity) when it starts, so after you raise the limit of a running service, for example with `systemctl set-property burrow-server CPUQuota=400%`, restart it to use the new CPUs.
 
 </details>
 
@@ -180,7 +205,11 @@ macOS marks a file downloaded with a browser as quarantined, and refuses to open
 <details>
 <summary><b>Windows</b></summary>
 
-Run the commands from a terminal opened with "Run as administrator". The service starts after the network, and Windows restarts it 5 seconds after a failure (30 seconds from the third failure in a day). Before installing, set the variables the config uses in the same terminal, for example `$env:HOME_SECRET = "..."`. On Windows, `reload` restarts the service; every role also applies its config on save.
+Run the commands from a terminal opened with "Run as administrator".
+
+- The service starts after the network, and Windows restarts it 5 seconds after a failure (30 seconds from the third failure in a day).
+- Before installing, set the variables the config uses in the same terminal, for example `$env:HOME_SECRET = "..."`.
+- On Windows, `reload` restarts the service; every role also applies its config on save.
 
 </details>
 
