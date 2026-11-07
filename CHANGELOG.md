@@ -6,7 +6,7 @@ Drop-in config files: a server can keep services, clients and visitors in `serve
 
 - **Drop-in files:** read in name order, only while the folder exists. They hold only `services`, `clients` and `visitors`; the same name in two files, a server-wide key or a file anyone can change is an error at its file and line.
 - **Errors name their file:** `burrow validate` lists the files read, each item's file and the read-only files; `burrow status` names a service's file.
-- **burrow admin and `burrow mcp`:** each item is edited in its own file with its comments; Save in, Split into its own file and Merge into server.yaml; one diff per file in Review; Settings → Files; the Config file tab marks each drop-in's items with `# from server.d/<file>`. A file read-only on disk (no write permission, the Windows read-only attribute, or not writable by burrow) stays read-only, also as root.
+- **burrow admin and `burrow mcp`:** each item is edited in its own file with its comments; Save in, Split into its own file and Merge into server.yaml; one diff per file in Review; Settings → Files; the Config file tab marks each drop-in's items with `# from server.d/<file>`. A file read-only on disk (no write permission, the Windows read-only attribute, or not writable by burrow) stays read-only, also as root. A file burrow may write through its group stays editable, and a save keeps its group and mode.
 - **Saving** writes every touched file or none, refuses a file changed on disk, and history restores the whole set.
 - **Reload** watches the folder and waits for half a second of quiet, so a burst of files reloads once.
 - **`burrow service install`** copies the folder with the config and keeps read-only files read-only.

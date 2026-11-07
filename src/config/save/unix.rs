@@ -148,6 +148,18 @@ fn read_at(dir: &OwnedFd, name: &std::ffi::OsStr) -> std::io::Result<String> {
     Ok(now)
 }
 
+pub(super) fn owner_change(
+    owner: (u32, u32),
+    mine: (u32, u32),
+    root: bool,
+) -> (Option<u32>, Option<u32>) {
+    match (root, owner == mine) {
+        (true, true) => (None, None),
+        (true, false) => (Some(owner.0), Some(owner.1)),
+        (false, _) => (None, (owner.1 != mine.1).then_some(owner.1)),
+    }
+}
+
 fn write_temp(
     dir: &OwnedFd,
     temp: &str,
@@ -165,14 +177,15 @@ fn write_temp(
         )?);
         f.write_all(text.as_bytes())?;
         f.sync_all()?;
-        rustix::fs::fchmod(&f, Mode::from_bits_truncate(mode as _))?;
         let mine = (
             rustix::process::geteuid().as_raw(),
             rustix::process::getegid().as_raw(),
         );
-        if owner != mine {
-            std::os::unix::fs::fchown(&f, Some(owner.0), Some(owner.1))?;
+        let (uid, gid) = owner_change(owner, mine, rustix::process::geteuid().is_root());
+        if uid.is_some() || gid.is_some() {
+            std::os::unix::fs::fchown(&f, uid, gid)?;
         }
+        rustix::fs::fchmod(&f, Mode::from_bits_truncate(mode as _))?;
         Ok(())
     })();
     if written.is_err() {

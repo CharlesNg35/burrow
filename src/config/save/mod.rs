@@ -231,6 +231,31 @@ mod tests {
         assert_eq!(mode & 0o7777, 0o640);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_file_of_another_user_that_burrow_may_write_keeps_its_group_and_mode() {
+        let burrow = (1000, 1000);
+        assert_eq!(
+            unix::owner_change((0, 50), burrow, false),
+            (None, Some(50)),
+            "root:admins 0660 becomes burrow:admins 0660"
+        );
+        assert_eq!(
+            unix::owner_change((1000, 50), burrow, false),
+            (None, Some(50))
+        );
+        assert_eq!(unix::owner_change(burrow, burrow, false), (None, None));
+        assert_eq!(
+            unix::owner_change((0, 50), (0, 0), true),
+            (Some(0), Some(50))
+        );
+        assert_eq!(
+            unix::owner_change((1000, 50), (0, 0), true),
+            (Some(1000), Some(50))
+        );
+        assert_eq!(unix::owner_change((0, 0), (0, 0), true), (None, None));
+    }
+
     #[test]
     fn the_file_is_replaced_with_its_permissions_and_only_if_unchanged() {
         let dir = tempfile::tempdir().unwrap();

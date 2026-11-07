@@ -209,7 +209,7 @@ A tool that writes the file sets this in one line, for example with Ansible:
     mode: "0440"
 ```
 
-The admin shows such a file's items with a lock and "Read-only on disk", and never writes, moves or deletes the file. A version restored from the admin's history puts every writable file back and names the read-only ones, for their tool to restore.
+The admin shows such a file's items with a lock and "Read-only on disk", and never writes, moves or deletes the file. A file of another user that burrow's user may write through its group (for example `root:burrow 0660`) stays editable; a save keeps its group and mode, and burrow's user becomes its owner. A version restored from the admin's history puts every writable file back and names the read-only ones, for their tool to restore.
 
 ## server.yaml
 
