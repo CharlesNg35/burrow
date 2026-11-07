@@ -283,6 +283,14 @@ pub async fn wait_checked(c: &Ctx) {
         .await;
 }
 
+pub async fn added_toasts(c: &Ctx) -> usize {
+    let n: u64 = c
+        .ui
+        .eval("[...document.querySelectorAll('[data-testid=toast]')].filter(t => t.innerText.includes('Added to changes')).length")
+        .await;
+    n as usize
+}
+
 pub async fn review_now(c: &Ctx) {
     if c.ui
         .count("[data-testid=save-bar] [data-testid=save]")

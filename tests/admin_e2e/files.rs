@@ -3,7 +3,7 @@ use std::time::Duration;
 use super::edits::Flow;
 use super::world::{self, Options};
 use super::{
-    Ctx, SECS, applied, both_widths, edit_mode, open, open_review, review_now, run, wait_checked,
+    Ctx, SECS, added_toasts, applied, both_widths, edit_mode, open, open_review, run, wait_checked,
 };
 
 const MENU: &str = "[data-testid=more]";
@@ -261,14 +261,41 @@ async fn still_in_apps(c: &mut Ctx) {
 async fn a_renamed_item_keeps_its_file(c: &mut Ctx) {
     c.ui.nav("/services/blog").await;
     rename_to(c, "journal").await;
+    assert_eq!(added_toasts(c).await, 1, "a rename shows one toast");
     still_in_apps(c).await;
     both_widths(c, "files-renamed").await;
     c.ui.click(MENU).await;
     rename_to(c, "blog").await;
     still_in_apps(c).await;
     c.ui.click(MENU).await;
-    review_now(c).await;
-    c.ui.click("[data-testid=discard]").await;
+    c.ui.wait_gone("[data-testid=review-open]", SECS).await;
+    assert_eq!(added_toasts(c).await, 0, "a rename back is no change");
+}
+
+async fn close_edit(c: &mut Ctx) {
+    c.ui.click("[data-testid=save-bar] [data-testid=discard-edit]")
+        .await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+}
+
+async fn a_new_client_after_undone_changes_shows_one_toast(c: &mut Ctx) {
+    c.ui.nav("/clients").await;
+    c.ui.click("[data-testid=new]").await;
+    c.ui.fill("#new-name", "temp").await;
+    c.ui.click("[data-testid=create]:not([disabled])").await;
+    c.ui.wait_for("[data-testid=detail][data-name=temp]", SECS)
+        .await;
+    c.ui.wait_text("[data-testid=toasts]", "Added to changes", SECS)
+        .await;
+    assert_eq!(added_toasts(c).await, 1, "a new item shows one toast");
+    close_edit(c).await;
+    rename_to(c, "temp2").await;
+    c.ui.wait_for("[data-testid=entity-list] [data-pending=new]", SECS)
+        .await;
+    both_widths(c, "files-renamed-new").await;
+    close_edit(c).await;
+    c.ui.click(MENU).await;
+    c.ui.click("[data-testid=delete]").await;
     c.ui.wait_gone("[data-testid=review-open]", SECS).await;
 }
 
@@ -329,6 +356,7 @@ fn files(c: &mut Ctx) -> Flow<'_> {
         the_files_tab_lists_every_file(c).await;
         split_and_merge_back(c).await;
         keeping_an_item_undoes_deleting_its_file(c).await;
+        a_new_client_after_undone_changes_shows_one_toast(c).await;
         a_renamed_item_keeps_its_file(c).await;
         a_new_client_saved_in_its_own_file_counts_once(c).await;
         a_new_client_in_a_file_of_its_own(c).await;

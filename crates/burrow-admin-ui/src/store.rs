@@ -245,16 +245,15 @@ impl Store {
     pub fn toast(&self, tone: Tone, text: impl Into<String>, action: Option<&str>) {
         let id = self.next_toast.get_value() + 1;
         self.next_toast.set_value(id);
+        let toast = Toast {
+            id,
+            tone,
+            text: text.into(),
+            action: action.map(str::to_string),
+        };
         self.toasts.update(|t| {
-            burrow_ui_kit::push_toast(
-                t,
-                Toast {
-                    id,
-                    tone,
-                    text: text.into(),
-                    action: action.map(str::to_string),
-                },
-            );
+            t.retain(|x| (x.tone, &x.text, &x.action) != (toast.tone, &toast.text, &toast.action));
+            burrow_ui_kit::push_toast(t, toast);
         });
         let me = *self;
         set_timeout(move || me.drop_toast(id), std::time::Duration::from_secs(5));

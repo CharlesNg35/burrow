@@ -78,6 +78,8 @@ pub fn NewEntity(
             e.review.set(None);
             e.auto_apply.set(clean);
             go(Route::Review);
+        } else {
+            s.added_to_changes();
         }
     };
     let finish2 = finish;
