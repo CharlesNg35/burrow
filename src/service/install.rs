@@ -180,7 +180,6 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
         absent,
     });
-    backend.config_folder(&folder, &config, &account, writable)?;
     place_files(
         &*backend,
         undo.as_ref(),
@@ -258,6 +257,7 @@ fn place(
     }
     #[cfg(not(unix))]
     let _ = before;
+    backend.config_folder(folder, config, account, writable)?;
     if source != crate::base::fs::canonical_or_same(config) {
         copy_config(backend, (source, config), (account, writable), out)?;
     }
