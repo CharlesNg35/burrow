@@ -50,7 +50,7 @@ blog.example.com: Let's Encrypt, TLS check -> service blog
 http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered
 ```
 
-`burrow init server` can write this for you: answer yes to its website question, or pass `--web blog.example.com --email ops@example.com`.
+`burrow init server` can write this for you: answer yes to its website question, or pass `--web blog.example.com --email ops@example.com`. The site leads to port 3000 on the first client; `--web-target 8080` (or `127.0.0.1:8080`) names another app, and the website question asks for it too.
 
 ## The ports
 

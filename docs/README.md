@@ -9,6 +9,7 @@ Words like client, visitor, service and target have one meaning throughout; the 
 | I want to… | Read |
 | --- | --- |
 | understand the three config files and every key | [Configuration](configuration.md) |
+| write a config with `burrow init`, edit it with `burrow edit`, or split services into several files | [Configuration](configuration.md) |
 | expose a TCP or UDP port, limit who may connect, use several clients | [Services](services.md) |
 | reach home machines from my laptop without opening them to the internet | [Private services and visitors](visitors.md) |
 | connect clients through nginx, Caddy, Cloudflare or another HTTPS-only path | [WebSocket](websocket.md) |
