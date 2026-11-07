@@ -370,3 +370,28 @@ fn a_new_password_becomes_password_set_and_a_stored_hash_stays_untouched() {
     again.set_password(&path("alice"), "p5");
     assert_eq!(again.ops().len(), 1);
 }
+
+#[test]
+fn renamed_from_follows_chains_renames_back_and_swaps() {
+    let s = |n: &str| p(&["services", n]);
+    let mut c = Changeset::new(json!({"services": {"blog": {}, "web": {}}}));
+    assert!(c.rename(&s("blog"), "journal"));
+    assert!(c.rename(&s("journal"), "blog"));
+    assert_eq!(c.renamed_from("services", "blog"), None);
+    assert!(c.rename(&s("blog"), "a"));
+    assert!(c.rename(&s("a"), "b"));
+    assert_eq!(c.renamed_from("services", "b").as_deref(), Some("blog"));
+    assert_eq!(c.renamed_from("services", "a"), None);
+    let mut w = Changeset::new(json!({"services": {"eta2": {}, "web": {}}}));
+    for (from, to) in [("eta2", "eps1"), ("web", "eta2"), ("eps1", "web")] {
+        assert!(w.rename(&s(from), to));
+    }
+    assert_eq!(w.renamed_from("services", "web").as_deref(), Some("eta2"));
+    assert_eq!(w.renamed_from("services", "eta2").as_deref(), Some("web"));
+    w.set(&s("eps1"), json!({}));
+    assert_eq!(w.renamed_from("services", "eps1"), None);
+    let mut n = Changeset::new(json!({"services": {}}));
+    n.set(&s("lab"), json!({}));
+    assert!(n.rename(&s("lab"), "lab2"));
+    assert_eq!(n.renamed_from("services", "lab2").as_deref(), Some("lab"));
+}

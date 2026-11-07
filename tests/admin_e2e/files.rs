@@ -235,16 +235,18 @@ async fn keeping_an_item_undoes_deleting_its_file(c: &mut Ctx) {
     c.ui.shot("files-kept").await;
 }
 
-async fn a_renamed_item_keeps_its_file(c: &mut Ctx) {
-    c.ui.nav("/services/blog").await;
+async fn rename_to(c: &mut Ctx, to: &str) {
     c.ui.click(MENU).await;
     c.ui.click("[data-testid=rename-open]").await;
     c.ui.wait_for("[data-testid=rename-entity] #rename-to", SECS)
         .await;
-    c.ui.fill("#rename-to", "journal").await;
+    c.ui.fill("#rename-to", to).await;
     c.ui.click("[data-testid=rename]:not([disabled])").await;
-    c.ui.wait_for("[data-testid=detail][data-name=journal]", SECS)
+    c.ui.wait_for(&format!("[data-testid=detail][data-name={to}]"), SECS)
         .await;
+}
+
+async fn still_in_apps(c: &mut Ctx) {
     let tag =
         c.ui.wait_text("[data-testid=file-tag]", "server.d/apps.yaml", SECS)
             .await;
@@ -254,7 +256,16 @@ async fn a_renamed_item_keeps_its_file(c: &mut Ctx) {
     c.ui.click(MENU).await;
     c.ui.wait_for("[data-testid=file-merge]", SECS).await;
     assert_eq!(c.ui.count("[data-testid=file-split]").await, 0);
+}
+
+async fn a_renamed_item_keeps_its_file(c: &mut Ctx) {
+    c.ui.nav("/services/blog").await;
+    rename_to(c, "journal").await;
+    still_in_apps(c).await;
     both_widths(c, "files-renamed").await;
+    c.ui.click(MENU).await;
+    rename_to(c, "blog").await;
+    still_in_apps(c).await;
     c.ui.click(MENU).await;
     review_now(c).await;
     c.ui.click("[data-testid=discard]").await;

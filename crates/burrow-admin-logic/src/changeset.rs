@@ -6,6 +6,7 @@ use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};
 use burrow_admin_proto::value::{self, as_secret};
 use burrow_config::Entry;
+use burrow_config::renames::{origins, within};
 
 pub const NEW_SECRET: &str = "$new_secret";
 
@@ -441,12 +442,20 @@ impl Changeset {
     }
 
     pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
-        self.renames
+        let base = self.base.get(section).and_then(Value::as_object);
+        let all = self
+            .renames
             .iter()
-            .find(|(from, to)| {
-                from.len() == 2 && from.first().map(String::as_str) == Some(section) && to == name
-            })
-            .and_then(|(from, _)| from.get(1).cloned())
+            .map(|(p, to)| (p.as_slice(), to.as_str()));
+        let mut renames = within(section, all).peekable();
+        renames.peek()?;
+        origins(
+            base.into_iter().flat_map(|m| m.keys().map(String::as_str)),
+            renames,
+        )
+        .remove(name)
+        .map(|o| o.name)
+        .filter(|was| was != name)
     }
 
     pub fn fresh(&self) -> &[(String, String)] {

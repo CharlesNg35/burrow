@@ -13,6 +13,7 @@ pub mod labels;
 pub mod model;
 pub mod older;
 pub mod refs;
+pub mod renames;
 pub mod uploads;
 
 pub use field::{Entry, Field, Nest, entity_at, entity_of_section, entity_path, logins_path};

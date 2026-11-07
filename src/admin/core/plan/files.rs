@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use burrow_admin_proto::plan::{Change, ChangeKind, FileChange, FileDiff};
+use burrow_config::renames::{Origin, base_name, origins, within};
 use burrow_config::{Entry, ServiceEntry};
 use serde_json::{Map, Value};
 
@@ -56,14 +57,16 @@ impl Owners {
     }
 }
 
-fn first_name(renames: &[Rename], section: &str, name: &str) -> String {
-    renames
-        .iter()
-        .rev()
-        .fold(name.to_string(), |name, r| match r.path.as_slice() {
-            [s, from] if s == section && r.to == name => from.clone(),
-            _ => name,
-        })
+type Names = BTreeMap<String, Origin>;
+
+fn names_in(owners: &Owners, renames: &[Rename], section: &str) -> Names {
+    let base = owners
+        .items
+        .keys()
+        .filter(|(s, _)| s == section)
+        .map(|(_, name)| name.as_str());
+    let renames = renames.iter().map(|r| (r.path.as_slice(), r.to.as_str()));
+    origins(base, within(section, renames))
 }
 
 fn last_name(renames: &[Rename], section: &str, name: &str) -> String {
@@ -77,16 +80,11 @@ fn last_name(renames: &[Rename], section: &str, name: &str) -> String {
 
 pub type Places = BTreeMap<Item, usize>;
 
-fn home(
-    owners: &Owners,
-    places: &Places,
-    renames: &[Rename],
-    (section, name): (&str, &str),
-) -> usize {
+fn home(owners: &Owners, places: &Places, names: &Names, (section, name): (&str, &str)) -> usize {
     places
         .get(&(section.to_string(), name.to_string()))
         .copied()
-        .unwrap_or_else(|| owners.file_of(section, &first_name(renames, section, name)))
+        .unwrap_or_else(|| base_name(names, name).map_or(0, |b| owners.file_of(section, &b)))
 }
 
 pub fn split(
@@ -108,8 +106,9 @@ pub fn split(
             continue;
         };
         let mut parts: Vec<Map<String, Value>> = vec![Map::new(); count];
+        let names = names_in(owners, renames, key);
         for (name, item) in items {
-            let owner = home(owners, places, renames, (key, name)).min(count - 1);
+            let owner = home(owners, places, &names, (key, name)).min(count - 1);
             parts[owner].insert(name.clone(), item.clone());
         }
         let elsewhere = (1..count).any(|i| owners.has_key(i, key));
@@ -134,7 +133,8 @@ fn renames_in(owners: &Owners, places: &Places, doc: usize, renames: &[Rename]) 
         .filter(|(k, r)| match r.path.as_slice() {
             [section, name, ..] if is_section(section) => {
                 let last = last_name(&renames[*k..], section, name);
-                home(owners, places, renames, (section, &last)) == doc
+                let names = names_in(owners, renames, section);
+                home(owners, places, &names, (section, &last)) == doc
             }
             _ => doc == 0,
         })
@@ -344,8 +344,10 @@ pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &
         let [section, name] = path.as_slice() else {
             continue;
         };
-        let first = (section.clone(), first_name(&applied.renames, section, name));
-        let from = owners.items.get(&first).map(|at| name_of(*at));
+        let names = names_in(&owners, &applied.renames, section);
+        let from = base_name(&names, name)
+            .and_then(|first| owners.items.get(&(section.clone(), first)))
+            .map(|at| name_of(*at));
         if from.as_ref().unwrap_or(&old.main().name) == file {
             continue;
         }
