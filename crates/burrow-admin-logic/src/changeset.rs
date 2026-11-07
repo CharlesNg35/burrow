@@ -1,12 +1,14 @@
 //! The admin UI's edit draft, a `Changeset` that keeps the base config and the edited draft and turns their difference into protocol `Op`s.
 //! It also tracks renames and new secrets and passwords, which travel as `$new_secret` and `$new_password` markers.
 
+use std::collections::BTreeMap;
+
 use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};
 use burrow_admin_proto::value::{self, as_secret};
 use burrow_config::Entry;
-use burrow_config::renames::{origins, within};
+use burrow_config::renames::{Origin, arrivals, base_name, origins, within};
 
 pub const NEW_SECRET: &str = "$new_secret";
 
@@ -306,6 +308,15 @@ impl Changeset {
     }
 
     pub fn set(&mut self, path: &[String], value: Value) {
+        if value.is_null() {
+            let pairs = self
+                .renames
+                .iter()
+                .map(|(p, to)| (p.as_slice(), to.as_str()));
+            for at in arrivals(pairs, path) {
+                self.renames.remove(at);
+            }
+        }
         value::put(&mut self.draft, path, (!value.is_null()).then_some(value));
     }
 
@@ -337,7 +348,32 @@ impl Changeset {
             return false;
         }
         burrow_config::refs::rename_refs(&mut self.draft, path, to);
-        self.renames.push((path.to_vec(), to.to_string()));
+        let pairs = self
+            .renames
+            .iter()
+            .map(|(p, to)| (p.as_slice(), to.as_str()));
+        let back = arrivals(pairs, path);
+        let parent = &path[..path.len() - 1];
+        let home = back.last().is_some_and(|&first| {
+            self.renames[first].0.last().is_some_and(|was| was == to)
+                && !self
+                    .renames
+                    .iter()
+                    .enumerate()
+                    .skip(first)
+                    .any(|(i, (p, t))| {
+                        t == to
+                            && p.split_last().is_some_and(|(_, at)| at == parent)
+                            && !back.contains(&i)
+                    })
+        });
+        if home {
+            for at in back {
+                self.renames.remove(at);
+            }
+        } else {
+            self.renames.push((path.to_vec(), to.to_string()));
+        }
         true
     }
 
@@ -386,6 +422,16 @@ impl Changeset {
         let mut renamed = self.base.clone();
         let mut out = Vec::new();
         for (path, to) in &self.renames {
+            let taken = path
+                .split_last()
+                .map(|(_, parent)| [parent, std::slice::from_ref(to)].concat());
+            if let Some(taken) = taken
+                && value::get(&renamed, path).is_some()
+                && value::get(&renamed, &taken).is_some()
+            {
+                value::put(&mut renamed, &taken, None);
+                out.push(Op::Remove { path: taken });
+            }
             if rename_key(&mut renamed, path, to) {
                 burrow_config::refs::rename_refs(&mut renamed, path, to);
                 out.push(Op::Rename {
@@ -430,32 +476,39 @@ impl Changeset {
         }
     }
 
-    pub fn renamed_to(&self, section: &str, name: &str) -> Option<String> {
-        self.renames
-            .iter()
-            .find(|(from, _)| {
-                from.len() == 2
-                    && from.first().map(String::as_str) == Some(section)
-                    && from.get(1).map(String::as_str) == Some(name)
-            })
-            .map(|(_, to)| to.clone())
-    }
-
-    pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
+    fn names(&self, section: &str) -> BTreeMap<String, Origin> {
         let base = self.base.get(section).and_then(Value::as_object);
         let all = self
             .renames
             .iter()
             .map(|(p, to)| (p.as_slice(), to.as_str()));
-        let mut renames = within(section, all).peekable();
-        renames.peek()?;
         origins(
             base.into_iter().flat_map(|m| m.keys().map(String::as_str)),
-            renames,
+            within(section, all),
         )
-        .remove(name)
-        .map(|o| o.name)
-        .filter(|was| was != name)
+    }
+
+    pub fn renamed_to(&self, section: &str, name: &str) -> Option<String> {
+        self.names(section)
+            .into_iter()
+            .find(|(now, o)| o.base && o.name == name && now != name)
+            .map(|(now, _)| now)
+    }
+
+    pub fn base_name(&self, section: &str, name: &str) -> Option<String> {
+        let renamed = self
+            .renames
+            .iter()
+            .any(|(p, _)| p.first().is_some_and(|s| s == section));
+        if !renamed {
+            let base = self.base.get(section).and_then(|m| m.get(name));
+            return base.map(|_| name.to_string());
+        }
+        base_name(&self.names(section), name)
+    }
+
+    pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
+        self.base_name(section, name).filter(|was| was != name)
     }
 
     pub fn fresh(&self) -> &[(String, String)] {
@@ -463,36 +516,52 @@ impl Changeset {
     }
 
     pub fn changed_entities(&self) -> usize {
-        let mut paths: Vec<Path> = self
-            .ops()
-            .iter()
-            .filter_map(|o| o.path().cloned())
-            .map(|p| p.into_iter().take(2).collect::<Path>())
-            .map(|p| {
-                self.renames
-                    .iter()
-                    .find(|(from, to)| p.len() == 2 && from[0] == p[0] && *to == p[1])
-                    .map(|(from, _)| from.clone())
-                    .unwrap_or(p)
-            })
-            .filter(|p| {
-                burrow_config::refs::part_of(&self.base, &self.draft, p, &self.renames).is_none()
-            })
-            .map(|p| {
-                let entity = p.first().is_some_and(|s| {
-                    [
-                        burrow_config::ClientEntry::section(),
-                        burrow_config::VisitorEntry::section(),
-                        burrow_config::ServiceEntry::section(),
-                    ]
-                    .contains(&s.as_str())
-                });
-                if entity { p } else { Vec::new() }
-            })
-            .collect();
-        paths.sort();
-        paths.dedup();
-        paths.len()
+        let ops = self.ops();
+        let sections = [
+            burrow_config::ClientEntry::section(),
+            burrow_config::VisitorEntry::section(),
+            burrow_config::ServiceEntry::section(),
+        ];
+        let mut seen: Vec<(Path, bool)> = Vec::new();
+        for (i, op) in ops.iter().enumerate() {
+            let Some(p) = op.path() else {
+                continue;
+            };
+            let p: Path = p.iter().take(2).cloned().collect();
+            let [section, name] = p.as_slice() else {
+                if burrow_config::refs::part_of(&self.base, &self.draft, &p, &self.renames)
+                    .is_none()
+                {
+                    seen.push((Vec::new(), true));
+                }
+                continue;
+            };
+            let earlier = ops[..i].iter().filter_map(|o| match o {
+                Op::Rename { path, to, .. } => Some((path.as_slice(), to.as_str())),
+                _ => None,
+            });
+            let base = self.base.get(section).and_then(Value::as_object);
+            let names = origins(
+                base.into_iter().flat_map(|m| m.keys().map(String::as_str)),
+                within(section, earlier),
+            );
+            let (id, known) = match names.get(name) {
+                Some(o) if o.base => (vec![section.clone(), o.name.clone()], true),
+                _ => (p.clone(), false),
+            };
+            if burrow_config::refs::part_of(&self.base, &self.draft, &id, &self.renames).is_some() {
+                continue;
+            }
+            let entity = sections.contains(&section.as_str());
+            seen.push(if entity {
+                (id, known)
+            } else {
+                (Vec::new(), true)
+            });
+        }
+        seen.sort();
+        seen.dedup();
+        seen.len()
     }
 }
 
