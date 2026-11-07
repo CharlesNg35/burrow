@@ -153,7 +153,7 @@ sudo burrow update --to 0.1.0 # install this release (also an older one)
 - Downloads go through `HTTPS_PROXY` (or `ALL_PROXY`) when set, and `NO_PROXY` is respected.
 - `BURROW_UPDATE_URL` points to a mirror with the same layout as the GitHub releases. It must use `https://`, unless it is on the same machine.
 - Clients from 0.2.2 on can also be updated from the server's burrow admin, when their config allows it, and from 0.2.3 on the server too, when root installed it with `update.remote: true` in server.yaml: see [updates.md](updates.md#update-the-server-from-burrow-admin).
-- `sudo ./burrow service update` does the same with a binary you downloaded yourself (`--force` also allows an older one). A binary installed by a package manager is upgraded there instead, and in a container you pull the new image.
+- `sudo ./burrow service update` does the same with a binary you downloaded yourself (`--force` also allows an older one, or the same version again). Give a service name to update only that service. A binary installed by a package manager is upgraded there instead, and in a container you pull the new image.
 
 </details>
 
