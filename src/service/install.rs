@@ -174,24 +174,20 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
     backend.config_folder(&folder, &config, &account, writable)?;
-    if source != crate::base::fs::canonical_or_same(&config) {
-        copy_config(&*backend, (&source, &config), (&account, writable), out)
-            .inspect_err(|_| put_files_back(undo.as_ref(), &*backend))?;
-    }
-    backend.secure_file(&config, &account)?;
-    backend.config_folder(&folder, &config, &account, writable)?;
-    if writable {
-        say_writable(&checked, &folder, out)?;
-    }
-    if let Some(f) = &env_file {
-        save_env(&*backend, &manifest, &env, f, out)?;
-    }
-    backend.install(&manifest)?;
-    super::helper::set_up(&manifest, out)?;
-    if !opts.start {
-        again.manifest = None;
-    }
-    save_manifest(&manifest)?;
+    place_files(
+        &*backend,
+        undo.as_ref(),
+        (&source, &folder),
+        (&manifest, &env, &checked.admins),
+        |out| {
+            super::helper::set_up(&manifest, out)?;
+            if !opts.start {
+                again.manifest = None;
+            }
+            save_manifest(&manifest)
+        },
+        out,
+    )?;
     fresh.account = None;
     say_installed(
         &*backend,
@@ -217,6 +213,31 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         release_previous(&*backend, p, &manifest, out)?;
     }
     say_next_steps(&config, &arg, out)
+}
+
+pub(super) fn place_files(
+    backend: &dyn Backend,
+    undo: Option<&Undo>,
+    (source, folder): (&Path, &Path),
+    (m, env, admins): (&Manifest, &BTreeMap<String, String>, &[String]),
+    finish: impl FnOnce(&mut dyn Write) -> Result<(), Failure>,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let (config, account, writable) = (&m.config, m.account.as_str(), m.admin_writable);
+    if source != crate::base::fs::canonical_or_same(config) {
+        copy_config(backend, (source, config), (account, writable), out)
+            .inspect_err(|_| put_files_back(undo, backend))?;
+    }
+    backend.secure_file(config, account)?;
+    backend.config_folder(folder, config, account, writable)?;
+    if writable {
+        say_writable(admins, folder, out)?;
+    }
+    if let Some(f) = &m.env_file {
+        save_env(backend, m, env, f, out)?;
+    }
+    backend.install(m)?;
+    finish(out)
 }
 
 fn readable_source(opts: &InstallOptions) -> Result<PathBuf, Failure> {
@@ -434,8 +455,8 @@ pub(super) fn put_files_back(undo: Option<&Undo>, backend: &dyn super::Backend) 
     }
 }
 
-fn say_writable(checked: &Checked, folder: &Path, out: &mut dyn Write) -> Result<(), Failure> {
-    let why = match checked.admins.as_slice() {
+fn say_writable(admins: &[String], folder: &Path, out: &mut dyn Write) -> Result<(), Failure> {
+    let why = match admins {
         [] => "--admin-writable was given".to_string(),
         [one] => format!("visitor {one} has admin access"),
         many => format!("visitors {} have admin access", many.join(", ")),
