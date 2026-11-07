@@ -170,6 +170,28 @@ fn same_items(raw: &Value, target: &Value) -> bool {
     a == b
 }
 
+fn read_alike(raw: &Value, read: &Value) -> bool {
+    let items = |v: &Value| match v {
+        Value::Null => Some(Map::new()),
+        Value::Object(m) => Some(
+            m.iter()
+                .filter(|(key, value)| {
+                    !is_section(key)
+                        || value
+                            .as_object()
+                            .map_or(!value.is_null(), |m| !m.is_empty())
+                })
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        ),
+        _ => None,
+    };
+    match (items(raw), items(read)) {
+        (Some(a), Some(b)) => a == b,
+        _ => raw == read,
+    }
+}
+
 fn ignored(at: usize, share: &Value, owners: &Owners, docs: &[Doc]) -> String {
     let name_of = |i: usize| docs.get(i).map_or("", |d| d.name.as_str());
     let Some(Value::Object(top)) = owners.raws.get(at) else {
@@ -196,6 +218,9 @@ fn ignored(at: usize, share: &Value, owners: &Owners, docs: &[Doc]) -> String {
             }
             _ => out.push(format!("{key} does not list items by name")),
         }
+    }
+    if out.is_empty() {
+        return "the server reads it differently".into();
     }
     out.join(", ")
 }
@@ -305,7 +330,7 @@ pub fn write(
             list.push(doc.clone());
             continue;
         }
-        if !same_items(&owners.raws[i], &olds[i]) {
+        if !read_alike(&owners.raws[i], &olds[i]) {
             return Err(WriteError::Bad(format!(
                 "{} holds content the server ignores ({}); fix that file by hand first",
                 doc.name,

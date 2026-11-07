@@ -17,6 +17,13 @@ fn remove(name: &str) -> Op {
     }
 }
 
+fn place(name: &str, file: &str) -> Op {
+    Op::Place {
+        path: p(&["services", name]),
+        file: file.into(),
+    }
+}
+
 #[test]
 fn renaming_an_item_and_then_deleting_it_shows_the_deletion() {
     for (drop_ins, name) in [(&[][..], "web"), (&[("apps.yaml", BLOG)][..], "blog")] {
@@ -38,6 +45,41 @@ fn renaming_an_item_and_then_deleting_it_shows_the_deletion() {
             "{:?}",
             said(&kept)
         );
+    }
+}
+
+#[test]
+fn a_drop_in_with_an_empty_section_no_other_file_has_is_still_edited() {
+    let team = format!(
+        "# team\nclients:\n  laptop:\n    secret: {}\nservices:\n",
+        crate::wire::secret::Secret::generate().encode()
+    );
+    let wiki = json!({"client": "home", "bind": 7845, "target": 3005});
+    let changes = [
+        vec![Op::Remove {
+            path: p(&["clients", "laptop"]),
+        }],
+        vec![
+            Op::Add {
+                path: p(&["services", "wiki"]),
+                value: wiki,
+            },
+            place("wiki", "server.d/team.yaml"),
+        ],
+    ];
+    for ops in changes {
+        let set = Set::new(&[("team.yaml", &team)]);
+        let main = set.w.text.replace(
+            "\nservices:\n  web: { client: home, bind: 7840, target: 3000 }\n",
+            "",
+        );
+        std::fs::write(set.path("server.yaml"), &main).unwrap();
+        let s = set.session(true);
+        set.apply(&s, &ops).unwrap();
+        let after = set.read("server.d/team.yaml").unwrap();
+        assert!(after.starts_with("# team\n"), "{after}");
+        assert_eq!(after.contains("laptop"), ops.len() == 2, "{after}");
+        assert_eq!(after.contains("wiki"), ops.len() == 2, "{after}");
     }
 }
 
