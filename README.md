@@ -325,7 +325,7 @@ A service page: how connections flow, and "Reached by", the ways in to this serv
 
 ![A service page of burrow admin with its flow and its Reached by settings](docs/images/admin-service.png)
 
-Settings, in five tabs: Server, Connections, Web, Monitoring and Config file, with one search across all of them. Config file shows the whole config as YAML, secrets as fingerprints, to read, copy or download. Here the Web tab, with the web proxy's ports, Let's Encrypt and the local certificate authority.
+Settings, in five tabs: Server, Connections, Web, Monitoring and Config file, with one search across all of them, and a Files tab when the server reads drop-in files from `server.d/`. Config file shows the whole config as YAML, secrets as fingerprints, to read, copy or download. Here the Web tab, with the web proxy's ports, Let's Encrypt, its DNS check providers, your own certificates and the local certificate authority.
 
 ![The Settings page of burrow admin with its five tabs](docs/images/admin-settings.png)
 
