@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use burrow_admin_proto::plan::{Change, ChangeKind};
-use burrow_config::renames::{origins, within};
+use burrow_config::renames::{Origin, base_name, origins, within};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use serde_json::{Map, Value};
 
@@ -218,39 +218,43 @@ fn nested(path: &[String], was: Option<&Value>, now: Option<&Value>, out: &mut V
     }
 }
 
-fn kept_under_new_names(
-    key: &str,
-    renames: &[Rename],
-    (om, nm): (&Map<String, Value>, &Map<String, Value>),
-) -> BTreeSet<String> {
-    let pairs = renames.iter().map(|r| (r.path.as_slice(), r.to.as_str()));
-    origins(om.keys().map(String::as_str), within(key, pairs))
-        .into_iter()
-        .filter(|(now, o)| o.base && nm.contains_key(now))
-        .map(|(_, o)| o.name)
-        .collect()
+fn capital(kind: &str) -> String {
+    kind[..1].to_uppercase() + &kind[1..]
 }
 
-pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
-    let mut out = Vec::new();
-    let empty = serde_json::Map::new();
-    let (o, n) = (
-        old.as_object().unwrap_or(&empty),
-        new.as_object().unwrap_or(&empty),
-    );
-    for r in renames {
-        if r.path.len() == 2
-            && let Some(kind) = entity(&r.path[0])
+fn names_of(key: &str, om: &Map<String, Value>, renames: &[Rename]) -> BTreeMap<String, Origin> {
+    let pairs = renames.iter().map(|r| (r.path.as_slice(), r.to.as_str()));
+    origins(om.keys().map(String::as_str), within(key, pairs))
+}
+
+fn renamed(
+    o: &Map<String, Value>,
+    n: &Map<String, Value>,
+    renames: &[Rename],
+    out: &mut Vec<Change>,
+) {
+    let empty = Map::new();
+    for (i, r) in renames.iter().enumerate() {
+        if let [key, _] = r.path.as_slice()
+            && let Some(kind) = entity(key)
         {
+            let later = renames[i + 1..]
+                .iter()
+                .any(|l| l.path.len() == 2 && l.path[0] == *key && l.to == r.to);
+            let old = o.get(key).and_then(Value::as_object).unwrap_or(&empty);
+            let names = names_of(key, old, renames);
+            let now = n
+                .get(key)
+                .and_then(Value::as_object)
+                .is_some_and(|m| m.contains_key(&r.to));
+            let Some(was) = base_name(&names, &r.to).filter(|was| *was != r.to && now && !later)
+            else {
+                continue;
+            };
             out.push(Change {
                 kind: ChangeKind::Rename,
-                path: r.path.clone(),
-                summary: format!(
-                    "{} {} renamed to {}",
-                    kind[..1].to_uppercase() + &kind[1..],
-                    r.path[1],
-                    r.to
-                ),
+                path: vec![key.clone(), was.clone()],
+                summary: format!("{} {was} renamed to {}", capital(kind), r.to),
                 part_of: None,
             });
         } else if let Some((name, parent)) = r.path.split_last()
@@ -264,6 +268,16 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
             });
         }
     }
+}
+
+pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
+    let mut out = Vec::new();
+    let empty = serde_json::Map::new();
+    let (o, n) = (
+        old.as_object().unwrap_or(&empty),
+        new.as_object().unwrap_or(&empty),
+    );
+    renamed(o, n, renames, &mut out);
     let keys: Vec<&String> = o
         .keys()
         .chain(n.keys().filter(|k| !o.contains_key(*k)))
@@ -278,19 +292,15 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                 ov.and_then(Value::as_object).unwrap_or(&empty),
                 nv.and_then(Value::as_object).unwrap_or(&empty),
             );
-            let renamed_from = |name: &str| {
-                renames
-                    .iter()
-                    .find(|r| r.path.len() == 2 && r.path[0] == *key && r.to == name)
-                    .map(|r| r.path[1].clone())
-            };
-            let kept = kept_under_new_names(key, renames, (om, nm));
+            let names = names_of(key, om, renames);
+            let kept: BTreeSet<String> = names
+                .iter()
+                .filter(|(now, o)| o.base && nm.contains_key(*now))
+                .map(|(_, o)| o.name.clone())
+                .collect();
             for (name, val) in nm {
                 let path = vec![key.clone(), name.clone()];
-                match om
-                    .get(name)
-                    .or_else(|| renamed_from(name).and_then(|f| om.get(&f)))
-                {
+                match base_name(&names, name).and_then(|was| om.get(&was)) {
                     None => {
                         let secrets = match kind {
                             k if k == ClientEntry::ENTITY => Some(ClientEntry::SECRET.get(val)),
@@ -313,14 +323,11 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     _ => {}
                 }
             }
-            for name in om
-                .keys()
-                .filter(|k| !nm.contains_key(*k) && !kept.contains(*k))
-            {
+            for name in om.keys().filter(|k| !kept.contains(*k)) {
                 out.push(Change {
                     kind: ChangeKind::Remove,
                     path: vec![key.clone(), name.clone()],
-                    summary: format!("{} {name} removed", kind[..1].to_uppercase() + &kind[1..]),
+                    summary: format!("{} {name} removed", capital(kind)),
                     part_of: None,
                 });
             }
