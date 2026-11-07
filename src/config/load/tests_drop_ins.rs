@@ -326,6 +326,34 @@ fn validate_lists_the_files_read_their_items_and_which_are_read_only() {
 }
 
 #[test]
+fn validate_never_calls_the_main_file_read_only() {
+    let d = Dir::new();
+    d.drop_in(
+        "apps.yaml",
+        "services:\n  blog: { client: home, target: 82, bind: 7901 }\n",
+    );
+    let mut perms = std::fs::metadata(&d.main).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&d.main, perms).unwrap();
+    let o = d.load();
+    let text = crate::config::validate::render_text(&o, false, Style { color: false });
+    let json: serde_json::Value =
+        serde_json::from_str(&crate::config::validate::render_json(&o, false)).unwrap();
+    #[cfg(windows)]
+    {
+        let mut perms = std::fs::metadata(&d.main).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        std::fs::set_permissions(&d.main, perms).unwrap();
+    }
+    assert!(
+        text.contains("  server.yaml: clients home; services web\n"),
+        "{text}"
+    );
+    assert_eq!(json["files"][0]["read_only"], serde_json::Value::Null);
+}
+
+#[test]
 fn an_edit_of_the_main_file_is_checked_together_with_the_folder() {
     let d = Dir::new();
     d.drop_in(

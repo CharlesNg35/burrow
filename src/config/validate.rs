@@ -108,7 +108,8 @@ fn file_lines(outcome: &Outcome) -> Vec<FileLine> {
     outcome
         .files
         .iter()
-        .map(|f| {
+        .enumerate()
+        .map(|(i, f)| {
             let path = std::path::Path::new(&f.name);
             let mut sections: Vec<(String, Vec<String>)> = Vec::new();
             for (section, name) in &f.items {
@@ -119,7 +120,10 @@ fn file_lines(outcome: &Outcome) -> Vec<FileLine> {
             }
             FileLine {
                 shown: crate::config::load::short_name(main, &f.name),
-                read_only: crate::config::docs::read_only(path).map(|r| r.why()),
+                read_only: (i > 0)
+                    .then(|| crate::config::docs::read_only(path))
+                    .flatten()
+                    .map(|r| r.why()),
                 sections,
             }
         })
