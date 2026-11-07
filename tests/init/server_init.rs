@@ -117,6 +117,24 @@ fn client_init_needs_flags_without_tty() {
     assert!(init_client(&full, &mut NoPrompt, &mut Vec::new()).is_err());
 }
 
+#[test]
+fn a_missing_value_under_yes_names_the_flag_and_why_nothing_was_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let opts = InitOptions {
+        output: Some(dir.path().join("client.yaml")),
+        server: Some("example.com:7835".into()),
+        yes: true,
+        ..Default::default()
+    };
+    let err = init_client(&opts, &mut NoPrompt, &mut Vec::new()).unwrap_err();
+    assert!(
+        err.message.contains("missing client name"),
+        "{}",
+        err.message
+    );
+    assert!(err.hint.unwrap().contains("--yes asks nothing"));
+}
+
 pub(super) struct Answers(pub(super) Vec<&'static str>, pub(super) Vec<String>);
 
 impl Prompter for Answers {
