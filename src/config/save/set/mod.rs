@@ -160,6 +160,20 @@ fn undo_all(done: &[Staged], failed: std::io::Error) -> Refused {
     )))
 }
 
+static SAVING: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+pub fn saving_set() -> std::sync::RwLockWriteGuard<'static, ()> {
+    SAVING
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+pub fn whole_set() -> std::sync::RwLockReadGuard<'static, ()> {
+    SAVING
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused> {
     let mut staged: Vec<Staged> = Vec::new();
     for (name, change) in changes(before, after) {
@@ -189,6 +203,7 @@ pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused
             }
         }
     }
+    let _saving = saving_set();
     for (at, s) in staged.iter().enumerate() {
         if let Err(e) = commit(&s.step, at) {
             discard(&staged[at + 1..]);

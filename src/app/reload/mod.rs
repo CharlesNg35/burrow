@@ -192,10 +192,7 @@ pub async fn follow_nudged<S: Watched>(
             }
             seen = now;
             let (file, vars) = (path.clone(), env.clone());
-            let Some(loaded) = worker
-                .run(move || load_file(&file, Some(S::ROLE), &vars))
-                .await
-            else {
+            let Some(loaded) = worker.run(move || load_whole(&file, S::ROLE, &vars)).await else {
                 return;
             };
             let outcome = match loaded {
@@ -285,6 +282,15 @@ pub async fn follow_nudged<S: Watched>(
             let _ = r.send(outcome.clone());
         }
     }
+}
+
+fn load_whole(
+    file: &Path,
+    role: Role,
+    env: &Env,
+) -> Result<crate::config::Outcome, crate::config::load::LoadError> {
+    let _whole = crate::config::save::whole_set();
+    load_file(file, Some(role), env)
 }
 
 fn spawn_triggers(trig_tx: &mpsc::Sender<&'static str>) {
@@ -580,6 +586,56 @@ mod tests {
             .expect("an in-place write is applied before the 30 s recheck")
             .unwrap();
         assert_eq!(next.services.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_set_being_saved_is_reloaded_whole_once_the_save_is_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        let head = "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nservices:\n";
+        crate::base::fs::write_private(
+            &config,
+            &format!("{head}  web: {{ client: home, target: 80, bind: 7900 }}\n  blog: {{ client: home, target: 81, bind: 7901 }}\n"),
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("server.d")).unwrap();
+        let loaded = load_file(&config, Some(Role::Server), &Env::default())
+            .unwrap()
+            .loaded
+            .unwrap();
+        let current = ServerSettings::from_loaded(loaded).unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(follow(
+            config.clone(),
+            current,
+            Env::default(),
+            accept(),
+            tx,
+        ));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let folder = dir.path().join("server.d");
+        let saved = tokio::task::spawn_blocking(move || {
+            let _saving = crate::config::save::saving_set();
+            crate::base::fs::write_private(
+                &config,
+                &format!("{head}  web: {{ client: home, target: 82, bind: 7900 }}\n"),
+            )
+            .unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            crate::base::fs::write_private(
+                &folder.join("blog.yaml"),
+                "services:\n  blog: { client: home, target: 81, bind: 7901 }\n",
+            )
+            .unwrap();
+        });
+        saved.await.unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(8), rx.recv())
+            .await
+            .expect("the saved set is applied")
+            .unwrap();
+        assert_eq!(first.services.len(), 2, "never a half-saved set");
+        let again = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
+        assert!(again.is_err(), "one reload for the whole save");
     }
 
     #[test]
