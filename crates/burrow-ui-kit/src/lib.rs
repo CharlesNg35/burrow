@@ -25,7 +25,6 @@ mod toast;
 mod version;
 
 pub use bar::{StickyBar, bar_status, bar_top, view_height};
-pub use room::cover_top;
 pub use basic::{
     CARD_VIEW, Card, Chip, Dot, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, PageHeader, PillTabs,
     SectionHead, Stat, Stats, StatusDot, TABLE_VIEW, TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY,
@@ -51,6 +50,7 @@ pub use overlay::{
 };
 pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
 pub use radio::{RadioList, RadioOption};
+pub use room::cover_top;
 pub use scroll::{ScrollRow, active_item};
 pub use spark::{ChartData, LineChart, segments, spark_max, spark_path};
 pub use stepper::{Stepper, stepped};
