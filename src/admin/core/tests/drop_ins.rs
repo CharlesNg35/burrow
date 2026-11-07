@@ -1,4 +1,10 @@
+//! Tests for a config set with drop-in files in server.d, each in a temporary folder.
+//! `Set` builds one; `renames` covers renames mixed with moves and deletes, `probe` runs random changes.
+
 #![cfg(test)]
+
+mod probe;
+mod renames;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -610,6 +616,24 @@ fn an_empty_or_comment_only_drop_in_is_never_rewritten_by_an_unrelated_save() {
     }];
     set.apply(&older, &edit).unwrap();
     assert!(set.read("server.yaml").unwrap().contains("3006"));
+}
+
+#[test]
+fn an_item_placed_in_a_comment_only_drop_in_keeps_its_comments() {
+    let set = Set::new(&[("notes.yaml", "# placeholder for team A\n# owner: ops\n")]);
+    let s = set.session(true);
+    let ops = [Op::Place {
+        path: p(&["services", "web"]),
+        file: "server.d/notes.yaml".into(),
+    }];
+    assert_eq!(set.plan(&s, &ops).unwrap().reformat, None);
+    set.apply(&s, &ops).unwrap();
+    let notes = set.read("server.d/notes.yaml").unwrap();
+    assert!(
+        notes.starts_with("# placeholder for team A\n# owner: ops\nservices:")
+            && notes.contains("web"),
+        "{notes}"
+    );
 }
 
 #[test]

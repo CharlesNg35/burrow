@@ -284,6 +284,29 @@ mod tests {
     }
 
     #[test]
+    fn a_new_item_under_a_name_a_swap_freed_counts_as_its_add() {
+        let mut c = Changeset::new(
+            burrow_admin_proto::serde_json::json!({"services": {"eta2": {}, "web": {}}}),
+        );
+        for (from, to) in [("eta2", "eps1"), ("web", "eta2"), ("eps1", "web")] {
+            assert!(c.rename(&p(&["services", from]), to));
+        }
+        c.set(
+            &p(&["services", "eps1"]),
+            burrow_admin_proto::serde_json::json!({}),
+        );
+        let mut m = FileMoves::default();
+        m.place(
+            &p(&["services", "eps1"]),
+            "server.d/eps1.yaml",
+            "server.yaml",
+        );
+        assert_eq!(m.counted(&c), 0, "the new service is counted as its add");
+        m.place(&p(&["services", "web"]), "server.d/web.yaml", "server.yaml");
+        assert_eq!(m.counted(&c), 1);
+    }
+
+    #[test]
     fn each_item_knows_its_file_and_whether_it_is_read_only() {
         let i = info(&[
             ("server.yaml", None, &[&["services", "web"]]),

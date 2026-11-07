@@ -1,6 +1,9 @@
+use std::collections::BTreeSet;
+
 use burrow_admin_proto::plan::{Change, ChangeKind};
+use burrow_config::renames::{origins, within};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::config::check::secretish;
 use crate::config::patch::Rename;
@@ -215,6 +218,19 @@ fn nested(path: &[String], was: Option<&Value>, now: Option<&Value>, out: &mut V
     }
 }
 
+fn kept_under_new_names(
+    key: &str,
+    renames: &[Rename],
+    (om, nm): (&Map<String, Value>, &Map<String, Value>),
+) -> BTreeSet<String> {
+    let pairs = renames.iter().map(|r| (r.path.as_slice(), r.to.as_str()));
+    origins(om.keys().map(String::as_str), within(key, pairs))
+        .into_iter()
+        .filter(|(now, o)| o.base && nm.contains_key(now))
+        .map(|(_, o)| o.name)
+        .collect()
+}
+
 pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
     let mut out = Vec::new();
     let empty = serde_json::Map::new();
@@ -268,11 +284,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     .find(|r| r.path.len() == 2 && r.path[0] == *key && r.to == name)
                     .map(|r| r.path[1].clone())
             };
-            let renamed_to = |name: &str| {
-                renames
-                    .iter()
-                    .any(|r| r.path.len() == 2 && r.path[0] == *key && r.path[1] == name)
-            };
+            let kept = kept_under_new_names(key, renames, (om, nm));
             for (name, val) in nm {
                 let path = vec![key.clone(), name.clone()];
                 match om
@@ -301,7 +313,10 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     _ => {}
                 }
             }
-            for name in om.keys().filter(|k| !nm.contains_key(*k) && !renamed_to(k)) {
+            for name in om
+                .keys()
+                .filter(|k| !nm.contains_key(*k) && !kept.contains(*k))
+            {
                 out.push(Change {
                     kind: ChangeKind::Remove,
                     path: vec![key.clone(), name.clone()],
