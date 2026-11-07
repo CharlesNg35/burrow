@@ -453,3 +453,35 @@ fn renames_count_once_per_item_and_a_rename_back_is_no_change() {
     );
     assert_eq!(w.changed_entities(), 2);
 }
+
+#[test]
+fn a_rename_back_after_the_name_was_reused_and_moved_on_keeps_both_items() {
+    let s = |n: &str| p(&["services", n]);
+    let mut c = Changeset::new(base());
+    assert!(c.rename(&s("web"), "a"));
+    c.set(&s("web"), json!({"client": "home", "target": 81}));
+    assert!(c.rename(&s("web"), "z"));
+    assert!(c.rename(&s("a"), "web"));
+    assert_eq!(
+        c.ops(),
+        [
+            Op::Rename {
+                path: s("web"),
+                to: "a".into(),
+                refs: true
+            },
+            Op::Rename {
+                path: s("a"),
+                to: "web".into(),
+                refs: true
+            },
+            Op::Add {
+                path: s("z"),
+                value: json!({"client": "home", "target": 81})
+            }
+        ]
+    );
+    assert_eq!(c.base_name("services", "web").as_deref(), Some("web"));
+    assert_eq!(c.base_name("services", "z"), None);
+    assert_eq!(c.changed_entities(), 2);
+}

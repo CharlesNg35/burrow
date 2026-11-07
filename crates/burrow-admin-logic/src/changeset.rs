@@ -362,8 +362,8 @@ impl Changeset {
                     .enumerate()
                     .skip(first)
                     .any(|(i, (p, t))| {
-                        t == to
-                            && p.split_last().is_some_and(|(_, at)| at == parent)
+                        p.split_last()
+                            .is_some_and(|(was, at)| (t == to || was == to) && at == parent)
                             && !back.contains(&i)
                     })
         });
