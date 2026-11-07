@@ -65,7 +65,8 @@ fn remove_at(dir: &OwnedFd, name: &OsStr) {
     }
 }
 
-fn empty(dir: &OwnedFd) {
+fn remove_matching(dir: &OwnedFd, wanted: impl Fn(&OsStr) -> bool) {
+    use std::os::unix::ffi::OsStrExt;
     let Ok(entries) = Dir::read_from(dir) else {
         return;
     };
@@ -75,14 +76,27 @@ fn empty(dir: &OwnedFd) {
         .filter(|n| !matches!(n.as_bytes(), b"." | b".."))
         .collect();
     for n in names {
-        use std::os::unix::ffi::OsStrExt;
-        remove_at(dir, OsStr::from_bytes(n.as_bytes()));
+        let name = OsStr::from_bytes(n.as_bytes());
+        if wanted(name) {
+            remove_at(dir, name);
+        }
     }
+}
+
+fn empty(dir: &OwnedFd) {
+    remove_matching(dir, |_| true);
 }
 
 pub fn remove_entry(parent: &Path, name: impl AsRef<OsStr>) {
     if let Ok(dir) = folder(parent) {
         remove_at(&dir, name.as_ref());
+    }
+}
+
+#[cfg(any(test, target_os = "linux"))]
+pub fn remove_entries(parent: &Path, wanted: impl Fn(&OsStr) -> bool) {
+    if let Ok(dir) = folder(parent) {
+        remove_matching(&dir, wanted);
     }
 }
 
