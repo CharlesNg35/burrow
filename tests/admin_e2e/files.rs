@@ -269,11 +269,8 @@ async fn a_new_client_saved_in_its_own_file_counts_once(c: &mut Ctx) {
     c.ui.click("[data-testid=create]:not([disabled])").await;
     c.ui.wait_for("[data-testid=detail][data-name=rack]", SECS)
         .await;
-    if c.ui.count("[data-testid=save-bar]").await > 0 {
-        c.ui.click("[data-testid=save-bar] [data-testid=save]")
-            .await;
-        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
-    }
+    c.ui.nav("/services/web").await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
     wait_checked(c).await;
     assert_eq!(
         c.ui.text("[data-testid=review-count]").await.trim(),
