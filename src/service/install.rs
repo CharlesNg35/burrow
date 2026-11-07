@@ -148,6 +148,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let mut fresh = FreshAccount {
         backend: &*backend,
         account: created.then_some(account.as_str()),
+        files: manifest.clone(),
     };
     say_created(created, &account, out)?;
     let manifest = Manifest {
@@ -544,11 +545,16 @@ impl Drop for Leftover {
 struct FreshAccount<'a> {
     backend: &'a dyn Backend,
     account: Option<&'a str>,
+    files: Manifest,
 }
 
 impl Drop for FreshAccount<'_> {
     fn drop(&mut self) {
         if let Some(account) = self.account.take() {
+            #[cfg(unix)]
+            super::uninstall::give_account_files_to_root(&self.files);
+            #[cfg(not(unix))]
+            let _ = &self.files;
             let _ = self.backend.remove_account(account);
         }
     }

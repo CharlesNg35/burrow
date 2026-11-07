@@ -276,3 +276,59 @@ fn a_put_back_after_a_failed_start_undoes_the_updater_and_the_config_at_a_new_pa
         "old config\n"
     );
 }
+
+#[test]
+fn a_failed_fresh_install_gives_what_it_gave_the_new_account_to_root_before_removing_it() {
+    use std::os::unix::fs::{MetadataExt, chown};
+    if !rustix::process::geteuid().is_root() {
+        return;
+    }
+    let Ok(ids) = crate::base::process::account_ids("nobody") else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("etc");
+    let (config, drop_ins) = (folder.join("server.yaml"), folder.join("server.d"));
+    let state = dir.path().join("state");
+    write(&config, "listen: 1\n");
+    write(&drop_ins.join("apps.yaml"), "services: {}\n");
+    write(&drop_ins.join("theirs.yaml"), "services: {}\n");
+    write(&state.join("ca.key"), "key\n");
+    let given = [
+        config.clone(),
+        drop_ins.join("apps.yaml"),
+        drop_ins.clone(),
+        folder.clone(),
+        state.clone(),
+        state.join("ca.key"),
+    ];
+    for p in &given {
+        chown(p, Some(ids.0), Some(ids.1)).unwrap();
+    }
+    chown(drop_ins.join("theirs.yaml"), Some(1), Some(1)).unwrap();
+    let backend = FailAt::new("none");
+    drop(super::FreshAccount {
+        backend: &backend,
+        account: Some("nobody"),
+        files: Manifest {
+            config: config.clone(),
+            account: "nobody".into(),
+            web_state: Some(state.clone()),
+            ..crate::service::tests::record(Platform::Linux)
+        },
+    });
+    let owner = |p: &Path| {
+        let meta = std::fs::symlink_metadata(p).unwrap();
+        (meta.uid(), meta.gid())
+    };
+    for p in &given {
+        assert_eq!(owner(p), (0, 0), "{}", p.display());
+    }
+    assert_eq!(owner(&drop_ins.join("theirs.yaml")), (1, 1));
+    let note = std::fs::read_to_string(drop_ins.join(".burrow-given")).unwrap();
+    assert!(
+        note.contains("ug apps.yaml\n") && note.contains("ug .\n"),
+        "{note}"
+    );
+    assert!(backend.ran("remove nobody"));
+}

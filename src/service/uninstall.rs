@@ -330,6 +330,29 @@ pub(super) fn give_kept_to_root(m: &Manifest, kept: &[PathBuf], kept_folder: Opt
     }
 }
 
+#[cfg(unix)]
+pub(super) fn give_account_files_to_root(m: &Manifest) {
+    use std::os::unix::fs::MetadataExt;
+    let Ok((uid, _)) = crate::base::process::account_ids(&m.account) else {
+        return;
+    };
+    if uid == 0 {
+        return;
+    }
+    let owned = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|s| s.uid() == uid);
+    let _ = system::give_back(&m.config, uid, 0, 0);
+    if owned(&admin_history(&m.config)) {
+        give_history(&m.config, 0, 0);
+    }
+    super::drop_ins::to_root(&m.config, &m.account);
+    if owned(m.folder()) {
+        let _ = std::os::unix::fs::lchown(m.folder(), Some(0), Some(0));
+    }
+    if let Some(d) = m.web_state.as_deref().filter(|d| owned(d)) {
+        super::hand_over::own_tree(d, 0, 0);
+    }
+}
+
 fn remove_service_account(
     backend: &dyn Backend,
     m: &Manifest,
