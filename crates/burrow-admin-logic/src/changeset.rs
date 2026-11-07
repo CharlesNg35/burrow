@@ -344,10 +344,17 @@ impl Changeset {
         let entity = path
             .split_last()
             .and_then(|(_, parent)| burrow_config::entity_at(parent));
+        let new_item = match path {
+            [section, name] => self.base_name(section, name).is_none(),
+            _ => false,
+        };
         if entity.is_none() || !rename_key(&mut self.draft, path, to) {
             return false;
         }
         burrow_config::refs::rename_refs(&mut self.draft, path, to);
+        if new_item {
+            return true;
+        }
         let pairs = self
             .renames
             .iter()

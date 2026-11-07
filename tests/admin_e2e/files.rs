@@ -3,7 +3,8 @@ use std::time::Duration;
 use super::edits::Flow;
 use super::world::{self, Options};
 use super::{
-    Ctx, SECS, added_toasts, applied, both_widths, edit_mode, open, open_review, run, wait_checked,
+    Ctx, SECS, added_toasts, applied, both_widths, edit_mode, open, open_review, review_now, run,
+    wait_checked,
 };
 
 const MENU: &str = "[data-testid=more]";
@@ -272,6 +273,48 @@ async fn a_renamed_item_keeps_its_file(c: &mut Ctx) {
     assert_eq!(added_toasts(c).await, 0, "a rename back is no change");
 }
 
+async fn a_rename_back_over_a_name_a_new_item_took_and_left_is_no_change(c: &mut Ctx) {
+    c.ui.nav("/services/blog").await;
+    rename_to(c, "a").await;
+    c.ui.nav("/services").await;
+    c.ui.click("[data-testid=new]").await;
+    c.ui.click("[data-testid=new-menu] [data-new=service]")
+        .await;
+    c.ui.wait_for("[data-testid=new-entity]", SECS).await;
+    c.ui.fill("#new-name", "blog").await;
+    c.ui.click("[data-testid=create]:not([disabled])").await;
+    c.ui.wait_for("[data-testid=detail][data-name=blog]", SECS)
+        .await;
+    out_of_edit(c).await;
+    rename_to(c, "z").await;
+    c.ui.nav("/services/a").await;
+    rename_to(c, "blog").await;
+    still_in_apps(c).await;
+    c.ui.wait_text("[data-testid=review-count]", "1", SECS)
+        .await;
+    review_now(c).await;
+    let list =
+        c.ui.wait_text("[data-testid=review-list]", "New service z", SECS)
+            .await;
+    assert!(
+        !list.contains("blog") && !list.contains("renamed"),
+        "{list}"
+    );
+    c.ui.nav("/services/z").await;
+    out_of_edit(c).await;
+    c.ui.click(MENU).await;
+    c.ui.click("[data-testid=delete]").await;
+    c.ui.wait_gone("[data-testid=review-open]", SECS).await;
+}
+
+async fn out_of_edit(c: &mut Ctx) {
+    c.ui.wait_for(&format!("[data-testid=save-bar], {MENU}"), SECS)
+        .await;
+    if c.ui.count("[data-testid=save-bar]").await > 0 {
+        close_edit(c).await;
+    }
+}
+
 async fn close_edit(c: &mut Ctx) {
     c.ui.click("[data-testid=save-bar] [data-testid=discard-edit]")
         .await;
@@ -397,6 +440,7 @@ fn files(c: &mut Ctx) -> Flow<'_> {
         keeping_an_item_undoes_deleting_its_file(c).await;
         a_new_client_after_undone_changes_shows_one_toast(c).await;
         a_renamed_item_keeps_its_file(c).await;
+        a_rename_back_over_a_name_a_new_item_took_and_left_is_no_change(c).await;
         a_new_client_saved_in_its_own_file_counts_once(c).await;
         a_new_client_in_a_file_of_its_own(c).await;
         assert_eq!(
