@@ -1,3 +1,6 @@
+//! Installs or reinstalls burrow as a system service, and puts the previous install back when a step fails.
+//! Start at `install`; `place_files` copies the config and registers the unit.
+
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
