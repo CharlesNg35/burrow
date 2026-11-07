@@ -280,3 +280,34 @@ pub(super) fn content_end(node: &Node) -> usize {
         _ => node.span.end.offset,
     }
 }
+
+fn quoted_end(src: &str, start: usize) -> Option<usize> {
+    let quote = src
+        .get(start..)?
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '"' | '\''))?;
+    let body = start + 1;
+    let mut chars = src.get(body..)?.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' if quote == '"' => {
+                chars.next();
+            }
+            c if c == quote && quote == '\'' && chars.peek().is_some_and(|(_, n)| *n == '\'') => {
+                chars.next();
+            }
+            c if c == quote => return Some(body + i + 1),
+            _ => {}
+        }
+    }
+    None
+}
+
+pub(super) fn scalar_end(src: &str, node: &Node) -> usize {
+    let end = node.span.end.offset;
+    if !node.quoted {
+        return end;
+    }
+    quoted_end(src, node.span.start.offset).map_or(end, |e| e.min(end))
+}

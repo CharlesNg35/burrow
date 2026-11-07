@@ -43,6 +43,24 @@ fn quoting_is_kept_or_added_when_needed() {
 }
 
 #[test]
+fn a_replaced_quoted_scalar_keeps_its_quotes_and_its_comment() {
+    for (q, was, now) in [("\"", "home", "eta1"), ("'", "home", "eta1")] {
+        let block = format!("services:\n  web:\n    client: {q}{was}{q} # c\n    target: 1\n");
+        let out = yaml(&block, |v| v["services"]["web"]["client"] = json!(now));
+        assert_eq!(out.text, block.replace(was, now), "{q}");
+        let flow = format!("services:\n  web: {{ client: {q}{was}{q}, target: 1 }} # c\n");
+        let out = yaml(&flow, |v| v["services"]["web"]["client"] = json!(now));
+        assert_eq!(out.text, flow.replace(was, now), "{q}");
+        let last = format!("services:\n  web: {{ target: 1, client: {q}{was}{q} }} # c\n");
+        let out = yaml(&last, |v| v["services"]["web"]["client"] = json!(now));
+        assert_eq!(out.text, last.replace(was, now), "{q}");
+        let top = format!("name: {q}{was}{q}   # c\n");
+        let out = yaml(&top, |v| v["name"] = json!(now));
+        assert_eq!(out.text, top.replace(was, now), "{q}");
+    }
+}
+
+#[test]
 fn added_keys_go_after_their_siblings_with_their_indentation() {
     let out = yaml(FILE, |v| {
         v["services"]["db"] = json!({"client": "home", "bind": 5432, "target": 5432})
