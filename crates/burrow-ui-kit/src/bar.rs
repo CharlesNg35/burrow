@@ -31,7 +31,11 @@ pub fn StickyBar(
     #[prop(optional)] flush: bool,
     children: Children,
 ) -> impl IntoView {
-    let gap = if flush { "" } else { "mt-6" };
+    let gap = if flush {
+        "mt-[var(--toast-room,0px)]"
+    } else {
+        "mt-[calc(--spacing(6)+var(--toast-room,0px))]"
+    };
     view! {
         <div
             class=move || format!("sticky bottom-4 z-20 {gap} flex flex-wrap items-center gap-3 rounded-card border bg-surface px-4 py-3 shadow-overlay max-sm:[&>*:first-child]:basis-full {class} {}", if danger.get() { "border-danger" } else { "border-border" })

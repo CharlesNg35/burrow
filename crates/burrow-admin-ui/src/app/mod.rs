@@ -198,7 +198,7 @@ pub fn App() -> impl IntoView {
                 view! {
                     <Header/>
                     <Banners/>
-                    <main id="main" tabindex="-1" class="min-h-[calc(100vh-var(--hdr-h,64px))]">
+                    <main id="main" tabindex="-1" class="min-h-[calc(100vh-var(--hdr-h,64px))] pb-[var(--toast-pad,0px)] [&:not(:has([data-sticky-bar]))]:[--toast-pad:var(--toast-room,0px)]">
                         <Body/>
                     </main>
                     <ConflictDialog/>

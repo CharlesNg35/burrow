@@ -13,10 +13,39 @@ pub struct Toast {
 
 pub const MAX_TOASTS: usize = 3;
 
+const ROOM: &str = "--toast-room";
+
 pub fn push_toast(list: &mut Vec<Toast>, toast: Toast) {
     list.push(toast);
     let excess = list.len().saturating_sub(MAX_TOASTS);
     list.drain(..excess);
+}
+
+fn leave_room(tall: f64) {
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let Some(root) = doc
+        .document_element()
+        .and_then(|r| wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(r).ok())
+    else {
+        return;
+    };
+    let style = root.style();
+    let room = if tall > 0.0 {
+        let bar = matches!(doc.query_selector("[data-sticky-bar]"), Ok(Some(_)));
+        format!("{}px", tall + if bar { 8.0 } else { 24.0 })
+    } else {
+        String::new()
+    };
+    if style.get_property_value(ROOM).unwrap_or_default() == room {
+        return;
+    }
+    let _ = if room.is_empty() {
+        style.remove_property(ROOM).map(drop)
+    } else {
+        style.set_property(ROOM, &room)
+    };
 }
 
 #[component]
@@ -38,14 +67,16 @@ pub fn ToastHost(
     }
     let host: NodeRef<leptos::html::Div> = NodeRef::new();
     let place = move || {
+        let Some(el) = host.get_untracked() else {
+            return;
+        };
+        let el: &web_sys::HtmlElement = &el;
+        leave_room(f64::from(el.offset_height()));
         let bottom = match crate::bar::bar_top() {
             Some(t) => (crate::bar::view_height() - t + 8.0).max(16.0),
             None => 16.0,
         };
-        if let Some(el) = host.get_untracked() {
-            let el: &web_sys::HtmlElement = &el;
-            let _ = el.style().set_property("bottom", &format!("{bottom}px"));
-        }
+        let _ = el.style().set_property("bottom", &format!("{bottom}px"));
     };
     Effect::new(move |_| {
         toasts.track();
