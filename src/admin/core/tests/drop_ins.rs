@@ -1,8 +1,9 @@
 //! Tests for a config set with drop-in files in server.d, each in a temporary folder.
-//! `Set` builds one; `renames` covers renames mixed with moves and deletes.
+//! `Set` builds one; `renames` covers renames mixed with moves and deletes, `probe` runs random changes.
 
 #![cfg(test)]
 
+mod probe;
 mod renames;
 
 use std::path::PathBuf;
