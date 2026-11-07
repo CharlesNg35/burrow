@@ -456,8 +456,18 @@ fn a_multi_line_flow_value_is_rewritten_as_a_block_and_nothing_else_moves() {
 }
 
 #[test]
-fn a_layout_that_cannot_be_edited_in_place_is_reformatted_openly() {
+fn a_field_of_a_block_list_entry_is_edited_in_place() {
     let text = "a:\n  - x: 1 # one\n    y: 2\nb: 1 # keep\n";
+    let mut target = tree::parse(text).unwrap().to_json();
+    target["a"][0]["x"] = json!(3);
+    let out = patch(text, Format::Yaml, &target, &[]).unwrap();
+    assert_eq!(out.text, "a:\n  - x: 3 # one\n    y: 2\nb: 1 # keep\n");
+    assert!(out.reformat.is_none());
+}
+
+#[test]
+fn a_layout_that_cannot_be_edited_in_place_is_reformatted_openly() {
+    let text = "a: [{x: 1, y: 2}] # one\nb: 1 # keep\n";
     let mut target = tree::parse(text).unwrap().to_json();
     target["a"][0]["x"] = json!(3);
     let out = patch(text, Format::Yaml, &target, &[]).unwrap();
@@ -581,4 +591,72 @@ fn edits_to_a_commented_file_with_flow_lists_patch_only_their_nodes() {
             out.text
         );
     }
+}
+
+const DNS: &str = "web:\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com, example.net] # these domains\n        cloudflare: { token: \"${CF_TOKEN}\" } # quoted\n        wildcards: [\"*.example.com\"]\n      - domains: [corp.example.org]\n        rfc2136: { server: \"192.168.1.2:53\", key_name: burrow-key, secret: \"${TSIG_SECRET}\" }\n# after\n";
+
+#[test]
+fn a_field_of_a_list_entry_changes_alone_with_its_quotes_and_comments() {
+    let out = yaml(DNS, |v| {
+        let r = v["web"]["letsencrypt"]["dns"][1]["rfc2136"]
+            .as_object_mut()
+            .unwrap();
+        r.shift_remove("key_name");
+        r.insert("key_name".into(), json!("burrow-key-2"));
+    });
+    assert_eq!(
+        out.text,
+        DNS.replace("key_name: burrow-key,", "key_name: burrow-key-2,")
+    );
+    assert!(out.reformat.is_none());
+    let out = yaml(DNS, |v| {
+        v["web"]["letsencrypt"]["dns"][0]["wait_secs"] = json!(300)
+    });
+    assert_eq!(
+        out.text,
+        DNS.replace(
+            "        wildcards: [\"*.example.com\"]\n",
+            "        wildcards: [\"*.example.com\"]\n        wait_secs: 300\n"
+        )
+    );
+}
+
+#[test]
+fn a_list_entry_is_added_switched_or_removed_without_touching_the_others() {
+    let added = yaml(DNS, |v| {
+        v["web"]["letsencrypt"]["dns"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"domains": ["example.io"], "command": "/usr/local/bin/burrow-dns"}))
+    });
+    assert_eq!(
+        added.text,
+        DNS.replace(
+            "# after\n",
+            "      - { domains: [example.io], command: /usr/local/bin/burrow-dns }\n# after\n"
+        )
+    );
+    let switched = yaml(DNS, |v| {
+        let e = &mut v["web"]["letsencrypt"]["dns"][0];
+        e.as_object_mut().unwrap().shift_remove("cloudflare");
+        e["acme_dns"] = json!({"api": "https://auth.example.org", "username": "u", "password": "${P}", "subdomain": "x"});
+    });
+    assert!(switched.text.contains("      - domains: [example.com, example.net] # these domains\n        wildcards: [\"*.example.com\"]\n        acme_dns:\n          api: https://auth.example.org\n"), "{}", switched.text);
+    assert!(
+        switched.text.contains(
+            "      - domains: [corp.example.org]\n        rfc2136: { server: \"192.168.1.2:53\""
+        ),
+        "{}",
+        switched.text
+    );
+    let removed = yaml(DNS, |v| {
+        v["web"]["letsencrypt"]["dns"]
+            .as_array_mut()
+            .unwrap()
+            .remove(1);
+    });
+    assert_eq!(
+        removed.text,
+        "web:\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com, example.net] # these domains\n        cloudflare: { token: \"${CF_TOKEN}\" } # quoted\n        wildcards: [\"*.example.com\"]\n# after\n"
+    );
 }

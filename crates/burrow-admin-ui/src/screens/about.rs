@@ -13,6 +13,11 @@ pub fn About() -> impl IntoView {
     let s = store();
     let diagnostics = move || crate::app::diagnostics(s);
     let copied = RwSignal::new(false);
+    let uptime = Memo::new(move |_| {
+        s.status
+            .with(|x| x.as_ref().map(|x| x.uptime_secs))
+            .map(format::coarse_length)
+    });
     let rows = move || {
         let w = s.welcome.get()?;
         let st = s.state.get()?;
@@ -32,7 +37,7 @@ pub fn About() -> impl IntoView {
                 "Server version",
                 if burrow_admin_logic::version::server_is_older(&w.server.version, UI_VERSION) {
                     format!(
-                        "{} · older than this burrow admin, update the server",
+                        "{}, older than this burrow admin: update the server",
                         w.server.version
                     )
                 } else {
@@ -42,11 +47,9 @@ pub fn About() -> impl IntoView {
             ("Built for", w.server.target.clone()),
             (
                 "Uptime",
-                format::span(
-                    s.status
-                        .with(|x| x.as_ref().map(|x| x.uptime_secs))
-                        .unwrap_or(w.server.uptime_secs),
-                ),
+                uptime
+                    .get()
+                    .unwrap_or_else(|| format::coarse_length(w.server.uptime_secs)),
             ),
             ("burrow admin UI", UI_VERSION.to_string()),
             (
@@ -56,7 +59,7 @@ pub fn About() -> impl IntoView {
             (
                 "Schema, for support",
                 format!(
-                    "version {} · {}",
+                    "version {} ({})",
                     schema.schema_version,
                     schema
                         .hash
@@ -69,7 +72,7 @@ pub fn About() -> impl IntoView {
             ),
             (
                 "Signed in as",
-                format!("{} · admin {level} · from {}", w.you.visitor, w.you.from),
+                format!("{}, admin {level}, from {}", w.you.visitor, w.you.from),
             ),
             ("Config file", st.file.path.clone()),
             ("Format", st.file.format.to_uppercase()),

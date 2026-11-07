@@ -183,7 +183,7 @@ services:
 
 | key | default | meaning |
 | --- | --- | --- |
-| `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. `[::]:port` listens on every IPv4 and IPv6 address, here and in every other address key. Needs `listen`, `websocket` or both |
+| `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. `[::]:port` listens on every IPv4 and IPv6 address, here and in every other address key. Needs `listen`, `websocket` or both. A change takes effect when the server restarts |
 | `public_address` | none | how clients reach this server: host, host:port or a `wss://` URL. `client-config` and `visitor-config` write it into the configs they print |
 | `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`, or, when it shares the port of a bare `web.https`, every IPv4 and IPv6 address (`[::]`) like `web.https`. See [websocket.md](websocket.md) and [The tunnel on the same port](web/tunnel.md#the-tunnel-on-the-same-port) |
 | `websocket.path` | `/burrow` | URL path for WebSocket clients |
@@ -248,7 +248,7 @@ services:
 | `web.redirect_names` | none | names (or a name and a path) with no site of their own that only redirect, like `old.example.com: https://example.com` |
 | `web.trusted_proxies` | none | address ranges of HTTP proxies whose `X-Forwarded-For` and `X-Forwarded-Proto` are believed |
 | `web.proxy_protocol_from` | none | address ranges of TCP load balancers that must send a PROXY header (v1 or v2) |
-| `web.access_log` | off | a file, or `{ file, format: common \| json }`: one line per request |
+| `web.access_log` | off | a file, or `{ file, format: common \| json }`: one line per request. From burrow admin, only a file in the server's own folders ([Access log](web/logs.md)) |
 | `web.request_id` | `false` | an `X-Request-Id` for each request, sent to the app, returned to the visitor and logged |
 | `web.hsts` | `false` | `Strict-Transport-Security` for a year on HTTPS answers |
 | `web.compress` | `false` | gzip text answers when the browser accepts it |
@@ -270,6 +270,7 @@ services:
 | `tcp.keepalive_secs` | `30` | TCP keepalive idle time; `0` turns it off |
 | `udp.session_timeout_secs` | `120` | a UDP peer that sends nothing for this long is forgotten. Two minutes is the least a NAT should keep a UDP mapping (RFC 4787); a shorter value frees peers sooner for traffic like DNS, where each query may come from a new port |
 | `udp.max_peers` | `4096` | most UDP peers one service port keeps at once, 1 to 1000000; a datagram from a new peer beyond it is dropped. A change applies at once to new peers |
+| `update.remote` | `false` | let burrow admin and `burrow mcp` update this server to the latest release ([updates.md](updates.md#update-the-server-from-burrow-admin)). Counts only for a service and only after `sudo burrow service install`, which records it where the server cannot change it; burrow admin shows it locked. `burrow init server --remote-updates` writes it |
 
 </details>
 

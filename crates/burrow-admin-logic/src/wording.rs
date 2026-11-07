@@ -2,18 +2,12 @@
 
 use burrow_admin_proto::codes::{
     BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, INVALID_SOURCE, MAX_CONNECTIONS_TCP_ONLY,
-    MISSING_FIELD, NO_CERTIFICATE, NO_CHECK, NO_HTTP, OUT_OF_RANGE, PASSTHROUGH_FIXED, PLAIN_HTTP,
+    MISSING_FIELD, NO_CERTIFICATE, NO_HTTP, OUT_OF_RANGE, PASSTHROUGH_FIXED, PLAIN_HTTP,
     PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP, REDIRECT_PLAIN, UNUSED_VISITOR,
-    WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WILDCARD_NEEDS_DNS, WRONG_TYPE,
+    WEB_OFF, WEB_TCP_ONLY, WEIGHT_NOT_BALANCE, WRONG_TYPE,
 };
 
 const WEB_PROXY: &str = "Settings, Web proxy";
-
-pub fn no_check(subject: &str) -> String {
-    format!(
-        "Let's Encrypt cannot check {subject}: its TLS and HTTP checks reach only ports 443 and 80; set the HTTPS port to 443 or the HTTP port to 80 in {WEB_PROXY}, use the DNS check (a DNS provider under {WEB_PROXY}, Let's Encrypt), or use your own certificate file"
-    )
-}
 
 const TCP_ONLY: [(&str, &str); 4] = [
     (
@@ -50,7 +44,7 @@ fn key_path(head: &str) -> bool {
     head.contains('.')
         && head
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*'))
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*' | '[' | ']'))
 }
 
 pub const REPO: &str = "https://github.com/CharlesNg35/burrow";
@@ -59,19 +53,52 @@ pub fn releases() -> String {
     format!("{REPO}/releases/latest")
 }
 
+pub fn release_notes(version: &str) -> Option<(String, String)> {
+    let v = semver::Version::parse(version.trim().trim_start_matches('v')).ok()?;
+    v.build
+        .is_empty()
+        .then(|| (v.to_string(), format!("{REPO}/releases/tag/v{v}")))
+}
+
 pub fn docs(page: &str) -> String {
     format!("{REPO}/blob/main/docs/{page}")
+}
+
+pub fn dns_guide(provider: &str) -> Option<String> {
+    use burrow_config::DnsEntry;
+    let anchor = if provider == DnsEntry::RFC2136.key() {
+        "rfc-2136-bind-knot-powerdns-technitium".to_string()
+    } else if [DnsEntry::CLOUDFLARE.key(), DnsEntry::ACME_DNS.key()].contains(&provider) {
+        provider.replace('_', "-")
+    } else {
+        return None;
+    };
+    Some(docs(&format!("web/certificates.md#{anchor}")))
 }
 
 pub fn add_label(field: &str, item: &str) -> String {
     if item.is_empty() {
         format!("Add to {field}")
     } else {
-        format!("Add {}", item.to_lowercase())
+        let words: Vec<String> = item
+            .split(' ')
+            .map(|w| {
+                let acronym = w.len() > 1 && w.chars().all(|c| !c.is_lowercase());
+                if acronym {
+                    w.to_string()
+                } else {
+                    w.to_lowercase()
+                }
+            })
+            .collect();
+        format!("Add {}", words.join(" "))
     }
 }
 
 pub fn help_shown(code: &str, help: Option<&str>) -> Option<String> {
+    if crate::cert_words::CODES.contains(&code) {
+        return None;
+    }
     if code == UNUSED_VISITOR {
         return Some(
             "Add it to a service's Visitors, or give it direct access to a client.".into(),
@@ -152,6 +179,28 @@ pub const THIS_SERVER: &str = "This server";
 pub const PICK_VISITORS: &str =
     "Turn on a way in: Public port, Website, or Visitors with at least one visitor";
 pub const SESSION_ENDED_HINT: &str = "Run burrow admin again; it opens a new tab.";
+
+pub fn revoked_words(reason: &str) -> (&'static str, &'static str) {
+    use burrow_admin_proto::msg::revoked;
+    match reason {
+        revoked::SECRET_REMOVED => (
+            "The secret of this session was removed",
+            "Run burrow admin again with the visitor's new secret.",
+        ),
+        revoked::LEVEL_CHANGED => (
+            "Your admin level changed",
+            "Run burrow admin again to go on with the new level.",
+        ),
+        revoked::SOURCE_NOT_ALLOWED => (
+            "This address may no longer administer the server",
+            "Run burrow admin again from an address that Admin only from allows.",
+        ),
+        _ => (
+            "Your admin access was removed",
+            "Ask a write admin, then run burrow admin again.",
+        ),
+    }
+}
 pub const VERSION_GONE: &str = "The details of this change are no longer kept.";
 pub const TYPE_NAME_FIRST: &str = "Type a name first";
 pub const CLIENTS_OFFLINE: &str = "Clients offline";
@@ -194,6 +243,21 @@ pub const WEIGHTS_NEED_BALANCE: &str = "Weights only apply with Balance or IP ha
 
 pub fn required(label: &str) -> String {
     format!("{label} is required")
+}
+
+pub fn key_hint(path: &[String]) -> String {
+    path.iter()
+        .map(|k| k.replace('_', "_\u{200b}"))
+        .collect::<Vec<_>>()
+        .join(".\u{200b}")
+}
+
+pub fn at_field(message: &str) -> String {
+    message
+        .strip_prefix("invalid ")
+        .and_then(|rest| rest.split_once(" \""))
+        .and_then(|(_, after)| after.split_once("\": "))
+        .map_or_else(|| message.to_string(), |(_, own)| own.to_string())
 }
 
 pub fn beside_label(label: &str, message: &str) -> String {
@@ -273,17 +337,15 @@ pub fn diag_title(d: &burrow_admin_proto::diag::Diag) -> String {
 }
 
 #[cfg(test)]
-pub(crate) const SHOWN_CODES: [&str; 18] = [
+pub(crate) const SHOWN_CODES: [&str; 16] = [
     INVALID_SOURCE,
     WEIGHT_NOT_BALANCE,
     UNUSED_VISITOR,
     NO_HTTP,
     REDIRECT_NEEDS_HTTP,
     PLAIN_NEEDS_HTTP,
-    NO_CHECK,
     WEB_OFF,
     NO_CERTIFICATE,
-    WILDCARD_NEEDS_DNS,
     PLAIN_HTTP,
     PASSTHROUGH_FIXED,
     REDIRECT_PLAIN,
@@ -319,20 +381,15 @@ pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
             "plain HTTP needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in {WEB_PROXY}, or choose another HTTPS option"
         );
     }
-    if code == NO_CHECK {
-        return no_check(subject);
+    if let Some(text) = crate::cert_words::worded(code, subjects) {
+        return text;
     }
     if code == WEB_OFF {
         return format!("the web proxy is off; turn it on with its ports in {WEB_PROXY}");
     }
     if code == NO_CERTIFICATE {
         return format!(
-            "{subject} has no certificate: turn on Let's Encrypt under {WEB_PROXY}, choose My own certificate under HTTPS, or list the name in the web proxy's Certificate files"
-        );
-    }
-    if code == WILDCARD_NEEDS_DNS {
-        return format!(
-            "Let's Encrypt gives {subject} only through a DNS check: add a DNS provider for its domain under {WEB_PROXY}, Let's Encrypt, or use your own certificate file for it"
+            "{subject} has no certificate: turn on Let's Encrypt under {WEB_PROXY}, choose My own certificate under HTTPS, or list the name under Your own certificates"
         );
     }
     if code == PLAIN_HTTP {

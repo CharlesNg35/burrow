@@ -207,6 +207,51 @@ pub fn veil_value(v: &Value, hashes: &[String]) -> Value {
     }
 }
 
+pub fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String, String)>) {
+    match v {
+        Value::String(s)
+            if is_reference(node) && !s.is_empty() && !burrow_syntax::env::is_reference(s) =>
+        {
+            out.push((key.to_string(), s.clone()));
+        }
+        Value::Object(m) => m
+            .iter()
+            .for_each(|(k, x)| credentials(x, child(node, k), k, out)),
+        Value::Array(items) => {
+            let item = match node.map(|n| &n.sem) {
+                Some(SemType::List(l)) => Some(&*l.item),
+                _ => None,
+            };
+            items.iter().for_each(|i| credentials(i, item, key, out));
+        }
+        _ => {}
+    }
+}
+
+pub fn credentials_in(texts: &[&str], root: &Node) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for t in texts {
+        let (_, _, src) = crate::config::patch::split_text(t);
+        if let Ok(tree) = crate::config::tree::parse(&src) {
+            credentials(&tree.to_json(), Some(root), "", &mut out);
+        }
+    }
+    out
+}
+
+pub fn veil_written(v: &Value, pairs: &[(String, String)]) -> Value {
+    match v {
+        Value::String(s) if pairs.iter().any(|(_, w)| w == s) => Value::String(HEADER_SHOWN.into()),
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .map(|(k, x)| (k.clone(), veil_written(x, pairs)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(|x| veil_written(x, pairs)).collect()),
+        other => other.clone(),
+    }
+}
+
 pub const HEADER_SHOWN: &str = "«hidden»";
 pub const HEADER_CHANGED: &str = "«hidden, changed»";
 

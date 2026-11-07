@@ -14,6 +14,7 @@ pub mod patch;
 pub(crate) mod save;
 pub mod schema;
 pub mod settings;
+pub mod text_check;
 pub mod tree;
 pub mod validate;
 pub mod web_summary;

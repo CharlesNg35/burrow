@@ -5,7 +5,17 @@ use crate::admin_schema::AdminSchema;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "DNS provider")]
+#[admin(
+    label = "DNS provider",
+    one_of(
+        provider = "DNS provider | Who sets the DNS records for these domains",
+        required,
+        cloudflare,
+        rfc2136,
+        acme_dns,
+        command
+    )
+)]
 pub struct DnsEntry {
     #[serde(default)]
     #[schemars(
@@ -13,7 +23,7 @@ pub struct DnsEntry {
     )]
     #[admin(
         ty = list(host_name),
-        help = "The domains whose DNS records this provider can set, for example example.com; it covers every name under it, like wiki.example.com and *.apps.example.com"
+        help = "The domains whose DNS records this provider can set, for example example.com; each covers every name under it, like wiki.example.com"
     )]
     pub domains: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,8 +59,10 @@ pub struct DnsEntry {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
+        label = "A command of yours",
         help = "A program that sets the records with any provider, called with present or cleanup, the record's name and its value, for example /usr/local/bin/burrow-dns",
         none_label = "Not used",
+        readonly = "Runs a program on the server: set it in server.yaml (see docs/web/certificates.md#a-command-for-any-provider)",
         locked
     )]
     pub command: Option<String>,
@@ -61,7 +73,7 @@ pub struct DnsEntry {
     #[admin(
         ty = list(host_name),
         label = "Shared wildcards",
-        help = "One certificate each for every site one label under it and its parent name, for example *.example.com",
+        help = "Start each with *., for example *.example.com: one certificate for example.com and every site one label under it",
         empty_label = "None"
     )]
     pub wildcards: Vec<String>,
@@ -101,8 +113,7 @@ pub struct CloudflareDns {
     #[admin(
         ty = secret_ref(max = 1, reference),
         label = "API token",
-        help = "An API token allowed Zone:Read and DNS:Edit on these zones only, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token",
-        locked
+        help = "An API token with Zone:Read and DNS:Edit permissions, scoped to these zones, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token"
     )]
     pub token: String,
 }
@@ -116,17 +127,13 @@ pub struct Rfc2136Dns {
         description = "The zone's primary nameserver as host:port, for example 192.168.1.2:53; the public nameservers must get the record from it"
     )]
     #[admin(
-        help = "The zone's primary nameserver with its port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers",
-        locked
+        help = "The zone's primary nameserver with its port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers"
     )]
     pub server: String,
     #[schemars(
         description = "The TSIG key's name, as in the server's key file, for example burrow-key"
     )]
-    #[admin(
-        help = "The TSIG key's name, as in the server's key file, for example burrow-key",
-        locked
-    )]
+    #[admin(help = "The TSIG key's name, as in the server's key file, for example burrow-key")]
     pub key_name: String,
     #[schemars(
         description = "The TSIG secret in base64, as in the server's key file, from ${TSIG_SECRET} or file:path"
@@ -134,8 +141,7 @@ pub struct Rfc2136Dns {
     #[admin(
         ty = secret_ref(max = 1, reference),
         label = "Key secret",
-        help = "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret",
-        locked
+        help = "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret"
     )]
     pub secret: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -145,8 +151,7 @@ pub struct Rfc2136Dns {
     #[admin(
         help = "The TSIG key's algorithm, as in the server's key file, for example hmac-sha512",
         none_label = "hmac-sha256",
-        advanced,
-        locked
+        advanced
     )]
     pub algorithm: Option<String>,
 }
@@ -161,23 +166,20 @@ pub struct AcmeDnsDns {
     )]
     #[admin(
         label = "Server address",
-        help = "The acme-dns server's address, for example https://auth.example.org",
-        locked
+        help = "The acme-dns server's address, for example https://auth.example.org"
     )]
     pub api: String,
     #[schemars(description = "The account's user name, from ${ACMEDNS_USER} or file:path")]
     #[admin(
         ty = secret_ref(max = 1, reference),
         label = "User name",
-        help = "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file",
-        locked
+        help = "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file like file:/etc/burrow/acmedns.user"
     )]
     pub username: String,
     #[schemars(description = "The account's password, from ${ACMEDNS_KEY} or file:path")]
     #[admin(
         ty = secret_ref(max = 1, reference),
-        help = "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file",
-        locked
+        help = "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file like file:/etc/burrow/acmedns.key"
     )]
     pub password: String,
     #[schemars(

@@ -1,4 +1,4 @@
-//! The root (SYSTEM on Windows) updater beside a client service: install, trigger and result files per service manager.
+//! The root (SYSTEM on Windows) updater beside a client or server service: install, trigger and result files per service manager.
 
 pub mod acl;
 #[cfg(target_os = "macos")]
@@ -102,7 +102,7 @@ pub fn trigger(m: &Manifest) -> Option<PathBuf> {
 }
 
 pub fn wanted(m: &Manifest) -> bool {
-    m.role == Role::Client && m.remote_updates
+    m.role != Role::Visitor && m.remote_updates
 }
 
 fn results_folder(m: &Manifest) -> Result<(), Failure> {
@@ -151,10 +151,20 @@ pub fn set_up(m: &Manifest, out: &mut dyn Write) -> Result<(), Failure> {
     }
     results_folder(m)?;
     h.install(m)?;
+    let (who, healthy) = match m.role {
+        Role::Server => (
+            "an admin with write access in burrow admin or burrow mcp may update it",
+            "does not come up healthy",
+        ),
+        _ => (
+            "the server's admin may ask it to update",
+            "does not connect",
+        ),
+    };
     say(
         out,
         format!(
-            "{}: the server's admin may ask it to update to the latest release; {} downloads and checks it, and puts the old one back if the new one does not connect within a minute",
+            "{}: {who} to the latest release; {} downloads and checks it, and puts the old one back if the new one {healthy} within a minute",
             m.name,
             helper_name(m)
         ),
@@ -171,8 +181,9 @@ pub fn remove(m: &Manifest) -> Result<(), Failure> {
 fn remove_with(h: &dyn Helper, m: &Manifest) -> Result<(), Failure> {
     h.remove(m)?;
     h.take_trigger(m);
-    if m.role == Role::Client {
+    if m.role != Role::Visitor {
         let _ = std::fs::remove_dir_all(dir(m));
+        let _ = std::fs::remove_dir(base().join("updates"));
     }
     Ok(())
 }

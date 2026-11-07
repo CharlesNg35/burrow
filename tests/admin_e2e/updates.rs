@@ -6,11 +6,13 @@ use super::world::{BIN, Options};
 use super::{Ctx, SECS, both_widths, open, overview_tab, run};
 
 static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static RELEASES: std::sync::OnceLock<Releases> = std::sync::OnceLock::new();
 static LAB: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static SPARE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-const OLD: &str = "9.0.0-test.1";
-const NEW: &str = "9.0.0-test.2";
+const OLD: &str = "0.0.1-test.1";
+const NEW: &str = "0.0.1-test.2";
+const BROKEN: &str = "0.0.1-test.3";
 
 fn marked(marks: &[&str]) -> Vec<u8> {
     let mut b = std::fs::read(BIN).unwrap();
@@ -74,6 +76,103 @@ async fn every_look(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
+pub const WIDTHS: [i64; 7] = [320, 360, 390, 768, 1024, 1280, 1440];
+
+pub async fn row_ok(c: &Ctx, css: &str) -> String {
+    c.ui.eval::<String>(&format!(
+        r#"(() => {{
+            const row = document.querySelector({css:?});
+            if (!row) return "missing";
+            const kids = [...row.children].filter(e => e.getBoundingClientRect().width > 0);
+            for (const k of kids) {{
+                const t = k.textContent.trim();
+                if (/^[·•|]/.test(t) || /[·•|]$/.test(t)) return "separator at a line edge: " + t;
+            }}
+            const btn = kids.find(k => k.tagName === "BUTTON" || k.querySelector("button"));
+            if (btn) {{
+                const b = btn.getBoundingClientRect();
+                const cy = b.top + b.height / 2;
+                for (const k of kids) {{
+                    if (k === btn) continue;
+                    const r = k.getBoundingClientRect();
+                    if (r.top < b.bottom && r.bottom > b.top && Math.abs(r.top + r.height / 2 - cy) > 2)
+                        return "off the button's centre by " + (r.top + r.height / 2 - cy).toFixed(1) + "px: " + k.textContent.trim();
+                }}
+            }}
+            const edge = row.getBoundingClientRect().right;
+            const out = kids.filter(k => k.getBoundingClientRect().right > edge + 1);
+            if (out.length) return "overflows: " + out.map(k => k.textContent.trim() + " ends at " + k.getBoundingClientRect().right.toFixed(1) + " > " + edge.toFixed(1)).join(", ");
+            return "ok";
+        }})()"#
+    ))
+    .await
+}
+
+pub async fn every_width(c: &mut Ctx, step: &str, rows: &[&str]) {
+    for w in WIDTHS {
+        c.ui.viewport(w, 900).await;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        for row in rows {
+            assert_eq!(row_ok(c, row).await, "ok", "{row} at {w}px");
+        }
+        c.ui.shot(&format!("{step}-{w}")).await;
+    }
+    c.ui.viewport(1440, 900).await;
+}
+
+pub async fn whats_new(c: &Ctx, dialog: &str, version: &str, text: &str) {
+    let link = format!("[data-testid={dialog}] [data-testid=whats-new]");
+    assert_eq!(c.ui.text(&link).await, text);
+    assert_eq!(
+        c.ui.attr_of(&link, "href").await,
+        format!("https://github.com/CharlesNg35/burrow/releases/tag/v{version}")
+    );
+    assert_eq!(c.ui.attr_of(&link, "target").await, "_blank");
+    assert_eq!(c.ui.attr_of(&link, "rel").await, "noopener noreferrer");
+    let fetched: f64 = c
+        .ui
+        .eval("performance.getEntriesByType('resource').filter(e => e.name.includes('github')).length")
+        .await;
+    assert_eq!(fetched, 0.0, "the page fetches nothing from GitHub");
+}
+
+async fn not_offered(c: &mut Ctx) {
+    c.ui.nav("/clients/office").await;
+    let tag = "[data-testid=live] [data-testid=client-update-tag]";
+    c.ui.wait_text(tag, &format!("{NEW} available"), SECS).await;
+    assert_eq!(
+        c.ui.count("[data-testid=client-update]").await,
+        0,
+        "office did not opt in: no button, not a disabled one"
+    );
+    let why = c.ui.attr_of(tag, "title").await;
+    assert!(
+        why.contains("off in its config"),
+        "the reason is the tag's tooltip: {why}"
+    );
+    assert_eq!(
+        c.ui.text("[data-testid=live] [data-stat=burrow]").await,
+        OLD
+    );
+    every_look(c, "client-not-allowed").await;
+
+    c.ui.nav("/clients/lab").await;
+    c.ui.wait_for("[data-testid=live] [data-stat=burrow]", SECS)
+        .await;
+    let live = c.ui.text("[data-testid=live]").await;
+    assert!(live.contains("older than 0.2.2"), "{live}");
+    let hint =
+            c.ui.eval::<String>(
+                "document.querySelector('[data-testid=live] [data-stat=burrow]').closest('[title]')?.title ?? ''",
+            )
+            .await;
+    assert!(
+        hint.contains("sudo burrow update"),
+        "the hint is a tooltip: {hint}"
+    );
+    every_look(c, "client-older").await;
+}
+
 fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
     Box::pin(async move {
         start(
@@ -91,6 +190,14 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             "update:\n  remote: true\n",
         );
         open(c, "ops").await;
+        c.ui.wait_for("[data-testid=overview-sub]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=server-burrow]").await,
+            0,
+            "no newer release for the server: the header says nothing more"
+        );
+        let sub = c.ui.text("[data-testid=overview-sub]").await;
+        assert!(sub.starts_with('v') && !sub.contains("available"), "{sub}");
         overview_tab(c, "clients").await;
         c.ui.wait_text(
             "[data-testid=overview-clients] tr[data-row=home] [data-testid=client-update-tag]",
@@ -107,13 +214,18 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             format!("[data-testid=overview-clients] tr[data-row={n}] [data-testid=client-system]")
         };
         let home = c.ui.text(&row("home")).await;
-        assert!(home.ends_with(" · by hand"), "{home}");
-        let office = c.ui.text(&row("office")).await;
-        assert!(office.ends_with(" · by hand · updates off"), "{office}");
         assert!(
-            c.ui.attr_of(&row("office"), "title")
+            home.contains('/') && !home.contains('·'),
+            "the system only: {home}"
+        );
+        let office_tag =
+            "[data-testid=overview-clients] tr[data-row=office] [data-testid=client-update-tag]";
+        assert_eq!(c.ui.text(office_tag).await, format!("{NEW} available"));
+        assert!(
+            c.ui.attr_of(office_tag, "title")
                 .await
-                .ends_with("remote updates off in its config")
+                .contains("remote updates are off in its config"),
+            "updates off is the tag's tooltip"
         );
         let all = c.ui.text("[data-testid=update-all]").await;
         assert_eq!(
@@ -121,49 +233,37 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
             format!("Update all to {NEW} (2)"),
             "only home and spare can take it"
         );
-        every_look(c, "clients-versions").await;
+        every_width(c, "clients-versions", &["[data-testid=updates-bar]"]).await;
 
-        c.ui.nav("/clients/office").await;
-        c.ui.wait_for("[data-testid=live] [data-testid=client-facts]", SECS)
-            .await;
-        assert_eq!(
-            c.ui.count("[data-testid=client-burrow]").await,
-            0,
-            "the client's burrow sits in its overview figures, not in a card of its own"
-        );
-        assert!(
-            !c.ui.enabled("[data-testid=client-update]").await,
-            "office did not opt in"
-        );
-        let why =
-            c.ui.eval::<String>(
-                "document.querySelector('[data-testid=client-update]').parentElement.title",
-            )
-            .await;
-        assert!(
-            why.contains("off in its config"),
-            "the reason shows on hover: {why}"
-        );
-        let remote = c.ui.text("[data-testid=client-facts]").await;
-        assert!(remote.contains("off in its config"), "{remote}");
-        every_look(c, "client-not-allowed").await;
-
-        c.ui.nav("/clients/lab").await;
-        c.ui.wait_for("[data-testid=client-older]", SECS).await;
-        let older = c.ui.text("[data-testid=client-older]").await;
-        assert!(older.contains("sudo burrow update"), "{older}");
-        every_look(c, "client-older").await;
+        not_offered(c).await;
 
         c.ui.nav("/clients/home").await;
         c.ui.wait_for("[data-testid=client-update]", SECS).await;
-        every_look(c, "client-update-offer").await;
+        every_width(
+            c,
+            "client-update-offer",
+            &["[data-testid=live] [data-stat-row=burrow]"],
+        )
+        .await;
         c.ui.click("[data-testid=client-update]").await;
         c.ui.wait_for("[data-testid=client-update-dialog]", SECS)
             .await;
+        whats_new(c, "client-update-dialog", NEW, "What's new").await;
+        let current =
+            c.ui.text("[data-testid=client-update-dialog] [data-testid=update-versions]")
+                .await;
+        assert!(current.contains(OLD) && current.contains(NEW), "{current}");
+        let notes =
+            c.ui.text("[data-testid=client-update-dialog] [data-testid=update-notes]")
+                .await;
+        assert!(
+            notes.contains(&format!("goes back to {OLD}")) && notes.contains("within a minute"),
+            "{notes}"
+        );
         every_look(c, "client-update-dialog").await;
         c.ui.click("[data-testid=client-update-confirm]").await;
         c.ui.wait_text(
-            "[data-testid=client-last-update]",
+            "[data-testid=live] [data-testid=client-update-tag]",
             "updated",
             Duration::from_secs(60),
         )
@@ -187,6 +287,15 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         .await;
         c.ui.click("[data-testid=update-all]").await;
         c.ui.wait_for("[data-testid=update-all-dialog]", SECS).await;
+        whats_new(c, "update-all-dialog", NEW, &format!("What's new in {NEW}")).await;
+        let names =
+            c.ui.text("[data-testid=update-all-dialog] [data-testid=update-names]")
+                .await;
+        assert!(
+            names.starts_with("spare")
+                && names.contains("office: remote updates are off in its config"),
+            "{names}"
+        );
         both_widths(c, "update-all-dialog").await;
         c.ui.click("[data-testid=update-all-confirm]").await;
         c.ui.wait_text(
@@ -197,13 +306,61 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         .await;
         assert_eq!(c.ui.count("[data-testid=update-all]").await, 0);
         every_look(c, "update-all-done").await;
+        rolled_back(c).await;
         c.ui.assert_no_errors();
     })
 }
 
+async fn rolled_back(c: &mut Ctx) {
+    let releases = RELEASES.get().expect("the release server");
+    releases.publish(
+        BROKEN,
+        &marked(&[&format!("VERSION={BROKEN}"), "BREAK=connect"]),
+        false,
+    );
+    c.ui.nav("/clients/home").await;
+    let tag = "[data-testid=live] [data-testid=client-update-tag]";
+    c.ui.wait_text(tag, &format!("{BROKEN} available"), Duration::from_secs(30))
+        .await;
+    c.ui.click("[data-testid=client-update]").await;
+    c.ui.wait_for("[data-testid=client-update-dialog]", SECS)
+        .await;
+    c.ui.click("[data-testid=client-update-confirm]").await;
+    c.ui.wait_text(tag, "updating…", SECS).await;
+    every_look(c, "client-updating").await;
+    c.ui.wait_text(tag, "rolled back", Duration::from_secs(60))
+        .await;
+    let why = c.ui.attr_of(tag, "title").await;
+    assert!(
+        why.contains("so home went back to"),
+        "a plain reason is the tooltip: {why}"
+    );
+    assert_eq!(
+        c.ui.count("[data-testid=client-update]").await,
+        0,
+        "one message at a time: the result first"
+    );
+    every_look(c, "client-rolled-back").await;
+    c.ui.nav("/").await;
+    let item = "[data-item='client-update:home']";
+    c.ui.wait_for(item, SECS).await;
+    let text = c.ui.text(item).await;
+    assert!(
+        text.contains(&format!("Update of home to {BROKEN} rolled back"))
+            && text.contains("is running normally"),
+        "{text}"
+    );
+    assert_eq!(
+        c.ui.count(&format!("{item} [data-testid=update-try-again]"))
+            .await,
+        1
+    );
+    every_look(c, "client-rolled-back-attention").await;
+}
+
 #[test]
 fn a_client_is_updated_from_its_page_and_others_say_why_not() {
-    let releases = Releases::start();
+    let releases = RELEASES.get_or_init(Releases::start);
     releases.publish(NEW, &marked(&[&format!("VERSION={NEW}")]), false);
     let base = releases.base.clone();
     let lab = LAB.get_or_init(super::world::secret).clone();
@@ -214,11 +371,13 @@ fn a_client_is_updated_from_its_page_and_others_say_why_not() {
         Options {
             clients: Some(Vec::new()),
             extra_clients: format!("  lab:\n    secret: {lab}\n  spare:\n    secret: {spare}\n"),
-            server_env: vec![("BURROW_UPDATE_URL".into(), base)],
+            server_env: vec![
+                ("BURROW_UPDATE_URL".into(), base),
+                ("BURROW_ADMIN_TEST_LATEST_SECS".into(), "1".into()),
+            ],
             ..Options::default()
         },
         true,
         flow,
     );
-    drop(releases);
 }

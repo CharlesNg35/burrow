@@ -135,6 +135,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     problems.extend(crate::shape::problems(root)?);
     problems.extend(crate::lints::problems(root)?);
     problems.extend(crate::once::problems(root)?);
+    problems.extend(crate::glyphs::problems(root)?);
     if problems.is_empty() {
         println!("arch-check: ok");
         Ok(())

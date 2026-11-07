@@ -184,7 +184,7 @@ fn burrow_status_shows_a_running_client_and_its_remote_update_setting() {
     assert!(o.status.success(), "{shown}");
     assert!(shown.contains("client \"home\" of 127.0.0.1"), "{shown}");
     assert!(shown.contains("remote updates"), "{shown}");
-    assert!(shown.contains("by hand on"), "{shown}");
+    assert!(shown.contains("started by hand on"), "{shown}");
 }
 
 fn clients(s: &Setup, args: &[&str]) -> (Option<i32>, String) {
@@ -228,9 +228,11 @@ fn burrow_clients_lists_each_client_with_its_burrow_and_a_newer_release() {
     };
     assert!(shown.contains("latest release 99.0.0"), "{shown}");
     assert!(shown.contains(MINE), "{shown}");
-    assert!(shown.contains("by hand"), "{shown}");
+    assert!(shown.contains("started by hand"), "{shown}");
     assert!(
-        shown.contains("99.0.0 available, but remote updates are off in its config"),
+        shown.contains(&format!(
+            "99.0.0 available, but the server runs {MINE}; update the server first to 99.0.0"
+        )),
         "{shown}"
     );
     let (code, json) = clients(&s, &["--json"]);
@@ -265,7 +267,9 @@ fn burrow_clients_update_says_why_each_client_is_not_asked_and_fails() {
         "{shown}"
     );
     assert!(
-        shown.contains("home: not asked: remote updates are off in its config"),
+        shown.contains(&format!(
+            "home: not asked: the server runs {MINE}; update the server first to 99.0.0"
+        )),
         "{shown}"
     );
     let (code, shown) = clients(&s, &["update", "away", "--json", "--yes"]);

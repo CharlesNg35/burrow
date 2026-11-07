@@ -58,13 +58,6 @@ impl Edit {
                 .update(|l| l.retain(|p, _| !p.starts_with(entity)));
         }
         if self
-            .refused
-            .with_untracked(|r| r.iter().any(|p| p.starts_with(entity)))
-        {
-            self.refused
-                .update(|r| r.retain(|p| !p.starts_with(entity)));
-        }
-        if self
             .texts
             .with_untracked(|t| t.keys().any(|p| p.starts_with(entity)))
         {
@@ -100,12 +93,6 @@ impl Edit {
         }
     }
 
-    pub(super) fn clear_refused(&self) {
-        if self.refused.with_untracked(|r| !r.is_empty()) {
-            self.refused.set(std::collections::BTreeSet::new());
-        }
-    }
-
     pub fn sync_base(&self, values: &Value, rev: &str) -> bool {
         let reset = self.reset_on_load.get_untracked();
         let known = self.base_rev.get_untracked();
@@ -117,7 +104,6 @@ impl Edit {
             self.draft.set(Changeset::new(values.clone()));
             self.texts.set(BTreeMap::new());
             self.files.set(Default::default());
-            self.clear_refused();
             if reset {
                 self.local.set(BTreeMap::new());
                 self.clear_edits();
@@ -199,7 +185,6 @@ impl Edit {
         self.draft.update(|d| d.rebase(state.values.clone()));
         self.base_rev.set(state.rev.clone());
         self.end_conflict();
-        self.clear_refused();
         store.changed.set(None);
         self.changed();
     }

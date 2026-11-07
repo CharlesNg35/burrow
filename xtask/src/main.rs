@@ -8,6 +8,7 @@ mod arch;
 mod compat;
 mod e2e;
 mod fields;
+mod glyphs;
 mod layers;
 mod lints;
 mod once;

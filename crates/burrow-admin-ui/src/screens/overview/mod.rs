@@ -5,6 +5,7 @@ mod certs;
 mod page;
 mod tables;
 mod tabs;
+mod update_items;
 mod web;
 
 use burrow_admin_logic::rates::{axis_max, mbit};
@@ -18,6 +19,7 @@ use burrow_ui_kit::{ChartData, Tone};
 use crate::format;
 use crate::route::Route;
 use crate::screens::paths::clients_of;
+use crate::store::Retry;
 
 pub(crate) use page::Overview;
 
@@ -29,6 +31,14 @@ pub struct Item {
     pub detail: String,
     pub to: Option<Route>,
     pub field: Option<Vec<String>>,
+    pub extra: Option<Extra>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Extra {
+    pub raw: String,
+    pub retry: Option<Retry>,
+    pub notes: Option<String>,
 }
 
 fn rank(t: Tone) -> u8 {
@@ -75,6 +85,7 @@ pub fn attention(
         out.extend(status.web_waiting.as_ref().map(web_wait_item));
         out.extend(status.services.iter().filter_map(not_listening_item));
         out.extend(certs::items(status, now));
+        out.extend(update_items::items(status));
     }
     out.sort_by_key(|i| rank(i.tone));
     out
@@ -101,6 +112,7 @@ fn not_open_item(n: &burrow_admin_proto::msg::NotOpen) -> Item {
         ),
         to: Some(Route::Settings),
         field: Some(n.path.clone()),
+        extra: None,
     }
 }
 
@@ -118,6 +130,7 @@ fn not_listening_item(s: &burrow_admin_proto::status::ServiceStatus) -> Option<I
             s.name.clone(),
         )),
         field: Some(burrow_config::ServiceEntry::BIND.of(&s.name)),
+        extra: None,
     })
 }
 
@@ -134,6 +147,7 @@ fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
         },
         to: Some(Route::Settings),
         field: Some(field),
+        extra: None,
     }
 }
 
@@ -147,6 +161,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 .into(),
             to: Some(Route::About),
             field: None,
+            extra: None,
         });
     }
     for p in &st.runtime.restart_pending {
@@ -159,6 +174,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                     .into(),
             to: Some(Route::Settings),
             field: None,
+            extra: None,
         });
     }
     for n in &st.runtime.not_open {
@@ -179,6 +195,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             ),
             to: d.path.as_deref().and_then(link_of),
             field: burrow_admin_logic::wording::field_for(&d.code),
+            extra: None,
         });
     }
 }
@@ -221,6 +238,7 @@ fn service_items(
                     },
                     to,
                     field: None,
+                    extra: None,
                 });
                 continue;
             }
@@ -241,6 +259,7 @@ fn service_items(
                     detail: format!("Failing on {}.", failing.join(", ")),
                     to,
                     field: None,
+                    extra: None,
                 });
             } else if let [c] = off.as_slice() {
                 by_client.entry((*c).clone()).or_default().1.push((
@@ -266,6 +285,7 @@ fn service_items(
                     ),
                     to,
                     field: None,
+                    extra: None,
                 });
             }
         }
@@ -280,13 +300,6 @@ fn client_item(
     status: &Status,
 ) -> Item {
     let mut parts = Vec::new();
-    if !down.is_empty() {
-        parts.push(format!(
-            "{} {} down",
-            and_list(&down),
-            if down.len() == 1 { "is" } else { "are" }
-        ));
-    }
     let mut shapes: Vec<(usize, usize)> = partial.iter().map(|(_, u, n)| (*u, *n)).collect();
     shapes.sort();
     shapes.dedup();
@@ -307,17 +320,38 @@ fn client_item(
         burrow_admin_logic::presence::client(status, &c).and_then(|x| x.left_secs_ago),
         status.uptime_secs,
     );
+    let offline = burrow_admin_logic::wording::OFFLINE;
+    let (tone, title, first) = if down.is_empty() {
+        (
+            Tone::Warning,
+            format!("Client {c} is {offline}"),
+            burrow_admin_logic::wording::capital(&when),
+        )
+    } else {
+        (
+            Tone::Danger,
+            format!(
+                "{} {} {} down",
+                if down.len() == 1 {
+                    "Service"
+                } else {
+                    "Services"
+                },
+                and_list(&down),
+                if down.len() == 1 { "is" } else { "are" }
+            ),
+            format!("Its client {c} is {offline}, {when}"),
+        )
+    };
+    parts.insert(0, first);
     Item {
         key: format!("client:{c}"),
-        tone: if down.is_empty() {
-            Tone::Warning
-        } else {
-            Tone::Danger
-        },
-        title: format!("Client {c} is {}", burrow_admin_logic::wording::OFFLINE),
-        detail: format!("{} · {when}", parts.join("; ")),
+        tone,
+        title,
+        detail: parts.join("; "),
         to: Some(Route::Detail(ClientEntry::section().into(), c)),
         field: None,
+        extra: None,
     }
 }
 
@@ -417,6 +451,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
                 ),
                 to: Some(Route::Detail(ClientEntry::section().into(), c)),
                 field: None,
+                extra: None,
             })
         })
         .collect()
@@ -472,8 +507,8 @@ pub fn chart(a: &[Option<f64>], b: &[Option<f64>], window: usize) -> ChartData {
     let samples = a.iter().filter(|v| v.is_some()).count();
     let empty_note = (a.len() < 30 && a.len() * 2 < window).then(|| {
         format!(
-            "Recording since you opened this page · {} so far",
-            format::span(a.len() as u64)
+            "Recording since you opened this page: {} so far",
+            format::UNDER_A_MINUTE
         )
     });
     ChartData {
@@ -495,6 +530,7 @@ pub fn old_server_item(server: &str, ui: &str) -> Option<Item> {
         detail: "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand.".into(),
         to: Some(Route::About),
         field: None,
+        extra: None,
     })
 }
 
@@ -562,10 +598,10 @@ mod tests {
         let st = status(&["a"], &["b", "c", "d"]);
         let items = attention(&v, None, Some(&st), 0);
         let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
-        assert_eq!(titles, ["Client b is offline", "Service both is down"]);
+        assert_eq!(titles, ["Service zz-down is down", "Service both is down"]);
         assert_eq!(
             items[0].detail,
-            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d ago"
+            "Its client b is offline, left 2d ago; aa-partial runs on 1 of 2 clients"
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
@@ -624,7 +660,7 @@ mod tests {
         assert!((d.a[2].unwrap() - 50.0).abs() < 1e-9);
         assert_eq!(d.y_ticks, ["0", "15", "30", "45", "60"]);
         assert_eq!(d.x_ticks.last().map(String::as_str), Some("now"));
-        assert!(d.empty_note.unwrap().contains("3s so far"));
+        assert!(d.empty_note.unwrap().contains("less than a minute so far"));
         assert!(chart(&a[..1], &b[..1], 900).a.is_empty());
         let full: Vec<Option<f64>> = vec![Some(mb); 1000];
         let d = chart(&full, &full, 900);

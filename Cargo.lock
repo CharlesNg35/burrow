@@ -435,7 +435,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burrow"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "arbtest",
  "argon2",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-derive"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-logic"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-admin-proto",
  "burrow-config",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-proto"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-syntax",
  "schemars",
@@ -536,7 +536,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-ui"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-config"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "burrow-admin-derive",
  "burrow-admin-proto",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-io"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "bytes",
  "http-body-util",
@@ -575,11 +575,11 @@ dependencies = [
 
 [[package]]
 name = "burrow-syntax"
-version = "0.2.2"
+version = "0.2.3"
 
 [[package]]
 name = "burrow-ui-kit"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "js-sys",
  "leptos",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-web"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "argon2",
  "async-compression",
@@ -2297,9 +2297,9 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "leptos"
-version = "0.8.22"
+version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "713ee6895e3d1126ea9781280d01414f5643f3f201a949b71efffac07d735f00"
+checksum = "4b0f9f061ff585050a77e18b93a58d6c881c6785f473fc98924c4f77da50d891"
 dependencies = [
  "any_spawner",
  "cfg-if",
@@ -2383,9 +2383,9 @@ dependencies = [
 
 [[package]]
 name = "leptos_macro"
-version = "0.8.19"
+version = "0.8.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0902af1e6947ffc7e906b7003a165f76f178dc711a47b74241025090b0c32a72"
+checksum = "0066e6f8003dbedea0900a2d7ad11734ab1a541330718866dd4b9a394a032127"
 dependencies = [
  "attribute-derive",
  "cfg-if",

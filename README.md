@@ -32,7 +32,7 @@ The client connects out to the server and keeps that connection open, so the rou
 - **Websites with automatic HTTPS:** many sites on one port 443, with free Let's Encrypt certificates, logins, redirects and HTTP/2.
 - **Always up:** several clients per service, with failover, load balancing and health checks.
 - **A clean web admin:** watch traffic and manage clients, services, visitors and settings in your browser, with a review of each change before it applies.
-- **Works with AI apps:** `burrow mcp` lets Claude Code, Codex or Cursor read the server and, if you allow it, change it through the same review.
+- **Works with AI apps:** `burrow mcp` lets Claude Desktop, Claude Code, Codex, Cursor, Cherry Studio and other MCP apps read the server and, if you allow it, change it through the same review.
 - **Runs everywhere:** Linux, macOS, Windows, FreeBSD and Docker, as a system service, even where only HTTPS gets through to the server.
 
 ## Contents
@@ -105,7 +105,7 @@ If the home machine has no copy of the server's files, run `./burrow init client
 
 
 ```sh
-./burrow init server|client|visitor           # write a new config (asks what it needs)
+./burrow init server|client|visitor           # write a new config (asks what it needs; on an existing file, offers to replace it, or to update a visitor.yaml)
 ./burrow server | client | visit              # run a server, a client or a visitor (-c FILE, or the file in this folder)
 ./burrow validate -c server.yaml              # check a config: exit 0 valid, 1 invalid, 2 usage error
 ./burrow client-config office --server myserver.example.com -o office.yaml  # the config for client "office" of server.yaml
@@ -290,7 +290,7 @@ services:
 
 ## Web admin
 
-`burrow admin` opens a clean web admin on your own machine. Watch live traffic, clients, services, visitors, websites and certificates, and change them in forms that explain every field. Before a change applies, a review shows what changes in server.yaml and what it affects. You can go back to an earlier version, and the server refuses a change that would lock you out.
+`burrow admin` opens a clean web admin on your own machine. Watch live traffic, clients, services, visitors, websites and certificates, and change them in forms that explain every field. Before a change applies, a review shows what changes in server.yaml and what it affects. You can go back to an earlier version, and a change that would lock you out is refused or must be confirmed by name.
 
 The admin connects to the server as a visitor with admin access, so the server opens no new port. Give one visitor that access:
 
@@ -324,9 +324,9 @@ A service page: how connections flow, and "Reached by", the ways in to this serv
 
 ![A service page of burrow admin with its flow and its Reached by settings](docs/images/admin-service.png)
 
-Settings, in four tabs: Server, Connections, Web and Monitoring, with one search across all of them. Here the Web tab, with the web proxy's ports, Let's Encrypt and the local certificate authority.
+Settings, in five tabs: Server, Connections, Web, Monitoring and Config file, with one search across all of them. Config file shows the whole config as YAML, secrets as fingerprints, to read, copy or download. Here the Web tab, with the web proxy's ports, Let's Encrypt and the local certificate authority.
 
-![The Settings page of burrow admin with its four tabs](docs/images/admin-settings.png)
+![The Settings page of burrow admin with its five tabs](docs/images/admin-settings.png)
 
 On a phone, and in dark mode:
 
@@ -347,7 +347,7 @@ sudo burrow service logs -f                    # follow its log
 sudo burrow update                             # install the latest release and restart the services
 ```
 
-**Read more:** [docs/service.md](docs/service.md): where the files go, updating, and the Docker image `ghcr.io/charlesng35/burrow`.
+**Read more:** [docs/service.md](docs/service.md): where the files go, updating, and the Docker image `ghcr.io/charlesng35/burrow`. The server and its clients can also be updated remotely from burrow admin, with automatic rollback: [docs/updates.md](docs/updates.md).
 
 ## Monitoring
 

@@ -12,8 +12,9 @@ use crate::Path;
 pub use relation::{Cond, Lookup, Relation, decide, holds};
 pub use sem::{
     DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
-    NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC, RefListC,
-    RefMapC, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC, WEIGHT_MAX,
+    NameC, ObjectC, OneOf, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefEntriesC,
+    RefListC, RefMapC, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC,
+    WEIGHT_MAX,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,29 +80,6 @@ impl Schema {
         out
     }
 
-    pub fn reduce_only_paths(&self) -> Vec<Path> {
-        fn walk(n: &Node, at: &mut Path, out: &mut Vec<Path>) {
-            if n.reduce_only {
-                out.push(at.clone());
-            }
-            let fields: Vec<(&str, &Node)> = match &n.sem {
-                SemType::Object(o) => o.fields.iter().map(|f| (f.key.as_str(), &f.node)).collect(),
-                SemType::Optional(o) => return walk(&o.inner, at, out),
-                SemType::RefMap(m) => vec![("*", &*m.value)],
-                SemType::Map(m) => vec![("*", &*m.value)],
-                _ => return,
-            };
-            for (k, f) in fields {
-                at.push(k.to_string());
-                walk(f, at, out);
-                at.pop();
-            }
-        }
-        let mut out = Vec::new();
-        walk(&self.root, &mut Vec::new(), &mut out);
-        out
-    }
-
     pub fn locked_at(&self, path: &[String]) -> Option<Path> {
         self.locked_paths()
             .into_iter()
@@ -149,8 +127,6 @@ pub struct Node {
     pub danger_when_set: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub locked: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub reduce_only: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wide: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -37,8 +37,7 @@ pub struct ServerConfig {
         label = "Listen address",
         group = listener,
         applies = restart,
-        none_label = "No TCP listener",
-        locked
+        none_label = "No TCP listener"
     )]
     pub listen: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,7 +105,6 @@ pub struct ServerConfig {
         group = security,
         applies = live,
         danger_when_set,
-        locked,
         advanced
     )]
     pub insecure_plaintext: bool,
@@ -134,6 +132,27 @@ pub struct ServerConfig {
         none_label = "Off"
     )]
     pub metrics: Option<MetricsConfig>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[admin(label = "Updates", group = security, applies = restart)]
+    pub update: ServerUpdate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+#[admin(label = "Updates")]
+pub struct ServerUpdate {
+    #[serde(skip_serializing_if = "is_false")]
+    #[schemars(
+        description = "Let burrow admin and burrow mcp update this server to the latest published release; it counts only after sudo burrow service install, which records it where the server cannot change it"
+    )]
+    #[admin(
+        label = "Update from burrow admin",
+        help = "Lets an admin with write access update this server to the latest release; a root updater checks it and goes back to the old version if the new one does not come up",
+        readonly = "Only root turns this on: set update.remote: true in server.yaml, then run sudo burrow service install again",
+        locked
+    )]
+    pub remote: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -224,8 +243,7 @@ pub struct TlsFiles {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        label = "Certificate file",
-        locked
+        label = "Certificate file"
     )]
     pub cert: String,
     #[schemars(
@@ -233,8 +251,7 @@ pub struct TlsFiles {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        label = "Private key file",
-        locked
+        label = "Private key file"
     )]
     pub key: String,
 }

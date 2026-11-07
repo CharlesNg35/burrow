@@ -175,27 +175,39 @@ fn removing_web_says_which_websites_stop_and_a_port_they_need_is_an_error() {
 }
 
 #[test]
-fn a_web_port_shared_with_the_tunnel_stays_a_file_edit() {
+fn moving_a_web_port_the_tunnel_shares_is_confirmed_and_names_the_clients_cut_off() {
     let w = with_web(
         "web:\n  https: 443\n  http: 8080\n  letsencrypt: { email: you@example.com }\nwebsocket: { listen: 443, host: tunnel.example.com }\n",
     );
-    let core = core_for(&w.text);
+    let home = crate::admin::core::ports::LiveSession {
+        client: "home".into(),
+        secret_fp: String::new(),
+        from: "198.51.100.7:4000".into(),
+        over_websocket: true,
+    };
+    let core = core_of(&w.text, &w.text, Vec::new(), vec![home]);
     let s = session(&w, AdminLevel::Write);
     let base = text::rev(&core.read().unwrap());
     let ops = set(&["web", "https"], json!(8443));
     let plan = plan::compute(&core, &s, &base, &ops).unwrap().plan;
-    let r = plan
-        .refusals
-        .iter()
-        .find(|r| r.code == WEB_PORT_SHARED)
-        .unwrap_or_else(|| panic!("not refused: {:?} {:?}", plan.refusals, plan.diags));
-    assert!(
-        r.message.contains("disconnects every client"),
-        "{}",
-        r.message
-    );
-    let plan = plan_of(&core, &w, set(&["web", "http"], json!(8081)));
     assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
+    let i = plan
+        .impacts
+        .iter()
+        .find(|i| i.code == WEB_PORT_SHARED)
+        .unwrap_or_else(|| panic!("no impact: {:?} {:?}", plan.impacts, plan.diags));
+    assert!(
+        i.message.contains("which the tunnel shares") && i.message.contains("(home)"),
+        "{}",
+        i.message
+    );
+    assert_eq!(i.confirm.as_deref(), Some("websocket"));
+    let plan = plan_of(&core, &w, set(&["web", "http"], json!(8081)));
+    assert!(
+        plan.impacts.iter().all(|i| i.code != WEB_PORT_SHARED),
+        "{:?}",
+        plan.impacts
+    );
 }
 
 #[test]

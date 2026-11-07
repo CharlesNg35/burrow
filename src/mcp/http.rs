@@ -19,7 +19,7 @@ use super::{HttpOptions, setup, token_file};
 use crate::base::failure::Failure;
 
 pub const ENDPOINT: &str = "/mcp";
-pub const MAX_BODY: usize = 1024 * 1024;
+pub const MAX_BODY: usize = 2 * burrow_admin_proto::frame::MAX_MESSAGE + 64 * 1024;
 pub const MAX_OPEN: usize = 8;
 pub const HEADER_TIMEOUT: Duration = Duration::from_secs(5);
 pub const BODY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -140,7 +140,8 @@ async fn connection(stream: tokio::net::TcpStream, token: Arc<PathBuf>, mcp: Mcp
 pub struct Started<'a> {
     pub token: &'a Path,
     pub show_token: bool,
-    pub config: Option<&'a Path>,
+    pub config: &'a Path,
+    pub writes: super::mode::Writes,
 }
 
 pub async fn serve(
@@ -157,10 +158,8 @@ pub async fn serve(
         .port();
     let mcp = service(tools, port);
     let shown_token = shown.show_token.then_some(&token);
-    crate::say_err!(
-        "{}",
-        setup::started(&setup::program(), port, shown_token, shown.config)
-    );
+    let hints = setup::hints(&setup::program(), shown.config, shown.writes, Some(port));
+    crate::say_err!("{}", setup::started(port, shown_token, &hints));
     drop(token);
     let path = Arc::new(shown.token.to_path_buf());
     let open = Arc::new(Semaphore::new(MAX_OPEN));

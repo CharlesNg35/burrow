@@ -23,6 +23,9 @@ pub mod req {
     pub const LOCAL_CA: &str = "local_ca";
     pub const HASH_PASSWORD: &str = "hash_password";
     pub const UPDATE_CLIENTS: &str = "update_clients";
+    pub const UPDATE_SERVER: &str = "update_server";
+    pub const CONFIG_VIEW: &str = "config_view";
+    pub const CHECK_TEXT: &str = "check_text";
 
     pub const ALL: &[&str] = &[
         WELCOME,
@@ -41,6 +44,9 @@ pub mod req {
         LOCAL_CA,
         HASH_PASSWORD,
         UPDATE_CLIENTS,
+        UPDATE_SERVER,
+        CONFIG_VIEW,
+        CHECK_TEXT,
     ];
 }
 
@@ -236,6 +242,9 @@ pub fn needed_for(request: &str) -> Option<&'static str> {
         req::HASH_PASSWORD => Some(f::PASSWORDS),
         req::LOCAL_CA => Some(f::LOCAL_CA),
         req::UPDATE_CLIENTS => Some(f::CLIENT_UPDATES),
+        req::UPDATE_SERVER => Some(f::SERVER_UPDATES),
+        req::CONFIG_VIEW => Some(f::CONFIG_VIEW),
+        req::CHECK_TEXT => Some(f::CHECK_TEXT),
         _ => None,
     }
 }
@@ -562,6 +571,14 @@ pub struct Revoked {
     pub reason: String,
 }
 
+pub mod revoked {
+    pub const VISITOR_REMOVED: &str = "visitor removed";
+    pub const SECRET_REMOVED: &str = "secret removed";
+    pub const ADMIN_REMOVED: &str = "admin removed";
+    pub const SOURCE_NOT_ALLOWED: &str = "source not allowed";
+    pub const LEVEL_CHANGED: &str = "admin level changed";
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LockedOut {
     pub reasons: Vec<crate::plan::Refusal>,
@@ -640,7 +657,12 @@ mod tests {
         ] {
             assert!(w.offers(t), "{t}");
         }
-        for t in [req::LOCAL_CA, req::UPLOAD, req::HASH_PASSWORD] {
+        for t in [
+            req::LOCAL_CA,
+            req::UPLOAD,
+            req::HASH_PASSWORD,
+            req::CHECK_TEXT,
+        ] {
             assert!(!w.offers(t), "a v0.1.2 server has no {t}");
         }
         w.features = crate::features::ALL.iter().map(|s| s.to_string()).collect();

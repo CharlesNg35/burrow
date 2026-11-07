@@ -96,10 +96,9 @@ pub struct WebConfig {
     )]
     #[admin(
         ty = list(object(CertFile)),
-        label = "Certificate files",
-        help = "Your own certificate files, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key",
-        empty_label = "None",
-        advanced
+        label = "Your own certificates",
+        help = "Certificates you already have, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key, or an upload",
+        empty_label = "None"
     )]
     pub certificates: Vec<CertFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,8 +156,7 @@ pub struct WebConfig {
         label = "Accept PROXY protocol from",
         help = "Load balancers in front of burrow that send a PROXY header with the visitor's address, for example 10.0.0.5/32; they must send it, and nobody else may",
         empty_label = "None",
-        advanced,
-        locked
+        advanced
     )]
     pub proxy_protocol_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,8 +166,7 @@ pub struct WebConfig {
     #[admin(
         help = "One line per request, written to a file, for example logs/access.log, in the common format or as JSON",
         none_label = "Off",
-        advanced,
-        locked
+        advanced
     )]
     pub access_log: Option<AccessLog>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -258,8 +255,7 @@ pub struct WebConfig {
         ty = path(must_exist, relative_to = "config"),
         help = "For every website: a folder with your own pages, for example pages/, holding any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
         none_label = "Built in",
-        advanced,
-        locked
+        advanced
     )]
     pub error_pages: Option<String>,
 }

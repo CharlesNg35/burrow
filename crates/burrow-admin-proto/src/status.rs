@@ -1,4 +1,4 @@
-use burrow_syntax::duration::{ago, span};
+use burrow_syntax::duration::Elapsed;
 use serde::{Deserialize, Serialize};
 
 pub const RESTART_FAILS: &str = "a restart fails until it can";
@@ -10,11 +10,18 @@ pub fn not_listening(why: &str) -> String {
 pub const ONLINE: &str = "online";
 pub const OFFLINE: &str = "offline";
 
-pub fn away(left_secs_ago: Option<u64>, uptime: u64, added_secs_ago: Option<u64>) -> String {
+pub fn away(
+    left_secs_ago: Option<u64>,
+    uptime: u64,
+    added_secs_ago: Option<u64>,
+    elapsed: Elapsed,
+) -> String {
     match (left_secs_ago, added_secs_ago) {
-        (Some(a), _) => format!("left {}", ago(a)),
-        (None, Some(a)) if a < uptime => format!("added {}, not connected yet", ago(a)),
-        (None, _) => format!("not seen since server start ({})", span(uptime)),
+        (Some(a), _) => format!("left {}", elapsed.ago(a)),
+        (None, Some(a)) if a < uptime => {
+            format!("added {}, not connected yet", elapsed.ago(a))
+        }
+        (None, _) => format!("not seen since server start ({})", elapsed.length(uptime)),
     }
 }
 
@@ -52,6 +59,8 @@ pub struct Status {
     pub rollout: Option<crate::updates::RolloutStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest: Option<crate::updates::LatestRelease>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_update: Option<crate::updates::ServerUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -291,17 +300,20 @@ mod tests {
 
     #[test]
     fn a_client_added_after_the_server_started_is_not_called_unseen_since_start() {
-        assert_eq!(super::away(Some(120), 900, None), "left 2m ago");
         assert_eq!(
-            super::away(None, 900, Some(2)),
+            super::away(Some(120), 900, None, Elapsed::Exact),
+            "left 2m ago"
+        );
+        assert_eq!(
+            super::away(None, 900, Some(2), Elapsed::Exact),
             "added just now, not connected yet"
         );
         assert_eq!(
-            super::away(None, 900, None),
+            super::away(None, 900, None, Elapsed::Exact),
             "not seen since server start (15m)"
         );
         assert_eq!(
-            super::away(None, 60, Some(600)),
+            super::away(None, 60, Some(600), Elapsed::Exact),
             "not seen since server start (1m)",
             "an add from before this server start does not count"
         );

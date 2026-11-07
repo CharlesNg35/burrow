@@ -193,15 +193,19 @@ async fn a_caller_that_stops_reading_gives_its_seat_back() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let started = Instant::now();
-    let (_second_rx, mut second) = admin(&w).await.unwrap();
-    let alive = tokio::spawn(async move {
-        loop {
-            if second.ping().await.is_err() {
-                break;
+    let mut alive = Vec::new();
+    for _ in 1..burrow::admin::MAX_SESSIONS_PER_VISITOR {
+        let (other_rx, mut other) = admin(&w).await.unwrap();
+        alive.push(tokio::spawn(async move {
+            let _keep = other_rx;
+            loop {
+                if other.ping().await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(PING).await;
             }
-            tokio::time::sleep(PING).await;
-        }
-    });
+        }));
+    }
     let mut refused = 0;
     let third = loop {
         match admin(&w).await {
@@ -221,7 +225,9 @@ async fn a_caller_that_stops_reading_gives_its_seat_back() {
         "the seat was free at once, so the silent caller did not hold it"
     );
     drop(third);
-    alive.abort();
+    for a in alive {
+        a.abort();
+    }
     let _ = w.stop.send(true);
 }
 

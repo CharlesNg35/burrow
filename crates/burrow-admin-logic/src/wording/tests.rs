@@ -1,4 +1,5 @@
 use super::*;
+use burrow_admin_proto::codes::{NO_CHECK, WILDCARD_NEEDS_DNS};
 
 #[test]
 fn a_missing_field_reads_as_required_not_as_the_validate_text() {
@@ -89,7 +90,7 @@ fn a_name_let_s_encrypt_cannot_check_says_which_ports_it_needs() {
     ] {
         let shown = shown(NO_CHECK, m, &["blog.example.com".into()]);
         assert!(
-            shown.starts_with("Let's Encrypt cannot check blog.example.com:"),
+            shown.starts_with("Let's Encrypt cannot check blog.example.com,"),
             "{shown}"
         );
     }
@@ -144,7 +145,7 @@ fn a_name_without_a_certificate_says_how_to_get_one_in_the_ui() {
         &["*.apps.example.com".into()],
     );
     assert!(
-        w.contains("*.apps.example.com only through a DNS check"),
+        w.contains("the wildcard *.apps.example.com only through a DNS check"),
         "{w}"
     );
 }
@@ -396,4 +397,114 @@ fn a_port_used_twice_reads_as_a_sentence_without_a_subject() {
         diag_text(&d),
         "This port is already used by another service or listener; pick another port"
     );
+}
+
+#[test]
+fn release_notes_link_only_a_strict_release_number_to_the_official_release_page() {
+    assert_eq!(
+        release_notes("0.2.3"),
+        Some((
+            "0.2.3".to_string(),
+            "https://github.com/CharlesNg35/burrow/releases/tag/v0.2.3".to_string()
+        ))
+    );
+    assert_eq!(
+        release_notes("v0.2.4-rc.1").unwrap().1,
+        "https://github.com/CharlesNg35/burrow/releases/tag/v0.2.4-rc.1"
+    );
+    for bad in [
+        "",
+        "latest",
+        "../../x",
+        "0.2.3/../../evil",
+        "0.2.3+build",
+        "99.0.0+/../..",
+        "0.2.3?x=1",
+        "0.2.3#x",
+        "<script>",
+        "0.2",
+    ] {
+        assert_eq!(release_notes(bad), None, "{bad}");
+    }
+}
+
+#[test]
+fn a_field_message_drops_the_check_prefix_that_names_the_field_again() {
+    assert_eq!(
+        at_field("invalid target for service \"app\": only an IPv6 address goes in brackets"),
+        "only an IPv6 address goes in brackets"
+    );
+    assert_eq!(
+        at_field("invalid target for forward \"a: b\": no port"),
+        "no port"
+    );
+    assert_eq!(
+        at_field("must be between 1 and 9"),
+        "must be between 1 and 9"
+    );
+    assert_eq!(at_field("invalid CIDR"), "invalid CIDR");
+}
+
+#[test]
+fn a_long_key_hint_may_break_at_dots_and_underscores() {
+    let k = key_hint(&["web".to_string(), "request_header_timeout_secs".to_string()]);
+    assert_eq!(
+        k.replace('\u{200b}', "|"),
+        "web.|request_|header_|timeout_|secs"
+    );
+}
+
+#[test]
+fn an_add_button_keeps_an_acronym_and_lowers_the_rest() {
+    assert_eq!(
+        add_label("DNS check providers", "DNS provider"),
+        "Add DNS provider"
+    );
+    assert_eq!(
+        add_label("Your own certificates", "Certificate"),
+        "Add certificate"
+    );
+    assert_eq!(add_label("Headers", ""), "Add to Headers");
+    assert!(dns_guide("cloudflare").is_some_and(|u| u.ends_with("certificates.md#cloudflare")));
+    assert_eq!(dns_guide("command"), None);
+}
+
+#[test]
+fn a_dns_entry_message_drops_its_indexed_key_path() {
+    assert_eq!(
+        shown(
+            "dns-domains",
+            "web.letsencrypt.dns[1].domains: \"example.com\" is already listed in DNS provider 1; list it in one entry only",
+            &[]
+        ),
+        "\"example.com\" is already listed in DNS provider 1; list it in one entry only"
+    );
+}
+
+#[test]
+fn a_closed_session_says_what_to_do_for_each_reason() {
+    use burrow_admin_proto::msg::revoked;
+    assert_eq!(
+        super::revoked_words(revoked::SECRET_REMOVED).1,
+        "Run burrow admin again with the visitor's new secret."
+    );
+    assert_eq!(
+        super::revoked_words(revoked::LEVEL_CHANGED).0,
+        "Your admin level changed"
+    );
+    assert!(
+        super::revoked_words(revoked::SOURCE_NOT_ALLOWED)
+            .1
+            .contains("Admin only from")
+    );
+    for gone in [
+        revoked::ADMIN_REMOVED,
+        revoked::VISITOR_REMOVED,
+        "anything else",
+    ] {
+        assert_eq!(
+            super::revoked_words(gone).0,
+            "Your admin access was removed"
+        );
+    }
 }

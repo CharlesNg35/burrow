@@ -4,6 +4,7 @@
 mod args;
 mod ca;
 mod clients;
+mod joined;
 mod service;
 
 use std::path::PathBuf;
@@ -15,6 +16,7 @@ pub use args::{
 pub use ca::{CaAction, CaExportArgs};
 use clap::{Parser, Subcommand, ValueEnum};
 pub use clients::{ClientsAction, ClientsArgs, ClientsUpdateArgs};
+pub use joined::{Joined, joined};
 pub use service::{
     ServiceAction, ServiceControlArgs, ServiceInstallArgs, ServiceLogsArgs, ServiceName,
     ServiceUninstallArgs, ServiceUpdateArgs,
@@ -246,6 +248,7 @@ mod tests {
             }
         }
         let hint = |args: &[&str]| parse(args).unwrap().hint.unwrap();
+
         if supported {
             assert!(hint(&["burrow", "stop", "home"]).contains("burrow service stop home"));
             assert!(

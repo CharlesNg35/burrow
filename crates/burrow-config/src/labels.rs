@@ -36,6 +36,38 @@ pub fn label_of(path: &[String]) -> Option<String> {
     label_in(root(), path)
 }
 
+pub fn entry_name(path: &[String], value: &burrow_admin_proto::serde_json::Value) -> String {
+    let number = path
+        .last()
+        .and_then(|i| i.parse::<usize>().ok())
+        .map_or(0, |i| i + 1);
+    let Some(node) = root().at(path).and_then(object_of) else {
+        return format!("Entry {number}");
+    };
+    let what = if node.label.is_empty() {
+        "Entry"
+    } else {
+        node.label.as_str()
+    };
+    let SemType::Object(o) = &node.sem else {
+        return format!("{what} {number}");
+    };
+    let picked = o.one_of.first().and_then(|g| {
+        let first = g.choices.get(g.picked(value)?)?.first()?;
+        o.fields
+            .iter()
+            .find(|f| &f.key == first)
+            .map(|f| match f.node.label.split_once(" (") {
+                Some((short, _)) => short.to_string(),
+                None => f.node.label.clone(),
+            })
+    });
+    match picked {
+        Some(p) => format!("{what} {number} ({p})"),
+        None => format!("{what} {number}"),
+    }
+}
+
 pub fn option_label<T: AdminEnum>(wire: &str) -> Option<String> {
     T::options()
         .into_iter()

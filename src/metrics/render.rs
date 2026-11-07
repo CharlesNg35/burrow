@@ -379,6 +379,7 @@ mod tests {
             client: None,
             rollout: None,
             latest: None,
+            server_update: None,
         }
     }
 

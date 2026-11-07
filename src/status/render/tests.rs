@@ -132,6 +132,7 @@ pub(crate) fn sample() -> Status {
         client: None,
         rollout: None,
         latest: None,
+        server_update: None,
     }
 }
 
@@ -279,6 +280,7 @@ fn colors_keep_the_columns_aligned() {
             color: true,
             boxed: false,
             width: None,
+            ..Paint::PLAIN
         },
         None,
     );
@@ -292,6 +294,7 @@ fn boxed_tables_in_a_terminal() {
         color: false,
         boxed: true,
         width: None,
+        ..Paint::PLAIN
     };
     let text = render(&sample(), boxed, None);
     let clients = "\
@@ -319,6 +322,7 @@ fn boxed_tables_in_a_terminal() {
             color: true,
             boxed: true,
             width: None,
+            ..Paint::PLAIN
         },
         None,
     );
@@ -342,6 +346,7 @@ fn fitted(width: usize, color: bool) -> String {
         color,
         boxed: true,
         width: Some(width),
+        ..Paint::PLAIN
     };
     render(&s, paint, Some(&r))
 }
@@ -358,6 +363,7 @@ fn a_wide_terminal_shows_every_column() {
             color: false,
             boxed: true,
             width: None,
+            ..Paint::PLAIN
         },
         Some(&r),
     );
@@ -418,6 +424,7 @@ fn long_cells_end_with_an_ellipsis() {
         color: true,
         boxed: true,
         width: Some(100),
+        ..Paint::PLAIN
     };
     let text = strip(&render(&s, paint, None));
     let row = text.lines().find(|l| l.starts_with("│ web")).unwrap();
@@ -462,6 +469,7 @@ fn a_long_header_goes_on_several_lines() {
         color: false,
         boxed: true,
         width: Some(60),
+        ..Paint::PLAIN
     };
     let text = render(&s, paint, None);
     let mut lines = text.lines();
@@ -599,7 +607,7 @@ fn a_client_shows_its_server_its_run_mode_and_its_last_update() {
     assert!(text.contains("·  connecting\n"), "{text}");
     assert!(
         text.contains(
-            "  last update     0.2.1 → 0.2.2: rolled back (0.2.2 did not connect within 60 s)\n"
+            "  last update     0.2.1 → 0.2.2: rolled back: 0.2.2 did not connect within 60 s\n"
         ),
         "{text}"
     );
@@ -613,6 +621,32 @@ fn a_service_that_is_not_listening_says_why_and_that_a_restart_fails() {
     let text = render(&s, Paint::PLAIN, None);
     assert!(
         text.contains("not listening: cannot bind service \"x\" on 0.0.0.0:22: permission denied; a restart fails until it can"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_live_status_drops_the_seconds_of_elapsed_times() {
+    let mut s = sample();
+    s.uptime_secs += 17;
+    s.clients[0].connected_secs = Some(2 * 3600 + 13 * 60 + 7);
+    s.clients[1].left_secs_ago = Some(342);
+    s.visitors = vec![VisitorStatus {
+        name: "phone".into(),
+        last_seen_secs: Some(150),
+        ..VisitorStatus::default()
+    }];
+    let once = render(&s, Paint::PLAIN, None);
+    assert!(once.contains("2h 13m") && once.contains("left 5m 42s ago"));
+    assert!(once.contains("2m 30s ago"), "{once}");
+    let live = Paint {
+        elapsed: Elapsed::Coarse,
+        ..Paint::PLAIN
+    };
+    let text = render(&s, live, None);
+    assert!(text.contains("up 3d 4h") && text.contains("left 5m ago"));
+    assert!(
+        text.contains("2m ago") && !text.contains("2m 30s"),
         "{text}"
     );
 }

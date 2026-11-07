@@ -55,8 +55,15 @@ pub fn chrome() -> Option<PathBuf> {
     .find(|p| p.exists())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screens {
+    Current,
+    Older,
+}
+
 pub struct Ui {
     pub browser: Browser,
+    pub screens: Screens,
     pub page: Page,
     pub errors: Arc<Mutex<Vec<String>>>,
     pub flow: Flow,
@@ -70,7 +77,7 @@ fn js_str(s: &str) -> String {
 }
 
 impl Ui {
-    pub async fn launch(chrome: &Path, flow: Flow, profile: &Path) -> Ui {
+    pub async fn launch(chrome: &Path, flow: Flow, profile: &Path, screens: Screens) -> Ui {
         let config = BrowserConfig::builder()
             .chrome_executable(chrome)
             .user_data_dir(profile)
@@ -161,6 +168,7 @@ impl Ui {
         }));
         Ui {
             browser,
+            screens,
             page,
             errors,
             flow,
@@ -534,6 +542,7 @@ impl Ui {
     }
 
     pub async fn shot(&mut self, step: &str) {
+        crate::design::assert_clean(self, step).await;
         let png = self.png().await;
         self.flow.save(step, &png);
         let dark = self.is_dark.load(std::sync::atomic::Ordering::Relaxed);

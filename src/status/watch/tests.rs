@@ -95,7 +95,7 @@ fn a_rollback_ends_with_its_reason_and_the_rest_are_named_as_not_updated() {
     assert_eq!(
         lines,
         [
-            "nas: 0.2.2 → 0.2.3: rolled back (did not connect within a minute)",
+            "nas: 0.2.2 → 0.2.3: rolled back: did not connect within a minute",
             "stopped: pi not updated"
         ]
     );

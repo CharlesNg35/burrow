@@ -3,6 +3,8 @@
 
 #[path = "admin_e2e/access.rs"]
 mod access;
+#[path = "admin_e2e/certificates.rs"]
+mod certificates;
 #[path = "admin_e2e/check_failed.rs"]
 mod check_failed;
 #[path = "admin_e2e/checks.rs"]
@@ -11,8 +13,12 @@ mod checks;
 mod chips;
 #[path = "admin_e2e/compat.rs"]
 mod compat;
+#[path = "admin_e2e/config_file.rs"]
+mod config_file;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
+#[path = "admin_e2e/design.rs"]
+mod design;
 #[path = "admin_e2e/edit_state.rs"]
 mod edit_state;
 #[path = "admin_e2e/editors.rs"]
@@ -29,6 +35,10 @@ mod guards;
 mod header;
 #[path = "admin_e2e/hidden.rs"]
 mod hidden;
+#[path = "admin_e2e/le_places.rs"]
+mod le_places;
+#[path = "admin_e2e/letsencrypt.rs"]
+mod letsencrypt;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
 #[path = "admin_e2e/modes.rs"]
@@ -55,12 +65,16 @@ mod secrets;
 mod self_picker;
 #[path = "admin_e2e/sequences.rs"]
 mod sequences;
+#[path = "admin_e2e/server_update.rs"]
+mod server_update;
 #[path = "admin_e2e/settings.rs"]
 mod settings;
 #[path = "admin_e2e/sheet.rs"]
 mod sheet;
 #[path = "admin_e2e/site_keys.rs"]
 mod site_keys;
+#[path = "admin_e2e/table_shots.rs"]
+mod table_shots;
 #[path = "admin_e2e/tables.rs"]
 mod tables;
 #[path = "admin_e2e/ui.rs"]
@@ -204,9 +218,14 @@ fn run_gated(flow: &str, g: Option<Gate>, opts: Options, needs_hooks: bool, body
         .expect("a runtime");
     let flow_name = flow.to_string();
     rt.block_on(async move {
+        let screens = if opts.admin_bin.is_some() {
+            ui::Screens::Older
+        } else {
+            ui::Screens::Current
+        };
         let world = World::new(opts);
         let profile = world.file("chrome-profile");
-        let ui = Ui::launch(&g.chrome, Flow::new(&flow_name), &profile).await;
+        let ui = Ui::launch(&g.chrome, Flow::new(&flow_name), &profile, screens).await;
         let mut ctx = Ctx {
             ui,
             world,

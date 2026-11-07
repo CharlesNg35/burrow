@@ -3,11 +3,12 @@ use serde_json::{Value, json};
 use super::common::admin::world;
 use super::{ai, visitor};
 
-const READ: [&str; 4] = [
+const READ: [&str; 5] = [
     "describe_settings",
     "get_config",
     "get_status",
     "list_versions",
+    "validate_config",
 ];
 
 fn names(extra: &[&str]) -> Vec<String> {
@@ -21,10 +22,10 @@ fn set_target(port: u16) -> Value {
 }
 
 #[tokio::test]
-async fn a_read_admin_gets_only_the_read_tools_even_with_allow_write() {
+async fn a_read_admin_gets_only_the_read_tools() {
     let w = world().await;
     let v = visitor(&w, "viewer", &w.viewer);
-    for args in [&[][..], &["--allow-write"][..]] {
+    for args in [&[][..], &["--read-only"][..]] {
         let a = ai(&v, args).await;
         assert_eq!(a.tools().await, names(&[]), "{args:?}");
         let (failed, _) = a.call("check_change", set_target(3001)).await;
@@ -35,26 +36,29 @@ async fn a_read_admin_gets_only_the_read_tools_even_with_allow_write() {
 }
 
 #[tokio::test]
-async fn a_write_admin_checks_changes_but_applies_them_only_with_allow_write() {
+async fn a_write_admin_gets_the_write_tools_unless_started_read_only() {
     let w = world().await;
     let v = visitor(&w, "ops", &w.ops);
-    let a = ai(&v, &[]).await;
+    let a = ai(&v, &["--read-only"]).await;
     assert_eq!(a.tools().await, names(&["check_change"]));
     let plan = a.ok("check_change", set_target(3001)).await;
     assert_eq!(plan["can_apply"], true, "{plan}");
     let (failed, _) = a
         .call("apply_change", json!({ "plan": plan["plan"] }))
         .await;
-    assert!(failed, "apply_change is not offered without --allow-write");
+    assert!(failed, "apply_change is not offered with --read-only");
     a.stop().await;
-    let a = ai(&v, &["--allow-write"]).await;
+    let a = ai(&v, &[]).await;
     assert_eq!(
         a.tools().await,
         names(&[
             "apply_change",
             "check_change",
+            "new_password",
+            "new_secret",
             "revert_to_version",
-            "update_clients"
+            "update_clients",
+            "update_server"
         ])
     );
     fn latest() -> burrow_admin_proto::updates::LatestRelease {
@@ -83,6 +87,18 @@ async fn a_write_admin_checks_changes_but_applies_them_only_with_allow_write() {
         .await;
     assert_eq!(asked["done"], true, "{asked}");
     assert_eq!(asked["asked"], json!([]), "{asked}");
+    let server = a.ok("update_server", json!({})).await;
+    assert_eq!(server["done"], false, "{server}");
+    assert_eq!(server["to"], "99.0.0", "{server}");
+    assert!(server["why_not"].as_str().is_some(), "{server}");
+    assert!(
+        server.get("confirm").is_none(),
+        "nothing to confirm: {server}"
+    );
+    let (refused, _) = a
+        .call("update_server", json!({ "confirm": ["update"] }))
+        .await;
+    assert!(refused, "a server that cannot update itself refuses");
     a.stop().await;
     let _ = w.stop.send(true);
 }
@@ -111,6 +127,12 @@ async fn the_read_tools_answer_from_the_server() {
         !secret.is_null(),
         "the secret shows as its fingerprint: {config}"
     );
+    assert!(config["values"].get("heartbeat").is_none(), "{config}");
+    let all = a.ok("get_config", json!({ "show": "with_defaults" })).await;
+    assert!(all["values"]["heartbeat"].is_object(), "{all}");
+    assert_eq!(all["values"]["services"]["web"]["target"], 3000, "{all}");
+    assert_eq!(all["values"]["visitors"]["ops"]["secret"], *secret, "{all}");
+    v.assert_no_secret(&all.to_string());
     let web = a
         .ok("describe_settings", json!({ "path": ["services"] }))
         .await;
@@ -129,7 +151,7 @@ async fn the_read_tools_answer_from_the_server() {
 async fn a_checked_plan_is_applied_and_reverted_through_the_same_tool() {
     let w = world().await;
     let v = visitor(&w, "ops", &w.ops);
-    let a = ai(&v, &["--allow-write"]).await;
+    let a = ai(&v, &[]).await;
     let plan = a.ok("check_change", set_target(3001)).await;
     assert!(
         plan["diff"]["unified"].as_str().unwrap().contains("3001"),
@@ -191,7 +213,7 @@ async fn a_checked_plan_is_applied_and_reverted_through_the_same_tool() {
 async fn a_plan_is_refused_after_the_config_changed() {
     let w = world().await;
     let v = visitor(&w, "ops", &w.ops);
-    let a = ai(&v, &["--allow-write"]).await;
+    let a = ai(&v, &[]).await;
     let first = a.ok("check_change", set_target(3001)).await;
     let second = a.ok("check_change", set_target(3002)).await;
     a.ok("apply_change", json!({ "plan": second["plan"] }))
@@ -207,26 +229,31 @@ async fn a_plan_is_refused_after_the_config_changed() {
 }
 
 #[tokio::test]
-async fn a_visitor_without_admin_rights_ends_with_the_reason() {
+async fn a_visitor_without_admin_rights_gets_the_reason_in_each_tool_error() {
     let w = world().await;
     let v = visitor(&w, "plain", &w.plain);
-    let out = v
-        .command(&[])
-        .stderr(std::process::Stdio::piped())
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(1), "{stderr}");
-    assert!(stderr.contains("has no admin rights"), "{stderr}");
-    assert!(out.stdout.is_empty(), "nothing but MCP goes to stdout");
+    let mut a = super::app::mcp(&v.config, &[], &v.sessions());
+    a.ready().await;
+    let (failed, why) = a.call("get_config", json!({})).await;
+    assert!(failed, "{why}");
+    let message = why["message"].as_str().unwrap_or_default();
+    assert!(message.contains("has no admin rights"), "{why}");
+    assert!(
+        why["hint"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("admin: write"),
+        "{why}"
+    );
+    a.close_stdin();
+    a.exits_within(super::app::STOP).await;
+    a.rest_of_stdout().await;
     let _ = w.stop.send(true);
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn started_by_hand_it_explains_itself_on_stderr_only() {
+async fn started_by_hand_it_shows_the_standard_config_on_stderr_and_stops_on_ctrl_c() {
     use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
     let w = world().await;
@@ -247,13 +274,17 @@ async fn started_by_hand_it_explains_itself_on_stderr_only() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
+    let config = dunce::canonicalize(&v.config)
+        .unwrap()
+        .display()
+        .to_string();
     let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
     let mut seen = String::new();
     let found = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         while let Ok(Some(l)) = lines.next_line().await {
             seen.push_str(&l);
             seen.push('\n');
-            if l.trim_start().starts_with("Cursor:") {
+            if l.starts_with("  Check it:") {
                 return true;
             }
         }
@@ -265,11 +296,32 @@ async fn started_by_hand_it_explains_itself_on_stderr_only() {
         seen.contains("meant to be started by your AI app"),
         "{seen}"
     );
+    let shown = burrow::base::failure::arg(&config);
+    for end in [
+        "--print-config",
+        "--print-config claude|codex|cursor",
+        "--check",
+    ] {
+        assert!(
+            seen.contains(&format!(" mcp -c {shown} {end}\n")),
+            "{end}: {seen}"
+        );
+    }
+    assert!(!seen.contains("--http"), "{seen}");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let pid = rustix::process::Pid::from_raw(child.id().unwrap() as i32).unwrap();
+    rustix::process::kill_process(pid, rustix::process::Signal::INT).unwrap();
+    let started = std::time::Instant::now();
+    let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+        .await
+        .expect("Ctrl-C stops burrow mcp")
+        .unwrap();
     assert!(
-        seen.contains("--print-config claude") && !seen.contains("--http"),
-        "{seen}"
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "Ctrl-C took {:?}",
+        started.elapsed()
     );
-    child.kill().await.unwrap();
+    assert!(status.success(), "{status}");
     let mut out = Vec::new();
     child
         .stdout

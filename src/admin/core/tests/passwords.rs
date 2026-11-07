@@ -212,3 +212,16 @@ fn secrets_and_passwords_share_one_cap_that_holds_under_parallel_hashing() {
     );
     assert_eq!(ask(&s).err().map(|e| e.code), Some(ErrorCode::Busy));
 }
+
+#[test]
+fn a_session_holds_256_unused_secrets_before_it_asks_for_an_apply() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    for n in 0..256 {
+        assert!(core.generate_secret(&s).is_ok(), "secret {n}");
+    }
+    let e = core.generate_secret(&s).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Busy);
+    assert!(e.message.contains("at most 256"), "{}", e.message);
+}

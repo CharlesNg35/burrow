@@ -10,8 +10,7 @@ pub struct Heartbeat {
     #[schemars(range(min = 1, max = 3600))]
     #[admin(
         label = "Interval",
-        help = "How often the server and each client check that the other is still there",
-        locked
+        help = "How often the server and each client check that the other is still there"
     )]
     pub interval_secs: u32,
 }
@@ -31,8 +30,7 @@ pub struct Limits {
     #[admin(
         label = "Connection setup timeout",
         help = "How long a new client or visitor connection may take to show its key before it is closed",
-        applies = live,
-        locked
+        applies = live
     )]
     pub handshake_timeout_secs: u32,
     #[schemars(description = "Concurrent connections that have not finished authenticating")]
@@ -41,8 +39,7 @@ pub struct Limits {
         ty = integer(unit = "connections"),
         label = "Maximum connections setting up",
         help = "New client and visitor connections that may show their key at the same time; more wait",
-        applies = reload,
-        locked
+        applies = reload
     )]
     pub max_handshakes: u32,
     #[schemars(range(min = 1))]

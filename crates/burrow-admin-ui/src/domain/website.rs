@@ -12,7 +12,7 @@ use super::FieldCtx;
 
 const FILES: &str = "files";
 const FILES_LABEL: &str = "My own certificate";
-const FILES_HELP: &str = "certificate and key files that you set on the website";
+const FILES_HELP: &str = "a certificate you upload, or its files on the server";
 
 pub(crate) fn https_options(off: impl Fn(&str) -> Option<String>) -> Vec<RadioOption> {
     use burrow_config::admin_schema::AdminEnum;
@@ -68,7 +68,7 @@ fn files_view(fc: FieldCtx, files: ObjectC, tls: Memo<Option<Value>>) -> impl In
         (mode == FILES).then(|| {
             view! {
                 <div class="mt-2 rounded-input border border-border bg-surface-2 px-2.5 py-2" data-testid="website-files">
-                    {crate::uploads::certificate_source(&fc, &files)}
+                    {crate::form::object_view(&burrow_admin_proto::schema::Node::new(SemType::Object(files.clone())), fc.path.clone(), fc.spath.clone(), fc.entity.clone())}
                 </div>
             }
         })
@@ -117,9 +117,31 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
         <div id=fc.id.clone() data-testid="website-tls">
             <RadioList name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() on_change=on_mode/>
             {below}
+            {cert_now(fc.path.clone())}
         </div>
     }
     .into_any()
+}
+
+pub(crate) fn cert_now(path: Vec<String>) -> impl IntoView + use<> {
+    let s = store();
+    move || {
+        let now = (s.now.get() / 1000.0) as u64;
+        let notice = s.status.with(|st| {
+            burrow_admin_logic::certs::notices(st.as_deref()?, now)
+                .into_iter()
+                .find(|n| n.field.as_deref() == Some(path.as_slice()))
+        })?;
+        let tone = match notice.level {
+            burrow_admin_logic::certs::Level::Bad => burrow_ui_kit::Tone::Danger,
+            _ => burrow_ui_kit::Tone::Warning,
+        };
+        Some(view! {
+            <div data-testid="website-cert-now">
+                {burrow_ui_kit::field_message(tone, format!("{}. {}", notice.title, notice.detail))}
+            </div>
+        })
+    }
 }
 
 fn web_off() -> impl IntoView {
@@ -176,7 +198,7 @@ pub(super) fn website_editor(fc: FieldCtx) -> AnyView {
                 items=items
                 on_change=on_names
                 check=check_one
-                placeholder="Type a name like nas.example.com and press Enter"
+                placeholder="Type a name and press Enter"
                 empty_label=fc.node.none_label.clone().unwrap_or_default()
             />
         </div>

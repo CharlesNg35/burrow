@@ -61,55 +61,78 @@ fn entry(d: &Dns, v: Value) -> Op {
 }
 
 #[test]
-fn dns_credentials_and_where_they_go_are_changed_in_the_file_only() {
+fn a_dns_providers_command_is_changed_in_the_file_only() {
     let d = dns_world();
     let core = core_for(&d.w.text);
     let s = session(&d.w, AdminLevel::Write);
-    let cases = [
-        (
-            entry(
-                &d,
-                json!({"domains": ["example.net"], "cloudflare": {"token": "file:/etc/shadow"}}),
-            ),
-            "cloudflare.token",
+    for op in [
+        Op::Set {
+            path: p(&["web", "letsencrypt", "dns"]),
+            value: json!([{"domains": ["example.com"], "command": "/bin/sh"}]),
+        },
+        entry(
+            &d,
+            json!({"domains": ["example.net"], "command": "/usr/local/bin/burrow-dns"}),
         ),
-        (
-            Op::Set {
-                path: p(&["web", "letsencrypt", "dns"]),
-                value: json!([{"domains": ["example.com"], "cloudflare": {"token": "${HOME}"}}]),
-            },
-            "cloudflare.token",
-        ),
-        (
-            entry(
-                &d,
-                json!({"domains": ["example.io"], "acme_dns": {"api": "https://evil.example.org", "username": "${U}", "password": "${P}", "subdomain": "x"}}),
-            ),
-            "acme_dns",
-        ),
-        (
-            entry(
-                &d,
-                json!({"domains": ["example.org"], "rfc2136": {"server": "203.0.113.9:53", "key_name": "k", "secret": "${T}"}}),
-            ),
-            "rfc2136",
-        ),
-        (
-            Op::Set {
-                path: p(&["web", "letsencrypt", "dns"]),
-                value: json!([{"domains": ["example.com"], "command": "/bin/sh"}]),
-            },
-            "command",
-        ),
-    ];
-    for (op, what) in cases {
+    ] {
         let message = refused_at(&core, &s, std::slice::from_ref(&op));
-        assert!(message.contains(what), "{what}: {message}");
+        assert!(message.contains("command"), "{message}");
+    }
+}
+
+#[cfg(feature = "web")]
+#[test]
+fn dns_credentials_and_where_they_go_are_set_from_the_admin() {
+    let d = dns_world();
+    let core = core_for(&d.w.text);
+    let s = session(&d.w, AdminLevel::Write);
+    let base = || text::rev(&core.read().unwrap());
+    for (op, written) in [
+        (
+            entry(
+                &d,
+                json!({"domains": ["example.net"], "cloudflare": {"token": "${CF_TOKEN}"}}),
+            ),
+            "${CF_TOKEN}",
+        ),
+        (
+            entry(
+                &d,
+                json!({"domains": ["example.net"], "cloudflare": {"token": "cf-literal-token"}}),
+            ),
+            "cf-literal-token",
+        ),
+        (
+            entry(
+                &d,
+                json!({"domains": ["example.io"], "acme_dns": {"api": "https://auth.example.org", "username": "${ACMEDNS_USER}", "password": "file:acmedns.key", "subdomain": "x"}}),
+            ),
+            "https://auth.example.org",
+        ),
+        (
+            entry(
+                &d,
+                json!({"domains": ["example.org"], "rfc2136": {"server": "203.0.113.9:53", "key_name": "k", "secret": "${TSIG_SECRET}"}}),
+            ),
+            "203.0.113.9:53",
+        ),
+    ] {
+        let c = plan::compute(&core, &s, &base(), std::slice::from_ref(&op));
+        let c = c.unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
+        assert!(c.new_text.contains(written), "{}", c.new_text);
+        assert!(
+            !c.plan.diff.unified.contains("cf-literal-token")
+                && !serde_json::to_string(&c.plan.changes)
+                    .unwrap()
+                    .contains("cf-literal-token"),
+            "a written secret never shows in the review: {:?}",
+            c.plan.diff.unified
+        );
     }
 }
 
 #[test]
-fn a_target_ca_set_with_the_whole_target_tls_is_refused() {
+fn a_target_ca_is_set_from_the_admin_alone_or_with_the_whole_target_tls() {
     let d = dns_world();
     let core = core_for(&d.w.text);
     let s = session(&d.w, AdminLevel::Write);
@@ -123,8 +146,54 @@ fn a_target_ca_set_with_the_whole_target_tls_is_refused() {
             value: json!({"hosts": ["app.example.com"], "tls": "off", "target_tls": {"ca": d.ca}}),
         },
     ] {
+        let base = text::rev(&core.read().unwrap());
+        let c = plan::compute(&core, &s, &base, std::slice::from_ref(&op))
+            .unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
+        assert!(super::yaml_has(&c.new_text, &d.ca), "{}", c.new_text);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dns_commands_are_compared_by_entry_not_by_place() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = dns_world();
+    let program = |name: &str| {
+        let path = d._dir.path().join(name);
+        std::fs::write(&path, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.display().to_string()
+    };
+    let (first_cmd, second_cmd) = (program("one"), program("two"));
+    let text = d.w.text.replace(
+        "      - domains: [example.com]\n        cloudflare: { token: 'file:",
+        &format!("      - domains: [example.org]\n        command: {first_cmd}\n      - domains: [example.net]\n        command: {second_cmd}\n      - domains: [example.com]\n        cloudflare: {{ token: 'file:"),
+    );
+    assert_ne!(text, d.w.text);
+    let core = core_for(&text);
+    let s = session(&d.w, AdminLevel::Write);
+    let one = json!({"domains": ["example.org"], "command": first_cmd});
+    let two = json!({"domains": ["example.net"], "command": second_cmd});
+    let set = |v: Value| Op::Set {
+        path: p(&["web", "letsencrypt", "dns"]),
+        value: v,
+    };
+    let base = text::rev(&core.read().unwrap());
+    for op in [
+        set(json!([two, one, first(&d)])),
+        set(json!([one, first(&d)])),
+    ] {
+        let c = plan::compute(&core, &s, &base, std::slice::from_ref(&op));
+        assert!(c.is_ok(), "{op:?}: {:?}", c.err().map(|e| e.message));
+    }
+    let mut moved = two.clone();
+    moved["command"] = json!("/bin/sh");
+    for op in [
+        set(json!([one, moved, first(&d)])),
+        set(json!([one, one, first(&d)])),
+    ] {
         let message = refused_at(&core, &s, std::slice::from_ref(&op));
-        assert!(message.contains("target_tls.ca"), "{message}");
+        assert!(message.contains("command"), "{message}");
     }
 }
 
@@ -153,4 +222,27 @@ fn a_dns_entrys_domains_wildcards_and_wait_stay_editable() {
         let c = plan::compute(&core, &s, &base(), std::slice::from_ref(&op));
         assert!(c.is_ok(), "{op:?}: {:?}", c.err().map(|e| e.message));
     }
+}
+
+#[test]
+fn a_new_dns_entry_is_told_its_domains_at_its_domains() {
+    let d = dns_world();
+    let core = core_for(&d.w.text);
+    let s = session(&d.w, AdminLevel::Write);
+    let base = text::rev(&core.read().unwrap());
+    let op = Op::Set {
+        path: p(&["web", "letsencrypt", "dns"]),
+        value: json!([first(&d), {}]),
+    };
+    let c = plan::compute(&core, &s, &base, &[op]).unwrap();
+    let d = c
+        .plan
+        .diags
+        .iter()
+        .find(|d| d.code == burrow_admin_proto::codes::DNS_DOMAINS)
+        .unwrap_or_else(|| panic!("{:?}", c.plan.diags));
+    assert_eq!(
+        d.path.as_deref(),
+        Some(p(&["web", "letsencrypt", "dns", "1", "domains"]).as_slice())
+    );
 }

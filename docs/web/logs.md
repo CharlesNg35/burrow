@@ -21,7 +21,7 @@ web:
 - One line per request: time, client address, name, method, path, protocol, status, bytes, time taken, service and request id. `access_log: logs/access.log` is the short form.
 - `request_id` gives each request an `X-Request-Id`, sent to the app, returned to the visitor and written to the log. An id from a trusted proxy is kept; a visitor's own is replaced.
 
-An installed service may write the access log only in its own log folder; see [service.md](../service.md).
+An installed service may write the access log only in its own log folder; see [service.md](../service.md). From burrow admin, the file must be inside the server's own folders, its state folder or that log folder; a file anywhere else is set in server.yaml, because a log line holds text a visitor chose and a shell's startup file there could run it.
 
 ## Next steps
 

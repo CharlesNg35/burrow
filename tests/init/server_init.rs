@@ -381,3 +381,48 @@ fn client_config_matches_the_server_transport() {
     .unwrap();
     assert!(err.message.contains("WebSocket is off on this server"));
 }
+
+#[test]
+fn an_existing_server_or_client_config_is_replaced_only_after_a_yes_on_a_terminal() {
+    use common::prompt::Terminal;
+    let dir = tempfile::tempdir().unwrap();
+    for (file, role) in [("server.yaml", "server"), ("client.yaml", "client")] {
+        let path = dir.path().join(file);
+        let bak = dir.path().join(format!("{file}.bak"));
+        std::fs::write(&path, "# mine\n").unwrap();
+        let client = role == "client";
+        let opts = InitOptions {
+            output: Some(path.clone()),
+            server: client.then(|| "127.0.0.1:1".into()),
+            name: client.then(|| "home".into()),
+            secret: client.then(|| burrow::wire::secret::Secret::generate().encode()),
+            ..Default::default()
+        };
+        let run = |p: &mut dyn Prompter| match role {
+            "server" => burrow::init::init_server_asking(&opts, p, &mut Vec::new()),
+            _ => init_client(&opts, p, &mut Vec::new()),
+        };
+        let err = run(&mut NoPrompt).unwrap_err();
+        assert!(err.message.contains("already exists"), "{role}");
+        assert!(err.hint.unwrap().contains("--force"), "{role}");
+        let question =
+            format!("{file} already exists. Replace it (the old one is kept as {file}.bak)?");
+        let mut no = Terminal::answering(&[false]);
+        let err = run(&mut no).unwrap_err();
+        assert!(err.message.contains("already exists"), "{role}");
+        assert_eq!(no.asked, std::slice::from_ref(&question), "{role}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# mine\n");
+        assert!(!bak.exists(), "{role}");
+        let mut yes = Terminal::answering(&[true]);
+        run(&mut yes).unwrap();
+        assert_eq!(yes.asked[0], question, "{role}");
+        assert_eq!(std::fs::read_to_string(&bak).unwrap(), "# mine\n");
+        #[cfg(unix)]
+        assert_eq!(mode(&bak), 0o600);
+        let role_now = load_file(&path, None, &ProcessEnv).unwrap().role;
+        assert_eq!(
+            role_now,
+            Some(if client { Role::Client } else { Role::Server })
+        );
+    }
+}

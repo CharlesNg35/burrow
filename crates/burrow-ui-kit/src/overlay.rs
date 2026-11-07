@@ -164,9 +164,11 @@ pub fn Dialog(
                     <p class="text-sm text-text-muted">{move || sub.get()}</p>
                 </div>
                 {dismissable.then(|| view! {
-                    <button type="button" class=format!("ml-auto {}", button_class(ButtonLook::Ghost, ButtonSize::Small)) aria-label="Close" on:click=move |_| open.set(false)>
-                        <Icon name="x"/>
-                    </button>
+                    <span class="ml-auto flex h-[1lh] items-center text-md">
+                        <button type="button" class=button_class(ButtonLook::Ghost, ButtonSize::Small) aria-label="Close" on:click=move |_| open.set(false)>
+                            <Icon name="x"/>
+                        </button>
+                    </span>
                 })}
             </div>
             <div class="px-[22px] pt-2.5 pb-[18px]">{children.with_value(|c| c())}</div>

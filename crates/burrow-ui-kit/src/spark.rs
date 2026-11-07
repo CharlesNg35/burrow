@@ -128,7 +128,7 @@ pub fn LineChart(
                     }}
                 </svg>
                 {move || data.get().empty_note.map(|t| view! {
-                    <div class="pointer-events-none absolute inset-0 flex items-center justify-center pl-10 text-center text-sm text-text-muted tabular-nums" data-testid="chart-note">{t}</div>
+                    <div class="pointer-events-none absolute inset-0 flex items-center justify-center pl-10 text-center text-sm text-text-muted tabular-nums" data-testid="chart-note"><span class="rounded-md bg-surface/90 px-1.5">{t}</span></div>
                 })}
             </div>
             <div class="flex justify-between pt-1.5 pl-10 font-mono text-2xs text-text-faint">

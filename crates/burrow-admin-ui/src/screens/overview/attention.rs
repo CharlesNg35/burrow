@@ -10,7 +10,54 @@ use crate::store::store;
 
 use super::{Item, attention, away, names, old_server_item};
 
-fn row_view(i: Item, icon: bool) -> impl IntoView {
+fn try_again(retry: crate::store::Retry, to: Option<Route>) {
+    let s = store();
+    s.retry.set(Some(retry));
+    if let Some(to) = to {
+        crate::route::go(to);
+    }
+}
+
+fn update_row(i: Item, x: super::Extra) -> AnyView {
+    let s = store();
+    let writes = s.welcome.with(|w| {
+        w.as_ref()
+            .is_some_and(|w| w.you.level == burrow_admin_proto::msg::AdminLevel::Write)
+    });
+    let title = match i.to.clone() {
+        Some(to) => view! { <Link to=to class="text-text no-underline hover:underline">{i.title.clone()}</Link> }.into_any(),
+        None => view! { <span>{i.title.clone()}</span> }.into_any(),
+    };
+    let retry = x.retry.clone().filter(|_| writes).map(|r| {
+        let to = i.to.clone();
+        view! { <burrow_ui_kit::Button label="Try again" size=burrow_ui_kit::ButtonSize::Small testid="update-try-again" on_click=move |_| try_again(r.clone(), to.clone())/> }
+    });
+    let notes = x.notes.as_deref().and_then(|v| {
+        crate::screens::update_dialog::release_link(v, crate::screens::update_dialog::long_link)
+    });
+    view! {
+        <li class="border-b border-rowline last:border-b-0" data-item=i.key.clone() id=i.key.clone() data-tone=i.tone.name()>
+            <div class="flex gap-2.5 px-4 py-[11px]">
+                <span class=format!("mt-0.5 shrink-0 {}", i.tone.text())><Icon name="alert"/></span>
+                <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold">{title}</span>
+                    <span class="block text-[12.5px] text-text-muted">{i.detail.clone()}</span>
+                    <details class="mt-1 text-[12.5px]" data-testid="update-details">
+                        <summary class="cursor-pointer text-text-muted">"Show details"</summary>
+                        <p class="mt-1 font-mono text-xs break-words text-text-muted">{x.raw.clone()}" (see the server log)"</p>
+                    </details>
+                    <span class="mt-2 flex flex-wrap items-center gap-3 text-xs">{retry}{notes}</span>
+                </span>
+            </div>
+        </li>
+    }
+    .into_any()
+}
+
+fn row_view(i: Item, icon: bool) -> AnyView {
+    if let Some(x) = i.extra.clone() {
+        return update_row(i, x);
+    }
     let tone = i.tone;
     let glyph = match tone {
         Tone::Danger => "alert-circle",
@@ -42,6 +89,10 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
                                     to.clone(),
                                     Some((crate::route::TAB_QUERY, burrow_admin_logic::settings_tabs::tab_of(k).key())),
                                 ),
+                                (Route::Detail(..), Some(_)) => crate::route::go_query(
+                                    to.clone(),
+                                    Some((crate::route::TAB_QUERY, crate::screens::placement::SETTINGS)),
+                                ),
                                 _ => crate::route::go(to.clone()),
                             }
                             let path = path.clone();
@@ -55,6 +106,7 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
             }}
         </li>
     }
+    .into_any()
 }
 
 fn numbered(items: Vec<Item>) -> Vec<(usize, Item)> {
@@ -121,7 +173,7 @@ fn Section(
                         <div class="flex h-full items-center justify-center py-6">
                             <div class="flex flex-col items-center gap-1.5 px-4 text-center">
                                 <span class="text-success"><Icon name=empty.0 large=true/></span>
-                                <span class="text-sm font-semibold">{move || empty.1.get()}</span>
+                                <span class="text-sm font-semibold" data-calm=(testid == "attention").then_some("")>{move || empty.1.get()}</span>
                                 <span class="text-[12.5px] text-text-muted">{move || empty.2.get()}</span>
                             </div>
                         </div>
@@ -189,7 +241,7 @@ pub(super) fn Attention() -> impl IntoView {
                 .collect(),
         );
     });
-    let longest = move || {
+    let longest = Memo::new(move |_| {
         s.status.with(|st| {
             st.as_ref().and_then(|st| {
                 st.clients
@@ -200,12 +252,12 @@ pub(super) fn Attention() -> impl IntoView {
                         format!(
                             "Longest connected: {}, {}.",
                             c.name,
-                            format::span(c.connected_secs.unwrap_or(0))
+                            format::coarse_length(c.connected_secs.unwrap_or(0))
                         )
                     })
             })
         })
-    };
+    });
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
     let away_title: &'static str = burrow_admin_logic::wording::CLIENTS_OFFLINE;
     let away_grow = Signal::derive(move || {
@@ -230,7 +282,7 @@ pub(super) fn Attention() -> impl IntoView {
             format!("All {n} clients online")
         }
     });
-    let away_msg = Signal::derive(move || longest().unwrap_or_default());
+    let away_msg = Signal::derive(move || longest.get().unwrap_or_default());
     view! {
         <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
             <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">

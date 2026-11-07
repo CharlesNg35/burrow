@@ -1,8 +1,8 @@
 #![cfg(test)]
 
+use burrow_admin_proto::msg::AdminLevel;
 #[cfg(feature = "web")]
 use burrow_admin_proto::msg::HistoryRequest;
-use burrow_admin_proto::msg::{AdminLevel, ErrorCode};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
 
@@ -11,8 +11,6 @@ use crate::admin::core::*;
 
 #[cfg(feature = "web")]
 use super::apply_now;
-#[cfg(feature = "web")]
-use super::one;
 use super::{World, core_with_env, p, session, world};
 
 const VARS: &[(&str, &str)] = &[("OLD", "old-value"), ("HOME", "home-secret")];
@@ -31,69 +29,55 @@ fn header(name: &str) -> Vec<String> {
     p(&["services", "site", "web", "response_headers", name])
 }
 
-fn refused(core: &Core, s: &Session, ops: &[Op]) -> String {
-    let base = text::rev(&core.read().unwrap());
-    match plan::compute(core, s, &base, ops) {
-        Err(e) if e.code == ErrorCode::Forbidden => e.message,
-        Err(e) => panic!("refused for another reason: {}", e.message),
-        Ok(c) => panic!("not refused: {}", c.new_docs.main().text),
-    }
-}
-
 #[test]
-fn an_admin_plan_never_adds_an_environment_or_file_reference() {
+fn an_admin_plan_writes_environment_and_file_references_like_the_file() {
     let (w, running) = refs_world();
     let core = core_with_env(&w.text, &running, VARS);
     let s = session(&w, AdminLevel::Write);
+    let base = || text::rev(&core.read().unwrap());
     let site = |k: &str| p(&["services", "site", "web", k]);
-    let cases = [
+    for (op, written) in [
         (
             Op::Set {
-                path: header("X-Leak"),
+                path: header("X-New"),
                 value: json!("${HOME}"),
             },
             "${HOME}",
         ),
         (
             Op::Set {
-                path: site("redirects"),
-                value: json!({"/go": "https://evil.example/${HOME}"}),
-            },
-            "${HOME}",
-        ),
-        (
-            Op::Set {
                 path: site("request_headers"),
-                value: json!({"X-Token": "${HOME}"}),
+                value: json!({"X-Token": "${OLD}"}),
             },
-            "${HOME}",
+            "${OLD}",
         ),
         (
             Op::Set {
                 path: p(&["web", "letsencrypt", "email"]),
-                value: json!("${HOME}@evil.example"),
+                value: json!("${HOME}@example.com"),
             },
-            "${HOME}",
+            "${HOME}@example.com",
         ),
         (
             Op::Set {
                 path: header("X-File"),
-                value: json!("file:/etc/shadow"),
+                value: json!("file:header.txt"),
             },
-            "file:/etc/shadow",
+            "file:header.txt",
         ),
-        (
-            Op::Set {
-                path: site("response_headers"),
-                value: json!({"X-New": "${OLD}"}),
-            },
-            "${OLD}",
-        ),
-    ];
-    for (op, what) in cases {
-        let message = refused(&core, &s, std::slice::from_ref(&op));
-        assert!(message.contains(what), "{what}: {message}");
-        assert!(message.contains("server.yaml"), "{message}");
+    ] {
+        let c = plan::compute(&core, &s, &base(), std::slice::from_ref(&op))
+            .unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
+        assert!(c.new_text.contains(written), "{}", c.new_text);
+        let shown = format!(
+            "{}{}",
+            c.plan.diff.unified,
+            serde_json::to_string(&c.plan.changes).unwrap()
+        );
+        assert!(
+            !shown.contains("home-secret") && !shown.contains("old-value"),
+            "a reference shows as written, never its value: {shown}"
+        );
     }
 }
 
@@ -129,7 +113,7 @@ fn an_admin_plan_keeps_or_removes_the_references_already_written() {
 
 #[cfg(feature = "web")]
 #[test]
-fn a_revert_brings_a_reference_back_only_where_the_file_still_has_it() {
+fn a_revert_brings_a_removed_reference_back() {
     let (w, running) = refs_world();
     let core = core_with_env(&w.text, &running, VARS);
     let s = session(&w, AdminLevel::Write);
@@ -154,23 +138,9 @@ fn a_revert_brings_a_reference_back_only_where_the_file_still_has_it() {
     let revert = [Op::ReplaceDocument {
         from_history: entry.base.clone(),
     }];
-    let message = refused(&core, &s, &revert);
-    assert!(message.contains("${OLD}"), "{message}");
-    let again = core.read().unwrap().replace(
-        "    web:\n",
-        "    web:\n      request_headers:\n        X-Old: \"${OLD}\"\n",
-    );
-    core.store
-        .write(&one(&core.read().unwrap()), &one(&again))
-        .unwrap();
-    let still = core.read().unwrap();
-    let c = plan::compute(&core, &s, &text::rev(&still), &revert);
-    assert!(c.is_err(), "the reference sits at another path in the file");
-    let back = w.text.replace(
-        "      response_headers:\n",
-        "      request_headers:\n        X-Other: plain\n      response_headers:\n",
-    );
-    core.store.write(&one(&still), &one(&back)).unwrap();
-    let c = plan::compute(&core, &s, &text::rev(&back), &revert);
-    assert!(c.is_ok(), "{:?}", c.err().map(|e| e.message));
+    let now = core.read().unwrap();
+    let c = plan::compute(&core, &s, &text::rev(&now), &revert)
+        .unwrap_or_else(|e| panic!("{}", e.message));
+    let main = &c.new_docs.main().text;
+    assert!(main.contains("X-Old: \"${OLD}\""), "{main}");
 }

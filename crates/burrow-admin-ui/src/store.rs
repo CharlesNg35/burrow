@@ -85,10 +85,31 @@ pub struct Store {
     pub prev: RwSignal<Route>,
     pub server_addr: RwSignal<String>,
     pub error: RwSignal<Option<String>>,
+    pub server_updating: RwSignal<OwnJob>,
+    pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,
 }
 
 pub const REVIEW: &str = "Review";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Retry {
+    Server,
+    Client(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnJob {
+    Idle,
+    Asked,
+    Running,
+}
+
+impl OwnJob {
+    pub fn busy(self) -> bool {
+        self != OwnJob::Idle
+    }
+}
 
 impl Store {
     pub fn new(route: Route) -> Self {
@@ -124,6 +145,8 @@ impl Store {
             route: RwSignal::new(route),
             query_seen: RwSignal::new(0),
             error: RwSignal::new(None),
+            server_updating: RwSignal::new(OwnJob::Idle),
+            retry: RwSignal::new(None),
             edit: Edit::new(),
         }
     }

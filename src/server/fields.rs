@@ -29,6 +29,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         metrics,
         self_allow,
         web,
+        remote_updates,
         service_files,
     } = new;
     use Applied::{Live, Reload, Restart};
@@ -81,6 +82,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*metrics != old.metrics, "metrics", Reload),
         (*self_allow != old.self_allow, "self.allow", Reload),
         (*web != old.web, "web", Reload),
+        (*remote_updates != old.remote_updates, "update", Restart),
         (*service_files != old.service_files, "files", Live),
     ]
     .into_iter()
@@ -118,6 +120,11 @@ mod tests {
 
     fn edits() -> Vec<(&'static str, Applied, Edit)> {
         vec![
+            (
+                "update",
+                Applied::Restart,
+                Box::new(|s| s.remote_updates = !s.remote_updates),
+            ),
             (
                 "listen",
                 Applied::Restart,

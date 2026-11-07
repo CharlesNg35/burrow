@@ -20,7 +20,18 @@ pub(super) fn conflict(core: &Core, base: &str, old_docs: &Docs, current: String
     let theirs = before.as_ref().and_then(|b| {
         let (before, after) =
             values::hide_headers(&b.tree().ok()?.to_json(), &old_docs.tree().ok()?.to_json());
-        Some(summary::changes(&before, &after, &[]))
+        let texts: Vec<&str> = b
+            .list
+            .iter()
+            .chain(&old_docs.list)
+            .map(|d| d.text.as_str())
+            .collect();
+        let written = values::credentials_in(&texts, &core.schema().root);
+        Some(summary::changes(
+            &values::veil_written(&before, &written),
+            &values::veil_written(&after, &written),
+            &[],
+        ))
     });
     let moved: Vec<String> = before
         .map(|b| crate::config::save::changes(&b, old_docs))
@@ -198,7 +209,7 @@ pub(super) fn judge(
 ) -> Verdict {
     let (raw, new_raw, applied) = (d.raw, d.new_raw, d.applied);
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
-    let shared = guard::shared_web_port(running, (raw, new_raw));
+    let sessions = core.live.sessions();
     if let Some(next) = &checked.settings {
         let who = guard::Who {
             visitor: &s.visitor,
@@ -210,23 +221,8 @@ pub(super) fn judge(
             (Some(settings), true) => settings,
             _ => running,
         };
-        let base = match (&file.settings, file.valid) {
-            (Some(settings), true) => guard::Base::Valid(settings),
-            _ => guard::Base::Broken {
-                raw,
-                next_raw: new_raw,
-            },
-        };
-        refusals = guard::refusals(
-            &who,
-            &guard::Change {
-                running,
-                base,
-                next,
-                renames: &applied.renames,
-                path: core.store.path(),
-            },
-        );
+        refusals = guard::refusals(&who, next);
+        impacts.extend(guard::lockouts(&who, running, next));
         if let Some(c) = running.listen_clash(next) {
             clash.push(listen_clash(c));
         }
@@ -247,16 +243,17 @@ pub(super) fn judge(
             .filter(|a| a.how == Applies::Restart)
             .map(|a| a.field.clone())
             .collect();
-        impacts = guard::impacts(
+        impacts.extend(guard::impacts(
             before,
             next,
             &core.live.status(),
-            &core.live.sessions(),
+            &sessions,
             &restart,
             &applied.renames,
-        );
+        ));
+        clash.extend(super::access_log::outside(core, raw, new_raw));
     }
-    refusals.extend(shared);
+    impacts.extend(guard::shared_web_port(running, (raw, new_raw), &sessions));
     Verdict {
         refusals,
         impacts,
@@ -310,6 +307,7 @@ pub(super) fn assemble(
     for v in [raw, new_raw] {
         values::hashes(v, Some(root), &mut hashes);
         values::header_values(v, &mut headers);
+        values::credentials(v, Some(root), "", &mut headers);
     }
     let mask = |l: &str| text::mask_secrets(&values::veil_line(l, &hashes, &headers), &fresh_pairs);
     let diff =
@@ -317,8 +315,8 @@ pub(super) fn assemble(
     let file_diffs = files::diffs(old_docs, new_docs, &mask);
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let mut changes = summary::changes(
-        &values::veil_value(&old_shown, &hashes),
-        &values::veil_value(&new_shown, &hashes),
+        &values::veil_written(&values::veil_value(&old_shown, &hashes), &headers),
+        &values::veil_written(&values::veil_value(&new_shown, &hashes), &headers),
         &applied.renames,
     );
     files::note_moves(old_docs, applied, &mut changes);

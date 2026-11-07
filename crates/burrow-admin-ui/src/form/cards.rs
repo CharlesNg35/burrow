@@ -2,6 +2,7 @@ use burrow_admin_logic::fallback::needs_newer_ui;
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Field, Node, SemType};
+use burrow_admin_proto::value::child;
 use burrow_config::{ServiceEntry, VisitorEntry};
 
 use leptos::prelude::*;
@@ -22,6 +23,23 @@ pub struct SettingsCard {
     pub title: String,
     pub fields: Vec<Field>,
     pub object: bool,
+    pub at: Path,
+    pub skip: Vec<String>,
+}
+
+impl SettingsCard {
+    pub fn top(&self) -> Option<&str> {
+        self.at
+            .first()
+            .or(self.fields.first().map(|f| &f.key))
+            .map(String::as_str)
+    }
+
+    fn under(&self, key: &str) -> Path {
+        let mut p = self.at.clone();
+        p.push(key.to_string());
+        p
+    }
 }
 
 fn is_object(f: &Field) -> bool {
@@ -36,13 +54,53 @@ pub fn card_fields(c: &SettingsCard) -> Vec<(Path, Field)> {
         };
         fields(&f.node)
             .iter()
-            .map(|g| (vec![f.key.clone(), g.key.clone()], g.clone()))
+            .filter(|g| !c.skip.contains(&g.key))
+            .map(|g| {
+                let mut p = c.under(&f.key);
+                p.push(g.key.clone());
+                (p, g.clone())
+            })
             .collect()
     } else {
         c.fields
             .iter()
-            .map(|f| (vec![f.key.clone()], f.clone()))
+            .map(|f| (c.under(&f.key), f.clone()))
             .collect()
+    }
+}
+
+fn owned_under(base: &[String]) -> Vec<String> {
+    burrow_admin_logic::settings_tabs::own_cards()
+        .into_iter()
+        .filter_map(|o| {
+            o.split_last()
+                .filter(|(_, at)| *at == base)
+                .map(|(k, _)| k.clone())
+        })
+        .collect()
+}
+
+fn expand(mut c: SettingsCard, out: &mut Vec<SettingsCard>) {
+    let Some(f) = c.fields.first().cloned().filter(|_| c.object) else {
+        out.push(c);
+        return;
+    };
+    let base = c.under(&f.key);
+    let keys = owned_under(&base);
+    c.skip.clone_from(&keys);
+    out.push(c);
+    for key in keys {
+        if let Some(g) = fields(&f.node).iter().find(|g| g.key == key) {
+            let card = SettingsCard {
+                key: format!("{}.{key}", base.join(".")),
+                title: g.node.label.clone(),
+                fields: vec![g.clone()],
+                object: is_object(g),
+                at: base.clone(),
+                skip: Vec::new(),
+            };
+            expand(card, out);
+        }
     }
 }
 
@@ -86,6 +144,8 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
                 title: label,
                 fields: vec![(*one).clone()],
                 object: true,
+                at: Vec::new(),
+                skip: Vec::new(),
             });
             continue;
         }
@@ -100,6 +160,8 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
                 title: label.clone(),
                 fields: scalars,
                 object: false,
+                at: Vec::new(),
+                skip: Vec::new(),
             });
         }
         for f in mine.into_iter().filter(|f| is_object(f)) {
@@ -108,31 +170,37 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
                 title: f.node.label.clone(),
                 fields: vec![f.clone()],
                 object: true,
+                at: Vec::new(),
+                skip: Vec::new(),
             });
         }
     }
-    out
+    let mut all = Vec::new();
+    out.into_iter().for_each(|c| expand(c, &mut all));
+    all
 }
 
 fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
     let all: Vec<&Field> = c.fields.iter().collect();
     let (essential, advanced) = split(&all, false);
+    if let [f] = c.fields.as_slice()
+        && !c.at.is_empty()
+        && is_list_of_objects(f)
+    {
+        return list_card(c, f, border);
+    }
     let one = |f: &Field| {
-        row(
-            f.clone(),
-            vec![f.key.clone()],
-            vec![f.key.clone()],
-            Vec::new(),
-        )
+        let p = c.under(&f.key);
+        row(f.clone(), p.clone(), p, Vec::new())
     };
     let mut rows: Vec<AnyView> = essential.iter().map(|f| one(f)).collect();
     if !advanced.is_empty() {
         let more = More {
             fields: advanced
                 .iter()
-                .map(|f| ((*f).clone(), vec![f.key.clone()]))
+                .map(|f| ((*f).clone(), c.under(&f.key)))
                 .collect(),
-            spath: Vec::new(),
+            spath: c.at.clone(),
             group: c.key.clone(),
             entity: Vec::new(),
             table: true,
@@ -151,6 +219,30 @@ fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
             {head}
             <div class="divide-y divide-rowline px-4">{rows}</div>
+        </section>
+    }
+    .into_any()
+}
+
+fn is_list_of_objects(f: &Field) -> bool {
+    matches!(&inner(&f.node).sem, SemType::List(l) if matches!(inner(&l.item).sem, SemType::Object(_)))
+}
+
+fn list_card(c: &SettingsCard, f: &Field, border: &str) -> AnyView {
+    let path = c.under(&f.key);
+    let item = match &inner(&f.node).sem {
+        SemType::List(l) => (*l.item).clone(),
+        _ => return ().into_any(),
+    };
+    let body = crate::domain::object_list_card(f.node.clone(), item, path.clone());
+    let help = f.node.help.clone();
+    view! {
+        <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone() data-path=join(&path) data-schema=join(&path)>
+            {burrow_ui_kit::card_head(c.title.clone(), None, ().into_any())}
+            <div class="px-4 pb-4">
+                <p class="pt-3 pb-2 text-xs text-text-muted">{help}</p>
+                {body}
+            </div>
         </section>
     }
     .into_any()
@@ -187,7 +279,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     };
     let s = store();
     let e = s.edit;
-    let path: Path = vec![f.key.clone()];
+    let path: Path = c.under(&f.key);
     let lock = s
         .schema
         .get_untracked()
@@ -225,22 +317,25 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     let unset_label = first
         .as_ref()
         .map_or_else(|| f.node.label.clone(), |g| g.node.label.clone());
-    let unset_path = first.map_or_else(|| path.clone(), |g| vec![f.key.clone(), g.key]);
+    let unset_path = first.map_or_else(|| path.clone(), |g| child(&path, &g.key));
     let p4 = path.clone();
+    let skip = c.skip.clone();
+    let off_note = super::le_off::note_for(&path);
     let body = move || {
         if !optional || is_set.get() {
+            let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
             object_view_marked(
                 &inner_node,
                 p4.clone(),
                 p4.clone(),
                 Vec::new(),
-                &[],
+                &skip,
                 advanced,
             )
         } else {
             let shown = none_label.clone();
             view! {
-                <burrow_ui_kit::FieldRow id=field_id(&unset_path) label=unset_label.clone() help=help.clone() key_hint=unset_path.join(".\u{200b}") table=true>
+                <burrow_ui_kit::FieldRow id=field_id(&unset_path) label=unset_label.clone() help=help.clone() key_hint=burrow_admin_logic::wording::key_hint(&unset_path) table=true>
                     <p class="text-sm text-text-muted" data-testid="not-set">{shown}</p>
                 </burrow_ui_kit::FieldRow>
             }
@@ -254,6 +349,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     view! {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone() data-path=jp data-schema=js>
             {head}
+            {off_note}
             <div class="px-4">
                 {if compact {
                     view! { <leptos::context::Provider value=title>{body}</leptos::context::Provider> }.into_any()

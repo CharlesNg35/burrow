@@ -32,12 +32,6 @@ pub(super) fn render_service(m: &Manifest) -> String {
         crate::service::systemd::quote_exec(&m.binary),
         m.name
     );
-    if let Some(env) = &m.env_file {
-        s.push_str(&format!(
-            "EnvironmentFile=-{}\n",
-            crate::service::systemd::quote(env)
-        ));
-    }
     s.push_str("UMask=0022\nPrivateTmp=yes\nNoNewPrivileges=yes\n");
     s
 }
@@ -101,8 +95,8 @@ mod tests {
             "{service}"
         );
         assert!(
-            service.contains("EnvironmentFile=-/etc/burrow/nas.env\n"),
-            "{service}"
+            !service.contains("EnvironmentFile"),
+            "the updater reads the env file itself, after checking who owns it: {service}"
         );
         assert!(
             !service.contains("User="),

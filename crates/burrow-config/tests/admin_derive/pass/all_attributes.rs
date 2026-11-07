@@ -48,7 +48,7 @@ pub struct Thing {
     pub text: String,
     #[admin(ty = integer(unit = "things"), advanced, readonly = "fixed")]
     pub count: u32,
-    #[admin(danger_when_set, applies = live, reduce_only)]
+    #[admin(danger_when_set, applies = live)]
     pub on: bool,
     #[admin(ty = ip)]
     pub ip: String,
@@ -168,8 +168,6 @@ fn main() {
     assert!(n.field("things").is_some());
     let t = <Thing as AdminSchema>::node();
     assert_eq!(t.groups.len(), 2);
-    assert!(t.field("on").unwrap().node.reduce_only);
-    assert!(!t.field("ip").unwrap().node.reduce_only);
     let url = format!("{:?}", t.field("url").unwrap().node.relations);
     assert!(url.contains("FixedIf") && url.contains("always /"), "{url}");
     let _ = <Elsewhere as AdminSchema>::node();

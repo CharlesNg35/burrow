@@ -33,7 +33,7 @@ fn secret_errors(o: &Outcome) -> Vec<String> {
 }
 
 #[test]
-fn a_dns_secret_comes_from_the_environment_or_a_readable_file() {
+fn a_dns_secret_is_written_in_the_file_or_comes_from_the_environment_or_a_readable_file() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("tsig.secret"), "c2VjcmV0\n").unwrap();
     for ok in [
@@ -41,6 +41,9 @@ fn a_dns_secret_comes_from_the_environment_or_a_readable_file() {
         "cloudflare: { token: \"file:tsig.secret\" }",
         "rfc2136: { server: \"10.0.0.53:53\", key_name: acme, secret: \"file:tsig.secret\" }",
         "acme_dns: { api: \"https://auth.example.org\", username: user1, password: \"${CF_TOKEN}\", subdomain: abc }",
+        "cloudflare: { token: cf-inline-123 }",
+        "rfc2136: { server: \"10.0.0.53:53\", key_name: acme, secret: c2VjcmV0 }",
+        "acme_dns: { api: \"https://auth.example.org\", username: u, password: pw, subdomain: abc }",
     ] {
         let (_, o) = load(dir.path(), ok);
         assert_eq!(secret_errors(&o), Vec::<String>::new(), "{ok}");
@@ -48,22 +51,10 @@ fn a_dns_secret_comes_from_the_environment_or_a_readable_file() {
 }
 
 #[test]
-fn a_dns_secret_written_in_the_file_unreadable_or_empty_is_an_error_with_its_path() {
+fn an_unreadable_or_empty_dns_secret_is_an_error_with_its_path() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("empty.token"), "\n").unwrap();
     let cases = [
-        (
-            "cloudflare: { token: cf-inline-123 }",
-            "web.letsencrypt.dns[0].cloudflare.token is written in the file; use ${CF_TOKEN} or file: so it stays out of the config",
-        ),
-        (
-            "rfc2136: { server: \"10.0.0.53:53\", key_name: acme, secret: c2VjcmV0 }",
-            "web.letsencrypt.dns[0].rfc2136.secret is written in the file; use ${TSIG_SECRET} or file: so it stays out of the config",
-        ),
-        (
-            "acme_dns: { api: \"https://auth.example.org\", username: u, password: pw, subdomain: abc }",
-            "web.letsencrypt.dns[0].acme_dns.password is written in the file; use ${ACMEDNS_KEY} or file: so it stays out of the config",
-        ),
         (
             "cloudflare: { token: \"file:empty.token\" }",
             "web.letsencrypt.dns[0].cloudflare.token: empty.token is empty",

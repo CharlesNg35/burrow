@@ -54,6 +54,7 @@ pub struct ServerSettings {
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
     pub web: Option<WebSettings>,
+    pub remote_updates: bool,
     pub service_files: BTreeMap<String, String>,
 }
 
@@ -70,13 +71,14 @@ impl ServerSettings {
         secret: &Secret,
         from: std::net::IpAddr,
     ) -> Result<AdminLevel, &'static str> {
-        let v = self.visitors.get(visitor).ok_or("visitor removed")?;
+        use burrow_admin_proto::msg::revoked;
+        let v = self.visitors.get(visitor).ok_or(revoked::VISITOR_REMOVED)?;
         if !v.secrets.contains(secret) {
-            return Err("secret removed");
+            return Err(revoked::SECRET_REMOVED);
         }
-        let level = v.admin.ok_or("admin removed")?;
+        let level = v.admin.ok_or(revoked::ADMIN_REMOVED)?;
         if !v.admits_admin(from) {
-            return Err("source not allowed");
+            return Err(revoked::SOURCE_NOT_ALLOWED);
         }
         Ok(level)
     }

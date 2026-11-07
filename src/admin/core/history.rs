@@ -53,7 +53,8 @@ impl Core {
                             .map(|d| d.text.as_str())
                             .collect();
                         let hashes = values::hashes_in(&texts, &self.schema().root);
-                        let headers = values::header_values_in(&texts);
+                        let mut headers = values::header_values_in(&texts);
+                        headers.extend(values::credentials_in(&texts, &self.schema().root));
                         let mask = |l: &str| {
                             text::mask_secrets(&values::veil_line(l, &hashes, &headers), &[])
                         };

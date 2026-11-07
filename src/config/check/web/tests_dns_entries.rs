@@ -72,7 +72,7 @@ fn an_entry_needs_its_domains_and_exactly_one_provider() {
     assert_eq!(
         errs("      - cloudflare: { token: \"${CF}\" }\n", ""),
         [
-            "web.letsencrypt.dns[0].domains is required: the domains this provider manages, like domains: [example.com]"
+            "web.letsencrypt.dns[0].domains: list the domains this provider manages, like domains: [example.com]"
         ]
     );
     assert_eq!(
@@ -99,7 +99,7 @@ fn domains_hold_no_wildcards_and_appear_in_one_entry_only() {
     assert_eq!(
         errs(&two, ""),
         [
-            "domain \"example.com\" is listed in web.letsencrypt.dns[0] and [1]; list it in one entry only"
+            "web.letsencrypt.dns[1].domains: \"example.com\" is already listed in DNS provider 1; list it in one entry only"
         ]
     );
 }
@@ -234,7 +234,7 @@ fn a_shared_wildcard_sits_on_the_entry_that_manages_its_name() {
     assert_eq!(
         errs(&wrong, ""),
         [
-            "web.letsencrypt.dns[0].wildcards: \"*.apps.example.com\" belongs to apps.example.com, which dns[1] manages; list it in dns[1].wildcards"
+            "web.letsencrypt.dns[0].wildcards: \"*.apps.example.com\" belongs to apps.example.com, which DNS provider 2 manages; list it there"
         ]
     );
     assert!(
@@ -365,7 +365,26 @@ fn a_name_under_a_shared_wildcard_needs_no_check_of_its_own() {
         Some(Role::Server),
         &env,
     );
-    assert_eq!(errors(&o).len(), 2, "{:#?}", errors(&o));
+    assert_eq!(
+        errors(&o),
+        Vec::<String>::new(),
+        "without the wildcard each name falls back to the DNS check of the provider for example.com"
+    );
+    let other = bare.replace("domains: [example.com]", "domains: [example.net]");
+    let o = load_str_in(
+        dir.path(),
+        "server.yaml",
+        &other,
+        Format::Yaml,
+        Some(Role::Server),
+        &env,
+    );
+    assert_eq!(
+        errors(&o).len(),
+        2,
+        "no provider lists them: {:#?}",
+        errors(&o)
+    );
 }
 
 #[cfg(feature = "web")]

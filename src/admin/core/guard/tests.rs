@@ -1,9 +1,10 @@
 use super::*;
 use crate::admin::core::ports::LiveSession;
 use crate::admin::core::tests::world;
+use crate::config::patch::Rename;
 use crate::config::{Format, Loaded, Role, load_str};
 use crate::metrics::{ServiceStatus, Status, VisitorStatus};
-use burrow_admin_proto::plan::Level;
+use burrow_admin_proto::plan::{Impact, Level};
 use burrow_config::SELF;
 
 fn settings(text: &str) -> ServerSettings {
@@ -22,19 +23,12 @@ fn settings(text: &str) -> ServerSettings {
     }
 }
 
-const FILE: &str = "/etc/burrow/server.yaml";
-
-fn judged(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<Refusal> {
-    refusals(
-        who,
-        &Change {
-            running: old,
-            base: Base::Valid(old),
-            next: new,
-            renames: &[],
-            path: Path::new(FILE),
-        },
-    )
+fn codes_of(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<String> {
+    refusals(who, new)
+        .into_iter()
+        .map(|r| r.code)
+        .chain(lockouts(who, old, new).into_iter().map(|i| i.code))
+        .collect()
 }
 
 #[test]
@@ -115,7 +109,7 @@ fn removing_the_secret_a_client_is_connected_with_disconnects_it() {
 }
 
 #[test]
-fn the_last_writer_and_the_transport_are_kept() {
+fn only_the_last_writer_and_removing_yourself_are_refused_the_rest_is_confirmed() {
     let w = world();
     let old = settings(&w.text);
     let who = Who {
@@ -124,19 +118,19 @@ fn the_last_writer_and_the_transport_are_kept() {
         secret: &w.ops,
         via_websocket: false,
     };
-    assert!(judged(&who, &old, &old).is_empty());
+    assert!(codes_of(&who, &old, &old).is_empty());
     let read = settings(&w.text.replace("admin: write", "admin: read"));
-    let r = judged(&who, &old, &read);
-    assert!(r.iter().any(|r| r.code == "self-demoted"));
+    assert_eq!(codes_of(&who, &old, &read), ["last-writer", "self-demoted"]);
     let no_listen = settings(
         &w.text
             .replace("listen: 7835 # tcp\n", "websocket: { listen: 7836 }\n"),
     );
-    assert!(
-        judged(&who, &old, &no_listen)
-            .iter()
-            .any(|r| r.code == "self-transport")
-    );
+    assert!(refusals(&who, &no_listen).is_empty());
+    let moved = lockouts(&who, &old, &no_listen);
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert_eq!(moved[0].code, "self-transport");
+    assert_eq!(moved[0].level, Level::Danger);
+    assert_eq!(moved[0].confirm.as_deref(), Some("listen"));
 }
 
 #[test]
@@ -221,73 +215,16 @@ fn ops(t: &Team) -> Who<'_> {
     }
 }
 
-fn codes(r: &[Refusal]) -> Vec<&str> {
-    r.iter().map(|r| r.code.as_str()).collect()
-}
-
-fn in_file(what: &str) -> String {
-    format!(
-        "admin access is granted only in the config file: {what}; use burrow edit -c {FILE} or edit the file"
-    )
-}
-
 #[test]
-fn granting_or_widening_admin_power_is_refused_with_its_own_code() {
+fn granting_or_widening_admin_power_is_a_plain_change() {
     let t = team();
     let old = settings(&t.text);
     let who = ops(&t);
-    let refused = |text: String| judged(&who, &old, &settings(&text));
-    let plain_admin = t.text.replace("  plain:\n", "  plain:\n    admin: write\n");
-    let r = refused(plain_admin);
-    assert_eq!(codes(&r), ["admin-grant"]);
-    assert_eq!(
-        r[0].message,
-        in_file("visitor \"plain\" would get admin: write")
-    );
-    let r = refused(t.text.replace("admin: read", "admin: write"));
-    assert_eq!(codes(&r), ["admin-upgrade"]);
-    assert_eq!(
-        r[0].message,
-        in_file("visitor \"viewer\" would go from admin: read to admin: write")
-    );
-    let r = refused(
-        t.text
-            .replace("    admin_from: [10.0.0.0/8, 2001:db8::/32]\n", ""),
-    );
-    assert_eq!(codes(&r), ["admin-from-widened"]);
-    assert_eq!(
-        r[0].message,
-        in_file("admin_from of visitor \"viewer\" would be removed, which admits every address")
-    );
-    let r = refused(
-        t.text
-            .replace("2001:db8::/32]", "2001:db8::/32, 192.0.2.0/24]"),
-    );
-    assert_eq!(
-        r[0].message,
-        in_file(
-            "admin_from of visitor \"viewer\" would admit 192.0.2.0/24, which the current list does not"
-        )
-    );
-    assert_eq!(
-        codes(&refused(t.text.replace("2001:db8::/32]", "::/0]"))),
-        ["admin-from-widened"]
-    );
     let fresh = Secret::generate();
     let rotated = t.text.replace(
         &format!("[{}, {}]", t.boss.encode(), t.spare.encode()),
         &format!("[{}, {}]", t.boss.encode(), fresh.encode()),
     );
-    let r = refused(rotated);
-    assert_eq!(codes(&r), ["admin-secret-added"]);
-    assert_eq!(
-        r[0].message,
-        in_file(&format!(
-            "visitor \"boss\" would get the new secret {}",
-            fresh.fingerprint()
-        ))
-    );
-    assert!(!r[0].message.contains(&fresh.encode()));
     let added = t.text.replace(
         "\nservices:",
         &format!(
@@ -295,42 +232,22 @@ fn granting_or_widening_admin_power_is_refused_with_its_own_code() {
             Secret::generate().encode()
         ),
     );
-    let r = refused(added);
-    assert_eq!(codes(&r), ["admin-grant"]);
-    assert_eq!(
-        r[0].message,
-        in_file("visitor \"extra\" would get admin: read")
-    );
-}
-
-#[test]
-fn renaming_an_admin_visitor_is_left_to_the_file() {
-    let t = team();
-    let old = settings(&t.text);
-    let new = settings(&t.text.replace("  boss:\n", "  chief:\n"));
-    let renames = [Rename {
-        path: vec!["visitors".into(), "boss".into()],
-        to: "chief".into(),
-    }];
-    let r = refusals(
-        &ops(&t),
-        &Change {
-            running: &old,
-            base: Base::Valid(&old),
-            next: &new,
-            renames: &renames,
-            path: Path::new(FILE),
-        },
-    );
-    assert_eq!(codes(&r), ["admin-grant"]);
-    assert_eq!(
-        r[0].message,
-        format!(
-            "an admin visitor is renamed only in the config file: visitor \"boss\" would become \"chief\"; use burrow edit -c {FILE} or edit the file"
-        )
-    );
-    let plain = settings(&t.text.replace("  plain:\n", "  simple:\n"));
-    assert!(judged(&ops(&t), &old, &plain).is_empty());
+    for text in [
+        t.text.replace("  plain:\n", "  plain:\n    admin: write\n"),
+        t.text.replace("admin: read", "admin: write"),
+        t.text
+            .replace("    admin_from: [10.0.0.0/8, 2001:db8::/32]\n", ""),
+        t.text
+            .replace("2001:db8::/32]", "2001:db8::/32, 192.0.2.0/24]"),
+        t.text.replace("2001:db8::/32]", "::/0]"),
+        rotated,
+        added,
+    ] {
+        let new = settings(&text);
+        assert!(codes_of(&who, &old, &new).is_empty(), "{text}");
+        let i = impacts(&old, &new, &Status::default(), &[], &[], &[]);
+        assert!(i.iter().all(|i| i.confirm.is_none()), "{text}: {i:?}");
+    }
 }
 
 #[test]
@@ -339,7 +256,7 @@ fn reducing_admin_power_of_others_is_allowed() {
     let old = settings(&t.text);
     let who = ops(&t);
     let allowed = |text: String| {
-        let r = judged(&who, &old, &settings(&text));
+        let r = codes_of(&who, &old, &settings(&text));
         assert!(r.is_empty(), "{text}: {r:?}");
     };
     allowed(t.text.replacen("    admin: write\n  viewer", "  viewer", 1));
@@ -352,10 +269,6 @@ fn reducing_admin_power_of_others_is_allowed() {
         "[10.0.0.0/8, 2001:db8::/32]",
         "[10.1.0.0/16, ::ffff:10.2.3.4]",
     ));
-    allowed(
-        t.text
-            .replace("[10.0.0.0/8, 2001:db8::/32]", "[10.0.0.0/9, 10.128.0.0/9]"),
-    );
     allowed(t.text.replace(
         &format!("[{}, {}]", t.boss.encode(), t.spare.encode()),
         &t.spare.encode(),
@@ -368,99 +281,75 @@ fn reducing_admin_power_of_others_is_allowed() {
         "",
     ));
     assert!(!gone.visitors.contains_key("viewer"));
-    assert!(judged(&who, &old, &gone).is_empty());
-    let plain_secret = t.text.replace(
-        "  plain:\n    secret: ",
-        &format!("  plain:\n    secret: [{}, ", Secret::generate().encode()),
-    );
-    let plain_secret = plain_secret.replacen("\n\nservices:", "]\n\nservices:", 1);
-    allowed(plain_secret);
+    assert!(codes_of(&who, &old, &gone).is_empty());
 }
 
 #[test]
-fn the_self_guards_still_decide_for_the_session() {
+fn your_own_session_is_a_danger_to_confirm_not_a_refusal() {
     let t = team();
     let old = settings(&t.text);
     let who = ops(&t);
-    let judge = |text: String| judged(&who, &old, &settings(&text));
+    let judge = |text: String| {
+        let new = settings(&text);
+        assert!(refusals(&who, &new).is_empty(), "{text}");
+        lockouts(&who, &old, &new)
+    };
     let ops_line = format!("  ops:\n    secret: {}\n", t.ops.encode());
-    assert_eq!(
-        codes(&judge(t.text.replacen(
-            "admin: write\n  boss",
-            "admin: read\n  boss",
-            1
-        ))),
-        ["self-demoted"]
+    let codes = |i: Vec<Impact>| i.into_iter().map(|i| i.code).collect::<Vec<_>>();
+    let demoted = judge(
+        t.text
+            .replacen("admin: write\n  boss", "admin: read\n  boss", 1),
+    );
+    assert_eq!(demoted[0].code, "self-demoted");
+    assert_eq!(demoted[0].level, Level::Danger);
+    assert_eq!(demoted[0].confirm.as_deref(), Some("ops"));
+    assert!(
+        demoted[0].message.contains("you can only look"),
+        "{}",
+        demoted[0].message
     );
     let fresh = Secret::generate();
-    assert_eq!(
-        codes(&judge(t.text.replace(
+    assert!(
+        judge(t.text.replace(
             &ops_line,
             &format!(
                 "  ops:\n    secret: [{}, {}]\n",
                 t.ops.encode(),
                 fresh.encode()
             )
-        ))),
-        ["admin-secret-added"]
+        ))
+        .is_empty(),
+        "adding a second secret to yourself is the first step of a rotation"
     );
+    let rotated = judge(t.text.replace(
+        &ops_line,
+        &format!("  ops:\n    secret: {}\n", fresh.encode()),
+    ));
+    assert_eq!(codes(rotated.clone()), ["self-secret"]);
+    assert!(rotated[0].message.contains(&t.ops.fingerprint()));
+    assert!(!rotated[0].message.contains(&t.ops.encode()));
     assert_eq!(
-        codes(&judge(t.text.replace(
-            &ops_line,
-            &format!("  ops:\n    secret: {}\n", fresh.encode())
-        ))),
-        ["self-secret", "admin-secret-added"]
-    );
-    assert_eq!(
-        codes(&judge(t.text.replace(
+        codes(judge(t.text.replace(
             &ops_line,
             &format!("{ops_line}    admin_from: [10.0.0.0/8]\n")
         ))),
         ["self-source"]
     );
-    assert_eq!(
-        codes(&judge(t.text.replace(
+    assert!(
+        judge(t.text.replace(
             &ops_line,
             &format!("{ops_line}    admin_from: [203.0.113.0/24]\n")
-        ))),
-        Vec::<&str>::new()
+        ))
+        .is_empty()
     );
-}
-
-#[test]
-fn the_base_is_the_file_so_an_unapplied_hand_edit_is_not_a_grant() {
-    let t = team();
-    let running = settings(&t.text);
-    let edited = settings(&t.text.replace("  plain:\n", "  plain:\n    admin: write\n"));
-    let later = settings(
-        &t.text
-            .replace("  plain:\n", "  plain:\n    admin: write\n")
-            .replace("target: 3000", "target: 3001"),
+    let gone = settings(&t.text.replace(&format!("{ops_line}    admin: write\n"), ""));
+    assert_eq!(
+        refusals(&who, &gone)
+            .into_iter()
+            .map(|r| r.code)
+            .collect::<Vec<_>>(),
+        ["self-removed"]
     );
-    let change = |file: &ServerSettings, next: &ServerSettings| {
-        refusals(
-            &ops(&t),
-            &Change {
-                running: &running,
-                base: Base::Valid(file),
-                next,
-                renames: &[],
-                path: Path::new(FILE),
-            },
-        )
-    };
-    assert!(change(&edited, &later).is_empty());
-    assert_eq!(codes(&change(&running, &later)), ["admin-grant"]);
-    assert_eq!(codes(&change(&running, &edited)), ["admin-grant"]);
-}
-
-#[test]
-fn a_grant_brings_no_impact_since_it_is_refused() {
-    let t = team();
-    let old = settings(&t.text);
-    let new = settings(&t.text.replace("  plain:\n", "  plain:\n    admin: write\n"));
-    let i = impacts(&old, &new, &Status::default(), &[], &[], &[]);
-    assert!(i.iter().all(|i| !i.code.starts_with("admin")), "{i:?}");
 }
 
 #[test]

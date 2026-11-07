@@ -11,7 +11,7 @@ use crate::install::Manifest;
 use crate::service::helper;
 use crate::wire::protocol::{LastUpdate, Outcome, Step};
 
-const WATCH_FOR: Duration = Duration::from_secs(30 * 60);
+pub(super) const WATCH_FOR: Duration = Duration::from_secs(30 * 60);
 
 pub fn blocked(m: &Manifest) -> Option<String> {
     if !m.remote_updates || helper::helper().is_none() {
@@ -53,7 +53,11 @@ pub(super) fn last_from(result: &std::path::Path, asked: &std::path::Path) -> Op
 }
 
 pub(super) fn answers(r: &Record, a: &Asked) -> bool {
-    r.at >= a.at && r.from == a.from
+    let after = match (r.at_ms, a.at_ms) {
+        (0, _) | (_, 0) => r.at >= a.at,
+        (r, a) => r >= a,
+    };
+    after && r.from == a.from
 }
 
 pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String> {
@@ -61,6 +65,8 @@ pub fn start(m: &Manifest, job: Job, busy: Arc<AtomicBool>) -> Result<(), String
         id: job.id,
         at: record::now(),
         from: job.from.clone(),
+        by: String::new(),
+        at_ms: record::now_ms(),
     };
     let file = asked_file(m);
     record::write(&file, &asked, 0o600)

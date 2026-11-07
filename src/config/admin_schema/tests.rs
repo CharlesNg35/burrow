@@ -428,15 +428,6 @@ fn every_node_has_a_label_and_known_type() {
     assert_eq!(back, schema);
 }
 
-#[test]
-fn the_reduce_only_fields_are_exactly_what_the_grant_rule_reads() {
-    let mut marked = server_schema().reduce_only_paths();
-    marked.sort();
-    let mut read: Vec<Vec<String>> = burrow_admin_logic::grant::fields().to_vec();
-    read.sort();
-    assert_eq!(marked, read);
-}
-
 fn nodes<'a>(node: &'a Node, prefix: &str, out: &mut Vec<(String, &'a Node)>) {
     out.push((prefix.to_string(), node));
     match &node.sem {

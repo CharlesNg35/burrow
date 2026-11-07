@@ -1,4 +1,4 @@
-//! Integration tests for `burrow admin`: the admin protocol, grants, the launch page, older UI versions and sessions.
+//! Integration tests for `burrow admin`: the admin protocol, admin rights, the launch page, older UI versions and sessions.
 
 mod common;
 #[path = "admin/grants.rs"]
@@ -9,6 +9,8 @@ mod launch;
 mod local_page;
 #[path = "admin/older.rs"]
 mod older;
+#[path = "admin/relaxed.rs"]
+mod relaxed;
 #[path = "admin/session.rs"]
 mod session;
 #[cfg(feature = "admin-test-hooks")]

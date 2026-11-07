@@ -1,4 +1,4 @@
-use burrow_config::ServerConfig;
+use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -7,15 +7,17 @@ pub enum Tab {
     Web,
     Monitoring,
     Files,
+    File,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 5] = [
+    pub const ALL: [Tab; 6] = [
         Tab::Server,
         Tab::Connections,
         Tab::Web,
         Tab::Monitoring,
         Tab::Files,
+        Tab::File,
     ];
 
     pub fn shown(files: bool) -> Vec<Tab> {
@@ -32,6 +34,7 @@ impl Tab {
             Tab::Web => "proxy",
             Tab::Monitoring => "monitoring",
             Tab::Files => "files",
+            Tab::File => "file",
         }
     }
 
@@ -42,7 +45,12 @@ impl Tab {
             Tab::Web => "Web",
             Tab::Monitoring => "Monitoring",
             Tab::Files => "Files",
+            Tab::File => "Config file",
         }
+    }
+
+    pub fn holds_fields(self) -> bool {
+        !matches!(self, Tab::File | Tab::Files)
     }
 
     pub fn parse(key: &str) -> Option<Tab> {
@@ -70,6 +78,19 @@ pub fn tab_of(field: &str) -> Tab {
     } else {
         Tab::Server
     }
+}
+
+pub fn own_cards() -> Vec<Vec<String>> {
+    let web = ServerConfig::WEB.key();
+    let le = WebConfig::LETSENCRYPT.key();
+    [
+        vec![web, le],
+        vec![web, le, LetsEncrypt::DNS.key()],
+        vec![web, WebConfig::CERTIFICATES.key()],
+    ]
+    .into_iter()
+    .map(|p| p.into_iter().map(str::to_string).collect())
+    .collect()
 }
 
 pub fn problems_in(tab: Tab, paths: &[Vec<String>], sections: &[&str]) -> usize {
@@ -135,6 +156,8 @@ mod tests {
         for t in Tab::ALL {
             assert_eq!(Tab::parse(t.key()), Some(t));
         }
+        assert_eq!(Tab::ALL.last(), Some(&Tab::File));
+        assert!(!Tab::File.holds_fields());
     }
 
     #[test]

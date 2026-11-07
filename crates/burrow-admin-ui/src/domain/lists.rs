@@ -42,10 +42,6 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
                     .collect(),
             )
         });
-        if crate::grants::refuses(&fc2.path, v.as_ref()) {
-            store().edit.refuse(&fc2.path, true);
-            return;
-        }
         set_checked(&fc2, &node, v);
         let bad = list.iter().find_map(|t| {
             parse_input(&item3.sem, t)
@@ -239,6 +235,9 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     }
     if super::website::host_item(&u).is_some() {
         return super::website::website_editor(fc);
+    }
+    if let Some((c, text)) = super::enum_text::enum_or_text(&u) {
+        return super::enum_text::enum_or_text_editor(fc, c, text);
     }
     if let Some(sh) = burrow_admin_logic::shorthand::of(&u) {
         return super::keyed::shorthand_editor(fc, sh);

@@ -66,14 +66,21 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
         let serves =
             c.ui.text("[data-testid=overview-clients] tr[data-row=home] [data-names]")
                 .await;
+        assert_eq!(serves, "32 services", "the services column counts them");
+        let names =
+            c.ui.attr_of(
+                "[data-testid=overview-clients] tr[data-row=home] [data-names]",
+                "title",
+            )
+            .await;
         assert!(
-            serves.starts_with("web, ssh, s01") && serves.contains("+29 more"),
-            "the services column shows 3 names then how many more: {serves}"
+            names.starts_with("web, ssh, s01"),
+            "the names are the tooltip: {names}"
         );
         assert_eq!(
             c.ui.count("[data-testid=overview-clients] [data-names] a, [data-testid=overview-clients] [data-names] button").await,
             0,
-            "+N more is text, not a link"
+            "the count is text, not a link"
         );
         both_widths(c, "overview-50-clients").await;
         c.ui.viewport(420, 900).await;
@@ -125,10 +132,25 @@ fn overview_tabs_show_8_rows_problems_first_and_a_link_to_all() {
 
 const ROW_OF_FOCUS: &str = "(document.activeElement && document.activeElement.closest('[data-row]') || {}).dataset?.row || ''";
 
-async fn ticks(c: &Ctx, css: &str) {
-    let before = c.ui.text(css).await;
-    c.ui.wait_not_text(css, &before, std::time::Duration::from_secs(10))
-        .await;
+pub(super) async fn ticks(c: &Ctx, css: &str) -> String {
+    let pair = || async {
+        let before = c.ui.text(css).await;
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        (before, c.ui.text(css).await)
+    };
+    let (mut before, mut after) = pair().await;
+    if before != after {
+        (before, after) = pair().await;
+    }
+    assert_eq!(
+        before, after,
+        "status pushes leave the row's text alone within a minute"
+    );
+    let ticking = before.split_whitespace().any(|w| {
+        w.len() > 1 && w.ends_with('s') && w[..w.len() - 1].chars().all(|ch| ch.is_ascii_digit())
+    });
+    assert!(!ticking, "no live seconds in the row: {before}");
+    before
 }
 
 fn live(c: &mut Ctx) -> Flow<'_> {

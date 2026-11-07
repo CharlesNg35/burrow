@@ -1,6 +1,7 @@
 //! The admin API core: reads, checks and applies config changes for `burrow admin` sessions.
 //! Start at `Core` and `dispatch`; the `Store`, `Live` and `Env` traits in `ports` connect it to files and the running server.
 
+mod check_text;
 pub mod diags;
 pub mod diff;
 mod dispatch;
@@ -12,6 +13,7 @@ pub mod passwords;
 pub mod plan;
 pub mod ports;
 mod runtime;
+pub mod server_update;
 pub mod snippets;
 mod status;
 pub mod summary;
@@ -19,6 +21,7 @@ pub mod text;
 pub mod updates;
 pub mod uploads;
 pub mod values;
+pub mod view;
 
 pub use dispatch::{dispatch, ok, parse};
 
@@ -42,7 +45,7 @@ use crate::config::docs::Docs;
 use crate::wire::secret::Secret;
 use ports::{Env, Live, Store};
 
-pub const MAX_PENDING_SECRETS: usize = 16;
+pub const MAX_PENDING_SECRETS: usize = 256;
 pub const SECRET_PREFIX: &str = "s";
 pub const PENDING_SECRET_TTL: Duration = Duration::from_secs(30 * 60);
 const AUDIT_RING: usize = 200;
@@ -270,7 +273,7 @@ impl Core {
         let name_hint = settings.public_address.clone().unwrap_or_default();
         Welcome {
             server: ServerInfo {
-                version: crate::admin::hooks::version(env!("CARGO_PKG_VERSION")),
+                version: crate::admin::hooks::version(crate::base::build::version()),
                 target: env!("BURROW_TARGET").into(),
                 uptime_secs: self.started.elapsed().as_secs(),
                 name_hint,
@@ -384,6 +387,14 @@ impl Core {
     }
 
     pub fn state(&self, s: &Session) -> Result<State, ApiError> {
+        self.state_as(s, burrow_admin_proto::view::Shown::Written)
+    }
+
+    pub fn state_as(
+        &self,
+        s: &Session,
+        show: burrow_admin_proto::view::Shown,
+    ) -> Result<State, ApiError> {
         let docs = self.docs()?;
         let rev = text::docs_rev(&docs);
         {
@@ -400,7 +411,7 @@ impl Core {
         let values = checked
             .raw
             .as_ref()
-            .map(|raw| values::present(raw, Some(&self.schema.root), "", &*self.env))
+            .map(|raw| view::shown_values(self, raw, show))
             .unwrap_or(Value::Null);
         let running_settings = self.live.settings();
         let mut restart_pending = Vec::new();

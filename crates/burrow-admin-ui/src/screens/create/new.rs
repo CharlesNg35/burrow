@@ -116,7 +116,7 @@ pub fn NewEntity(
                         "The secret is shown once, after apply.".to_string()
                     }
                 }))}
-                <span class="ml-auto"></span>
+                <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
                 <Button label="Cancel" variant=burrow_ui_kit::ButtonLook::Ghost testid="create-cancel" on_click=move |_| { open.set(false); name.set(String::new()); }/>
                 <Button
                     label=if what == ServiceEntry::ENTITY { "Add and edit".to_string() } else { "Add to changes".to_string() }
@@ -136,6 +136,7 @@ pub fn NewEntity(
                         on_click=move |_| finish2(true)
                     />
                 })}
+                </div>
             </burrow_ui_kit::StickyBar>
             </div>
         </div>

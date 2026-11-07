@@ -3,6 +3,7 @@
 mod about;
 pub mod activity;
 pub mod bar;
+mod config_file;
 pub mod create;
 pub mod entity;
 pub mod files;
@@ -13,6 +14,7 @@ mod overview;
 pub mod paths;
 pub mod placement;
 mod settings;
+pub mod update_dialog;
 pub mod updates;
 
 use burrow_ui_kit::{EmptyState, Icon, Tone, button_class};
@@ -101,6 +103,7 @@ pub struct Row {
     pub title_tag: Option<(String, Tone)>,
     pub health: Option<entity::HealthMark>,
     pub terms: String,
+    pub moment: Option<crate::format::Moment>,
 }
 
 pub const NEW_ROW: &str = "__new";

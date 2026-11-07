@@ -196,6 +196,21 @@ pub fn service_name(names: &[String], taken: &[String]) -> String {
     name
 }
 
+fn own_entries(web: &Value) -> Vec<Vec<String>> {
+    burrow_config::WebConfig::CERTIFICATES
+        .get(web)
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(names).collect())
+        .unwrap_or_default()
+}
+
+fn own_covers(entries: &[Vec<String>], name: &str) -> bool {
+    matches!(
+        burrow_syntax::web::entry_for(entries.iter().map(Vec::as_slice).enumerate(), name),
+        Ok(Some(_))
+    )
+}
+
 pub fn needs_letsencrypt(hosts: &[String], web: &Value) -> bool {
     if burrow_config::WebConfig::LETSENCRYPT
         .get(web)
@@ -203,16 +218,44 @@ pub fn needs_letsencrypt(hosts: &[String], web: &Value) -> bool {
     {
         return false;
     }
-    let entries: Vec<Vec<String>> = burrow_config::WebConfig::CERTIFICATES
+    let entries = own_entries(web);
+    hosts.iter().any(|n| !own_covers(&entries, n))
+}
+
+fn dns_domains(web: &Value) -> Vec<Vec<String>> {
+    let text = |v: &Value| v.as_str().map(str::to_string);
+    burrow_config::WebConfig::LETSENCRYPT
         .get(web)
+        .and_then(|l| burrow_config::LetsEncrypt::DNS.get(l))
         .and_then(Value::as_array)
-        .map(|a| a.iter().map(names).collect())
-        .unwrap_or_default();
-    hosts.iter().any(|n| {
-        !matches!(
-            burrow_syntax::web::entry_for(entries.iter().map(Vec::as_slice).enumerate(), n),
-            Ok(Some(_))
-        )
+        .map(|a| {
+            a.iter()
+                .map(|d| {
+                    burrow_config::DnsEntry::DOMAINS
+                        .get(d)
+                        .and_then(Value::as_array)
+                        .map(|l| l.iter().filter_map(text).collect())
+                        .unwrap_or_default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn letsencrypt_problem(
+    hosts: &[String],
+    web: &Value,
+    ports: burrow_syntax::web::CheckPorts,
+) -> Option<String> {
+    let own = own_entries(web);
+    let dns = dns_domains(web);
+    hosts.iter().filter(|n| !own_covers(&own, n)).find_map(|n| {
+        let covered =
+            burrow_syntax::web::dns_entry_for(dns.iter().map(Vec::as_slice).enumerate(), n)
+                .is_some();
+        burrow_syntax::web::checks_for(n, ports, covered, None)
+            .err()
+            .map(|why| crate::cert_words::no_check(n, why))
     })
 }
 
@@ -245,6 +288,34 @@ pub fn site_kind(svc: &Value, https_on: bool) -> Option<SiteKind> {
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn a_new_website_is_checked_against_the_ports_providers_and_own_certificates() {
+        let closed = burrow_syntax::web::CheckPorts {
+            https: Some(8443),
+            http: Some(8080),
+        };
+        let web = json!({
+            "letsencrypt": {"email": "ops@example.com", "dns": [{"domains": ["example.com"]}]},
+            "certificates": [{"hosts": ["files.example.org"], "upload": "pair-1"}]
+        });
+        let check = |n: &str| letsencrypt_problem(&[n.to_string()], &web, closed);
+        assert_eq!(check("blog.example.com"), None);
+        assert_eq!(check("*.apps.example.com"), None);
+        assert_eq!(check("files.example.org"), None);
+        let shop = check("shop.example.org").expect("no check reaches it");
+        assert!(shop.contains("cannot check shop.example.org"), "{shop}");
+        let wild = check("*.apps.example.org").expect("a wildcard needs DNS");
+        assert!(wild.contains("DNS check providers"), "{wild}");
+        let open = burrow_syntax::web::CheckPorts {
+            https: Some(443),
+            http: None,
+        };
+        assert_eq!(
+            letsencrypt_problem(&["shop.example.org".into()], &web, open),
+            None
+        );
+    }
 
     #[test]
     fn a_service_is_reached_by_any_mix_of_three_ways() {

@@ -40,6 +40,7 @@ mark v3 VERSION=9.0.0-test.3
 mark v4 VERSION=9.0.0-test.4 BREAK=connect
 mark v5 VERSION=9.0.0-test.5 BREAK=start
 mark v6 VERSION=9.0.0-test.6 BREAK=config
+mark srv VERSION=9.9.9
 
 cd "$WORK"
 mkfifo releases.ctl
@@ -75,11 +76,12 @@ allow: [127.0.0.1/32]
 headers:
   X-Releases: \${BURROW_UPDATE_URL}
   X-Window: \${BURROW_ADMIN_TEST_UPDATE_WINDOW}
+  X-Trust: \${BURROW_ADMIN_TEST_TRUST_ENV}
 update:
   remote: true
 YAML
 chmod 600 server.yaml ops.yaml e2e-upd.yaml
-BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_LATEST_SECS=0 "$OUT/burrow" server -c server.yaml > server.log 2>&1 &
+BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_LATEST_SECS=0 ./srv server -c server.yaml > server.log 2>&1 &
 PIDS+=($!)
 
 home() { "$PROBE" ops.yaml status 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); c=[c for c in s["clients"] if c["name"]=="home"][0]; print(json.dumps(c))'; }
@@ -97,7 +99,8 @@ ask() {
 installed() { sudo "$(sudo cat /var/lib/burrow/services/$NAME.json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["binary"])' 2>/dev/null || echo /usr/local/bin/burrow)" version; }
 
 echo "== install the client as a service that allows remote updates"
-out="$(sudo E2E_SECRET="$HOME_SECRET" BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_UPDATE_WINDOW=8 ./v1 service install -c e2e-upd.yaml 2>&1)" || fail "install: $out"
+TRUST=0; [ "$(uname)" = Darwin ] && TRUST=1
+out="$(sudo E2E_SECRET="$HOME_SECRET" BURROW_UPDATE_URL="$URL" BURROW_ADMIN_TEST_UPDATE_WINDOW=8 BURROW_ADMIN_TEST_TRUST_ENV=$TRUST ./v1 service install -c e2e-upd.yaml 2>&1)" || fail "install: $out"
 echo "$out" | grep -q "the server's admin may ask it to update" || fail "install does not mention the updater: $out"
 wait_for "the old version reports" "['build']['version']" 9.0.0-test.1
 [ "$(field "['build']['remote']")" = on ] || fail "remote updates are not on: $(home)"

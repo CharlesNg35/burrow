@@ -178,6 +178,16 @@ impl Env {
     }
 }
 
+static RUN_ENV: std::sync::OnceLock<Env> = std::sync::OnceLock::new();
+
+pub fn note_run_env(env: &Env) {
+    let _ = RUN_ENV.set(env.clone());
+}
+
+pub fn run_var(name: &str) -> Option<String> {
+    RUN_ENV.get().and_then(|e| e.0.get(name).cloned())
+}
+
 impl EnvSource for Env {
     fn get(&self, name: &str) -> Option<String> {
         self.0

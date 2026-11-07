@@ -24,18 +24,7 @@ pub const LEAF_SECS: u64 = 12 * 3600;
 pub const SKEW_SECS: u64 = 300;
 pub const ROOT_WARNING_SECS: u64 = 365 * DAY_SECS;
 
-pub const PERMITTED_NAMES: [&str; 5] = ["localhost", "local", "internal", "home.arpa", "lan"];
-pub const PERMITTED_NETS: [(&str, u8); 9] = [
-    ("10.0.0.0", 8),
-    ("172.16.0.0", 12),
-    ("192.168.0.0", 16),
-    ("127.0.0.0", 8),
-    ("169.254.0.0", 16),
-    ("100.64.0.0", 10),
-    ("::1", 128),
-    ("fc00::", 7),
-    ("fe80::", 10),
-];
+pub use burrow_syntax::web::local_ca::{PERMITTED_NAMES, PERMITTED_NETS};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Meta {

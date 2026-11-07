@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod check;
 pub mod codes;
 pub mod date;
 pub mod diag;
@@ -16,6 +17,7 @@ pub mod schema;
 pub mod status;
 pub mod updates;
 pub mod value;
+pub mod view;
 pub mod web;
 
 pub use serde;
@@ -45,6 +47,9 @@ pub mod features {
     pub const CLIENT_ALLOW: &str = "client.allow";
     pub const CONFIG_FILES: &str = "config.files";
     pub const CLIENT_UPDATES: &str = "client.updates";
+    pub const SERVER_UPDATES: &str = "server.updates";
+    pub const CONFIG_VIEW: &str = "config.view";
+    pub const CHECK_TEXT: &str = "config.check-text";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -63,5 +68,8 @@ pub mod features {
         CLIENT_ALLOW,
         CONFIG_FILES,
         CLIENT_UPDATES,
+        SERVER_UPDATES,
+        CONFIG_VIEW,
+        CHECK_TEXT,
     ];
 }

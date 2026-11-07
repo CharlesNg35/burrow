@@ -5,7 +5,9 @@ pub mod adapters;
 pub mod core;
 pub mod hooks;
 pub mod latest;
+pub mod live;
 pub mod local;
+pub mod own_update;
 pub mod transport;
 
 use std::collections::HashMap;
@@ -16,8 +18,8 @@ use tokio::sync::{Semaphore, mpsc};
 
 use crate::app::reload::Nudge;
 
-pub const MAX_SESSIONS: usize = 8;
-pub const MAX_SESSIONS_PER_VISITOR: usize = 2;
+pub const MAX_SESSIONS: usize = 64;
+pub const MAX_SESSIONS_PER_VISITOR: usize = 32;
 pub const MAX_INFLIGHT: usize = 8;
 pub const MAX_QUEUED_PLANS: usize = 4;
 
@@ -97,6 +99,10 @@ impl Hub {
         self.plan_lock.lock().await
     }
 
+    pub fn plan_lock_now(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        self.plan_lock.try_lock().ok()
+    }
+
     pub fn nudger(&self) -> mpsc::Sender<Nudge> {
         self.nudge.clone()
     }
@@ -113,5 +119,25 @@ impl Hub {
             .as_ref()
             .filter(|(r, _)| r == rev)
             .map(|(_, v)| v.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin::core::tests::{core_for, world};
+
+    #[test]
+    fn one_visitor_holds_32_admin_sessions_and_another_still_gets_one() {
+        let (tx, _rx) = mpsc::channel(1);
+        let hub = Hub::new(core_for(&world().text), tx);
+        let held: Vec<Seat> = (0..32)
+            .map(|n| hub.seat("ops").unwrap_or_else(|| panic!("seat {n}")))
+            .collect();
+        assert!(hub.seat("ops").is_none());
+        let other = hub.seat("bob");
+        assert!(other.is_some());
+        drop(held);
+        assert!(hub.seat("ops").is_some());
     }
 }

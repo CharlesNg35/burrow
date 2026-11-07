@@ -188,7 +188,7 @@ pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView 
     view! {
         <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
             <h2 class="text-[13.5px] font-bold">{title}</h2>
-            {sub.map(|s| view! { <span class="text-xs text-text-muted">{s}</span> })}
+            {sub.map(|s| view! { <span class="text-xs text-text-muted" data-card-sub="">{s}</span> })}
             <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{right}</div>
         </div>
     }
@@ -239,7 +239,7 @@ pub fn PageHeader(
             <div class="min-w-0 flex-1">
                 {kicker.map(|k| view! { <p class="mb-1.5 text-[12.5px] font-semibold">{k}</p> })}
                 <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
-                {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted">{s}</p> })}
+                {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted" data-header-line="">{s}</p> })}
             </div>
             {actions.map(|a| view! { <div class="flex items-center gap-2">{a}</div> })}
         </header>
@@ -364,7 +364,7 @@ pub fn Table(
     view! {
         <div class="@container overflow-x-auto">
             <table
-                class="w-full border-collapse text-left text-base @max-[480px]:[&_td]:px-2.5 @max-[480px]:[&_tbody_th]:px-2.5 @max-[480px]:[&_thead_th]:px-2.5 [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
+                class="w-full border-collapse text-left text-base @max-[480px]:[&_td]:px-2.5 @max-[480px]:[&_tbody_th]:px-2.5 @max-[480px]:[&_thead_th]:px-2.5 [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:py-[11px] [&_td]:align-baseline [&_.inline-flex]:align-middle [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:py-[11px] [&_tbody_th]:align-baseline [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
                 data-testid=(!testid.is_empty()).then_some(testid)
             >
                 <thead>
@@ -443,18 +443,22 @@ pub fn Stat(
     #[prop(into)] value: Signal<String>,
     #[prop(optional, into)] unit: Signal<String>,
     #[prop(optional, into)] detail: Signal<String>,
+    #[prop(optional, into)] title: Signal<String>,
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     let key = label.to_lowercase();
+    let row = key.clone();
     view! {
-        <div>
+        <div title=move || Some(title.get()).filter(|t| !t.is_empty())>
             <div class="text-xs text-text-muted">{label}</div>
-            <div class="mt-1 text-xl font-bold tabular-nums" data-stat=key>
-                {move || value.get()}
-                <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1" data-stat-row=row>
+                <span class="text-xl font-bold tabular-nums" data-stat=key>
+                    {move || value.get()}
+                    <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>
+                </span>
+                {children.map(|c| c())}
             </div>
             <div class="text-xs text-text-muted">{move || detail.get()}</div>
-            {children.map(|c| c())}
         </div>
     }
 }

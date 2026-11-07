@@ -248,14 +248,17 @@ fn Body() -> impl IntoView {
                 </div>
             }
             .into_any(),
-            Conn::Revoked { reason } => view! {
-                <div class="mx-auto max-w-2xl p-8" data-testid="revoked">
-                    <EmptyState icon="lock" title="Your admin access was removed" message=format!("The server closed this session: {reason}")>
-                        <p class="text-sm text-text-muted">"Ask a write admin, then run burrow admin again."</p>
-                    </EmptyState>
-                </div>
+            Conn::Revoked { reason } => {
+                let (title, hint) = burrow_admin_logic::wording::revoked_words(&reason);
+                view! {
+                    <div class="mx-auto max-w-2xl p-8" data-testid="revoked" data-reason=reason.clone()>
+                        <EmptyState icon="lock" title=title message=format!("The server closed this session: {reason}")>
+                            <p class="text-sm text-text-muted">{hint}</p>
+                        </EmptyState>
+                    </div>
+                }
+                .into_any()
             }
-            .into_any(),
             Conn::Ended if !loaded.get() => view! {
                 <div class="mx-auto max-w-2xl p-8" data-testid="ended">
                     <EmptyState icon="wifi-off" title="This tab's admin session ended" message=burrow_admin_logic::wording::SESSION_ENDED_HINT/>
@@ -284,12 +287,18 @@ fn Body() -> impl IntoView {
 #[component]
 fn Banners() -> impl IntoView {
     let s = store();
+    crate::screens::updates::follow_server_update();
     let show_diags = RwSignal::new(false);
     let reconnecting = move || match s.conn.get() {
         Conn::Reconnecting { attempt } => {
             let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
             let n = s.edit.pending();
-            let at = format::clock(s.values_at.get());
+            let at = s.values_at.get();
+            let at = if at > 0.0 {
+                format!(" Values are from {}.", format::clock(at))
+            } else {
+                String::new()
+            };
             let (title, why) = if s.admin_down.get() && api::gone_a_while(attempt) {
                 (
                     "burrow admin is not running here.".to_string(),
@@ -300,6 +309,11 @@ fn Banners() -> impl IntoView {
                 (
                     "burrow admin is not running.".to_string(),
                     "Start it again and this tab reconnects. ".to_string(),
+                )
+            } else if s.server_updating.get().busy() {
+                (
+                    format!("{} restarts with the new release.", s.server_name()),
+                    "This tab reconnects on its own and then shows the result. ".to_string(),
                 )
             } else {
                 (
@@ -312,11 +326,16 @@ fn Banners() -> impl IntoView {
                 1 => " Your 1 change is kept.".to_string(),
                 n => format!(" Your {n} changes are kept."),
             };
+            let tone = if s.server_updating.get().busy() {
+                Tone::Info
+            } else {
+                Tone::Warning
+            };
             Some(view! {
                 <Banner
-                    tone=Tone::Warning
+                    tone=tone
                     title=title
-                    message=format!("{why}Reconnecting in {left} s · attempt {attempt}.{kept} Values are from {at}.")
+                    message=format!("{why}Reconnecting in {left} s, attempt {attempt}.{kept}{at}")
                     testid="banner-reconnecting"
                 >
                     <Button label="Retry now" size=burrow_ui_kit::ButtonSize::Small on_click=move |_| api::reconnect(s)/>

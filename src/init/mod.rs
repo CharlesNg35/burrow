@@ -175,6 +175,55 @@ fn check_env_name(name: &str) -> Result<(), Failure> {
     }
 }
 
+pub fn already_exists(path: &Path) -> Failure {
+    Failure::new(format!(
+        "{} already exists, not overwriting it",
+        path.display()
+    ))
+    .hint("pass --force to replace it, or -o to write somewhere else")
+}
+
+pub fn file_label(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
+}
+
+pub fn backup_of(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".bak");
+    PathBuf::from(name)
+}
+
+pub fn replace_question(path: &Path) -> String {
+    let file = file_label(path);
+    format!("{file} already exists. Replace it (the old one is kept as {file}.bak)?")
+}
+
+pub fn keep_or_replace(
+    path: &Path,
+    opts: &InitOptions,
+    prompt: &mut dyn Prompter,
+    out: &mut dyn Write,
+) -> Result<InitOptions, Failure> {
+    if opts.force || !path.exists() {
+        return Ok(opts.clone());
+    }
+    if !prompt.interactive() || !prompt.confirm(&replace_question(path), false) {
+        return Err(already_exists(path));
+    }
+    let bak = backup_of(path);
+    std::fs::read(path)
+        .and_then(|old| crate::base::fs::write_atomic(&bak, &old, 0o600))
+        .map_err(|e| Failure::new(format!("cannot keep a copy as {}: {e}", bak.display())))?;
+    crate::base::output::say(out, format!("kept the old one as {}", bak.display()))?;
+    Ok(InitOptions {
+        force: true,
+        ..opts.clone()
+    })
+}
+
 pub fn write_new(path: &Path, contents: &str, force: bool) -> Result<(), Failure> {
     if force {
         return crate::base::fs::write_private(path, contents).map_err(|e| {
@@ -190,11 +239,7 @@ pub fn write_new(path: &Path, contents: &str, force: bool) -> Result<(), Failure
         opts.mode(0o600);
     }
     let mut file = opts.open(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::AlreadyExists => Failure::new(format!(
-            "{} already exists, not overwriting it",
-            path.display()
-        ))
-        .hint("pass --force to replace it, or -o to write somewhere else"),
+        std::io::ErrorKind::AlreadyExists => already_exists(path),
         _ => Failure::new(format!("cannot write {}: {e}", path.display()))
             .hint("check that the directory exists and is writable"),
     })?;
@@ -245,11 +290,7 @@ fn ask_login(
     prompt: &mut dyn Prompter,
 ) -> Result<Login, Failure> {
     if path.exists() && !opts.force {
-        return Err(Failure::new(format!(
-            "{} already exists, not overwriting it",
-            path.display()
-        ))
-        .hint("pass --force to replace it, or -o to write somewhere else"));
+        return Err(already_exists(path));
     }
     let missing = |what: &str, flag: &str| {
         Failure::usage(format!("missing {what}")).hint(format!(

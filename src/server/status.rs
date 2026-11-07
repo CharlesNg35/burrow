@@ -177,6 +177,7 @@ impl Shared {
             client: None,
             rollout: self.rollout(),
             latest: None,
+            server_update: None,
         }
     }
 }

@@ -13,7 +13,7 @@ use std::fmt::Write;
 
 use crate::metrics::Status;
 use burrow_admin_proto::status::{OFFLINE, ONLINE, away};
-use burrow_syntax::duration::{ago, span};
+use burrow_syntax::duration::Elapsed;
 use burrow_syntax::size::bytes;
 use table::{ALWAYS, Cell, address, cell, col, long, num, right, table, toned};
 
@@ -33,6 +33,7 @@ pub struct Paint {
     pub color: bool,
     pub boxed: bool,
     pub width: Option<usize>,
+    pub elapsed: Elapsed,
 }
 
 impl Paint {
@@ -40,6 +41,7 @@ impl Paint {
         color: false,
         boxed: false,
         width: None,
+        elapsed: Elapsed::Exact,
     };
 
     pub fn clip(self, text: &str) -> String {
@@ -143,7 +145,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
 
 fn render_head(out: &mut String, s: &Status, paint: Paint) {
     let title = format!("burrow {}", s.version);
-    let up = format!("up {}", span(s.uptime_secs));
+    let up = format!("up {}", paint.elapsed.length(s.uptime_secs));
     let dot = paint.tone("  ·  ", Tone::Dim);
     let one_line = [title.clone(), up.clone()]
         .iter()
@@ -178,11 +180,11 @@ fn render_clients(out: &mut String, s: &Status, paint: Paint) {
             let (mut state, since) = match (c.connected, c.connected_secs, c.left_secs_ago) {
                 (true, secs, _) => (
                     paint.state(ONLINE, true),
-                    cell(secs.map(span).unwrap_or_default()),
+                    cell(secs.map(|x| paint.elapsed.length(x)).unwrap_or_default()),
                 ),
                 (false, _, left) => (
                     paint.state(OFFLINE, false),
-                    toned(away(left, s.uptime_secs, None), Tone::Dim),
+                    toned(away(left, s.uptime_secs, None, paint.elapsed), Tone::Dim),
                 ),
             };
             if c.at_limit {
@@ -378,7 +380,7 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
             .map(|v| {
                 let last = match (v.open, v.last_seen_secs) {
                     (1.., _) => cell("now"),
-                    (0, Some(secs)) => cell(ago(secs)),
+                    (0, Some(secs)) => cell(paint.elapsed.ago(secs)),
                     (0, None) => toned("not since start", Tone::Dim),
                 };
                 vec![cell(&v.name), last, num(v.open), num(v.total)]

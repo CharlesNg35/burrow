@@ -178,7 +178,7 @@ fn website_row(sw: &Switch) -> impl IntoView + use<> {
         (None, false) => view! { <span hidden data-testid="website-off"></span> }.into_any(),
         (None, true) => view! {
             <p class="mt-2 flex flex-wrap items-center gap-3 text-[13px] sm:ml-[46px]" data-testid="website-summary">
-                <span class="font-mono">{website_summary(e.value(&p).as_ref(), https_on.get())}</span>
+                <span class="min-w-0 font-mono">{burrow_ui_kit::inline(website_summary(e.value(&p).as_ref(), https_on.get()).split(" · ").map(|t| t.to_string().into_any()).collect())}</span>
                 <burrow_ui_kit::LinkButton testid="edit-website" on_click=open>"Edit website ↓"</burrow_ui_kit::LinkButton>
             </p>
         }

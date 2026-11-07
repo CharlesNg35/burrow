@@ -154,6 +154,7 @@ mod tests {
                     raw: json!({"t": "x"}),
                 })),
             }],
+            one_of: Vec::new(),
         }));
         assert!(needs_newer_ui(&outer));
     }

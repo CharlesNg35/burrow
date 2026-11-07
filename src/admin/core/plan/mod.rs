@@ -1,10 +1,10 @@
 //! Turns admin edit operations into a checked plan with the new config text, and applies it.
-//! Start at `compute` for a plan and `apply_begin` to write it; `check_text` checks a whole file.
+//! Start at `compute` for a plan and `apply_begin` to write it; `check_docs` checks the main file with its drop-ins.
 
+mod access_log;
 mod apply;
 pub mod files;
 mod locks;
-mod refs;
 mod steps;
 
 use std::collections::BTreeSet;
@@ -18,14 +18,13 @@ use serde_json::Value;
 
 use crate::config::docs::Docs;
 use crate::config::settings::ServerSettings;
-use crate::config::{Loaded, Role, load::load_set, tree};
+use crate::config::{Loaded, Role, load::load_set, load::load_str_at, tree};
 
 use super::diags::Mapper;
 use super::ops::{self, Fresh};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
 use locks::{refuse_changed_locks, refuse_locked};
-use refs::refuse_new_references;
 use steps::{Draft, assemble, conflict, judge, new_document, parse_current, refuse_files};
 
 pub struct Checked {
@@ -40,6 +39,25 @@ pub fn check_text(core: &Core, text: &str) -> Checked {
     check_docs(
         core,
         &Docs::one(crate::config::docs::main_name(core.store.path()), text),
+    )
+}
+
+pub fn load_as(
+    core: &Core,
+    text: &str,
+    role: Role,
+    format: crate::config::Format,
+) -> crate::config::Outcome {
+    let path = core.store.path();
+    let dir = crate::config::docs::folder_of(path);
+    let state = core.store.state_dir();
+    load_str_at(
+        (&dir, Some(&state)),
+        &path.display().to_string(),
+        text,
+        format,
+        Some(role),
+        &*core.env,
     )
 }
 
@@ -206,7 +224,6 @@ pub fn compute(
     let checked = check_docs(core, &new_docs);
     let new_raw = new_docs.tree().map(|n| n.to_json()).unwrap_or(Value::Null);
     refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
-    refuse_new_references((&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
     let file = check_docs(core, &old_docs);
     let d = Draft {
