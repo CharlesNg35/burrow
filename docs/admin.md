@@ -50,6 +50,38 @@ burrow admin --no-open --print-url  # ./visitor.yaml, or the one installed visit
 - It stops after 30 minutes without a browser tab; `--idle-exit` changes that, like `90s`, `30m` or `2h`.
 - Each browser tab and each `burrow mcp` holds one admin session on the server: up to 32 per visitor and 64 per server, so many tabs and AI apps can share one visitor.
 - If the page says "Open the link from your terminal", it was opened without the token: use the link `burrow admin` opened or printed, or run it again with `--print-url`.
+- `burrow admin --ui-info` prints the version and size of the built-in UI, and exits.
+
+## The pages
+
+The bar at the top has Overview, Services, Clients, Visitors, Settings and Activity. On the left, the server's name opens a menu with its listening addresses, its config file and **About this server**. On the right are search, the theme, **Review** with the number of changes waiting, and your account menu.
+
+- **Overview:** live counts (clients online, services healthy, open connections, traffic now, visitors in use, refused connections per minute), a traffic chart for all services or one, over 1, 5 or 15 minutes, and **Needs attention**. Below is a table with tabs for Services, Clients and Visitors, plus Websites and Certificates when the web proxy is on. The traffic chart is recorded by your browser and starts over when you reload the page; the server keeps no history.
+- **Needs attention** lists what to look at: a service that is down, has a failing health check or cannot listen, an offline client, a config file with errors, a setting that waits for a restart, a certificate that cannot be issued or ends soon, an update that failed, and a server older than this burrow admin. Most items open the place that fixes them.
+- **Flow chart** (the button on the Overview, or the `F` key) draws every path from the internet and the visitors, through the server and the clients, to the targets. **Problems** shows only the paths with a problem. Click a service or a client to open it; `Esc` closes.
+- **Services, Clients, Visitors:** a list with a search and filters on the left (Services: Public, Websites, Visitors, TCP, UDP; Clients: Online, Offline; Visitors: Admins, In use), and the picked item on the right. Websites are services with a website: the Websites filter lists them, and their settings are on the service's page. A service page shows how connections flow and its health per client.
+- An item's page has tabs. A service: Overview and Settings. A client: Overview (its figures, its burrow version and the services it serves), Secrets, Settings and Connect. A visitor: Access (admin rights, `admin_from`, reach and limits), Secrets, Connect and Settings. The ⋯ menu has Rename, Delete and Copy name.
+- **Secrets** lists each secret by its fingerprint, where it comes from (server.yaml or an environment variable) and whether the connected session uses it. **Generate a secret** or **Rotate secret** has the server make a new one; remove the old one once the client or visitor uses the new one.
+- **Connect** gives the ready config for that client or visitor: commands for Linux, macOS or Windows with a link to download burrow, the `client.yaml` or `visitor.yaml` file, or the same with the secret in an environment variable. A client's allow list comes from the services that use it, a visitor's forwards from the private services it may use. The secret is not in it: `burrow init` asks for it. When the server's address is not known, type it, or set Public address in Settings, Server.
+- **Activity** lists every version of the config by time, with what changed and who changed it. Filter by Admins or Hand edits, or search the history. A hand edit of server.yaml shows up with the next change.
+- **About** shows the server's version and system, its uptime, the burrow admin version, who you are signed in as and from where, the config file, whether the server can write it and why not, the history folder, and versions for support. **Copy diagnostics**, also in the account menu, copies these for a bug report.
+
+Moving around:
+
+- **Search** (the magnifier, or `/`) finds pages, services, clients and visitors by name, settings, Activity entries and actions like "New client…", "Rotate secret of home…" or "Review". Arrow keys and `Enter` pick one; `Esc` closes. On a list page, `/` goes to the list's search.
+- Times read like `5m` or `2h 5m`; hover one for the exact moment.
+- The theme is System, Light or Dark, from the button at the top or the account menu, and is kept in your browser.
+- On a phone, a list and an item's page show one at a time, with a back arrow at the top, and the Overview's tables become cards.
+- When the connection drops, a banner counts down to the next try and offers **Retry now**. Your changes not applied yet are kept.
+- A **Read-only** tag at the top says why when you cannot change anything: the visitor has `admin: read`, or the server cannot write its config file, with the command that fixes it.
+
+## Adding and changing things
+
+- **New client** and **New visitor** (the + button on their list): type a name; the server makes the secret. Optionally set the most connections and the services it serves, or may use. **Add to changes** keeps it with your other changes; **Create and apply** applies it at once.
+- After the apply, the secret is shown once, with the ready config and commands as on the Connect tab, with the secret filled in. Copy or download it then; afterwards only its fingerprint shows. For a new client the page waits until it connects, and says from where. **Done** closes it once you tick "I have saved the secret".
+- **New service** (+ on Services, then Service) takes a name; set its client and target on its page next. **New website** (+, then Website) asks for the names, the client and the app's port on it, and HTTPS.
+- To change an item or the settings, click **Edit**, change the fields, and click **Add to changes**, or **Discard**. Change as many items as you like; **Review** at the top counts them. Closing or reloading the tab with changes not applied asks first.
+- Review shows the diff, in one column or side by side, what it affects, and every error and warning, checked by the server as `burrow validate` does. **Apply** writes it; **Discard all** drops every change.
 
 ## Installed servers
 
@@ -87,7 +119,7 @@ A website picks its certificate on its page, under HTTPS: Automatic (Let's Encry
 
 ## Client versions and updates
 
-The Overview's Clients tab lists Client · From · Open · Since · Version · System · Services: the version with "0.2.3 available" when a newer release waits (on hover, why it cannot be updated from here, for example "remote updates are off in its config"), the system alone (like `linux/arm64`), and how many services the client serves ("2 services", the names on hover). A client's page shows its burrow among its figures: the version, a short line like `linux/arm64 · started by hand`, the "0.2.3 available" tag and, for a write admin when the update is possible, an **Update** button; a running update or its result shows as the tag, with the details on hover. **Update all** updates the clients that can take the newer release, one at a time, and stops at the first one that fails. The client downloads and checks the release itself, and goes back to its old version if the new one does not connect within a minute. Clients older than 0.2.2 show as "older than 0.2.2": update them by hand once. See [updates.md](updates.md).
+The Overview's Clients tab lists Client · From · Open · Since · Version · System · Services: the version with "0.2.3 available" when a newer release waits (on hover, why it cannot be updated from here, for example "remote updates are off in its config"), the system alone (like `linux/arm64`), and how many services the client serves ("2 services", the names on hover). A client's page shows its burrow among its figures: the version, a short line like `linux/arm64 · started by hand`, the "0.2.3 available" tag and, for a write admin when the update is possible, an **Update** button; a running update or its result shows as the tag, with the details on hover. **Update all** updates the clients that can take the newer release, one at a time, and stops at the first one that fails. A client is never offered a release newer than the server's: it says "the server runs 0.2.2; update the server first to 0.2.3", and **Update all** skips it. Each update dialog links "What's new in 0.2.3" to the release's page on GitHub. The client downloads and checks the release itself, and goes back to its old version if the new one does not connect within a minute. Clients older than 0.2.2 show as "older than 0.2.2": update them by hand once. See [updates.md](updates.md).
 
 ## Updating the server
 
