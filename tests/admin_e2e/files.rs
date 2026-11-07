@@ -21,7 +21,7 @@ fn opts() -> Options {
             ),
             (
                 "old-server.yaml",
-                "services:\n  cache:\n    client: home\n    target: 24\n".into(),
+                "services:\n  cache:\n    client: home\n    target: 24\n    visitors: [laptop]\n".into(),
                 false,
             ),
             (
