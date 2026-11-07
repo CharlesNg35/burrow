@@ -503,12 +503,17 @@ async fn a_focused_field_clears_the_toasts(c: &mut Ctx) {
         .ui
         .eval("(() => { document.querySelector('[data-testid=toast]').dispatchEvent(new MouseEvent('mouseenter')); return true; })()")
         .await;
+    edit_mode(c).await;
+    open_more(c, "services/*/max_connections").await;
+    c.ui.wait_for("#f-services-web-max-connections", SECS).await;
     focus_under_the_toasts(c, 1440).await;
     focus_under_the_toasts(c, 420).await;
     let _: bool = c
         .ui
         .eval("(() => { document.querySelector('[data-testid=toast]').dispatchEvent(new MouseEvent('mouseleave')); return true; })()")
         .await;
+    c.ui.click("[data-testid=discard-edit]").await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
     c.ui.viewport(1440, 900).await;
     c.ui.assert_no_errors();
 }
