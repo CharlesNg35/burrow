@@ -41,6 +41,8 @@ impl Kept {
 #[derive(Debug, Default)]
 pub(in crate::service) struct Snapshot {
     files: Vec<(String, Option<Kept>)>,
+    #[cfg(unix)]
+    owners: Vec<(String, (u32, u32))>,
 }
 
 fn present(config: &Path) -> Vec<String> {
@@ -79,7 +81,11 @@ impl Snapshot {
                 (name, kept)
             })
             .collect();
-        Snapshot { files }
+        Snapshot {
+            files,
+            #[cfg(unix)]
+            owners: place::owners(config),
+        }
     }
 
     fn unchanged(&self, config: &Path) -> bool {
@@ -124,6 +130,8 @@ impl Snapshot {
         account: &str,
         writable: bool,
     ) -> Result<(), Failure> {
+        #[cfg(unix)]
+        place::give_owners(config, &self.owners);
         if self.unchanged(config) {
             return Ok(());
         }

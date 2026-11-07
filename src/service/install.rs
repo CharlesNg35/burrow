@@ -129,7 +129,10 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .chain(stray::leftovers(Some(&name)))
         .collect();
     let operation = system::operation(out)?;
-    let previous = load_manifest(&name).ok();
+    let previous = load_manifest(&name).ok().map(|p| Manifest {
+        account_ids: p.account_ids.or_else(|| ids_of(&p.account)),
+        ..p
+    });
     let was_running = previous.as_ref().is_some_and(|p| backend.status(p).running);
     if was_running && opts.worker.is_none() {
         drop(operation);

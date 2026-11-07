@@ -159,7 +159,7 @@ pub(in crate::service) fn hand_over(
     let Ok(new) = ids(to) else {
         return;
     };
-    match before.account_ids.or_else(|| ids(&before.account).ok()) {
+    match before.account_ids {
         Some(old) if old == new => {}
         Some((0, _)) => super::place::give_copied(config, to, writable),
         Some(old) => {

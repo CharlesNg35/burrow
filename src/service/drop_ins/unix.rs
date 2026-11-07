@@ -166,6 +166,38 @@ pub(super) fn plain_at(dir: &OwnedFd, name: &str) -> Option<OwnedFd> {
     plain.then_some(f)
 }
 
+pub(super) fn owners(config: &Path) -> Vec<(String, (u32, u32))> {
+    let mut found = Vec::new();
+    let dir =
+        crate::service::nofollow::plain_files(&super::drop_in_folder(config), |name, _, st| {
+            if let Ok(name) = name.to_str() {
+                found.push((name.to_string(), (st.st_uid, st.st_gid)));
+            }
+        });
+    if let Some(st) = dir.and_then(|d| rustix::fs::fstat(&d).ok()) {
+        found.push((".".to_string(), (st.st_uid, st.st_gid)));
+    }
+    found
+}
+
+pub(super) fn give_owners(config: &Path, owners: &[(String, (u32, u32))]) {
+    let to = super::drop_in_folder(config);
+    let Ok(dir) = rustix::fs::open(&to, crate::base::fs::NO_FOLLOW_FOLDER, Mode::empty()) else {
+        return;
+    };
+    for (name, (uid, gid)) in owners {
+        let f = match name.as_str() {
+            "." => rustix::io::dup(&dir).ok(),
+            _ => plain_at(&dir, name),
+        };
+        if let Some(f) = f
+            && rustix::fs::fstat(&f).is_ok_and(|st| (st.st_uid, st.st_gid) != (*uid, *gid))
+        {
+            let _ = std::os::unix::fs::fchown(&f, Some(*uid), Some(*gid));
+        }
+    }
+}
+
 pub(super) fn copied_names(dir: &OwnedFd) -> Option<Vec<String>> {
     let mut text = String::new();
     let f = plain_at(dir, super::COPIED)

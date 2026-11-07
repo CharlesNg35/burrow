@@ -702,6 +702,7 @@ fn a_reinstall_from_the_installed_path_as_another_account_gives_it_the_drop_ins_
         std::fs::write(to.join(COPIED), "apps.yaml\nlocked.yaml").unwrap();
         let old = crate::install::Manifest {
             account: before.into(),
+            account_ids: crate::base::process::account_ids(before).ok(),
             ..nobody(&p.config)
         };
         let new = crate::install::Manifest {
@@ -844,4 +845,66 @@ fn a_reinstall_as_another_account_uses_the_ids_its_manifest_recorded() {
     reinstall_as_daemon(&p, &old);
     assert_eq!(owner(&to.join("apps.yaml")), b);
     assert_eq!(owner(&to.join("hand.yaml")), (0, b.1));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reinstall_as_the_same_name_after_the_account_was_deleted_and_made_again_follows_burrows_files()
+{
+    const GONE: (u32, u32) = (4242, 4243);
+    let p = place();
+    let Some((_, b, to)) = as_root_with(
+        &p,
+        &[
+            ("apps.yaml", GONE, 0o600),
+            ("locked.yaml", (0, GONE.1), 0o440),
+            (COPIED, (0, 0), 0o644),
+        ],
+    ) else {
+        return;
+    };
+    std::fs::write(to.join(COPIED), "apps.yaml\nlocked.yaml").unwrap();
+    let old = crate::install::Manifest {
+        account: "daemon".into(),
+        ..nobody(&p.config)
+    };
+    reinstall_as_daemon(&p, &old);
+    assert_eq!(owner(&to.join("apps.yaml")), b);
+    assert_eq!(owner(&to.join("locked.yaml")), (0, b.1));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_put_back_gives_every_file_the_old_account_owned_its_owner_again() {
+    let p = place();
+    let Some((a, b, to)) = as_root_with(
+        &p,
+        &[
+            ("apps.yaml", (1, 1), 0o600),
+            ("acct.txt", (1, 1), 0o600),
+            (".hidden", (1, 1), 0o600),
+            ("extra.yml", (1, 1), 0o640),
+            ("theirs.txt", (0, 0), 0o644),
+        ],
+    ) else {
+        return;
+    };
+    let undo = undo_for(&nobody(&p.config));
+    for n in ["apps.yaml", "acct.txt", ".hidden", "extra.yml"] {
+        std::os::unix::fs::chown(to.join(n), Some(b.0), Some(b.1)).unwrap();
+    }
+    std::os::unix::fs::chown(&to, Some(b.0), Some(b.1)).unwrap();
+    let backend = crate::service::tests::Recorder(Default::default(), false);
+    undo.drop_ins
+        .put_back(&backend, &p.config, "nobody", false)
+        .unwrap();
+    for n in ["apps.yaml", "acct.txt", ".hidden", "extra.yml"] {
+        assert_eq!(owner(&to.join(n)), a, "{n}");
+        assert_eq!(
+            std::fs::read_to_string(to.join(n)).unwrap(),
+            "services: {}\n"
+        );
+    }
+    assert_eq!(mode(&to.join("extra.yml")) & 0o777, 0o640);
+    assert_eq!(owner(&to.join("theirs.txt")), (0, 0));
 }
