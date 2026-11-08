@@ -57,9 +57,47 @@ pub fn new_name_ok(folder: &str, name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+pub fn new_name_problem(existing: &[&str], folder: &str, file: &str) -> Option<String> {
+    if let Some(other) = existing.iter().find(|n| n.eq_ignore_ascii_case(file)) {
+        return Some(if *other == file {
+            format!("{file} already exists; pick another file name")
+        } else {
+            format!(
+                "{file} and {other} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name"
+            )
+        });
+    }
+    (!new_name_ok(folder, file)).then(|| {
+        format!(
+            "\"{file}\" is not a file name burrow can use; use {folder}/<name>.yaml with letters, digits, dots, dashes or underscores"
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_drop_in_name_says_what_is_wrong_with_it() {
+        let have = ["server.yaml", "server.d/apps.yaml"];
+        assert_eq!(
+            new_name_problem(&have, "server.d", "server.d/web.yaml"),
+            None
+        );
+        assert!(
+            new_name_problem(&have, "server.d", "server.d/apps.yaml")
+                .is_some_and(|m| m.contains("already exists"))
+        );
+        assert!(
+            new_name_problem(&have, "server.d", "server.d/Apps.yaml")
+                .is_some_and(|m| m.contains("differ only in upper and lower case"))
+        );
+        assert!(
+            new_name_problem(&have, "server.d", "server.d/my apps.yaml")
+                .is_some_and(|m| m.contains("is not a file name burrow can use"))
+        );
+    }
 
     #[test]
     fn a_drop_in_name_is_one_plain_file_in_the_folder() {

@@ -269,18 +269,11 @@ impl Moves<'_> {
 }
 
 pub fn new_file(base: &[Doc], prefix: &str, file: &str) -> Result<(), WriteError> {
-    if let Some(other) = base.iter().find(|d| d.name.eq_ignore_ascii_case(file)) {
-        return Err(WriteError::Bad(format!(
-            "{file} and {} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name",
-            other.name
-        )));
+    let names: Vec<&str> = base.iter().map(|d| d.name.as_str()).collect();
+    match burrow_config::drop_ins::new_name_problem(&names, prefix, file) {
+        Some(why) => Err(WriteError::Bad(why)),
+        None => Ok(()),
     }
-    if !burrow_config::drop_ins::new_name_ok(prefix, file) {
-        return Err(WriteError::Bad(format!(
-            "\"{file}\" is not a file name burrow can use; use {prefix}/<name>.yaml with letters, digits, dots, dashes or underscores"
-        )));
-    }
-    Ok(())
 }
 
 fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
