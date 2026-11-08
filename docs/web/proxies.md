@@ -27,7 +27,7 @@ web:
 
 ## Port forwarding at home
 
-If the server is behind a home router, forward the internet's port 443 (and 80) to the same ports on the server. If the router forwards 443 to another port, like 8443, burrow cannot see that. Let's Encrypt checks a name only on port 443 or 80 of the internet side. So with `web.https: 8443`, validate asks you to also forward port 80 to `web.http: 80`, or to use your own certificate files:
+If the server is behind a home router, forward the internet's port 443 (and 80) to the same ports on the server. If the router forwards 443 to another port, like 8443, burrow cannot see that. Let's Encrypt checks a name only on port 443 or 80 of the internet side. So with `web.https: 8443`, validate asks you to also forward port 80 to `web.http: 80`, to list the name's domain under a DNS provider in `web.letsencrypt.dns`, or to use your own certificate files:
 
 ```yaml
 # server.yaml (the router forwards 443 to 8443 and 80 to 80)
