@@ -91,6 +91,29 @@ pub struct Store {
     pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,
     pub text: crate::edit::TextEdit,
+    pub list_groups: RwSignal<std::collections::BTreeMap<&'static str, ListGroups>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grouping {
+    Flat,
+    ByFile,
+}
+
+impl Grouping {
+    pub fn default_for(files: usize) -> Self {
+        if files >= 3 {
+            Grouping::ByFile
+        } else {
+            Grouping::Flat
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListGroups {
+    pub mode: Option<Grouping>,
+    pub closed: std::collections::BTreeSet<String>,
 }
 
 pub const REVIEW: &str = "Review";
@@ -155,6 +178,7 @@ impl Store {
             retry: RwSignal::new(None),
             edit: Edit::held_by(Signal::derive(move || text.dirty())),
             text,
+            list_groups: RwSignal::new(std::collections::BTreeMap::new()),
         }
     }
 
