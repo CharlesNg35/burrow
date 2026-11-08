@@ -474,6 +474,9 @@ impl Ui {
     }
 
     pub async fn png(&self) -> Vec<u8> {
+        let at: f64 = self
+            .eval("(() => { const y = scrollY; scrollTo(0, 0); return y; })()")
+            .await;
         let size = self
             .page
             .layout_metrics()
@@ -511,6 +514,9 @@ impl Ui {
             .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
             .await
             .expect("viewport");
+        let _: bool = self
+            .eval(&format!("(() => {{ scrollTo(0, {at}); return true; }})()"))
+            .await;
         png
     }
 
