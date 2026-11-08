@@ -204,11 +204,20 @@ pub fn veil_value(v: &Value, hashes: &[String]) -> Value {
     }
 }
 
+fn written_secret(node: Option<&Node>, s: &str) -> bool {
+    use burrow_syntax::env::{FILE_REF, is_reference as written_reference};
+    if s.is_empty() || Secret::parse(s).is_ok() {
+        return false;
+    }
+    if is_reference(node) {
+        return !written_reference(s);
+    }
+    is_secret(node) && !(written_reference(s) && !s.trim().starts_with(FILE_REF))
+}
+
 fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String, String)>) {
     match v {
-        Value::String(s)
-            if is_reference(node) && !s.is_empty() && !burrow_syntax::env::is_reference(s) =>
-        {
+        Value::String(s) if written_secret(node, s) => {
             out.push((key.to_string(), s.clone()));
         }
         Value::Object(m) => m
@@ -217,6 +226,7 @@ fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String,
         Value::Array(items) => {
             let item = match node.map(|n| &n.sem) {
                 Some(SemType::List(l)) => Some(&*l.item),
+                _ if is_secret(node) => node,
                 _ => None,
             };
             items.iter().for_each(|i| credentials(i, item, key, out));

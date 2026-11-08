@@ -417,6 +417,31 @@ fn no_secret_reaches_the_text_a_plan_the_audit_or_the_history() {
 }
 
 #[test]
+fn a_weak_secret_on_disk_is_masked_in_the_text_and_in_the_diff_around_it() {
+    let w = world();
+    let text = w.text.replace(&w.home.encode(), "hunter2-weak").replace(
+        "\nvisitors:",
+        "  odd:\n    secret: [w3ak-one, \"${SPARE}\"]\n\nvisitors:",
+    );
+    let core = super::core_running(&text, &w.text);
+    let s = session(&w, AdminLevel::Write);
+    let t = edit_text(&core, &s);
+    assert!(!t.files[0].text.contains("hunter2-weak") && !t.files[0].text.contains("w3ak-one"));
+    let plan = planned(
+        &core,
+        &s,
+        &replace(&t, |x| x.replace("# the home box", "# the home server")),
+    )
+    .unwrap();
+    let sent = serde_json::to_string(&plan).unwrap();
+    assert!(sent.contains("the home server"), "{sent}");
+    assert!(
+        !sent.contains("hunter2-weak") && !sent.contains("w3ak-one"),
+        "{sent}"
+    );
+}
+
+#[test]
 fn an_edit_of_comments_only_says_so_in_review_and_activity() {
     let w = world();
     let core = core_for(&w.text);
