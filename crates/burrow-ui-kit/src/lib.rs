@@ -37,7 +37,7 @@ pub use button::{
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};
-pub use deferred::{Deferred, LoadFailed};
+pub use deferred::{Deferred, LoadFailed, Needs, can_run};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
