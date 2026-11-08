@@ -10,6 +10,10 @@ const TRIES_MS: [u64; 5] = [0, 50, 150, 400, 1000];
 
 fn reveal(e: &EditorHandle, spot: &Spot) -> bool {
     match spot {
+        Spot::Here => {
+            e.focus();
+            true
+        }
         Spot::Path(p) => e.reveal(field(p)),
         Spot::Line(line, col) => e
             .path_at(TextPosition::new(*line as usize, *col as usize))
@@ -33,7 +37,7 @@ pub(super) fn follow(
                 move || {
                     let shown = untrack(|| tabs.active());
                     if active.with_untracked(|a| *a == name) && shown.as_deref() != Some(&name) {
-                        tabs.select(&name);
+                        tabs.show(&name);
                     }
                 },
                 Duration::from_millis(ms),

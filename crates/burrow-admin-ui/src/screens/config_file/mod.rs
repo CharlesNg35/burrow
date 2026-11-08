@@ -226,7 +226,7 @@ pub fn ConfigFile() -> impl IntoView {
         }
     };
     view! {
-        <section class=shell data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-dirty=move || (editing.get() && t.dirty()).to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
+        <section class=shell data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
             <div class=head_box data-testid="file-head">{head}{move || editing.get().then(|| goto::panel(go, t))}</div>
             {content}
             {edit::cancel_dialog(s, asking)}

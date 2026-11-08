@@ -210,7 +210,7 @@ fn pick(g: GoTo, t: TextEdit, row: Row) {
             match (f.path, f.line) {
                 (Some(p), _) => t.open_at(&f.file, Spot::Path(p)),
                 (None, Some((l, col))) => t.open_at(&f.file, Spot::Line(l, col)),
-                (None, None) => t.open_file(&f.file),
+                (None, None) => t.open_at(&f.file, Spot::Here),
             }
         }
     }

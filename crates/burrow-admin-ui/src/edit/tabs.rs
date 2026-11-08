@@ -6,6 +6,7 @@ pub const MAX_TABS: usize = 10;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Spot {
+    Here,
     Path(Vec<String>),
     Line(u32, u32),
 }
