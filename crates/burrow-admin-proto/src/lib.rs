@@ -80,3 +80,17 @@ pub mod features {
         SEARCH_TEXT,
     ];
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_feature_is_in_the_protocol_doc() {
+        let doc = include_str!("../../../docs/protocol.md");
+        for f in crate::features::ALL {
+            assert!(
+                doc.contains(&format!("| `{f}` |")),
+                "docs/protocol.md has no table row for the feature {f}"
+            );
+        }
+    }
+}
