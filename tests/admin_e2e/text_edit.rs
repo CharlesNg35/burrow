@@ -815,6 +815,108 @@ async fn a_drop_in_takes_only_items(c: &mut Ctx) {
         .await;
 }
 
+const ADD: &str = "[data-testid=file-editor] .config-editor-documents__add";
+
+fn close_of(name: &str) -> String {
+    format!("{EDITOR} [role=tab][data-document-id='{name}'] .config-editor-documents__close")
+}
+
+async fn name_new_file(c: &Ctx, name: &str) {
+    c.ui.click(ADD).await;
+    c.ui.wait_for("[data-testid=file-new-dialog]", SECS).await;
+    c.ui.fill("#file-new-name", name).await;
+}
+
+async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
+    start(c).await;
+    assert_eq!(
+        c.ui.count(&format!("{EDITOR} .config-editor-documents__close"))
+            .await,
+        0,
+        "the files on the server have no close button"
+    );
+    c.ui.viewport(390, 900).await;
+    let reachable: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const r = document.querySelector({}).getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth && r.left >= 0; }})()",
+            js(ADD)
+        ))
+        .await;
+    assert!(reachable, "the + is on screen at 390px");
+    c.ui.viewport(1440, 900).await;
+    name_new_file(c, "my apps").await;
+    c.ui.wait_text("[data-testid=file-new-problem]", "not a file name", SECS)
+        .await;
+    assert!(!c.ui.enabled("[data-testid=file-new-add]").await);
+    c.ui.fill("#file-new-name", "apps").await;
+    c.ui.wait_text("[data-testid=file-new-problem]", "already exists", SECS)
+        .await;
+    c.ui.shot("text-edit-new-file-name").await;
+    c.ui.fill("#file-new-name", "extra").await;
+    c.ui.wait_gone("[data-testid=file-new-problem]", SECS).await;
+    c.ui.click("[data-testid=file-new-add]").await;
+    let new = "server.d/extra.yaml";
+    c.ui.wait_for(&input(new), SECS).await;
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(new)), SECS)
+        .await;
+    c.ui.wait_text(
+        "[data-testid=file-not-created]",
+        "is empty, so it is not created",
+        SECS,
+    )
+    .await;
+    c.ui.click(&close_of(new)).await;
+    c.ui.wait_gone(&tab(new), SECS).await;
+    assert_eq!(
+        c.ui.count("[data-testid=file-close-dialog]").await,
+        0,
+        "an empty new file closes without asking"
+    );
+    name_new_file(c, "extra").await;
+    c.ui.wait_gone("[data-testid=file-new-problem]", SECS).await;
+    c.ui.click("[data-testid=file-new-add]").await;
+    c.ui.wait_for(&input(new), SECS).await;
+    replace_in(
+        c,
+        new,
+        "",
+        "services:\n  extra:\n    client: home\n    target: 2223\n    visitors: [laptop]\n",
+    )
+    .await;
+    dirty(c, new, true).await;
+    c.ui.click(&close_of(new)).await;
+    c.ui.wait_for("[data-testid=file-close-dialog]", SECS).await;
+    c.ui.click("[data-testid=file-close-keep]").await;
+    c.ui.wait_for(&tab(new), SECS).await;
+    shots(c, "text-edit-new-file").await;
+    c.ui.click(REVIEW).await;
+    c.ui.wait_for("[data-testid=review]", CHECKED).await;
+    c.ui.wait_text(
+        "[data-testid=review]",
+        "server.d/extra.yaml: new file",
+        SECS,
+    )
+    .await;
+    apply_now(c, "Applied: now the version of").await;
+    let made = std::fs::read_to_string(c.world.file(new)).expect("the new drop-in");
+    assert!(
+        made.contains("extra:") && made.contains("target: 2223"),
+        "{made}"
+    );
+    secrets_kept(c, tool_before);
+    start(c).await;
+    c.ui.wait_for(&tab(new), SECS).await;
+    assert_eq!(
+        c.ui.count(&close_of(new)).await,
+        0,
+        "after Apply the new file is a file on the server"
+    );
+    c.ui.click("[data-testid=file-cancel]").await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
+        .await;
+}
+
 fn text_edit(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -831,6 +933,7 @@ fn text_edit(c: &mut Ctx) -> Flow<'_> {
         waits_for_changes_in_review(c).await;
         edit_as_json_and_toml(c, &tool_before).await;
         a_drop_in_takes_only_items(c).await;
+        a_new_drop_in_file(c, &tool_before).await;
         no_csp_violation(c).await;
         c.ui.assert_no_errors();
     })
