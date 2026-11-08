@@ -145,7 +145,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
     let settings = EditorSettings {
         theme: EditorTheme::ViraInspired,
         show_footer: true,
-        styled: false,
+        styled: true,
         ..EditorSettings::default()
     };
     let tabs = DocumentsHandle::new();
