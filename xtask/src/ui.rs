@@ -128,6 +128,15 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     prepare_dist(&dist, release)?;
     let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
     let linked = split::link(&parts, &work.join("app.js"), &bg, release)?;
+    let wasms: Vec<(&str, &[u8])> = std::iter::once(("the main wasm", linked.wasm.as_slice()))
+        .chain(
+            linked
+                .chunks
+                .iter()
+                .map(|c| (c.name.as_str(), c.bytes.as_slice())),
+        )
+        .collect();
+    simd::refuse(&wasms)?;
     let wasm_name = hashed("app.wasm", &linked.wasm, release);
     write(&dist, &wasm_name, &linked.wasm)?;
     let js_name = linked.js.name.clone();
@@ -149,11 +158,9 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     let editor_bytes = crate::editor_css::preset(root)?.into_bytes();
     let editor_name = hashed("editor.css", &editor_bytes, release);
     write(&dist, &editor_name, &editor_bytes)?;
-    let boot = simd::boot_js(&js_name, &wasm_name);
-    let wasms: Vec<&[u8]> = std::iter::once(linked.wasm.as_slice())
-        .chain(linked.chunks.iter().map(|c| c.bytes.as_slice()))
-        .collect();
-    simd::guard(&boot, &wasms)?;
+    let boot = format!(
+        "import init from \"./{js_name}\";\ninit({{ module_or_path: new URL(\"./{wasm_name}\", import.meta.url) }});\n"
+    );
     let boot_name = hashed("boot.js", boot.as_bytes(), release);
     write(&dist, &boot_name, boot.as_bytes())?;
     let index = index_html(
@@ -234,7 +241,6 @@ fn optimize(tools: &Tools, wasm: &Path) -> Result<(), String> {
             "--enable-nontrapping-float-to-int",
             "--enable-sign-ext",
             "--enable-mutable-globals",
-            "--enable-simd",
             "--strip-debug",
             "--strip-producers",
         ])

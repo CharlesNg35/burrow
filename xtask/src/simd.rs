@@ -1,27 +1,5 @@
 use wasmparser::{Validator, WasmFeatures};
 
-pub const PROBE: [u8; 31] = [
-    0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253,
-    15, 253, 98, 11,
-];
-
-pub const TOO_OLD: &str = "burrow admin needs a newer browser: Chrome or Edge 91 or later, Firefox 89 or later, or Safari 16.4 or later.";
-
-fn probe_js() -> String {
-    let bytes: Vec<String> = PROBE.iter().map(u8::to_string).collect();
-    format!(
-        "typeof WebAssembly === \"object\" && WebAssembly.validate(new Uint8Array([{}]))",
-        bytes.join(",")
-    )
-}
-
-pub fn boot_js(js: &str, wasm: &str) -> String {
-    format!(
-        "import init from \"./{js}\";\nif ({}) {{\n  init({{ module_or_path: new URL(\"./{wasm}\", import.meta.url) }});\n}} else {{\n  const p = document.getElementById(\"boot\");\n  p.textContent = \"{TOO_OLD}\";\n  p.setAttribute(\"role\", \"alert\");\n  p.dataset.unsupported = \"simd\";\n}}\n",
-        probe_js()
-    )
-}
-
 pub fn uses_simd(wasm: &[u8]) -> Result<bool, String> {
     Validator::new()
         .validate_all(wasm)
@@ -32,12 +10,12 @@ pub fn uses_simd(wasm: &[u8]) -> Result<bool, String> {
         .is_err())
 }
 
-pub fn guard(boot: &str, wasms: &[&[u8]]) -> Result<(), String> {
-    for w in wasms {
-        if uses_simd(w)? && !boot.contains(&probe_js()) {
-            return Err(
-                "a wasm uses WebAssembly SIMD, but boot.js does not check for it first; a browser without SIMD would show a blank page".into(),
-            );
+pub fn refuse(wasms: &[(&str, &[u8])]) -> Result<(), String> {
+    for (name, wasm) in wasms {
+        if uses_simd(wasm)? {
+            return Err(format!(
+                "{name} uses WebAssembly SIMD, which browsers before Safari 16.4 cannot run; find the crate that enables simd128 (docs/decisions.md D88)"
+            ));
         }
     }
     Ok(())
@@ -92,22 +70,16 @@ mod tests {
     }
 
     #[test]
-    fn the_probe_is_a_valid_module_that_needs_simd() {
-        assert_eq!(uses_simd(&PROBE), Ok(true));
-    }
-
-    #[test]
-    fn a_simd_wasm_ships_only_with_the_boot_check() {
-        let boot = boot_js("app-1.js", "app-2.wasm");
-        assert!(boot.contains(&probe_js()));
-        assert!(boot.contains(TOO_OLD));
-        assert!(boot.contains("new URL(\"./app-2.wasm\", import.meta.url)"));
-        assert!(boot.starts_with("import init from \"./app-1.js\";"));
+    fn a_wasm_with_simd_is_refused_by_name() {
         let (p, s) = (plain(), simd());
-        assert_eq!(guard(&boot, &[p.as_slice(), s.as_slice()]), Ok(()));
-        let unchecked = "import init from \"./app.js\";\ninit();\n";
-        assert_eq!(guard(unchecked, &[p.as_slice()]), Ok(()));
-        let e = guard(unchecked, &[p.as_slice(), s.as_slice()]).expect_err("refused");
-        assert!(e.contains("boot.js does not check for it first"), "{e}");
+        assert_eq!(
+            refuse(&[("app.wasm", p.as_slice()), ("split_x.wasm", p.as_slice())]),
+            Ok(())
+        );
+        assert_eq!(
+            refuse(&[("app.wasm", p.as_slice()), ("split_x.wasm", s.as_slice())]),
+            Err("split_x.wasm uses WebAssembly SIMD, which browsers before Safari 16.4 cannot run; find the crate that enables simd128 (docs/decisions.md D88)".into())
+        );
+        assert!(refuse(&[("app.wasm", b"not wasm".as_slice())]).is_err());
     }
 }

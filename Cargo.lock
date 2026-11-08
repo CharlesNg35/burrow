@@ -672,8 +672,7 @@ dependencies = [
 [[package]]
 name = "bytecount"
 version = "0.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
+source = "git+https://github.com/CharlesNg35/bytecount?rev=f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019#f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019"
 
 [[package]]
 name = "bytemuck"
