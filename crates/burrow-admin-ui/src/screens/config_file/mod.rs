@@ -4,6 +4,7 @@
 mod edit;
 mod edit_as;
 mod editor;
+mod follow;
 mod new_file;
 mod problems;
 

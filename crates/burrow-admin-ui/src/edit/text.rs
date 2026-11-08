@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +34,10 @@ pub struct TextEdit {
     pub new_files: RwSignal<Vec<String>>,
     pub adding: RwSignal<bool>,
     pub closing: RwSignal<Option<String>>,
+    pub tabs: RwSignal<Vec<String>>,
+    pub recent: RwSignal<Vec<String>>,
+    pub unsaved: RwSignal<BTreeSet<String>>,
+    pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -205,6 +209,10 @@ impl TextEdit {
             new_files: RwSignal::new(Vec::new()),
             adding: RwSignal::new(false),
             closing: RwSignal::new(None),
+            tabs: RwSignal::new(Vec::new()),
+            recent: RwSignal::new(Vec::new()),
+            unsaved: RwSignal::new(BTreeSet::new()),
+            spot: RwSignal::new(None),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
         }
@@ -230,6 +238,9 @@ impl TextEdit {
         self.new_files.set(Vec::new());
         self.adding.set(false);
         self.closing.set(None);
+        self.tabs.set(Vec::new());
+        self.unsaved.set(BTreeSet::new());
+        self.spot.set(None);
     }
 
     pub fn fetch(&self) {
@@ -265,6 +276,21 @@ impl TextEdit {
         });
         if self.new_files.with_untracked(|n| *n != still) {
             self.new_files.set(still);
+        }
+        let main = next
+            .files
+            .first()
+            .map(|f| f.name.clone())
+            .unwrap_or_default();
+        let tabs = self.tabs.with_untracked(|tabs| {
+            self.new_files.with_untracked(|n| {
+                super::tabs::kept_tabs(tabs, &main, |t| {
+                    next.files.iter().any(|f| f.name == t) || n.iter().any(|x| x == t)
+                })
+            })
+        });
+        if self.tabs.with_untracked(|t| *t != tabs) {
+            self.tabs.set(tabs);
         }
         self.values.set(values);
         self.loaded.set(Some(Ok(Arc::new(next))));

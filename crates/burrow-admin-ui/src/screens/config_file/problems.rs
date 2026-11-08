@@ -48,7 +48,7 @@ fn severity(s: Severity) -> config_editor_leptos::Severity {
     }
 }
 
-fn field(path: &[String]) -> FieldPath {
+pub(super) fn field(path: &[String]) -> FieldPath {
     let pointer: String = path
         .iter()
         .map(|k| format!("/{}", k.replace('~', "~0").replace('/', "~1")))

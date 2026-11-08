@@ -68,13 +68,24 @@ pub(super) fn close_dialog(t: TextEdit) -> impl IntoView {
         }
     });
     let title = Signal::derive(move || format!("Close {}?", t.closing.get().unwrap_or_default()));
+    let sub = Signal::derive(move || {
+        let new = t
+            .closing
+            .with(|c| c.as_deref().is_some_and(|n| t.is_new(n)));
+        if new {
+            "It is a new file; its text is lost."
+        } else {
+            "Its unsaved edits are lost; the file stays as it is on the server."
+        }
+        .to_string()
+    });
     view! {
-        <Dialog open=open title=title sub="It is a new file; its text is lost." icon="alert" tone=Tone::Warning testid="file-close-dialog">
+        <Dialog open=open title=title sub=sub icon="alert" tone=Tone::Warning testid="file-close-dialog">
             <div class="flex flex-wrap justify-end gap-2">
-                <Button label="Keep it" testid="file-close-keep" on_click=move |_| t.closing.set(None)/>
-                <Button label="Close the file" variant=ButtonLook::Danger testid="file-close-confirm" on_click=move |_| {
+                <Button label="Keep editing" testid="file-close-keep" on_click=move |_| t.closing.set(None)/>
+                <Button label="Discard and close" variant=ButtonLook::Danger testid="file-close-confirm" on_click=move |_| {
                     if let Some(name) = t.closing.get_untracked() {
-                        t.drop_new(&name);
+                        t.discard_tab(&name);
                     }
                     t.closing.set(None);
                 }/>
