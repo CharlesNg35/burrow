@@ -348,12 +348,18 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
     burrow_problem(c, MAIN, "placeholder").await;
     shots(c, "text-edit-moved-placeholder").await;
     c.ui.click(REVIEW).await;
-    c.ui.wait_true(
-        "!!document.querySelector('[data-testid=review] [data-testid=apply][disabled]') || !!document.querySelector('[data-testid=config-file][data-editing=true]')",
-        "the moved placeholder cannot be applied",
-        CHECKED,
-    )
-    .await;
+    let refused = "!!document.querySelector('[data-testid=review] [data-testid=apply][disabled]') || !!document.querySelector('[data-testid=config-file][data-editing=true]')";
+    let started = std::time::Instant::now();
+    while !c.ui.eval::<bool>(refused).await {
+        if started.elapsed() > CHECKED {
+            let page: String = c
+                .ui
+                .eval("location.pathname + location.search + ' | ' + [...document.querySelectorAll('[data-testid]')].map(e => e.dataset.testid).filter(t => /review|file|check|apply|toast/.test(t)).join(',') + ' | ' + (document.querySelector('main')?.innerText ?? '').slice(0, 600)")
+                .await;
+            panic!("the moved placeholder cannot be applied, but the page is: {page}");
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
     if c.ui.count("[data-testid=review]").await > 0 {
         c.ui.click("[data-testid=keep-editing]").await;
         c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
