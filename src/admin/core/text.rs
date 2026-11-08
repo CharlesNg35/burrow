@@ -48,9 +48,31 @@ fn token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_')
 }
 
+pub fn tokens(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for (i, c) in text.char_indices() {
+        match (token_char(c), start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                out.push(s..i);
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    out.extend(start.map(|s| s..text.len()));
+    out
+}
+
 pub fn holds_secret(text: &str) -> bool {
-    text.split(|c: char| !token_char(c))
-        .any(|t| !t.is_empty() && Secret::parse(t).is_ok())
+    tokens(text)
+        .into_iter()
+        .any(|r| Secret::parse(&text[r]).is_ok())
+}
+
+pub fn hides_token(token: &str) -> bool {
+    Secret::parse(token).is_ok() || (token.len() >= 24 && looks_random(token))
 }
 
 pub fn secret_shown(fp: Option<&str>) -> String {
@@ -62,31 +84,22 @@ pub fn secret_shown(fp: Option<&str>) -> String {
 
 pub fn mask_secrets(line: &str, fresh: &[(String, String)]) -> String {
     let mut out = String::with_capacity(line.len());
-    let mut token = String::new();
-    let flush = |token: &mut String, out: &mut String| {
-        if token.is_empty() {
-            return;
-        }
+    let mut at = 0;
+    for r in tokens(line) {
+        out.push_str(&line[at..r.start]);
+        let token = &line[r.clone()];
         if let Some((_, fp)) = fresh.iter().find(|(v, _)| v == token) {
             out.push_str(&format!("«new secret {fp}»"));
         } else if let Ok(s) = Secret::parse(token) {
             out.push_str(&secret_shown(Some(&s.fingerprint())));
-        } else if token.len() >= 24 && looks_random(token) {
+        } else if hides_token(token) {
             out.push_str(&"*".repeat(token.len()));
         } else {
             out.push_str(token);
         }
-        token.clear();
-    };
-    for c in line.chars() {
-        if token_char(c) {
-            token.push(c);
-        } else {
-            flush(&mut token, &mut out);
-            out.push(c);
-        }
+        at = r.end;
     }
-    flush(&mut token, &mut out);
+    out.push_str(&line[at..]);
     out
 }
 

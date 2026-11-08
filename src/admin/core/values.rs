@@ -80,6 +80,14 @@ fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
     }
 }
 
+pub fn secret_field(node: Option<&Node>, key: &str, is_name: bool) -> bool {
+    is_secret(node) || (!is_name && secretish(key) && !is_path(node))
+}
+
+pub fn hidden_field(node: Option<&Node>, key: &str, is_name: bool) -> bool {
+    is_hash(node) || secret_field(node, key, is_name)
+}
+
 pub fn fingerprint_of(raw: &str, env: &dyn EnvSource) -> Option<String> {
     secret_info(raw, env).fp
 }
@@ -119,7 +127,7 @@ fn present_at(
     if is_hash(node) && v.is_string() {
         return value::hash();
     }
-    if is_secret(node) || (!is_name && secretish(key) && !is_path(node)) {
+    if secret_field(node, key, is_name) {
         return present_secret(v, env);
     }
     match v {
@@ -233,7 +241,7 @@ pub fn veil_written(v: &Value, pairs: &[(String, String)]) -> Value {
 pub const HEADER_SHOWN: &str = "«hidden»";
 pub const HEADER_CHANGED: &str = "«hidden, changed»";
 
-fn header_map(key: &str) -> bool {
+pub fn header_map(key: &str) -> bool {
     [WebSite::REQUEST_HEADERS, WebSite::RESPONSE_HEADERS]
         .iter()
         .any(|f| f.key() == key)

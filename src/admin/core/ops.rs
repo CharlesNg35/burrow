@@ -17,12 +17,17 @@ pub struct Fresh {
     pub fp: String,
 }
 
+pub enum Document {
+    Restored(Docs),
+    Edited(Docs),
+}
+
 pub struct Applied {
     pub target: Value,
     pub renames: Vec<Rename>,
     pub fresh: Vec<Fresh>,
     pub passwords: Vec<String>,
-    pub document: Option<Docs>,
+    pub document: Option<Document>,
     pub places: Vec<(Path, String)>,
     pub drops: Vec<String>,
 }
@@ -32,6 +37,9 @@ pub trait Context {
     fn password(&self, handle: &str) -> Option<String>;
     fn history(&self, rev: &str) -> Option<Docs>;
     fn env(&self) -> &dyn EnvSource;
+    fn edited(&self) -> Option<&Docs> {
+        None
+    }
 }
 
 fn err(msg: impl Into<String>) -> OpError {
@@ -160,10 +168,16 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                     .tree()
                     .map_err(|_| err("that version does not parse"))?
                     .to_json();
-                document = Some(docs);
+                document = Some(Document::Restored(docs));
             }
             Op::ReplaceText { .. } => {
-                return Err(err("this server does not take replace_text yet"));
+                let docs = cx
+                    .edited()
+                    .ok_or_else(|| err("replace_text needs the edited files"))?;
+                if let Ok(tree) = docs.tree() {
+                    target = tree.to_json();
+                }
+                document = Some(Document::Edited(docs.clone()));
             }
             Op::SetText { path, text } => {
                 let (last, parents) = path
@@ -183,7 +197,9 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
         }
     }
     if document.is_some() && ops.len() > 1 {
-        return Err(err("replace_document must be the only operation"));
+        return Err(err(
+            "replace_document and replace_text must be the only operation",
+        ));
     }
     Ok(Applied {
         target,

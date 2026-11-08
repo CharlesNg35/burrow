@@ -18,6 +18,7 @@ pub mod snippets;
 mod status;
 pub mod summary;
 pub mod text;
+pub mod text_edit;
 pub mod updates;
 pub mod uploads;
 pub mod values;
@@ -222,6 +223,7 @@ pub struct Core {
     last_good: Mutex<Option<String>>,
     seen: Mutex<VecDeque<(String, Docs)>>,
     started: Instant,
+    text_edit: text_edit::TextEdit,
 }
 
 const SEEN: usize = 8;
@@ -259,6 +261,7 @@ impl Core {
             last_good: Mutex::new(None),
             seen: Mutex::new(VecDeque::new()),
             started: Instant::now(),
+            text_edit: text_edit::TextEdit::new(),
         }
     }
 
