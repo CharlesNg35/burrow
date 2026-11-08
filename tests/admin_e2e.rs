@@ -27,6 +27,8 @@ mod editors;
 mod edits;
 #[path = "admin_e2e/entries.rs"]
 mod entries;
+#[path = "admin_e2e/file_groups.rs"]
+mod file_groups;
 #[path = "admin_e2e/files.rs"]
 mod files;
 #[path = "admin_e2e/guards.rs"]
