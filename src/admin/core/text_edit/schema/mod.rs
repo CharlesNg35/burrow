@@ -28,6 +28,26 @@ pub fn editor_schema(json: Value, admin: &Schema) -> Value {
     root
 }
 
+pub fn drop_in_schema(full: &Value) -> Value {
+    let mut out = full.clone();
+    if let Some(m) = out.as_object_mut() {
+        let props: Map<String, Value> = full["properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(k, _)| burrow_config::drop_ins::is_section(k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        m.insert("properties".into(), Value::Object(props));
+        m.insert("additionalProperties".into(), json!(false));
+        m.insert(
+            "description".into(),
+            json!("A drop-in file holds only services, clients and visitors"),
+        );
+    }
+    out
+}
+
 fn without_web(root: &mut Value) {
     use burrow_config::{Entry, ServerConfig, ServiceEntry};
     let web = ServerConfig::WEB.key();

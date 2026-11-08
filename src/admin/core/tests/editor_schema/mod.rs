@@ -421,3 +421,76 @@ fn the_schema_offers_web_settings_only_when_the_build_has_the_web_proxy() {
         assert!(v.false_errors.is_empty(), "{text}: {:?}", v.false_errors);
     }
 }
+
+fn problems_at(v: &jsonschema::Validator, doc: &Value) -> Vec<String> {
+    let mut out: Vec<String> = v
+        .iter_errors(doc)
+        .map(|e| e.instance_path().to_string())
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn a_drop_in_has_a_schema_of_its_sections_that_refuses_server_wide_keys() {
+    let checks = Checks::new();
+    let w = world();
+    let core = core_running(&w.text, &w.text);
+    let t = edit_text(&core, &session(&w, AdminLevel::Read));
+    let drop = t.drop_in_schema.clone().expect("a schema for drop-ins");
+    let mut keys: Vec<&str> = drop["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort();
+    let mut sections: Vec<&str> = burrow_config::drop_ins::sections()
+        .iter()
+        .map(|(s, _)| *s)
+        .collect();
+    sections.sort();
+    assert_eq!(keys, sections);
+    assert_eq!(drop["additionalProperties"], false);
+    for s in &sections {
+        assert_eq!(drop["properties"][s], t.schema["properties"][s], "{s}");
+    }
+    let v = jsonschema::validator_for(&drop).expect("the drop-in schema compiles");
+    let source = crate::config::load::schema_json(Role::Server);
+    let mut texts: Vec<String> = corpus::configs().into_iter().map(|(_, t)| t).collect();
+    texts.extend((0..40).map(|seed| generate::config(&source, seed).text));
+    let mut compared = 0;
+    for text in texts {
+        let Ok(tree) = tree::parse(&text) else {
+            continue;
+        };
+        let Value::Object(all) = tree.to_json() else {
+            continue;
+        };
+        let part: serde_json::Map<String, Value> = all
+            .into_iter()
+            .filter(|(k, _)| burrow_config::drop_ins::is_section(k))
+            .collect();
+        if part.is_empty() {
+            continue;
+        }
+        let part = Value::Object(part);
+        compared += 1;
+        assert_eq!(
+            problems_at(&v, &part),
+            problems_at(&checks.validator, &part),
+            "{part:#}"
+        );
+    }
+    assert!(compared >= 60, "only {compared} drop-ins compared");
+    for key in t.schema["properties"].as_object().unwrap().keys() {
+        if burrow_config::drop_ins::is_section(key) {
+            continue;
+        }
+        let doc = serde_json::json!({ key: null });
+        assert!(
+            !problems_at(&v, &doc).is_empty(),
+            "{key} is refused in a drop-in"
+        );
+    }
+}
