@@ -16,7 +16,11 @@ proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = "1.0.47"
 sha2 = "0.10.9"
 wasm_split_cli_support = "0.2.5"
+wasmparser = "0.261.0"
 syn = { version = "2.0.119", features = ["full", "visit-mut"] }
+
+[dev-dependencies]
+wasm-encoder = "0.261.0"
 
 [lints]
 workspace = true

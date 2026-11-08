@@ -5188,7 +5188,9 @@ dependencies = [
  "serde_json",
  "sha2",
  "syn 2.0.119",
+ "wasm-encoder",
  "wasm_split_cli_support",
+ "wasmparser",
 ]
 
 [[package]]

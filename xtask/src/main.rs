@@ -13,6 +13,7 @@ mod layers;
 mod lints;
 mod once;
 mod shape;
+mod simd;
 mod size;
 mod split;
 mod surface;

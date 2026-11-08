@@ -5,9 +5,9 @@ use std::time::{Duration, SystemTime};
 
 use blake2::Digest;
 
-use crate::split;
 use crate::target_dir;
 use crate::tools::{self, Tools};
+use crate::{simd, split};
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const CRATE: &str = "burrow-admin-ui";
@@ -114,6 +114,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     prepare_dist(&dist, release)?;
     let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
     let linked = split::link(&parts, &work.join("app.js"), &bg, release)?;
+    simd::refuse_in_main(&linked.wasm)?;
     let wasm_name = hashed("app.wasm", &linked.wasm, release);
     write(&dist, &wasm_name, &linked.wasm)?;
     let js_name = linked.js.name.clone();
@@ -207,6 +208,7 @@ fn optimize(tools: &Tools, wasm: &Path) -> Result<(), String> {
             "--enable-nontrapping-float-to-int",
             "--enable-sign-ext",
             "--enable-mutable-globals",
+            "--enable-simd",
             "--strip-debug",
             "--strip-producers",
         ])
