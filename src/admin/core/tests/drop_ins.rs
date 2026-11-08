@@ -3,7 +3,7 @@
 
 #![cfg(test)]
 
-mod probe;
+pub(super) mod probe;
 mod renames;
 mod text_edit;
 

@@ -5,6 +5,7 @@
 
 mod check_text;
 mod drop_ins;
+mod editor_schema;
 mod files;
 #[cfg(feature = "web")]
 mod headers;
