@@ -187,7 +187,7 @@ Check: e2e, visible text outside `code`, `pre`, `.font-mono`, inputs, the About 
 
 Good: an offline client is amber. Bad: a client the user turned off is red.
 
-Check: review; the contrast tests in `src/contrast.rs` keep each tone readable in light and dark.
+Check: review; the contrast tests in `crates/burrow-admin-ui/src/contrast.rs` keep each tone readable in light and dark.
 
 ### 7. No redundant text
 
