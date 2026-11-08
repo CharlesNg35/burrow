@@ -67,15 +67,15 @@ fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
     move || {
         let differ = note.get();
         let read_only = edit_as::read_only_text(t);
-        let saved = edit_as::saved_text(t);
-        if differ.is_none() && read_only.is_none() && saved.is_none() {
+        let waiting = edit_as::waits_text(t);
+        if differ.is_none() && read_only.is_none() && waiting.is_none() {
             return None;
         }
         Some(view! {
             <div class="mb-3 flex min-w-0 flex-col gap-2" data-testid="file-notes">
                 {differ.map(differs_view)}
                 {read_only.map(|r| edit_as::note_line("lock", r, "file-read-only", false))}
-                {saved.map(|(n, warn)| edit_as::note_line(if warn { "alert" } else { "info" }, n, "file-saved-as", warn))}
+                {waiting.map(|n| edit_as::note_line("alert", n, "file-edit-as-waits", true))}
             </div>
         })
     }
@@ -163,23 +163,16 @@ pub fn ConfigFile() -> impl IntoView {
     };
     let head = move || {
         let (sub, right) = if editing.get() {
-            (edit::EDITING, edit::edit_buttons(s, asking))
+            (None, edit::edit_buttons(s, asking))
         } else {
             let edit_button = can_edit.get().then(|| edit::edit_button(s, waiting));
             let right =
                 view! { <span data-testid="file-toggle">{toggle}</span>{edit_button} }.into_any();
-            (
-                if can_edit.get() {
-                    edit::CAN_EDIT
-                } else {
-                    VIEW_ONLY
-                },
-                right,
-            )
+            (subline(can_edit.get(), s.can_write()), right)
         };
         burrow_ui_kit::card_head(
             "The config the server reads".into(),
-            Some(sub.into()),
+            sub.map(str::to_string),
             right,
         )
     };
@@ -235,4 +228,29 @@ pub fn ConfigFile() -> impl IntoView {
     }
 }
 
-const VIEW_ONLY: &str = "View only; edit in other tabs or with burrow edit";
+const VIEW_ONLY: &str = "View only";
+const EDIT_ELSEWHERE: &str = "View only; edit in other tabs or with burrow edit";
+
+fn subline(can_edit: bool, can_write: bool) -> Option<&'static str> {
+    match (can_edit, can_write) {
+        (true, _) => None,
+        (false, true) => Some(EDIT_ELSEWHERE),
+        (false, false) => Some(VIEW_ONLY),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_subline_speaks_only_when_the_text_cannot_be_edited_here() {
+        assert_eq!(subline(true, true), None);
+        assert_eq!(
+            subline(false, true),
+            Some(EDIT_ELSEWHERE),
+            "an older server"
+        );
+        assert_eq!(subline(false, false), Some(VIEW_ONLY), "a read admin");
+    }
+}

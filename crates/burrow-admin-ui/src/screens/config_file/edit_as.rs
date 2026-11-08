@@ -1,4 +1,4 @@
-use burrow_ui_kit::{Icon, Segmented};
+use burrow_ui_kit::{Icon, Select};
 use leptos::prelude::*;
 
 use crate::edit::TextEdit;
@@ -30,12 +30,8 @@ pub fn shown(own: &str, asked: &str, on_screen: Option<&str>, host: Option<&str>
     }
 }
 
-pub fn note(own: &str, asked: &str, shown: &str) -> Option<String> {
-    if asked != shown {
-        Some(format!("{asked} waits for the marked value"))
-    } else {
-        (own != shown).then(|| format!("Saved as {own}"))
-    }
+pub fn waits(asked: &str, shown: &str) -> Option<String> {
+    (asked != shown).then(|| format!("{asked} waits for the marked value"))
 }
 
 fn shown_now(t: TextEdit) -> String {
@@ -45,27 +41,22 @@ fn shown_now(t: TextEdit) -> String {
         .unwrap_or_else(|| own_label(&name).to_string())
 }
 
+pub fn options(own: &str) -> Vec<(String, String)> {
+    choices(own)
+        .into_iter()
+        .map(|l| {
+            let text = if l == own {
+                format!("{l} (file)")
+            } else {
+                l.to_string()
+            };
+            (l.to_string(), text)
+        })
+        .collect()
+}
+
 pub fn controls(t: TextEdit) -> impl IntoView {
-    let options = Memo::new(move |_| {
-        let own = t.active.with(|a| own_label(a));
-        choices(own)
-            .into_iter()
-            .map(|l| {
-                let text = if l == own {
-                    format!("{l} (file)")
-                } else {
-                    l.to_string()
-                };
-                (l.to_string(), text, false)
-            })
-            .collect::<Vec<_>>()
-    });
-    let value = Signal::derive(move || {
-        let name = t.active.get();
-        t.edit_as
-            .with(|a| a.get(&name).cloned())
-            .unwrap_or_else(|| own_label(&name).to_string())
-    });
+    let options = Signal::derive(move || t.active.with(|a| options(own_label(a))));
     let pick = Callback::new(move |label: String| {
         let name = t.active.get_untracked();
         t.edit_as.update(|a| {
@@ -73,11 +64,9 @@ pub fn controls(t: TextEdit) -> impl IntoView {
         });
     });
     view! {
-        <span class="flex min-w-0 flex-wrap items-center gap-2" data-testid="file-edit-as" data-shown=move || shown_now(t)>
-            {move || {
-                let options = options.get();
-                view! { <Segmented name="file-edit-as" label="Edit as" options=options value=value on_change=pick/> }
-            }}
+        <span class="flex min-w-0 items-center gap-2" data-testid="file-edit-as" data-shown=move || shown_now(t)>
+            <span aria-hidden="true">"Edit as"</span>
+            <Select id="file-edit-as" label="Edit as" options=options value=Signal::derive(move || shown_now(t)) on_change=pick small=true/>
         </span>
     }
 }
@@ -91,15 +80,13 @@ pub fn read_only_text(t: TextEdit) -> Option<String> {
     })
 }
 
-pub fn saved_text(t: TextEdit) -> Option<(String, bool)> {
+pub fn waits_text(t: TextEdit) -> Option<String> {
     let name = t.active.get();
-    let own = own_label(&name);
     let asked = t
         .edit_as
         .with(|a| a.get(&name).cloned())
-        .unwrap_or_else(|| own.to_string());
-    let shown = shown_now(t);
-    note(own, &asked, &shown).map(|n| (n, asked != shown))
+        .unwrap_or_else(|| own_label(&name).to_string());
+    waits(&asked, &shown_now(t))
 }
 
 pub fn note_line(icon: &'static str, text: String, testid: &'static str, warn: bool) -> AnyView {
@@ -145,14 +132,19 @@ mod tests {
             "JSON",
             "an edit not yet written back is still the asked language"
         );
+        assert_eq!(waits("TOML", "TOML"), None, "no note once it shows");
+        assert_eq!(waits("YAML", "YAML"), None);
         assert_eq!(
-            note("YAML", "TOML", "TOML").as_deref(),
-            Some("Saved as YAML")
-        );
-        assert_eq!(note("YAML", "YAML", "YAML"), None);
-        assert_eq!(
-            note("YAML", "TOML", "YAML").as_deref(),
+            waits("TOML", "YAML").as_deref(),
             Some("TOML waits for the marked value")
+        );
+        assert_eq!(
+            options("JSON"),
+            [
+                ("JSON".to_string(), "JSON (file)".to_string()),
+                ("YAML".to_string(), "YAML".to_string()),
+                ("TOML".to_string(), "TOML".to_string())
+            ]
         );
     }
 }

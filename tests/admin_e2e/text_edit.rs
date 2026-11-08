@@ -655,7 +655,7 @@ async fn js_click(c: &Ctx, css: &str) {
 }
 
 async fn edit_as(c: &Ctx, label: &str, shown: &str) {
-    js_click(c, &format!("{EDIT_AS} input[value={label}]")).await;
+    c.ui.select("#file-edit-as", label).await;
     c.ui.wait_for(&format!("{EDIT_AS}[data-shown={shown}]"), SECS)
         .await;
 }
@@ -706,7 +706,7 @@ async fn edit_as_json_and_toml(c: &mut Ctx, tool_before: &str) {
     start(c).await;
     focus_leaves_the_page_where_it_is(c).await;
     assert_eq!(
-        c.ui.all_attrs(&format!("{EDIT_AS} input"), "value").await,
+        c.ui.all_attrs("#file-edit-as option", "value").await,
         ["YAML", "JSON", "TOML"],
         "the file's own language comes first"
     );
@@ -722,8 +722,6 @@ async fn edit_as_json_and_toml(c: &mut Ctx, tool_before: &str) {
     )
     .await;
     dirty(c, MAIN, true).await;
-    c.ui.wait_text("[data-testid=file-saved-as]", "Saved as YAML", SECS)
-        .await;
     edit_as(c, "TOML", "TOML").await;
     let toml = text_of(c, MAIN).await;
     assert!(toml.contains("max_connections = 140"), "{toml}");
@@ -780,12 +778,12 @@ async fn edit_as_json_and_toml(c: &mut Ctx, tool_before: &str) {
         .to_string();
     replace_in(c, MAIN, &last, &format!("{last}\nheartbeat:")).await;
     dirty(c, MAIN, true).await;
-    js_click(c, &format!("{EDIT_AS} input[value=TOML]")).await;
+    c.ui.select("#file-edit-as", "TOML").await;
     let reason = "(() => [...document.querySelectorAll('[data-testid=file-editor] .config-editor__diagnostic-marker')].some(m => /null/i.test(m.dataset.message || '')))()";
     c.ui.wait_true(reason, "the editor says why TOML waits", SECS)
         .await;
     assert_eq!(c.ui.attr_of(EDIT_AS, "data-shown").await, "YAML");
-    c.ui.wait_text("[data-testid=file-saved-as]", "TOML waits", SECS)
+    c.ui.wait_text("[data-testid=file-edit-as-waits]", "TOML waits", SECS)
         .await;
     shots(c, "text-edit-as-waits").await;
     c.ui.click("[data-testid=file-cancel]").await;

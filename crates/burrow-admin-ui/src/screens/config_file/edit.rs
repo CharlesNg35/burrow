@@ -6,9 +6,6 @@ use crate::store::Store;
 
 use super::editor::{EditorProps, text_editor};
 
-pub(super) const CAN_EDIT: &str = "Edit here as text or field by field in other tabs";
-pub(super) const EDITING: &str = "Checked as you type; applied only from Review";
-
 pub(super) fn edit_button(s: Store, waiting: RwSignal<bool>) -> AnyView {
     view! {
         <Button label="Edit" icon="edit" size=ButtonSize::Small testid="file-edit" on_click=move |_| {
