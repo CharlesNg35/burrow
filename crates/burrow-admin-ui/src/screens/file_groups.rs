@@ -162,33 +162,38 @@ pub fn control(kind: &'static str) -> impl IntoView {
     }
 }
 
-fn header(
-    kind: &'static str,
-    sec: &Section,
-    open: bool,
-    searching: bool,
-    panel: String,
-) -> AnyView {
-    let file = sec.file.clone();
-    let label = sec.file.clone();
+struct Head {
+    file: String,
+    read_only: Option<String>,
+    count: usize,
+    problems: usize,
+}
+
+fn header(kind: &'static str, h: Head, open: bool, searching: bool, panel: String) -> AnyView {
+    let Head {
+        file,
+        read_only,
+        count,
+        problems,
+    } = h;
+    let label = file.clone();
     let toggle = file.clone();
-    let n = sec.rows.len();
-    let lock = sec.read_only.clone().map(|why| {
+    let lock = read_only.map(|why| {
         let tip = format!("Read-only on disk: {why}");
         view! { <span class="text-text-muted" title=tip.clone() aria-label=tip data-testid="group-lock"><Icon name="lock" small=true/></span> }
     });
-    let problems = (!open && sec.problems > 0).then(|| {
-        let text = if sec.problems == 1 {
+    let problems = (!open && problems > 0).then(|| {
+        let text = if problems == 1 {
             "1 problem".to_string()
         } else {
-            format!("{} problems", sec.problems)
+            format!("{problems} problems")
         };
         view! { <span class=format!("{} normal-case tracking-normal", tag_class(Tone::Warning)) data-testid="group-problems">{text}</span> }
     });
     view! {
         <button
             type="button"
-            class=format!("flex w-full cursor-pointer items-center gap-1.5 px-4 pt-3.5 pb-1.5 text-left hover:text-text focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-default {LABEL}")
+            class=format!("relative flex w-full cursor-pointer items-center gap-1.5 px-4 pt-3.5 pb-1.5 text-left outline-none hover:text-text disabled:cursor-default focus-visible:after:absolute focus-visible:after:inset-x-2 focus-visible:after:top-2 focus-visible:after:-bottom-0.5 focus-visible:after:rounded-[11px] focus-visible:after:border focus-visible:after:border-accent-line focus-visible:after:ring-3 focus-visible:after:ring-accent-weak {LABEL}")
             aria-expanded=open.to_string()
             aria-controls=panel
             disabled=searching
@@ -205,68 +210,103 @@ fn header(
             }
         >
             <Icon name=if open { "chevron-down" } else { "chevron-right" } small=true/>
-            <span class="min-w-0 truncate font-mono normal-case">{label}</span>
+            <span class="min-w-0 truncate font-mono text-[13px] normal-case" data-testid="group-file">{label}</span>
             {lock}
             {problems}
-            <span class="ml-auto" data-testid="group-count">{n}</span>
+            <span class="ml-auto" data-testid="group-count">{count}</span>
         </button>
     }
     .into_any()
 }
 
-pub struct Body {
-    pub kind: &'static str,
-    pub searching: Signal<bool>,
-    pub selected: Signal<Option<String>>,
-    pub compact: bool,
-    pub live: Memo<super::list::LiveMap>,
+fn in_its_file(mut r: Row) -> Row {
+    r.kept = r.kept.as_ref().and_then(super::Kept::in_its_file);
+    r
 }
 
-pub fn render(b: &Body, list: &[Row]) -> AnyView {
-    let Body {
-        kind,
-        compact,
-        live,
-        ..
-    } = *b;
-    let g = group(&files(), list);
-    let searching = b.searching;
-    let sel = b.selected.get();
-    let one = move |r: &Row, sel: Option<&str>| {
-        let on = sel == Some(r.key.as_str());
-        super::list::row_view(r.clone(), on, compact, live)
+pub fn render(
+    kind: &'static str,
+    all: Memo<Vec<Row>>,
+    visible: Memo<Vec<Row>>,
+    searching: Signal<bool>,
+    cards: super::list_rows::Cards,
+) -> AnyView {
+    let layout = Memo::new(move |_| all.with(|a| group(&files(), a)));
+    let seen = Memo::new(move |_| visible.with(|v| group(&files(), v)));
+    let loose = move || {
+        layout.with(|g| all.with(|a| g.loose.iter().map(|&i| a[i].clone()).collect::<Vec<_>>()))
     };
-    let loose = g
-        .loose
-        .iter()
-        .map(|&i| one(&list[i], sel.as_deref()))
-        .collect_view();
-    let sections = g
-        .sections
-        .into_iter()
-        .enumerate()
-        .map(|(n, s)| {
-            let holds = sel
-                .as_deref()
-                .is_some_and(|k| s.rows.iter().any(|&i| list[i].key == k));
-            let mine = s.clone();
-            let open = Memo::new(move |_| is_open(&mine, searching.get(), &closed(kind), holds));
-            let panel = format!("group-{kind}-{n}");
-            let rows: Vec<Row> = s.rows.iter().map(|&i| list[i].clone()).collect();
-            let sel = sel.clone();
-            let head = s.clone();
-            let id = panel.clone();
-            view! {
-                <div data-group-file=s.file.clone()>
-                    {move || header(kind, &head, open.get(), searching.get(), id.clone())}
-                    <div id=panel hidden=move || !open.get()>
-                        {move || open.get().then(|| rows.iter().map(|r| one(r, sel.as_deref())).collect_view())}
-                    </div>
-                </div>
-            }
+    let names = move || {
+        layout.with(|g| {
+            g.sections
+                .iter()
+                .map(|s| s.file.clone())
+                .collect::<Vec<_>>()
         })
-        .collect_view();
-    view! { {loose} {sections} }.into_any()
+    };
+    let section = move |file: String| {
+        let at = file.clone();
+        let mine =
+            Memo::new(move |_| seen.with(|g| g.sections.iter().find(|s| s.file == at).cloned()));
+        let rows_of = file.clone();
+        let rows = move || {
+            layout.with(|g| {
+                all.with(|a| {
+                    g.sections
+                        .iter()
+                        .find(|s| s.file == rows_of)
+                        .map(|s| {
+                            s.rows
+                                .iter()
+                                .map(|&i| in_its_file(a[i].clone()))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                })
+            })
+        };
+        let read_only = layout.with_untracked(|g| {
+            g.sections
+                .iter()
+                .find(|s| s.file == file)
+                .and_then(|s| s.read_only.clone())
+        });
+        let folded = file.clone();
+        let open = Memo::new(move |_| {
+            let closed = closed(kind);
+            let Some(sec) = mine.get() else {
+                return !closed.contains(&folded);
+            };
+            let holds = cards.selected.with(|k| {
+                k.as_deref()
+                    .is_some_and(|k| visible.with(|v| sec.rows.iter().any(|&i| v[i].key == k)))
+            });
+            is_open(&sec, searching.get(), &closed, holds)
+        });
+        let n = layout
+            .with_untracked(|g| g.sections.iter().position(|s| s.file == file))
+            .unwrap_or(0);
+        let panel = format!("group-{kind}-{n}");
+        let id = panel.clone();
+        let name = file.clone();
+        view! {
+            <div data-group-file=file.clone() hidden=move || mine.with(Option::is_none)>
+                {move || {
+                    let (count, problems) = mine.with(|m| m.as_ref().map_or((0, 0), |s| (s.rows.len(), s.problems)));
+                    let h = Head { file: name.clone(), read_only: read_only.clone(), count, problems };
+                    header(kind, h, open.get(), searching.get(), id.clone())
+                }}
+                <div id=panel hidden=move || !open.get()>
+                    {move || open.get().then(|| { let rows = rows.clone(); view! { <For each=rows key=super::list_rows::print children=move |r| super::list_rows::card(r, cards)/> } })}
+                </div>
+            </div>
+        }
+    };
+    view! {
+        <For each=loose key=super::list_rows::print children=move |r| super::list_rows::card(r, cards)/>
+        <For each=names key=|f| f.clone() children=section/>
+    }
+    .into_any()
 }
 
 pub fn navigable(

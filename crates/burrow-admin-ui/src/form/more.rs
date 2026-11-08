@@ -44,20 +44,13 @@ fn key_of(spath: &[String], group: &str) -> String {
 }
 
 fn remembered(key: &str) -> Option<bool> {
-    let v = window()
-        .local_storage()
-        .ok()
-        .flatten()?
-        .get_item(key)
-        .ok()
-        .flatten()?;
-    Some(v == "open")
+    store().more_open.with_value(|m| m.get(key).copied())
 }
 
 fn remember(key: &str, open: bool) {
-    if let Some(st) = window().local_storage().ok().flatten() {
-        let _ = st.set_item(key, if open { "open" } else { "closed" });
-    }
+    store().more_open.update_value(|m| {
+        m.insert(key.to_string(), open);
+    });
 }
 
 fn visible_fields(m: &More) -> Memo<Vec<(Node, Path)>> {

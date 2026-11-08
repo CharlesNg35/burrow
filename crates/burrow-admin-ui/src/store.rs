@@ -92,6 +92,7 @@ pub struct Store {
     pub edit: Edit,
     pub text: crate::edit::TextEdit,
     pub list_groups: RwSignal<std::collections::BTreeMap<&'static str, ListGroups>>,
+    pub more_open: StoredValue<std::collections::BTreeMap<String, bool>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +180,7 @@ impl Store {
             edit: Edit::held_by(Signal::derive(move || text.dirty())),
             text,
             list_groups: RwSignal::new(std::collections::BTreeMap::new()),
+            more_open: StoredValue::new(std::collections::BTreeMap::new()),
         }
     }
 
