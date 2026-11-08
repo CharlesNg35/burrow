@@ -1,3 +1,4 @@
+use burrow_admin_proto::text_search::TextMatch;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -79,6 +80,7 @@ pub struct Sources<'a> {
     pub items: &'a [Item],
     pub recent: &'a [String],
     pub problems: &'a [String],
+    pub text: &'a [TextMatch],
 }
 
 fn subsequence(q: &str, c: &str) -> bool {
@@ -182,8 +184,19 @@ pub fn find(query: &str, s: &Sources) -> Vec<(Kind, Vec<Found>)> {
             .collect();
         out.push((kind, sorted(hits)));
     }
+    out.push((Kind::Text, s.text.iter().map(text_hit).collect()));
     out.retain(|(_, hits)| !hits.is_empty());
     out
+}
+
+fn text_hit(m: &TextMatch) -> Found {
+    Found {
+        label: m.excerpt.clone(),
+        file: m.file.clone(),
+        path: None,
+        line: Some(m.line),
+        note: format!("{}:{}", m.file, m.line),
+    }
 }
 
 #[cfg(test)]
@@ -235,6 +248,7 @@ mod tests {
             items: &items,
             recent: &[],
             problems: &[],
+            text: &[],
         };
         let got = find("web", &s);
         assert_eq!(
@@ -266,6 +280,7 @@ mod tests {
             items: &[],
             recent: &recent,
             problems: &problems,
+            text: &[],
         };
         let got = find("  ", &s);
         assert_eq!(
@@ -276,5 +291,28 @@ mod tests {
         assert_eq!(got[0].0, Kind::Problems);
         let found = find("a", &s);
         assert_eq!(found[0].1[0].note, "has problems");
+    }
+
+    #[test]
+    fn text_matches_come_last_and_open_at_their_line() {
+        let (text, _) = burrow_admin_proto::text_search::find(
+            &[("server.d/a.yaml", "services:\n  a:\n    target: 3005\n")],
+            "3005",
+            50,
+        );
+        let s = Sources {
+            files: &[],
+            items: &[],
+            recent: &[],
+            problems: &[],
+            text: &text,
+        };
+        let got = find("3005", &s);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, Kind::Text);
+        let hit = &got[0].1[0];
+        assert_eq!((hit.file.as_str(), hit.line), ("server.d/a.yaml", Some(3)));
+        assert_eq!(hit.label, "target: 3005");
+        assert_eq!(hit.note, "server.d/a.yaml:3");
     }
 }

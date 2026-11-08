@@ -46,6 +46,14 @@ async fn hits(c: &Ctx) -> Vec<String> {
         .await
 }
 
+async fn file_hits(c: &Ctx) -> usize {
+    hits(c)
+        .await
+        .iter()
+        .filter(|h| h.starts_with("server.d/"))
+        .count()
+}
+
 async fn heads(c: &Ctx) -> Vec<String> {
     c.ui.eval("[...document.querySelectorAll('#file-goto-list > li[role=presentation]')].map(s => s.textContent)")
         .await
@@ -137,12 +145,12 @@ async fn go_to_finds_and_opens(c: &mut Ctx) {
     typed(c, "w12").await;
     assert_eq!(hits(c).await, [name(12)], "letters in order find a file");
     typed(c, "web").await;
-    assert_eq!(hits(c).await.len(), 8, "the first eight per group");
+    assert_eq!(file_hits(c).await, 8, "the first eight per group");
     c.ui.wait_text(MORE, "4 more", SECS).await;
     both_widths(c, "text-tabs-goto-files").await;
     c.ui.click(&format!("{MORE} button")).await;
     c.ui.wait_true(
-        "document.querySelectorAll('[data-testid=file-goto-hit]').length === 12",
+        "[...document.querySelectorAll('[data-testid=file-goto-hit] button > span:nth-child(2)')].filter(s => s.textContent.startsWith('server.d/')).length === 12",
         "… 4 more shows the rest",
         SECS,
     )
@@ -166,19 +174,31 @@ async fn go_to_finds_and_opens(c: &mut Ctx) {
         SECS,
     )
     .await;
+    go_to(c, "target: 3005", "target: 3005").await;
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(&name(5))), SECS)
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "(() => {{ const i = document.querySelector({}); return !!i && document.activeElement === i && i.selectionStart === i.value.indexOf('target: 3005'); }})()",
+            js(&input(&name(5)))
+        ),
+        "a text match opens its file at its line",
+        SECS,
+    )
+    .await;
 }
 
 async fn ten_tabs_at_most(c: &mut Ctx) {
     replace_in(c, &name(10), "target: 3010", "target: 4010").await;
     dirty(c, &name(10), true).await;
-    for i in [1, 2, 3, 4, 5, 6, 8, 9, 11, 12] {
+    for i in [1, 2, 3, 4, 6, 8, 9, 11, 12] {
         go_to(c, &name(i), &name(i)).await;
         c.ui.wait_for(&format!("{}[aria-selected=true]", tab(&name(i))), SECS)
             .await;
         assert!(tabs(c).await.len() <= MAX_TABS);
     }
     let want: Vec<String> = std::iter::once(MAIN.to_string())
-        .chain([10, 3, 4, 5, 6, 8, 9, 11, 12].map(name))
+        .chain([10, 2, 3, 4, 6, 8, 9, 11, 12].map(name))
         .collect();
     assert_eq!(
         tabs(c).await,
@@ -190,7 +210,7 @@ async fn ten_tabs_at_most(c: &mut Ctx) {
     c.ui.wait_for(&input(&name(7)), SECS).await;
     assert!(text_of(c, &name(7)).await.contains("target: 3007"));
     assert!(
-        !tabs(c).await.contains(&name(3)),
+        !tabs(c).await.contains(&name(2)),
         "reopening closes the next oldest"
     );
 }

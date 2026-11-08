@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use burrow_admin_logic::goto::{Found, Item, Kind, Sources, find};
 use burrow_admin_logic::wording::count_of;
 use burrow_admin_proto::diag::Severity;
+use burrow_admin_proto::text_search::{self, MAX_LIMIT, TextMatch};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Icon, Kbd, PickHead, PickOption, marked};
 use leptos::prelude::*;
@@ -14,6 +15,7 @@ pub const FIRST: usize = 8;
 const MORE: usize = 50;
 const LIST: &str = "file-goto-list";
 const PLACEHOLDER: &str = "Go to file, service, client…";
+const TEXT_AFTER: std::time::Duration = std::time::Duration::from_millis(300);
 
 #[derive(Clone, Copy)]
 pub struct GoTo {
@@ -21,6 +23,8 @@ pub struct GoTo {
     q: RwSignal<String>,
     active: RwSignal<usize>,
     shown: RwSignal<BTreeMap<Kind, usize>>,
+    text_q: RwSignal<String>,
+    typed: StoredValue<u64>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -28,6 +32,7 @@ enum Row {
     Head(Kind),
     Hit(Kind, Found),
     More(Kind, usize),
+    Note(String),
 }
 
 impl GoTo {
@@ -37,11 +42,29 @@ impl GoTo {
             q: RwSignal::new(String::new()),
             active: RwSignal::new(0),
             shown: RwSignal::new(BTreeMap::new()),
+            text_q: RwSignal::new(String::new()),
+            typed: StoredValue::new(0),
         }
+    }
+
+    fn typed(&self, q: String) {
+        self.q.set(q.clone());
+        self.typed.update_value(|n| *n += 1);
+        let n = self.typed.get_value();
+        let me = *self;
+        set_timeout(
+            move || {
+                if me.typed.try_get_value() == Some(n) {
+                    me.text_q.set(q);
+                }
+            },
+            TEXT_AFTER,
+        );
     }
 
     fn show(&self) {
         self.q.set(String::new());
+        self.text_q.set(String::new());
         self.active.set(0);
         self.shown.set(BTreeMap::new());
         self.open.set(true);
@@ -134,11 +157,13 @@ fn rows(g: GoTo, t: TextEdit) -> Vec<Row> {
     let items = items(s, &main);
     let recent = t.recent.get();
     let problems = problem_files(t);
+    let (text, cut) = in_text(g, t, &files);
     let src = Sources {
         files: &files,
         items: &items,
         recent: &recent,
         problems: &problems,
+        text: &text,
     };
     let shown = g.shown.get();
     let mut out = Vec::new();
@@ -150,13 +175,32 @@ fn rows(g: GoTo, t: TextEdit) -> Vec<Row> {
         if total > limit {
             out.push(Row::More(kind, total - limit));
         }
+        if kind == Kind::Text && cut {
+            out.push(Row::Note(format!(
+                "The first {MAX_LIMIT} matches; type more to narrow them"
+            )));
+        }
     }
     out
 }
 
+fn in_text(g: GoTo, t: TextEdit, files: &[String]) -> (Vec<TextMatch>, bool) {
+    let q = g.text_q.get();
+    if q.trim().is_empty() || q.trim() != g.q.with(|x| x.trim().to_string()) {
+        return (Vec::new(), false);
+    }
+    t.values.with(|v| {
+        let texts: Vec<(&str, &str)> = files
+            .iter()
+            .filter_map(|f| Some((f.as_str(), v.get(f)?.as_str())))
+            .collect();
+        text_search::find(&texts, &q, MAX_LIMIT as usize)
+    })
+}
+
 fn pick(g: GoTo, t: TextEdit, row: Row) {
     match row {
-        Row::Head(_) => {}
+        Row::Head(_) | Row::Note(_) => {}
         Row::More(kind, _) => g.shown.update(|m| {
             let n = m.entry(kind).or_insert(FIRST);
             *n += MORE;
@@ -209,7 +253,7 @@ fn keys(g: GoTo, t: TextEdit, list: Memo<Vec<Row>>) -> impl Fn(web_sys::Keyboard
         let picks: Vec<usize> = list.with(|l| {
             l.iter()
                 .enumerate()
-                .filter(|(_, r)| !matches!(r, Row::Head(_)))
+                .filter(|(_, r)| !matches!(r, Row::Head(_) | Row::Note(_)))
                 .map(|(i, _)| i)
                 .collect()
         });
@@ -242,7 +286,7 @@ fn keys(g: GoTo, t: TextEdit, list: Memo<Vec<Row>>) -> impl Fn(web_sys::Keyboard
 
 fn first_pick(list: &[Row]) -> usize {
     list.iter()
-        .position(|r| !matches!(r, Row::Head(_)))
+        .position(|r| !matches!(r, Row::Head(_) | Row::Note(_)))
         .unwrap_or(0)
 }
 
@@ -252,6 +296,7 @@ fn option(g: GoTo, t: TextEdit, i: usize, row: Row, needle: &str) -> AnyView {
     let id = format!("file-goto-opt-{i}");
     match row.clone() {
         Row::Head(kind) => view! { <PickHead text=kind.title()/> }.into_any(),
+        Row::Note(text) => view! { <li class="px-2.5 py-1.5 text-xs text-text-muted" role="presentation" data-testid="file-goto-note">{text}</li> }.into_any(),
         Row::More(_, n) => view! {
             <PickOption icon="more" id=id active=active on_hover=hover on_pick=Callback::new(move |_| pick(g, t, row.clone())) testid="file-goto-more">
                 {format!("… {n} more")}
@@ -305,12 +350,12 @@ pub fn panel(g: GoTo, t: TextEdit) -> impl IntoView {
                         aria-controls=LIST
                         aria-autocomplete="list"
                         aria-activedescendant=move || format!("file-goto-opt-{}", g.active.get())
-                        aria-label="Go to a file, service, client or visitor"
+                        aria-label="Go to a file, service, client or visitor, or find text in the files"
                         placeholder=PLACEHOLDER
                         autocomplete="off"
                         class="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-faint"
                         prop:value=move || g.q.get()
-                        on:input:target=move |e| g.q.set(e.target().value())
+                        on:input:target=move |e| g.typed(e.target().value())
                     />
                     <span class="max-sm:hidden"><Kbd text="esc"/></span>
                 </div>

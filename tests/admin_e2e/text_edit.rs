@@ -948,6 +948,11 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
         0,
         "a tab without edits closes at once; the file stays"
     );
+    let at: String = c
+        .ui
+        .eval("(() => { const b = document.querySelector('[data-testid=file-cancel]'); const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return (e ? e.outerHTML.slice(0, 200) : 'none') + ' focus ' + (document.activeElement ? document.activeElement.className : ''); })()")
+        .await;
+    println!("cancel point: {at}");
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
