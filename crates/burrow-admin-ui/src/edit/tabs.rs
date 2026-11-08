@@ -7,7 +7,7 @@ pub const MAX_TABS: usize = 10;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Spot {
     Path(Vec<String>),
-    Line(u32),
+    Line(u32, u32),
 }
 
 pub fn used(recent: &[String], name: &str) -> Vec<String> {

@@ -11,8 +11,8 @@ const TRIES_MS: [u64; 5] = [0, 50, 150, 400, 1000];
 fn reveal(e: &EditorHandle, spot: &Spot) -> bool {
     match spot {
         Spot::Path(p) => e.reveal(field(p)),
-        Spot::Line(line) => e
-            .path_at(TextPosition::new(*line as usize, 1))
+        Spot::Line(line, col) => e
+            .path_at(TextPosition::new(*line as usize, *col as usize))
             .is_some_and(|p| e.reveal(p)),
     }
 }

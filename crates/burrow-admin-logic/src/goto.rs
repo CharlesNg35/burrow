@@ -53,7 +53,7 @@ pub struct Found {
     pub label: String,
     pub file: String,
     pub path: Option<Vec<String>>,
-    pub line: Option<u32>,
+    pub line: Option<(u32, u32)>,
     pub note: String,
 }
 
@@ -194,7 +194,7 @@ fn text_hit(m: &TextMatch) -> Found {
         label: m.excerpt.clone(),
         file: m.file.clone(),
         path: None,
-        line: Some(m.line),
+        line: Some((m.line, m.col)),
         note: format!("{}:{}", m.file, m.line),
     }
 }
@@ -311,7 +311,10 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].0, Kind::Text);
         let hit = &got[0].1[0];
-        assert_eq!((hit.file.as_str(), hit.line), ("server.d/a.yaml", Some(3)));
+        assert_eq!(
+            (hit.file.as_str(), hit.line),
+            ("server.d/a.yaml", Some((3, 13)))
+        );
         assert_eq!(hit.label, "target: 3005");
         assert_eq!(hit.note, "server.d/a.yaml:3");
     }

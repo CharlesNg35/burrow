@@ -875,7 +875,7 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
     assert!(reachable, "the + is on screen at 390px");
     c.ui.viewport(1440, 900).await;
     name_new_file(c, "my apps").await;
-    c.ui.wait_text("[data-testid=file-new-problem]", "not a file name", SECS)
+    c.ui.wait_text("[data-testid=file-new-problem]", "use only letters", SECS)
         .await;
     assert!(!c.ui.enabled("[data-testid=file-new-add]").await);
     c.ui.fill("#file-new-name", "apps").await;
