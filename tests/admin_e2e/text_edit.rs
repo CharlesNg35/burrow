@@ -223,6 +223,48 @@ async fn no_csp_violation(c: &mut Ctx) {
         .await;
 }
 
+const IN_PLACE: &str = "(() => { const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); const inner = [document.body, document.querySelector('main'), document.querySelector('[data-testid=config-file]')].filter(e => e && e.scrollTop !== 0).map(e => e.tagName + ' ' + e.scrollTop); return { top: h.top, scrolled: scrollY, inner, max: document.documentElement.scrollHeight - innerHeight }; })()";
+
+async fn page_in_place(c: &Ctx, step: &str) {
+    let got: serde_json::Value = c.ui.eval(IN_PLACE).await;
+    println!("{step}: {got}");
+    assert_eq!(
+        got["top"].as_f64(),
+        Some(0.0),
+        "{step}: the header leaves the top: {got}"
+    );
+    assert_eq!(
+        got["inner"],
+        serde_json::json!([]),
+        "{step}: only the document scrolls: {got}"
+    );
+    assert!(
+        got["scrolled"].as_f64() <= got["max"].as_f64().map(|m| m.max(0.0)),
+        "{step}: the document scrolls past its end: {got}"
+    );
+}
+
+async fn typing_keeps_the_page_in_place(c: &mut Ctx) {
+    for w in [1440, 390] {
+        c.ui.viewport(w, 900).await;
+        let _: bool =
+            c.ui.eval("(() => { scrollTo(0, 0); return true; })()")
+                .await;
+        let last = text_of(c, MAIN)
+            .await
+            .lines()
+            .last()
+            .unwrap_or_default()
+            .to_string();
+        replace_in(c, MAIN, &last, &format!("{last} ")).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        page_in_place(c, &format!("typing at the last line at {w}px")).await;
+        replace_in(c, MAIN, &format!("{last} "), &last).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+    c.ui.viewport(1440, 900).await;
+}
+
 fn placeholder_after(text: &str, key: &str) -> String {
     let at = text.find(key).expect("the key") + key.len();
     let rest = &text[at..];
@@ -356,6 +398,9 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
         &now[at..(at + 80).min(now.len())]
     );
     burrow_problem(c, MAIN, "placeholder").await;
+    page_in_place(c, "the moved placeholder").await;
+    typing_keeps_the_page_in_place(c).await;
+    c.ui.view_shot("text-edit-moved-placeholder-viewport").await;
     shots(c, "text-edit-moved-placeholder").await;
     c.ui.click(REVIEW).await;
     let refused = "!!document.querySelector('[data-testid=review] [data-testid=apply][disabled]') || !!document.querySelector('[data-testid=config-file][data-editing=true]')";
