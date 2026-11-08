@@ -144,9 +144,21 @@ impl Edit {
         self.review.set(Some(review));
     }
 
-    fn check_own(&self, req: &'static str, body: Value, failed: impl FnOnce(ErrorBody) + 'static) {
+    fn check_own(
+        &self,
+        req: &'static str,
+        body: Value,
+        source: Source,
+        failed: impl FnOnce(ErrorBody) + 'static,
+    ) {
         let me = *self;
         api::request_within(req, body, api::CHECK_WITHIN, move |r| {
+            let still = me
+                .review
+                .with_untracked(|rv| rv.as_ref().is_some_and(|rv| rv.source == source));
+            if !still {
+                return;
+            }
             match r.and_then(|v| serde_json::from_value::<Plan>(v).map_err(protocol_problem)) {
                 Ok(p) => me.review.update(|rv| {
                     if let Some(rv) = rv {
@@ -178,16 +190,21 @@ impl Edit {
             to: to.clone(),
             base,
         });
-        self.check_own(msg::req::REVERT, body, move |e| {
-            me.review.set(None);
-            match conflict_of(&e) {
-                Some(c) => {
-                    me.conflict_revert.set(Some(to));
-                    me.raise(c, true);
+        self.check_own(
+            msg::req::REVERT,
+            body,
+            Source::Revert(to.clone()),
+            move |e| {
+                me.review.set(None);
+                match conflict_of(&e) {
+                    Some(c) => {
+                        me.conflict_revert.set(Some(to));
+                        me.raise(c, true);
+                    }
+                    None => me.outcome.set(Some(revert_outcome(&e))),
                 }
-                None => me.outcome.set(Some(revert_outcome(&e))),
-            }
-        });
+            },
+        );
     }
 
     pub fn open_text(&self, store: Store) {
@@ -207,7 +224,7 @@ impl Edit {
         crate::route::go_in(store, crate::route::Route::Review);
         let me = *self;
         let body = api::body(&msg::Validate { base, ops });
-        self.check_own(msg::req::VALIDATE, body, move |e| {
+        self.check_own(msg::req::VALIDATE, body, Source::Text, move |e| {
             me.review.set(None);
             match outcome_of(&e) {
                 _ if conflict_of(&e).is_some() => text_changed(store),
