@@ -274,6 +274,7 @@ fn placeholder_after(text: &str, key: &str) -> String {
 }
 
 async fn shots(c: &mut Ctx, step: &str) {
+    let mut first_space: Option<f64> = None;
     for (w, size) in [(1440, "1440"), (390, "390")] {
         c.ui.viewport(w, 900).await;
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -291,16 +292,27 @@ async fn shots(c: &mut Ctx, step: &str) {
             ))
             .await;
         assert!(inside, "{step} at {w}px: the editor fills its card");
-        let gap: f64 = c
+        let band: serde_json::Value = c
             .ui
             .eval(&format!(
-                "(() => {{ const e = document.querySelector({}).getBoundingClientRect(); const h = document.querySelector('[data-testid=file-head]').getBoundingClientRect(); return e.top - h.bottom; }})()",
+                "(() => {{ const e = document.querySelector({}).getBoundingClientRect(); const h = document.querySelector('[data-testid=file-head]').getBoundingClientRect(); const space = parseFloat(getComputedStyle(document.querySelector('[data-testid=file-body]')).paddingTop); const n = document.querySelector('[data-testid=file-notes]'); const r = n && n.getBoundingClientRect(); return {{ space, above: (r ? r.top : e.top) - h.bottom, below: r ? e.top - r.bottom : null }}; }})()",
                 js(EDITOR)
             ))
             .await;
+        let space = band["space"].as_f64().unwrap_or(0.0);
         assert!(
-            gap.abs() < 0.5,
-            "{step} at {w}px: the editor starts right under the card head ({gap}px)"
+            space > 0.0,
+            "{step} at {w}px: a small space under the card head: {band}"
+        );
+        assert_eq!(
+            *first_space.get_or_insert(space),
+            space,
+            "{step} at {w}px: the same space at every width"
+        );
+        let near = |v: &serde_json::Value| v.as_f64().is_some_and(|x| (x - space).abs() < 0.5);
+        assert!(
+            near(&band["above"]) && (band["below"].is_null() || near(&band["below"])),
+            "{step} at {w}px: the notes sit in the band between the head and the editor: {band}"
         );
         c.ui.shot(&format!("{step}-{size}")).await;
     }

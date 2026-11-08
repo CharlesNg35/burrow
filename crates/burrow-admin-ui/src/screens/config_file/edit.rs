@@ -68,7 +68,6 @@ pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>) -> AnyView {
         None => "No edits yet".into(),
     });
     view! {
-        {super::edit_as::read_only_note(t)}
         {super::edit_as::controls(t)}
         <Button label="Cancel" size=ButtonSize::Small testid="file-cancel" on_click=move |_| {
             if untrack(|| t.dirty()) {

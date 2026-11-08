@@ -72,36 +72,49 @@ pub fn controls(t: TextEdit) -> impl IntoView {
             a.insert(name, label);
         });
     });
-    let saved_as = move || {
-        let own = t.active.with(|a| own_label(a));
-        note(own, &value.get(), &shown_now(t))
-    };
     view! {
         <span class="flex min-w-0 flex-wrap items-center gap-2" data-testid="file-edit-as" data-shown=move || shown_now(t)>
             {move || {
                 let options = options.get();
                 view! { <Segmented name="file-edit-as" label="Edit as" options=options value=value on_change=pick/> }
             }}
-            {move || saved_as().map(|n| view! { <span data-testid="file-saved-as">{n}</span> })}
         </span>
     }
 }
 
-pub fn read_only_note(t: TextEdit) -> impl IntoView {
-    move || {
-        let (name, why) = t.loaded.with(|l| {
-            let text = l.as_ref()?.as_ref().ok()?;
-            t.active
-                .with(|a| text.files.iter().find(|f| f.name == *a))
-                .and_then(|f| Some((f.name.clone(), f.read_only.clone()?)))
-        })?;
-        Some(view! {
-            <span class="flex min-w-0 items-start gap-1.5 [overflow-wrap:anywhere]" data-testid="file-read-only">
-                <Icon name="lock" small=true/>
-                <span>{format!("{name} is read-only: {why}")}</span>
-            </span>
-        })
+pub fn read_only_text(t: TextEdit) -> Option<String> {
+    t.loaded.with(|l| {
+        let text = l.as_ref()?.as_ref().ok()?;
+        t.active
+            .with(|a| text.files.iter().find(|f| f.name == *a))
+            .and_then(|f| Some(format!("{} is read-only: {}", f.name, f.read_only.clone()?)))
+    })
+}
+
+pub fn saved_text(t: TextEdit) -> Option<(String, bool)> {
+    let name = t.active.get();
+    let own = own_label(&name);
+    let asked = t
+        .edit_as
+        .with(|a| a.get(&name).cloned())
+        .unwrap_or_else(|| own.to_string());
+    let shown = shown_now(t);
+    note(own, &asked, &shown).map(|n| (n, asked != shown))
+}
+
+pub fn note_line(icon: &'static str, text: String, testid: &'static str, warn: bool) -> AnyView {
+    let tone = if warn {
+        "text-warning"
+    } else {
+        "text-text-muted"
+    };
+    view! {
+        <p class=format!("flex min-w-0 items-start gap-1.5 text-xs {tone} [overflow-wrap:anywhere]") data-testid=testid>
+            <Icon name=icon small=true/>
+            <span>{text}</span>
+        </p>
     }
+    .into_any()
 }
 
 #[cfg(test)]

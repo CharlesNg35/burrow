@@ -37,23 +37,46 @@ fn fetch(show: Shown, into: RwSignal<Loaded>, latest: StoredValue<u64>) {
     );
 }
 
-fn running_note() -> impl IntoView {
+fn differs() -> Memo<Option<String>> {
     let s = store();
-    let note = Memo::new(move |_| {
+    Memo::new(move |_| {
         s.state.with(|st| {
             st.as_ref()
                 .and_then(|st| difference_note(s.status.with(|ss| differences(st, ss.as_deref()))))
         })
-    });
+    })
+}
+
+fn differs_view(n: String) -> impl IntoView {
+    view! {
+        <Callout tone=Tone::Warning title=n testid="file-differs">
+            <Link to=Route::Overview class="font-semibold text-accent-ink no-underline hover:underline" testid="file-differs-link">"See Needs attention"</Link>
+        </Callout>
+    }
+}
+
+fn running_note(note: Memo<Option<String>>) -> impl IntoView {
     move || {
-        note.get().map(|n| {
-            view! {
-                <div class="mb-3">
-                    <Callout tone=Tone::Warning title=n testid="file-differs">
-                        <Link to=Route::Overview class="font-semibold text-accent-ink no-underline hover:underline" testid="file-differs-link">"See Needs attention"</Link>
-                    </Callout>
-                </div>
-            }
+        note.get()
+            .map(|n| view! { <div class="mb-3">{differs_view(n)}</div> })
+    }
+}
+
+fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
+    let t = store().text;
+    move || {
+        let differ = note.get();
+        let read_only = edit_as::read_only_text(t);
+        let saved = edit_as::saved_text(t);
+        if differ.is_none() && read_only.is_none() && saved.is_none() {
+            return None;
+        }
+        Some(view! {
+            <div class="mb-3 flex min-w-0 flex-col gap-2" data-testid="file-notes">
+                {differ.map(differs_view)}
+                {read_only.map(|r| edit_as::note_line("lock", r, "file-read-only", false))}
+                {saved.map(|(n, warn)| edit_as::note_line(if warn { "alert" } else { "info" }, n, "file-saved-as", warn))}
+            </div>
         })
     }
 }
@@ -183,17 +206,20 @@ pub fn ConfigFile() -> impl IntoView {
             ""
         }
     };
+    let note = differs();
     let content = move || {
         if editing.get() {
             view! {
-                <div class="min-w-0" data-testid="file-body">{body}</div>
-                <div class="mt-3 empty:hidden">{running_note}</div>
+                <div class="min-w-0 pt-3" data-testid="file-body">
+                    {edit_notes(note)}
+                    {body}
+                </div>
             }
             .into_any()
         } else {
             view! {
                 <div class="min-w-0 px-4 py-3" data-testid="file-body">
-                    {running_note}
+                    {running_note(note)}
                     {body}
                 </div>
             }
