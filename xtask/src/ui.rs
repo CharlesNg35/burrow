@@ -7,9 +7,11 @@ use blake2::Digest;
 
 use crate::target_dir;
 use crate::tools::{self, Tools};
+use crate::{simd, split};
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const CRATE: &str = "burrow-admin-ui";
+const EMIT_RELOCS: &str = "target.wasm32-unknown-unknown.rustflags=[\"-Clink-arg=--emit-relocs\"]";
 const WATCHED: &[&str] = &[
     "crates/burrow-ui-kit/src",
     "crates/burrow-admin-logic/src",
@@ -42,6 +44,7 @@ struct File {
     path: String,
     file: String,
     mime: &'static str,
+    lazy: bool,
 }
 
 fn mime(name: &str) -> &'static str {
@@ -83,7 +86,7 @@ fn index_html(css: &str, css_sri: &str, boot: &str, boot_sri: &str) -> String {
     )
 }
 
-fn hashed(name: &str, bytes: &[u8], release: bool) -> String {
+pub fn hashed(name: &str, bytes: &[u8], release: bool) -> String {
     if !release {
         return name.to_string();
     }
@@ -97,19 +100,31 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     let work = target_dir(root).join("admin-ui-work");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-    let bg = bindgen(tools, &work, &wasm, release)?;
+    let parts = split::split(&wasm, &work)?;
+    let bg = bindgen(tools, &work, &parts.main)?;
+    if release {
+        for w in std::iter::once(&bg).chain(&parts.chunks) {
+            optimize(tools, w)?;
+        }
+    }
     let css_tmp = work.join("app.css");
     tailwind(tools, &ui, &css_tmp, release)?;
 
     let dist = dist_dir(root);
     prepare_dist(&dist, release)?;
     let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
-    let wasm_bytes = read(&bg)?;
-    let wasm_name = hashed("app.wasm", &wasm_bytes, release);
-    write(&dist, &wasm_name, &wasm_bytes)?;
-    let js_bytes = read(&work.join("app.js"))?;
-    let js_name = hashed("app.js", &js_bytes, release);
-    write(&dist, &js_name, &js_bytes)?;
+    let linked = split::link(&parts, &work.join("app.js"), &bg, release)?;
+    simd::refuse_in_main(&linked.wasm)?;
+    let wasm_name = hashed("app.wasm", &linked.wasm, release);
+    write(&dist, &wasm_name, &linked.wasm)?;
+    let js_name = linked.js.name.clone();
+    for out in std::iter::once(&linked.js)
+        .chain(&linked.loader)
+        .chain(&linked.chunks)
+    {
+        write(&dist, &out.name, &out.bytes)?;
+    }
+    let lazy: Vec<String> = linked.chunks.iter().map(|c| c.name.clone()).collect();
     let mut css_text = String::from_utf8(read(&css_tmp)?).map_err(|e| e.to_string())?;
     let extra = write_fonts(&ui, &dist, &mut css_text, release)?;
     if css_text.contains("/fonts/") {
@@ -131,7 +146,10 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     );
     write(&dist, "index.html", index.as_bytes())?;
 
-    let files = files_of(&boot_name, &js_name, &wasm_name, &css_name, &extra);
+    let mut main = vec![boot_name, js_name];
+    main.extend(linked.loader.iter().map(|l| l.name.clone()));
+    main.extend([wasm_name, css_name]);
+    let files = files_of(&main, &extra, &lazy);
     write_manifest(&ui, &dist, &files, release)?;
     let _ = std::fs::remove_dir_all(&work);
     println!("admin UI written to {}", dist.display());
@@ -142,6 +160,7 @@ fn compile_wasm(root: &Path, release: bool) -> Result<PathBuf, String> {
     let mut cargo = crate::cargo();
     cargo
         .args(["build", "--locked", "-p", CRATE, "--target", WASM_TARGET])
+        .args(["--config", EMIT_RELOCS])
         .current_dir(root);
     if release {
         cargo.args(["--profile", "wasm-release"]);
@@ -163,38 +182,40 @@ fn compile_wasm(root: &Path, release: bool) -> Result<PathBuf, String> {
     Ok(wasm)
 }
 
-fn bindgen(tools: &Tools, work: &Path, wasm: &Path, release: bool) -> Result<PathBuf, String> {
+fn bindgen(tools: &Tools, work: &Path, wasm: &Path) -> Result<PathBuf, String> {
     run(Command::new(&tools.wasm_bindgen)
         .args([
             "--target",
             "web",
             "--no-typescript",
+            "--keep-lld-exports",
+            "--no-demangle",
             "--out-name",
             "app",
             "--out-dir",
         ])
         .arg(work)
         .arg(wasm))?;
-    let bg = work.join("app_bg.wasm");
-    if release {
-        let opt = work.join("app_opt.wasm");
-        run(Command::new(&tools.wasm_opt)
-            .args([
-                "-Oz",
-                "--enable-bulk-memory",
-                "--enable-nontrapping-float-to-int",
-                "--enable-sign-ext",
-                "--enable-mutable-globals",
-                "--enable-simd",
-                "--strip-debug",
-                "--strip-producers",
-            ])
-            .arg(&bg)
-            .arg("-o")
-            .arg(&opt))?;
-        std::fs::rename(&opt, &bg).map_err(|e| e.to_string())?;
-    }
-    Ok(bg)
+    Ok(work.join("app_bg.wasm"))
+}
+
+fn optimize(tools: &Tools, wasm: &Path) -> Result<(), String> {
+    let opt = wasm.with_extension("opt.wasm");
+    run(Command::new(&tools.wasm_opt)
+        .args([
+            "-Oz",
+            "--enable-bulk-memory",
+            "--enable-nontrapping-float-to-int",
+            "--enable-sign-ext",
+            "--enable-mutable-globals",
+            "--enable-simd",
+            "--strip-debug",
+            "--strip-producers",
+        ])
+        .arg(wasm)
+        .arg("-o")
+        .arg(&opt))?;
+    std::fs::rename(&opt, wasm).map_err(|e| e.to_string())
 }
 
 fn tailwind(tools: &Tools, ui: &Path, css_tmp: &Path, release: bool) -> Result<(), String> {
@@ -260,48 +281,17 @@ fn write_fonts(
     Ok(extra)
 }
 
-fn files_of(
-    boot_name: &str,
-    js_name: &str,
-    wasm_name: &str,
-    css_name: &str,
-    extra: &[String],
-) -> Vec<File> {
-    let mut files = vec![
-        File {
-            path: "/index.html".into(),
-            file: "index.html".into(),
-            mime: mime("index.html"),
-        },
-        File {
-            path: format!("/{boot_name}"),
-            file: boot_name.to_string(),
-            mime: mime(boot_name),
-        },
-        File {
-            path: format!("/{js_name}"),
-            file: js_name.to_string(),
-            mime: mime(js_name),
-        },
-        File {
-            path: format!("/{wasm_name}"),
-            file: wasm_name.to_string(),
-            mime: mime(wasm_name),
-        },
-        File {
-            path: format!("/{css_name}"),
-            file: css_name.to_string(),
-            mime: mime(css_name),
-        },
-    ];
-    for name in extra {
-        files.push(File {
-            path: format!("/{name}"),
-            file: name.clone(),
-            mime: mime(name),
-        });
-    }
-    files
+fn files_of(main: &[String], extra: &[String], lazy: &[String]) -> Vec<File> {
+    let file = |name: &str, lazy: bool| File {
+        path: format!("/{name}"),
+        file: name.to_string(),
+        mime: mime(name),
+        lazy,
+    };
+    std::iter::once(file("index.html", false))
+        .chain(main.iter().chain(extra).map(|n| file(n, false)))
+        .chain(lazy.iter().map(|n| file(n, true)))
+        .collect()
 }
 
 fn write_manifest(ui: &Path, dist: &Path, files: &[File], release: bool) -> Result<(), String> {
@@ -326,6 +316,7 @@ fn write_manifest(ui: &Path, dist: &Path, files: &[File], release: bool) -> Resu
             "blake2s": blake2s(&bytes),
             "size": bytes.len(),
             "gz_size": gz_size,
+            "lazy": f.lazy,
         }));
     }
     let version = std::fs::read_to_string(ui.join("Cargo.toml"))
