@@ -330,11 +330,12 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
     let home = placeholder_after(&main, "home:\n    secret: ");
     let office = placeholder_after(&main, "office:\n    secret: ");
     assert_ne!(home, office);
+    replace_in(c, MAIN, &office, "").await;
     replace_in(
         c,
         MAIN,
-        &format!("secret: {office}"),
-        &format!("secret: {home}"),
+        "office:\n    secret: ",
+        &format!("office:\n    secret: {home}"),
     )
     .await;
     dirty(c, MAIN, true).await;
