@@ -166,6 +166,7 @@ What the pages do, and what stays a file edit:
   - **Copy** and **Download** take that same text; the download is named like `server.redacted.yaml`, because it is not a working config without the secrets.
   - When the running server differs from the file, a note at the top links to Needs attention. That is when the file has errors, a change waits for a restart, or something in it could not be opened.
   - **Edit** (write admins, servers from v0.2.4) opens the files as text, one tab per file: server.yaml and each drop-in. A file read-only on disk says why and stays as it is.
+    - A new tab makes a new drop-in, named like `server.d/<name>.yaml` with the same name rules as Save in. It holds only services, clients and visitors, like every drop-in; a new tab left empty makes no file. Deleting a file stays in Settings, Files.
     - Each secret reads as a placeholder like `«secret 3f2a9c1d»`; leave it to keep the secret, or type a new value over it. A placeholder works only in the field it came from, also when you move the item to another file; anywhere else the change is refused, naming the file, line and field. `${VAR}` and `file:` references show as written.
     - Problems show as you type, the server's own a moment later. **Review changes** (or Ctrl+S) opens Review with a diff per file; the two locked settings below are refused here too.
   - Change the config also in the other tabs, on the entity pages or with `burrow edit`.

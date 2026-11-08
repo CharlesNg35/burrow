@@ -1,5 +1,6 @@
 //! The raw config editor's side of the admin core: each config file's text with its secrets masked, and edited texts back.
-//! Start at `config_text` for the files and `edited` for a `replace_text` op; `schema` builds the editor's JSON Schema.
+//! Start at `config_text` for the files and `edited` for a `replace_text` op, which may also make new drop-ins;
+//! `schema` builds the editor's JSON Schemas, one for the main file and one for drop-ins.
 //! A placeholder is unmasked only where the current text had it, so it can never carry a secret to another field.
 
 mod mask;
@@ -24,6 +25,7 @@ pub use mask::Ids;
 pub struct TextEdit {
     ids: Ids,
     schema: OnceLock<Value>,
+    drop_in: OnceLock<Value>,
 }
 
 impl TextEdit {
@@ -31,6 +33,7 @@ impl TextEdit {
         TextEdit {
             ids: Ids::default(),
             schema: OnceLock::new(),
+            drop_in: OnceLock::new(),
         }
     }
 }
@@ -81,6 +84,12 @@ pub fn editor_schema(core: &Core) -> &Value {
     })
 }
 
+pub fn drop_in_schema(core: &Core) -> &Value {
+    core.text_edit
+        .drop_in
+        .get_or_init(|| schema::drop_in_schema(editor_schema(core)))
+}
+
 pub fn config_text(core: &Core) -> Result<EditText, ApiError> {
     let docs = core.docs()?;
     let files = docs
@@ -99,6 +108,7 @@ pub fn config_text(core: &Core) -> Result<EditText, ApiError> {
         schema: editor_schema(core).clone(),
         placeholder: PLACEHOLDER_PATTERN.into(),
         files,
+        drop_in_schema: Some(drop_in_schema(core).clone()),
     })
 }
 
@@ -138,16 +148,16 @@ fn sent(ops: &[Op]) -> Result<Option<&[TextFile]>, ApiError> {
     Ok(Some(files))
 }
 
-fn known(old: &Docs, files: &[TextFile]) -> Result<(), ApiError> {
+fn known(core: &Core, old: &Docs, files: &[TextFile]) -> Result<(), ApiError> {
+    let prefix = crate::config::docs::drop_in_folder_name(core.store.path());
     for (i, f) in files.iter().enumerate() {
         if old.get(&f.name).is_none() {
-            return Err(ApiError::new(
-                ErrorCode::BadRequest,
-                format!(
-                    "{} is not one of the config files; add or remove files in Settings, Files",
-                    f.name
-                ),
-            ));
+            plan::files::new_file(&old.list, &prefix, &f.name).map_err(|e| match e {
+                plan::files::WriteError::Bad(m) => ApiError::new(ErrorCode::BadRequest, m),
+                plan::files::WriteError::Patch(p) => {
+                    ApiError::new(ErrorCode::Internal, p.to_string())
+                }
+            })?;
         }
         if files[..i].iter().any(|g| g.name == f.name) {
             return Err(ApiError::new(
@@ -163,7 +173,7 @@ pub fn edited(core: &Core, old: &Docs, ops: &[Op]) -> Result<Option<Edited>, Api
     let Some(files) = sent(ops)? else {
         return Ok(None);
     };
-    known(old, files)?;
+    known(core, old, files)?;
     let table: mask::Table = masked(core, old)?
         .into_iter()
         .flat_map(|m| m.kept)
@@ -175,8 +185,13 @@ pub fn edited(core: &Core, old: &Docs, ops: &[Op]) -> Result<Option<Edited>, Api
     for f in files {
         match unmask::unmask(&f.name, &f.text, &table) {
             Ok((text, shift)) => {
-                if let Some(d) = docs.list.iter_mut().find(|d| d.name == f.name) {
-                    d.text = text;
+                match docs.list.iter_mut().find(|d| d.name == f.name) {
+                    Some(d) => d.text = text,
+                    None if text.trim().is_empty() => {}
+                    None => docs.list.push(crate::config::docs::Doc {
+                        name: f.name.clone(),
+                        text,
+                    }),
                 }
                 shifts.push(shift);
             }
@@ -193,6 +208,7 @@ pub fn edited(core: &Core, old: &Docs, ops: &[Op]) -> Result<Option<Edited>, Api
                 .with(serde_json::to_value(InvalidBody { diags: problems }).unwrap_or_default()),
         );
     }
+    docs.sort();
     Ok(Some(Edited {
         docs,
         old: old.clone(),
@@ -230,6 +246,21 @@ impl Edited {
     }
 
     pub fn note(&self, old: &Docs, changes: &mut Vec<Change>) {
+        let made = self
+            .docs
+            .names()
+            .filter(|n| old.get(n).is_none())
+            .map(|name| Change {
+                kind: ChangeKind::Other,
+                path: Vec::new(),
+                summary: format!("creates a new file, {name}"),
+                part_of: None,
+            });
+        let made: Vec<Change> = made.collect();
+        if !made.is_empty() {
+            changes.splice(0..0, made);
+            return;
+        }
         if !changes.is_empty() {
             return;
         }
