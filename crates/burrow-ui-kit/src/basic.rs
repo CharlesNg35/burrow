@@ -189,7 +189,7 @@ pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView 
         <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
             <h2 class="text-[13.5px] font-bold">{title}</h2>
             {sub.map(|s| view! { <span class="text-xs text-text-muted" data-card-sub="">{s}</span> })}
-            <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{right}</div>
+            <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-text-muted">{right}</div>
         </div>
     }
     .into_any()

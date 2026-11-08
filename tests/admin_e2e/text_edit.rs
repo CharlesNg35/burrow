@@ -773,6 +773,8 @@ async fn edit_as_json_and_toml(c: &mut Ctx, tool_before: &str) {
     c.ui.wait_true(reason, "the editor says why TOML waits", SECS)
         .await;
     assert_eq!(c.ui.attr_of(EDIT_AS, "data-shown").await, "YAML");
+    c.ui.wait_text("[data-testid=file-saved-as]", "TOML waits", SECS)
+        .await;
     shots(c, "text-edit-as-waits").await;
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.click("[data-testid=file-discard]").await;

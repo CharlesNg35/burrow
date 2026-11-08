@@ -30,8 +30,12 @@ pub fn shown(own: &str, asked: &str, on_screen: Option<&str>, host: Option<&str>
     }
 }
 
-pub fn note(own: &str, shown: &str) -> Option<String> {
-    (own != shown).then(|| format!("Saved as {own}"))
+pub fn note(own: &str, asked: &str, shown: &str) -> Option<String> {
+    if asked != shown {
+        Some(format!("{asked} waits for the marked value"))
+    } else {
+        (own != shown).then(|| format!("Saved as {own}"))
+    }
 }
 
 fn shown_now(t: TextEdit) -> String {
@@ -70,7 +74,7 @@ pub fn controls(t: TextEdit) -> impl IntoView {
     });
     let saved_as = move || {
         let own = t.active.with(|a| own_label(a));
-        note(own, &shown_now(t))
+        note(own, &value.get(), &shown_now(t))
     };
     view! {
         <span class="flex min-w-0 flex-wrap items-center gap-2" data-testid="file-edit-as" data-shown=move || shown_now(t)>
@@ -128,7 +132,14 @@ mod tests {
             "JSON",
             "an edit not yet written back is still the asked language"
         );
-        assert_eq!(note("YAML", "TOML").as_deref(), Some("Saved as YAML"));
-        assert_eq!(note("YAML", "YAML"), None);
+        assert_eq!(
+            note("YAML", "TOML", "TOML").as_deref(),
+            Some("Saved as YAML")
+        );
+        assert_eq!(note("YAML", "YAML", "YAML"), None);
+        assert_eq!(
+            note("YAML", "TOML", "YAML").as_deref(),
+            Some("TOML waits for the marked value")
+        );
     }
 }
