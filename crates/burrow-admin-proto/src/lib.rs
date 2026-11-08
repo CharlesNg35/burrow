@@ -15,6 +15,7 @@ pub mod ops;
 pub mod plan;
 pub mod schema;
 pub mod status;
+pub mod text_edit;
 pub mod updates;
 pub mod value;
 pub mod view;
@@ -50,6 +51,7 @@ pub mod features {
     pub const SERVER_UPDATES: &str = "server.updates";
     pub const CONFIG_VIEW: &str = "config.view";
     pub const CHECK_TEXT: &str = "config.check-text";
+    pub const CONFIG_TEXT: &str = "config.text";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -71,5 +73,6 @@ pub mod features {
         SERVER_UPDATES,
         CONFIG_VIEW,
         CHECK_TEXT,
+        CONFIG_TEXT,
     ];
 }

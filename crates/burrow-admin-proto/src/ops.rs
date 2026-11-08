@@ -50,6 +50,9 @@ pub enum Op {
     DropFile {
         file: String,
     },
+    ReplaceText {
+        files: Vec<crate::text_edit::TextFile>,
+    },
 }
 
 impl Op {
@@ -64,7 +67,7 @@ impl Op {
             | Op::PasswordSet { path, .. }
             | Op::SetText { path, .. }
             | Op::Place { path, .. } => Some(path),
-            Op::ReplaceDocument { .. } | Op::DropFile { .. } => None,
+            Op::ReplaceDocument { .. } | Op::DropFile { .. } | Op::ReplaceText { .. } => None,
         }
     }
 }

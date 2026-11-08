@@ -26,6 +26,7 @@ pub mod req {
     pub const UPDATE_SERVER: &str = "update_server";
     pub const CONFIG_VIEW: &str = "config_view";
     pub const CHECK_TEXT: &str = "check_text";
+    pub const CONFIG_TEXT: &str = "config_text";
 
     pub const ALL: &[&str] = &[
         WELCOME,
@@ -47,6 +48,7 @@ pub mod req {
         UPDATE_SERVER,
         CONFIG_VIEW,
         CHECK_TEXT,
+        CONFIG_TEXT,
     ];
 }
 
@@ -245,6 +247,7 @@ pub fn needed_for(request: &str) -> Option<&'static str> {
         req::UPDATE_SERVER => Some(f::SERVER_UPDATES),
         req::CONFIG_VIEW => Some(f::CONFIG_VIEW),
         req::CHECK_TEXT => Some(f::CHECK_TEXT),
+        req::CONFIG_TEXT => Some(f::CONFIG_TEXT),
         _ => None,
     }
 }
@@ -662,6 +665,7 @@ mod tests {
             req::UPLOAD,
             req::HASH_PASSWORD,
             req::CHECK_TEXT,
+            req::CONFIG_TEXT,
         ] {
             assert!(!w.offers(t), "a v0.1.2 server has no {t}");
         }
