@@ -251,7 +251,20 @@ async fn problems_in_closed_files_are_counted(c: &mut Ctx) {
     show(c, MAIN).await;
     replace_in(c, MAIN, "\n  home:\n", "\n  house:\n").await;
     let badge = "[data-testid=file-goto-problems]";
-    c.ui.wait_for(badge, CHECKED).await;
+    let started = std::time::Instant::now();
+    while c.ui.count(badge).await == 0 && started.elapsed() < CHECKED {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    if c.ui.count(badge).await == 0 {
+        let seen: Vec<String> = c
+            .ui
+            .eval("[...document.querySelectorAll('[data-testid=file-editor] .config-editor__diagnostic-marker')].map(e => (e.closest('[role=tabpanel]') || {dataset: {}}).dataset.documentId + ': ' + (e.dataset.message || ''))")
+            .await;
+        panic!(
+            "no count of files with problems on Go to; tabs {:?}; the editor shows {seen:#?}",
+            tabs(c).await
+        );
+    }
     let n: usize = c.ui.text(badge).await.trim().parse().expect("a count");
     assert!(n > 0, "files that are not open and have problems: {n}");
     let label = c.ui.attr_of(GOTO, "aria-label").await;

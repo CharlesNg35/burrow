@@ -952,8 +952,17 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
         .ui
         .eval("(() => { const b = document.querySelector('[data-testid=file-cancel]'); const r = b.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return (e ? e.outerHTML.slice(0, 200) : 'none') + ' focus ' + (document.activeElement ? document.activeElement.className : ''); })()")
         .await;
-    println!("cancel point: {at}");
+    println!(
+        "cancel point: {at}; errors before: {:?}",
+        c.ui.take_errors()
+    );
     c.ui.click("[data-testid=file-cancel]").await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let after: String = c
+        .ui
+        .eval("(() => 'editing ' + document.querySelector('[data-testid=config-file]').dataset.editing + ' dialogs ' + document.querySelectorAll('[role=dialog], dialog[open]').length + ' cancel-dialog ' + document.querySelectorAll('[data-testid=file-cancel-dialog]').length + ' review ' + !document.querySelector('[data-testid=file-review]').disabled)()")
+        .await;
+    println!("after cancel: {after}; errors: {:?}", c.ui.take_errors());
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
 }
