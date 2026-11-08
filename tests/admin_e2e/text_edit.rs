@@ -652,25 +652,34 @@ async fn scroll_y(c: &Ctx) -> f64 {
     c.ui.eval("scrollY").await
 }
 
+async fn kept_scroll(c: &Ctx, was: f64, step: &str) -> f64 {
+    let (now, max): (f64, f64) =
+        c.ui.eval("[scrollY, Math.max(0, document.documentElement.scrollHeight - innerHeight)]")
+            .await;
+    assert_eq!(
+        now,
+        was.min(max),
+        "{step}: the editor focusing itself leaves the page where it is (only a shorter page moves it)"
+    );
+    now
+}
+
 async fn focus_leaves_the_page_where_it_is(c: &mut Ctx) {
     let _: bool =
-        c.ui.eval("(() => { scrollTo(0, 120); window.__scrolls = []; addEventListener('scroll', () => window.__scrolls.push([Math.round(scrollY), document.documentElement.scrollHeight, String((document.activeElement && (document.activeElement.className || document.activeElement.tagName)) || '')])); return true; })()")
+        c.ui.eval("(() => { scrollTo(0, 120); return true; })()")
             .await;
     let at = scroll_y(c).await;
+    assert_eq!(at, 120.0, "the page is long enough to scroll");
     js_click(c, &tab(APPS)).await;
     c.ui.wait_for(&format!("{}[aria-selected=true]", tab(APPS)), SECS)
         .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
+    let at = kept_scroll(c, at, "a switch to a short file").await;
     js_click(c, &tab(MAIN)).await;
     c.ui.wait_for(&format!("{}[aria-selected=true]", tab(MAIN)), SECS)
         .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let scrolls: serde_json::Value = c.ui.eval("window.__scrolls").await;
-    assert_eq!(
-        scroll_y(c).await,
-        at,
-        "the editor focusing itself on a tab switch leaves the page where it is; scrolls (y, height, focus): {scrolls}"
-    );
+    kept_scroll(c, at, "a switch back").await;
 }
 
 fn number_after(text: &str, key: &str) -> String {
