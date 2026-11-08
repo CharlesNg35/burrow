@@ -14,6 +14,7 @@ mod lints;
 mod once;
 mod shape;
 mod size;
+mod split;
 mod surface;
 mod tools;
 mod ui;
