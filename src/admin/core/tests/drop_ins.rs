@@ -5,6 +5,7 @@
 
 pub(super) mod probe;
 mod renames;
+mod scale;
 mod text_edit;
 
 use std::path::PathBuf;

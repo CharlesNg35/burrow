@@ -19,6 +19,7 @@ pub mod req {
     pub const CONFIG_VIEW: &str = "config_view";
     pub const CHECK_TEXT: &str = "check_text";
     pub const CONFIG_TEXT: &str = "config_text";
+    pub const SEARCH_TEXT: &str = "search_text";
 
     pub const ALL: &[&str] = &[
         WELCOME,
@@ -41,6 +42,7 @@ pub mod req {
         CONFIG_VIEW,
         CHECK_TEXT,
         CONFIG_TEXT,
+        SEARCH_TEXT,
     ];
 }
 
@@ -71,6 +73,7 @@ pub fn needed_for(request: &str) -> Option<&'static str> {
         req::CONFIG_VIEW => Some(f::CONFIG_VIEW),
         req::CHECK_TEXT => Some(f::CHECK_TEXT),
         req::CONFIG_TEXT => Some(f::CONFIG_TEXT),
+        req::SEARCH_TEXT => Some(f::SEARCH_TEXT),
         _ => None,
     }
 }
