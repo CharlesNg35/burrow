@@ -90,6 +90,7 @@ pub struct Store {
     pub server_updating: RwSignal<OwnJob>,
     pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,
+    pub text: crate::edit::TextEdit,
 }
 
 pub const REVIEW: &str = "Review";
@@ -151,6 +152,7 @@ impl Store {
             server_updating: RwSignal::new(OwnJob::Idle),
             retry: RwSignal::new(None),
             edit: Edit::new(),
+            text: crate::edit::TextEdit::new(),
         }
     }
 
@@ -227,6 +229,10 @@ impl Store {
 
     pub fn can_write_item(&self, item: &[String]) -> bool {
         self.can_write_now() && untrack(|| self.item_locked(item)).is_none()
+    }
+
+    pub fn unsaved(&self) -> bool {
+        self.edit.dirty() || self.text.dirty()
     }
 
     pub fn can_write_now(&self) -> bool {

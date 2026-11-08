@@ -153,6 +153,16 @@ pub fn go(route: Route) {
 
 pub type Query = Option<(&'static str, &'static str)>;
 
+pub fn file_tab() -> (Route, Query) {
+    (
+        Route::Settings,
+        Some((
+            TAB_QUERY,
+            burrow_admin_logic::settings_tabs::Tab::File.key(),
+        )),
+    )
+}
+
 fn href_with(route: &Route, query: Option<(&str, &str)>) -> String {
     match query {
         Some((k, v)) => format!("{}?{k}={}", href(route), encode(v)),

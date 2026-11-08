@@ -8,7 +8,7 @@ use burrow_ui_kit::{
 };
 use leptos::prelude::*;
 
-use crate::edit::{Outcome, missing_confirms, severity_tone};
+use crate::edit::{Outcome, Source, missing_confirms, severity_tone};
 use crate::route::{self, Link, Route};
 use crate::screens::activity::diff_lines;
 use crate::store::store;
@@ -16,14 +16,14 @@ use crate::store::store;
 use super::guard::{Guard, Refused, footer_text, guard, lockout_fixes};
 use super::{change_groups, diff_counts, impact_icon, nothing_to_apply, place_of, service_paths};
 
-pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
+pub(super) fn detail(plan: std::sync::Arc<Plan>, source: Source) -> AnyView {
     let s = store();
     let e = s.edit;
     let n = change_groups(&plan).len();
     let errors = plan.errors();
     let empty = nothing_to_apply(&plan);
     let old_problems = plan.diags.iter().filter(|d| d.before).count();
-    let paths = if revert {
+    let paths = if source.standalone() {
         Vec::new()
     } else {
         let status = s.status.get_untracked();
@@ -89,7 +89,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         errors,
         warnings,
         empty,
-        revert,
+        source,
         refused,
         can,
         destructive,
@@ -146,7 +146,7 @@ struct Facts {
     errors: usize,
     warnings: usize,
     empty: bool,
-    revert: bool,
+    source: Source,
     refused: bool,
     can: bool,
     destructive: bool,
@@ -247,10 +247,10 @@ fn header_view(f: &Facts, applies: &'static str) -> impl IntoView + use<> {
         errors,
         warnings,
         empty,
-        revert,
         refused,
         ..
     } = *f;
+    let revert = matches!(f.source, Source::Revert(_));
     view! {
     <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
         <div class="min-w-0 flex-1">
@@ -344,7 +344,6 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
     let Facts {
         n,
         empty,
-        revert,
         refused,
         can,
         destructive,
@@ -352,13 +351,25 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         reason,
         ..
     } = *f;
-    let back = move || route::go(s.prev.get_untracked());
+    let revert = matches!(f.source, Source::Revert(_));
+    let draft = f.source == Source::Draft;
+    let text = f.source == Source::Text;
+    let back = move || {
+        if text {
+            let (to, query) = route::file_tab();
+            route::go_query(to, query);
+        } else {
+            route::go(s.prev.get_untracked());
+        }
+    };
     let base = plan.base.clone();
     view! {
     <burrow_ui_kit::StickyBar flush=true class="max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap">
         <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted" data-testid="review-footer">{if empty {
             if revert {
                 "The file already matches that version.".to_string()
+            } else if text {
+                "Your text leaves every file as it is.".to_string()
             } else {
                 "Your edits put every value back as it was; the file would not change.".to_string()
             }
@@ -369,7 +380,7 @@ fn footer_view(plan: &Plan, f: &Facts, guard_view: Option<Guard>) -> impl IntoVi
         }}</span>
         <span class="sr-only" data-testid="apply-reason">{move || reason.get()}</span>
         {guard_view.clone().map(lockout_fixes)}
-        {(!revert).then(|| view! {
+        {draft.then(|| view! {
             <Button label="Discard all" variant=burrow_ui_kit::ButtonLook::Ghost testid="discard" on_click=move |_| {
                 let to = match s.prev.get_untracked() {
                     Route::Detail(sec, name) => {

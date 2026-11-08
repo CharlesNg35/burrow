@@ -403,7 +403,7 @@ fn event(store: Store, ev: &str, body: Value) {
                         store.changed_from.set((old, js_sys::Date::now()));
                         store.note_rev(&c.rev);
                         store.changed.set(Some(c));
-                    } else {
+                    } else if !untrack(|| store.text.dirty()) {
                         let by = if c.by.is_empty() || c.by == "file" {
                             "by a hand edit".to_string()
                         } else {

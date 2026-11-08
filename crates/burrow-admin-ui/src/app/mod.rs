@@ -127,7 +127,7 @@ pub fn App() -> impl IntoView {
     request_animation_frame(watch_header);
     let on_leave = Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(
         move |ev: web_sys::BeforeUnloadEvent| {
-            if s.edit.dirty() {
+            if untrack(|| s.unsaved()) {
                 ev.prevent_default();
                 ev.set_return_value("You have changes that are not applied.");
             }

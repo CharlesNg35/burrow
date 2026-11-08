@@ -1,10 +1,12 @@
 //! The admin UI's edit session: the `Edit` state that holds the draft, checks it with the server, shows the review and applies it.
+//! `TextEdit` (text.rs) holds a raw edit of the config files, reviewed and applied through the same flow.
 
 mod check;
 mod diags;
 mod groups;
 mod scratch;
 mod session;
+mod text;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -24,8 +26,29 @@ use diags::related_errors;
 pub(crate) use diags::{diags_at, severity_tone};
 pub(crate) use groups::{Group, change_groups};
 pub(crate) use scratch::{NEW, Scratch};
+pub use text::TextEdit;
 
 pub const VALIDATE_AFTER: Duration = Duration::from_millis(400);
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Source {
+    Draft,
+    Revert(String),
+    Text,
+}
+
+impl Source {
+    pub fn standalone(&self) -> bool {
+        !matches!(self, Source::Draft)
+    }
+
+    pub fn revert_of(&self) -> Option<String> {
+        match self {
+            Source::Revert(to) => Some(to.clone()),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Review {
@@ -33,8 +56,14 @@ pub struct Review {
     pub ops: Vec<Op>,
     pub base: String,
     pub plan: Option<Arc<Plan>>,
-    pub revert_of: Option<String>,
+    pub source: Source,
     pub own: bool,
+}
+
+impl Review {
+    pub fn standalone(&self) -> bool {
+        self.source.standalone()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,7 +96,7 @@ pub struct Edit {
     pub reset_on_load: RwSignal<bool>,
     pub auto_apply: RwSignal<bool>,
     pub editing: RwSignal<BTreeMap<Path, Option<Value>>>,
-    pub after_apply: RwSignal<Option<crate::route::Route>>,
+    pub after_apply: RwSignal<Option<(crate::route::Route, crate::route::Query)>>,
     pub scratch: RwSignal<Vec<Scratch>>,
     seq: StoredValue<u64>,
     carry: StoredValue<Vec<(Path, Option<Value>)>>,

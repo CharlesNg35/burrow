@@ -1,3 +1,10 @@
+//! The Config file tab: the server's config as text, and the raw text editor for write admins.
+//! `ConfigFile` is the entry; edit.rs holds the edit-mode chrome, editor.rs the editor itself (behind one function, loaded lazily).
+
+mod edit;
+mod editor;
+mod problems;
+
 use burrow_admin_logic::running::{difference_note, differences};
 use burrow_admin_proto::msg;
 use burrow_admin_proto::serde_json;
@@ -78,10 +85,17 @@ fn file_body(loaded: RwSignal<Loaded>) -> impl IntoView {
 #[component]
 pub fn ConfigFile() -> impl IntoView {
     let s = store();
+    let t = s.text;
     let offered = Memo::new(move |_| {
         s.welcome
             .with(|w| w.as_ref().is_some_and(|w| w.offers(msg::req::CONFIG_VIEW)))
     });
+    let can_edit = Memo::new(move |_| {
+        s.can_write()
+            && s.welcome
+                .with(|w| w.as_ref().is_some_and(|w| w.offers(msg::req::CONFIG_TEXT)))
+    });
+    let editing = Memo::new(move |_| can_edit.get() && t.open.get());
     let show = RwSignal::new(Shown::Written);
     let loaded: RwSignal<Loaded> = RwSignal::new(None);
     let rev = Memo::new(move |_| s.state.with(|st| st.as_ref().map(|st| st.rev.clone())));
@@ -93,11 +107,22 @@ pub fn ConfigFile() -> impl IntoView {
             fetch(now, loaded, latest);
         }
     });
+    Effect::new(move |_| {
+        rev.track();
+        if editing.get_untracked() {
+            t.fetch();
+        }
+    });
     crate::store::on_reconnect(move || {
         if offered.get_untracked() && loaded.with_untracked(|l| matches!(l, Some(Err(_)))) {
             fetch(show.get_untracked(), loaded, latest);
         }
+        if editing.get_untracked() {
+            t.fetch();
+        }
     });
+    let waiting = RwSignal::new(false);
+    let asking = RwSignal::new(false);
     let toggle = move || {
         offered.get().then(|| {
             view! {
@@ -112,24 +137,47 @@ pub fn ConfigFile() -> impl IntoView {
                 }
         })
     };
+    let head = move || {
+        let (sub, right) = if editing.get() {
+            (edit::EDITING, edit::edit_buttons(s, asking))
+        } else {
+            let edit_button = can_edit.get().then(|| edit::edit_button(s, waiting));
+            let right =
+                view! { <span data-testid="file-toggle">{toggle}</span>{edit_button} }.into_any();
+            (
+                if can_edit.get() {
+                    edit::CAN_EDIT
+                } else {
+                    VIEW_ONLY
+                },
+                right,
+            )
+        };
+        burrow_ui_kit::card_head(
+            "The config the server reads".into(),
+            Some(sub.into()),
+            right,
+        )
+    };
     let body = move || {
-        if offered.get() {
-            file_body(loaded).into_any()
+        if editing.get() {
+            edit::edit_body(s).into_any()
+        } else if offered.get() {
+            view! { {edit::waiting_note(s, waiting)} {file_body(loaded)} }.into_any()
         } else {
             view! { <p class="text-sm text-text-muted" data-testid="file-older">"This server runs an older burrow that cannot show its config file here. Update burrow on the server."</p> }.into_any()
         }
     };
     view! {
-        <section class="mb-4 rounded-card border border-border bg-surface" data-card="file" data-testid="config-file" data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
-            {burrow_ui_kit::card_head(
-                "The config the server reads".into(),
-                Some("View only; edit in other tabs or with burrow edit".into()),
-                view! { <span data-testid="file-toggle">{toggle}</span> }.into_any(),
-            )}
+        <section class="mb-4 rounded-card border border-border bg-surface" data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
+            {head}
             <div class="min-w-0 px-4 py-3">
                 {running_note}
                 {body}
             </div>
+            {edit::cancel_dialog(s, asking)}
         </section>
     }
 }
+
+const VIEW_ONLY: &str = "View only; edit in other tabs or with burrow edit";
