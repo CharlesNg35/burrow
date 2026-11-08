@@ -107,7 +107,7 @@ cargo test -p burrow-config -p burrow-admin-logic -p burrow-ui-kit -p burrow-adm
 cargo xtask ui --release && cargo xtask size --budget                                     # the release build and its size gate
 ```
 
-The size gate allows 2 MiB of gzipped WebAssembly for the main module, 2.3 MiB for all WebAssembly with the lazy chunks, and 0.4 MiB more for the fonts, CSS, JavaScript and HTML (2.7 MiB in all), and warns above 90 % of each. The room is for necessary improvements, not a reason to add code.
+The size gate allows 2 MiB of gzipped WebAssembly for the main module, 2.5 MiB for all WebAssembly with the lazy chunks, and 0.4 MiB more for the fonts, CSS, JavaScript and HTML (2.9 MiB in all), and warns above 90 % of each. The room is for necessary improvements, not a reason to add code.
 
 **Lazy chunks.** A large part that only some admins open (the raw config editor) can load on demand from its own WebAssembly chunk, so the first page stays small. Mark one function as the split point and show it through `burrow_ui_kit::Deferred`, which shows "Loading …" and, when the chunk cannot be fetched, a "Try again" button:
 

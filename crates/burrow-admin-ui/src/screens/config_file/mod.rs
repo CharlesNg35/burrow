@@ -2,6 +2,7 @@
 //! `ConfigFile` is the entry; edit.rs holds the edit-mode chrome, editor.rs the editor itself (behind one function, loaded lazily).
 
 mod edit;
+mod edit_as;
 mod editor;
 mod problems;
 

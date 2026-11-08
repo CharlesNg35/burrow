@@ -49,8 +49,10 @@ pub(super) fn waiting_note(s: Store, waiting: RwSignal<bool>) -> impl IntoView {
 
 fn review(s: Store) {
     let t = s.text;
-    if let Some(flush) = t.flush.get_value() {
-        flush();
+    let why = t.before_review.with_value(|h| h.as_ref().and_then(|h| h()));
+    if let Some(why) = why {
+        s.toast(Tone::Warning, why, None);
+        return;
     }
     if untrack(|| t.dirty()) && t.unsavable.with_untracked(Option::is_none) {
         s.edit.open_text(s);
@@ -120,7 +122,8 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
                 on_change: Callback::new(move |(name, text): (String, String)| t.set_value(&name, text)),
                 on_review: Callback::new(move |_| review(s)),
                 unsavable: t.unsavable,
-                flush: t.flush,
+                before_review: t.before_review,
+                edit_as: t.edit_as,
                 active: t.active,
             };
             view! { <Deferred load=move || text_editor(props) what="the editor" testid="editor-load"/> }.into_any()

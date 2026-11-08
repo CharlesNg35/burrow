@@ -28,7 +28,7 @@ pub(crate) use diags::{diags_at, severity_tone};
 pub(crate) use groups::{Group, change_groups};
 pub use held::TEXT_FIRST;
 pub(crate) use scratch::{NEW, Scratch};
-pub use text::TextEdit;
+pub use text::{Hook, TextEdit};
 
 pub const VALIDATE_AFTER: Duration = Duration::from_millis(400);
 

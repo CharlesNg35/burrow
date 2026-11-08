@@ -11,6 +11,7 @@ use config_editor_leptos::{
 };
 use leptos::prelude::*;
 
+use super::edit_as::{Switch, own_label, requested};
 use super::problems::host_problems;
 
 pub const SECRET_HINT: &str = "The current secret, kept as it is. Type a new value to replace it.";
@@ -23,8 +24,9 @@ pub struct EditorProps {
     pub on_change: Callback<(String, String)>,
     pub on_review: Callback<()>,
     pub unsavable: RwSignal<Option<String>>,
-    pub flush: StoredValue<Option<fn()>>,
+    pub before_review: StoredValue<Option<crate::edit::Hook>, LocalStorage>,
     pub active: RwSignal<String>,
+    pub edit_as: RwSignal<BTreeMap<String, String>>,
 }
 
 fn schema_of(schema: &Value) -> Option<SchemaSource> {
@@ -64,6 +66,7 @@ fn documents(
     problems: &[Diag],
     schema: Option<&SchemaSource>,
     secrets: &SecretOptions,
+    asked: &BTreeMap<String, String>,
 ) -> Vec<Document> {
     let main = t.files.first().map(|f| f.name.as_str()).unwrap_or_default();
     t.files
@@ -75,6 +78,10 @@ fn documents(
                 .read_only(f.read_only.is_some())
                 .secrets(secrets.clone())
                 .host_diagnostics(host_problems(problems, &f.name, main));
+            let d = match requested(own_label(&f.name), asked.get(&f.name).map(String::as_str)) {
+                Some(l) => d.edit_as(l),
+                None => d,
+            };
             match schema {
                 Some(s) => d.schema(s.clone()),
                 None => d,
@@ -92,6 +99,25 @@ pub fn first_shown(files: &[EditFile], active: &str) -> String {
         .unwrap_or_default()
 }
 
+fn unwritten(
+    files: &[String],
+    edit_as: RwSignal<BTreeMap<String, String>>,
+    tabs: DocumentsHandle,
+) -> Option<String> {
+    files.iter().find_map(|name| {
+        let own = own_label(name);
+        requested(
+            own,
+            edit_as.with_untracked(|a| a.get(name).cloned()).as_deref(),
+        )?;
+        let editor = tabs.editor(name).filter(|e| e.is_mounted())?;
+        editor
+            .value()
+            .is_none()
+            .then(|| format!("{name} cannot be written as {own} yet; fix the text first"))
+    })
+}
+
 fn read_only_note(text: Signal<Option<Arc<EditText>>>, active: RwSignal<String>) -> impl IntoView {
     move || {
         let (name, why) = text.with(|t| {
@@ -101,7 +127,7 @@ fn read_only_note(text: Signal<Option<Arc<EditText>>>, active: RwSignal<String>)
                 .and_then(|f| Some((f.name.clone(), f.read_only.clone()?)))
         })?;
         Some(view! {
-            <p class="mb-2 flex min-w-0 items-start gap-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="file-read-only">
+            <p class="flex min-w-0 items-start gap-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="file-read-only">
                 <Icon name="lock" small=true/>
                 <span>{format!("{name} is read-only: {why}")}</span>
             </p>
@@ -118,10 +144,10 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         on_change,
         on_review,
         unsavable,
-        flush,
+        before_review,
         active,
+        edit_as,
     } = p;
-    flush.set_value(Some(flush_pending_edits));
     let first = text.get_untracked();
     let schema = first.as_ref().and_then(|t| schema_of(&t.schema));
     let pattern = first
@@ -140,7 +166,11 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
     let list = Signal::derive(move || {
         text.with(|t| {
             t.as_ref().map_or_else(Vec::new, |t| {
-                values.with(|v| problems.with(|ps| documents(t, v, ps, schema.as_ref(), &secrets)))
+                values.with(|v| {
+                    problems.with(|ps| {
+                        edit_as.with(|a| documents(t, v, ps, schema.as_ref(), &secrets, a))
+                    })
+                })
             })
         })
     });
@@ -160,17 +190,48 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         ..EditorSettings::default()
     };
     let tabs = DocumentsHandle::new();
+    let switch = Switch {
+        active,
+        asked: edit_as,
+        shown: RwSignal::new(BTreeMap::new()),
+        tabs,
+    };
+    let files = text.with_untracked(|t| {
+        t.as_ref()
+            .map(|t| t.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>())
+            .unwrap_or_default()
+    });
+    before_review.set_value(Some(std::rc::Rc::new(move || {
+        flush_pending_edits();
+        unwritten(&files, edit_as, tabs)
+    })));
+    on_cleanup(move || {
+        let _ = before_review.try_set_value(None);
+    });
+    for name in edit_as.with_untracked(|a| a.keys().cloned().collect::<Vec<_>>()) {
+        switch.refresh_soon(name);
+    }
     Ok(view! {
         <div class="min-w-0 w-full" data-testid="file-editor">
-            {read_only_note(text, active)}
+            <div class="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                {read_only_note(text, active)}
+                <span class="ml-auto"></span>
+                {switch.view()}
+            </div>
             <ConfigDocuments
                 documents=list
                 initial_active=main
                 handle=tabs
                 label="Config files"
                 settings=Signal::stored(settings)
-                on_select=Callback::new(move |id: String| active.set(id))
-                on_change=Callback::new(move |change: (String, String)| on_change.run(change))
+                on_select=Callback::new(move |id: String| {
+                    active.set(id.clone());
+                    switch.refresh_soon(id);
+                })
+                on_change=Callback::new(move |change: (String, String)| {
+                    switch.refresh(&change.0);
+                    on_change.run(change);
+                })
                 on_save=Callback::new(move |_: (String, SaveRequest)| on_review.run(()))
             />
         </div>
@@ -238,7 +299,14 @@ mod tests {
         };
         let mut values = BTreeMap::new();
         values.insert("server.yaml".to_string(), "a: 2\n".to_string());
-        let docs = documents(&t, &values, &[], None, &SecretOptions::default());
+        let docs = documents(
+            &t,
+            &values,
+            &[],
+            None,
+            &SecretOptions::default(),
+            &BTreeMap::new(),
+        );
         assert_eq!(docs.len(), 2);
         assert_eq!(
             (docs[0].id.as_str(), docs[0].value.as_str()),
@@ -247,5 +315,22 @@ mod tests {
         assert_eq!(docs[0].baseline.as_deref(), Some("a: 1\n"));
         assert!(!docs[0].read_only && docs[1].read_only);
         assert_eq!(docs[1].value, "c: 1\n");
+        assert!(
+            docs[0].edit_as.is_none(),
+            "a file is shown in its own language"
+        );
+        let mut asked = BTreeMap::new();
+        asked.insert("server.yaml".to_string(), "TOML".to_string());
+        asked.insert("server.d/ro.yaml".to_string(), "YAML".to_string());
+        let docs = documents(&t, &values, &[], None, &SecretOptions::default(), &asked);
+        assert_eq!(docs[0].edit_as, Some(Language::TOML));
+        assert!(
+            docs[1].edit_as.is_none(),
+            "asking for its own language asks nothing"
+        );
+        assert_eq!(
+            docs[0].value, "a: 2\n",
+            "the value stays in the file's language"
+        );
     }
 }

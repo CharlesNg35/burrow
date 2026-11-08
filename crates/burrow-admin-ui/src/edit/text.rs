@@ -16,6 +16,8 @@ use crate::api;
 
 pub const TEXT_CHECK_AFTER: Duration = Duration::from_millis(700);
 
+pub type Hook = std::rc::Rc<dyn Fn() -> Option<String>>;
+
 pub type LoadedText = Option<Result<Arc<EditText>, String>>;
 
 #[derive(Clone, Copy)]
@@ -26,7 +28,8 @@ pub struct TextEdit {
     pub problems: RwSignal<Vec<Diag>>,
     pub unsavable: RwSignal<Option<String>>,
     pub active: RwSignal<String>,
-    pub flush: StoredValue<Option<fn()>>,
+    pub before_review: StoredValue<Option<Hook>, LocalStorage>,
+    pub edit_as: RwSignal<BTreeMap<String, String>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -192,7 +195,8 @@ impl TextEdit {
             problems: RwSignal::new(Vec::new()),
             unsavable: RwSignal::new(None),
             active: RwSignal::new(String::new()),
-            flush: StoredValue::new(None),
+            before_review: StoredValue::new_local(None),
+            edit_as: RwSignal::new(BTreeMap::new()),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
         }
@@ -213,6 +217,7 @@ impl TextEdit {
         self.problems.set(Vec::new());
         self.unsavable.set(None);
         self.active.set(String::new());
+        self.edit_as.set(BTreeMap::new());
     }
 
     pub fn fetch(&self) {
