@@ -6,6 +6,7 @@ mod edit_as;
 mod editor;
 mod follow;
 mod goto;
+mod goto_list;
 mod new_file;
 mod problems;
 
