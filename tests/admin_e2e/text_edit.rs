@@ -104,16 +104,29 @@ async fn save_key(c: &Ctx, name: &str) {
 }
 
 async fn burrow_problem(c: &Ctx, name: &str, words: &str) {
-    c.ui.wait_true(
-        &format!(
-            "(() => {{ const p = document.querySelector({}); if (!p) return false; const w = {}; return [...p.querySelectorAll('[aria-label]')].some(e => e.getAttribute('aria-label').includes(' from burrow') && e.getAttribute('aria-label').includes(w)) || p.textContent.includes(w); }})()",
-            js(&format!("{EDITOR} [role=tabpanel][data-document-id='{name}']")),
-            js(words)
-        ),
-        &format!("burrow's problem in {name} says {words}"),
-        CHECKED,
-    )
-    .await;
+    let panel = js(&format!(
+        "{EDITOR} [role=tabpanel][data-document-id='{name}']"
+    ));
+    let found = format!(
+        "(() => {{ const p = document.querySelector({panel}); const w = {}; return !!p && [...p.querySelectorAll('.config-editor__diagnostic-marker-host')].some(e => (e.dataset.message || '').includes(w)); }})()",
+        js(words)
+    );
+    let started = std::time::Instant::now();
+    while started.elapsed() < CHECKED {
+        if c.ui.eval::<bool>(&found).await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let seen: Vec<String> = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const p = document.querySelector({panel}); if (!p) return ['no panel']; return [...p.querySelectorAll('.config-editor__diagnostic-marker')].map(e => (e.classList.contains('config-editor__diagnostic-marker-host') ? 'host: ' : 'editor: ') + (e.dataset.message || '')).concat([...p.querySelectorAll('.config-editor__footer, footer')].map(f => 'footer: ' + f.textContent)); }})()"
+        ))
+        .await;
+    panic!(
+        "burrow's problem in {name} does not say {words:?} within {CHECKED:?}; the editor shows {seen:#?}"
+    );
 }
 
 const WATCH_CSP: &str = "(() => { if (!window.__csp) { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + (e.sample || e.blockedURI) + ' at ' + (e.sourceFile || '') + ':' + e.lineNumber), true); } return true; })()";
