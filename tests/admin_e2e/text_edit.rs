@@ -258,13 +258,30 @@ async fn opens_with_one_tab_per_file(c: &mut Ctx) {
     show(c, TOOL).await;
     c.ui.wait_text("[data-testid=file-read-only]", TOOL, SECS)
         .await;
-    let ro: bool =
-        c.ui.eval(&format!(
-            "document.querySelector({}).readOnly",
+    assert_eq!(
+        c.ui.attr_of(&input(TOOL), "aria-readonly").await,
+        "true",
+        "the read-only drop-in says so"
+    );
+    let tool = text_of(c, TOOL).await;
+    let _: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const i = document.querySelector({}); i.focus(); i.setSelectionRange(0, 0); i.dispatchEvent(new InputEvent('beforeinput', {{ bubbles: true, cancelable: true, inputType: 'insertText', data: 'x' }})); return true; }})()",
             js(&input(TOOL))
         ))
         .await;
-    assert!(ro, "the read-only drop-in cannot be typed in");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        text_of(c, TOOL).await,
+        tool,
+        "the read-only drop-in cannot be typed in"
+    );
+    dirty(c, TOOL, false).await;
+    assert!(
+        !c.ui.enabled(REVIEW).await,
+        "nothing to review after typing in it"
+    );
     shots(c, "text-edit-read-only-file").await;
     show(c, MAIN).await;
     assert_eq!(c.ui.count("[data-testid=file-read-only]").await, 0);
