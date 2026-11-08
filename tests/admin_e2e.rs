@@ -79,6 +79,8 @@ mod site_keys;
 mod table_shots;
 #[path = "admin_e2e/tables.rs"]
 mod tables;
+#[path = "admin_e2e/text_edit.rs"]
+mod text_edit;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
 #[path = "admin_e2e/updates.rs"]

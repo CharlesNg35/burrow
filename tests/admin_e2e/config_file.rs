@@ -174,7 +174,12 @@ fn web_and_long(c: &mut Ctx) -> Flow<'_> {
         assert_eq!(
             c.ui.count("[data-testid=edit]").await,
             0,
-            "nothing to edit here"
+            "no form to edit here"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=file-edit]").await,
+            1,
+            "a write admin may edit the text"
         );
         shots(c, "file-written").await;
         let all = defaults(c, true).await;
@@ -218,6 +223,11 @@ fn read_only(c: &mut Ctx) -> Flow<'_> {
             0
         );
         assert_eq!(c.ui.count("[data-testid=config-file] textarea").await, 0);
+        assert_eq!(
+            c.ui.count("[data-testid=file-edit]").await,
+            0,
+            "a read admin cannot edit the text"
+        );
         assert_eq!(c.ui.count(NOTE).await, 0);
         shots(c, "file-read-only").await;
         c.ui.assert_no_errors();
