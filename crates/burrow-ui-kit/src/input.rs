@@ -146,6 +146,7 @@ pub fn Select(
                 aria-label=label
                 aria-invalid=move || invalid.get().then_some("true")
                 disabled=move || disabled.get()
+                prop:value=move || value.get()
                 on:change:target=move |e| on_change.run(e.target().value())
             >
                 {move || {

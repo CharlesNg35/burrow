@@ -783,6 +783,13 @@ async fn edit_as_json_and_toml(c: &mut Ctx, tool_before: &str) {
     c.ui.wait_true(reason, "the editor says why TOML waits", SECS)
         .await;
     assert_eq!(c.ui.attr_of(EDIT_AS, "data-shown").await, "YAML");
+    let picked: String =
+        c.ui.eval("document.querySelector('#file-edit-as').value")
+            .await;
+    assert_eq!(
+        picked, "YAML",
+        "the select shows the language on screen, not the one asked"
+    );
     c.ui.wait_text("[data-testid=file-edit-as-waits]", "TOML waits", SECS)
         .await;
     shots(c, "text-edit-as-waits").await;
