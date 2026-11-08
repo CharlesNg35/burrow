@@ -105,7 +105,23 @@ cargo test -p burrow-config -p burrow-admin-logic -p burrow-ui-kit -p burrow-adm
 cargo xtask ui --release && cargo xtask size --budget                                     # the release build and its size gate
 ```
 
-The size gate allows 2 MiB of gzipped WebAssembly and 2.4 MiB for all UI assets with the fonts, and warns above 90 % of either. The room is for necessary improvements, not a reason to add code.
+The size gate allows 2 MiB of gzipped WebAssembly for the main module, 2.3 MiB for all WebAssembly with the lazy chunks, and 0.4 MiB more for the fonts, CSS, JavaScript and HTML (2.7 MiB in all), and warns above 90 % of each. The room is for necessary improvements, not a reason to add code.
+
+**Lazy chunks.** A large part that only some admins open (the raw config editor) can load on demand from its own WebAssembly chunk, so the first page stays small. Mark one function as the split point and show it through `burrow_ui_kit::Deferred`, which shows "Loading …" and, when the chunk cannot be fetched, a "Try again" button:
+
+```rust
+// crates/burrow-admin-ui/src/screens/example.rs
+#[leptos::wasm_split::wasm_split(big_part, wasm_split_path = ::leptos::wasm_split, fallible)]
+fn big_part(props: BigProps) -> Result<AnyView, burrow_ui_kit::LoadFailed> {
+    Ok(view! { <BigPart props/> }.into_any())
+}
+
+view! { <Deferred load=move || big_part(props.clone()) what="the big part"/> }
+```
+
+- Everything only that function reaches moves into `split_big_part-<hash>.wasm`; `cargo xtask ui` splits the module with `wasm_split_cli_support` before wasm-bindgen and writes a small loader, `__wasm_split.<hash>.js`. `cargo xtask size` reports the main wasm and the chunks apart.
+- Use `fallible`, not Leptos' `#[lazy]`: without it a failed fetch panics, and a panic stops the whole UI.
+- The function takes its arguments by value and returns `Result<AnyView, LoadFailed>`; it is called again on "Try again".
 
 On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).
 
