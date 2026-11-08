@@ -330,9 +330,12 @@ Requests:
 - `welcome`: always first; returns the server version, the negotiated protocol, who the caller is, the feature list, limits and the schema hash.
 - `schema`, `state`, `subscribe`, `validate`, `apply`, `generate_secret`, `connect_info`, `suggest`, `history`, `revert`.
 - `update_clients` (feature `client.updates`): ask clients to update to a release, one at a time; `dry_run` only says which clients it would ask.
+- `update_server` (feature `server.updates`): have the server's root updater install the latest release; `dry_run` only says from which version to which, or why it cannot.
+- `config_view` (feature `config.view`): the config as YAML text with secrets as fingerprints, as the Config file tab shows it.
+- `check_text` (feature `config.check-text`): check a config or a fragment of up to 4 MiB with the server's own validation, writing nothing; open to `admin: read` too.
 - `ping`.
 
-`validate`, `apply`, `generate_secret`, `revert` and `update_clients` need `admin: write`.
+`validate`, `apply`, `generate_secret`, `revert`, `update_clients` and `update_server` need `admin: write`.
 
 Events:
 
@@ -350,12 +353,13 @@ Additions since v0.1.2, each behind its feature string:
 | `local-ca` | the `local_ca` request (the local CA's certificate) |
 | `history.ids` | `id` on each history entry and `history {entry: id}`; without it a caller asks `history {diff: rev}`, which still means the newest entry with that revision |
 | `client.allow` | `allow` on each connected client in the `status` event: the Allow list (`0x82`) of its session, `["any"]` for `allow_all`, left out until the client sent one; without the feature a caller shows the list as unknown |
+| `config.files` | [drop-in files](configuration.md#drop-in-files): `file.files` in `state` (each file, its items and why it is read-only), one diff per file in a plan and in `history`, and the `place` and `drop_file` operations. A caller that lists `config.files` in `understands` of its `welcome` request may change items in drop-in files; the server answers `not-writable` to any other caller's change there |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 
 Config values travel as the raw tree of the file, not the typed model, so short forms stay as written. A secret becomes `{"$secret": {"fp": "ab12cd34", "src": "literal"}}` (or `"src": {"env": "VAR"}`), and any other value with `${...}` becomes `{"$env": {"raw": "${VAR}", "vars": ["VAR"]}}`. Secrets never leave the server, except a secret the server generated for an `apply`, which that one reply carries once.
 
-Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `replace_document`, `set_text`) against a revision, the first 8 bytes of the BLAKE2s-256 hash of the exact file bytes, as hex with a `b2s:` prefix (`b2s:86832e7bac93127a`); the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.
+Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `password_set`, `replace_document`, `set_text`, and with `config.files` `place` and `drop_file`) against a revision, the first 8 bytes of the BLAKE2s-256 hash of the exact file bytes, as hex with a `b2s:` prefix (`b2s:86832e7bac93127a`); the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.
 
 Compatibility rules:
 
