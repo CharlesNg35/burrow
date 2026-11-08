@@ -2,6 +2,7 @@ use burrow_admin_logic::goto::{Found, Item, Kind, Sources, find};
 use burrow_admin_proto::text_search::{self, MAX_LIMIT, TextMatch};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Icon, Kbd, PickHead, PickOption, marked};
+use config_editor_leptos::{Language, TextPosition};
 use leptos::prelude::*;
 
 use super::goto::{GoTo, PLACEHOLDER, problem_files};
@@ -110,6 +111,51 @@ fn in_text(g: GoTo, t: TextEdit, files: &[String]) -> (Vec<TextMatch>, bool) {
     })
 }
 
+fn holds_a_field(line: &str) -> bool {
+    let l = line.trim_start();
+    !l.is_empty() && !l.starts_with('#') && !l.starts_with("//")
+}
+
+pub fn field_at(language: Language, text: &str, line: u32, col: u32) -> Option<String> {
+    let at = |line: usize, col: usize| {
+        language
+            .path_at(text, TextPosition::new(line, col))
+            .filter(|p| !p.is_root())
+            .map(|p| p.to_pointer())
+    };
+    let lines: Vec<&str> = text.split('\n').collect();
+    let here = lines
+        .get(line.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or("");
+    if holds_a_field(here)
+        && let Some(p) = at(line as usize, col as usize)
+    {
+        return Some(p);
+    }
+    lines
+        .iter()
+        .enumerate()
+        .skip(line as usize)
+        .filter(|(_, l)| holds_a_field(l))
+        .find_map(|(i, l)| {
+            at(
+                i + 1,
+                l.chars().take_while(|c| c.is_whitespace()).count() + 1,
+            )
+        })
+}
+
+fn spot_of(t: TextEdit, file: &str, line: u32, col: u32) -> Spot {
+    let language = Language::from_path(file).unwrap_or(Language::YAML);
+    t.values
+        .with_untracked(|v| {
+            v.get(file)
+                .and_then(|text| field_at(language, text, line, col))
+        })
+        .map_or(Spot::Here, Spot::Pointer)
+}
+
 fn pick(g: GoTo, t: TextEdit, row: Row) {
     match row {
         Row::Head(_) | Row::Note(_) => {}
@@ -121,7 +167,7 @@ fn pick(g: GoTo, t: TextEdit, row: Row) {
             g.open.set(false);
             match (f.path, f.line) {
                 (Some(p), _) => t.open_at(&f.file, Spot::Path(p)),
-                (None, Some((l, col))) => t.open_at(&f.file, Spot::Line(l, col)),
+                (None, Some((l, col))) => t.open_at(&f.file, spot_of(t, &f.file, l, col)),
                 (None, None) => t.open_at(&f.file, Spot::Here),
             }
         }
@@ -247,4 +293,36 @@ pub fn goto_list(g: GoTo, t: TextEdit) -> Result<AnyView, burrow_ui_kit::LoadFai
         </div>
     }
     .into_any())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEXT: &str = "# top\nservices:\n  # the web site\n  web:\n    target: 80\n\n";
+
+    #[test]
+    fn a_text_match_opens_at_the_field_that_holds_it() {
+        assert_eq!(
+            field_at(Language::YAML, TEXT, 5, 13).as_deref(),
+            Some("/services/web/target")
+        );
+    }
+
+    #[test]
+    fn a_match_on_a_comment_opens_at_the_next_field() {
+        assert_eq!(
+            field_at(Language::YAML, TEXT, 3, 5).as_deref(),
+            Some("/services/web")
+        );
+        assert_eq!(
+            field_at(Language::YAML, TEXT, 1, 3).as_deref(),
+            Some("/services")
+        );
+        assert_eq!(
+            field_at(Language::YAML, TEXT, 6, 1),
+            None,
+            "nothing after it"
+        );
+    }
 }

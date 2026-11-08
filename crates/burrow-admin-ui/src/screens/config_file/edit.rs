@@ -48,7 +48,7 @@ fn review(s: Store) {
     let t = s.text;
     let why = t.before_review.with_value(|h| h.as_ref().and_then(|h| h()));
     if let Some(why) = why {
-        s.toast(Tone::Warning, why, None);
+        s.toast(Tone::Warning, why.reason(), None);
         return;
     }
     if t.ops().is_empty() {

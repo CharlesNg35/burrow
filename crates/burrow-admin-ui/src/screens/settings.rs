@@ -270,8 +270,13 @@ fn tab_bar(
                     marks=marks
                     on_change=Callback::new(move |k: &'static str| {
                         if let Some(t) = Tab::parse(k) {
-                            tab.set(t);
-                            crate::route::set_query(TAB_QUERY, k);
+                            let pick = move || {
+                                tab.set(t);
+                                crate::route::set_query(TAB_QUERY, k);
+                            };
+                            if store().text.may_leave(pick) {
+                                pick();
+                            }
                         }
                     })
                 />
