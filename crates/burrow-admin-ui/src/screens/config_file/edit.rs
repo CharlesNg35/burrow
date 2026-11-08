@@ -51,6 +51,12 @@ fn review(s: Store) {
         s.toast(Tone::Warning, why, None);
         return;
     }
+    if t.ops().is_empty() {
+        if let Some(name) = untrack(|| t.empty_new_files()).first() {
+            s.toast(Tone::Info, crate::edit::not_created(name), None);
+        }
+        return;
+    }
     if untrack(|| t.dirty()) && t.unsavable.with_untracked(Option::is_none) {
         s.edit.open_text(s);
     }
@@ -124,6 +130,9 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
                 edit_as: t.edit_as,
                 shown: t.shown,
                 active: t.active,
+                new_files: t.new_files.into(),
+                on_add: Callback::new(move |_| t.adding.set(true)),
+                on_close: Callback::new(move |name: String| t.close_asked(&name)),
             };
             view! { <Deferred load=move || text_editor(props) what="the editor" testid="editor-load"/> }.into_any()
         }

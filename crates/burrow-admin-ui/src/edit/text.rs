@@ -31,6 +31,9 @@ pub struct TextEdit {
     pub before_review: StoredValue<Option<Hook>, LocalStorage>,
     pub edit_as: RwSignal<BTreeMap<String, String>>,
     pub shown: RwSignal<BTreeMap<String, String>>,
+    pub new_files: RwSignal<Vec<String>>,
+    pub adding: RwSignal<bool>,
+    pub closing: RwSignal<Option<String>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -199,6 +202,9 @@ impl TextEdit {
             before_review: StoredValue::new_local(None),
             edit_as: RwSignal::new(BTreeMap::new()),
             shown: RwSignal::new(BTreeMap::new()),
+            new_files: RwSignal::new(Vec::new()),
+            adding: RwSignal::new(false),
+            closing: RwSignal::new(None),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
         }
@@ -221,6 +227,9 @@ impl TextEdit {
         self.active.set(String::new());
         self.edit_as.set(BTreeMap::new());
         self.shown.set(BTreeMap::new());
+        self.new_files.set(Vec::new());
+        self.adding.set(false);
+        self.closing.set(None);
     }
 
     pub fn fetch(&self) {
@@ -246,10 +255,17 @@ impl TextEdit {
     }
 
     pub fn take(&self, next: EditText) {
-        let values = self.loaded.with_untracked(|l| {
+        let mut values = self.loaded.with_untracked(|l| {
             let old = l.as_ref().and_then(|r| r.as_ref().ok()).map(|a| a.as_ref());
             self.values.with_untracked(|v| rebased(old, &next, v))
         });
+        let still = self.new_files.with_untracked(|n| {
+            self.values
+                .with_untracked(|typed| super::new_file::kept_new(&next, n, typed, &mut values))
+        });
+        if self.new_files.with_untracked(|n| *n != still) {
+            self.new_files.set(still);
+        }
         self.values.set(values);
         self.loaded.set(Some(Ok(Arc::new(next))));
         if let Some(s) = crate::store::try_store() {
@@ -272,13 +288,16 @@ impl TextEdit {
 
     pub fn changed_files(&self) -> Vec<TextFile> {
         self.loaded.with(|l| match l {
-            Some(Ok(t)) => self.values.with(|v| changed_of(&t.files, v)),
+            Some(Ok(t)) => self.values.with(|v| {
+                self.new_files
+                    .with(|n| super::new_file::with_new(changed_of(&t.files, v), n, v))
+            }),
             _ => Vec::new(),
         })
     }
 
     pub fn dirty(&self) -> bool {
-        !self.changed_files().is_empty()
+        !self.changed_files().is_empty() || self.new_files.with(|n| !n.is_empty())
     }
 
     pub fn ops(&self) -> Vec<Op> {

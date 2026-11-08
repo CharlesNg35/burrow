@@ -4,6 +4,7 @@
 mod edit;
 mod edit_as;
 mod editor;
+mod new_file;
 mod problems;
 
 use burrow_admin_logic::running::{difference_note, differences};
@@ -68,7 +69,8 @@ fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
         let differ = note.get();
         let read_only = edit_as::read_only_text(t);
         let waiting = edit_as::waits_text(t);
-        if differ.is_none() && read_only.is_none() && waiting.is_none() {
+        let empty = t.empty_new_files();
+        if differ.is_none() && read_only.is_none() && waiting.is_none() && empty.is_empty() {
             return None;
         }
         Some(view! {
@@ -76,6 +78,7 @@ fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
                 {differ.map(differs_view)}
                 {read_only.map(|r| edit_as::note_line("lock", r, "file-read-only", false))}
                 {waiting.map(|n| edit_as::note_line("alert", n, "file-edit-as-waits", true))}
+                {empty.into_iter().map(|n| edit_as::note_line("info", crate::edit::not_created(&n), "file-not-created", false)).collect_view()}
             </div>
         })
     }
@@ -224,6 +227,8 @@ pub fn ConfigFile() -> impl IntoView {
             <div class=head_box data-testid="file-head">{head}</div>
             {content}
             {edit::cancel_dialog(s, asking)}
+            {new_file::name_dialog(s.text)}
+            {new_file::close_dialog(s.text)}
         </section>
     }
 }

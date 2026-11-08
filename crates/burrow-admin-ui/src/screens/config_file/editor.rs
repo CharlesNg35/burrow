@@ -5,8 +5,9 @@ use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::text_edit::{EditFile, EditText, PLACEHOLDER_PATTERN};
 use config_editor_leptos::{
-    ConfigDocuments, Document, DocumentsHandle, EditorSettings, EditorTheme, Language, SaveRequest,
-    Schema, SchemaSource, SecretOptions, Severity, check_syntax, flush_pending_edits,
+    CloseRequest, ConfigDocuments, Document, DocumentsHandle, EditorSettings, EditorTheme,
+    Language, SaveRequest, Schema, SchemaSource, SecretOptions, Severity, check_syntax,
+    flush_pending_edits,
 };
 use leptos::prelude::*;
 
@@ -27,6 +28,9 @@ pub struct EditorProps {
     pub active: RwSignal<String>,
     pub edit_as: RwSignal<BTreeMap<String, String>>,
     pub shown: RwSignal<BTreeMap<String, String>>,
+    pub new_files: Signal<Vec<String>>,
+    pub on_add: Callback<()>,
+    pub on_close: Callback<String>,
 }
 
 fn schema_of(schema: &Value) -> Option<SchemaSource> {
@@ -90,22 +94,34 @@ fn documents(
     schemas: &Schemas,
     secrets: &SecretOptions,
     asked: &BTreeMap<String, String>,
+    new: &[String],
 ) -> Vec<Document> {
     let main = t.files.first().map(|f| f.name.as_str()).unwrap_or_default();
-    t.files
-        .iter()
-        .map(|f| {
-            let now = values.get(&f.name).unwrap_or(&f.text).clone();
-            let d = Document::new(f.name.clone(), f.name.clone(), now)
-                .baseline(f.text.clone())
-                .read_only(f.read_only.is_some())
+    let existing = t.files.iter().map(|f| {
+        let now = values.get(&f.name).unwrap_or(&f.text).clone();
+        Document::new(f.name.clone(), f.name.clone(), now)
+            .baseline(f.text.clone())
+            .read_only(f.read_only.is_some())
+            .closable(false)
+    });
+    let added = new.iter().map(|name| {
+        let now = values.get(name).cloned().unwrap_or_default();
+        Document::new(name.clone(), name.clone(), now)
+            .baseline(String::new())
+            .closable(true)
+    });
+    existing
+        .chain(added)
+        .map(|d| {
+            let name = d.id.clone();
+            let d = d
                 .secrets(secrets.clone())
-                .host_diagnostics(host_problems(problems, &f.name, main));
-            let d = match requested(own_label(&f.name), asked.get(&f.name).map(String::as_str)) {
+                .host_diagnostics(host_problems(problems, &name, main));
+            let d = match requested(own_label(&name), asked.get(&name).map(String::as_str)) {
                 Some(l) => d.edit_as(l),
                 None => d,
             };
-            match schemas.for_file(f.name == main) {
+            match schemas.for_file(name == main) {
                 Some(s) => d.schema(s.clone()),
                 None => d,
             }
@@ -113,12 +129,20 @@ fn documents(
         .collect()
 }
 
-pub fn first_shown(files: &[EditFile], active: &str) -> String {
-    files
+fn names(t: &EditText, new: &[String]) -> Vec<String> {
+    t.files
         .iter()
-        .find(|f| f.name == active)
-        .or_else(|| files.first())
         .map(|f| f.name.clone())
+        .chain(new.iter().cloned())
+        .collect()
+}
+
+pub fn first_shown(names: &[String], active: &str) -> String {
+    names
+        .iter()
+        .find(|n| *n == active)
+        .or_else(|| names.first())
+        .cloned()
         .unwrap_or_default()
 }
 
@@ -208,6 +232,9 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         active,
         edit_as,
         shown,
+        new_files,
+        on_add,
+        on_close,
     } = p;
     let first = text.get_untracked();
     let schemas = first.as_ref().map(|t| Schemas::of(t)).unwrap_or_default();
@@ -221,22 +248,39 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         .with_hint(SECRET_HINT);
     let main = first
         .as_ref()
-        .map(|t| first_shown(&t.files, &active.get_untracked()))
+        .map(|t| {
+            first_shown(
+                &names(t, &new_files.get_untracked()),
+                &active.get_untracked(),
+            )
+        })
         .unwrap_or_default();
     active.set(main.clone());
     let list = Signal::derive(move || {
         text.with(|t| {
             t.as_ref().map_or_else(Vec::new, |t| {
                 values.with(|v| {
-                    problems.with(|ps| edit_as.with(|a| documents(t, v, ps, &schemas, &secrets, a)))
+                    problems.with(|ps| {
+                        edit_as.with(|a| {
+                            new_files.with(|n| documents(t, v, ps, &schemas, &secrets, a, n))
+                        })
+                    })
                 })
             })
         })
     });
     Effect::new(move |_| {
         let why = text.with(|t| {
-            t.as_ref()
-                .and_then(|t| values.with(|v| syntax_problem(&t.files, v)))
+            t.as_ref().and_then(|t| {
+                let mut files = t.files.clone();
+                new_files.with(|n| {
+                    files.extend(n.iter().map(|name| EditFile {
+                        name: name.clone(),
+                        ..EditFile::default()
+                    }))
+                });
+                values.with(|v| syntax_problem(&files, v))
+            })
         });
         if unsavable.with_untracked(|u| *u != why) {
             unsavable.set(why);
@@ -258,13 +302,13 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         edit_as.track();
         switch.refresh_soon(active.get_untracked());
     });
-    let files = text.with_untracked(|t| {
-        t.as_ref()
-            .map(|t| t.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>())
-            .unwrap_or_default()
-    });
     before_review.set_value(Some(std::rc::Rc::new(move || {
         flush_pending_edits();
+        let files = text.with_untracked(|t| {
+            t.as_ref()
+                .map(|t| names(t, &new_files.get_untracked()))
+                .unwrap_or_default()
+        });
         unwritten(&files, edit_as, tabs)
     })));
     on_cleanup(move || {
@@ -290,6 +334,8 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                     on_change.run(change);
                 })
                 on_save=Callback::new(move |_: (String, SaveRequest)| on_review.run(()))
+                on_add=on_add
+                on_close=Callback::new(move |request: CloseRequest| on_close.run(request.id))
             />
         </div>
     }
@@ -350,7 +396,9 @@ mod tests {
             &Schemas::of(&t),
             &SecretOptions::default(),
             &BTreeMap::new(),
+            &[],
         );
+        assert_eq!(docs.len(), 2);
         let s = Schemas::of(&t);
         assert!(std::ptr::eq(
             s.for_file(true).unwrap(),
@@ -386,7 +434,7 @@ mod tests {
 
     #[test]
     fn the_editor_comes_back_on_the_file_last_shown() {
-        let files = vec![file("server.yaml", ""), file("server.d/x.yaml", "")];
+        let files = vec!["server.yaml".to_string(), "server.d/x.yaml".to_string()];
         assert_eq!(first_shown(&files, "server.d/x.yaml"), "server.d/x.yaml");
         assert_eq!(first_shown(&files, "server.d/gone.yaml"), "server.yaml");
         assert_eq!(first_shown(&files, ""), "server.yaml");
@@ -415,6 +463,7 @@ mod tests {
             &Schemas::default(),
             &SecretOptions::default(),
             &BTreeMap::new(),
+            &[],
         );
         assert_eq!(docs.len(), 2);
         assert_eq!(
@@ -438,6 +487,7 @@ mod tests {
             &Schemas::default(),
             &SecretOptions::default(),
             &asked,
+            &[],
         );
         assert_eq!(docs[0].edit_as, Some(Language::TOML));
         assert!(
@@ -448,5 +498,28 @@ mod tests {
             docs[0].value, "a: 2\n",
             "the value stays in the file's language"
         );
+        assert!(
+            !docs[0].closable && !docs[1].closable,
+            "a file on the server has no close button"
+        );
+        let mut values = values.clone();
+        values.insert(
+            "server.d/new.yaml".to_string(),
+            "services: {}\n".to_string(),
+        );
+        let docs = documents(
+            &t,
+            &values,
+            &[],
+            &Schemas::default(),
+            &SecretOptions::default(),
+            &BTreeMap::new(),
+            &["server.d/new.yaml".to_string()],
+        );
+        assert_eq!(docs.len(), 3);
+        assert_eq!(docs[2].id, "server.d/new.yaml");
+        assert!(docs[2].closable, "a new file can be closed");
+        assert_eq!(docs[2].baseline.as_deref(), Some(""));
+        assert_eq!(docs[2].value, "services: {}\n");
     }
 }
