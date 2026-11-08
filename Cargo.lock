@@ -990,7 +990,7 @@ dependencies = [
 [[package]]
 name = "config-editor-leptos"
 version = "0.1.0"
-source = "git+https://github.com/paradoxe35/config-editor?rev=70991fad7efd6cee69b0c8deccbbc481f28d75ce#70991fad7efd6cee69b0c8deccbbc481f28d75ce"
+source = "git+https://github.com/paradoxe35/config-editor?rev=597ee22e420f60ff19e8ecdf2f957a1658783087#597ee22e420f60ff19e8ecdf2f957a1658783087"
 dependencies = [
  "jsonschema",
  "leptos",
@@ -5513,6 +5513,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "syn 2.0.119",
+ "toml",
  "wasm-encoder",
  "wasm_split_cli_support",
  "wasmparser",

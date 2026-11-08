@@ -162,6 +162,16 @@ async fn present(c: &Ctx, css: &str) -> bool {
 
 async fn no_csp_violation(c: &mut Ctx) {
     start(c).await;
+    let styled: (usize, String) = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.querySelector('{EDITOR} .config-editor, {EDITOR} .config-editor-documents'); return [document.querySelectorAll('{EDITOR} style').length, e ? getComputedStyle(e).getPropertyValue('--config-editor-bg').trim() : '']; }})()"
+        ))
+        .await;
+    assert!(
+        styled.0 > 0 && !styled.1.is_empty(),
+        "the editor injects its own stylesheet and it applies: {styled:?}"
+    );
     replace_in(c, MAIN, "max_connections: 12", "max_connections: 13").await;
     dirty(c, MAIN, true).await;
     caret_on(c, MAIN, "max_connections").await;
