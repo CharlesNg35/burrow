@@ -3,8 +3,6 @@
 
 #[path = "admin_e2e/access.rs"]
 mod access;
-#[path = "admin_e2e/boot.rs"]
-mod boot;
 #[path = "admin_e2e/certificates.rs"]
 mod certificates;
 #[path = "admin_e2e/check_failed.rs"]
