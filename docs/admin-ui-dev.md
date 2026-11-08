@@ -122,6 +122,7 @@ view! { <Deferred load=move || big_part(props.clone()) what="the big part"/> }
 - Everything only that function reaches moves into `split_big_part-<hash>.wasm`; `cargo xtask ui` splits the module with `wasm_split_cli_support` before wasm-bindgen and writes a small loader, `__wasm_split.<hash>.js`. `cargo xtask size` reports the main wasm and the chunks apart.
 - Use `fallible`, not Leptos' `#[lazy]`: without it a failed fetch panics, and a panic stops the whole UI.
 - The function takes its arguments by value and returns `Result<AnyView, LoadFailed>`; it is called again on "Try again".
+- The main wasm must not use WebAssembly SIMD, so burrow admin still opens in browsers without it (Safari before 16.4); `cargo xtask ui` fails if it does. A chunk may: pass `needs=Needs::WasmSimd` to `Deferred`, which then says "This browser cannot load …" instead of fetching, and `burrow_ui_kit::can_run(Needs::WasmSimd)` tells a screen beforehand.
 
 On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).
 
