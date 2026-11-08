@@ -6,9 +6,8 @@ use crate::store::Store;
 
 use super::editor::{EditorProps, text_editor};
 
-pub(super) const CAN_EDIT: &str = "Edit it here as text, or field by field in the other tabs";
-pub(super) const EDITING: &str =
-    "Checked as you type; nothing changes until you apply it in Review";
+pub(super) const CAN_EDIT: &str = "Edit here as text or field by field in other tabs";
+pub(super) const EDITING: &str = "Checked as you type; applied only from Review";
 
 pub(super) fn edit_button(s: Store, waiting: RwSignal<bool>) -> AnyView {
     view! {
