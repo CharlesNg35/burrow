@@ -5,6 +5,7 @@ mod edit;
 mod edit_as;
 mod editor;
 mod follow;
+mod goto;
 mod new_file;
 mod problems;
 
@@ -151,6 +152,7 @@ pub fn ConfigFile() -> impl IntoView {
     });
     let waiting = RwSignal::new(false);
     let asking = RwSignal::new(false);
+    let go = goto::GoTo::new();
     let toggle = move || {
         offered.get().then(|| {
             view! {
@@ -167,7 +169,7 @@ pub fn ConfigFile() -> impl IntoView {
     };
     let head = move || {
         let (sub, right) = if editing.get() {
-            (None, edit::edit_buttons(s, asking))
+            (None, edit::edit_buttons(s, asking, go))
         } else {
             let edit_button = can_edit.get().then(|| edit::edit_button(s, waiting));
             let right =
@@ -198,7 +200,7 @@ pub fn ConfigFile() -> impl IntoView {
     };
     let head_box = move || {
         if editing.get() {
-            "rounded-t-card border border-b-0 border-border bg-surface"
+            "relative rounded-t-card border border-b-0 border-border bg-surface"
         } else {
             ""
         }
@@ -225,7 +227,7 @@ pub fn ConfigFile() -> impl IntoView {
     };
     view! {
         <section class=shell data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
-            <div class=head_box data-testid="file-head">{head}</div>
+            <div class=head_box data-testid="file-head">{head}{move || editing.get().then(|| goto::panel(go, t))}</div>
             {content}
             {edit::cancel_dialog(s, asking)}
             {new_file::name_dialog(s.text)}

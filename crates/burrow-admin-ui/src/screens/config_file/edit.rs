@@ -62,7 +62,7 @@ fn review(s: Store) {
     }
 }
 
-pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>) -> AnyView {
+pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>, go: super::goto::GoTo) -> AnyView {
     let t = s.text;
     let blocked = Signal::derive(move || !t.dirty() || t.unsavable.with(Option::is_some));
     let reason = Signal::derive(move || match t.unsavable.get() {
@@ -71,6 +71,7 @@ pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>) -> AnyView {
         None => "No edits yet".into(),
     });
     view! {
+        {super::goto::button(go, t)}
         {super::edit_as::controls(t)}
         <Button label="Cancel" size=ButtonSize::Small testid="file-cancel" on_click=move |_| {
             if untrack(|| t.dirty()) {

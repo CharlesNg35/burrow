@@ -31,7 +31,7 @@ pub(crate) use groups::{Group, change_groups};
 pub use held::TEXT_FIRST;
 pub use new_file::{folder_of, new_name, not_created};
 pub(crate) use scratch::{NEW, Scratch};
-pub use tabs::{MAX_TABS, Spot};
+pub use tabs::Spot;
 pub use text::{Hook, TextEdit};
 
 pub const VALIDATE_AFTER: Duration = Duration::from_millis(400);
