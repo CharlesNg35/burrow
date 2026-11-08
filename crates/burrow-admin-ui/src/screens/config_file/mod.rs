@@ -169,13 +169,41 @@ pub fn ConfigFile() -> impl IntoView {
             view! { <p class="text-sm text-text-muted" data-testid="file-older">"This server runs an older burrow that cannot show its config file here. Update burrow on the server."</p> }.into_any()
         }
     };
+    let shell = move || {
+        if editing.get() {
+            "mb-4"
+        } else {
+            "mb-4 rounded-card border border-border bg-surface"
+        }
+    };
+    let head_box = move || {
+        if editing.get() {
+            "rounded-t-card border border-b-0 border-border bg-surface"
+        } else {
+            ""
+        }
+    };
+    let content = move || {
+        if editing.get() {
+            view! {
+                <div class="min-w-0" data-testid="file-body">{body}</div>
+                <div class="mt-3 empty:hidden">{running_note}</div>
+            }
+            .into_any()
+        } else {
+            view! {
+                <div class="min-w-0 px-4 py-3" data-testid="file-body">
+                    {running_note}
+                    {body}
+                </div>
+            }
+            .into_any()
+        }
+    };
     view! {
-        <section class="mb-4 rounded-card border border-border bg-surface" data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
-            {head}
-            <div class="min-w-0 px-4 py-3">
-                {running_note}
-                {body}
-            </div>
+        <section class=shell data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
+            <div class=head_box data-testid="file-head">{head}</div>
+            {content}
             {edit::cancel_dialog(s, asking)}
         </section>
     }

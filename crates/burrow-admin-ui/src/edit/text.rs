@@ -30,6 +30,7 @@ pub struct TextEdit {
     pub active: RwSignal<String>,
     pub before_review: StoredValue<Option<Hook>, LocalStorage>,
     pub edit_as: RwSignal<BTreeMap<String, String>>,
+    pub shown: RwSignal<BTreeMap<String, String>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -197,6 +198,7 @@ impl TextEdit {
             active: RwSignal::new(String::new()),
             before_review: StoredValue::new_local(None),
             edit_as: RwSignal::new(BTreeMap::new()),
+            shown: RwSignal::new(BTreeMap::new()),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
         }
@@ -218,6 +220,7 @@ impl TextEdit {
         self.unsavable.set(None);
         self.active.set(String::new());
         self.edit_as.set(BTreeMap::new());
+        self.shown.set(BTreeMap::new());
     }
 
     pub fn fetch(&self) {

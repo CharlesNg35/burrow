@@ -4,14 +4,13 @@ use std::sync::Arc;
 use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::text_edit::{EditFile, EditText, PLACEHOLDER_PATTERN};
-use burrow_ui_kit::Icon;
 use config_editor_leptos::{
     ConfigDocuments, Document, DocumentsHandle, EditorSettings, EditorTheme, Language, SaveRequest,
     Schema, SchemaSource, SecretOptions, Severity, check_syntax, flush_pending_edits,
 };
 use leptos::prelude::*;
 
-use super::edit_as::{Switch, own_label, requested};
+use super::edit_as::{own_label, shown};
 use super::problems::host_problems;
 
 pub const SECRET_HINT: &str = "The current secret, kept as it is. Type a new value to replace it.";
@@ -27,6 +26,7 @@ pub struct EditorProps {
     pub before_review: StoredValue<Option<crate::edit::Hook>, LocalStorage>,
     pub active: RwSignal<String>,
     pub edit_as: RwSignal<BTreeMap<String, String>>,
+    pub shown: RwSignal<BTreeMap<String, String>>,
 }
 
 fn schema_of(schema: &Value) -> Option<SchemaSource> {
@@ -118,20 +118,57 @@ fn unwritten(
     })
 }
 
-fn read_only_note(text: Signal<Option<Arc<EditText>>>, active: RwSignal<String>) -> impl IntoView {
-    move || {
-        let (name, why) = text.with(|t| {
-            let t = t.as_ref()?;
-            active
-                .with(|a| t.files.iter().find(|f| f.name == *a))
-                .and_then(|f| Some((f.name.clone(), f.read_only.clone()?)))
-        })?;
-        Some(view! {
-            <p class="flex min-w-0 items-start gap-1.5 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="file-read-only">
-                <Icon name="lock" small=true/>
-                <span>{format!("{name} is read-only: {why}")}</span>
-            </p>
-        })
+pub fn language(label: &str) -> Option<Language> {
+    match label {
+        "YAML" => Some(Language::YAML),
+        "JSON" => Some(Language::JSON),
+        "TOML" => Some(Language::TOML),
+        _ => None,
+    }
+}
+
+pub fn requested(own: &str, asked: Option<&str>) -> Option<Language> {
+    asked.filter(|a| *a != own).and_then(language)
+}
+
+#[derive(Clone, Copy)]
+struct Shown {
+    asked: RwSignal<BTreeMap<String, String>>,
+    shown: RwSignal<BTreeMap<String, String>>,
+    tabs: DocumentsHandle,
+}
+
+impl Shown {
+    fn refresh(&self, name: &str) {
+        let own = own_label(name);
+        let asked = self
+            .asked
+            .with_untracked(|a| a.get(name).cloned())
+            .unwrap_or_else(|| own.to_string());
+        let now = if asked == own {
+            own.to_string()
+        } else {
+            let editor = self.tabs.editor(name);
+            let on_screen = editor.and_then(|e| e.text());
+            let host = editor.and_then(|e| e.value());
+            shown(own, &asked, on_screen.as_deref(), host.as_deref())
+        };
+        if self.shown.with_untracked(|s| s.get(name) != Some(&now)) {
+            self.shown.update(|s| {
+                s.insert(name.to_string(), now);
+            });
+        }
+    }
+
+    fn refresh_soon(&self, name: String) {
+        let me = *self;
+        for ms in [60, 400, 1200] {
+            let name = name.clone();
+            set_timeout(
+                move || me.refresh(&name),
+                std::time::Duration::from_millis(ms),
+            );
+        }
     }
 }
 
@@ -147,6 +184,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         before_review,
         active,
         edit_as,
+        shown,
     } = p;
     let first = text.get_untracked();
     let schema = first.as_ref().and_then(|t| schema_of(&t.schema));
@@ -190,12 +228,15 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         ..EditorSettings::default()
     };
     let tabs = DocumentsHandle::new();
-    let switch = Switch {
-        active,
+    let switch = Shown {
         asked: edit_as,
-        shown: RwSignal::new(BTreeMap::new()),
+        shown,
         tabs,
     };
+    Effect::new(move |_| {
+        edit_as.track();
+        switch.refresh_soon(active.get_untracked());
+    });
     let files = text.with_untracked(|t| {
         t.as_ref()
             .map(|t| t.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>())
@@ -213,11 +254,6 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
     }
     Ok(view! {
         <div class="min-w-0 w-full" data-testid="file-editor">
-            <div class="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-                {read_only_note(text, active)}
-                <span class="ml-auto"></span>
-                {switch.view()}
-            </div>
             <ConfigDocuments
                 documents=list
                 initial_active=main
@@ -273,6 +309,18 @@ mod tests {
         let mut v = BTreeMap::new();
         v.insert("server.json".to_string(), "{\"a\": }".to_string());
         assert!(syntax_problem(&json, &v).is_some());
+    }
+
+    #[test]
+    fn only_another_language_is_asked_of_the_editor() {
+        assert!(requested("YAML", None).is_none());
+        assert!(requested("YAML", Some("YAML")).is_none());
+        assert_eq!(requested("YAML", Some("TOML")), Some(Language::TOML));
+        assert_eq!(requested("JSON", Some("YAML")), Some(Language::YAML));
+        assert!(requested("YAML", Some("XML")).is_none());
+        for l in super::super::edit_as::LANGUAGES {
+            assert_eq!(language(l).map(|x| x.label()), Some(l), "{l} is built in");
+        }
     }
 
     #[test]

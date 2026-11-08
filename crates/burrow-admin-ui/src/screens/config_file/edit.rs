@@ -68,6 +68,8 @@ pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>) -> AnyView {
         None => "No edits yet".into(),
     });
     view! {
+        {super::edit_as::read_only_note(t)}
+        {super::edit_as::controls(t)}
         <Button label="Cancel" size=ButtonSize::Small testid="file-cancel" on_click=move |_| {
             if untrack(|| t.dirty()) {
                 asking.set(true);
@@ -124,6 +126,7 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
                 unsavable: t.unsavable,
                 before_review: t.before_review,
                 edit_as: t.edit_as,
+                shown: t.shown,
                 active: t.active,
             };
             view! { <Deferred load=move || text_editor(props) what="the editor" testid="editor-load"/> }.into_any()

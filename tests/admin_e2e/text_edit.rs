@@ -291,6 +291,17 @@ async fn shots(c: &mut Ctx, step: &str) {
             ))
             .await;
         assert!(inside, "{step} at {w}px: the editor fills its card");
+        let gap: f64 = c
+            .ui
+            .eval(&format!(
+                "(() => {{ const e = document.querySelector({}).getBoundingClientRect(); const h = document.querySelector('[data-testid=file-head]').getBoundingClientRect(); return e.top - h.bottom; }})()",
+                js(EDITOR)
+            ))
+            .await;
+        assert!(
+            gap.abs() < 0.5,
+            "{step} at {w}px: the editor starts right under the card head ({gap}px)"
+        );
         c.ui.shot(&format!("{step}-{size}")).await;
     }
     c.ui.viewport(1440, 900).await;
