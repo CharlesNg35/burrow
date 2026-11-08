@@ -268,6 +268,21 @@ impl Moves<'_> {
     };
 }
 
+pub fn new_file(base: &[Doc], prefix: &str, file: &str) -> Result<(), WriteError> {
+    if let Some(other) = base.iter().find(|d| d.name.eq_ignore_ascii_case(file)) {
+        return Err(WriteError::Bad(format!(
+            "{file} and {} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name",
+            other.name
+        )));
+    }
+    if !burrow_config::drop_ins::new_name_ok(prefix, file) {
+        return Err(WriteError::Bad(format!(
+            "\"{file}\" is not a file name burrow can use; use {prefix}/<name>.yaml with letters, digits, dots, dashes or underscores"
+        )));
+    }
+    Ok(())
+}
+
 fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
     let mut out = Places::new();
     for (path, file) in moves.places {
@@ -283,27 +298,13 @@ fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
         }
         let at = match base.iter().position(|d| d.name == *file) {
             Some(at) => at,
-            None if base.iter().any(|d| d.name.eq_ignore_ascii_case(file)) => {
-                let other = base
-                    .iter()
-                    .find(|d| d.name.eq_ignore_ascii_case(file))
-                    .map_or("", |d| d.name.as_str());
-                return Err(WriteError::Bad(format!(
-                    "{file} and {other} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name"
-                )));
-            }
-            None if burrow_config::drop_ins::new_name_ok(moves.prefix, file) => {
+            None => {
+                new_file(base, moves.prefix, file)?;
                 base.push(Doc {
                     name: file.clone(),
                     text: String::new(),
                 });
                 base.len() - 1
-            }
-            None => {
-                return Err(WriteError::Bad(format!(
-                    "\"{file}\" is not a file name burrow can use; use {}/<name>.yaml with letters, digits, dots, dashes or underscores",
-                    moves.prefix
-                )));
             }
         };
         out.insert((section.clone(), name.clone()), at);

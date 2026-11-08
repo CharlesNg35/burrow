@@ -11,7 +11,7 @@ use crate::config::settings::{Shares, WebSite, WebSocketSettings};
 use burrow_config::{Bind, Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
 use burrow_syntax::web::{SingleLabel, host_name};
 
-pub(super) const BUILT_WITH_WEB: bool = cfg!(feature = "web");
+pub(super) const BUILT_WITH_WEB: bool = crate::base::build::WEB_PROXY;
 
 fn bare_port(b: &Bind) -> Option<u16> {
     match b {

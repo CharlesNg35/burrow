@@ -136,7 +136,7 @@ fn a_text_edit_on_an_old_base_is_a_conflict() {
 }
 
 #[test]
-fn replace_text_stands_alone_and_names_only_the_files_there_are() {
+fn replace_text_stands_alone_and_names_only_files_burrow_can_use() {
     let w = world();
     let core = core_for(&w.text);
     let s = session(&w, AdminLevel::Write);
@@ -155,7 +155,7 @@ fn replace_text_stands_alone_and_names_only_the_files_there_are() {
     );
     let other = vec![Op::ReplaceText {
         files: vec![TextFile {
-            name: "server.d/new.yaml".into(),
+            name: "notes.txt".into(),
             text: "services: {}\n".into(),
         }],
     }];
@@ -163,7 +163,7 @@ fn replace_text_stands_alone_and_names_only_the_files_there_are() {
     assert_eq!(e.code, ErrorCode::BadRequest);
     assert!(
         e.message
-            .contains("server.d/new.yaml is not one of the config files"),
+            .contains("\"notes.txt\" is not a file name burrow can use"),
         "{}",
         e.message
     );

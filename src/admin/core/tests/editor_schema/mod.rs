@@ -1,7 +1,8 @@
 //! Parity of the editor's JSON Schema with burrow's own check, through `jsonschema`, the editor's validator.
-//! `corpus` gathers the configs of the docs, `generate` makes random ones from the config model; `Verdict` compares both checks.
-//! A schema problem is fine only where burrow has an error at the same field, or at a key just inside it.
-//! `specific` picks the problems the editor shows, as config-editor-leptos does (`specific_errors`).
+//! `corpus` gathers the configs of the docs, `generate` makes random ones; `Verdict` compares both checks.
+//! A schema problem is fine where burrow has an error at that field or a key inside it; `specific` picks
+//! the problems the editor shows (config-editor-leptos `specific_errors`). Without the web proxy, burrow's
+//! one `no-web-proxy` error stands for every `web:` key, and the editor refuses such a key whole.
 
 #![cfg(test)]
 
@@ -42,6 +43,37 @@ pub(super) struct Verdict {
     pub(super) false_errors: Vec<String>,
     pub(super) burrow: Vec<(Vec<String>, String)>,
     pub(super) editor: Vec<(Vec<String>, String)>,
+}
+
+const NO_WEB_PROXY: &str = "no-web-proxy";
+
+fn site_keys(doc: Option<&tree::Node>) -> impl Iterator<Item = Vec<String>> + '_ {
+    use burrow_config::{Entry, ServiceEntry};
+    let section = ServiceEntry::section();
+    let services = doc
+        .and_then(|d| d.get(section))
+        .and_then(|s| match &s.value {
+            tree::Value::Map(entries) => Some(entries),
+            _ => None,
+        });
+    services
+        .into_iter()
+        .flatten()
+        .filter(|e| e.value.get(ServiceEntry::WEB.key()).is_some())
+        .map(move |e| {
+            vec![
+                section.to_string(),
+                e.key.clone(),
+                ServiceEntry::WEB.key().to_string(),
+            ]
+        })
+}
+
+fn refused_block(at: &[String], message: &str, path: &[String]) -> bool {
+    path.starts_with(at)
+        && path
+            .get(at.len())
+            .is_some_and(|key| message.contains(&format!("'{key}' was unexpected")))
 }
 
 fn near(p: &[String], q: &[String]) -> bool {
@@ -165,7 +197,7 @@ impl Checks {
         );
         let doc = tree::parse(text).ok();
         let mapper = Mapper::new(doc.as_ref());
-        let errors: Vec<(Vec<String>, String)> = o
+        let mut errors: Vec<(Vec<String>, String)> = o
             .report
             .diagnostics
             .iter()
@@ -175,6 +207,9 @@ impl Checks {
                 (shown.path.unwrap_or_default(), shown.code)
             })
             .collect();
+        if errors.iter().any(|(_, c)| c == NO_WEB_PROXY) {
+            errors.extend(site_keys(doc.as_ref()).map(|p| (p, NO_WEB_PROXY.to_string())));
+        }
         let editor = self.editor(text);
         let excused = |p: &[String]| errors.iter().any(|(q, _)| near(p, q));
         Verdict {
@@ -266,7 +301,11 @@ fn random_configs_burrow_accepts_validate_and_its_refusals_are_problems() {
                 .any(|(q, c)| q == &path && STRUCTURAL.contains(&c.as_str()));
             if burrow {
                 refused += 1;
-                if !v.editor.iter().any(|(p, _)| near(p, &path)) {
+                if !v
+                    .editor
+                    .iter()
+                    .any(|(p, m)| near(p, &path) || refused_block(p, m, &path))
+                {
                     broken.push(format!(
                         "seed {seed}: {what} at {path:?} is refused by burrow only:\n{text}"
                     ));
@@ -302,6 +341,7 @@ fn a_variable_may_stand_for_any_value_and_a_typo_is_a_problem() {
     }
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn the_schema_names_the_options_of_each_one_of_group_and_marks_locks_and_secrets() {
     let checks = Checks::new();
@@ -328,6 +368,7 @@ fn the_schema_names_the_options_of_each_one_of_group_and_marks_locks_and_secrets
     assert_eq!(checks.editor(null_provider), Vec::new());
 }
 
+#[cfg(feature = "web")]
 #[test]
 fn each_choice_of_a_pick_one_group_alone_is_fine() {
     let checks = Checks::new();
@@ -356,5 +397,100 @@ fn each_choice_of_a_pick_one_group_alone_is_fine() {
         format!("{le}    dns:\n      - domains: [a.com]\n"),
     ] {
         assert!(!checks.editor(&text).is_empty(), "{text}");
+    }
+}
+
+#[test]
+fn the_schema_offers_web_settings_only_when_the_build_has_the_web_proxy() {
+    let checks = Checks::new();
+    let s = checks.schema();
+    let service = &s["properties"]["services"]["additionalProperties"]["properties"];
+    let with_web = crate::base::build::WEB_PROXY;
+    assert_eq!(s["properties"].get("web").is_some(), with_web);
+    assert_eq!(
+        service["web"].get("type") == Some(&serde_json::json!("null")),
+        !with_web
+    );
+    let unset = "services:\n  web:\n    client: home\n    target: 3000\n    web:\n";
+    assert_eq!(checks.editor(unset), Vec::new());
+    let site = "services:\n  web:\n    client: home\n    target: 3000\n    web:\n      hosts: [a.example.com]\n";
+    let proxy = "web:\n  https: 443\n";
+    for text in [site, proxy] {
+        assert_eq!(checks.editor(text).is_empty(), with_web, "{text}");
+        let v = checks.verdict(text, &BTreeMap::new());
+        assert!(v.false_errors.is_empty(), "{text}: {:?}", v.false_errors);
+    }
+}
+
+fn problems_at(v: &jsonschema::Validator, doc: &Value) -> Vec<String> {
+    let mut out: Vec<String> = v
+        .iter_errors(doc)
+        .map(|e| e.instance_path().to_string())
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn a_drop_in_has_a_schema_of_its_sections_that_refuses_server_wide_keys() {
+    let checks = Checks::new();
+    let w = world();
+    let core = core_running(&w.text, &w.text);
+    let t = edit_text(&core, &session(&w, AdminLevel::Read));
+    let drop = t.drop_in_schema.clone().expect("a schema for drop-ins");
+    let mut keys: Vec<&str> = drop["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort();
+    let mut sections: Vec<&str> = burrow_config::drop_ins::sections()
+        .iter()
+        .map(|(s, _)| *s)
+        .collect();
+    sections.sort();
+    assert_eq!(keys, sections);
+    assert_eq!(drop["additionalProperties"], false);
+    for s in &sections {
+        assert_eq!(drop["properties"][s], t.schema["properties"][s], "{s}");
+    }
+    let v = jsonschema::validator_for(&drop).expect("the drop-in schema compiles");
+    let source = crate::config::load::schema_json(Role::Server);
+    let mut texts: Vec<String> = corpus::configs().into_iter().map(|(_, t)| t).collect();
+    texts.extend((0..40).map(|seed| generate::config(&source, seed).text));
+    let mut compared = 0;
+    for text in texts {
+        let Ok(tree) = tree::parse(&text) else {
+            continue;
+        };
+        let Value::Object(all) = tree.to_json() else {
+            continue;
+        };
+        let part: serde_json::Map<String, Value> = all
+            .into_iter()
+            .filter(|(k, _)| burrow_config::drop_ins::is_section(k))
+            .collect();
+        if part.is_empty() {
+            continue;
+        }
+        let part = Value::Object(part);
+        compared += 1;
+        assert_eq!(
+            problems_at(&v, &part),
+            problems_at(&checks.validator, &part),
+            "{part:#}"
+        );
+    }
+    assert!(compared >= 60, "only {compared} drop-ins compared");
+    for key in t.schema["properties"].as_object().unwrap().keys() {
+        if burrow_config::drop_ins::is_section(key) {
+            continue;
+        }
+        let doc = serde_json::json!({ key: null });
+        assert!(
+            !problems_at(&v, &doc).is_empty(),
+            "{key} is refused in a drop-in"
+        );
     }
 }

@@ -1,6 +1,7 @@
 //! The editor's JSON Schema: the config model's schemars schema, inlined and marked from the admin schema tree.
 //! Start at `editor_schema`; `groups` adds the admin's one-of groups as options, `env` lets `${VAR}` stand for any value.
-//! It may only say less than burrow's own check: every config burrow accepts validates against it.
+//! It may only say less than burrow's own check: every config burrow accepts validates against it,
+//! and in a build without the web proxy it refuses the web keys as burrow does (a service's `web` may be null).
 
 mod env;
 mod groups;
@@ -21,7 +22,45 @@ pub fn editor_schema(json: Value, admin: &Schema) -> Value {
     }
     structure(&mut root, &admin.root, 0);
     env::references(&mut root);
+    if !crate::base::build::WEB_PROXY {
+        without_web(&mut root);
+    }
     root
+}
+
+pub fn drop_in_schema(full: &Value) -> Value {
+    let mut out = full.clone();
+    if let Some(m) = out.as_object_mut() {
+        let props: Map<String, Value> = full["properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(k, _)| burrow_config::drop_ins::is_section(k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        m.insert("properties".into(), Value::Object(props));
+        m.insert("additionalProperties".into(), json!(false));
+        m.insert(
+            "description".into(),
+            json!("A drop-in file holds only services, clients and visitors"),
+        );
+    }
+    out
+}
+
+fn without_web(root: &mut Value) {
+    use burrow_config::{Entry, ServerConfig, ServiceEntry};
+    let web = ServerConfig::WEB.key();
+    if let Some(props) = root["properties"].as_object_mut() {
+        props.remove(web);
+    }
+    let service = &mut root["properties"][ServiceEntry::section()]["additionalProperties"];
+    if let Some(site) = service["properties"].get_mut(ServiceEntry::WEB.key()) {
+        *site = json!({
+            "type": "null",
+            "description": "This build of burrow has no web proxy",
+        });
+    }
 }
 
 fn inline(v: &Value, defs: &Value, depth: usize) -> Value {

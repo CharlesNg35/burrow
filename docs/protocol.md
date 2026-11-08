@@ -333,7 +333,7 @@ Requests:
 - `update_server` (feature `server.updates`): have the server's root updater install the latest release; `dry_run` only says from which version to which, or why it cannot.
 - `config_view` (feature `config.view`): the config as YAML text with secrets as fingerprints, as the Config file tab shows it.
 - `check_text` (feature `config.check-text`): check a config or a fragment of up to 4 MiB with the server's own validation, writing nothing; open to `admin: read` too.
-- `config_text` (feature `config.text`): every config file's exact text for the text editor, with each secret replaced by a placeholder like `«secret 3f2a9c1d»`, the files' revision, which files are read-only, and the editor's JSON Schema; open to `admin: read` too.
+- `config_text` (feature `config.text`): every config file's exact text for the text editor, with each secret replaced by a placeholder like `«secret 3f2a9c1d»`, the files' revision, which files are read-only, the editor's JSON Schema, and `drop_in_schema`, the same schema for a drop-in (only `services`, `clients` and `visitors`); open to `admin: read` too.
 - `ping`.
 
 `validate`, `apply`, `generate_secret`, `revert`, `update_clients` and `update_server` need `admin: write`.
@@ -355,7 +355,7 @@ Additions since v0.1.2, each behind its feature string:
 | `history.ids` | `id` on each history entry and `history {entry: id}`; without it a caller asks `history {diff: rev}`, which still means the newest entry with that revision |
 | `client.allow` | `allow` on each connected client in the `status` event: the Allow list (`0x82`) of its session, `["any"]` for `allow_all`, left out until the client sent one; without the feature a caller shows the list as unknown |
 | `config.files` | [drop-in files](configuration.md#drop-in-files): `file.files` in `state` (each file, its items and why it is read-only), one diff per file in a plan and in `history`, and the `place` and `drop_file` operations. A caller that lists `config.files` in `understands` of its `welcome` request may change items in drop-in files; the server answers `not-writable` to any other caller's change there |
-| `config.text` | the `config_text` request and the `replace_text` operation: whole file texts back from the editor. It is the only operation of its change; each placeholder must stand where the file had it (in any file), else the change is refused as `invalid` with one diagnostic per placeholder. Diagnostics may carry `end_line` and `end_col` |
+| `config.text` | the `config_text` request and the `replace_text` operation: whole file texts back from the editor, and a text under a new name makes that drop-in, checked as `place` checks a new file (an empty one makes none). It is the only operation of its change; each placeholder must stand where the file had it (in any file), else the change is refused as `invalid` with one diagnostic per placeholder. Diagnostics may carry `end_line` and `end_col` |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 

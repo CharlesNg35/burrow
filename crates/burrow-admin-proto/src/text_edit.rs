@@ -37,6 +37,8 @@ pub struct EditText {
     pub placeholder: String,
     #[serde(default)]
     pub files: Vec<EditFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drop_in_schema: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
