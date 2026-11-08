@@ -63,6 +63,12 @@ pub fn controls(t: TextEdit) -> impl IntoView {
             a.insert(name, label);
         });
     });
+    Effect::new(move |_| {
+        let now = shown_now(t);
+        if let Some(select) = document().get_element_by_id("file-edit-as") {
+            let _ = js_sys::Reflect::set(&select, &"value".into(), &now.into());
+        }
+    });
     view! {
         <span class="flex min-w-0 items-center gap-2" data-testid="file-edit-as" data-shown=move || shown_now(t)>
             <span aria-hidden="true">"Edit as"</span>

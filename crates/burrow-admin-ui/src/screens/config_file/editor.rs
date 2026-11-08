@@ -200,11 +200,9 @@ impl Shown {
             let host = editor.and_then(|e| e.value());
             shown(own, &asked, on_screen.as_deref(), host.as_deref())
         };
-        if self.shown.with_untracked(|s| s.get(name) != Some(&now)) {
-            self.shown.update(|s| {
-                s.insert(name.to_string(), now);
-            });
-        }
+        self.shown.update(|s| {
+            s.insert(name.to_string(), now);
+        });
     }
 
     fn refresh_soon(&self, name: String) {
