@@ -163,10 +163,13 @@ pub(super) fn refuse_files(
 ) -> Result<(), ApiError> {
     let main = &old.main().name;
     for (name, change) in crate::config::save::changes(old, new) {
-        if matches!(change, crate::config::save::Change::Create { .. }) && core.store.taken(&name) {
+        if let Some(existing) = matches!(change, crate::config::save::Change::Create { .. })
+            .then(|| core.store.clash(&name))
+            .flatten()
+        {
             return Err(ApiError::new(
                 ErrorCode::BadRequest,
-                crate::config::docs::taken_message(&name),
+                crate::config::docs::clash_message(&name, &existing),
             ));
         }
         let why = if let Some(why) = core.store.read_only(&name) {

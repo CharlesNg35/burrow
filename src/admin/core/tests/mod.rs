@@ -27,6 +27,7 @@ mod reverts;
 mod snippets;
 mod status;
 mod text_edit;
+mod text_search;
 mod uploads;
 mod view;
 #[cfg(feature = "web")]

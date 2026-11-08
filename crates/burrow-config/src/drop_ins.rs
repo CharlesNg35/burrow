@@ -1,3 +1,6 @@
+//! Drop-in config files: the sections they may hold, the folder's name, and which file names burrow reads and may make.
+//! `name_problem` is the one rule for a new file's name, shared by the server and the admin UI.
+
 use crate::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 
 pub fn sections() -> [(&'static str, &'static str); 3] {
@@ -41,91 +44,90 @@ pub fn is_device_name(stem: &str) -> bool {
             && device.ends_with(|c: char| c.is_ascii_digit()))
 }
 
-pub fn new_name_ok(folder: &str, name: &str) -> bool {
-    let Some(file) = file_in(folder, name) else {
-        return false;
+pub const MAX_STEM: usize = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameProblem {
+    NotInFolder,
+    Characters,
+    TooLong,
+    Reserved,
+}
+
+impl NameProblem {
+    pub fn message(self, folder: &str, name: &str) -> String {
+        match self {
+            NameProblem::NotInFolder => {
+                format!("\"{name}\" is not a drop-in file name; use {folder}/<name>.yaml")
+            }
+            NameProblem::Characters => format!(
+                "\"{name}\": use only letters, digits, dots, dashes and underscores, not starting with a dot or dash, not ending with a dot and without \"..\", so the name works on Linux, macOS and Windows"
+            ),
+            NameProblem::TooLong => {
+                format!("\"{name}\": a name may have at most {MAX_STEM} characters before .yaml")
+            }
+            NameProblem::Reserved => format!(
+                "\"{name}\": {} is a device name on Windows and cannot be a file name there; pick another name",
+                name.rsplit('/')
+                    .next()
+                    .unwrap_or(name)
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_uppercase()
+            ),
+        }
+    }
+}
+
+pub fn name_problem(folder: &str, name: &str) -> Option<NameProblem> {
+    let Some(stem) = name
+        .strip_prefix(folder)
+        .and_then(|r| r.strip_prefix('/'))
+        .and_then(|f| f.strip_suffix(".yaml"))
+    else {
+        return Some(NameProblem::NotInFolder);
     };
-    let stem = file.strip_suffix(".yaml").unwrap_or("");
-    !stem.is_empty()
-        && stem.len() <= 100
-        && !is_device_name(stem)
+    let plain = !stem.is_empty()
         && !stem.contains("..")
         && !stem.starts_with(['.', '-'])
         && !stem.ends_with('.')
         && stem
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if !plain {
+        return Some(NameProblem::Characters);
+    }
+    if stem.len() > MAX_STEM {
+        return Some(NameProblem::TooLong);
+    }
+    is_device_name(stem).then_some(NameProblem::Reserved)
+}
+
+pub fn new_name_ok(folder: &str, name: &str) -> bool {
+    name_problem(folder, name).is_none()
+}
+
+pub fn exists_message(file: &str) -> String {
+    format!("{file} already exists; pick another file name")
+}
+
+pub fn case_clash_message(file: &str, other: &str) -> String {
+    format!(
+        "{file} and {other} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name"
+    )
 }
 
 pub fn new_name_problem(existing: &[&str], folder: &str, file: &str) -> Option<String> {
     if let Some(other) = existing.iter().find(|n| n.eq_ignore_ascii_case(file)) {
         return Some(if *other == file {
-            format!("{file} already exists; pick another file name")
+            exists_message(file)
         } else {
-            format!(
-                "{file} and {other} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name"
-            )
+            case_clash_message(file, other)
         });
     }
-    (!new_name_ok(folder, file)).then(|| {
-        format!(
-            "\"{file}\" is not a file name burrow can use; use {folder}/<name>.yaml with letters, digits, dots, dashes or underscores"
-        )
-    })
+    name_problem(folder, file).map(|p| p.message(folder, file))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_new_drop_in_name_says_what_is_wrong_with_it() {
-        let have = ["server.yaml", "server.d/apps.yaml"];
-        assert_eq!(
-            new_name_problem(&have, "server.d", "server.d/web.yaml"),
-            None
-        );
-        assert!(
-            new_name_problem(&have, "server.d", "server.d/apps.yaml")
-                .is_some_and(|m| m.contains("already exists"))
-        );
-        assert!(
-            new_name_problem(&have, "server.d", "server.d/Apps.yaml")
-                .is_some_and(|m| m.contains("differ only in upper and lower case"))
-        );
-        assert!(
-            new_name_problem(&have, "server.d", "server.d/my apps.yaml")
-                .is_some_and(|m| m.contains("is not a file name burrow can use"))
-        );
-    }
-
-    #[test]
-    fn a_drop_in_name_is_one_plain_file_in_the_folder() {
-        assert_eq!(folder_name("server.yaml"), "server.d");
-        assert_eq!(folder_name("home.json"), "home.d");
-        assert_eq!(
-            file_in("server.d", "server.d/my apps.yaml"),
-            Some("my apps.yaml")
-        );
-        for bad in [
-            "server.d/../x.yaml",
-            "server.d/a/b.yaml",
-            "server.d/a\\b.yaml",
-            "/etc/cron.d/x.yaml",
-            "server.d/..",
-            "server.d/.hidden.yaml",
-            "server.d/x.yml",
-            "server.d/c:x.yaml",
-            "other.d/x.yaml",
-            "server.d",
-            "server.d/a\nb.yaml",
-            "server.d/a\tb.yaml",
-            "server.d/a\u{7f}b.yaml",
-        ] {
-            assert_eq!(file_in("server.d", bad), None, "{bad}");
-        }
-        assert!(new_name_ok("server.d", "server.d/blog.yaml"));
-        assert!(!new_name_ok("server.d", "server.d/my apps.yaml"));
-        assert!(!new_name_ok("server.d", "server.d/com1.yaml"));
-    }
-}
+mod tests;

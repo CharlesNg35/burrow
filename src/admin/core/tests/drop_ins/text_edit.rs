@@ -142,9 +142,16 @@ fn a_new_file_name_is_checked_as_a_placed_item_s_is() {
     let set = Set::new(&[("apps.yaml", BLOG)]);
     let s = set.session(true);
     for (name, says) in [
-        ("server.d/../x.yaml", "is not a file name burrow can use"),
-        ("server.d/notes.txt", "is not a file name burrow can use"),
-        ("other/x.yaml", "is not a file name burrow can use"),
+        (
+            "server.d/../x.yaml",
+            "use only letters, digits, dots, dashes and underscores",
+        ),
+        (
+            "server.d/notes.txt",
+            "is not a drop-in file name; use server.d/<name>.yaml",
+        ),
+        ("other/x.yaml", "is not a drop-in file name"),
+        ("server.d/Con.yaml", "CON is a device name on Windows"),
         ("server.d/APPS.yaml", "differ only in upper and lower case"),
     ] {
         let e = set.plan(&s, &new_file(name, SHOP)).err().unwrap();
@@ -209,4 +216,79 @@ fn an_item_moved_into_a_new_drop_in_keeps_its_secret() {
     set.apply(&s, &ops).unwrap();
     let made = set.read(NEW).unwrap();
     assert!(made.contains(&set.w.home.encode()), "{made}");
+}
+
+#[test]
+fn search_reads_every_file_in_order_and_skips_one_that_does_not_parse() {
+    let set = Set::new(&[
+        ("apps.yaml", BLOG),
+        ("broken.yaml", "services: [\n  blog-x\n"),
+    ]);
+    let s = set.session(true);
+    let r = super::super::text_search::search(&set.core, &s, "blog", None);
+    let at: Vec<(&str, u32)> = r
+        .matches
+        .iter()
+        .map(|m| (m.file.as_str(), m.line))
+        .collect();
+    assert_eq!(at, [("server.d/apps.yaml", 1), ("server.d/apps.yaml", 3)]);
+    assert_eq!(r.unsearchable, ["server.d/broken.yaml"]);
+}
+
+#[test]
+fn a_new_name_may_not_differ_only_in_case_from_anything_in_the_folder_or_the_request() {
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let s = set.session(true);
+    std::fs::write(set.path("server.d/Notes.YAML"), "x").unwrap();
+    std::fs::create_dir(set.path("server.d/Dir.yaml")).unwrap();
+    for (name, existing) in [
+        ("server.d/notes.yaml", "server.d/Notes.YAML"),
+        ("server.d/dir.yaml", "server.d/Dir.yaml"),
+    ] {
+        let e = set.plan(&s, &new_file(name, SHOP)).err().unwrap();
+        assert_eq!(e.code, ErrorCode::BadRequest, "{name}: {}", e.message);
+        assert!(
+            e.message.contains(&format!(
+                "{name} and {existing} differ only in upper and lower case"
+            )),
+            "{name}: {}",
+            e.message
+        );
+    }
+    let two = vec![Op::ReplaceText {
+        files: vec![
+            TextFile {
+                name: "server.d/shop.yaml".into(),
+                text: SHOP.into(),
+            },
+            TextFile {
+                name: "server.d/Shop.yaml".into(),
+                text: "services: {}\n".into(),
+            },
+        ],
+    }];
+    let e = set.plan(&s, &two).err().unwrap();
+    assert!(
+        e.message.contains(
+            "server.d/Shop.yaml and server.d/shop.yaml differ only in upper and lower case"
+        ),
+        "{}",
+        e.message
+    );
+    let places = vec![
+        Op::Place {
+            path: vec!["services".into(), "blog".into()],
+            file: "server.d/a.yaml".into(),
+        },
+        Op::Place {
+            path: vec!["services".into(), "web".into()],
+            file: "server.d/A.yaml".into(),
+        },
+    ];
+    let e = set.plan(&s, &places).err().unwrap();
+    assert!(
+        e.message.contains("differ only in upper and lower case"),
+        "{}",
+        e.message
+    );
 }

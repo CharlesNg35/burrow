@@ -590,6 +590,7 @@ mod tests {
             req::HASH_PASSWORD,
             req::CHECK_TEXT,
             req::CONFIG_TEXT,
+            req::SEARCH_TEXT,
         ] {
             assert!(!w.offers(t), "a v0.1.2 server has no {t}");
         }

@@ -1,10 +1,11 @@
 //! The raw config editor's side of the admin core: each config file's text with its secrets masked, and edited texts back.
 //! Start at `config_text` for the files and `edited` for a `replace_text` op, which may also make new drop-ins;
-//! `schema` builds the editor's JSON Schemas, one for the main file and one for drop-ins.
+//! `schema` builds the editor's JSON Schemas, one for the main file and one for drop-ins; `search` finds text in the masked files.
 //! A placeholder is unmasked only where the current text had it, so it can never carry a secret to another field.
 
 mod mask;
 pub mod schema;
+mod search;
 mod spots;
 mod unmask;
 
@@ -21,6 +22,7 @@ use super::{ApiError, Core, plan, text, values};
 use crate::config::Format;
 use crate::config::docs::Docs;
 pub use mask::Ids;
+pub use search::search_text;
 
 pub struct TextEdit {
     ids: Ids,
@@ -150,21 +152,25 @@ fn sent(ops: &[Op]) -> Result<Option<&[TextFile]>, ApiError> {
 
 fn known(core: &Core, old: &Docs, files: &[TextFile]) -> Result<(), ApiError> {
     let prefix = crate::config::docs::drop_in_folder_name(core.store.path());
+    let mut all = old.list.clone();
     for (i, f) in files.iter().enumerate() {
-        if old.get(&f.name).is_none() {
-            plan::files::new_file(&old.list, &prefix, &f.name).map_err(|e| match e {
-                plan::files::WriteError::Bad(m) => ApiError::new(ErrorCode::BadRequest, m),
-                plan::files::WriteError::Patch(p) => {
-                    ApiError::new(ErrorCode::Internal, p.to_string())
-                }
-            })?;
-        }
         if files[..i].iter().any(|g| g.name == f.name) {
             return Err(ApiError::new(
                 ErrorCode::BadRequest,
                 format!("{} is sent twice", f.name),
             ));
         }
+        if old.get(&f.name).is_some() {
+            continue;
+        }
+        plan::files::new_file(&all, &prefix, &f.name).map_err(|e| match e {
+            plan::files::WriteError::Bad(m) => ApiError::new(ErrorCode::BadRequest, m),
+            plan::files::WriteError::Patch(p) => ApiError::new(ErrorCode::Internal, p.to_string()),
+        })?;
+        all.push(crate::config::docs::Doc {
+            name: f.name.clone(),
+            text: String::new(),
+        });
     }
     Ok(())
 }

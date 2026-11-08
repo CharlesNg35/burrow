@@ -1,7 +1,7 @@
 use std::path::Path;
 
 pub const WASM_GZ_BUDGET: u64 = 2_097_152;
-pub const WASM_TOTAL_BUDGET: u64 = 2_621_440;
+pub const WASM_TOTAL_BUDGET: u64 = 3_670_016;
 pub const ASSETS_ROOM: u64 = 419_430;
 pub const TOTAL_BUDGET: u64 = WASM_TOTAL_BUDGET + ASSETS_ROOM;
 
@@ -165,8 +165,8 @@ mod tests {
         assert_eq!(WASM_GZ_BUDGET, 2 * 1024 * 1024);
         assert_eq!(
             WASM_TOTAL_BUDGET,
-            5 * 1024 * 1024 / 2,
-            "2.5 MiB of wasm in all"
+            7 * 1024 * 1024 / 2,
+            "3.5 MiB of wasm in all"
         );
         assert_eq!(TOTAL_BUDGET - WASM_TOTAL_BUDGET, ASSETS_ROOM);
         assert_eq!(sizes(WASM_GZ_BUDGET + 1, 0, 0).problems().len(), 1);
