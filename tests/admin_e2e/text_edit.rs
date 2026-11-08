@@ -398,8 +398,8 @@ async fn cancel_asks_when_edited(c: &mut Ctx) {
 
 async fn a_change_on_the_server_shows_the_notice(c: &mut Ctx) {
     start(c).await;
-    replace_in(c, APPS, "target: 22", "target: 2222").await;
     show(c, APPS).await;
+    replace_in(c, APPS, "target: 22", "target: 2222").await;
     dirty(c, APPS, true).await;
     std::fs::write(
         c.world.file(APPS),
