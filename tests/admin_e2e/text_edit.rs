@@ -109,6 +109,90 @@ async fn burrow_problem(c: &Ctx, name: &str, words: &str) {
     .await;
 }
 
+const WATCH_CSP: &str = "(() => { if (!window.__csp) { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + (e.sample || e.blockedURI) + ' at ' + (e.sourceFile || '') + ':' + e.lineNumber), true); } return true; })()";
+
+async fn key(c: &Ctx, name: &str, key: &str, code: &str, mods: &str) {
+    let _: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const i = document.querySelector({}); i.focus(); i.dispatchEvent(new KeyboardEvent('keydown', {{ key: {}, code: {}, {mods} bubbles: true, cancelable: true }})); return true; }})()",
+            js(&input(name)),
+            js(key),
+            js(code)
+        ))
+        .await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
+}
+
+async fn caret_on(c: &Ctx, name: &str, word: &str) {
+    let ok: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const i = document.querySelector({}); const at = i.value.indexOf({}); if (at < 0) return false; i.focus(); i.setSelectionRange(at + 1, at + 1); i.dispatchEvent(new Event('select', {{ bubbles: true }})); i.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'ArrowRight', bubbles: true }})); return true; }})()",
+            js(&input(name)),
+            js(word)
+        ))
+        .await;
+    assert!(ok, "{name} has {word}");
+}
+
+async fn present(c: &Ctx, css: &str) -> bool {
+    c.ui.count(&format!("{EDITOR} {css}")).await > 0
+}
+
+async fn no_csp_violation(c: &mut Ctx) {
+    start(c).await;
+    replace_in(c, MAIN, "max_connections: 120", "max_connections: 121").await;
+    dirty(c, MAIN, true).await;
+    caret_on(c, MAIN, "max_connections").await;
+    key(c, MAIN, "k", "KeyK", "ctrlKey: true,").await;
+    key(c, MAIN, "i", "KeyI", "ctrlKey: true,").await;
+    let hover = present(c, ".config-editor__hover").await;
+    key(c, MAIN, "Escape", "Escape", "").await;
+    caret_on(c, MAIN, "max_connections").await;
+    key(c, MAIN, " ", "Space", "ctrlKey: true,").await;
+    let completions = present(c, ".config-editor__completions").await;
+    key(c, MAIN, "Escape", "Escape", "").await;
+    key(c, MAIN, "f", "KeyF", "ctrlKey: true,").await;
+    let find = present(
+        c,
+        ".config-editor__search-highlights, [role=search], .config-editor__find",
+    )
+    .await;
+    key(c, MAIN, "Escape", "Escape", "").await;
+    if present(c, ".config-editor__diff-change-trigger").await {
+        c.ui.click(&format!("{EDITOR} .config-editor__diff-change-trigger"))
+            .await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    let peek = present(c, ".config-editor__diff-peek").await;
+    if present(c, ".config-editor__fold-toggle").await {
+        c.ui.click(&format!("{EDITOR} .config-editor__fold-toggle"))
+            .await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    let folded = present(c, ".config-editor__fold-chip").await;
+    c.ui.shot("text-edit-tools").await;
+    let found: Vec<String> = c.ui.eval("window.__csp || []").await;
+    assert!(
+        found.is_empty(),
+        "the editor breaks burrow's Content Security Policy (hover {hover}, completions {completions}, find {find}, change preview {peek}, fold {folded}): {found:#?}"
+    );
+    let errors = c.ui.take_errors();
+    let csp = errors
+        .iter()
+        .filter(|e| e.contains("Content Security Policy") || e.contains("Refused to apply"))
+        .count();
+    assert!(
+        errors.is_empty(),
+        "the page logged errors with the editor open, {csp} of them about the Content Security Policy: {errors:#?}"
+    );
+    c.ui.click("[data-testid=file-cancel]").await;
+    c.ui.click("[data-testid=file-discard]").await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
+        .await;
+}
+
 fn placeholder_after(text: &str, key: &str) -> String {
     let at = text.find(key).expect("the key") + key.len();
     let rest = &text[at..];
@@ -332,9 +416,11 @@ async fn shots_plain(c: &mut Ctx, step: &str) {
 fn text_edit(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
+        let _: bool = c.ui.eval(WATCH_CSP).await;
         let tool_before = std::fs::read_to_string(c.world.file(TOOL)).expect("tool.yaml");
         opens_with_one_tab_per_file(c).await;
         edit_review_apply(c, &tool_before).await;
+        no_csp_violation(c).await;
         a_moved_placeholder_is_refused(c, &tool_before).await;
         cancel_asks_when_edited(c).await;
         a_change_on_the_server_shows_the_notice(c).await;
