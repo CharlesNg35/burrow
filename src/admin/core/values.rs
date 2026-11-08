@@ -80,6 +80,14 @@ fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
     }
 }
 
+pub fn secret_field(node: Option<&Node>, key: &str, is_name: bool) -> bool {
+    is_secret(node) || (!is_name && secretish(key) && !is_path(node))
+}
+
+pub fn hidden_field(node: Option<&Node>, key: &str, is_name: bool) -> bool {
+    is_hash(node) || secret_field(node, key, is_name)
+}
+
 pub fn fingerprint_of(raw: &str, env: &dyn EnvSource) -> Option<String> {
     secret_info(raw, env).fp
 }
@@ -119,7 +127,7 @@ fn present_at(
     if is_hash(node) && v.is_string() {
         return value::hash();
     }
-    if is_secret(node) || (!is_name && secretish(key) && !is_path(node)) {
+    if secret_field(node, key, is_name) {
         return present_secret(v, env);
     }
     match v {
@@ -196,11 +204,20 @@ pub fn veil_value(v: &Value, hashes: &[String]) -> Value {
     }
 }
 
+fn written_secret(node: Option<&Node>, s: &str) -> bool {
+    use burrow_syntax::env::{FILE_REF, is_reference as written_reference};
+    if s.is_empty() || Secret::parse(s).is_ok() {
+        return false;
+    }
+    if is_reference(node) {
+        return !written_reference(s);
+    }
+    is_secret(node) && !(written_reference(s) && !s.trim().starts_with(FILE_REF))
+}
+
 fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String, String)>) {
     match v {
-        Value::String(s)
-            if is_reference(node) && !s.is_empty() && !burrow_syntax::env::is_reference(s) =>
-        {
+        Value::String(s) if written_secret(node, s) => {
             out.push((key.to_string(), s.clone()));
         }
         Value::Object(m) => m
@@ -209,6 +226,7 @@ fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String,
         Value::Array(items) => {
             let item = match node.map(|n| &n.sem) {
                 Some(SemType::List(l)) => Some(&*l.item),
+                _ if is_secret(node) => node,
                 _ => None,
             };
             items.iter().for_each(|i| credentials(i, item, key, out));
@@ -233,7 +251,7 @@ pub fn veil_written(v: &Value, pairs: &[(String, String)]) -> Value {
 pub const HEADER_SHOWN: &str = "«hidden»";
 pub const HEADER_CHANGED: &str = "«hidden, changed»";
 
-fn header_map(key: &str) -> bool {
+pub fn header_map(key: &str) -> bool {
     [WebSite::REQUEST_HEADERS, WebSite::RESPONSE_HEADERS]
         .iter()
         .any(|f| f.key() == key)

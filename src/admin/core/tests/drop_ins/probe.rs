@@ -21,7 +21,7 @@ use model::{gen_change, ui_order};
 const SECTIONS: [&str; 3] = ["services", "clients", "visitors"];
 const MAIN: &str = "server.yaml";
 
-struct Rng(u64);
+pub(in crate::admin::core::tests) struct Rng(pub(in crate::admin::core::tests) u64);
 impl Rng {
     fn step(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -30,10 +30,10 @@ impl Rng {
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
     }
-    fn below(&mut self, n: usize) -> usize {
+    pub(in crate::admin::core::tests) fn below(&mut self, n: usize) -> usize {
         (self.step() % n.max(1) as u64) as usize
     }
-    fn chance(&mut self, pct: u64) -> bool {
+    pub(in crate::admin::core::tests) fn chance(&mut self, pct: u64) -> bool {
         self.step() % 100 < pct
     }
     fn pick<'a, T>(&mut self, v: &'a [T]) -> Option<&'a T> {

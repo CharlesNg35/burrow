@@ -324,6 +324,8 @@ mod tests {
             help: None,
             line: None,
             col: None,
+            end_line: None,
+            end_col: None,
             before: false,
             subjects: Vec::new(),
             file: None,

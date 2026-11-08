@@ -38,6 +38,10 @@ pub struct Diag {
     pub line: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub col: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_col: Option<u32>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub before: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -503,6 +503,7 @@ dependencies = [
  "hyper-util",
  "image",
  "insta",
+ "jsonschema",
  "libc",
  "mimalloc",
  "nix",

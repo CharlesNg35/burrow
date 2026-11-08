@@ -159,13 +159,16 @@ What the pages do, and what stays a file edit:
   - **Config file.**
 
   The search and the All, Needs a restart and Changed filters above them look through every tab, and each tab says how many of its settings match, are changed or are locked.
-- **Config file** shows the server's config as YAML, view only, for read and write admins alike.
+- **Config file** shows the server's config as YAML, for read and write admins alike.
   - With [drop-in files](#drop-in-files) it shows the whole config the server reads: server.yaml first, then each drop-in's services, clients and visitors under a `# from server.d/<file>` line.
   - It shows the keys the files set; **Show defaults too** adds every default in effect.
   - Secrets never show: each one reads as its fingerprint, like `«secret 3f2a9c1d»`, or as the `${ENV}` name it comes from, and a password hash reads `«password hash»`. This is the same view `burrow mcp` gives with `get_config`.
   - **Copy** and **Download** take that same text; the download is named like `server.redacted.yaml`, because it is not a working config without the secrets.
   - When the running server differs from the file, a note at the top links to Needs attention. That is when the file has errors, a change waits for a restart, or something in it could not be opened.
-  - Change the config in the other tabs, on the entity pages or with `burrow edit`.
+  - **Edit** (write admins, servers from v0.2.4) opens the files as text, one tab per file: server.yaml and each drop-in. A file read-only on disk says why and stays as it is.
+    - Each secret reads as a placeholder like `«secret 3f2a9c1d»`; leave it to keep the secret, or type a new value over it. A placeholder works only in the field it came from, also when you move the item to another file; anywhere else the change is refused, naming the file, line and field. `${VAR}` and `file:` references show as written.
+    - Problems show as you type, the server's own a moment later. **Review changes** (or Ctrl+S) opens Review with a diff per file; the two locked settings below are refused here too.
+  - Change the config also in the other tabs, on the entity pages or with `burrow edit`.
 - Two settings are shown but are changed only in server.yaml on the server: a DNS provider's `command`, which runs a program on the server, and `update.remote`, which only root turns on. The server refuses changes to them. Every other setting, file paths included, is changed here.
 - Moving `listen` is checked like a web port and takes effect when the server restarts. Turning off encryption of forwarded data (`insecure_plaintext`) reconnects every client. Review asks you to type the setting's name for both.
 - The access log is turned on here with a file in the server's own folders: its state folder, or its log folder when it runs as a service. A file anywhere else is set in server.yaml, because a log line holds text a visitor chose, and a shell's startup file there could run it.

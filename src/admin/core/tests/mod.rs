@@ -5,6 +5,7 @@
 
 mod check_text;
 mod drop_ins;
+mod editor_schema;
 mod files;
 #[cfg(feature = "web")]
 mod headers;
@@ -25,6 +26,7 @@ mod restart;
 mod reverts;
 mod snippets;
 mod status;
+mod text_edit;
 mod uploads;
 mod view;
 #[cfg(feature = "web")]

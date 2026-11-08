@@ -13,6 +13,7 @@ pub mod msg;
 pub mod older;
 pub mod ops;
 pub mod plan;
+pub mod requests;
 pub mod schema;
 pub mod status;
 pub mod text_edit;

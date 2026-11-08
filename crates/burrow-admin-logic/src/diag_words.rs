@@ -57,6 +57,8 @@ mod tests {
         "only in client.yaml or visitor.yaml, which the admin UI does not edit";
     const FILE_LOAD: &str = "a file that does not load at all; the admin UI shows it with its line and column, as burrow validate does";
     const PLAIN: &str = "already a plain sentence about this server";
+    const TEXT_EDITOR: &str =
+        "only in the Config file editor, which shows it at the placeholder with its file and line";
     const IMPACT: &str = "an impact or confirm line the server writes in plain words for Review";
     const REFUSED: &str =
         "a refusal or admin-only check the server writes as a plain sentence about this change";
@@ -255,6 +257,7 @@ mod tests {
         out.extend(server_lines());
         out.extend(["x", "unknown-client"].map(|c| (c, TEST_ONLY)));
         out.push((burrow_admin_proto::codes::OLDER_ADMIN, OLDER_UI));
+        out.push((burrow_admin_proto::codes::SECRET_PLACEHOLDER, TEXT_EDITOR));
         out
     }
 

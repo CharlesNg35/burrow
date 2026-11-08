@@ -124,7 +124,8 @@ pub(super) fn new_document(
     };
     let mut kept = Vec::new();
     let (new_docs, reformat) = match &applied.document {
-        Some(doc) => {
+        Some(ops::Document::Edited(doc)) => (doc.clone(), None),
+        Some(ops::Document::Restored(doc)) => {
             let (target, notes) = keep_locked(&core.schema, raw, &applied.target);
             kept = notes;
             let docs = if kept.is_empty() {
@@ -281,6 +282,8 @@ fn listen_clash(c: crate::config::settings::ListenClash) -> Diag {
         help: Some("restart the server after changing listen, then use the old address".into()),
         line: None,
         col: None,
+        end_line: None,
+        end_col: None,
         before: false,
         subjects: Vec::new(),
         file: None,

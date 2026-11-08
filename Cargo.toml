@@ -110,6 +110,7 @@ chromiumoxide = { version = "=0.9.1", default-features = false }
 h2 = "0.4.20"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"
+jsonschema = { version = "0.60", default-features = false }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem", "crypto"] }
 rmcp = { version = "3.7.0", default-features = false, features = ["client", "transport-child-process"] }
 tempfile = "3.27.0"

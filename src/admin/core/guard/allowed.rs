@@ -70,6 +70,8 @@ pub fn not_allowed(
                 )),
                 line: None,
                 col: None,
+                end_line: None,
+                end_col: None,
                 before: false,
                 file: None,
             });

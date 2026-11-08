@@ -127,6 +127,7 @@ pub struct Computed {
 struct Cx<'a> {
     core: &'a Core,
     session: &'a Session,
+    edited: Option<&'a Docs>,
 }
 
 impl ops::Context for Cx<'_> {
@@ -141,6 +142,9 @@ impl ops::Context for Cx<'_> {
     }
     fn env(&self) -> &dyn crate::config::env::EnvSource {
         &*self.core.env
+    }
+    fn edited(&self) -> Option<&Docs> {
+        self.edited
     }
 }
 
@@ -217,12 +221,21 @@ pub fn compute(
     let raw = parse_current(&old_docs)?;
     refuse_locked(core, ops_list)?;
     locks::refuse_misplaced_passwords(core, ops_list)?;
-    let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
-        .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
+    let edited = super::text_edit::edited(core, &old_docs, ops_list)?;
+    let cx = Cx {
+        core,
+        session: s,
+        edited: edited.as_ref().map(|e| &e.docs),
+    };
+    let applied =
+        ops::apply(&raw, ops_list, &cx).map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
     let (new_docs, reformat, kept) = new_document(core, &raw, &old_docs, &applied)?;
     refuse_files(core, s, &old_docs, &new_docs)?;
     let checked = check_docs(core, &new_docs);
-    let new_raw = new_docs.tree().map(|n| n.to_json()).unwrap_or(Value::Null);
+    let new_raw = new_docs
+        .tree()
+        .map(|n| n.to_json())
+        .unwrap_or_else(|_| raw.clone());
     refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
     let file = check_docs(core, &old_docs);
@@ -235,7 +248,11 @@ pub fn compute(
     };
     let mut v = judge(core, s, &d, &running, &file, &checked);
     v.impacts.extend(kept);
-    let plan = assemble(core, base, &d, checked, file, v, reformat);
+    let mut plan = assemble(core, base, &d, checked, file, v, reformat);
+    if let Some(e) = &edited {
+        e.place(&mut plan.diags);
+        e.note(&old_docs, &mut plan.changes);
+    }
     Ok(Computed {
         plan,
         old_docs,

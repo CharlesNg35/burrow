@@ -273,6 +273,7 @@ pub fn apply(root: &Value, ops: &[Op]) -> Value {
                 }
             }
             Op::ReplaceDocument { .. }
+            | Op::ReplaceText { .. }
             | Op::SetText { .. }
             | Op::Place { .. }
             | Op::DropFile { .. }
