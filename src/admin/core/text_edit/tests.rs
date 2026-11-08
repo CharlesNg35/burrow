@@ -179,7 +179,9 @@ fn a_placeholder_anywhere_but_its_own_field_is_refused_and_named() {
     let unknown = m.text.replace(&home, &placeholder("0badf00d"));
     let msg = refused(&unknown, &m);
     assert!(
-        msg.contains("«secret 0badf00d» stands for no current secret"),
+        msg.contains(
+            "«secret 0badf00d» stands for no current secret (the server may have restarted: reload the text), or type the secret"
+        ),
         "{msg}"
     );
     let partial = m
@@ -218,9 +220,137 @@ fn a_comment_placeholder_may_move_to_another_comment() {
 #[test]
 fn ids_of_burrow_secrets_are_their_fingerprints_and_others_reveal_nothing() {
     let (one, two) = (Ids::default(), Ids::default());
+    let at = super::spots::Place::Field(vec!["clients".into(), "a".into(), "secret".into()]);
     let s = Secret::generate();
-    assert_eq!(one.of(&s.encode()), s.fingerprint());
-    assert_eq!(one.of("hunter2"), one.of("hunter2"));
-    assert_ne!(one.of("hunter2"), two.of("hunter2"));
-    assert!(one.of("hunter2").len() == 8);
+    assert_eq!(one.of(&at, &s.encode()), s.fingerprint());
+    assert_eq!(one.of(&at, "hunter2"), one.of(&at, "hunter2"));
+    assert_ne!(one.of(&at, "hunter2"), two.of(&at, "hunter2"));
+    assert!(one.of(&at, "hunter2").len() == 8);
+}
+
+fn reads(text: &str, path: &[&str]) -> serde_json::Value {
+    let tree = crate::config::tree::parse(text).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+    let path: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+    burrow_admin_proto::value::get(&tree.to_json(), &path)
+        .cloned()
+        .unwrap_or_else(|| panic!("nothing at {path:?} in\n{text}"))
+}
+
+#[test]
+fn a_restored_secret_reads_back_as_the_same_value_wherever_it_now_stands() {
+    let ids = Ids::default();
+    let site = "services:\n  web:\n    client: home\n    target: 1\n    web:\n      hosts: [a.example.com]\n";
+    let header = "Digest username=bob, response=LEAKPART9";
+    let hash = "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2g";
+    let mut cases: Vec<(String, String, Vec<&str>, serde_json::Value)> = vec![
+        (
+            format!("{site}      request_headers:\n        Authorization: {header}\n"),
+            format!("{site}      request_headers: {{ Authorization: @ }}\n"),
+            vec!["services", "web", "web", "request_headers", "Authorization"],
+            serde_json::json!(header),
+        ),
+        (
+            format!("{site}      basic_auth:\n        bob: {hash}\n"),
+            format!("{site}      basic_auth: {{ bob: @ }}\n"),
+            vec!["services", "web", "web", "basic_auth", "bob"],
+            serde_json::json!(hash),
+        ),
+    ];
+    let one = |v: &str| serde_json::json!(v);
+    for (written, value) in [
+        ("hunter2,LEAKC7", "hunter2,LEAKC7"),
+        ("p#ss:w]rd}", "p#ss:w]rd}"),
+        ("part one\n      part two", "part one part two"),
+        ("-x, ?y", "-x, ?y"),
+    ] {
+        let original = format!("clients:\n  home:\n    secret: {written}\n");
+        for layout in [
+            "clients:\n  home: { secret: @ }\n",
+            "clients:\n  home: { secret: [@] }\n",
+            "clients:\n  home:\n    secret: [@, x2]\n",
+        ] {
+            let path = if layout.contains('[') {
+                vec!["clients", "home", "secret", "0"]
+            } else {
+                vec!["clients", "home", "secret"]
+            };
+            cases.push((original.clone(), layout.into(), path, one(value)));
+        }
+    }
+    for lead in ["&", "*", "!", "%", "@", "`", "- ", "? "] {
+        for quote in ['"', '\''] {
+            let original =
+                format!("clients:\n  home:\n    secret: {quote}{lead}abc, LEAKQ{quote}\n");
+            for layout in [
+                "clients:\n  home: { secret: @ }\n",
+                "clients:\n  home:\n    secret: @\n",
+            ] {
+                let value = one(&format!("{lead}abc, LEAKQ"));
+                cases.push((
+                    original.clone(),
+                    layout.into(),
+                    vec!["clients", "home", "secret"],
+                    value,
+                ));
+            }
+        }
+    }
+    for (original, layout, path, want) in cases {
+        let m = masked(&original, false, &ids);
+        let found = burrow_admin_proto::text_edit::placeholders_in(&m.text);
+        assert_eq!(found.len(), 1, "{}", m.text);
+        let p = m.text[found[0].0.clone()].to_string();
+        let sent = layout.replace('@', &p);
+        let got = back(&sent, &m).unwrap_or_else(|e| panic!("{sent}: {e:#?}"));
+        assert_eq!(
+            reads(&got, &path),
+            want,
+            "from\n{original}sent\n{sent}got\n{got}"
+        );
+    }
+}
+
+#[test]
+fn a_scalar_secret_turned_into_a_list_keeps_it_and_back() {
+    let ids = Ids::default();
+    let text = "clients:\n  home:\n    secret: hunter2-x\n";
+    let m = masked(text, false, &ids);
+    let p = &m.text[burrow_admin_proto::text_edit::placeholders_in(&m.text)[0]
+        .0
+        .clone()];
+    let sent = m.text.replace(p, &format!("[{p}, \"n3w-secret\"]"));
+    let got = back(&sent, &m).unwrap_or_else(|e| panic!("{e:#?}"));
+    assert_eq!(
+        reads(&got, &["clients", "home", "secret"]),
+        serde_json::json!(["hunter2-x", "n3w-secret"])
+    );
+    let list = "clients:\n  home:\n    secret:\n      - old-one-1\n      - new-one-2\n";
+    let m = masked(list, false, &ids);
+    let found = burrow_admin_proto::text_edit::placeholders_in(&m.text);
+    let second = m.text[found[1].0.clone()].to_string();
+    let sent = format!("clients:\n  home:\n    secret: {second}\n");
+    let got = back(&sent, &m).unwrap_or_else(|e| panic!("{e:#?}"));
+    assert_eq!(
+        reads(&got, &["clients", "home", "secret"]),
+        serde_json::json!("new-one-2")
+    );
+}
+
+#[test]
+fn other_values_get_ids_of_their_own_field_and_burrow_secrets_their_fingerprint() {
+    let ids = Ids::default();
+    let s = Secret::generate();
+    let text = format!(
+        "clients:\n  a:\n    secret: hunter2-same\n  b:\n    secret: hunter2-same\n  c:\n    secret: {e}\n  d:\n    secret: {e}\n",
+        e = s.encode()
+    );
+    let m = masked(&text, false, &ids);
+    let found: Vec<&str> = burrow_admin_proto::text_edit::placeholders_in(&m.text)
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
+    assert_ne!(found[0], found[1], "{}", m.text);
+    assert_eq!(found[2], s.fingerprint());
+    assert_eq!(found[3], s.fingerprint());
+    assert_eq!(back(&m.text, &m).unwrap(), text);
 }

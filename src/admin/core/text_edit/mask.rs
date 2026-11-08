@@ -21,12 +21,15 @@ impl Default for Ids {
 }
 
 impl Ids {
-    pub fn of(&self, value: &str) -> String {
+    pub fn of(&self, place: &Place, value: &str) -> String {
         if let Ok(s) = Secret::parse(value) {
             return s.fingerprint();
         }
         let mut mac =
             <blake2::Blake2sMac256 as KeyInit>::new_from_slice(&self.key).expect("a 32-byte key");
+        let place = place.key();
+        mac.update(&(place.len() as u64).to_be_bytes());
+        mac.update(place.as_bytes());
         mac.update(value.as_bytes());
         hex::encode(&mac.finalize().into_bytes()[..4])
     }
@@ -122,7 +125,7 @@ pub fn mask(text: &str, json: bool, root: &SchemaNode, ids: &Ids) -> Result<Mask
             continue;
         }
         let written = &body[s.range.clone()];
-        let id = ids.of(&s.value);
+        let id = ids.of(&s.place, &s.value);
         let token = match s.place {
             Place::Comment => placeholder(&id),
             Place::Field(_) => Style::of(written).token(&id, json),

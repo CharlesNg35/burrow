@@ -25,13 +25,26 @@ pub struct Spot {
 struct Walk<'a> {
     body: &'a str,
     path: Vec<String>,
-    place: Vec<String>,
+    place: Vec<Option<String>>,
     out: Vec<Spot>,
+}
+
+pub fn field_place(place: &[Option<String>]) -> Place {
+    Place::Field(place.iter().flatten().cloned().collect())
+}
+
+impl Place {
+    pub fn key(&self) -> String {
+        match self {
+            Place::Field(p) => p.join("\u{0}"),
+            Place::Comment => "#".into(),
+        }
+    }
 }
 
 impl Walk<'_> {
     fn enter(&mut self, key: String, item: bool) {
-        self.place.push(if item { "*".into() } else { key.clone() });
+        self.place.push((!item).then(|| key.clone()));
         self.path.push(key);
     }
 
@@ -42,7 +55,7 @@ impl Walk<'_> {
 
     fn spot(&mut self, n: &Node) {
         self.out.push(Spot {
-            place: Place::Field(self.place.clone()),
+            place: field_place(&self.place),
             path: self.path.clone(),
             range: scalar_range(n, self.body),
             value: scalar_text(n),
@@ -123,7 +136,7 @@ fn env_only(s: &str) -> bool {
     is_reference(s) && !s.trim().starts_with(FILE_REF)
 }
 
-fn scalar_text(n: &Node) -> String {
+pub fn scalar_text(n: &Node) -> String {
     match &n.value {
         Value::Str(s) => s.clone(),
         Value::Int(i) => i.to_string(),

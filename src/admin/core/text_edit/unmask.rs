@@ -5,7 +5,7 @@ use burrow_admin_proto::diag::{Diag, Severity};
 use burrow_admin_proto::text_edit::{placeholder, placeholders_in};
 
 use super::mask::{Style, Table, indent_at, split_bom};
-use super::spots::{Place, comments, scalar_range};
+use super::spots::{Place, comments, field_place, scalar_range, scalar_text};
 use crate::config::tree::{self, Node, Value};
 
 #[derive(Debug, Clone)]
@@ -22,13 +22,19 @@ pub struct Shift {
     moves: Vec<Move>,
 }
 
+struct Found {
+    at: Range<usize>,
+    text: String,
+    value: Option<String>,
+}
+
 struct Visit<'a> {
     file: &'a str,
     body: &'a str,
     table: &'a Table,
     path: Vec<String>,
-    place: Vec<String>,
-    found: Vec<(Range<usize>, String)>,
+    place: Vec<Option<String>>,
+    found: Vec<Found>,
     problems: Vec<Diag>,
 }
 
@@ -84,7 +90,7 @@ impl Visit<'_> {
             Value::Map(entries) => {
                 for e in entries {
                     self.path.push(e.key.clone());
-                    self.place.push(e.key.clone());
+                    self.place.push(Some(e.key.clone()));
                     if !placeholders_in(&e.key).is_empty() {
                         let at = e.key_span.start.offset..e.key_span.end.offset;
                         self.problem(at, "a secret placeholder cannot be a key".into());
@@ -97,7 +103,7 @@ impl Visit<'_> {
             Value::Seq(items) => {
                 for (i, it) in items.iter().enumerate() {
                     self.path.push(i.to_string());
-                    self.place.push("*".into());
+                    self.place.push(None);
                     self.walk(it);
                     self.path.pop();
                     self.place.pop();
@@ -119,12 +125,16 @@ impl Visit<'_> {
             self.problem(at, why.into());
             return;
         }
-        let key = (Place::Field(self.place.clone()), id.to_string());
+        let key = (field_place(&self.place), id.to_string());
         match self.table.get(&key) {
             Some(k) => {
                 let style = Style::of(&self.body[at.clone()]);
                 let text = k.written_for(style, indent_at(self.body, at.start));
-                self.found.push((at, text));
+                self.found.push(Found {
+                    at,
+                    text,
+                    value: Some(k.value.clone()),
+                });
             }
             None => {
                 let why = match self
@@ -137,7 +147,7 @@ impl Visit<'_> {
                         k.path.join(".")
                     ),
                     None => format!(
-                        "{} stands for no current secret; type the secret instead",
+                        "{} stands for no current secret (the server may have restarted: reload the text), or type the secret",
                         placeholder(id)
                     ),
                 };
@@ -151,7 +161,11 @@ impl Visit<'_> {
             for (r, id) in placeholders_in(&self.body[c.clone()]) {
                 let at = c.start + r.start..c.start + r.end;
                 match self.table.get(&(Place::Comment, id.to_string())) {
-                    Some(k) => self.found.push((at, k.written.clone())),
+                    Some(k) => self.found.push(Found {
+                        at,
+                        text: k.written.clone(),
+                        value: None,
+                    }),
                     None => {
                         let why = format!(
                             "{} in a comment stands for no current secret; remove it",
@@ -191,22 +205,84 @@ pub fn unmask(file: &str, text: &str, table: &Table) -> Result<(String, Shift), 
         return Err(v.problems);
     }
     let mut found = v.found;
-    found.sort_by_key(|(r, _)| r.start);
-    let mut done = String::with_capacity(body.len());
-    let mut at = 0;
-    for (r, written) in found {
-        done.push_str(&body[at..r.start]);
-        let start = done.len();
-        done.push_str(&written);
-        shift.moves.push(Move {
-            done: start..done.len(),
-            sent: r.clone(),
-        });
-        at = r.end;
+    found.sort_by_key(|f| f.at.start);
+    let mut moves = build(body, &found);
+    let wrong = misread(&moves.0, &moves.1, &found);
+    if !wrong.is_empty() {
+        for i in wrong {
+            let value = found[i].value.clone().unwrap_or_default();
+            found[i].text = serde_json::to_string(&value).unwrap_or_default();
+        }
+        moves = build(body, &found);
+        if !misread(&moves.0, &moves.1, &found).is_empty() {
+            return Err(vec![v_problem(file, body)]);
+        }
     }
-    done.push_str(&body[at..]);
+    let (done, list) = moves;
+    shift.moves = list;
     shift.done = done.clone();
     Ok((format!("{bom}{done}"), shift))
+}
+
+fn build(body: &str, found: &[Found]) -> (String, Vec<Move>) {
+    let mut done = String::with_capacity(body.len());
+    let mut moves = Vec::new();
+    let mut at = 0;
+    for f in found {
+        done.push_str(&body[at..f.at.start]);
+        let start = done.len();
+        done.push_str(&f.text);
+        moves.push(Move {
+            done: start..done.len(),
+            sent: f.at.clone(),
+        });
+        at = f.at.end;
+    }
+    done.push_str(&body[at..]);
+    (done, moves)
+}
+
+fn scalars(n: &Node, body: &str, out: &mut Vec<(Range<usize>, String)>) {
+    match &n.value {
+        Value::Map(entries) => entries.iter().for_each(|e| scalars(&e.value, body, out)),
+        Value::Seq(items) => items.iter().for_each(|i| scalars(i, body, out)),
+        _ => out.push((scalar_range(n, body), scalar_text(n))),
+    }
+}
+
+fn misread(done: &str, moves: &[Move], found: &[Found]) -> Vec<usize> {
+    let Ok(tree) = tree::parse(done) else {
+        return (0..found.len())
+            .filter(|i| found[*i].value.is_some())
+            .collect();
+    };
+    let mut all = Vec::new();
+    scalars(&tree, done, &mut all);
+    let reads = |m: &Move, value: &str| all.iter().any(|(r, s)| *r == m.done && s == value);
+    found
+        .iter()
+        .zip(moves)
+        .enumerate()
+        .filter(|(_, (f, m))| f.value.as_deref().is_some_and(|v| !reads(m, v)))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+fn v_problem(file: &str, body: &str) -> Diag {
+    let mut v = Visit {
+        file,
+        body,
+        table: &Table::new(),
+        path: Vec::new(),
+        place: Vec::new(),
+        found: Vec::new(),
+        problems: Vec::new(),
+    };
+    v.problem(
+        0..0,
+        "a secret could not be put back where its placeholder stands; write the value on its own line".into(),
+    );
+    v.problems.remove(0)
 }
 
 impl Shift {
