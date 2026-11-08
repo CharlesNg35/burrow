@@ -1,42 +1,13 @@
 use std::path::{Path, PathBuf};
 
 pub const CRATE: &str = "config-editor-leptos";
-const DEFINED_IN: &str = "src/editor.rs";
-const CONSTANT: &str = "pub const PRESET_CSS: &str = concat!(";
+const SHIPPED: &str = "preset.css";
 
-const INCLUDE: &str = "include_str!(\"";
-
-pub fn parts(source: &str, origin: &str) -> Result<Vec<String>, String> {
-    let at = source.find(CONSTANT).ok_or_else(|| {
-        format!("{CRATE} ({origin}): {DEFINED_IN} no longer defines PRESET_CSS as a concat!")
-    })?;
-    let rest = &source[at + CONSTANT.len()..];
-    let body = &rest[..rest
-        .find(");")
-        .ok_or_else(|| format!("{CRATE} ({origin}): PRESET_CSS has no end"))?];
-    let mut names = Vec::new();
-    let mut left = body;
-    loop {
-        left = left.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
-        if left.is_empty() {
-            break;
-        }
-        let call = left.strip_prefix(INCLUDE).and_then(|r| r.split_once("\")"));
-        let Some((name, after)) = call.filter(|(n, _)| !n.contains('"')) else {
-            let shown: String = left.chars().take(60).collect();
-            return Err(format!(
-                "{CRATE} ({origin}): PRESET_CSS holds more than include_str! calls, so editor.css would miss it: {shown}"
-            ));
-        };
-        names.push(name.to_string());
-        left = after;
+pub fn checked(css: String, origin: &str) -> Result<String, String> {
+    if css.trim().is_empty() {
+        return Err(format!("{CRATE} ({origin}): {SHIPPED} is empty"));
     }
-    if names.is_empty() {
-        return Err(format!(
-            "{CRATE} ({origin}): PRESET_CSS includes no stylesheet"
-        ));
-    }
-    Ok(names)
+    Ok(css)
 }
 
 fn crate_dir(root: &Path) -> Result<(PathBuf, String), String> {
@@ -83,70 +54,39 @@ fn crate_dir(root: &Path) -> Result<(PathBuf, String), String> {
 
 pub fn preset(root: &Path) -> Result<String, String> {
     let (dir, origin) = crate_dir(root)?;
-    let read =
-        |p: PathBuf| std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()));
-    let source = read(dir.join(DEFINED_IN))?;
-    let src = dir.join("src");
-    let mut css = String::new();
-    for name in parts(&source, &origin)? {
-        css.push_str(&read(src.join(name))?);
-    }
-    Ok(css)
+    let path = dir.join(SHIPPED);
+    let css = std::fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "{CRATE} ({origin}) ships no {SHIPPED} at {}: {e}; the editor's styles need it under the strict CSP",
+            path.display()
+        )
+    })?;
+    checked(css, &origin)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const REV: &str = "git+https://github.com/paradoxe35/config-editor?rev=70991fa#70991fa";
-
-    fn constant(body: &str) -> String {
-        format!("/// x\n{CONSTANT}{body});\nconst OTHER: &str = include_str!(\"other.css\");\n")
-    }
-
     #[test]
-    fn the_stylesheets_come_in_the_order_of_the_constant() {
-        let source = constant(
-            "\n    include_str!(\"preset.css\"),\n    include_str!(\"themes.css\"),\n    include_str!(\"documents.css\")\n",
+    fn an_empty_stylesheet_is_refused_with_the_crate_source() {
+        let origin = "git+https://github.com/paradoxe35/config-editor?rev=597ee22#597ee22";
+        assert_eq!(
+            checked(".config-editor { color: red }".into(), origin),
+            Ok(".config-editor { color: red }".to_string())
         );
         assert_eq!(
-            parts(&source, REV).unwrap(),
-            ["preset.css", "themes.css", "documents.css"]
-        );
-        assert_eq!(
-            parts(&constant("include_str!(\"a.css\"),"), REV).unwrap(),
-            ["a.css"]
+            checked(" \n".into(), origin),
+            Err(format!("{CRATE} ({origin}): preset.css is empty"))
         );
     }
 
     #[test]
-    fn anything_but_include_str_calls_is_refused_with_the_crate_source() {
-        for body in [
-            "include_str!(\"a.css\"), \"b { color: red }\"",
-            "\"inline\"",
-            "include_str!(\"a.css\"), env!(\"X\")",
-            "include_str!(concat!(\"a\", \".css\"))",
-            "include_str!(\"a.css\") // note",
-        ] {
-            let e = parts(&constant(body), REV).expect_err(body);
-            assert!(
-                e.starts_with(&format!(
-                    "{CRATE} ({REV}): PRESET_CSS holds more than include_str! calls"
-                )),
-                "{e}"
-            );
-        }
-        let e = parts(&constant("include_str!(\"a.css\"), \"x\""), REV).unwrap_err();
-        assert!(e.ends_with(": \"x\""), "the unexpected text is shown: {e}");
-        assert!(
-            parts(&constant(""), REV)
-                .unwrap_err()
-                .ends_with("includes no stylesheet")
-        );
-        assert!(
-            parts("pub const PRESET_CSS: &str = \"\";", REV)
-                .unwrap_err()
-                .contains("no longer defines PRESET_CSS")
-        );
+    fn the_locked_editor_ships_its_stylesheet() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repo");
+        let css = preset(root).expect("preset.css of the locked editor");
+        assert!(css.contains(".config-editor"), "it styles the editor");
     }
 }
