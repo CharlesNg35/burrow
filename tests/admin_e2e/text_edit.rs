@@ -963,6 +963,14 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
         .eval("(() => 'editing ' + document.querySelector('[data-testid=config-file]').dataset.editing + ' dialogs ' + [...document.querySelectorAll('[role=dialog], dialog[open]')].map(d => d.outerHTML.slice(0, 300)).join(' | ') + ' cancel ' + document.querySelector('[data-testid=file-cancel]').outerHTML.slice(0, 300) + ' cancel-dialog ' + document.querySelectorAll('[data-testid=file-cancel-dialog]').length + ' review ' + !document.querySelector('[data-testid=file-review]').disabled)()")
         .await;
     println!("after cancel: {after}; errors: {:?}", c.ui.take_errors());
+    let dirty = c.ui.attr_of(CARD, "data-dirty").await;
+    js_click(c, "[data-testid=file-cancel]").await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    println!(
+        "dirty {dirty}; after a JS click: editing {}, cancel dialog {}",
+        c.ui.attr_of(CARD, "data-editing").await,
+        c.ui.count("[data-testid=file-cancel-dialog]").await
+    );
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
 }
