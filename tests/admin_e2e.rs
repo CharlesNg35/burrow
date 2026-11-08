@@ -83,6 +83,8 @@ mod table_shots;
 mod tables;
 #[path = "admin_e2e/text_edit.rs"]
 mod text_edit;
+#[path = "admin_e2e/text_tabs.rs"]
+mod text_tabs;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
 #[path = "admin_e2e/updates.rs"]

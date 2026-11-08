@@ -16,6 +16,7 @@ pub fn path(name: &str) -> &'static str {
         "check" => "M5 12.5l4.5 4.5L19 7.5",
         "lock" => "M7 11V8a5 5 0 0110 0v3M5.5 11h13v9.5h-13zM12 15v2",
         "copy" => "M9 9h11v11H9zM5 15H4V4h11v1",
+        "file" => "M6 3h8l4 4v14H6zM14 3v4h4",
         "download" => "M12 4v11m-5-5l5 5 5-5M5 20h14",
         "arrow-up" => "M12 20V9m-5 5l5-5 5 5M5 4h14",
         "server" | "box" => "M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9",

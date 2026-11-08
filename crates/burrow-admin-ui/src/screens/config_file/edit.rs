@@ -62,7 +62,7 @@ fn review(s: Store) {
     }
 }
 
-pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>) -> AnyView {
+pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>, go: super::goto::GoTo) -> AnyView {
     let t = s.text;
     let blocked = Signal::derive(move || !t.dirty() || t.unsavable.with(Option::is_some));
     let reason = Signal::derive(move || match t.unsavable.get() {
@@ -71,6 +71,7 @@ pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>) -> AnyView {
         None => "No edits yet".into(),
     });
     view! {
+        {super::goto::button(go, t)}
         {super::edit_as::controls(t)}
         <Button label="Cancel" size=ButtonSize::Small testid="file-cancel" on_click=move |_| {
             if untrack(|| t.dirty()) {
@@ -132,7 +133,10 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
                 active: t.active,
                 new_files: t.new_files.into(),
                 on_add: Callback::new(move |_| t.adding.set(true)),
-                on_close: Callback::new(move |name: String| t.close_asked(&name)),
+                on_close: Callback::new(move |(name, dirty): (String, bool)| t.close_tab(&name, dirty)),
+                on_dirty: Callback::new(move |(name, dirty): (String, bool)| t.set_unsaved(&name, dirty)),
+                tabs: t.tabs.into(),
+                spot: t.spot,
             };
             view! { <Deferred load=move || text_editor(props) what="the editor" testid="editor-load"/> }.into_any()
         }

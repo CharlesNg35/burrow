@@ -4,13 +4,13 @@ use super::edits::Flow;
 use super::world::{self, Options};
 use super::{Ctx, SECS, apply_now, open, run};
 
-const CARD: &str = "[data-testid=config-file]";
-const EDITOR: &str = "[data-testid=file-editor]";
+pub(super) const CARD: &str = "[data-testid=config-file]";
+pub(super) const EDITOR: &str = "[data-testid=file-editor]";
 const REVIEW: &str = "[data-testid=file-review]";
-const MAIN: &str = "server.yaml";
+pub(super) const MAIN: &str = "server.yaml";
 const APPS: &str = "server.d/apps.yaml";
 const TOOL: &str = "server.d/tool.yaml";
-const CHECKED: Duration = Duration::from_secs(15);
+pub(super) const CHECKED: Duration = Duration::from_secs(15);
 
 fn opts() -> Options {
     Options {
@@ -40,19 +40,19 @@ fn opts() -> Options {
 const HEADER: &str = "Bearer e2e-text-header-5b1e";
 const PILL: &str = "[data-testid=conn-pill]";
 
-fn js(s: &str) -> String {
+pub(super) fn js(s: &str) -> String {
     serde_json::to_string(s).expect("a JS string")
 }
 
-fn tab(name: &str) -> String {
+pub(super) fn tab(name: &str) -> String {
     format!("{EDITOR} [role=tab][data-document-id='{name}']")
 }
 
-fn input(name: &str) -> String {
+pub(super) fn input(name: &str) -> String {
     format!("{EDITOR} [role=tabpanel][data-document-id='{name}'] .config-editor__input")
 }
 
-async fn start(c: &Ctx) {
+pub(super) async fn start(c: &Ctx) {
     c.ui.nav("/settings?tab=file").await;
     c.ui.click("[data-testid=file-edit]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
@@ -60,14 +60,34 @@ async fn start(c: &Ctx) {
     c.ui.wait_for(&input(MAIN), SECS).await;
 }
 
-async fn show(c: &Ctx, name: &str) {
+pub(super) const GOTO: &str = "[data-testid=file-goto]";
+pub(super) const PANEL: &str = "[data-testid=file-goto-panel]";
+
+pub(super) async fn go_to(c: &Ctx, query: &str, label: &str) {
+    if c.ui.count(PANEL).await == 0 {
+        c.ui.click(GOTO).await;
+    }
+    c.ui.fill("#file-goto-input", query).await;
+    let hit = format!(
+        "(() => {{ const h = [...document.querySelectorAll('[data-testid=file-goto-hit]')].find(h => h.querySelector('button > span:nth-child(2)').textContent === {}); if (!h) return false; h.querySelector('button').click(); return true; }})()",
+        js(label)
+    );
+    c.ui.wait_true(&hit, &format!("Go to finds {label} for {query:?}"), SECS)
+        .await;
+    c.ui.wait_gone(PANEL, SECS).await;
+}
+
+pub(super) async fn show(c: &Ctx, name: &str) {
+    if c.ui.count(&tab(name)).await == 0 {
+        go_to(c, name, name).await;
+    }
     c.ui.click(&tab(name)).await;
     c.ui.wait_for(&format!("{}[aria-selected=true]", tab(name)), SECS)
         .await;
     c.ui.wait_for(&input(name), SECS).await;
 }
 
-async fn text_of(c: &Ctx, name: &str) -> String {
+pub(super) async fn text_of(c: &Ctx, name: &str) -> String {
     c.ui.eval(&format!(
         "document.querySelector({}).value",
         js(&input(name))
@@ -75,7 +95,7 @@ async fn text_of(c: &Ctx, name: &str) -> String {
     .await
 }
 
-async fn replace_in(c: &Ctx, name: &str, from: &str, to: &str) {
+pub(super) async fn replace_in(c: &Ctx, name: &str, from: &str, to: &str) {
     let ok: bool = c
         .ui
         .eval(&format!(
@@ -88,7 +108,7 @@ async fn replace_in(c: &Ctx, name: &str, from: &str, to: &str) {
     assert!(ok, "{name} has {from:?} to replace");
 }
 
-async fn dirty(c: &Ctx, name: &str, on: bool) {
+pub(super) async fn dirty(c: &Ctx, name: &str, on: bool) {
     c.ui.wait_for(&format!("{}[data-dirty={on}]", tab(name)), SECS)
         .await;
 }
@@ -131,7 +151,7 @@ async fn burrow_problem(c: &Ctx, name: &str, words: &str) {
 
 const WATCH_CSP: &str = "(() => { if (!window.__csp) { window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + (e.sample || e.blockedURI) + ' at ' + (e.sourceFile || '') + ':' + e.lineNumber), true); } return true; })()";
 
-async fn key(c: &Ctx, name: &str, key: &str, code: &str, mods: &str) {
+pub(super) async fn key(c: &Ctx, name: &str, key: &str, code: &str, mods: &str) {
     let _: bool = c
         .ui
         .eval(&format!(
@@ -273,7 +293,7 @@ fn placeholder_after(text: &str, key: &str) -> String {
     rest[start..end].to_string()
 }
 
-async fn shots(c: &mut Ctx, step: &str) {
+pub(super) async fn shots(c: &mut Ctx, step: &str) {
     let mut first_space: Option<f64> = None;
     for (w, size) in [(1440, "1440"), (390, "390")] {
         c.ui.viewport(w, 900).await;
@@ -329,12 +349,13 @@ fn secrets_kept(c: &Ctx, tool_before: &str) {
     assert_eq!(tool, tool_before, "the read-only drop-in is untouched");
 }
 
-async fn opens_with_one_tab_per_file(c: &mut Ctx) {
+async fn opens_with_the_main_file(c: &mut Ctx) {
     start(c).await;
     assert_eq!(
         c.ui.all_attrs(&format!("{EDITOR} [role=tab]"), "data-document-id")
             .await,
-        [MAIN, APPS, TOOL]
+        [MAIN],
+        "other files open on demand"
     );
     assert!(!c.ui.enabled(REVIEW).await, "nothing to review yet");
     let main = text_of(c, MAIN).await;
@@ -643,7 +664,7 @@ async fn placeholders_follow_a_restart(c: &mut Ctx, tool_before: &str) {
 
 const EDIT_AS: &str = "[data-testid=file-edit-as]";
 
-async fn js_click(c: &Ctx, css: &str) {
+pub(super) async fn js_click(c: &Ctx, css: &str) {
     let ok: bool = c
         .ui
         .eval(&format!(
@@ -677,6 +698,8 @@ async fn kept_scroll(c: &Ctx, was: f64, step: &str) -> f64 {
 }
 
 async fn focus_leaves_the_page_where_it_is(c: &mut Ctx) {
+    show(c, APPS).await;
+    show(c, MAIN).await;
     let _: bool =
         c.ui.eval("(() => { scrollTo(0, 120); return true; })()")
             .await;
@@ -823,7 +846,7 @@ async fn a_drop_in_takes_only_items(c: &mut Ctx) {
 
 const ADD: &str = "[data-testid=file-editor] .config-editor-documents__add";
 
-fn close_of(name: &str) -> String {
+pub(super) fn close_of(name: &str) -> String {
     format!("{EDITOR} [role=tab][data-document-id='{name}'] .config-editor-documents__close")
 }
 
@@ -839,7 +862,7 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
         c.ui.count(&format!("{EDITOR} .config-editor-documents__close"))
             .await,
         0,
-        "the files on the server have no close button"
+        "the main file has no close button"
     );
     c.ui.viewport(390, 900).await;
     let reachable: bool = c
@@ -852,7 +875,7 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
     assert!(reachable, "the + is on screen at 390px");
     c.ui.viewport(1440, 900).await;
     name_new_file(c, "my apps").await;
-    c.ui.wait_text("[data-testid=file-new-problem]", "not a file name", SECS)
+    c.ui.wait_text("[data-testid=file-new-problem]", "use only letters", SECS)
         .await;
     assert!(!c.ui.enabled("[data-testid=file-new-add]").await);
     c.ui.fill("#file-new-name", "apps").await;
@@ -912,12 +935,20 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
     );
     secrets_kept(c, tool_before);
     start(c).await;
-    c.ui.wait_for(&tab(new), SECS).await;
-    assert_eq!(
-        c.ui.count(&close_of(new)).await,
-        0,
+    show(c, new).await;
+    assert!(
+        text_of(c, new).await.contains("target: 2223"),
         "after Apply the new file is a file on the server"
     );
+    dirty(c, new, false).await;
+    c.ui.click(&close_of(new)).await;
+    c.ui.wait_gone(&tab(new), SECS).await;
+    assert_eq!(
+        c.ui.count("[data-testid=file-close-dialog]").await,
+        0,
+        "a tab without edits closes at once; the file stays"
+    );
+    tokio::time::sleep(Duration::from_millis(600)).await;
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
@@ -928,7 +959,7 @@ fn text_edit(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         let _: bool = c.ui.eval(WATCH_CSP).await;
         let tool_before = std::fs::read_to_string(c.world.file(TOOL)).expect("tool.yaml");
-        opens_with_one_tab_per_file(c).await;
+        opens_with_the_main_file(c).await;
         edit_review_apply(c, &tool_before).await;
         a_moved_placeholder_is_refused(c, &tool_before).await;
         cancel_asks_when_edited(c).await;

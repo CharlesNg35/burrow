@@ -85,7 +85,7 @@ impl TextEdit {
             v.insert(name.clone(), String::new());
         });
         self.new_files.update(|n| n.push(name.clone()));
-        self.active.set(name);
+        self.open_file(&name);
         self.adding.set(false);
     }
 
@@ -99,27 +99,10 @@ impl TextEdit {
         self.values.update(|v| {
             v.remove(name);
         });
-        if self.active.with_untracked(|a| a == name) {
-            let first = self
-                .text()
-                .and_then(|t| t.files.first().map(|f| f.name.clone()))
-                .unwrap_or_default();
-            self.active.set(first);
-        }
-    }
-
-    pub fn close_asked(&self, name: &str) {
-        if !self.is_new(name) {
-            return;
-        }
-        let typed = self
-            .values
-            .with_untracked(|v| v.get(name).is_some_and(|t| !t.trim().is_empty()));
-        if typed {
-            self.closing.set(Some(name.to_string()));
-        } else {
-            self.drop_new(name);
-        }
+        self.unsaved.update(|u| {
+            u.remove(name);
+        });
+        self.drop_tab(name);
     }
 
     pub fn empty_new_files(&self) -> Vec<String> {

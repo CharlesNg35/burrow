@@ -17,6 +17,7 @@ mod inline;
 mod input;
 mod overlay;
 mod path;
+mod pick;
 mod radio;
 mod room;
 mod scroll;
@@ -51,6 +52,7 @@ pub use overlay::{
     Dialog, Modal, Tooltip, active as active_element, auto_titles, focus_first, trap as trap_focus,
 };
 pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
+pub use pick::{PickHead, PickOption, marked, word_at};
 pub use radio::{RadioList, RadioOption};
 pub use room::cover_top;
 pub use scroll::{ScrollRow, active_item};
