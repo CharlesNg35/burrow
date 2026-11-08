@@ -80,9 +80,23 @@ fn gzip(dir: &Path, name: &str) -> Result<(), String> {
     write(dir, &format!("{name}.gz"), &gz)
 }
 
-fn index_html(css: &str, css_sri: &str, boot: &str, boot_sri: &str) -> String {
+struct Linked<'a> {
+    name: &'a str,
+    sri: String,
+}
+
+fn index_html(css: &[Linked<'_>], boot: &str, boot_sri: &str) -> String {
+    let links: String = css
+        .iter()
+        .map(|c| {
+            format!(
+                "<link rel=\"stylesheet\" href=\"/{}\" integrity=\"{}\">\n",
+                c.name, c.sri
+            )
+        })
+        .collect();
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>burrow admin</title>\n<link rel=\"icon\" href=\"data:,\">\n<link rel=\"stylesheet\" href=\"/{css}\" integrity=\"{css_sri}\">\n<script type=\"module\" src=\"/{boot}\" integrity=\"{boot_sri}\"></script>\n</head>\n<body><p id=\"boot\" class=\"p-8 text-sm text-text-muted\">Loading burrow admin…</p></body>\n</html>\n"
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>burrow admin</title>\n<link rel=\"icon\" href=\"data:,\">\n{links}<script type=\"module\" src=\"/{boot}\" integrity=\"{boot_sri}\"></script>\n</head>\n<body><p id=\"boot\" class=\"p-8 text-sm text-text-muted\">Loading burrow admin…</p></body>\n</html>\n"
     )
 }
 
@@ -133,14 +147,25 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     let css_bytes = css_text.into_bytes();
     let css_name = hashed("app.css", &css_bytes, release);
     write(&dist, &css_name, &css_bytes)?;
+    let editor_bytes = crate::editor_css::preset(root)?.into_bytes();
+    let editor_name = hashed("editor.css", &editor_bytes, release);
+    write(&dist, &editor_name, &editor_bytes)?;
     let boot = format!(
         "import init from \"./{js_name}\";\ninit({{ module_or_path: new URL(\"./{wasm_name}\", import.meta.url) }});\n"
     );
     let boot_name = hashed("boot.js", boot.as_bytes(), release);
     write(&dist, &boot_name, boot.as_bytes())?;
     let index = index_html(
-        &css_name,
-        &sri(&css_bytes),
+        &[
+            Linked {
+                name: &css_name,
+                sri: sri(&css_bytes),
+            },
+            Linked {
+                name: &editor_name,
+                sri: sri(&editor_bytes),
+            },
+        ],
         &boot_name,
         &sri(boot.as_bytes()),
     );
@@ -148,7 +173,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
 
     let mut main = vec![boot_name, js_name];
     main.extend(linked.loader.iter().map(|l| l.name.clone()));
-    main.extend([wasm_name, css_name]);
+    main.extend([wasm_name, css_name, editor_name]);
     let files = files_of(&main, &extra, &lazy);
     write_manifest(&ui, &dist, &files, release)?;
     let _ = std::fs::remove_dir_all(&work);
@@ -425,7 +450,21 @@ mod tests {
 
     #[test]
     fn the_page_has_no_inline_script_or_style() {
-        let html = index_html("app-1.css", "sha384-a", "boot-2.js", "sha384-b");
+        let css = |name, sri: &str| Linked {
+            name,
+            sri: sri.to_string(),
+        };
+        let html = index_html(
+            &[
+                css("app-1.css", "sha384-a"),
+                css("editor-3.css", "sha384-c"),
+            ],
+            "boot-2.js",
+            "sha384-b",
+        );
+        assert!(html.contains(
+            "<link rel=\"stylesheet\" href=\"/app-1.css\" integrity=\"sha384-a\">\n<link rel=\"stylesheet\" href=\"/editor-3.css\" integrity=\"sha384-c\">\n<script"
+        ));
         assert!(html.contains(
             "<script type=\"module\" src=\"/boot-2.js\" integrity=\"sha384-b\"></script>"
         ));
