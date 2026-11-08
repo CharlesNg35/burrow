@@ -248,6 +248,7 @@ mod tests {
             ))
         );
         assert_eq!(got[1].target, DiagnosticTarget::Document);
+        assert_eq!(got[1].severity, config_editor_leptos::Severity::Info);
         let mut spans = diag(Severity::Error, "yaml", "a block", None, None);
         spans.line = Some(2);
         spans.col = Some(1);
@@ -261,7 +262,6 @@ mod tests {
                 TextPosition::new(4, 7)
             ))
         );
-        assert_eq!(got[1].severity, config_editor_leptos::Severity::Info);
     }
 
     #[test]
