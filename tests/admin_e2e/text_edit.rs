@@ -149,7 +149,7 @@ async fn present(c: &Ctx, css: &str) -> bool {
 
 async fn no_csp_violation(c: &mut Ctx) {
     start(c).await;
-    replace_in(c, MAIN, "max_connections: 120", "max_connections: 121").await;
+    replace_in(c, MAIN, "max_connections: 12", "max_connections: 13").await;
     dirty(c, MAIN, true).await;
     caret_on(c, MAIN, "max_connections").await;
     key(c, MAIN, "k", "KeyK", "ctrlKey: true,").await;
@@ -480,13 +480,13 @@ fn text_edit(c: &mut Ctx) -> Flow<'_> {
         let tool_before = std::fs::read_to_string(c.world.file(TOOL)).expect("tool.yaml");
         opens_with_one_tab_per_file(c).await;
         edit_review_apply(c, &tool_before).await;
-        no_csp_violation(c).await;
         a_moved_placeholder_is_refused(c, &tool_before).await;
         cancel_asks_when_edited(c).await;
         placeholders_follow_a_restart(c, &tool_before).await;
         a_change_on_the_server_shows_the_notice(c).await;
         a_locked_field_is_refused(c).await;
         waits_for_changes_in_review(c).await;
+        no_csp_violation(c).await;
         c.ui.assert_no_errors();
     })
 }
