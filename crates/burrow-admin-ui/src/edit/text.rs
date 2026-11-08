@@ -25,7 +25,7 @@ pub struct TextEdit {
     pub values: RwSignal<BTreeMap<String, String>>,
     pub problems: RwSignal<Vec<Diag>>,
     pub unsavable: RwSignal<Option<String>>,
-    pub flush: StoredValue<Option<Callback<()>>>,
+    pub flush: StoredValue<Option<fn()>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -326,6 +326,22 @@ mod tests {
         assert_eq!(
             rebased(None, &next, &BTreeMap::new())["server.yaml"],
             "a: 5\n"
+        );
+    }
+
+    #[test]
+    fn a_text_review_stands_alone_and_comes_back_to_the_config_file_tab() {
+        use super::super::Source;
+        assert!(Source::Text.standalone() && Source::Revert("b2s:1".into()).standalone());
+        assert!(!Source::Draft.standalone());
+        assert_eq!(Source::Text.revert_of(), None);
+        assert_eq!(
+            Source::Revert("b2s:1".into()).revert_of().as_deref(),
+            Some("b2s:1")
+        );
+        assert_eq!(
+            crate::route::file_tab(),
+            (crate::route::Route::Settings, Some(("tab", "file")))
         );
     }
 

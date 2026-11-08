@@ -51,7 +51,7 @@ pub(super) fn waiting_note(s: Store, waiting: RwSignal<bool>) -> impl IntoView {
 fn review(s: Store) {
     let t = s.text;
     if let Some(flush) = t.flush.get_value() {
-        flush.run(());
+        flush();
     }
     if untrack(|| t.dirty()) && t.unsavable.with_untracked(Option::is_none) {
         s.edit.open_text(s);

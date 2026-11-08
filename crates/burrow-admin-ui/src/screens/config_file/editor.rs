@@ -22,7 +22,7 @@ pub struct EditorProps {
     pub on_change: Callback<(String, String)>,
     pub on_review: Callback<()>,
     pub unsavable: RwSignal<Option<String>>,
-    pub flush: StoredValue<Option<Callback<()>>>,
+    pub flush: StoredValue<Option<fn()>>,
 }
 
 fn schema_of(schema: &Value) -> Option<SchemaSource> {
@@ -108,7 +108,7 @@ pub fn text_editor(p: EditorProps) -> AnyView {
         unsavable,
         flush,
     } = p;
-    flush.set_value(Some(Callback::new(|_| flush_pending_edits())));
+    flush.set_value(Some(flush_pending_edits));
     let first = text.get_untracked();
     let schema = first.as_ref().and_then(|t| schema_of(&t.schema));
     let pattern = first
