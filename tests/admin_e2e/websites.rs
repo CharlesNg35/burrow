@@ -95,7 +95,8 @@ async fn read_only_pages(c: &mut Ctx) {
     c.ui.wait_for("[data-testid=entity-list] [data-row=nas]", SECS)
         .await;
     assert_eq!(
-        c.ui.count("[data-testid=entity-list] [data-row=web]").await,
+        c.ui.count("[data-testid=entity-list] [data-row=web]:not([hidden])")
+            .await,
         0,
         "the Websites filter leaves out plain services"
     );

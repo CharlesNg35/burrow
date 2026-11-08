@@ -5,6 +5,8 @@ use super::world::{self, Options};
 use super::{Ctx, SECS, open, run};
 
 const HEADS: &str = "[data-testid=entity-list] [data-testid=file-group]";
+const SHOWN: &str =
+    "[data-testid=entity-list] [data-group-file]:not([hidden]) [data-testid=file-group]";
 
 fn opts() -> Options {
     Options {
@@ -26,6 +28,11 @@ fn opts() -> Options {
                 true,
             ),
             (
+                "people.yaml",
+                format!("visitors:\n  tablet:\n    secret: {}\n", world::secret()),
+                false,
+            ),
+            (
                 "zz-down.yaml",
                 "services:\n  dead:\n    client: box\n    target: 25\n    visitors: [laptop]\n"
                     .into(),
@@ -41,16 +48,28 @@ fn head(file: &str) -> String {
 }
 
 async fn heads(c: &Ctx) -> Vec<String> {
-    c.ui.all_attrs(HEADS, "data-file").await
+    c.ui.all_attrs(SHOWN, "data-file").await
 }
 
-async fn shots(c: &mut Ctx, step: &str) {
+async fn unfocus(c: &Ctx) {
+    let _: bool = c
+        .ui
+        .eval("(() => { document.activeElement && document.activeElement.blur && document.activeElement.blur(); return true; })()")
+        .await;
+}
+
+async fn shots(c: &mut Ctx, step: &str, path: &str, find: &str) {
     tokio::time::sleep(Duration::from_millis(300)).await;
+    unfocus(c).await;
     c.ui.shot(step).await;
     c.ui.viewport(390, 844).await;
-    c.ui.nav("/services").await;
+    c.ui.nav(path).await;
     c.ui.wait_for(HEADS, SECS).await;
+    if !find.is_empty() {
+        search(c, find).await;
+    }
     tokio::time::sleep(Duration::from_millis(300)).await;
+    unfocus(c).await;
     let wide: bool =
         c.ui.eval("document.documentElement.scrollWidth > document.documentElement.clientWidth")
             .await;
@@ -68,6 +87,20 @@ async fn press_enter(c: &Ctx, css: &str) {
         .await;
     assert!(focused, "the file header takes the keyboard focus");
     c.ui.press(css, "Enter").await;
+    let ring: (bool, String, String, String) = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const b = document.querySelector(\"{css}\"); const a = getComputedStyle(b, '::after'); return [b.matches(':focus-visible'), a.borderTopLeftRadius, a.left, getComputedStyle(b).outlineStyle]; }})()"
+        ))
+        .await;
+    assert_eq!(ring.3, "none", "no full-width outline on a file header");
+    if ring.0 {
+        assert_eq!(
+            (ring.1.as_str(), ring.2.as_str()),
+            ("11px", "8px"),
+            "the keyboard ring is a rounded ring inside the header, like a focused card"
+        );
+    }
 }
 
 async fn search(c: &Ctx, text: &str) {
@@ -99,6 +132,12 @@ async fn sections_follow_the_files(c: &mut Ctx) {
         )
         .await;
     assert!(tip.starts_with("Read-only on disk:"), "{tip}");
+    let sizes: (String, String) = c
+        .ui
+        .eval("(() => { const h = document.querySelector('[data-testid=file-group]'); return [getComputedStyle(h.querySelector('[data-testid=group-file]')).fontSize, getComputedStyle(h.querySelector('[data-testid=group-count]')).fontSize]; })()")
+        .await;
+    assert_eq!(sizes.0, "13px", "the file name reads at 13 px");
+    assert_ne!(sizes.0, sizes.1, "the count keeps the small label size");
     assert_eq!(
         c.ui.count("[data-testid=group-lock]").await,
         1,
@@ -132,7 +171,7 @@ async fn sections_follow_the_files(c: &mut Ctx) {
     press_enter(c, &down).await;
     c.ui.wait_for(&format!("{down}[aria-expanded=false]"), SECS)
         .await;
-    shots(c, "group-by-file").await;
+    shots(c, "services-folded-with-a-problem", "/services", "").await;
 }
 
 async fn search_opens_and_hides(c: &mut Ctx) {
@@ -140,7 +179,7 @@ async fn search_opens_and_hides(c: &mut Ctx) {
     c.ui.wait_for(HEADS, SECS).await;
     search(c, "dead").await;
     c.ui.wait_true(
-        &format!("document.querySelectorAll(\"{HEADS}\").length === 1"),
+        &format!("document.querySelectorAll(\"{SHOWN}\").length === 1"),
         "only the file with a match shows",
         SECS,
     )
@@ -152,9 +191,12 @@ async fn search_opens_and_hides(c: &mut Ctx) {
         SECS,
     )
     .await;
+    shots(c, "services-search", "/services", "dead").await;
+    c.ui.nav("/services").await;
+    c.ui.wait_for(HEADS, SECS).await;
     search(c, "").await;
     c.ui.wait_true(
-        &format!("document.querySelectorAll(\"{HEADS}\").length === 4"),
+        &format!("document.querySelectorAll(\"{SHOWN}\").length === 4"),
         "every file is back",
         SECS,
     )
@@ -167,7 +209,7 @@ async fn search_opens_and_hides(c: &mut Ctx) {
     c.ui.click("[data-testid=entity-list] [data-filter=visitors]")
         .await;
     c.ui.wait_true(
-        &format!("document.querySelectorAll(\"{HEADS}\").length === 3"),
+        &format!("document.querySelectorAll(\"{SHOWN}\").length === 3"),
         "the Visitors chip drops apps.yaml, whose blog has no visitors",
         SECS,
     )
@@ -212,9 +254,23 @@ async fn none_and_memory(c: &mut Ctx) {
     );
 }
 
+async fn clients_and_visitors(c: &mut Ctx) {
+    for (path, files) in [
+        ("/clients", ["server.yaml", "server.d/tool.yaml"]),
+        ("/visitors", ["server.yaml", "server.d/people.yaml"]),
+    ] {
+        c.ui.nav(path).await;
+        c.ui.wait_for(HEADS, SECS).await;
+        assert_eq!(heads(c).await, files, "{path} groups by its own files");
+        let step = format!("{}-by-file", path.trim_start_matches('/'));
+        shots(c, &step, path, "").await;
+    }
+}
+
 fn groups(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
+        clients_and_visitors(c).await;
         sections_follow_the_files(c).await;
         search_opens_and_hides(c).await;
         none_and_memory(c).await;
@@ -283,13 +339,20 @@ fn large(c: &mut Ctx) -> Flow<'_> {
         timed(c, &search.replace("TEXT", "")).await;
         c.ui.select("[data-testid=list-group] select", "none").await;
         c.ui.wait_gone(HEADS, SECS).await;
-        let flat: Vec<f64> = vec![
-            timed(c, &search.replace("TEXT", "s")).await,
-            timed(c, &search.replace("TEXT", "s0")).await,
-            timed(c, &search.replace("TEXT", "")).await,
-        ];
+        let mut flat = Vec::new();
+        for text in ["s", "s0", "s05", "s050", "s050x", "s050x3", ""] {
+            flat.push(timed(c, &search.replace("TEXT", text)).await);
+        }
+        timed(c, &search.replace("TEXT", "s050x3")).await;
+        let full: f64 = c
+            .ui
+            .eval(&format!(
+                "(async () => {{ const t = performance.now(); {}; while (document.querySelectorAll('[data-testid=entity-list] [data-row]:not([hidden])').length < 1002) await new Promise(r => requestAnimationFrame(r)); return performance.now() - t; }})()",
+                search.replace("TEXT", "")
+            ))
+            .await;
         let line = format!(
-            "1000 services in 101 files: typing {typed:?} ms; fold/open one {folding:?} ms; fold all {fold_all:.0} ms ({rows_left} rows left); typing with all folded {typed_folded:.0} ms; flat list typing {flat:?} ms\n"
+            "1000 services in 101 files: typing {typed:?} ms; fold/open one {folding:?} ms; fold all {fold_all:.0} ms ({rows_left} rows left); typing with all folded {typed_folded:.0} ms; flat list typing {flat:?} ms; all 1002 rows back after clearing in {full:.0} ms\n"
         );
         let _ = std::fs::write(
             super::sheet::shots_dir().join("file-groups-large/timings.txt"),
@@ -300,8 +363,12 @@ fn large(c: &mut Ctx) -> Flow<'_> {
             "folded files render only their headers; server.yaml stays open around the selected service"
         );
         assert!(
-            typed.iter().chain(&folding).all(|ms| *ms < 1500.0),
-            "the list stays responsive: {typed:?} {folding:?}"
+            typed
+                .iter()
+                .chain(&folding)
+                .chain(&flat)
+                .all(|ms| *ms < 300.0),
+            "the list stays responsive: {typed:?} {folding:?} {flat:?}"
         );
     })
 }

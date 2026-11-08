@@ -84,12 +84,11 @@ fn one_row(
         row.terms.push_str(&file);
         let main = s.with_files(burrow_admin_logic::files::main_name);
         if locked || main.as_deref() != Some(file.as_str()) {
-            let text = if locked {
-                format!("read-only · {file}")
+            row.kept = Some(if locked {
+                crate::screens::Kept::ReadOnly(file)
             } else {
-                file
-            };
-            row.tags.push((text, Tone::Neutral));
+                crate::screens::Kept::File(file)
+            });
         }
     }
     row

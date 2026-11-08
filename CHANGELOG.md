@@ -38,6 +38,7 @@ Drop-in config files: a server can keep services, clients and visitors in `serve
 - **burrow admin opens and reloads without the few-second wait:** pages no longer ask the browser to clear its cache first; nothing is cached, as before.
 - **burrow admin's Content-Security-Policy allows inline styles** (`style-src 'self' 'unsafe-inline'`) for the config text editor's own stylesheet; scripts, images, fonts and connections stay limited to burrow admin itself.
 - **Group by file** in burrow admin's Services, Clients and Visitors lists, when the server has drop-in files: one foldable section per file, with its item count, a lock when it is read-only and its problems while folded; a search opens the files with matches. On by default from three files.
+- **More settings and file groups are remembered only while the page is open:** burrow admin keeps no open/closed state in the browser's storage any more, so a reload starts from the defaults. The theme choice is still kept.
 
 ## [0.2.3]
 

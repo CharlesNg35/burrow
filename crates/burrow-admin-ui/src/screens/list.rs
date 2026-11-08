@@ -1,61 +1,77 @@
 use burrow_admin_logic::wording::{WriteAction, needs_write_admin};
-use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, ScrollRow, Tone, active_item, tag_class};
+use burrow_ui_kit::{Icon, Kbd, ScrollRow, Tone, active_item, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Link};
 use crate::store::Grouping;
 
-use super::{Row, file_groups};
+use super::{Kept, Row, file_groups};
 
 #[component]
-pub fn TocRow(row: Row, selected: bool) -> impl IntoView {
-    let class = if selected {
-        "bg-accent-weak text-accent-ink"
-    } else {
-        "text-text hover:bg-surface-3"
+pub fn TocRow(
+    row: Row,
+    #[prop(into)] selected: Signal<bool>,
+    #[prop(optional, into)] hidden: Signal<bool>,
+) -> impl IntoView {
+    let class = move || {
+        if selected.get() {
+            "bg-accent-weak text-accent-ink"
+        } else {
+            "text-text hover:bg-surface-3"
+        }
     };
     view! {
-        <div class=format!("relative mx-3 mb-0.5 flex items-center gap-2 rounded-md px-3 py-2 {class}") data-row=row.key.clone() data-group=row.group.clone() data-selected=selected.then_some("true")>
-            <Link to=row.to.clone() class="min-w-0 flex-1 truncate text-sm font-semibold text-inherit no-underline after:absolute after:inset-0 after:rounded-md" testid="list-row" current=Signal::stored(selected)>
+        <div class=move || format!("relative mx-3 mb-0.5 flex items-center gap-2 rounded-md px-3 py-2 {}", class()) data-row=row.key.clone() data-group=row.group.clone() data-selected=move || selected.get().then_some("true") hidden=move || hidden.get()>
+            <Link to=row.to.clone() class="min-w-0 flex-1 truncate text-sm font-semibold text-inherit no-underline after:absolute after:inset-0 after:rounded-md" testid="list-row" current=selected>
                 {row.title.clone()}
             </Link>
             {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
+            {row.kept.as_ref().map(kept_tag)}
         </div>
     }
+}
+
+fn kept_tag(k: &Kept) -> impl IntoView + use<> {
+    view! { <span class=tag_class(Tone::Neutral) data-testid="row-file">{k.text()}</span> }
 }
 
 #[component]
 pub fn ListCard(
     row: Row,
-    selected: bool,
+    #[prop(into)] selected: Signal<bool>,
     #[prop(optional, into)] live: Option<Signal<(String, String)>>,
+    #[prop(optional, into)] hidden: Signal<bool>,
 ) -> impl IntoView {
-    let class = if selected {
-        "border-accent-line ring-3 ring-accent-weak"
-    } else {
-        "border-border hover:border-border-strong"
+    let class = move || {
+        if selected.get() {
+            "border-accent-line ring-3 ring-accent-weak"
+        } else {
+            "border-border hover:border-border-strong"
+        }
     };
     let bg = if row.pending.is_some() {
         "bg-accent-weak"
     } else {
         "bg-surface dark:bg-surface-2"
     };
-    let tile = if selected {
-        "bg-accent-weak text-accent-ink"
-    } else {
-        "bg-surface-3 text-text-muted"
+    let tile = move || {
+        if selected.get() {
+            "bg-accent-weak text-accent-ink"
+        } else {
+            "bg-surface-3 text-text-muted"
+        }
     };
     let key = row.key.clone();
     let hover = row.moment.map(|m| m.on_hover(key.clone()));
     view! {
-        <div class=format!("relative mx-3 mb-2 grid grid-cols-[30px_minmax(0,1fr)_auto] gap-x-3 rounded-[11px] border px-3.5 py-3 {class} {bg}") data-row=key.clone() data-group=row.group.clone() data-selected=selected.then_some("true") on:mouseenter=move |ev| if let Some(h) = &hover { h(ev) }>
-            <span class=format!("relative flex size-[30px] items-center justify-center rounded-md {tile}")>
+        <div class=move || format!("relative mx-3 mb-2 grid grid-cols-[30px_minmax(0,1fr)_auto] gap-x-3 rounded-[11px] border px-3.5 py-3 {} {bg}", class()) data-row=key.clone() data-group=row.group.clone() data-selected=move || selected.get().then_some("true") hidden=move || hidden.get() on:mouseenter=move |ev| if let Some(h) = &hover { h(ev) }>
+            <span class=move || format!("relative flex size-[30px] items-center justify-center rounded-md {}", tile())>
                 <Icon name=row.icon/>
                 {row.dot.map(|t| view! { <span class=format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-surface {}", t.dot()) aria-hidden="true"></span> })}
             </span>
             <span class="min-w-0">
                 <span class="flex min-w-0 items-center gap-1.5">
-                    <Link to=row.to.clone() class="truncate font-semibold text-text no-underline after:absolute after:inset-0 after:rounded-[11px]" testid="list-row" current=Signal::stored(selected)>
+                    <Link to=row.to.clone() class="truncate font-semibold text-text no-underline after:absolute after:inset-0 after:rounded-[11px]" testid="list-row" current=selected>
                         {row.title.clone()}
                     </Link>
                     {row.title_tag.clone().map(|(t, tone)| view! { <span class=tag_class(tone)>{t}</span> })}
@@ -69,10 +85,11 @@ pub fn ListCard(
                     view! { <span class="block max-h-[2lh] overflow-hidden text-sm text-text-muted [overflow-wrap:anywhere]"><burrow_ui_kit::Inline items=parts/></span> }
                 })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
-                {(!row.tags.is_empty() || row.health.is_some() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
+                {(!row.tags.is_empty() || row.kept.is_some() || row.health.is_some() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
                     <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
                         {row.pending.map(|p| view! { <span class=tag_class(Tone::Accent) data-pending=p>{p}</span> })}
                         {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
+                        {row.kept.as_ref().map(kept_tag)}
                         {row.health.clone().map(crate::screens::entity::mark_view)}
                         {(!row.aside.is_empty()).then(|| view! { <span class="text-sm text-text-muted">{row.aside.clone()}</span> })}
                     </span>
@@ -194,7 +211,7 @@ pub fn ListPane(
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     keep_selected_in_view(list_ref, selected, visible);
     let look = Look { no_counts, compact };
-    let body = list_body(
+    let body = super::list_rows::list_body(
         Shown {
             visible,
             rows,
@@ -279,18 +296,18 @@ pub fn ListPane(
 }
 
 #[derive(Clone, Copy)]
-struct Shown {
-    visible: Memo<Vec<Row>>,
-    rows: Signal<Vec<Row>>,
-    selected: Signal<Option<String>>,
-    by_file: Option<&'static str>,
-    searching: Signal<bool>,
+pub(super) struct Shown {
+    pub visible: Memo<Vec<Row>>,
+    pub rows: Signal<Vec<Row>>,
+    pub selected: Signal<Option<String>>,
+    pub by_file: Option<&'static str>,
+    pub searching: Signal<bool>,
 }
 
 #[derive(Clone, Copy)]
-struct Look {
-    no_counts: bool,
-    compact: bool,
+pub(super) struct Look {
+    pub no_counts: bool,
+    pub compact: bool,
 }
 
 #[derive(Clone)]
@@ -476,108 +493,4 @@ fn keep_selected_in_view(
             }
         });
     });
-}
-
-fn still(r: &Row) -> Row {
-    Row {
-        meta: String::new(),
-        line2: if r.line2.is_empty() {
-            String::new()
-        } else {
-            " ".into()
-        },
-        ..r.clone()
-    }
-}
-
-pub(super) fn row_view(r: Row, on: bool, compact: bool, live: Memo<LiveMap>) -> AnyView {
-    if compact {
-        return view! { <TocRow row=r selected=on/> }.into_any();
-    }
-    let key = r.key.clone();
-    let mine = Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()));
-    view! { <ListCard row=r selected=on live=mine/> }.into_any()
-}
-
-pub(super) type LiveMap = std::collections::HashMap<String, (String, String)>;
-
-fn list_body(
-    shown_in: Shown,
-    empty: Option<(String, String)>,
-    empty_icon: Option<&'static str>,
-    groups: Vec<&'static str>,
-    look: Look,
-) -> impl Fn() -> AnyView {
-    let Shown {
-        visible,
-        rows,
-        selected,
-        by_file,
-        searching,
-    } = shown_in;
-    let Look { no_counts, compact } = look;
-    let shape = Memo::new(move |_| visible.with(|v| v.iter().map(still).collect::<Vec<_>>()));
-    let live: Memo<LiveMap> = Memo::new(move |_| {
-        visible.with(|v| {
-            v.iter()
-                .map(|r| (r.key.clone(), (r.meta.clone(), r.line2.clone())))
-                .collect()
-        })
-    });
-    let grouped = Memo::new(move |_| by_file.filter(|k| file_groups::mode(k) == Grouping::ByFile));
-    move || {
-        let list = shape.get();
-        if list.is_empty() {
-            return match &empty {
-                Some((t, _)) if t.is_empty() => ().into_any(),
-                Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon=empty_icon.unwrap_or("plus") title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
-                _ => view! { <p class="px-4 py-6 text-sm text-text-muted">"Nothing matches."</p> }.into_any(),
-            };
-        }
-        if let Some(kind) = grouped.get() {
-            let body = file_groups::Body {
-                kind,
-                searching,
-                selected,
-                compact,
-                live,
-            };
-            let live_rows = untrack(|| visible.get());
-            return file_groups::render(&body, &live_rows);
-        }
-        let sel = selected.get();
-        let mut gs: Vec<String> = groups.iter().map(|g| g.to_string()).collect();
-        for r in &list {
-            if !gs.contains(&r.group) {
-                gs.push(r.group.clone());
-            }
-        }
-        let shown = gs
-            .iter()
-            .filter(|g| list.iter().any(|r| &r.group == *g))
-            .count();
-        let live_rows = untrack(|| visible.get());
-        gs.into_iter()
-            .filter_map(|g| {
-                let in_group: Vec<Row> =
-                    live_rows.iter().filter(|r| r.group == g).cloned().collect();
-                (!in_group.is_empty()).then(|| {
-                    let n = in_group.len();
-                    view! {
-                        {(!g.is_empty()).then(|| view! {
-                            <div class=format!("flex justify-between px-4 pt-3.5 pb-1.5 {LABEL}")>
-                                <span>{g.clone()}</span>
-                                {(shown > 1 && !no_counts).then(|| view! { <span>{n}</span> })}
-                            </div>
-                        })}
-                        {in_group.into_iter().map(|r| {
-                            let on = sel.as_deref() == Some(r.key.as_str());
-                            row_view(r, on, compact, live)
-                        }).collect_view()}
-                    }
-                })
-            })
-            .collect_view()
-            .into_any()
-    }
 }
