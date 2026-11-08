@@ -185,6 +185,7 @@ fn bindgen(tools: &Tools, work: &Path, wasm: &Path, release: bool) -> Result<Pat
                 "--enable-nontrapping-float-to-int",
                 "--enable-sign-ext",
                 "--enable-mutable-globals",
+                "--enable-simd",
                 "--strip-debug",
                 "--strip-producers",
             ])
