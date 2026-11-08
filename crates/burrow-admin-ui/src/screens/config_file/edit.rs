@@ -121,6 +121,7 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
                 on_review: Callback::new(move |_| review(s)),
                 unsavable: t.unsavable,
                 flush: t.flush,
+                active: t.active,
             };
             view! { <Deferred load=move || text_editor(props) what="the editor" testid="editor-load"/> }.into_any()
         }

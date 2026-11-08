@@ -39,6 +39,9 @@ impl Edit {
     }
 
     pub fn stop_edit(&self, entity: &[String]) {
+        if self.held_edit(entity) {
+            return;
+        }
         if self.editing.with_untracked(|m| m.contains_key(entity)) {
             self.editing.update(|m| {
                 m.remove(entity);

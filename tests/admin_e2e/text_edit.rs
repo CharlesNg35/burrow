@@ -462,6 +462,70 @@ async fn shots_plain(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
+async fn click_toast(c: &Ctx, label: &str) {
+    let ok: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const b = [...document.querySelectorAll('[data-testid=toasts] button')].find(b => b.textContent.trim() === {}); if (!b) return false; b.click(); return true; }})()",
+            js(label)
+        ))
+        .await;
+    assert!(ok, "a toast offers {label}");
+}
+
+async fn text_and_form_edits_wait_for_each_other(c: &mut Ctx, tool_before: &str) {
+    start(c).await;
+    replace_in(
+        c,
+        MAIN,
+        "# keep this comment",
+        "# keep this comment, edited as text",
+    )
+    .await;
+    dirty(c, MAIN, true).await;
+    c.ui.nav("/services/web").await;
+    super::edit_mode(c).await;
+    c.ui.fill("#f-services-web-target", "4000").await;
+    c.ui.click("[data-testid=save-bar] [data-testid=save]")
+        .await;
+    c.ui.wait_text("[data-testid=toasts]", "text edits first", SECS)
+        .await;
+    assert_eq!(
+        c.ui.count("[data-testid=save-bar]").await,
+        1,
+        "Add to changes does not add while the text waits"
+    );
+    shots_plain(c, "text-edit-form-waits").await;
+    click_toast(c, "Open Config file").await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
+        .await;
+    dirty(c, MAIN, true).await;
+    c.ui.click(REVIEW).await;
+    c.ui.wait_for("[data-testid=review]", CHECKED).await;
+    apply_now(c, "Applied: now the version of").await;
+    let text = c.world.config();
+    assert!(text.contains("edited as text"), "{text}");
+    secrets_kept(c, tool_before);
+    c.ui.nav("/services/web").await;
+    c.ui.click("[role=tablist] [data-tab=settings]").await;
+    c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+    c.ui.wait_for("#f-services-web-target", SECS).await;
+    let typed: String =
+        c.ui.eval("document.querySelector('#f-services-web-target').value")
+            .await;
+    assert_eq!(
+        typed, "4000",
+        "the form edit not added yet survives the text's Apply"
+    );
+    c.ui.click("[data-testid=save-bar] [data-testid=save]")
+        .await;
+    c.ui.wait_text("[data-testid=toasts]", "Added to changes", SECS)
+        .await;
+    super::review_now(c).await;
+    c.ui.wait_for("[data-testid=review]", CHECKED).await;
+    c.ui.click("[data-testid=discard]").await;
+}
+
 async fn placeholders_follow_a_restart(c: &mut Ctx, tool_before: &str) {
     start(c).await;
     let before = placeholder_after(&text_of(c, MAIN).await, "Authorization: ");
@@ -469,6 +533,8 @@ async fn placeholders_follow_a_restart(c: &mut Ctx, tool_before: &str) {
         !text_of(c, MAIN).await.contains(HEADER),
         "the header value shows"
     );
+    replace_in(c, MAIN, "max_connections: 120", "max_connections: 125").await;
+    dirty(c, MAIN, true).await;
     c.world.stop("server");
     c.ui.wait_text(PILL, "Reconnecting", Duration::from_secs(15))
         .await;
@@ -478,16 +544,14 @@ async fn placeholders_follow_a_restart(c: &mut Ctx, tool_before: &str) {
         .await;
     c.ui.wait_true(
         &format!(
-            "(() => {{ const t = document.querySelector({}).value; return t.includes('Authorization: ') && !t.includes({}); }})()",
+            "(() => {{ const t = document.querySelector({}).value; return /Authorization: \"?«secret [0-9a-f]{{8}}»/.test(t) && !t.includes({}) && t.includes('max_connections: 125'); }})()",
             js(&input(MAIN)),
             js(&before)
         ),
-        "the editor takes the restarted server's placeholders",
+        "the typed text takes the restarted server's placeholders",
         CHECKED,
     )
     .await;
-    replace_in(c, MAIN, "max_connections: 120", "max_connections: 125").await;
-    dirty(c, MAIN, true).await;
     c.ui.wait_for(&format!("{REVIEW}:not([disabled])"), SECS)
         .await;
     c.ui.click(REVIEW).await;
@@ -509,6 +573,7 @@ fn text_edit(c: &mut Ctx) -> Flow<'_> {
         a_moved_placeholder_is_refused(c, &tool_before).await;
         cancel_asks_when_edited(c).await;
         placeholders_follow_a_restart(c, &tool_before).await;
+        text_and_form_edits_wait_for_each_other(c, &tool_before).await;
         a_change_on_the_server_shows_the_notice(c).await;
         a_locked_field_is_refused(c).await;
         waits_for_changes_in_review(c).await;

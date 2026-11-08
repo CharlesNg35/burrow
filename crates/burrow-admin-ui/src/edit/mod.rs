@@ -4,6 +4,7 @@
 mod check;
 mod diags;
 mod groups;
+mod held;
 mod scratch;
 mod session;
 mod text;
@@ -25,6 +26,7 @@ use leptos::prelude::*;
 use diags::related_errors;
 pub(crate) use diags::{diags_at, severity_tone};
 pub(crate) use groups::{Group, change_groups};
+pub use held::TEXT_FIRST;
 pub(crate) use scratch::{NEW, Scratch};
 pub use text::TextEdit;
 
@@ -100,6 +102,7 @@ pub struct Edit {
     pub scratch: RwSignal<Vec<Scratch>>,
     seq: StoredValue<u64>,
     carry: StoredValue<Vec<(Path, Option<Value>)>>,
+    text_held: Signal<bool>,
 }
 
 fn restore(c: &mut Changeset, path: &[String], snap: Option<&Value>) {
@@ -178,7 +181,12 @@ fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
 }
 
 impl Edit {
+    #[cfg(test)]
     pub fn new() -> Edit {
+        Edit::held_by(Signal::stored(false))
+    }
+
+    pub fn held_by(text_held: Signal<bool>) -> Edit {
         let draft = RwSignal::new(Changeset::new(Value::Null));
         Edit {
             draft,
@@ -204,6 +212,7 @@ impl Edit {
             scratch: RwSignal::new(Vec::new()),
             seq: StoredValue::new(0),
             carry: StoredValue::new(Vec::new()),
+            text_held,
         }
     }
 
@@ -219,11 +228,17 @@ impl Edit {
     }
 
     pub fn place(&self, item: &[String], file: &str, now: &str) {
+        if self.held(Some(item)) {
+            return;
+        }
         self.files.update(|f| f.place(item, file, now));
         self.changed();
     }
 
     pub fn drop_file(&self, file: &str, drop: bool) {
+        if self.held(None) {
+            return;
+        }
         self.files.update(|f| {
             if drop {
                 f.drops.insert(file.to_string());
@@ -382,7 +397,7 @@ impl Edit {
                 burrow_admin_logic::web::with_field(now.as_ref(), key, v),
             );
         }
-        if self.scratch_set(path, v.clone()) {
+        if self.scratch_set(path, v.clone()) || self.held(Some(path)) {
             return;
         }
         if v.is_none() && self.files.with_untracked(|f| f.placed(path).is_some()) {
@@ -393,11 +408,17 @@ impl Edit {
     }
 
     pub fn remove_pruned(&self, path: &[String]) {
+        if self.held(Some(path)) {
+            return;
+        }
         self.draft.update(|d| d.remove_pruned(path));
         self.changed();
     }
 
     pub fn set_text(&self, path: &[String], text: Option<String>) {
+        if self.held(Some(path)) {
+            return;
+        }
         self.texts.update(|t| match text {
             Some(x) => {
                 t.insert(path.to_vec(), x);
@@ -410,21 +431,33 @@ impl Edit {
     }
 
     pub fn add_secret(&self, path: &[String], handle: &str, fp: &str) {
+        if self.held(Some(path)) {
+            return;
+        }
         self.draft.update(|d| d.add_secret(path, handle, fp));
         self.changed();
     }
 
     pub fn set_password(&self, path: &[String], handle: &str) {
+        if self.held(Some(path)) {
+            return;
+        }
         self.draft.update(|d| d.set_password(path, handle));
         self.changed();
     }
 
     pub fn remove_secret(&self, path: &[String], fp: &str) {
+        if self.held(Some(path)) {
+            return;
+        }
         self.draft.update(|d| d.remove_secret(path, fp));
         self.changed();
     }
 
     pub fn rename(&self, path: &[String], to: &str) -> bool {
+        if self.held(Some(path)) {
+            return false;
+        }
         let mut ok = false;
         self.draft.update(|d| ok = d.rename(path, to));
         if ok && let Some((_, parent)) = path.split_last() {

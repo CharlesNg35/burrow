@@ -9,7 +9,7 @@ use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::Plan;
 use burrow_admin_proto::serde::Deserialize;
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_admin_proto::text_edit::{EditFile, EditText, TextFile};
+use burrow_admin_proto::text_edit::{EditFile, EditText, TextFile, placeholder};
 use leptos::prelude::*;
 
 use crate::api;
@@ -25,6 +25,7 @@ pub struct TextEdit {
     pub values: RwSignal<BTreeMap<String, String>>,
     pub problems: RwSignal<Vec<Diag>>,
     pub unsavable: RwSignal<Option<String>>,
+    pub active: RwSignal<String>,
     pub flush: StoredValue<Option<fn()>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
@@ -44,6 +45,72 @@ pub fn changed_of(files: &[EditFile], values: &BTreeMap<String, String>) -> Vec<
         .collect()
 }
 
+const OPEN: &str = "«secret ";
+const CLOSE: &str = "»";
+
+fn tokens(text: &str) -> Vec<(std::ops::Range<usize>, &str)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while let Some(i) = text[at..].find(OPEN) {
+        let start = at + i;
+        let id_at = start + OPEN.len();
+        let id = text.get(id_at..id_at + 8).unwrap_or("");
+        let is_id = id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit());
+        if is_id && text[id_at + 8..].starts_with(CLOSE) {
+            let end = id_at + 8 + CLOSE.len();
+            out.push((start..end, id));
+            at = end;
+        } else {
+            at = id_at;
+        }
+    }
+    out
+}
+
+fn skeleton(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for (r, _) in tokens(text) {
+        out.push_str(&text[at..r.start]);
+        out.push_str(OPEN);
+        at = r.end;
+    }
+    out.push_str(&text[at..]);
+    out
+}
+
+fn new_ids(was: &str, now: &str) -> Option<BTreeMap<String, String>> {
+    let (a, b) = (tokens(was), tokens(now));
+    if a.len() != b.len() || skeleton(was) != skeleton(now) {
+        return None;
+    }
+    let mut map = BTreeMap::new();
+    for ((_, from), (_, to)) in a.iter().zip(&b) {
+        if map
+            .insert(from.to_string(), to.to_string())
+            .is_some_and(|t| t != *to)
+        {
+            return None;
+        }
+    }
+    Some(map)
+}
+
+fn with_ids(typed: &str, map: &BTreeMap<String, String>) -> String {
+    let mut out = String::with_capacity(typed.len());
+    let mut at = 0;
+    for (r, id) in tokens(typed) {
+        out.push_str(&typed[at..r.start]);
+        match map.get(id) {
+            Some(to) => out.push_str(&placeholder(to)),
+            None => out.push_str(&typed[r.clone()]),
+        }
+        at = r.end;
+    }
+    out.push_str(&typed[at..]);
+    out
+}
+
 pub fn rebased(
     old: Option<&EditText>,
     next: &EditText,
@@ -56,12 +123,22 @@ pub fn rebased(
     next.files
         .iter()
         .map(|f| {
-            let typed = values
-                .get(&f.name)
-                .filter(|v| was(&f.name).is_some_and(|w| w != v.as_str()));
-            (f.name.clone(), typed.unwrap_or(&f.text).clone())
+            let typed = values.get(&f.name).and_then(|v| {
+                let w = was(&f.name).filter(|w| *w != v.as_str())?;
+                Some(match new_ids(w, &f.text) {
+                    Some(map) => with_ids(v, &map),
+                    None => v.clone(),
+                })
+            });
+            (f.name.clone(), typed.unwrap_or_else(|| f.text.clone()))
         })
         .collect()
+}
+
+pub fn settle_banner(changed: RwSignal<Option<msg::ConfigEvent>>, draft_dirty: bool) {
+    if !draft_dirty && changed.with_untracked(Option::is_some) {
+        changed.set(None);
+    }
 }
 
 pub fn text_ops(files: Vec<TextFile>) -> Vec<Op> {
@@ -114,6 +191,7 @@ impl TextEdit {
             values: RwSignal::new(BTreeMap::new()),
             problems: RwSignal::new(Vec::new()),
             unsavable: RwSignal::new(None),
+            active: RwSignal::new(String::new()),
             flush: StoredValue::new(None),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
@@ -134,6 +212,7 @@ impl TextEdit {
         self.values.set(BTreeMap::new());
         self.problems.set(Vec::new());
         self.unsavable.set(None);
+        self.active.set(String::new());
     }
 
     pub fn fetch(&self) {
@@ -165,6 +244,9 @@ impl TextEdit {
         });
         self.values.set(values);
         self.loaded.set(Some(Ok(Arc::new(next))));
+        if let Some(s) = crate::store::try_store() {
+            settle_banner(s.changed, untrack(|| s.edit.dirty()));
+        }
         self.changed();
     }
 
@@ -350,6 +432,60 @@ mod tests {
             crate::route::file_tab(),
             (crate::route::Route::Settings, Some(("tab", "file")))
         );
+    }
+
+    #[test]
+    fn typed_text_takes_the_new_placeholder_ids_when_only_the_ids_changed() {
+        let was = "a: «secret 0000000a»\nb: «secret 0000000b»\nc: 1\n";
+        let old = edit("b2s:1", vec![file("server.yaml", was, false)]);
+        let next = edit(
+            "b2s:1",
+            vec![file(
+                "server.yaml",
+                "a: «secret 1111111a»\nb: «secret 1111111b»\nc: 1\n",
+                false,
+            )],
+        );
+        let values = typed(&[(
+            "server.yaml",
+            "b: «secret 0000000a»\nc: 2\nd: «secret 0000000c»\n",
+        )]);
+        assert_eq!(
+            rebased(Some(&old), &next, &values)["server.yaml"],
+            "b: «secret 1111111a»\nc: 2\nd: «secret 0000000c»\n",
+            "ids from the old text follow, a typed id the server never gave stays"
+        );
+        let other = edit(
+            "b2s:2",
+            vec![file(
+                "server.yaml",
+                "a: «secret 1111111a»\nb: «secret 1111111b»\nc: 5\n",
+                false,
+            )],
+        );
+        assert_eq!(
+            rebased(Some(&old), &other, &values)["server.yaml"],
+            values["server.yaml"],
+            "a text that changed beyond its ids is left to the editor's notice"
+        );
+    }
+
+    #[test]
+    fn a_rebased_text_takes_down_the_changed_banner_unless_the_draft_has_changes() {
+        let ev = msg::ConfigEvent {
+            rev: "b2s:2".into(),
+            by: "ops".into(),
+            ok: true,
+        };
+        let changed = RwSignal::new(Some(ev.clone()));
+        settle_banner(changed, true);
+        assert_eq!(
+            changed.get_untracked(),
+            Some(ev),
+            "the draft still needs it"
+        );
+        settle_banner(changed, false);
+        assert_eq!(changed.get_untracked(), None);
     }
 
     #[test]

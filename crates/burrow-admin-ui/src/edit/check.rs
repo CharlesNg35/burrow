@@ -14,8 +14,17 @@ use super::{
     Edit, Outcome, Review, Source, VALIDATE_AFTER, conflict_of, landing, outcome_of, revert_outcome,
 };
 
+fn answers(rv: &Review, source: &Source, ops: &[Op], base: &str) -> bool {
+    rv.source == *source && rv.ops == ops && rv.base == base
+}
+
+fn carries(source: &Source) -> bool {
+    !matches!(source, Source::Revert(_))
+}
+
 fn text_changed(store: Store) {
     store.text.fetch();
+    super::text::settle_banner(store.changed, untrack(|| store.edit.dirty()));
     api::load_state(store);
     let (route, query) = crate::route::file_tab();
     crate::route::go_query_in(store, route, query);
@@ -138,24 +147,26 @@ impl Edit {
         );
     }
 
-    fn open_own(&self, review: Review) {
+    fn open_own(&self, review: Review) -> Review {
         self.confirms.set(BTreeMap::new());
         self.outcome.set(None);
-        self.review.set(Some(review));
+        self.review.set(Some(review.clone()));
+        review
     }
 
     fn check_own(
         &self,
         req: &'static str,
         body: Value,
-        source: Source,
+        asked: Review,
         failed: impl FnOnce(ErrorBody) + 'static,
     ) {
         let me = *self;
         api::request_within(req, body, api::CHECK_WITHIN, move |r| {
-            let still = me
-                .review
-                .with_untracked(|rv| rv.as_ref().is_some_and(|rv| rv.source == source));
+            let still = me.review.with_untracked(|rv| {
+                rv.as_ref()
+                    .is_some_and(|rv| answers(rv, &asked.source, &asked.ops, &asked.base))
+            });
             if !still {
                 return;
             }
@@ -175,7 +186,7 @@ impl Edit {
             .state
             .with_untracked(|s| s.as_ref().map(|s| s.rev.clone()))
             .unwrap_or_default();
-        self.open_own(Review {
+        let asked = self.open_own(Review {
             title: format!("Revert to version {to}"),
             ops: vec![Op::ReplaceDocument {
                 from_history: to.clone(),
@@ -190,21 +201,16 @@ impl Edit {
             to: to.clone(),
             base,
         });
-        self.check_own(
-            msg::req::REVERT,
-            body,
-            Source::Revert(to.clone()),
-            move |e| {
-                me.review.set(None);
-                match conflict_of(&e) {
-                    Some(c) => {
-                        me.conflict_revert.set(Some(to));
-                        me.raise(c, true);
-                    }
-                    None => me.outcome.set(Some(revert_outcome(&e))),
+        self.check_own(msg::req::REVERT, body, asked, move |e| {
+            me.review.set(None);
+            match conflict_of(&e) {
+                Some(c) => {
+                    me.conflict_revert.set(Some(to));
+                    me.raise(c, true);
                 }
-            },
-        );
+                None => me.outcome.set(Some(revert_outcome(&e))),
+            }
+        });
     }
 
     pub fn open_text(&self, store: Store) {
@@ -213,7 +219,7 @@ impl Edit {
             return;
         }
         let base = store.text.base();
-        self.open_own(Review {
+        let asked = self.open_own(Review {
             title: "Review changes".into(),
             ops: ops.clone(),
             base: base.clone(),
@@ -224,7 +230,7 @@ impl Edit {
         crate::route::go_in(store, crate::route::Route::Review);
         let me = *self;
         let body = api::body(&msg::Validate { base, ops });
-        self.check_own(msg::req::VALIDATE, body, Source::Text, move |e| {
+        self.check_own(msg::req::VALIDATE, body, asked, move |e| {
             me.review.set(None);
             match outcome_of(&e) {
                 _ if conflict_of(&e).is_some() => text_changed(store),
@@ -267,7 +273,7 @@ impl Edit {
         } else {
             self.base_rev.get_untracked()
         };
-        let carry = if review.standalone() {
+        let carry = if !carries(&review.source) {
             Vec::new()
         } else {
             self.unsaved_values()
@@ -330,5 +336,48 @@ impl Edit {
                 },
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_admin_proto::text_edit::TextFile;
+
+    fn text_review(text: &str, base: &str) -> Review {
+        Review {
+            title: "Review changes".into(),
+            ops: vec![Op::ReplaceText {
+                files: vec![TextFile {
+                    name: "server.yaml".into(),
+                    text: text.into(),
+                }],
+            }],
+            base: base.into(),
+            plan: None,
+            source: Source::Text,
+            own: true,
+        }
+    }
+
+    #[test]
+    fn a_late_check_answers_only_the_review_it_was_asked_for() {
+        let now = text_review("a: 2\n", "b2s:1");
+        assert!(answers(&now, &Source::Text, &now.ops, "b2s:1"));
+        let older = text_review("a: 1\n", "b2s:1");
+        assert!(!answers(&now, &Source::Text, &older.ops, "b2s:1"));
+        assert!(!answers(&now, &Source::Text, &now.ops, "b2s:0"));
+        assert!(!answers(
+            &now,
+            &Source::Revert("b2s:1".into()),
+            &now.ops,
+            "b2s:1"
+        ));
+    }
+
+    #[test]
+    fn an_applied_text_keeps_the_form_edits_not_added_yet() {
+        assert!(carries(&Source::Text) && carries(&Source::Draft));
+        assert!(!carries(&Source::Revert("b2s:1".into())));
     }
 }
