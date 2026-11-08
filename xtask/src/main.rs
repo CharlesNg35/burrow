@@ -7,7 +7,6 @@
 mod arch;
 mod compat;
 mod e2e;
-mod editor_css;
 mod fields;
 mod glyphs;
 mod layers;
