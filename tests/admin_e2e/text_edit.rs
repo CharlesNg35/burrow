@@ -792,6 +792,29 @@ async fn edit_as_json_and_toml(c: &mut Ctx, tool_before: &str) {
         .await;
 }
 
+async fn a_drop_in_takes_only_items(c: &mut Ctx) {
+    start(c).await;
+    show(c, APPS).await;
+    replace_in(c, APPS, "services:", "listen: 127.0.0.1:1\nservices:").await;
+    dirty(c, APPS, true).await;
+    let flagged = format!(
+        "(() => [...document.querySelectorAll({})].some(m => /listen/.test(m.dataset.message || '')))()",
+        js(&format!(
+            "{EDITOR} [role=tabpanel][data-document-id='{APPS}'] .config-editor__diagnostic-marker"
+        ))
+    );
+    c.ui.wait_true(
+        &flagged,
+        "a server setting in a drop-in is flagged",
+        CHECKED,
+    )
+    .await;
+    c.ui.click("[data-testid=file-cancel]").await;
+    c.ui.click("[data-testid=file-discard]").await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
+        .await;
+}
+
 fn text_edit(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -807,6 +830,7 @@ fn text_edit(c: &mut Ctx) -> Flow<'_> {
         a_locked_field_is_refused(c).await;
         waits_for_changes_in_review(c).await;
         edit_as_json_and_toml(c, &tool_before).await;
+        a_drop_in_takes_only_items(c).await;
         no_csp_violation(c).await;
         c.ui.assert_no_errors();
     })

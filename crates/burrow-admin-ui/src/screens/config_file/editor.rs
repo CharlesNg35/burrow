@@ -60,11 +60,34 @@ pub fn syntax_problem(files: &[EditFile], values: &BTreeMap<String, String>) -> 
     })
 }
 
+#[derive(Default)]
+struct Schemas {
+    main: Option<SchemaSource>,
+    drop_in: Option<SchemaSource>,
+}
+
+impl Schemas {
+    fn of(t: &EditText) -> Schemas {
+        Schemas {
+            main: schema_of(&t.schema),
+            drop_in: t.drop_in_schema.as_ref().and_then(schema_of),
+        }
+    }
+
+    fn for_file(&self, main: bool) -> Option<&SchemaSource> {
+        if main {
+            self.main.as_ref()
+        } else {
+            self.drop_in.as_ref().or(self.main.as_ref())
+        }
+    }
+}
+
 fn documents(
     t: &EditText,
     values: &BTreeMap<String, String>,
     problems: &[Diag],
-    schema: Option<&SchemaSource>,
+    schemas: &Schemas,
     secrets: &SecretOptions,
     asked: &BTreeMap<String, String>,
 ) -> Vec<Document> {
@@ -82,7 +105,7 @@ fn documents(
                 Some(l) => d.edit_as(l),
                 None => d,
             };
-            match schema {
+            match schemas.for_file(f.name == main) {
                 Some(s) => d.schema(s.clone()),
                 None => d,
             }
@@ -187,7 +210,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         shown,
     } = p;
     let first = text.get_untracked();
-    let schema = first.as_ref().and_then(|t| schema_of(&t.schema));
+    let schemas = first.as_ref().map(|t| Schemas::of(t)).unwrap_or_default();
     let pattern = first
         .as_ref()
         .map(|t| t.placeholder.clone())
@@ -205,9 +228,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         text.with(|t| {
             t.as_ref().map_or_else(Vec::new, |t| {
                 values.with(|v| {
-                    problems.with(|ps| {
-                        edit_as.with(|a| documents(t, v, ps, schema.as_ref(), &secrets, a))
-                    })
+                    problems.with(|ps| edit_as.with(|a| documents(t, v, ps, &schemas, &secrets, a)))
                 })
             })
         })
@@ -312,6 +333,46 @@ mod tests {
     }
 
     #[test]
+    fn a_drop_in_tab_checks_against_the_drop_in_schema() {
+        let t = EditText {
+            files: vec![
+                file("server.yaml", "a: 1\n"),
+                file("server.d/x.yaml", "b: 1\n"),
+            ],
+            schema: burrow_admin_proto::serde_json::json!({"title": "main"}),
+            drop_in_schema: Some(burrow_admin_proto::serde_json::json!({"title": "drop-in"})),
+            ..EditText::default()
+        };
+        let docs = documents(
+            &t,
+            &BTreeMap::new(),
+            &[],
+            &Schemas::of(&t),
+            &SecretOptions::default(),
+            &BTreeMap::new(),
+        );
+        let s = Schemas::of(&t);
+        assert!(std::ptr::eq(
+            s.for_file(true).unwrap(),
+            s.main.as_ref().unwrap()
+        ));
+        assert!(std::ptr::eq(
+            s.for_file(false).unwrap(),
+            s.drop_in.as_ref().unwrap()
+        ));
+        assert!(docs[0].schema.is_some() && docs[1].schema.is_some());
+        let older = EditText {
+            drop_in_schema: None,
+            ..t.clone()
+        };
+        let s = Schemas::of(&older);
+        assert!(
+            std::ptr::eq(s.for_file(false).unwrap(), s.main.as_ref().unwrap()),
+            "without a drop-in schema a drop-in uses the main one"
+        );
+    }
+
+    #[test]
     fn only_another_language_is_asked_of_the_editor() {
         assert!(requested("YAML", None).is_none());
         assert!(requested("YAML", Some("YAML")).is_none());
@@ -351,7 +412,7 @@ mod tests {
             &t,
             &values,
             &[],
-            None,
+            &Schemas::default(),
             &SecretOptions::default(),
             &BTreeMap::new(),
         );
@@ -370,7 +431,14 @@ mod tests {
         let mut asked = BTreeMap::new();
         asked.insert("server.yaml".to_string(), "TOML".to_string());
         asked.insert("server.d/ro.yaml".to_string(), "YAML".to_string());
-        let docs = documents(&t, &values, &[], None, &SecretOptions::default(), &asked);
+        let docs = documents(
+            &t,
+            &values,
+            &[],
+            &Schemas::default(),
+            &SecretOptions::default(),
+            &asked,
+        );
         assert_eq!(docs[0].edit_as, Some(Language::TOML));
         assert!(
             docs[1].edit_as.is_none(),
