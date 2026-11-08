@@ -278,6 +278,7 @@ When the server reads a folder of drop-in files ([configuration.md](configuratio
 - **Split into its own file** and **Merge into server.yaml** in an item's ⋯ menu move it between files. When a drop-in file is left with nothing in it, Review offers to delete it.
 - **Rename** with references updates them in every file; it is refused when a reference sits in a read-only file.
 - **Review** shows one diff per file ("server.yaml: no change").
+- **Group** by file, next to the search of the Services, Clients and Visitors lists, shows one section per file that holds such items: server.yaml first, then the drop-ins in the order the server reads them. A section header shows the file, its number of items, a lock for a read-only file and, while folded, the number of problems in it. Click a header (or press `Enter` on it) to fold or open it. A search opens every file with a match and hides the others; clearing it brings back what you had folded. With three files or more the lists start grouped; None shows the plain list. The choice and the folded files are kept until you close the tab.
 - **Settings → Files** lists each file, how many items it holds and whether it is read-only; its links open the list of that file's items.
 - A file that is **read-only on disk** shows a lock; its items can be looked at but not edited, renamed, moved or removed.
 - A change is written to every file it touches or to none. If a file changed on disk since you opened your change, it is refused and names the file; review your change again.
