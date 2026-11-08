@@ -172,7 +172,7 @@ async fn no_csp_violation(c: &mut Ctx) {
         styled.0 > 0 && !styled.1.is_empty(),
         "the editor injects its own stylesheet and it applies: {styled:?}"
     );
-    replace_in(c, MAIN, "max_connections: 12", "max_connections: 13").await;
+    replace_in(c, MAIN, "max_connections: 1", "max_connections: 9").await;
     dirty(c, MAIN, true).await;
     caret_on(c, MAIN, "max_connections").await;
     key(c, MAIN, "k", "KeyK", "ctrlKey: true,").await;
@@ -618,6 +618,147 @@ async fn placeholders_follow_a_restart(c: &mut Ctx, tool_before: &str) {
     secrets_kept(c, tool_before);
 }
 
+const EDIT_AS: &str = "[data-testid=file-edit-as]";
+
+async fn js_click(c: &Ctx, css: &str) {
+    let ok: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.querySelector({}); if (!e) return false; e.click(); return true; }})()",
+            js(css)
+        ))
+        .await;
+    assert!(ok, "{css} is there to click");
+}
+
+async fn edit_as(c: &Ctx, label: &str, shown: &str) {
+    js_click(c, &format!("{EDIT_AS} input[value={label}]")).await;
+    c.ui.wait_for(&format!("{EDIT_AS}[data-shown={shown}]"), SECS)
+        .await;
+}
+
+async fn scroll_y(c: &Ctx) -> f64 {
+    c.ui.eval("scrollY").await
+}
+
+async fn focus_leaves_the_page_where_it_is(c: &mut Ctx) {
+    let _: bool =
+        c.ui.eval("(() => { scrollTo(0, 120); return true; })()")
+            .await;
+    let at = scroll_y(c).await;
+    js_click(c, &tab(APPS)).await;
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(APPS)), SECS)
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    js_click(c, &tab(MAIN)).await;
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(MAIN)), SECS)
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        scroll_y(c).await,
+        at,
+        "the editor focusing itself on a tab switch leaves the page where it is"
+    );
+}
+
+fn number_after(text: &str, key: &str) -> String {
+    let at = text.find(key).expect("the key") + key.len();
+    text[at..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect()
+}
+
+async fn edit_as_json_and_toml(c: &mut Ctx, tool_before: &str) {
+    start(c).await;
+    focus_leaves_the_page_where_it_is(c).await;
+    assert_eq!(
+        c.ui.all_attrs(&format!("{EDIT_AS} input"), "value").await,
+        ["YAML", "JSON", "TOML"],
+        "the file's own language comes first"
+    );
+    edit_as(c, "JSON", "JSON").await;
+    let json = text_of(c, MAIN).await;
+    assert!(json.trim_start().starts_with('{'), "{json}");
+    let max = number_after(&json, "\"max_connections\": ");
+    replace_in(
+        c,
+        MAIN,
+        &format!("\"max_connections\": {max}"),
+        "\"max_connections\": 140",
+    )
+    .await;
+    dirty(c, MAIN, true).await;
+    c.ui.wait_text("[data-testid=file-saved-as]", "Saved as YAML", SECS)
+        .await;
+    edit_as(c, "TOML", "TOML").await;
+    let toml = text_of(c, MAIN).await;
+    assert!(toml.contains("max_connections = 140"), "{toml}");
+    assert!(toml.contains("«secret "), "placeholders stay in TOML");
+    let home = placeholder_after(&toml, "[clients.home]\nsecret = \"");
+    let office = placeholder_after(&toml, "[clients.office]\nsecret = \"");
+    replace_in(c, MAIN, &office, "").await;
+    replace_in(
+        c,
+        MAIN,
+        "[clients.office]\nsecret = \"",
+        &format!("[clients.office]\nsecret = \"{home}"),
+    )
+    .await;
+    burrow_problem(c, MAIN, "placeholder").await;
+    shots(c, "text-edit-as-toml").await;
+    replace_in(
+        c,
+        MAIN,
+        &format!("[clients.office]\nsecret = \"{home}"),
+        "[clients.office]\nsecret = \"",
+    )
+    .await;
+    replace_in(
+        c,
+        MAIN,
+        "[clients.office]\nsecret = \"",
+        &format!("[clients.office]\nsecret = \"{office}"),
+    )
+    .await;
+    c.ui.wait_for(&format!("{REVIEW}:not([disabled])"), CHECKED)
+        .await;
+    c.ui.click(REVIEW).await;
+    c.ui.wait_for("[data-testid=review]", CHECKED).await;
+    let review = c.ui.text("[data-testid=review]").await;
+    assert!(
+        review.contains("max_connections: 140"),
+        "Review shows YAML: {review}"
+    );
+    apply_now(c, "Applied: now the version of").await;
+    let text = c.world.config();
+    assert!(text.contains("max_connections: 140"), "{text}");
+    assert!(
+        text.starts_with("# server.yaml"),
+        "still YAML with its comments: {text}"
+    );
+    secrets_kept(c, tool_before);
+    start(c).await;
+    let last = text_of(c, MAIN)
+        .await
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .to_string();
+    replace_in(c, MAIN, &last, &format!("{last}\nheartbeat:")).await;
+    dirty(c, MAIN, true).await;
+    js_click(c, &format!("{EDIT_AS} input[value=TOML]")).await;
+    let reason = "(() => [...document.querySelectorAll('[data-testid=file-editor] .config-editor__diagnostic-marker')].some(m => /null/i.test(m.dataset.message || '')))()";
+    c.ui.wait_true(reason, "the editor says why TOML waits", SECS)
+        .await;
+    assert_eq!(c.ui.attr_of(EDIT_AS, "data-shown").await, "YAML");
+    shots(c, "text-edit-as-waits").await;
+    c.ui.click("[data-testid=file-cancel]").await;
+    c.ui.click("[data-testid=file-discard]").await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
+        .await;
+}
+
 fn text_edit(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -632,6 +773,7 @@ fn text_edit(c: &mut Ctx) -> Flow<'_> {
         a_change_on_the_server_shows_the_notice(c).await;
         a_locked_field_is_refused(c).await;
         waits_for_changes_in_review(c).await;
+        edit_as_json_and_toml(c, &tool_before).await;
         no_csp_violation(c).await;
         c.ui.assert_no_errors();
     })
