@@ -249,7 +249,14 @@ async fn closing_tabs(c: &mut Ctx) {
 
 async fn problems_in_closed_files_are_counted(c: &mut Ctx) {
     show(c, MAIN).await;
-    replace_in(c, MAIN, "\n  home:\n", "\n  house:\n").await;
+    let main = text_of(c, MAIN).await;
+    let from = main.find("\n  laptop:\n").expect("the laptop visitor");
+    let to = from
+        + 1
+        + main[from + 1..]
+            .find("\n  plain:\n")
+            .expect("the next visitor");
+    replace_in(c, MAIN, &main[from..to], "").await;
     let badge = "[data-testid=file-goto-problems]";
     let started = std::time::Instant::now();
     while c.ui.count(badge).await == 0 && started.elapsed() < CHECKED {

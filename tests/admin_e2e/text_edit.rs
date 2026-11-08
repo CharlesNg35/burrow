@@ -960,7 +960,7 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let after: String = c
         .ui
-        .eval("(() => 'editing ' + document.querySelector('[data-testid=config-file]').dataset.editing + ' dialogs ' + document.querySelectorAll('[role=dialog], dialog[open]').length + ' cancel-dialog ' + document.querySelectorAll('[data-testid=file-cancel-dialog]').length + ' review ' + !document.querySelector('[data-testid=file-review]').disabled)()")
+        .eval("(() => 'editing ' + document.querySelector('[data-testid=config-file]').dataset.editing + ' dialogs ' + [...document.querySelectorAll('[role=dialog], dialog[open]')].map(d => d.outerHTML.slice(0, 300)).join(' | ') + ' cancel ' + document.querySelector('[data-testid=file-cancel]').outerHTML.slice(0, 300) + ' cancel-dialog ' + document.querySelectorAll('[data-testid=file-cancel-dialog]').length + ' review ' + !document.querySelector('[data-testid=file-review]').disabled)()")
         .await;
     println!("after cancel: {after}; errors: {:?}", c.ui.take_errors());
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
