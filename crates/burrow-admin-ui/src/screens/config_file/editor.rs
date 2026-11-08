@@ -15,6 +15,7 @@ use super::problems::host_problems;
 
 pub const SECRET_HINT: &str = "The current secret, kept as it is. Type a new value to replace it.";
 
+#[derive(Clone, Copy)]
 pub struct EditorProps {
     pub text: Signal<Option<Arc<EditText>>>,
     pub values: Signal<BTreeMap<String, String>>,
@@ -98,7 +99,8 @@ fn read_only_note(text: Signal<Option<Arc<EditText>>>, active: RwSignal<String>)
     }
 }
 
-pub fn text_editor(p: EditorProps) -> AnyView {
+#[leptos::wasm_split::wasm_split(config_editor, wasm_split_path = ::leptos::wasm_split, fallible)]
+pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed> {
     let EditorProps {
         text,
         values,
@@ -143,10 +145,11 @@ pub fn text_editor(p: EditorProps) -> AnyView {
     let settings = EditorSettings {
         theme: EditorTheme::ViraInspired,
         show_footer: true,
+        styled: false,
         ..EditorSettings::default()
     };
     let tabs = DocumentsHandle::new();
-    view! {
+    Ok(view! {
         <div class="min-w-0 w-full" data-testid="file-editor">
             {read_only_note(text, active)}
             <ConfigDocuments
@@ -161,7 +164,7 @@ pub fn text_editor(p: EditorProps) -> AnyView {
             />
         </div>
     }
-    .into_any()
+    .into_any())
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Callout, Dialog, Tone};
+use burrow_ui_kit::{Button, ButtonLook, ButtonSize, Callout, Deferred, Dialog, Tone};
 use leptos::prelude::*;
 
 use crate::route::{Link, Route};
@@ -113,16 +113,19 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
             </div>
         }
         .into_any(),
-        Some(Ok(_)) => text_editor(EditorProps {
-            text: Signal::derive(move || t.text()),
-            values: t.values.into(),
-            problems: t.problems.into(),
-            on_change: Callback::new(move |(name, text): (String, String)| t.set_value(&name, text)),
-            on_review: Callback::new(move |_| review(s)),
-            unsavable: t.unsavable,
-            flush: t.flush,
-        }),
-    }
+        Some(Ok(_)) => {
+            let props = EditorProps {
+                text: Signal::derive(move || t.text()),
+                values: t.values.into(),
+                problems: t.problems.into(),
+                on_change: Callback::new(move |(name, text): (String, String)| t.set_value(&name, text)),
+                on_review: Callback::new(move |_| review(s)),
+                unsavable: t.unsavable,
+                flush: t.flush,
+            };
+            view! { <Deferred load=move || text_editor(props) what="the editor" testid="editor-load"/> }.into_any()
+        }
+        }
     }
 }
 
