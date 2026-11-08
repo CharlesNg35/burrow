@@ -3,8 +3,9 @@ use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, ScrollRow, Tone, active_item, 
 use leptos::prelude::*;
 
 use crate::route::{self, Link};
+use crate::store::Grouping;
 
-use super::Row;
+use super::{Row, file_groups};
 
 #[component]
 pub fn TocRow(row: Row, selected: bool) -> impl IntoView {
@@ -124,6 +125,7 @@ pub fn ListPane(
     #[prop(optional)] query: Option<RwSignal<String>>,
     #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
     #[prop(optional)] phone: PhoneList,
+    #[prop(default = None)] by_file: Option<&'static str>,
 ) -> impl IntoView {
     let q = query
         .unwrap_or_else(|| RwSignal::new(route::query(route::SEARCH_QUERY).unwrap_or_default()));
@@ -160,8 +162,16 @@ pub fn ListPane(
             })
         })
     });
+    let searching = Signal::derive(move || !q.get().is_empty());
     let move_sel = move |delta: i32| {
-        let list = visible.get_untracked();
+        let list = match by_file.filter(|k| file_groups::mode(k) == Grouping::ByFile) {
+            Some(k) => untrack(|| {
+                visible.with(|v| {
+                    file_groups::navigable(k, v, searching.get(), selected.get().as_deref())
+                })
+            }),
+            None => visible.get_untracked(),
+        };
         if list.is_empty() {
             return;
         }
@@ -184,7 +194,19 @@ pub fn ListPane(
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     keep_selected_in_view(list_ref, selected, visible);
     let look = Look { no_counts, compact };
-    let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
+    let body = list_body(
+        Shown {
+            visible,
+            rows,
+            selected,
+            by_file,
+            searching,
+        },
+        empty,
+        empty_icon,
+        groups,
+        look,
+    );
     view! {
         <aside
             class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))] mb-[calc(0px-var(--toast-pad,0px))] max-lg:pb-[var(--toast-pad,0px)]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() || phone == PhoneList::AboveDetail { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
@@ -197,7 +219,10 @@ pub fn ListPane(
                     <span class="text-sm text-text-muted" data-testid="list-count">{move || count.get()}</span>
                     {new_button}
                 </div>
-                <div class="mb-2.5">{search_box(q, search_label, nothing)}</div>
+                <div class="mb-2.5 flex items-center gap-2">
+                    <div class="min-w-0 flex-1">{search_box(q, search_label, nothing)}</div>
+                    {by_file.map(file_groups::control)}
+                </div>
                 {chips}
             </div>
             <div
@@ -230,11 +255,18 @@ pub fn ListPane(
                         move_sel(-1);
                     }
                     "Enter" => {
-                        if let Some(el) = document().get_element_by_id("detail") {
-                            use wasm_bindgen::JsCast;
-                            if let Ok(el) = el.dyn_into::<web_sys::HtmlElement>() {
-                                let _ = el.focus();
-                            }
+                        use wasm_bindgen::JsCast;
+                        let on_button = e
+                            .target()
+                            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                            .is_some_and(|t| t.tag_name().eq_ignore_ascii_case("button"));
+                        if on_button {
+                            return;
+                        }
+                        if let Some(el) = document().get_element_by_id("detail")
+                            && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
+                        {
+                            let _ = el.focus();
                         }
                     }
                     _ => {}
@@ -244,6 +276,15 @@ pub fn ListPane(
             </div>
         </aside>
     }
+}
+
+#[derive(Clone, Copy)]
+struct Shown {
+    visible: Memo<Vec<Row>>,
+    rows: Signal<Vec<Row>>,
+    selected: Signal<Option<String>>,
+    by_file: Option<&'static str>,
+    searching: Signal<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -449,27 +490,41 @@ fn still(r: &Row) -> Row {
     }
 }
 
+pub(super) fn row_view(r: Row, on: bool, compact: bool, live: Memo<LiveMap>) -> AnyView {
+    if compact {
+        return view! { <TocRow row=r selected=on/> }.into_any();
+    }
+    let key = r.key.clone();
+    let mine = Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()));
+    view! { <ListCard row=r selected=on live=mine/> }.into_any()
+}
+
+pub(super) type LiveMap = std::collections::HashMap<String, (String, String)>;
+
 fn list_body(
-    visible: Memo<Vec<Row>>,
-    rows: Signal<Vec<Row>>,
-    selected: Signal<Option<String>>,
+    shown_in: Shown,
     empty: Option<(String, String)>,
     empty_icon: Option<&'static str>,
     groups: Vec<&'static str>,
     look: Look,
 ) -> impl Fn() -> AnyView {
+    let Shown {
+        visible,
+        rows,
+        selected,
+        by_file,
+        searching,
+    } = shown_in;
     let Look { no_counts, compact } = look;
     let shape = Memo::new(move |_| visible.with(|v| v.iter().map(still).collect::<Vec<_>>()));
-    let live_of = move |key: String| {
-        Memo::new(move |_| {
-            visible.with(|v| {
-                v.iter()
-                    .find(|r| r.key == key)
-                    .map(|r| (r.meta.clone(), r.line2.clone()))
-                    .unwrap_or_default()
-            })
+    let live: Memo<LiveMap> = Memo::new(move |_| {
+        visible.with(|v| {
+            v.iter()
+                .map(|r| (r.key.clone(), (r.meta.clone(), r.line2.clone())))
+                .collect()
         })
-    };
+    });
+    let grouped = Memo::new(move |_| by_file.filter(|k| file_groups::mode(k) == Grouping::ByFile));
     move || {
         let list = shape.get();
         if list.is_empty() {
@@ -478,6 +533,17 @@ fn list_body(
                 Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon=empty_icon.unwrap_or("plus") title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
                 _ => view! { <p class="px-4 py-6 text-sm text-text-muted">"Nothing matches."</p> }.into_any(),
             };
+        }
+        if let Some(kind) = grouped.get() {
+            let body = file_groups::Body {
+                kind,
+                searching,
+                selected,
+                compact,
+                live,
+            };
+            let live_rows = untrack(|| visible.get());
+            return file_groups::render(&body, &live_rows);
         }
         let sel = selected.get();
         let mut gs: Vec<String> = groups.iter().map(|g| g.to_string()).collect();
@@ -490,10 +556,11 @@ fn list_body(
             .iter()
             .filter(|g| list.iter().any(|r| &r.group == *g))
             .count();
-        let live = untrack(|| visible.get());
+        let live_rows = untrack(|| visible.get());
         gs.into_iter()
             .filter_map(|g| {
-                let in_group: Vec<Row> = live.iter().filter(|r| r.group == g).cloned().collect();
+                let in_group: Vec<Row> =
+                    live_rows.iter().filter(|r| r.group == g).cloned().collect();
                 (!in_group.is_empty()).then(|| {
                     let n = in_group.len();
                     view! {
@@ -505,12 +572,7 @@ fn list_body(
                         })}
                         {in_group.into_iter().map(|r| {
                             let on = sel.as_deref() == Some(r.key.as_str());
-                            if compact {
-                                view! { <TocRow row=r selected=on/> }.into_any()
-                            } else {
-                                let live = live_of(r.key.clone());
-                                view! { <ListCard row=r selected=on live=live/> }.into_any()
-                            }
+                            row_view(r, on, compact, live)
                         }).collect_view()}
                     }
                 })

@@ -6,6 +6,7 @@ pub mod bar;
 mod config_file;
 pub mod create;
 pub mod entity;
+mod file_groups;
 pub mod files;
 pub mod flow;
 mod list;
@@ -104,6 +105,7 @@ pub struct Row {
     pub health: Option<entity::HealthMark>,
     pub terms: String,
     pub file: String,
+    pub problems: usize,
     pub moment: Option<crate::format::Moment>,
 }
 
