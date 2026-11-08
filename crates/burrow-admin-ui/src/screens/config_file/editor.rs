@@ -24,6 +24,7 @@ pub struct EditorProps {
     pub on_review: Callback<()>,
     pub unsavable: RwSignal<Option<String>>,
     pub flush: StoredValue<Option<fn()>>,
+    pub active: RwSignal<String>,
 }
 
 fn schema_of(schema: &Value) -> Option<SchemaSource> {
@@ -82,6 +83,15 @@ fn documents(
         .collect()
 }
 
+pub fn first_shown(files: &[EditFile], active: &str) -> String {
+    files
+        .iter()
+        .find(|f| f.name == active)
+        .or_else(|| files.first())
+        .map(|f| f.name.clone())
+        .unwrap_or_default()
+}
+
 fn read_only_note(text: Signal<Option<Arc<EditText>>>, active: RwSignal<String>) -> impl IntoView {
     move || {
         let (name, why) = text.with(|t| {
@@ -109,6 +119,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         on_review,
         unsavable,
         flush,
+        active,
     } = p;
     flush.set_value(Some(flush_pending_edits));
     let first = text.get_untracked();
@@ -123,9 +134,9 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         .with_hint(SECRET_HINT);
     let main = first
         .as_ref()
-        .and_then(|t| t.files.first().map(|f| f.name.clone()))
+        .map(|t| first_shown(&t.files, &active.get_untracked()))
         .unwrap_or_default();
-    let active = RwSignal::new(main.clone());
+    active.set(main.clone());
     let list = Signal::derive(move || {
         text.with(|t| {
             t.as_ref().map_or_else(Vec::new, |t| {
@@ -201,6 +212,15 @@ mod tests {
         let mut v = BTreeMap::new();
         v.insert("server.json".to_string(), "{\"a\": }".to_string());
         assert!(syntax_problem(&json, &v).is_some());
+    }
+
+    #[test]
+    fn the_editor_comes_back_on_the_file_last_shown() {
+        let files = vec![file("server.yaml", ""), file("server.d/x.yaml", "")];
+        assert_eq!(first_shown(&files, "server.d/x.yaml"), "server.d/x.yaml");
+        assert_eq!(first_shown(&files, "server.d/gone.yaml"), "server.yaml");
+        assert_eq!(first_shown(&files, ""), "server.yaml");
+        assert_eq!(first_shown(&[], "server.yaml"), "");
     }
 
     #[test]

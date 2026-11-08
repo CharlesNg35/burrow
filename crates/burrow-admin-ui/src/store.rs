@@ -94,6 +94,7 @@ pub struct Store {
 }
 
 pub const REVIEW: &str = "Review";
+pub const TEXT_FIRST_ACTION: &str = "Open Config file";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Retry {
@@ -116,6 +117,7 @@ impl OwnJob {
 
 impl Store {
     pub fn new(route: Route) -> Self {
+        let text = crate::edit::TextEdit::new();
         Store {
             conn: RwSignal::new(Conn::Connecting),
             opened: RwSignal::new(0),
@@ -151,8 +153,8 @@ impl Store {
             error: RwSignal::new(None),
             server_updating: RwSignal::new(OwnJob::Idle),
             retry: RwSignal::new(None),
-            edit: Edit::new(),
-            text: crate::edit::TextEdit::new(),
+            edit: Edit::held_by(Signal::derive(move || text.dirty())),
+            text,
         }
     }
 
@@ -267,7 +269,14 @@ impl Store {
         set_timeout(move || me.drop_toast(id), std::time::Duration::from_secs(5));
     }
 
+    pub fn text_first(&self) {
+        self.toast(Tone::Info, crate::edit::TEXT_FIRST, Some(TEXT_FIRST_ACTION));
+    }
+
     pub fn added_to_changes(&self) {
+        if untrack(|| self.text.dirty()) {
+            return;
+        }
         self.toast(Tone::Success, "Added to changes", Some(REVIEW));
     }
 
