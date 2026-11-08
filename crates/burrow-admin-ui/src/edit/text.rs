@@ -81,9 +81,14 @@ struct At {
     path: Option<Path>,
 }
 
-pub fn refusal(err: &ErrorBody) -> Diag {
+pub fn refusal(err: &ErrorBody) -> Vec<Diag> {
+    if let Ok(body) = serde_json::from_value::<msg::InvalidBody>(err.body.clone())
+        && !body.diags.is_empty()
+    {
+        return body.diags;
+    }
     let at: At = serde_json::from_value(err.body.clone()).unwrap_or_default();
-    Diag {
+    vec![Diag {
         severity: Severity::Error,
         code: err.code.as_str().to_string(),
         message: err.message.clone(),
@@ -93,10 +98,12 @@ pub fn refusal(err: &ErrorBody) -> Diag {
         help: None,
         line: at.line,
         col: at.col,
+        end_line: None,
+        end_col: None,
         before: false,
         subjects: Vec::new(),
         file: at.file,
-    }
+    }]
 }
 
 impl TextEdit {
@@ -233,7 +240,7 @@ impl TextEdit {
                 }
                 Err(e) if e.code == ErrorCode::Conflict => me.fetch(),
                 Err(e) if e.body.get("unanswered") == Some(&Value::Bool(true)) => {}
-                Err(e) => me.problems.set(vec![refusal(&e)]),
+                Err(e) => me.problems.set(refusal(&e)),
             }
         });
     }
@@ -352,7 +359,7 @@ mod tests {
             message: "this placeholder stands for the secret of clients.home.secret".into(),
             body: json!({"file": "server.d/10-web.yaml", "line": 4, "col": 9, "path": ["visitors", "lap", "secret"]}),
         };
-        let d = refusal(&err);
+        let d = refusal(&err).remove(0);
         assert!(d.is_error());
         assert_eq!(d.code, "invalid");
         assert_eq!(d.file.as_deref(), Some("server.d/10-web.yaml"));
@@ -362,7 +369,21 @@ mod tests {
             code: ErrorCode::NotWritable,
             message: "x".into(),
             body: Value::Null,
-        });
+        })
+        .remove(0);
         assert!(bare.file.is_none() && bare.path.is_none() && bare.line.is_none());
+        let placeholders = ErrorBody {
+            code: ErrorCode::Invalid,
+            message: "placeholders".into(),
+            body: json!({"diags": [
+                {"severity": "error", "code": "secret-placeholder", "message": "server.yaml line 11, visitors.ops.secret: this placeholder stands for the secret of clients.home.secret", "path": ["visitors", "ops", "secret"], "line": 11, "col": 13, "end_line": 11, "end_col": 30},
+                {"severity": "error", "code": "secret-placeholder", "message": "«secret 0badc0de» stands for no current secret", "path": ["clients", "box", "secret"], "file": "server.d/tool.yaml", "line": 3}
+            ]}),
+        };
+        let got = refusal(&placeholders);
+        assert_eq!(got.len(), 2, "one problem per placeholder");
+        assert_eq!(got[0].code, burrow_admin_proto::codes::SECRET_PLACEHOLDER);
+        assert_eq!((got[0].end_line, got[0].end_col), (Some(11), Some(30)));
+        assert_eq!(got[1].file.as_deref(), Some("server.d/tool.yaml"));
     }
 }

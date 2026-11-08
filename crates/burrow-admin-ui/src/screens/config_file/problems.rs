@@ -7,7 +7,7 @@ pub const SOURCE: &str = "burrow";
 #[derive(PartialEq)]
 enum Place {
     Path(Vec<String>),
-    At(u32, u32),
+    At(u32, u32, Option<(u32, u32)>),
     Document,
 }
 
@@ -21,7 +21,13 @@ struct Merged {
 fn place_of(d: &Diag) -> Place {
     match (&d.path, d.line) {
         (Some(p), _) if !p.is_empty() => Place::Path(p.clone()),
-        (_, Some(line)) if line > 0 => Place::At(line, d.col.unwrap_or(1).max(1)),
+        (_, Some(line)) if line > 0 => Place::At(
+            line,
+            d.col.unwrap_or(1).max(1),
+            d.end_line
+                .filter(|e| *e >= line)
+                .map(|e| (e, d.end_col.unwrap_or(1).max(1))),
+        ),
         _ => Place::Document,
     }
 }
@@ -55,10 +61,13 @@ fn host(m: Merged) -> HostDiagnostic {
     let message = m.messages.join("; ");
     let d = match m.place {
         Place::Path(p) => HostDiagnostic::at_path(field(&p), sev, message),
-        Place::At(line, col) => HostDiagnostic::at_range(
+        Place::At(line, col, end) => HostDiagnostic::at_range(
             TextRange::new(
                 TextPosition::new(line as usize, col as usize),
-                TextPosition::new(line as usize + 1, 1),
+                match end {
+                    Some((l, c)) => TextPosition::new(l as usize, c as usize),
+                    None => TextPosition::new(line as usize + 1, 1),
+                },
             ),
             sev,
             message,
@@ -126,6 +135,8 @@ mod tests {
             help: None,
             line: None,
             col: None,
+            end_line: None,
+            end_col: None,
             before: false,
             subjects: Vec::new(),
             file: file.map(str::to_string),
@@ -237,6 +248,19 @@ mod tests {
             ))
         );
         assert_eq!(got[1].target, DiagnosticTarget::Document);
+        let mut spans = diag(Severity::Error, "yaml", "a block", None, None);
+        spans.line = Some(2);
+        spans.col = Some(1);
+        spans.end_line = Some(4);
+        spans.end_col = Some(7);
+        let got = host_problems(&[spans], "server.yaml", "server.yaml");
+        assert_eq!(
+            got[0].target,
+            DiagnosticTarget::Range(TextRange::new(
+                TextPosition::new(2, 1),
+                TextPosition::new(4, 7)
+            ))
+        );
         assert_eq!(got[1].severity, config_editor_leptos::Severity::Info);
     }
 

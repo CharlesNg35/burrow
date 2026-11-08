@@ -29,9 +29,16 @@ fn opts() -> Options {
                 true,
             ),
         ],
+        extra_top: "web:\n  http: 127.0.0.1:HTTP_PORT\n".into(),
+        extra_services: format!(
+            "  site:\n    client: home\n    target: 8080\n    web:\n      hosts: [site.example.com]\n      tls: \"off\"\n      request_headers: {{ Authorization: \"{HEADER}\" }}\n"
+        ),
         ..Options::default()
     }
 }
+
+const HEADER: &str = "Bearer e2e-text-header-5b1e";
+const PILL: &str = "[data-testid=conn-pill]";
 
 fn js(s: &str) -> String {
     serde_json::to_string(s).expect("a JS string")
@@ -413,6 +420,43 @@ async fn shots_plain(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
+async fn placeholders_follow_a_restart(c: &mut Ctx, tool_before: &str) {
+    start(c).await;
+    let before = placeholder_after(&text_of(c, MAIN).await, "Authorization: ");
+    assert!(
+        !text_of(c, MAIN).await.contains(HEADER),
+        "the header value shows"
+    );
+    c.world.stop("server");
+    c.ui.wait_text(PILL, "Reconnecting", Duration::from_secs(15))
+        .await;
+    c.world
+        .start("server", &["server", "-c", "server.yaml"], &[]);
+    c.ui.wait_text(PILL, "Connected", Duration::from_secs(30))
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "(() => {{ const t = document.querySelector({}).value; return t.includes('Authorization: ') && !t.includes({}); }})()",
+            js(&input(MAIN)),
+            js(&before)
+        ),
+        "the editor takes the restarted server's placeholders",
+        CHECKED,
+    )
+    .await;
+    replace_in(c, MAIN, "max_connections: 120", "max_connections: 125").await;
+    dirty(c, MAIN, true).await;
+    c.ui.wait_for(&format!("{REVIEW}:not([disabled])"), SECS)
+        .await;
+    c.ui.click(REVIEW).await;
+    c.ui.wait_for("[data-testid=review]", CHECKED).await;
+    apply_now(c, "Applied: now the version of").await;
+    let text = c.world.config();
+    assert!(text.contains("max_connections: 125"), "{text}");
+    assert!(text.contains(HEADER), "the header keeps its value: {text}");
+    secrets_kept(c, tool_before);
+}
+
 fn text_edit(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -423,6 +467,7 @@ fn text_edit(c: &mut Ctx) -> Flow<'_> {
         no_csp_violation(c).await;
         a_moved_placeholder_is_refused(c, &tool_before).await;
         cancel_asks_when_edited(c).await;
+        placeholders_follow_a_restart(c, &tool_before).await;
         a_change_on_the_server_shows_the_notice(c).await;
         a_locked_field_is_refused(c).await;
         waits_for_changes_in_review(c).await;

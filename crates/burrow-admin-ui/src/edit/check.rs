@@ -230,7 +230,7 @@ impl Edit {
                 _ if conflict_of(&e).is_some() => text_changed(store),
                 Outcome::Unanswered => me.outcome.set(Some(Outcome::Unanswered)),
                 _ => {
-                    store.text.problems.set(vec![super::text::refusal(&e)]);
+                    store.text.problems.set(super::text::refusal(&e));
                     let (route, query) = crate::route::file_tab();
                     crate::route::go_query(route, query);
                 }
