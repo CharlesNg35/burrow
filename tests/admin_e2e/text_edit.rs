@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::world::{self, Options};
-use super::{Ctx, SECS, adornments_clear, apply_now, open, run};
+use super::{Ctx, SECS, apply_now, open, run};
 
 const CARD: &str = "[data-testid=config-file]";
 const EDITOR: &str = "[data-testid=file-editor]";
@@ -226,7 +226,6 @@ async fn shots(c: &mut Ctx, step: &str) {
             ))
             .await;
         assert!(inside, "{step} at {w}px: the editor fills its card");
-        adornments_clear(c, step).await;
         c.ui.shot(&format!("{step}-{size}")).await;
     }
     c.ui.viewport(1440, 900).await;
