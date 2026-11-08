@@ -76,7 +76,7 @@ pub fn shortcut() -> &'static str {
         .navigator()
         .user_agent()
         .is_ok_and(|a| a.contains("Mac OS") || a.contains("iPhone") || a.contains("iPad"));
-    if mac { "⌘P" } else { "Ctrl+P" }
+    if mac { "Cmd+P" } else { "Ctrl+P" }
 }
 
 pub fn problem_files(t: TextEdit) -> Vec<String> {

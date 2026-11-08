@@ -948,6 +948,7 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
         0,
         "a tab without edits closes at once; the file stays"
     );
+    tokio::time::sleep(Duration::from_millis(600)).await;
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
