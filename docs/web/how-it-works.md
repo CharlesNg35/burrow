@@ -131,7 +131,7 @@ order ──> check (TLS on 443 / HTTP on 80 / DNS TXT) ──> certificate ─�
    └──── renewal: at 2/3 of the life, or when Let's Encrypt says (ARI) ───┘
 ```
 
-1. **Which check.** A site's `challenge` picks it. Without one, burrow tries the TLS check when `web.https` is 443, then the HTTP check when `web.http` is 80. Wildcards and names with `challenge: dns` always use DNS ([DNS checks](certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach)). burrow remembers the check that worked for a name and tries it first next time.
+1. **Which check.** A site's `challenge` picks it. Without one, burrow tries the TLS check when `web.https` is 443, then the HTTP check when `web.http` is 80. When neither fits, a name whose domain a DNS provider lists uses DNS. Wildcards and names with `challenge: dns` always use DNS ([DNS checks](certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach)). burrow remembers the check that worked for a name and tries it first next time.
 2. **The answer.** The TLS check is answered when the connection arrives ([step 1](#1-a-connection-arrives-on-the-https-port)). The HTTP check is answered on port 80 before anything else ([step 6](#6-port-80)). For DNS, burrow sets the TXT record through the provider, waits until the record is seen, and removes it afterwards.
 3. **Until the certificate is there**, an HTTPS handshake for the name fails, and `http://` gets a `503` page that says the certificate is on its way.
 4. **Renewal** comes at two thirds of the certificate's life, and at half for short-lived ones (under 10 days). When Let's Encrypt suggests a time (ARI, RFC 9773), burrow follows it. The certificate in use stays until the new one is there.
