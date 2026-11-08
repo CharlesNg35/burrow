@@ -281,6 +281,8 @@ fn listen_clash(c: crate::config::settings::ListenClash) -> Diag {
         help: Some("restart the server after changing listen, then use the old address".into()),
         line: None,
         col: None,
+        end_line: None,
+        end_col: None,
         before: false,
         subjects: Vec::new(),
         file: None,

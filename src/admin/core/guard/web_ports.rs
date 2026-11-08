@@ -239,6 +239,8 @@ pub fn busy(
                 help: f.hint,
                 line: None,
                 col: None,
+                end_line: None,
+                end_col: None,
                 before: false,
             })
         })

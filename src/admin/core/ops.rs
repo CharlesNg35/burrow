@@ -77,24 +77,9 @@ fn checked_value(v: &Value) -> Result<Value, OpError> {
     Ok(raw_of(v))
 }
 
-fn path_of(op: &Op) -> Option<&Path> {
-    match op {
-        Op::Set { path, .. }
-        | Op::Add { path, .. }
-        | Op::Remove { path }
-        | Op::Rename { path, .. }
-        | Op::SecretAdd { path, .. }
-        | Op::SecretRemove { path, .. }
-        | Op::PasswordSet { path, .. }
-        | Op::SetText { path, .. }
-        | Op::Place { path, .. } => Some(path),
-        Op::ReplaceDocument { .. } | Op::DropFile { .. } => None,
-    }
-}
-
 pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpError> {
     let max = crate::config::tree::MAX_DEPTH;
-    if let Some(path) = ops.iter().filter_map(path_of).find(|p| p.len() > max) {
+    if let Some(path) = ops.iter().filter_map(Op::path).find(|p| p.len() > max) {
         return Err(err(format!(
             "a path of {} keys is nested more than {max} levels deep; a config needs far fewer",
             path.len()
@@ -176,6 +161,9 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                     .map_err(|_| err("that version does not parse"))?
                     .to_json();
                 document = Some(docs);
+            }
+            Op::ReplaceText { .. } => {
+                return Err(err("this server does not take replace_text yet"));
             }
             Op::SetText { path, text } => {
                 let (last, parents) = path

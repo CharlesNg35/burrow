@@ -64,6 +64,8 @@ pub fn not_here(
             help: Some(crate::base::ports::not_here_hint()),
             line: None,
             col: None,
+            end_line: None,
+            end_col: None,
             before: false,
             file: None,
         })
