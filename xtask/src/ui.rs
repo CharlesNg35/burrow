@@ -114,7 +114,6 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     prepare_dist(&dist, release)?;
     let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
     let linked = split::link(&parts, &work.join("app.js"), &bg, release)?;
-    simd::refuse_in_main(&linked.wasm)?;
     let wasm_name = hashed("app.wasm", &linked.wasm, release);
     write(&dist, &wasm_name, &linked.wasm)?;
     let js_name = linked.js.name.clone();
@@ -133,9 +132,11 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     let css_bytes = css_text.into_bytes();
     let css_name = hashed("app.css", &css_bytes, release);
     write(&dist, &css_name, &css_bytes)?;
-    let boot = format!(
-        "import init from \"./{js_name}\";\ninit({{ module_or_path: new URL(\"./{wasm_name}\", import.meta.url) }});\n"
-    );
+    let boot = simd::boot_js(&js_name, &wasm_name);
+    let wasms: Vec<&[u8]> = std::iter::once(linked.wasm.as_slice())
+        .chain(linked.chunks.iter().map(|c| c.bytes.as_slice()))
+        .collect();
+    simd::guard(&boot, &wasms)?;
     let boot_name = hashed("boot.js", boot.as_bytes(), release);
     write(&dist, &boot_name, boot.as_bytes())?;
     let index = index_html(
