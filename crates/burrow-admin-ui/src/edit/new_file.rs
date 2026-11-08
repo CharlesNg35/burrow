@@ -182,7 +182,7 @@ mod tests {
         assert!(
             new_name(&t, &new, "my apps")
                 .unwrap_err()
-                .contains("not a file name")
+                .contains("use only letters, digits, dots, dashes and underscores")
         );
         assert!(new_name(&t, &new, "../x").is_err());
         let json = text(&["home.json"]);

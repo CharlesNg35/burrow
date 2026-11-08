@@ -163,6 +163,12 @@ cargo test --release --test heavy -- --ignored --nocapture --test-threads 1
 | `BURROW_CHURN_ROUNDS`, `BURROW_CHURN_CONNS` | `20`, `2000` | rounds and connections per round of the churn tests |
 | `BURROW_TEST_TRANSPORT` | `tcp` | `ws` runs them over WebSocket |
 
+The admin side has one measurement of its own: a server config with 100 drop-in files and 1000 services, clients and visitors with secrets. It prints how long opening the text editor (`config_text`), a `search_text`, the live check and Review of a one-file text edit, Apply and `check_docs` take, and how big the replies are:
+
+```sh
+cargo test --release -p burrow --lib scale -- --ignored --nocapture
+```
+
 On GitHub, the `heavy` workflow runs them by hand (Actions, heavy, Run workflow). Its inputs are the soak time (1800 s), the connections (10000), the chaos time (120 s), the transport (`tcp` or `ws`) and which jobs to run: `heavy`, `proxies` (`tests/e2e/proxies.sh`), `freebsd` (the test suites in a FreeBSD 14 VM) or `all`.
 
 ## Lint and checks

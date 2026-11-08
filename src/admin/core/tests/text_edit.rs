@@ -163,7 +163,7 @@ fn replace_text_stands_alone_and_names_only_files_burrow_can_use() {
     assert_eq!(e.code, ErrorCode::BadRequest);
     assert!(
         e.message
-            .contains("\"notes.txt\" is not a file name burrow can use"),
+            .contains("\"notes.txt\" is not a drop-in file name; use server.d/<name>.yaml"),
         "{}",
         e.message
     );
