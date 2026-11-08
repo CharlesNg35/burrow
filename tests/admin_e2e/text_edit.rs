@@ -338,6 +338,12 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
     )
     .await;
     dirty(c, MAIN, true).await;
+    let now = text_of(c, MAIN).await;
+    let at = now.find("office:").unwrap_or(0);
+    println!(
+        "moved {home} over {office}; the editor's text there: {:?}",
+        &now[at..(at + 80).min(now.len())]
+    );
     burrow_problem(c, MAIN, "placeholder").await;
     shots(c, "text-edit-moved-placeholder").await;
     c.ui.click(REVIEW).await;
