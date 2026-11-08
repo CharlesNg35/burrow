@@ -7,7 +7,7 @@
 - Every change is checked as `burrow validate` does, and shown as a diff with what it affects before it applies.
 - Your file keeps its comments, and earlier versions can be reverted.
 
-It runs on your machine with a visitor config that has admin rights, so the server opens no new port. It needs a browser from 2021 or later with WebAssembly SIMD: Chrome or Edge 91, Firefox 89, Safari 16.4 or later; an older browser gets a page that says so.
+It runs on your machine with a visitor config that has admin rights, so the server opens no new port.
 
 ![The Overview page of burrow admin](images/admin-overview.png)
 
