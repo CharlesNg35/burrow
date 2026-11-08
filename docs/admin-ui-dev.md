@@ -74,6 +74,8 @@ cargo run -- admin -c dev/visitor.yaml --ui-dir crates/burrow-admin-ui/dist
 
 `burrow admin` opens the browser; after a rebuild, refresh the page. `--ui-dir` serves the files from that folder instead of the embedded copy, and works only in debug builds. The configs in `dev/` hold public secrets: never use them on a real server.
 
+`RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` in the environment would make cargo skip the wasm flags in `.cargo/config.toml`, so `cargo xtask ui` passes the wasm build one `CARGO_ENCODED_RUSTFLAGS` with your flags first, then those config flags and the `-Clink-arg=--emit-relocs` the chunk split needs.
+
 After a UI change, run the browser flows:
 
 ```bash

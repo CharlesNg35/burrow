@@ -7,11 +7,10 @@ use blake2::Digest;
 
 use crate::target_dir;
 use crate::tools::{self, Tools};
-use crate::{simd, split};
+use crate::{rustflags, simd, split};
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const CRATE: &str = "burrow-admin-ui";
-const EMIT_RELOCS: &str = "target.wasm32-unknown-unknown.rustflags=[\"-Clink-arg=--emit-relocs\"]";
 const WATCHED: &[&str] = &[
     "crates/burrow-ui-kit/src",
     "crates/burrow-admin-logic/src",
@@ -193,8 +192,21 @@ fn compile_wasm(root: &Path, release: bool) -> Result<PathBuf, String> {
     let mut cargo = crate::cargo();
     cargo
         .args(["build", "--locked", "-p", CRATE, "--target", WASM_TARGET])
-        .args(["--config", EMIT_RELOCS])
         .current_dir(root);
+    match rustflags::for_wasm(root, WASM_TARGET)? {
+        Some(flags) => {
+            cargo
+                .env("CARGO_ENCODED_RUSTFLAGS", flags)
+                .env_remove("RUSTFLAGS");
+        }
+        None => {
+            let relocs = format!(
+                "target.{WASM_TARGET}.rustflags=[\"{}\"]",
+                rustflags::EMIT_RELOCS
+            );
+            cargo.args(["--config", &relocs]);
+        }
+    }
     if release {
         cargo.args(["--profile", "wasm-release"]);
     }
