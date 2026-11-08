@@ -314,6 +314,27 @@ pub fn veil_headers(line: &str, pairs: &[(String, String)]) -> String {
     out
 }
 
+const FRAGMENT: usize = 4;
+
+fn fragments(value: &str) -> Vec<String> {
+    if Secret::parse(value).is_ok() {
+        return Vec::new();
+    }
+    let mut out = vec![value.to_string()];
+    for r in super::text::tokens(value) {
+        out.push(value[r].to_string());
+    }
+    out.extend(
+        value
+            .split(|c: char| !c.is_alphanumeric())
+            .map(str::to_string),
+    );
+    out.retain(|f| f.chars().count() >= FRAGMENT);
+    out.sort_by_key(|f| std::cmp::Reverse(f.len()));
+    out.dedup();
+    out
+}
+
 pub struct Hidden {
     hashes: Vec<String>,
     headers: Vec<(String, String)>,
@@ -332,6 +353,10 @@ impl Hidden {
                 hashes(&v, Some(root), &mut out.hashes);
                 header_values(&v, &mut out.headers);
                 credentials(&v, Some(root), "", &mut out.headers);
+                for value in super::text_edit::hidden_values(&tree, &src, root) {
+                    out.headers
+                        .extend(fragments(&value).into_iter().map(|f| (String::new(), f)));
+                }
             }
         }
         out
@@ -562,6 +587,25 @@ mod tests {
         }
         assert_eq!(veil_headers("+  name: a", &pairs), "+  name: a");
         assert!(veil_headers("+  Cookie: a", &pairs).ends_with(HEADER_SHOWN));
+    }
+
+    #[test]
+    fn fragments_of_a_hidden_value_are_veiled_in_any_line() {
+        let schema = crate::config::admin_schema::server_schema();
+        let text = "clients:\n  home:\n    secret: hunter2,LEAKC7\n";
+        let h = Hidden::in_texts(&[text], &schema.root);
+        for line in [
+            "unknown field \"LEAKC7\" in client \"home\"",
+            "Client home: LEAKC7 set to nothing",
+            "    secret: hunter2,LEAKC7",
+        ] {
+            let shown = h.line(line);
+            assert!(
+                !shown.contains("LEAKC7") && !shown.contains("hunter2"),
+                "{shown}"
+            );
+        }
+        assert_eq!(h.line("listen: 7835"), "listen: 7835");
     }
 
     #[test]

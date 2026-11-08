@@ -461,3 +461,73 @@ fn an_edit_of_comments_only_says_so_in_review_and_activity() {
         .unwrap();
     assert_eq!(h.entries[0].changes, plan.changes);
 }
+
+#[test]
+fn every_line_of_a_text_plan_is_veiled_with_the_secrets_of_both_texts() {
+    let w = world();
+    let text = w.text.replace(&w.home.encode(), "hunter2,LEAKC7");
+    let core = super::core_running(&text, &w.text);
+    let s = session(&w, AdminLevel::Write);
+    let t = edit_text(&core, &s);
+    let ops = replace(&t, |x| {
+        x.replace(
+            "admin: write",
+            "admin: write\n    note_secret: typed,LEAKNEW8",
+        )
+    });
+    let old = core.docs().unwrap();
+    let e = crate::admin::core::text_edit::edited(&core, &old, &ops)
+        .unwrap()
+        .unwrap();
+    let mut plan = planned(&core, &s, &ops).unwrap();
+    let hash = plan.plan.clone();
+    plan.diags[0].message = "unknown field \"LEAKC7\" and LEAKNEW8".into();
+    plan.changes.push(burrow_admin_proto::plan::Change {
+        kind: burrow_admin_proto::plan::ChangeKind::Other,
+        path: p(&["clients", "LEAKC7"]),
+        summary: "Client home: LEAKC7 set to nothing".into(),
+        part_of: None,
+    });
+    e.veil(&core, &mut plan);
+    let sent = serde_json::to_string(&plan).unwrap();
+    assert!(
+        !sent.contains("LEAKC7") && !sent.contains("LEAKNEW8"),
+        "{sent}"
+    );
+    assert_eq!(plan.plan, hash);
+    let err = e.veil_error(
+        &core,
+        ApiError::new(ErrorCode::Invalid, "LEAKC7 is wrong")
+            .with(json!({"diags": [{"message": "LEAKNEW8"}]})),
+    );
+    assert!(!err.message.contains("LEAKC7") && !err.body.to_string().contains("LEAKNEW8"));
+}
+
+#[test]
+fn a_secret_moved_into_a_flow_mapping_never_shows_a_part_of_itself() {
+    let w = world();
+    let text = w.text.replace(&w.home.encode(), "hunter2,LEAKC7");
+    let core = super::core_running(&text, &w.text);
+    let s = session(&w, AdminLevel::Write);
+    let t = edit_text(&core, &s);
+    let shown = &t.files[0].text;
+    let at = shown.find("  home:\n    secret: ").unwrap();
+    let line_end = at + shown[at..].find("\n    secret: ").unwrap() + 1;
+    let p_end = line_end + shown[line_end..].find('\n').unwrap();
+    let p = shown[line_end..p_end]
+        .trim()
+        .trim_start_matches("secret: ")
+        .to_string();
+    let sent = format!(
+        "{}  home: {{ secret: {p} }}{}",
+        &shown[..at],
+        &shown[p_end..]
+    );
+    let c = plan::compute(&core, &s, &t.rev, &replace(&t, |_| sent.clone())).unwrap();
+    let out = serde_json::to_string(&c.plan).unwrap();
+    assert!(!out.contains("LEAKC7") && !out.contains("hunter2"), "{out}");
+    let back = crate::config::tree::parse(&c.new_docs.main().text)
+        .unwrap()
+        .to_json();
+    assert_eq!(back["clients"]["home"]["secret"], "hunter2,LEAKC7");
+}

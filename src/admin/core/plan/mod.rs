@@ -222,10 +222,29 @@ pub fn compute(
     refuse_locked(core, ops_list)?;
     locks::refuse_misplaced_passwords(core, ops_list)?;
     let edited = super::text_edit::edited(core, &old_docs, ops_list)?;
+    match &edited {
+        Some(e) => planned(core, s, (base, ops_list), old_docs, raw, Some(e))
+            .map(|mut c| {
+                e.veil(core, &mut c.plan);
+                c
+            })
+            .map_err(|err| e.veil_error(core, err)),
+        None => planned(core, s, (base, ops_list), old_docs, raw, None),
+    }
+}
+
+fn planned(
+    core: &Core,
+    s: &Session,
+    (base, ops_list): (&str, &[Op]),
+    old_docs: Docs,
+    raw: Value,
+    edited: Option<&super::text_edit::Edited>,
+) -> Result<Computed, ApiError> {
     let cx = Cx {
         core,
         session: s,
-        edited: edited.as_ref().map(|e| &e.docs),
+        edited: edited.map(|e| &e.docs),
     };
     let applied =
         ops::apply(&raw, ops_list, &cx).map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
@@ -249,7 +268,7 @@ pub fn compute(
     let mut v = judge(core, s, &d, &running, &file, &checked);
     v.impacts.extend(kept);
     let mut plan = assemble(core, base, &d, checked, file, v, reformat);
-    if let Some(e) = &edited {
+    if let Some(e) = edited {
         e.place(&mut plan.diags);
         e.note(&old_docs, &mut plan.changes);
     }

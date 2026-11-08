@@ -12,11 +12,11 @@ use std::sync::OnceLock;
 use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::msg::{ErrorCode, InvalidBody};
 use burrow_admin_proto::ops::Op;
-use burrow_admin_proto::plan::{Change, ChangeKind};
+use burrow_admin_proto::plan::{Change, ChangeKind, Plan};
 use burrow_admin_proto::text_edit::{EditFile, EditText, PLACEHOLDER_PATTERN, TextFile};
 use serde_json::Value;
 
-use super::{ApiError, Core, plan, text};
+use super::{ApiError, Core, plan, text, values};
 use crate::config::Format;
 use crate::config::docs::Docs;
 pub use mask::Ids;
@@ -61,6 +61,17 @@ fn masked(core: &Core, docs: &Docs) -> Result<Vec<mask::Masked>, ApiError> {
         .collect()
 }
 
+pub fn hidden_values(
+    tree: &crate::config::tree::Node,
+    body: &str,
+    root: &burrow_admin_proto::schema::Node,
+) -> Vec<String> {
+    spots::field_spots(tree, body, root)
+        .into_iter()
+        .map(|s| s.value)
+        .collect()
+}
+
 pub fn editor_schema(core: &Core) -> &Value {
     core.text_edit.schema.get_or_init(|| {
         schema::editor_schema(
@@ -91,8 +102,23 @@ pub fn config_text(core: &Core) -> Result<EditText, ApiError> {
     })
 }
 
+const IDS: [&str; 5] = ["plan", "base", "result_rev", "current", "rev"];
+
+fn veil_strings(v: &mut Value, hidden: &values::Hidden) {
+    match v {
+        Value::String(s) => *s = text::mask_secrets(&hidden.line(s), &[]),
+        Value::Array(a) => a.iter_mut().for_each(|x| veil_strings(x, hidden)),
+        Value::Object(m) => m
+            .iter_mut()
+            .filter(|(k, _)| !IDS.contains(&k.as_str()))
+            .for_each(|(_, x)| veil_strings(x, hidden)),
+        _ => {}
+    }
+}
+
 pub struct Edited {
     pub docs: Docs,
+    old: Docs,
     shifts: Vec<unmask::Shift>,
 }
 
@@ -167,10 +193,42 @@ pub fn edited(core: &Core, old: &Docs, ops: &[Op]) -> Result<Option<Edited>, Api
                 .with(serde_json::to_value(InvalidBody { diags: problems }).unwrap_or_default()),
         );
     }
-    Ok(Some(Edited { docs, shifts }))
+    Ok(Some(Edited {
+        docs,
+        old: old.clone(),
+        shifts,
+    }))
 }
 
 impl Edited {
+    fn hidden(&self, core: &Core) -> values::Hidden {
+        let texts: Vec<&str> = self
+            .old
+            .list
+            .iter()
+            .chain(&self.docs.list)
+            .map(|d| d.text.as_str())
+            .collect();
+        values::Hidden::in_texts(&texts, &core.schema().root)
+    }
+
+    pub fn veil(&self, core: &Core, plan: &mut Plan) {
+        let hidden = self.hidden(core);
+        if let Ok(mut v) = serde_json::to_value(&*plan) {
+            veil_strings(&mut v, &hidden);
+            if let Ok(back) = serde_json::from_value(v) {
+                *plan = back;
+            }
+        }
+    }
+
+    pub fn veil_error(&self, core: &Core, mut e: ApiError) -> ApiError {
+        let hidden = self.hidden(core);
+        e.message = text::mask_secrets(&hidden.line(&e.message), &[]);
+        veil_strings(&mut e.body, &hidden);
+        e
+    }
+
     pub fn note(&self, old: &Docs, changes: &mut Vec<Change>) {
         if !changes.is_empty() {
             return;
