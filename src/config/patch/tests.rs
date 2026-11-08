@@ -43,6 +43,52 @@ fn quoting_is_kept_or_added_when_needed() {
 }
 
 #[test]
+fn a_replaced_quoted_scalar_keeps_its_quotes_and_its_comment() {
+    for (q, was, now) in [("\"", "home", "eta1"), ("'", "home", "eta1")] {
+        let block = format!("services:\n  web:\n    client: {q}{was}{q} # c\n    target: 1\n");
+        let out = yaml(&block, |v| v["services"]["web"]["client"] = json!(now));
+        assert_eq!(out.text, block.replace(was, now), "{q}");
+        let flow = format!("services:\n  web: {{ client: {q}{was}{q}, target: 1 }} # c\n");
+        let out = yaml(&flow, |v| v["services"]["web"]["client"] = json!(now));
+        assert_eq!(out.text, flow.replace(was, now), "{q}");
+        let last = format!("services:\n  web: {{ target: 1, client: {q}{was}{q} }} # c\n");
+        let out = yaml(&last, |v| v["services"]["web"]["client"] = json!(now));
+        assert_eq!(out.text, last.replace(was, now), "{q}");
+        let top = format!("name: {q}{was}{q}   # c\n");
+        let out = yaml(&top, |v| v["name"] = json!(now));
+        assert_eq!(out.text, top.replace(was, now), "{q}");
+    }
+}
+
+#[test]
+fn a_replaced_list_item_or_multi_line_string_keeps_its_quotes_and_its_comment() {
+    for q in ["\"", "'", ""] {
+        let (was, now) = (format!("- {q}a{q}"), format!("- {q}z{q}"));
+        let list = format!("allow:\n  {was} # c\n  - b\n");
+        let out = yaml(&list, |v| v["allow"] = json!(["z", "b"]));
+        assert_eq!(out.text, list.replace(&was, &now), "{q}");
+        let multi = format!("name: {q}one\n  two{q}   # c\nnext: 1\n");
+        let out = yaml(&multi, |v| v["name"] = json!("three"));
+        let quoted = format!("name: {q}three{q}   # c\nnext: 1\n");
+        if !q.is_empty() {
+            assert_eq!(out.text, quoted, "{q}");
+            let item = format!("allow:\n  - {q}one\n    two{q} # c\n  - b\n");
+            let out = yaml(&item, |v| v["allow"] = json!(["three", "b"]));
+            assert_eq!(out.text, format!("allow:\n  - {q}three{q} # c\n  - b\n"));
+        }
+    }
+    let out = yaml(FILE, |v| {
+        v["services"]["web"]["allow_from"] = json!(["192.168.0.0/16", "172.16.0.0/12"])
+    });
+    assert!(
+        out.text
+            .contains("    allow_from:\n      - 192.168.0.0/16\n      - 172.16.0.0/12\n  ssh"),
+        "a moved item keeps no other item's comment: {}",
+        out.text
+    );
+}
+
+#[test]
 fn added_keys_go_after_their_siblings_with_their_indentation() {
     let out = yaml(FILE, |v| {
         v["services"]["db"] = json!({"client": "home", "bind": 5432, "target": 5432})
@@ -658,5 +704,56 @@ fn a_list_entry_is_added_switched_or_removed_without_touching_the_others() {
     assert_eq!(
         removed.text,
         "web:\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com, example.net] # these domains\n        cloudflare: { token: \"${CF_TOKEN}\" } # quoted\n        wildcards: [\"*.example.com\"]\n# after\n"
+    );
+}
+
+const KEYS: &str = "services:\n  a: # keep a\n    target: 1\n  x: # bye\n    target: 2\n  b: # keep b\n    target: 3\n";
+
+fn renamed(renames: &[(&str, &str)], services: Value) -> Patched {
+    let renames: Vec<Rename> = renames
+        .iter()
+        .map(|(from, to)| Rename {
+            path: vec!["services".into(), from.to_string()],
+            to: to.to_string(),
+        })
+        .collect();
+    patch(
+        KEYS,
+        Format::Yaml,
+        &json!({ "services": services }),
+        &renames,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_renamed_key_that_is_removed_or_taken_leaves_the_other_entries_as_they_are() {
+    let without_x = json!({"a": {"target": 1}, "b": {"target": 3}});
+    let rest = "services:\n  a: # keep a\n    target: 1\n  b: # keep b\n    target: 3\n";
+    for renames in [&[("x", "y")][..], &[("x", "y"), ("y", "x")][..]] {
+        let out = renamed(renames, without_x.clone());
+        assert_eq!((out.text.as_str(), out.reformat), (rest, None));
+    }
+    let taken = renamed(
+        &[("b", "x")],
+        json!({"a": {"target": 1}, "x": {"target": 3}}),
+    );
+    assert_eq!(
+        (taken.text.as_str(), taken.reformat),
+        (
+            "services:\n  a: # keep a\n    target: 1\n  x: # keep b\n    target: 3\n",
+            None
+        )
+    );
+    let swapped = renamed(
+        &[("a", "t"), ("t", "b")],
+        json!({"b": {"target": 1}, "x": {"target": 2}}),
+    );
+    assert_eq!(
+        (swapped.text.as_str(), swapped.reformat),
+        (
+            "services:\n  b: # keep a\n    target: 1\n  x: # bye\n    target: 2\n",
+            None
+        )
     );
 }

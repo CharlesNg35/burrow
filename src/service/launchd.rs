@@ -410,6 +410,7 @@ mod tests {
             admin_writable: false,
             web_state: None,
             remote_updates: false,
+            account_ids: None,
         };
         let p = plist(&Manifest {
             env_file: Some("/etc/burrow/home.env".into()),
@@ -437,6 +438,7 @@ mod tests {
         let web = plist(&Manifest {
             web_state: Some("/Library/Application Support/burrow/home".into()),
             remote_updates: false,
+            account_ids: None,
             ..visitor
         });
         assert!(web.contains(

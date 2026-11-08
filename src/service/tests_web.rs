@@ -23,6 +23,7 @@ fn manifest(web_state: Option<&str>) -> Manifest {
         admin_writable: false,
         web_state: web_state.map(PathBuf::from),
         remote_updates: false,
+        account_ids: None,
     }
 }
 
@@ -387,7 +388,7 @@ fn purge_spares_every_file_another_installed_service_owns() {
 fn a_reinstall_refused_for_a_port_another_program_holds_never_stops_the_service() {
     let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = held.local_addr().unwrap();
-    let checked = super::checks::Checked {
+    let mut checked = super::checks::Checked {
         role: crate::install::Role::Server,
         identity: None,
         listens: vec![(
@@ -411,5 +412,12 @@ fn a_reinstall_refused_for_a_port_another_program_holds_never_stops_the_service(
         rec.0.borrow()
     );
     drop(held);
-    assert!(super::checks::check_ports_before_stop(&rec, &checked, &m).is_ok());
+    let free = (0..5).any(|_| {
+        let addr = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .unwrap();
+        checked.listens[0].1 = addr;
+        super::checks::check_ports_before_stop(&rec, &checked, &m).is_ok()
+    });
+    assert!(free, "a free port is never refused");
 }

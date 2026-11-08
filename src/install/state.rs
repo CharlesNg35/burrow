@@ -148,6 +148,7 @@ mod tests {
             admin_writable: false,
             web_state: None,
             remote_updates: false,
+            account_ids: None,
         }
     }
 

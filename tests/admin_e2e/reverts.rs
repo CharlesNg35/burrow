@@ -236,6 +236,17 @@ fn a_revert_review_left_unapplied_is_never_applied_later() {
     run("stale-revert", Options::default(), false, stale_revert);
 }
 
+async fn newest_by_ops(c: &Ctx) -> String {
+    let newest = activity_rev(c, 0).await;
+    let row = c.ui.text(&format!("[data-row='{newest}']")).await;
+    assert!(
+        row.contains("ops") && !row.contains("hand edit"),
+        "the newest change is by ops: {row}"
+    );
+    c.ui.text(&format!("[data-row='{newest}'] [data-testid=list-row]"))
+        .await
+}
+
 fn revert_after_restart(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         let original = c.world.config();
@@ -246,6 +257,7 @@ fn revert_after_restart(c: &mut Ctx) -> Flow<'_> {
         wait_checked(c).await;
         open_review(c, "change-before-a-restart").await;
         applied(c, "changed").await;
+        let title = newest_by_ops(c).await;
         c.world.stop("server");
         c.ui.wait_text(
             "[data-testid=conn-pill]",
@@ -261,7 +273,14 @@ fn revert_after_restart(c: &mut Ctx) -> Flow<'_> {
             Duration::from_secs(30),
         )
         .await;
+        assert_eq!(
+            newest_by_ops(c).await,
+            title,
+            "the change keeps what changed after the restart"
+        );
         let older = activity_rev(c, 1).await;
+        let kept = c.ui.text(&format!("[data-row='{older}']")).await;
+        assert!(kept.contains("hand edit"), "the first version: {kept}");
         c.ui.click(&format!("[data-row='{older}'] [data-testid=list-row]"))
             .await;
         c.ui.wait_for("[data-testid=revert]", SECS).await;

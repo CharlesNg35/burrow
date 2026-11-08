@@ -30,6 +30,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         self_allow,
         web,
         remote_updates,
+        service_files,
     } = new;
     use Applied::{Live, Reload, Restart};
     [
@@ -82,6 +83,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*self_allow != old.self_allow, "self.allow", Reload),
         (*web != old.web, "web", Reload),
         (*remote_updates != old.remote_updates, "update", Restart),
+        (*service_files != old.service_files, "files", Live),
     ]
     .into_iter()
     .filter_map(|(changed, name, how)| changed.then_some((name, how)))

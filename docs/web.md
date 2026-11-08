@@ -37,7 +37,9 @@ Then:
 
 1. Point `blog.example.com` at the server in your DNS (an `A` or `AAAA` record).
 2. Open ports 443 and 80 in the server's firewall.
-3. Start the server with `burrow server -c server.yaml`, or install it as a service ([Running burrow as a service](service.md)), or save the config if it runs already. A `${VAR}` like `${HOME_SECRET}` is read from the environment of the running server: export it in the shell that starts it; `burrow service install` saves it for the service. A reload whose variable is missing is refused, and the log says which.
+3. Start the server with `burrow server -c server.yaml`, or install it as a service ([Running burrow as a service](service.md)), or save the config if it runs already.
+
+   A `${VAR}` like `${HOME_SECRET}` is read from the environment of the running server: export it in the shell that starts it; `burrow service install` saves it for the service. A reload whose variable is missing is refused, and the log says which.
 
 burrow gets a certificate for `blog.example.com` from Let's Encrypt within a minute or so, and the site is up. Until then, a visitor on `http://` sees a short page saying the certificate is on its way. `burrow validate` shows what will happen:
 
@@ -50,7 +52,7 @@ blog.example.com: Let's Encrypt, TLS check -> service blog
 http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered
 ```
 
-`burrow init server` can write this for you: answer yes to its website question, or pass `--web blog.example.com --email ops@example.com`.
+`burrow init server` can write this for you: answer yes to its website question, or pass `--web blog.example.com --email ops@example.com`. The site leads to port 3000 on the first client; `--web-target 8080` (or `127.0.0.1:8080`) names another app, and the website question asks for it too.
 
 ## The ports
 
@@ -63,7 +65,11 @@ The web proxy listens on up to two ports of the server, set under `web:`:
 
 - A port alone, like `443`, listens on IPv4 and IPv6, since many home connections only have a public IPv6 address. Write `0.0.0.0:443` for IPv4 only, or one address, like `203.0.113.10:443`.
 - `web:` needs at least one of the two. Without `web.https`, every website is plain HTTP.
-- Ports below 1024 need root or `CAP_NET_BIND_SERVICE` on Linux. `burrow service install` grants it when the config has such a port; run it again after adding one. For a server you run by hand, `sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow` grants it to the binary, and must be run again after each update, as for Caddy. `burrow validate` and burrow admin warn when this process may not open the port, with the same text; this holds for every address the server listens on, services included. A service installed before the low port was added says to run `sudo burrow service install -c /etc/burrow/<name>/server.yaml` again, which grants the permission and moves nothing; `setcap` does not help a service, whose unit drops every other capability.
+- Ports below 1024 need root or `CAP_NET_BIND_SERVICE` on Linux.
+  - `burrow service install` grants it when the config has such a port; run it again after adding one.
+  - For a server you run by hand, `sudo setcap cap_net_bind_service=+ep /usr/local/bin/burrow` grants it to the binary, and must be run again after each update, as for Caddy.
+  - `burrow validate` and burrow admin warn when this process may not open the port, with the same text; this holds for every address the server listens on, services included.
+  - A service installed before the low port was added says to run `sudo burrow service install -c /etc/burrow/<name>/server.yaml` again, which grants the permission and moves nothing; `setcap` does not help a service, whose unit drops every other capability.
 - `burrow validate` warns when `web.https` is 80 or `web.http` is 443: browsers send `http://` to 80 and `https://` to 443, so visitors who type a name would not reach the websites. Keep it only when a router or proxy in front sends the usual port there.
 - Without `web.http`, nothing answers `http://`: a visitor who types `http://blog.example.com` gets "connection refused".
 
@@ -98,7 +104,12 @@ services:
 | `passthrough` | The app does its own HTTPS. burrow only reads the name and passes the encrypted bytes on. |
 | `off` | No HTTPS: the site is plain HTTP on `web.http`. The default without `web.https`. |
 
-`https_redirect` decides what an HTTPS site does on `web.http`. `true`, the default, sends visitors to the same address on `https://` with a permanent redirect (308); `false` answers plain HTTP too. Set it for every site under `web:`, or per site. A site with device certificates (`client_auth`) always redirects ([Device certificates](web/access.md#device-certificates)).
+`https_redirect` decides what an HTTPS site does on `web.http`:
+
+- `true`, the default, sends visitors to the same address on `https://` with a permanent redirect (308);
+- `false` answers plain HTTP too.
+
+Set it for every site under `web:`, or per site. A site with device certificates (`client_auth`) always redirects ([Device certificates](web/access.md#device-certificates)).
 
 The names of a site follow these rules:
 

@@ -44,11 +44,11 @@ fn one_row(
         .and_then(|w| WebConfig::HTTPS.get(w))
         .is_some_and(|h| !h.is_null());
     let in_base = base_items.and_then(|b| b.get(name));
-    let pending = (in_base.is_none()
-        && s.edit
-            .draft
-            .with(|d| d.renamed_from(section, name).is_none()))
-    .then_some("new");
+    let pending = s
+        .edit
+        .draft
+        .with(|d| d.base_name(section, name).is_none())
+        .then_some("new");
     let entity_path = vec![section.to_string(), name.to_string()];
     let mark = if s.edit.unsaved(&entity_path) {
         Some((
@@ -75,6 +75,20 @@ fn one_row(
     };
     if let Some(m) = mark {
         row.tags.insert(0, m);
+    }
+    row.file = s.item_file(&entity_path).unwrap_or_default();
+    if let Some((file, locked)) = super::file::file_label(&entity_path) {
+        row.terms.push('\n');
+        row.terms.push_str(&file);
+        let main = s.with_files(burrow_admin_logic::files::main_name);
+        if locked || main.as_deref() != Some(file.as_str()) {
+            let text = if locked {
+                format!("read-only · {file}")
+            } else {
+                file
+            };
+            row.tags.push((text, Tone::Neutral));
+        }
     }
     row
 }

@@ -370,3 +370,114 @@ fn a_new_password_becomes_password_set_and_a_stored_hash_stays_untouched() {
     again.set_password(&path("alice"), "p5");
     assert_eq!(again.ops().len(), 1);
 }
+
+#[test]
+fn renamed_from_follows_chains_renames_back_and_swaps() {
+    let s = |n: &str| p(&["services", n]);
+    let mut c = Changeset::new(json!({"services": {"blog": {}, "web": {}}}));
+    assert!(c.rename(&s("blog"), "journal"));
+    assert!(c.rename(&s("journal"), "blog"));
+    assert_eq!(c.renamed_from("services", "blog"), None);
+    assert!(c.rename(&s("blog"), "a"));
+    assert!(c.rename(&s("a"), "b"));
+    assert_eq!(c.renamed_from("services", "b").as_deref(), Some("blog"));
+    assert_eq!(c.renamed_from("services", "a"), None);
+    let mut w = Changeset::new(json!({"services": {"eta2": {}, "web": {}}}));
+    for (from, to) in [("eta2", "eps1"), ("web", "eta2"), ("eps1", "web")] {
+        assert!(w.rename(&s(from), to));
+    }
+    assert_eq!(w.renamed_from("services", "web").as_deref(), Some("eta2"));
+    assert_eq!(w.renamed_from("services", "eta2").as_deref(), Some("web"));
+    w.set(&s("eps1"), json!({}));
+    assert_eq!(w.renamed_from("services", "eps1"), None);
+    let mut n = Changeset::new(json!({"services": {}}));
+    n.set(&s("lab"), json!({}));
+    assert!(n.rename(&s("lab"), "lab2"));
+    assert_eq!(
+        n.renamed_from("services", "lab2"),
+        None,
+        "a new item stays new"
+    );
+}
+
+#[test]
+fn an_item_renamed_then_deleted_and_added_again_is_a_removal_and_a_new_item() {
+    let s = |n: &str| p(&["services", n]);
+    let mut c = Changeset::new(base());
+    assert!(c.rename(&s("web"), "www"));
+    c.set(&s("www"), Value::Null);
+    c.set(&s("www"), json!({"client": "home", "target": 81}));
+    let ops = c.ops();
+    assert!(
+        !ops.iter().any(|o| matches!(o, Op::Rename { .. })),
+        "{ops:?}"
+    );
+    assert!(ops.contains(&Op::Remove { path: s("web") }), "{ops:?}");
+    assert!(
+        ops.iter()
+            .any(|o| matches!(o, Op::Add { path, .. } if *path == s("www")))
+    );
+    assert_eq!(c.renamed_from("services", "www"), None);
+    assert_eq!(c.renamed_to("services", "web"), None);
+    assert_eq!(c.changed_entities(), 2);
+}
+
+#[test]
+fn renames_count_once_per_item_and_a_rename_back_is_no_change() {
+    let s = |n: &str| p(&["services", n]);
+    let mut c = Changeset::new(base());
+    assert!(c.rename(&s("web"), "journal"));
+    assert!(c.rename(&s("journal"), "web"));
+    assert!(!c.dirty(), "{:?}", c.ops());
+    assert_eq!(c.changed_entities(), 0);
+    assert!(c.rename(&s("web"), "a"));
+    assert!(c.rename(&s("a"), "b"));
+    assert_eq!(c.changed_entities(), 1);
+    assert_eq!(c.renamed_to("services", "web").as_deref(), Some("b"));
+    let mut w = Changeset::new(json!({"services": {"a": {"target": 1}, "b": {"target": 2}}}));
+    for (from, to) in [("a", "t"), ("b", "a"), ("t", "b")] {
+        assert!(w.rename(&s(from), to));
+    }
+    assert_eq!(w.changed_entities(), 2);
+    w.set(&s("b"), Value::Null);
+    assert_eq!(
+        w.ops(),
+        [
+            Op::Remove { path: s("a") },
+            Op::Rename {
+                path: s("b"),
+                to: "a".into(),
+                refs: true
+            }
+        ]
+    );
+    assert_eq!(w.changed_entities(), 2);
+}
+
+#[test]
+fn a_rename_back_after_the_name_was_reused_and_moved_on_keeps_both_items() {
+    let s = |n: &str| p(&["services", n]);
+    let mut c = Changeset::new(base());
+    assert!(c.rename(&s("web"), "a"));
+    c.set(&s("web"), json!({"client": "home", "target": 81}));
+    assert!(c.rename(&s("web"), "z"));
+    assert!(c.rename(&s("a"), "web"));
+    assert_eq!(
+        c.ops(),
+        [Op::Add {
+            path: s("z"),
+            value: json!({"client": "home", "target": 81})
+        }]
+    );
+    assert_eq!(c.base_name("services", "web").as_deref(), Some("web"));
+    assert_eq!(c.base_name("services", "z"), None);
+    assert_eq!(c.renamed_to("services", "web"), None);
+    assert_eq!(c.changed_entities(), 1);
+    let mut b = Changeset::new(json!({"services": {"web": {"target": 1}, "x": {"target": 2}}}));
+    for (from, to) in [("web", "a"), ("x", "web"), ("web", "z"), ("a", "web")] {
+        assert!(b.rename(&s(from), to));
+    }
+    assert_eq!(b.renamed_to("services", "x").as_deref(), Some("z"));
+    assert_eq!(b.base_name("services", "web").as_deref(), Some("web"));
+    assert_eq!(b.base_name("services", "z").as_deref(), Some("x"));
+}

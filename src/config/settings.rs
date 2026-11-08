@@ -55,6 +55,7 @@ pub struct ServerSettings {
     pub self_allow: Option<AllowList>,
     pub web: Option<WebSettings>,
     pub remote_updates: bool,
+    pub service_files: BTreeMap<String, String>,
 }
 
 pub struct ListenClash {

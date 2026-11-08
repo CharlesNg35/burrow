@@ -399,8 +399,23 @@ mod tests {
         (l, a)
     }
 
+    fn hold(at: std::net::SocketAddr) -> Option<tokio::net::TcpSocket> {
+        let s = tokio::net::TcpSocket::new_v4().ok()?;
+        s.bind(at).ok()?;
+        Some(s)
+    }
+
     #[tokio::test]
     async fn data_channels_reuse_the_reached_address_and_look_up_again_when_it_fails() {
+        for _ in 0..5 {
+            if reached_then_looked_up_again().await {
+                return;
+            }
+        }
+        panic!("the freed port was taken by another test every time");
+    }
+
+    async fn reached_then_looked_up_again() -> bool {
         let (first, at_first) = listen().await;
         let dns = Arc::new(Dns(std::sync::Mutex::new(Some(at_first))));
         let d = plain_dialer(dns.clone());
@@ -409,6 +424,9 @@ mod tests {
         *dns.0.lock().unwrap() = None;
         assert_eq!(peer(d.reach(ChannelKind::Data).await), at_first);
         drop(first);
+        let Some(_held) = hold(at_first) else {
+            return false;
+        };
         let (_second, at_second) = listen().await;
         *dns.0.lock().unwrap() = Some(at_second);
         assert_eq!(
@@ -427,6 +445,7 @@ mod tests {
         assert_eq!(peer(d.reach(ChannelKind::Control).await), at_third);
         assert_eq!(peer(d.reach(ChannelKind::Data).await), at_third);
         assert_eq!(peer(d.reach(ChannelKind::Visit).await), at_third);
+        true
     }
 
     #[test]

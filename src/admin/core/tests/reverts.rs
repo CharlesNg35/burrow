@@ -7,6 +7,7 @@ use serde_json::json;
 use crate::admin::core::plan::{self, ReloadResult};
 use crate::admin::core::*;
 
+use super::one;
 use super::{apply_now, core_counted, core_for, core_running, p, session, world};
 
 #[test]
@@ -200,7 +201,9 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
         .read()
         .unwrap()
         .replace("remote: false", "remote: true");
-    core.store.write(&core.read().unwrap(), &edited).unwrap();
+    core.store
+        .write(&one(&core.read().unwrap()), &one(&edited))
+        .unwrap();
     let reply = dispatch(
         &core,
         &s,
@@ -229,14 +232,14 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
     )
     .unwrap();
     assert!(
-        computed.new_text.contains("remote: true"),
+        computed.new_docs.main().text.contains("remote: true"),
         "{}",
-        computed.new_text
+        computed.new_docs.main().text
     );
     assert!(
-        computed.new_text.contains("target: 3000"),
+        computed.new_docs.main().text.contains("target: 3000"),
         "{}",
-        computed.new_text
+        computed.new_docs.main().text
     );
 }
 
@@ -279,7 +282,7 @@ fn set_text_is_parsed_by_the_server() {
     )
     .unwrap();
     assert!(c.plan.valid, "{:?}", c.plan.diags);
-    assert!(c.new_text.contains("pool:\n  min_idle: 2\n"));
+    assert!(c.new_docs.main().text.contains("pool:\n  min_idle: 2\n"));
     let locked = plan::compute(
         &core,
         &s,
@@ -468,8 +471,8 @@ fn history_asks_the_store_once_per_rev() {
     let w = world();
     let (core, asked) = core_counted(&w.text, &w.text, Vec::new(), Vec::new());
     let revs = ["b2s:a", "b2s:b", "b2s:c"];
-    core.store.keep(revs[0], "listen: 1\n");
-    core.store.keep(revs[1], "listen: 2\n");
+    core.store.keep(revs[0], &one("listen: 1\n"));
+    core.store.keep(revs[1], &one("listen: 2\n"));
     for i in 0..30u64 {
         core.record(burrow_admin_proto::msg::AuditEntry {
             at: i,

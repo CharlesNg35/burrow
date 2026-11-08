@@ -104,12 +104,14 @@ fn ask_role() -> Result<RoleArg, Failure> {
             _ => {}
         }
     }
-    Err(
-        Failure::usage("burrow init needs to know which config to write").hint(format!(
-            "run: {0} init server  (on the public machine), {0} init client  (behind NAT), or: {0} init visitor  (to use private services)",
-            crate::base::failure::command()
-        )),
-    )
+    Err(role_needed())
+}
+
+fn role_needed() -> Failure {
+    Failure::usage("burrow init needs to know which config to write").hint(format!(
+        "run: {0} init server  (on the public machine), {0} init client  (behind NAT), or: {0} init visitor  (to use private services)",
+        crate::base::failure::command()
+    ))
 }
 
 type Export = fn(
@@ -456,6 +458,7 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
             );
         }
         (Some(r), false) => r,
+        (None, false) if args.yes => return Err(role_needed()),
         (None, false) => ask_role()?,
     };
     let given = [
@@ -487,10 +490,15 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         }));
     }
     let mut out = std::io::stdout().lock();
+    let prompt: &mut dyn crate::base::prompt::Prompter = if opts.yes {
+        &mut crate::base::prompt::NoPrompt
+    } else {
+        &mut TtyPrompt
+    };
     match role {
-        RoleArg::Server => crate::init::init_server_asking(&opts, &mut TtyPrompt, &mut out)?,
-        RoleArg::Client => crate::init::init_client(&opts, &mut TtyPrompt, &mut out)?,
-        RoleArg::Visitor => crate::init::init_visitor(&opts, &mut TtyPrompt, &mut out)?,
+        RoleArg::Server => crate::init::init_server_asking(&opts, prompt, &mut out)?,
+        RoleArg::Client => crate::init::init_client(&opts, prompt, &mut out)?,
+        RoleArg::Visitor => crate::init::init_visitor(&opts, prompt, &mut out)?,
     };
     Ok(0)
 }

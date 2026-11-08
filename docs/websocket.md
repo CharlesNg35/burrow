@@ -29,7 +29,7 @@ websocket:
   path: /burrow
 ```
 
-Then point your web server at `127.0.0.1:7836` ([examples below](#examples)). Clients and visitors use the URL as their server:
+`--ws-listen IP:PORT` and `--ws-path PATH` pick another address or path. Then point your web server at `127.0.0.1:7836` ([examples below](#examples)). Clients and visitors use the URL as their server:
 
 ```yaml
 # client.yaml
@@ -251,7 +251,11 @@ websocket:
     key: /etc/letsencrypt/live/tunnel.example.com/privkey.pem
 ```
 
-Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are resolved from the config file's directory. The key must be readable by the user burrow runs as. A renewed certificate is used without a restart. A renewal writes a new key file, so give the service account access again each time, for example with `--deploy-hook "setfacl -m u:burrow:r /etc/letsencrypt/live/tunnel.example.com/privkey.pem"` in certbot.
+Clients use `wss://tunnel.example.com:7837/burrow`.
+
+- Relative file paths are resolved from the config file's directory.
+- The key must be readable by the user burrow runs as.
+- A renewed certificate is used without a restart. A renewal writes a new key file, so give the service account access again each time, for example with `--deploy-hook "setfacl -m u:burrow:r /etc/letsencrypt/live/tunnel.example.com/privkey.pem"` in certbot.
 
 For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`. `ca` takes either a CA that signed the server's certificate, or the server's certificate itself. That exact certificate is then accepted although no public CA signed it. Certificates signed by public CAs are still accepted too: `ca` adds trust but does not limit it.
 

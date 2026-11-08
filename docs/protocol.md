@@ -58,7 +58,13 @@ The server reads exactly 7 bytes, validates them, then reads exactly `name_len +
 
 ### Server-side secret lookup (anti-enumeration)
 
-The server takes the secrets listed for `name` (up to 4 during rotation), under `clients` for control and data channels and under `visitors` for visit channels, and pads the list to exactly 4 with freshly generated random secrets. Unknown names get 4 random secrets. It tries all 4 as the responder PSK, always all 4, and keeps the first that decrypts msg1. If none does, it sends the single byte `0x00` and closes the connection. An unknown name and a wrong secret produce the same byte, the same close, and the same work, so names cannot be enumerated. A client counts only this byte as a refusal: a connection that closes before msg2 without it (a busy server, a timeout, a forwarder whose backend is down) is a lost connection and is retried. `tests/security.rs` measures the medians (ratio about 1.08 on loopback).
+1. The server takes the secrets listed for `name` (up to 4 during rotation), under `clients` for control and data channels and under `visitors` for visit channels, and pads the list to exactly 4 with freshly generated random secrets. Unknown names get 4 random secrets.
+2. It tries all 4 as the responder PSK, always all 4, and keeps the first that decrypts msg1.
+3. If none does, it sends the single byte `0x00` and closes the connection.
+
+An unknown name and a wrong secret produce the same byte, the same close, and the same work, so names cannot be enumerated.
+
+A client counts only this byte as a refusal: a connection that closes before msg2 without it (a busy server, a timeout, a forwarder whose backend is down) is a lost connection and is retried. `tests/security.rs` measures the medians (ratio about 1.08 on loopback).
 
 ### Where each side is proven
 
@@ -88,7 +94,13 @@ The ciphertext is a Noise transport message (plaintext + 16-byte tag). Each dire
 | data    | `02 version:u8 token[16]`    |
 | visit   | `03 version:u8`              |
 
-The hello type must match the preamble kind; any other pairing is closed. On the server the hello is read with a fixed 256-byte limit. `version` is 1. `instance` is random and stays the same for the life of a client process. `token` is the session token from the current control channel's Welcome. A data channel with an unknown or stale token gets one record `0x01` and is closed; a client that gets this on three data channels in a row reconnects, since its server's address may now lead to another server.
+The hello type must match the preamble kind; any other pairing is closed. On the server the hello is read with a fixed 256-byte limit.
+
+- `version` is 1.
+- `instance` is random and stays the same for the life of a client process.
+- `token` is the session token from the current control channel's Welcome.
+
+A data channel with an unknown or stale token gets one record `0x01` and is closed; a client that gets this on three data channels in a row reconnects, since its server's address may now lead to another server.
 
 ## 7. Control messages
 
@@ -114,7 +126,24 @@ Client → server:
 
 A client sends Allow once after Welcome; the server keeps it for the session and shows it only to visitors with `reach` for that client (see section 9).
 
-A client from 0.2.2 on sends Report right after Allow, and again when `update.remote` changes on a reload. `run` is 0 started by hand, 1 a service, 2 a container; `remote` is 0 off, 1 on, 2 on in the config but not possible here, with the reason in `why`; `outcome` is 1 trying, 2 done, 3 rolled back, 4 failed. A server reads fields it does not know after these as a later version's and ignores them, so Report can grow. Older servers ignore Report, like any message they cannot decode. The server sends Update only to a client whose Report says `remote` 1, so older clients, which treat an unknown message as an error, never see it. `version` in Update is a release number; the client checks it is newer than its own and downloads it from the official releases itself. UpdateState `step` is 1 accepted, 2 refused (`detail` says why), 3 restarting, 4 failed before anything changed. After the restart the new or restored client reports the result in Report's last update. Strings in Report and UpdateState are at most 255 bytes, without control characters. See [D75](decisions.md#d75-the-servers-admin-may-ask-a-client-to-update-and-the-client-fetches-checks-and-rolls-back-itself).
+A client from 0.2.2 on sends Report right after Allow, and again when `update.remote` changes on a reload. Its codes:
+
+| field | values |
+| --- | --- |
+| `run` | 0 started by hand, 1 a service, 2 a container |
+| `remote` | 0 off, 1 on, 2 on in the config but not possible here, with the reason in `why` |
+| `outcome` | 1 trying, 2 done, 3 rolled back, 4 failed |
+
+A server reads fields it does not know after these as a later version's and ignores them, so Report can grow. Older servers ignore Report, like any message they cannot decode.
+
+The server sends Update only to a client whose Report says `remote` 1, so older clients, which treat an unknown message as an error, never see it. `version` in Update is a release number; the client checks it is newer than its own and downloads it from the official releases itself. UpdateState `step` is one of:
+
+- 1 accepted;
+- 2 refused (`detail` says why);
+- 3 restarting;
+- 4 failed before anything changed.
+
+After the restart the new or restored client reports the result in Report's last update. Strings in Report and UpdateState are at most 255 bytes, without control characters. See [D75](decisions.md#d75-the-servers-admin-may-ask-a-client-to-update-and-the-client-fetches-checks-and-rolls-back-itself).
 
 `str8` = `len:u8 bytes`. Unknown ids, truncated bodies and trailing bytes are errors for the client; the server ignores a client message it cannot decode, which still counts as a sign of life.
 
@@ -126,7 +155,13 @@ A second control channel for the same name with the same `instance` replaces the
 
 ## 8. Data channels
 
-The pool is per client. The server keeps `target` idle channels: it starts at `pool.min_idle`, doubles (up to `pool.max_idle`) whenever a connection finds the pool empty, and once a minute drops the channels that no connection needed during that minute (the fewest idle channels seen in it), never below `pool.min_idle` (D73). It asks for the missing ones with OpenData. Idle channels whose peer has closed are dropped before use.
+The pool is per client. The server keeps `target` idle channels:
+
+- it starts at `pool.min_idle`;
+- it doubles (up to `pool.max_idle`) whenever a connection finds the pool empty;
+- once a minute it drops the channels that no connection needed during that minute (the fewest idle channels seen in it), never below `pool.min_idle` (D73).
+
+It asks for the missing ones with OpenData. Idle channels whose peer has closed are dropped before use.
 
 While a channel is idle in the pool, the server watches it: any data or close from the client discards it. The server also sends a keepalive record (plaintext `0x00`) every `websocket.keepalive_secs` (default 25 s, also without a websocket section), so proxies and NATs with idle timeouts keep the connection open. The client ignores keepalive records before Connect and closes a waiting channel that receives nothing for 90 s.
 
@@ -143,7 +178,9 @@ Status = 0 ok | 1 denied by allow list or reach rules | 2 unreachable | 3 unreso
          | 5 forbidden | 6 offline | 7 busy      (5 only from the server to a visitor; 6 also from a client whose connect found its local port in use, which says nothing about the target; 7 also from a client at its connection limit: 16384 by default, the client's max_connections, or less where the open file limit is lower)
 ```
 
-The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, or none arrives within 3 × the heartbeat interval, the server logs the reason; for a service with several clients it moves the connection to the next one (after a timeout, only if the connection has sent nothing yet), sending again the PROXY header and up to 64 KiB of bytes it had already sent, and otherwise closes the connection.
+The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip.
+
+If Status is not 0, or none arrives within 3 × the heartbeat interval, the server logs the reason; for a service with several clients it moves the connection to the next one (after a timeout, only if the connection has sent nothing yet), sending again the PROXY header and up to 64 KiB of bytes it had already sent, and otherwise closes the connection.
 
 `target` is `host:port`, or `unix:/absolute/path` for a Unix socket, which the client checks against the `unix:` entries of its allow list. For a port range the server sends the target port that matches the public port the connection arrived on; Services carries the first target port in `target` and the size of the range in `ports`.
 
@@ -153,7 +190,12 @@ With `health_check`, the server also opens connections of its own: every interva
 
 **TCP**: after Connect/Status both directions carry stream records, each ending with the end-of-stream record. Half-close is preserved: the EOF record makes the receiver `shutdown(Write)` its socket while the other direction keeps flowing.
 
-**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence. The server keeps at most `udp.max_peers` peers per service port (4096 by default), and a client at most its `max_udp_peers` in all. Each port of a UDP range keeps one data channel while its relay runs.
+**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes).
+
+- The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id.
+- Both sides expire peers after `udp.session_timeout_secs` of silence.
+- The server keeps at most `udp.max_peers` peers per service port (4096 by default), and a client at most its `max_udp_peers` in all.
+- Each port of a UDP range keeps one data channel while its relay runs.
 
 **insecure_plaintext**: the handshake, hello, Connect and Status are still encrypted records. After them, TCP data channels carry raw bytes (TCP FIN carries half-close). UDP stays encrypted.
 
@@ -175,15 +217,42 @@ Names follow the rules of section 3. The server reads the request, a record of a
 
 - the visitor still exists and still has the secret it authenticated with;
 - for kind 1, the service exists, lists the visitor, has the request's protocol (`4 invalid` otherwise), admits the visitor's address in `allow_from`/`deny_from`, and `index` is inside its range (`4 invalid` otherwise);
-- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path` for TCP only (`4 invalid` for UDP), or empty in a check, which asks only whether the visitor may reach that client (a SOCKS forward checks this way); if that `reach` has rules, an IP address or socket path target must match one of them.
+- for kind 2, the visitor has `reach` for the client, and the target is one of:
+  - a valid `host:port` of at most 255 bytes;
+  - `unix:/absolute/path`, for TCP only (`4 invalid` for UDP);
+  - empty in a check, which asks only whether the visitor may reach that client (a SOCKS forward checks this way).
 
-Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection. Otherwise it checks the limits of the visitor, the service and the client (`7 busy`).
+  If that `reach` has rules, an IP address or socket path target must match one of them.
 
-Otherwise the server takes a data channel of the client (for a service with several clients, the one chosen as for public connections) and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. For kind 2 with `reach` rules, `only` is 1 and the rules follow; the client then connects only to addresses, after resolving a name on its own network, that the rules match, and denies the connection when none do or a rule cannot be read. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
+Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then:
 
-A UDP visit sends Connect with protocol 1, always with encrypted records, and waits for Status for 3 × the heartbeat interval as a UDP service does; a client that refuses, does not answer or closes its channel moves the visit to the next client of the service, as for TCP. After Status 0 both channels carry the UDP records of section 8, `peer:u32 || datagram`, with peer ids chosen by the visitor; the server passes each record on unchanged. It checks that a record holds at least a peer id, and closes the visit otherwise (an end-of-stream record closes it too). It admits at most `udp.max_peers` peer ids per visit, dropping datagrams of further ones, and passes a reply from the client only for a peer id it admitted. For kind 1 the service's bandwidth limit applies to each datagram, which is dropped when over the rate, and each new peer id counts as one connection of the service. Peer ids expire after `udp.session_timeout_secs` without traffic, and the server closes a visit that carried no datagram in either direction for that long. A UDP visit counts as one connection of the visitor and of the client, not of the service.
+1. The server checks that the client is connected (`6 offline`).
+2. With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection.
+3. Otherwise it checks the limits of the visitor, the service and the client (`7 busy`).
 
-On every config reload, the server checks the request again and closes the connection, or the UDP visit, when it is no longer granted: the visitor, its secret, its place in `visitors` or its `reach` for the client is gone, the service no longer runs on that client, or a `reach` rule change no longer covers the target (for a host name target, any change of those rules, since only the client resolves it). A changed service target, like a widened `reach`, leaves open TCP connections running; a UDP visit to a service whose target changed is closed, and the visitor's next datagram opens a new one to the new target.
+Otherwise the server takes a data channel of the client (for a service with several clients, the one chosen as for public connections) and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. For kind 2 with `reach` rules, `only` is 1 and the rules follow; the client then connects only to addresses, after resolving a name on its own network, that the rules match, and denies the connection when none do or a rule cannot be read.
+
+The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason.
+
+From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
+
+A UDP visit sends Connect with protocol 1, always with encrypted records, and waits for Status for 3 × the heartbeat interval as a UDP service does; a client that refuses, does not answer or closes its channel moves the visit to the next client of the service, as for TCP.
+
+After Status 0 both channels carry the UDP records of section 8, `peer:u32 || datagram`, with peer ids chosen by the visitor; the server passes each record on unchanged.
+
+- It checks that a record holds at least a peer id, and closes the visit otherwise (an end-of-stream record closes it too).
+- It admits at most `udp.max_peers` peer ids per visit, dropping datagrams of further ones, and passes a reply from the client only for a peer id it admitted.
+- For kind 1 the service's bandwidth limit applies to each datagram, which is dropped when over the rate, and each new peer id counts as one connection of the service.
+- Peer ids expire after `udp.session_timeout_secs` without traffic, and the server closes a visit that carried no datagram in either direction for that long.
+- A UDP visit counts as one connection of the visitor and of the client, not of the service.
+
+On every config reload, the server checks the request again and closes the connection, or the UDP visit, when it is no longer granted:
+
+- the visitor, its secret, its place in `visitors` or its `reach` for the client is gone;
+- the service no longer runs on that client;
+- a `reach` rule change no longer covers the target (for a host name target, any change of those rules, since only the client resolves it).
+
+A changed service target, like a widened `reach`, leaves open TCP connections running; a UDP visit to a service whose target changed is closed, and the visitor's next datagram opens a new one to the new target.
 
 Instead of a VisitRequest, the visitor may send the single byte `0x21` to ask what it may use. The server checks the visitor and its secret against its current config, answers `5 forbidden` if they no longer match, and otherwise sends one record and closes:
 
@@ -197,9 +266,20 @@ The two bytes `0x21 0x01` ask the same question and get the same answer with eac
 GrantsV2 = 0x25 services:u16 (name:str8 protocol:u8 port:u16 ports:u16)* clients:u16 (...as in Grants)
 ```
 
-A server older than v0.1.2 answers `4 invalid` to `0x21 0x01`; a visitor then asks again with `0x21` and gets TCP services only. `services` in Grants (`0x22`) are the TCP services that list the visitor (in GrantsV2, its TCP and UDP services), wherever it asks from (`allow_from`/`deny_from` apply when it connects), with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
+A server older than v0.1.2 answers `4 invalid` to `0x21 0x01`; a visitor then asks again with `0x21` and gets TCP services only.
 
-A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT or UDP ASSOCIATE, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. For CONNECT it answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes. For UDP ASSOCIATE (RFC 1928 §7) it opens a UDP relay port, takes datagrams only from the SOCKS client's address, drops those with FRAG not 0, and opens one UDP visit (flag bit 1, kind 2) per destination named in the datagram headers, with peer id 1; replies get the header the client sent. The association ends with its TCP connection.
+- `services` in Grants (`0x22`) are the TCP services that list the visitor (in GrantsV2, its TCP and UDP services), wherever it asks from (`allow_from`/`deny_from` apply when it connects), with the target's port (0 for a Unix socket) and the size of their range (at most 1000).
+- `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1.
+
+If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
+
+A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT or UDP ASSOCIATE, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. For CONNECT it answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes. For UDP ASSOCIATE (RFC 1928 §7) it:
+
+- opens a UDP relay port;
+- takes datagrams only from the SOCKS client's address, and drops those with FRAG not 0;
+- opens one UDP visit (flag bit 1, kind 2) per destination named in the datagram headers, with peer id 1; replies get the header the client sent.
+
+The association ends with its TCP connection.
 
 ## 10. Limits enforced before authentication
 
@@ -217,7 +297,11 @@ AdminOpen     = 0x23 min:u8 max:u8 client:str8 features:u16 (feature:str8)*
 AdminAccepted = 0x24 version:u8
 ```
 
-`min` and `max` are the admin protocol versions the caller speaks (1..1 for burrow v0.1.0), `client` names the program for the audit (`burrow-admin-ui/0.1.0`), and `features` lists optional capabilities of the caller. The server checks the visitor and its secret, then its `admin` level and `admin_from` against the peer address, and answers `5 forbidden` on any mismatch, the same answer as every other refused visit. Over the session caps of section 10 it answers `7 busy`. It picks the highest common version; if there is none it sends `4 invalid` followed by one record with a text that names its range, and closes. Otherwise it sends AdminAccepted.
+- `min` and `max` are the admin protocol versions the caller speaks (1..1 for burrow v0.1.0).
+- `client` names the program for the audit (`burrow-admin-ui/0.1.0`).
+- `features` lists optional capabilities of the caller.
+
+The server checks the visitor and its secret, then its `admin` level and `admin_from` against the peer address, and answers `5 forbidden` on any mismatch, the same answer as every other refused visit. Over the session caps of section 10 it answers `7 busy`. It picks the highest common version; if there is none it sends `4 invalid` followed by one record with a text that names its range, and closes. Otherwise it sends AdminAccepted.
 
 From then on both sides send admin records:
 
@@ -228,7 +312,9 @@ admin record = flags:u8 chunk
   other bits   reserved, 0; the receiver closes on any of them
 ```
 
-A message is the concatenation of its chunks: one UTF-8 JSON object of at most 4 MiB; a sender never interleaves two messages. The server sends a PING after 25 s without sending anything, the caller sends one every 25 s, and either side closes after 90 s without receiving anything from the other, however much it sends meanwhile. An end-of-stream (the record layer's end, section 5) closes the session.
+A message is the concatenation of its chunks: one UTF-8 JSON object of at most 4 MiB; a sender never interleaves two messages.
+
+Keepalive: the server sends a PING after 25 s without sending anything, the caller sends one every 25 s, and either side closes after 90 s without receiving anything from the other, however much it sends meanwhile. An end-of-stream (the record layer's end, section 5) closes the session.
 
 Messages share one envelope:
 
@@ -239,7 +325,21 @@ reply    {"re": u32, "ok": true, "body": {...}}                        exactly o
 event    {"ev": "<event>", "body": {...}}                              server → caller, no id
 ```
 
-Requests: `welcome` (always first; returns the server version, the negotiated protocol, who the caller is, the feature list, limits and the schema hash), `schema`, `state`, `subscribe`, `validate`, `apply`, `generate_secret`, `connect_info`, `suggest`, `history`, `revert`, `update_clients` (feature `client.updates`: ask clients to update to a release, one at a time; `dry_run` only says which clients it would ask) and `ping`. `validate`, `apply`, `generate_secret`, `revert` and `update_clients` need `admin: write`. Events: `status` (the same snapshot as `burrow status --json`, at the subscribed interval, skipped rather than queued when the caller is slow), `config` (the file changed: by an admin, by hand, or a reload was rejected), `revoked` (the caller lost its admin right, its secret, its visitor or its source, or its admin level changed; end-of-stream follows) and `bye` (the server stops).
+Requests:
+
+- `welcome`: always first; returns the server version, the negotiated protocol, who the caller is, the feature list, limits and the schema hash.
+- `schema`, `state`, `subscribe`, `validate`, `apply`, `generate_secret`, `connect_info`, `suggest`, `history`, `revert`.
+- `update_clients` (feature `client.updates`): ask clients to update to a release, one at a time; `dry_run` only says which clients it would ask.
+- `ping`.
+
+`validate`, `apply`, `generate_secret`, `revert` and `update_clients` need `admin: write`.
+
+Events:
+
+- `status`: the same snapshot as `burrow status --json`, at the subscribed interval, skipped rather than queued when the caller is slow.
+- `config`: the file changed: by an admin, by hand, or a reload was rejected.
+- `revoked`: the caller lost its admin right, its secret, its visitor or its source, or its admin level changed; end-of-stream follows.
+- `bye`: the server stops.
 
 Additions since v0.1.2, each behind its feature string:
 
@@ -253,7 +353,9 @@ Additions since v0.1.2, each behind its feature string:
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 
-Config values travel as the raw tree of the file, not the typed model, so short forms stay as written. A secret becomes `{"$secret": {"fp": "ab12cd34", "src": "literal"}}` (or `"src": {"env": "VAR"}`), and any other value with `${...}` becomes `{"$env": {"raw": "${VAR}", "vars": ["VAR"]}}`. Secrets never leave the server, except a secret the server generated for an `apply`, which that one reply carries once. Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `replace_document`, `set_text`) against a revision, the first 8 bytes of the BLAKE2s-256 hash of the exact file bytes, as hex with a `b2s:` prefix (`b2s:86832e7bac93127a`); the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.
+Config values travel as the raw tree of the file, not the typed model, so short forms stay as written. A secret becomes `{"$secret": {"fp": "ab12cd34", "src": "literal"}}` (or `"src": {"env": "VAR"}`), and any other value with `${...}` becomes `{"$env": {"raw": "${VAR}", "vars": ["VAR"]}}`. Secrets never leave the server, except a secret the server generated for an `apply`, which that one reply carries once.
+
+Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `replace_document`, `set_text`) against a revision, the first 8 bytes of the BLAKE2s-256 hash of the exact file bytes, as hex with a `b2s:` prefix (`b2s:86832e7bac93127a`); the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.
 
 Compatibility rules:
 

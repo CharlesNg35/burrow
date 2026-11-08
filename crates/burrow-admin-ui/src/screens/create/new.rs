@@ -29,6 +29,7 @@ pub fn NewEntity(
     on_cleanup(move || {
         let _ = e.take_scratch(&at.get_value());
     });
+    let save_in = RwSignal::new(String::new());
     let links: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
     let secret: RwSignal<Option<(String, String)>> = RwSignal::new(None);
     if section != ServiceEntry::section() {
@@ -69,6 +70,7 @@ pub fn NewEntity(
             .and_then(Value::as_u64);
         let clean = !untrack(|| e.dirty());
         create_with(&sec, &n, secret.get_untracked(), m, &links.get_untracked());
+        super::save_in::place_new(&sec, &n, &save_in.get_untracked());
         open.set(false);
         name.set(String::new());
         go(Route::Detail(sec.clone(), n));
@@ -76,6 +78,8 @@ pub fn NewEntity(
             e.review.set(None);
             e.auto_apply.set(clean);
             go(Route::Review);
+        } else {
+            s.added_to_changes();
         }
     };
     let finish2 = finish;
@@ -98,6 +102,7 @@ pub fn NewEntity(
                 <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
                 {crate::rename::name_input("new-name", "Name", name, name_issue, true, burrow_admin_logic::entity::of_section(&section).name_example)}
                 {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
+                {super::save_in::save_in_field(name, save_in)}
             </section>
             {(what != ServiceEntry::ENTITY).then(move || limits_section(&sec6, what, name, options, links))}
             <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>

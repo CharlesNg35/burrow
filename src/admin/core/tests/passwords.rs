@@ -63,12 +63,14 @@ fn a_password_becomes_an_argon2id_hash_in_the_plan_and_never_appears_itself() {
     let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
     assert!(c.plan.valid, "{:?}", c.plan.diags);
     assert!(
-        c.new_text
+        c.new_docs
+            .main()
+            .text
             .contains("alice: \"$argon2id$v=19$m=19456,t=2,p=1$"),
         "{}",
-        c.new_text
+        c.new_docs.main().text
     );
-    assert!(!c.new_text.contains("correct horse"));
+    assert!(!c.new_docs.main().text.contains("correct horse"));
     assert!(
         !serde_json::to_string(&c.plan)
             .unwrap()

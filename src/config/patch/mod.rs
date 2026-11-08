@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use super::Format;
 use super::emit::render;
 use super::tree;
-use yaml::{child, content_end, entry_bounds, is_flow, patch_yaml};
+use yaml::{child, content_end, entry_bounds, is_flow, patch_yaml, scalar_end};
 
 pub fn line_start(text: &str, at: usize) -> usize {
     text[..at].rfind('\n').map_or(0, |i| i + 1)
@@ -140,6 +140,13 @@ struct Edits {
 impl Edits {
     fn push(&mut self, from: usize, to: usize, with: String) {
         self.list.push((from, to, with));
+    }
+
+    fn rekey(&mut self, from: usize, to: usize, with: String) {
+        match self.list.iter_mut().find(|e| (e.0, e.1) == (from, to)) {
+            Some(e) => e.2 = with,
+            None => self.push(from, to, with),
+        }
     }
 
     fn give_up(&mut self, path: &[String], why: &str) {

@@ -37,7 +37,18 @@ web:
 
 ## Uploading files in the admin UI
 
-The admin UI can upload a certificate and its key instead of naming files in server.yaml: under a site's HTTPS choice **My own certificate**, in an entry of `web.certificates`, and for the CAs of `target_tls`, `client_auth` (with its revocation list) and `letsencrypt`. Pick the certificate chain and its key, in one file or two; burrow checks them at once, the same way validate checks a file: the key fits, the certificate covers the site's names and has not expired, a CA is a CA, and a revocation list is signed by the site's `client_auth` CA.
+The admin UI can upload a certificate and its key instead of naming files in server.yaml:
+
+- under a site's HTTPS choice **My own certificate**;
+- in an entry of `web.certificates`;
+- for the CAs of `target_tls`, `client_auth` (with its revocation list) and `letsencrypt`.
+
+Pick the certificate chain and its key, in one file or two. burrow checks them at once, the same way validate checks a file:
+
+- the key fits;
+- the certificate covers the site's names and has not expired;
+- a CA is a CA;
+- a revocation list is signed by the site's `client_auth` CA.
 
 burrow keeps the upload in its state folder, private to the service account, under a name made from its contents, and writes only that name into the config, like this:
 
@@ -76,7 +87,12 @@ services:
       tls: internal
 ```
 
-- **Names:** `localhost` and names under `localhost`, `local`, `internal`, `home.arpa` or `lan`; addresses of your own network (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, 100.64/10, `::1`, fc00::/7, fe80::/10); and wildcards one label under such a name, like `*.nas.lan`. Validate refuses public names and addresses, single labels like `nas` (use `nas.lan`), and wildcards over a whole suffix like `*.lan`.
+- **Names:**
+  - `localhost` and names under `localhost`, `local`, `internal`, `home.arpa` or `lan`;
+  - addresses of your own network (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, 100.64/10, `::1`, fc00::/7, fe80::/10);
+  - wildcards one label under such a name, like `*.nas.lan`.
+
+  Validate refuses public names and addresses, single labels like `nas` (use `nas.lan`), and wildcards over a whole suffix like `*.lan`.
 - **Why so strict:** the CA's root certificate allows only these names (X.509 name constraints). Even if its key leaked, it could not sign a certificate that browsers accept for a site on the internet.
 - **Lifetimes:** the root lasts about ten years, and signs a new intermediate each week. Sites get 12-hour certificates, renewed after 8 hours, in memory only. Nothing needs renewing by hand; `burrow status` warns a year before the root expires.
 - **Where it lives:** in the state folder, `ca/root.pem` with its private key beside it, readable only by the service account. burrow makes the CA once, for the first `tls: internal` site, and never makes a new one by itself. Back the folder up with your config: a new CA means installing it again everywhere.
@@ -84,7 +100,16 @@ services:
 
 ### Installing the CA on your devices
 
-Each device that opens these sites must trust the CA once. Get the certificate from the admin UI (Settings, **Local certificate authority**, **Download CA certificate**), or on the server: `burrow ca export --out burrow-local-ca.crt` for an installed service, `burrow ca export -c server.yaml --out burrow-local-ca.crt` for a server you run by hand (add `--der` for tools that want DER). Before you trust it, compare its SHA-256 fingerprint with the `Local CA` line of `burrow status` (`local_ca.sha256` in `burrow status --json`) or the admin UI.
+Each device that opens these sites must trust the CA once. Get the certificate:
+
+- from the admin UI: Settings, **Local certificate authority**, **Download CA certificate**;
+- on the server, for an installed service: `burrow ca export --out burrow-local-ca.crt` (`burrow ca export burrow-server --out burrow-local-ca.crt` when several server services are installed);
+- for a server you run by hand: `burrow ca export -c server.yaml --out burrow-local-ca.crt`;
+- for a server started with `--state-dir DIR`: `burrow ca export --state-dir DIR --out burrow-local-ca.crt`.
+
+Add `--der` for tools that want DER. Without `--out` it prints the certificate.
+
+Before you trust it, compare its SHA-256 fingerprint with the `Local CA` line of `burrow status` (`local_ca.sha256` in `burrow status --json`) or the admin UI.
 
 | Device | How |
 | --- | --- |
@@ -124,7 +149,10 @@ web:
 - **`profile`** applies to certificates for DNS names; IP addresses always get the short-lived profile (or none if the CA doesn't list it). burrow checks the profile against the list the CA offers before ordering. A profile it does not offer is shown in `burrow status` and the admin UI, with the offered ones.
 - **Renewal** happens at the time Let's Encrypt suggests (ARI), else after two thirds of a certificate's life. A failed try is retried after 1 minute, 10 minutes, 100 minutes, then daily, and the old certificate is still served, even after it expires ([step 4](how-it-works.md#4-lets-encrypt-checks-and-renewal) has the full schedule).
 - **No duplicates:** certificates are kept by their names. A restart, a renamed service or a name moved to another service orders nothing new, and at most 4 new certificates per set of names are ordered in 7 days.
-- **Where they are kept:** a private folder that `burrow status` names. An installed service keeps it in `/var/lib/burrow/<name>` on Linux, `/Library/Application Support/burrow/<name>` on macOS, and `%ProgramData%\burrow\services\<name>` on Windows. `burrow service uninstall` keeps it; only `--purge` deletes it. A server run by hand uses one folder per config file, also when it runs the file a service was installed from: `~/.local/state/burrow/servers/<file>-<id>` on Linux (under `~/Library/Application Support` on macOS and `%LOCALAPPDATA%` on Windows), named by `burrow validate` and `burrow status`. `burrow server --state-dir DIR` picks another.
+- **Where they are kept:** a private folder that `burrow status` names.
+  - An installed service keeps it in `/var/lib/burrow/<name>` on Linux, `/Library/Application Support/burrow/<name>` on macOS, and `%ProgramData%\burrow\services\<name>` on Windows. `burrow service uninstall` keeps it; only `--purge` deletes it.
+  - A server run by hand uses one folder per config file, also when it runs the file a service was installed from: `~/.local/state/burrow/servers/<file>-<id>` on Linux (under `~/Library/Application Support` on macOS and `%LOCALAPPDATA%` on Windows), named by `burrow validate` and `burrow status`.
+  - `burrow server --state-dir DIR` picks another.
 - **The account** is shown in `burrow status` and `burrow validate`, once the first start has created it. Use it in a CAA DNS record with `accounturi`, so only this account can get certificates for your domain.
 
 ## DNS checks: wildcards and names the internet cannot reach
@@ -249,7 +277,11 @@ Scripts written for lego's exec provider work unchanged when they read their cre
 
 ### In the admin UI
 
-All of this is set in burrow admin under Settings, **Web**: the Let's Encrypt card, then **DNS check providers**, which shows while Let's Encrypt is on. Each provider entry has its domains, the provider picked from a list with only its fields below, and its shared wildcards; a credential comes from a variable, a file or a value typed in, and is never shown again. A `command` is set in server.yaml, since it runs a program on the server. See [admin.md](../admin.md#certificates-and-lets-encrypt).
+All of this is set in burrow admin under Settings, **Web**: the Let's Encrypt card, then **DNS check providers**, which shows while Let's Encrypt is on.
+
+- Each provider entry has its domains, the provider picked from a list with only its fields below, and its shared wildcards.
+- A credential comes from a variable, a file or a value typed in, and is never shown again.
+- A `command` is set in server.yaml, since it runs a program on the server. See [admin.md](../admin.md#certificates-and-lets-encrypt).
 
 ## When a certificate fails
 

@@ -83,9 +83,48 @@ With `--service`, `--client` or `--socks`, only the forward on the command line 
 ./burrow init visitor --update   # later: ask the server again and update the forwards
 ```
 
-On a terminal, `./burrow init visitor` in a folder that already has visitor.yaml says so and asks "visitor.yaml already exists. Update it from the server (keeps your forwards, like --update)? [Y/n]": yes runs `--update`; no asks "visitor.yaml already exists. Replace it (the old one is kept as visitor.yaml.bak)? [y/N]": yes keeps a copy as visitor.yaml.bak and writes a new config, no leaves the file and names `--force` (replace it) and `-o FILE` (write elsewhere). Without a terminal, as in a script, it stops with that same error and hints, and writes nothing. When you pass `--server`, `--name` or a secret, it is a new config, so it asks only whether to replace the file. `burrow init server` and `burrow init client` ask the same on a terminal, before anything else, and keep the old file as `.bak`; without a terminal they stop with the same hints.
+On a terminal, `./burrow init visitor` in a folder that already has visitor.yaml says so and asks:
+
+1. "visitor.yaml already exists. Update it from the server (keeps your forwards, like --update)? [Y/n]"
+   - yes runs `--update`;
+   - no asks the next question.
+2. "visitor.yaml already exists. Replace it (the old one is kept as visitor.yaml.bak)? [y/N]"
+   - yes keeps a copy as visitor.yaml.bak and writes a new config;
+   - no leaves the file and names `--force` (replace it) and `-o FILE` (write elsewhere).
+
+Without a terminal, as in a script, it stops with that same error and hints, and writes nothing.
+
+When you pass `--server`, `--name` or a secret, it is a new config, so it asks only whether to replace the file. `burrow init server` and `burrow init client` ask the same on a terminal, before anything else, and keep the old file as `.bak`; without a terminal they stop with the same hints.
 
 `--update` shows the changes and asks before writing. New grants are added and revoked ones removed; kept forwards keep their local ports and names, TCP and UDP alike. The rest of the file stays. A server older than v0.1.2 lists only its TCP services; `--update` then says so and leaves your UDP forwards as they are.
+
+The changes are listed one per line: `+` for a new forward, `-` for one no longer granted, `~` for one that changed. When nothing changed, it says the file is up to date and writes nothing.
+
+```sh
+./burrow init visitor --update -o work.yaml   # update another file than ./visitor.yaml
+./burrow init visitor --update --yes          # write the changes without asking, for scripts
+```
+
+`--yes` asks nothing for any `burrow init`; see [the init options](configuration.md).
+
+Without a terminal and without `--yes`, `--update` prints the changes and writes nothing.
+
+To write a new visitor.yaml without questions, as in a script, pass the three answers:
+
+```sh
+./burrow init visitor --server myserver.example.com --name laptop --env-secret LAPTOP_SECRET
+```
+
+- `--server` is the server's name or IP address, port 7835 unless you add `:PORT`, or a `wss://` URL.
+- `--secret VALUE` writes the secret into the file; `--env-secret VAR` writes `${VAR}` instead, so the secret stays in the environment. On a terminal, a missing one is asked for.
+- `-o FILE` writes another file, and `--format json` (or a `.json` name) writes JSON.
+
+How the forwards are chosen:
+
+- A service gets the port number of its target as its local port when that port is free on your machine, or 10000 more for a port below 1024 (`10022` for SSH on 22); otherwise the next free port.
+- Each client in the visitor's `reach` gets a SOCKS5 forward on port 1080, then 1081 and so on, with a comment that says what that client allows. A client reached only through Unix sockets gets one forward per socket instead, from port 10000.
+- When no free port is found, it says which forward to add by hand.
+- When the server cannot be reached, it still writes the file, without forwards, and says to run `--update` once the server is up. A wrong name or secret is an error, and nothing is written.
 
 </details>
 

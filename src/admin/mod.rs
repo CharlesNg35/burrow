@@ -1,12 +1,14 @@
 //! The server side of `burrow admin`: a `Hub` that seats sessions, queues plans and owns the admin core.
-//! `core` holds the logic, `transport` runs a session, `adapters` connect the core to files and the running server.
+//! `core` holds the logic, `transport` runs a session, `adapters` connect the core to files and the running server; `kept` names and writes history files, `notes` keeps who made each change beside its version.
 
 pub mod adapters;
 pub mod core;
 pub mod hooks;
+mod kept;
 pub mod latest;
 pub mod live;
 pub mod local;
+mod notes;
 pub mod own_update;
 pub mod transport;
 

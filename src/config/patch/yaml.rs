@@ -91,7 +91,13 @@ fn verify(out: &str, target: &Value) -> bool {
 }
 
 fn apply(src: &str, edits: &[(usize, usize, String)]) -> Option<String> {
-    let mut sorted: Vec<&(usize, usize, String)> = edits.iter().collect();
+    let inside = |e: &(usize, usize, String)| {
+        e.0 < e.1
+            && edits
+                .iter()
+                .any(|o| o.0 <= e.0 && e.1 <= o.1 && o.1 - o.0 > e.1 - e.0)
+    };
+    let mut sorted: Vec<&(usize, usize, String)> = edits.iter().filter(|e| !inside(e)).collect();
     sorted.sort_by_key(|e| (e.0, e.1));
     for w in sorted.windows(2) {
         if w[0].1 > w[1].0 {
@@ -176,6 +182,8 @@ fn indent_unit(src: &str) -> usize {
         .clamp(1, 8)
 }
 
+const LEAVING: &str = "\u{0}leaving";
+
 fn rename_key(src: &str, root: &mut Node, r: &Rename, edits: &mut Edits) {
     let Some((last, parents)) = r.path.split_last() else {
         return;
@@ -193,15 +201,23 @@ fn rename_key(src: &str, root: &mut Node, r: &Rename, edits: &mut Edits) {
     let tree::Value::Map(entries) = &mut node.value else {
         return;
     };
-    let Some(e) = entries.iter_mut().find(|e| &e.key == last) else {
+    let Some(at) = entries.iter().position(|e| &e.key == last) else {
         return;
     };
+    if let Some(taken) = entries
+        .iter_mut()
+        .enumerate()
+        .find(|(i, e)| *i != at && e.key == r.to)
+    {
+        taken.1.key = LEAVING.to_string();
+    }
+    let e = &mut entries[at];
     let span = e.key_span;
     if src[span.start.offset..span.end.offset].contains('\n') {
         edits.give_up(&r.path, "the key spans several lines");
         return;
     }
-    edits.push(span.start.offset, span.end.offset, scalar_str(&r.to));
+    edits.rekey(span.start.offset, span.end.offset, scalar_str(&r.to));
     e.key = r.to.clone();
 }
 
@@ -263,4 +279,35 @@ pub(super) fn content_end(node: &Node) -> usize {
         }),
         _ => node.span.end.offset,
     }
+}
+
+fn quoted_end(src: &str, start: usize) -> Option<usize> {
+    let quote = src
+        .get(start..)?
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '"' | '\''))?;
+    let body = start + 1;
+    let mut chars = src.get(body..)?.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' if quote == '"' => {
+                chars.next();
+            }
+            c if c == quote && quote == '\'' && chars.peek().is_some_and(|(_, n)| *n == '\'') => {
+                chars.next();
+            }
+            c if c == quote => return Some(body + i + 1),
+            _ => {}
+        }
+    }
+    None
+}
+
+pub(super) fn scalar_end(src: &str, node: &Node) -> usize {
+    let end = node.span.end.offset;
+    if !node.quoted {
+        return end;
+    }
+    quoted_end(src, node.span.start.offset).map_or(end, |e| e.min(end))
 }

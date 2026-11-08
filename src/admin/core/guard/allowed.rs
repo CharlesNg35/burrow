@@ -71,6 +71,7 @@ pub fn not_allowed(
                 line: None,
                 col: None,
                 before: false,
+                file: None,
             });
         }
     }

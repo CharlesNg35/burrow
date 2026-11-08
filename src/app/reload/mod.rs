@@ -1,7 +1,8 @@
+//! Follows a config file, and a server's drop-in folder, and reloads the settings after a quiet moment when they change.
+//! Start at `follow`; `Watched` names the files and folders a kind of settings reads, and `watch` notices their changes.
+
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -13,11 +14,27 @@ use crate::config::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use crate::config::validate::startup_report;
 use crate::config::{Loaded, Role, load_file};
 
+mod watch;
+
+use watch::{Watch, Watching, fingerprint, renew_set};
+#[cfg(test)]
+use watch::{renew, watched_dirs};
+
 pub trait Watched: Clone + PartialEq + Send + 'static {
     const ROLE: Role;
     fn from_loaded(loaded: Loaded) -> Option<Self>;
     fn files(&self, config: &Path) -> Vec<PathBuf> {
         vec![config.to_path_buf()]
+    }
+    fn folders(&self, _config: &Path) -> Vec<PathBuf> {
+        Vec::new()
+    }
+}
+
+fn watching<S: Watched>(current: &S, config: &Path) -> Watching {
+    Watching {
+        files: current.files(config),
+        folders: current.folders(config),
     }
 }
 
@@ -29,6 +46,9 @@ impl Watched for ServerSettings {
             _ => None,
         }
     }
+    fn folders(&self, config: &Path) -> Vec<PathBuf> {
+        vec![crate::config::docs::drop_in_folder(config)]
+    }
     fn files(&self, config: &Path) -> Vec<PathBuf> {
         let mut files = vec![config.to_path_buf()];
         if let Some(tls) = self.websocket.as_ref().and_then(|w| w.tls.as_ref()) {
@@ -38,6 +58,13 @@ impl Watched for ServerSettings {
         if let Some(web) = &self.web {
             files.extend(web.cert_files());
         }
+        let listed = crate::config::docs::list(config).ok().flatten();
+        files.extend(
+            listed
+                .into_iter()
+                .flat_map(|l| l.names)
+                .filter_map(|n| crate::config::docs::path_of(config, &n)),
+        );
         files
     }
 }
@@ -117,7 +144,7 @@ pub async fn follow_nudged<S: Watched>(
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
     let worker = Worker::start();
     let watch = Watch::default();
-    let Some(mut watch) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
+    let Some(mut watch) = renewed(&worker, watch, watching(&current, &path), &trig_tx, false).await
     else {
         return;
     };
@@ -137,7 +164,7 @@ pub async fn follow_nudged<S: Watched>(
                 "admin"
             }
         };
-        let (asked, event) = gather(first, &mut trig, &mut nudges, &mut waiting).await;
+        let (mut asked, event) = gather(first, &mut trig, &mut nudges, &mut waiting).await;
         let outcome = 'step: {
             let why = if first == "admin" {
                 "burrow admin"
@@ -146,29 +173,31 @@ pub async fn follow_nudged<S: Watched>(
             } else {
                 "file changed"
             };
-            let files = current.files(&path);
+            let files = watching(&current, &path);
             let triggers = trig_tx.clone();
-            let Some((back, now)) = worker
+            let Some((back, mut now, grew)) = worker
                 .run(move || {
                     let mut watch = watch;
-                    renew(&mut watch, &files, &triggers, event);
+                    let grew = renew_set(&mut watch, &files, &triggers, event);
                     let now = fingerprint(&files);
-                    (watch, now)
+                    (watch, now, grew)
                 })
                 .await
             else {
                 return;
             };
             watch = back;
+            if grew && first != "admin" {
+                let w = (&mut trig, &mut nudges, &mut waiting);
+                let (more, again) = quiet_again(&worker, watching(&current, &path), w, now).await;
+                (asked, now) = (asked | more, again);
+            }
             if now == seen && !asked {
                 break 'step Some(ReloadOutcome::Unchanged);
             }
             seen = now;
             let (file, vars) = (path.clone(), env.clone());
-            let Some(loaded) = worker
-                .run(move || load_file(&file, Some(S::ROLE), &vars))
-                .await
-            else {
+            let Some(loaded) = worker.run(move || load_whole(&file, S::ROLE, &vars)).await else {
                 return;
             };
             let outcome = match loaded {
@@ -242,7 +271,8 @@ pub async fn follow_nudged<S: Watched>(
                 info!("reloading config ({why})");
             }
             current = next.clone();
-            let Some(back) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
+            let Some(back) =
+                renewed(&worker, watch, watching(&current, &path), &trig_tx, false).await
             else {
                 return;
             };
@@ -257,6 +287,32 @@ pub async fn follow_nudged<S: Watched>(
             let _ = r.send(outcome.clone());
         }
     }
+}
+
+type Waits<'a> = (
+    &'a mut mpsc::Receiver<&'static str>,
+    &'a mut Option<mpsc::Receiver<Nudge>>,
+    &'a mut Vec<tokio::sync::oneshot::Sender<ReloadOutcome>>,
+);
+
+async fn quiet_again(
+    worker: &Worker,
+    files: Watching,
+    (trig, nudges, waiting): Waits<'_>,
+    before: Vec<(PathBuf, Option<u64>)>,
+) -> (bool, Vec<(PathBuf, Option<u64>)>) {
+    let asked = gather("file changed", trig, nudges, waiting).await.0;
+    let now = worker.run(move || fingerprint(&files)).await;
+    (asked, now.unwrap_or(before))
+}
+
+fn load_whole(
+    file: &Path,
+    role: Role,
+    env: &Env,
+) -> Result<crate::config::Outcome, crate::config::load::LoadError> {
+    let _whole = crate::config::save::whole_set(file);
+    load_file(file, Some(role), env)
 }
 
 fn spawn_triggers(trig_tx: &mpsc::Sender<&'static str>) {
@@ -294,11 +350,27 @@ async fn gather(
     nudges: &mut Option<mpsc::Receiver<Nudge>>,
     waiting: &mut Vec<tokio::sync::oneshot::Sender<ReloadOutcome>>,
 ) -> (bool, bool) {
-    if first != "admin" {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
     let mut asked = first == "SIGHUP" || first == "admin";
     let mut event = first == "file changed";
+    if first != "admin" {
+        let until = tokio::time::Instant::now() + SETTLE_AT_MOST;
+        loop {
+            let quiet = tokio::time::sleep(SETTLE);
+            tokio::select! {
+                more = trig.recv() => match more {
+                    Some(more) => {
+                        asked |= more == "SIGHUP";
+                        event |= more == "file changed";
+                        if tokio::time::Instant::now() >= until {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                () = quiet => break,
+            }
+        }
+    }
     while let Ok(more) = trig.try_recv() {
         asked |= more == "SIGHUP";
         event |= more == "file changed";
@@ -328,98 +400,9 @@ fn say_rejected_report(
     report
 }
 
-fn fingerprint(files: &[PathBuf]) -> Vec<(PathBuf, Option<u64>)> {
-    use std::hash::{Hash, Hasher};
-    files
-        .iter()
-        .map(|f| {
-            let digest = std::fs::read(f).ok().map(|bytes| {
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                bytes.hash(&mut h);
-                h.finish()
-            });
-            (real(f), digest)
-        })
-        .collect()
-}
-
-fn by_hand() -> &'static str {
-    if cfg!(windows) {
-        "apply changes with: burrow service reload, or by restarting it"
-    } else {
-        "apply changes with SIGHUP or: burrow service reload"
-    }
-}
-
-fn dir_of(p: &Path) -> PathBuf {
-    p.parent()
-        .filter(|d| !d.as_os_str().is_empty())
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-}
-
-fn real(p: &Path) -> PathBuf {
-    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
-}
-
-fn watched_dirs(files: &[PathBuf]) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    for file in files {
-        let mut p = file.clone();
-        for _ in 0..16 {
-            dirs.push(real(&dir_of(&p)));
-            for linked in p.ancestors().skip(1) {
-                let holder = real(&dir_of(linked));
-                if holder.parent().is_some()
-                    && std::fs::symlink_metadata(linked).is_ok_and(|m| m.file_type().is_symlink())
-                {
-                    dirs.push(holder);
-                }
-            }
-            match std::fs::read_link(&p) {
-                Ok(t) if t.is_absolute() => p = t,
-                Ok(t) => p = dir_of(&p).join(t),
-                Err(_) => break,
-            }
-        }
-        dirs.push(dir_of(&real(file)));
-    }
-    dirs.sort();
-    dirs.dedup();
-    dirs
-}
-
-const KQUEUE: bool = cfg!(any(
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "dragonfly"
-));
-
 const RECHECK: Duration = Duration::from_secs(30);
-
-type Identity = Option<(u64, u64)>;
-
-fn identity(path: &Path) -> Identity {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        None
-    }
-}
-
-#[derive(Default)]
-struct Watch {
-    watcher: Option<notify::RecommendedWatcher>,
-    tried: Vec<(PathBuf, Identity)>,
-    stale: Arc<AtomicBool>,
-    failing: Vec<PathBuf>,
-    broken: bool,
-}
+const SETTLE: Duration = Duration::from_millis(500);
+const SETTLE_AT_MOST: Duration = Duration::from_secs(5);
 
 struct Worker(Option<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>>);
 
@@ -458,104 +441,17 @@ impl Worker {
 async fn renewed(
     worker: &Worker,
     mut watch: Watch,
-    files: Vec<PathBuf>,
+    files: Watching,
     tx: &mpsc::Sender<&'static str>,
     event: bool,
 ) -> Option<Watch> {
     let tx = tx.clone();
     worker
         .run(move || {
-            renew(&mut watch, &files, &tx, event);
+            renew_set(&mut watch, &files, &tx, event);
             watch
         })
         .await
-}
-
-fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, event: bool) {
-    let dirs = watched_dirs(files);
-    let wanted: Vec<(PathBuf, Identity)> = dirs
-        .iter()
-        .chain(files)
-        .map(|p| (p.clone(), identity(p)))
-        .collect();
-    let stale = watch.stale.load(Ordering::Acquire);
-    if wanted == watch.tried && !(KQUEUE && event) && !stale {
-        return;
-    }
-    if std::thread::Builder::new()
-        .spawn(|| {})
-        .map(std::thread::JoinHandle::join)
-        .is_err()
-    {
-        return;
-    }
-    let (fresh, failed) = match watch_files(&dirs, files, tx.clone(), watch.stale.clone()) {
-        Ok(made) => made,
-        Err(e) => {
-            if !std::mem::replace(&mut watch.broken, true) {
-                warn!("cannot watch the config for changes ({e}); {}", by_hand());
-            }
-            return;
-        }
-    };
-    watch.broken = false;
-    watch.tried = wanted;
-    watch.stale.store(false, Ordering::Release);
-    for (dir, e) in &failed {
-        if !watch.failing.contains(dir) {
-            warn!(
-                "cannot watch {} for changes ({e}); {}",
-                dir.display(),
-                by_hand()
-            );
-        }
-    }
-    watch.failing = failed.into_iter().map(|(dir, _)| dir).collect();
-    if watch.failing.is_empty() || watch.watcher.is_none() {
-        watch.watcher = Some(fresh);
-    }
-}
-
-fn watch_files(
-    dirs: &[PathBuf],
-    files: &[PathBuf],
-    tx: mpsc::Sender<&'static str>,
-    stale: Arc<AtomicBool>,
-) -> Result<(notify::RecommendedWatcher, Vec<(PathBuf, notify::Error)>), notify::Error> {
-    use notify::{EventKind, RecursiveMode, Watcher};
-    let relevant_dirs = dirs.to_vec();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        let Ok(ev) = res else { return };
-        if !matches!(
-            ev.kind,
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-        ) {
-            return;
-        }
-        if matches!(ev.kind, EventKind::Remove(_))
-            && ev.paths.iter().any(|p| relevant_dirs.contains(p))
-        {
-            stale.store(true, Ordering::Release);
-        }
-        let relevant = ev.paths.iter().any(|p| {
-            p.parent()
-                .map(real)
-                .is_some_and(|d| relevant_dirs.contains(&d))
-        });
-        if relevant {
-            let _ = tx.try_send("file changed");
-        }
-    })?;
-    let mut failed = Vec::new();
-    for dir in dirs {
-        if let Err(e) = watcher.watch(dir, RecursiveMode::NonRecursive) {
-            failed.push((dir.clone(), e));
-        }
-    }
-    for file in files {
-        let _ = watcher.watch(file, RecursiveMode::NonRecursive);
-    }
-    Ok((watcher, failed))
 }
 
 #[cfg(test)]
@@ -634,6 +530,154 @@ mod tests {
             matches!(seen, Ok(Some(_))),
             "the working watcher was dropped"
         );
+    }
+
+    #[tokio::test]
+    async fn a_burst_of_ten_drop_in_files_is_applied_in_one_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        crate::base::fs::write_private(
+            &config,
+            "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nservices:\n  web: { client: home, target: 80, bind: 7900 }\n",
+        )
+        .unwrap();
+        let loaded = load_file(&config, Some(Role::Server), &Env::default())
+            .unwrap()
+            .loaded
+            .unwrap();
+        let current = ServerSettings::from_loaded(loaded).unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(follow(config, current, Env::default(), accept(), tx));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let folder = dir.path().join("server.d");
+        std::fs::create_dir(&folder).unwrap();
+        for i in 0..10 {
+            crate::base::fs::write_private(
+                &folder.join(format!("s{i}.yaml")),
+                &format!(
+                    "services:\n  s{i}: {{ client: home, target: 80, bind: {} }}\n",
+                    7910 + i
+                ),
+            )
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+        let first = tokio::time::timeout(Duration::from_secs(8), rx.recv())
+            .await
+            .expect("the burst is applied")
+            .unwrap();
+        assert_eq!(first.services.len(), 11);
+        let again = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
+        assert!(again.is_err(), "one reload for the whole burst");
+    }
+
+    #[tokio::test]
+    async fn an_in_place_write_to_a_drop_in_is_seen_without_waiting_for_the_recheck() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        crate::base::fs::write_private(
+            &config,
+            "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nservices:\n  web: { client: home, target: 80, bind: 7900 }\n",
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("server.d")).unwrap();
+        let apps = dir.path().join("server.d/apps.yaml");
+        crate::base::fs::write_private(&apps, "services:\n").unwrap();
+        let loaded = load_file(&config, Some(Role::Server), &Env::default())
+            .unwrap()
+            .loaded
+            .unwrap();
+        let current = ServerSettings::from_loaded(loaded).unwrap();
+        assert!(
+            current.files(&config).contains(&apps),
+            "each drop-in is watched itself"
+        );
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(follow(config, current, Env::default(), accept(), tx));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        use std::io::Write as _;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&apps)
+            .unwrap();
+        f.write_all(b"  blog: { client: home, target: 81, bind: 7901 }\n")
+            .unwrap();
+        drop(f);
+        let next = tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .expect("an in-place write is applied before the 30 s recheck")
+            .unwrap();
+        assert_eq!(next.services.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_set_being_saved_is_reloaded_whole_once_the_save_is_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        let head = "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nservices:\n";
+        crate::base::fs::write_private(
+            &config,
+            &format!("{head}  web: {{ client: home, target: 80, bind: 7900 }}\n  blog: {{ client: home, target: 81, bind: 7901 }}\n"),
+        )
+        .unwrap();
+        std::fs::create_dir(dir.path().join("server.d")).unwrap();
+        let loaded = load_file(&config, Some(Role::Server), &Env::default())
+            .unwrap()
+            .loaded
+            .unwrap();
+        let current = ServerSettings::from_loaded(loaded).unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(follow(
+            config.clone(),
+            current,
+            Env::default(),
+            accept(),
+            tx,
+        ));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let folder = dir.path().join("server.d");
+        let saved = tokio::task::spawn_blocking(move || {
+            let _saving = crate::config::save::saving_set(&config);
+            crate::base::fs::write_private(
+                &config,
+                &format!("{head}  web: {{ client: home, target: 82, bind: 7900 }}\n"),
+            )
+            .unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            crate::base::fs::write_private(
+                &folder.join("blog.yaml"),
+                "services:\n  blog: { client: home, target: 81, bind: 7901 }\n",
+            )
+            .unwrap();
+        });
+        saved.await.unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(8), rx.recv())
+            .await
+            .expect("the saved set is applied")
+            .unwrap();
+        assert_eq!(first.services.len(), 2, "never a half-saved set");
+        let again = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await;
+        assert!(again.is_err(), "one reload for the whole save");
+    }
+
+    #[test]
+    fn a_file_added_to_a_watched_folder_changes_what_was_seen() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(&config, "a").unwrap();
+        let folder = dir.path().join("server.d");
+        let w = Watching {
+            files: vec![config],
+            folders: vec![folder.clone()],
+        };
+        let missing = fingerprint(&w);
+        std::fs::create_dir(&folder).unwrap();
+        let empty = fingerprint(&w);
+        std::fs::write(folder.join("a.yaml"), "x").unwrap();
+        let one = fingerprint(&w);
+        assert_ne!(missing, empty);
+        assert_ne!(empty, one);
+        assert_eq!(one, fingerprint(&w));
     }
 
     #[test]

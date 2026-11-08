@@ -25,5 +25,6 @@ pub fn notice(core: &Core, s: &Session, raw: Option<&Value>) -> Option<Diag> {
         col: None,
         before: false,
         subjects: Vec::new(),
+        file: None,
     })
 }

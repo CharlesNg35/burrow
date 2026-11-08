@@ -12,25 +12,11 @@ pub(super) fn admin_history(config: &Path) -> PathBuf {
 
 #[cfg(unix)]
 pub(super) fn give_history(config: &Path, uid: u32, gid: u32) {
-    use rustix::fs::{FileType, Mode, OFlags};
-    let folder = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    if let Ok(history) = rustix::fs::open(admin_history(config), folder, Mode::empty()) {
-        let file = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-        for entry in rustix::fs::Dir::read_from(&history)
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
-            let Ok(f) = rustix::fs::openat(&history, entry.file_name(), file, Mode::empty()) else {
-                continue;
-            };
-            if rustix::fs::fstat(&f).is_ok_and(|st| {
-                FileType::from_raw_mode(st.st_mode) == FileType::RegularFile && st.st_nlink == 1
-            }) {
-                let _ = std::os::unix::fs::fchown(&f, Some(uid), Some(gid));
-            }
-        }
-        let _ = std::os::unix::fs::fchown(&history, Some(uid), Some(gid));
+    let give = |f: &std::os::fd::OwnedFd| {
+        let _ = std::os::unix::fs::fchown(f, Some(uid), Some(gid));
+    };
+    if let Some(dir) = super::nofollow::plain_files(&admin_history(config), |_, f, _| give(f)) {
+        give(&dir);
     }
 }
 
@@ -326,7 +312,7 @@ fn remove_binary(m: &Manifest, out: &mut dyn Write) -> Result<(), Failure> {
 }
 
 #[cfg(unix)]
-fn give_kept_to_root(m: &Manifest, kept: &[PathBuf], kept_folder: Option<&Path>) {
+pub(super) fn give_kept_to_root(m: &Manifest, kept: &[PathBuf], kept_folder: Option<&Path>) {
     let dir = m
         .log_file
         .parent()
@@ -339,7 +325,31 @@ fn give_kept_to_root(m: &Manifest, kept: &[PathBuf], kept_folder: Option<&Path>)
     }
     if let Some(d) = kept_folder {
         give_history(&m.config, 0, 0);
+        super::drop_ins::to_root(&m.config, &m.account);
         let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
+    }
+}
+
+#[cfg(unix)]
+pub(super) fn give_account_files_to_root(m: &Manifest) {
+    use std::os::unix::fs::MetadataExt;
+    let Ok((uid, _)) = crate::base::process::account_ids(&m.account) else {
+        return;
+    };
+    if uid == 0 {
+        return;
+    }
+    let owned = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|s| s.uid() == uid);
+    let _ = system::give_back(&m.config, uid, 0, 0);
+    if owned(&admin_history(&m.config)) {
+        give_history(&m.config, 0, 0);
+    }
+    super::drop_ins::to_root(&m.config, &m.account);
+    if owned(m.folder()) {
+        let _ = std::os::unix::fs::lchown(m.folder(), Some(0), Some(0));
+    }
+    if let Some(d) = m.web_state.as_deref().filter(|d| owned(d)) {
+        super::hand_over::own_tree(d, 0, 0);
     }
 }
 
@@ -416,14 +426,15 @@ pub(super) fn keep_admin_copy(source: &Path, config: &Path) -> Result<Kept, Fail
     let Some(installed) = system::read_plain_file(config) else {
         return Ok(Kept::NotPlain);
     };
-    let (Ok(src), Ok(installed)) = (std::fs::read(source), String::from_utf8(installed)) else {
+    let Ok(installed) = String::from_utf8(installed) else {
         return Ok(Kept::Nothing);
     };
-    if src == installed.as_bytes() {
+    let docs = super::drop_ins::installed(config, installed);
+    if std::fs::metadata(source).is_err() || super::drop_ins::same_set(source, &docs) {
         return Ok(Kept::Nothing);
     }
     let store = crate::admin::adapters::FileStore::new(config);
-    store.keep(&crate::admin::core::text::rev(&installed), &installed);
+    store.keep(&crate::admin::core::text::docs_rev(&docs), &docs);
     match store.history_problem() {
         None => Ok(Kept::Version),
         Some(why) => Err(Failure::new(format!(

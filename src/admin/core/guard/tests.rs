@@ -581,3 +581,37 @@ fn a_rename_hides_only_the_removal_and_addition_of_the_entity_in_its_own_section
         1
     );
 }
+
+#[test]
+fn impacts_follow_a_rename_chain_to_its_end_and_a_freed_name_is_added() {
+    let (text, _) = twins();
+    let old = settings(&text);
+    let said = |new: &str, renames: &[Rename]| -> Vec<String> {
+        impacts(&old, &settings(new), &Status::default(), &[], &[], renames)
+            .into_iter()
+            .map(|i| i.message)
+            .collect()
+    };
+    let chain = [
+        renamed("services", "web", "a"),
+        renamed("services", "a", "site"),
+    ];
+    assert_eq!(
+        said(&text.replace("  web: {", "  site: {"), &chain),
+        ["renames service web to site; port 0.0.0.0:7840 closes and reopens"]
+    );
+    let back = [
+        renamed("services", "web", "a"),
+        renamed("services", "a", "web"),
+    ];
+    assert!(said(&text, &back).is_empty(), "{:?}", said(&text, &back));
+    let freed = text.replace(
+        "  web: { client: home, bind: 7840, target: 3000 }\n",
+        "  site: { client: home, bind: 7840, target: 3000 }\n  web: { client: home, bind: 7841, target: 3001 }\n",
+    );
+    let both = said(&freed, &[renamed("services", "web", "site")]);
+    assert!(
+        both.iter().any(|m| m.starts_with("adds service web")),
+        "{both:?}"
+    );
+}

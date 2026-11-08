@@ -5,7 +5,7 @@ use super::control::{interrupts, logs_again, source_note};
 use super::install::{burrows_account, name_arg};
 #[cfg(unix)]
 use super::install::{installs_from, place_binary, recorded_source};
-use super::previous::{StartAgain, Undo, given_note, start_installed, take_over};
+use super::previous::{StartAgain, given_note, start_installed, take_over};
 use super::uninstall::differs;
 use super::uninstall::{Kept, keep_admin_copy};
 use super::*;
@@ -88,7 +88,13 @@ fn a_config_changed_by_burrow_admin_is_kept_before_a_reinstall_replaces_it() {
     let store = crate::admin::adapters::FileStore::new(&config);
     let rev = crate::admin::core::text::rev(changed);
     assert!(store.versions().iter().any(|v| v.rev == rev));
-    assert_eq!(store.version(&rev).as_deref(), Some(changed));
+    assert_eq!(
+        store
+            .version(&rev)
+            .map(|d| d.main().text.clone())
+            .as_deref(),
+        Some(changed)
+    );
 
     let m = Manifest {
         config: config.clone(),
@@ -413,74 +419,6 @@ fn an_install_refuses_a_running_unit_it_has_no_record_of_and_replaces_a_stopped_
 }
 
 #[test]
-fn a_reinstall_that_does_not_run_puts_the_previous_one_back() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = dir.path().join("home.yaml");
-    std::fs::write(&config, "new config").unwrap();
-    let old = Manifest {
-        config: config.clone(),
-        env_file: Some(dir.path().join("home.env")),
-        account: "old".into(),
-        ..record(Platform::Linux)
-    };
-    let new_env = dir.path().join("home-new.env");
-    std::fs::write(&new_env, "SECRET=y").unwrap();
-    let new = Manifest {
-        config: config.clone(),
-        env_file: Some(new_env.clone()),
-        account: "new".into(),
-        created_account: true,
-        admin_writable: true,
-        ..record(Platform::Linux)
-    };
-    let binary = dir.path().join("burrow");
-    let kept = dir.path().join("burrow.previous");
-    std::fs::write(&binary, "new binary").unwrap();
-    std::fs::write(&kept, "old binary").unwrap();
-    let undo = Undo {
-        manifest: old.clone(),
-        config: Some(b"old config".to_vec()),
-        env: [("SECRET".to_string(), "x".to_string())].into(),
-        binary: Some((kept.clone(), binary.clone())),
-    };
-    let rec = Recorder(Default::default(), true);
-    let saved = std::cell::RefCell::new(Vec::new());
-    let mut out = Vec::new();
-    let f = undo.put_back(
-        &rec,
-        &new,
-        "exited with status 3",
-        |m| {
-            saved.borrow_mut().push(m.account.clone());
-            Ok(())
-        },
-        &mut out,
-    );
-    assert!(f.message.contains("runs again"), "{}", f.message);
-    assert_eq!(std::fs::read_to_string(&config).unwrap(), "old config");
-    assert_eq!(std::fs::read_to_string(&binary).unwrap(), "old binary");
-    assert!(!kept.exists());
-    assert!(!new_env.exists());
-    assert_eq!(
-        *rec.0.borrow(),
-        [
-            "stop new",
-            "folder writable=false old",
-            "env 1 old",
-            "install old",
-            "start old",
-            "remove new"
-        ]
-    );
-    assert_eq!(*saved.borrow(), ["old"]);
-    assert!(
-        String::from_utf8(out)
-            .unwrap()
-            .contains("exited with status 3")
-    );
-}
-
-#[test]
 fn low_ports_on_one_address_need_root_on_macos_only_away_from_the_wildcard() {
     let at = |a: &str| a.parse::<SocketAddr>().unwrap();
     let rec = Recorder(Default::default(), true);
@@ -498,30 +436,6 @@ fn low_ports_on_one_address_need_root_on_macos_only_away_from_the_wildcard() {
         };
         assert!(!mac.low_ports(&m));
     }
-}
-
-#[test]
-fn a_put_back_that_does_not_run_either_says_so() {
-    let dir = tempfile::tempdir().unwrap();
-    let old = Manifest {
-        config: dir.path().join("home.yaml"),
-        env_file: None,
-        ..record(Platform::Linux)
-    };
-    let undo = Undo {
-        manifest: old.clone(),
-        config: Some(b"old config".to_vec()),
-        env: BTreeMap::new(),
-        binary: None,
-    };
-    let f = undo.put_back(
-        &Recorder(Default::default(), false),
-        &old,
-        "exited with status 3",
-        |_| Ok(()),
-        &mut Vec::new(),
-    );
-    assert!(f.message.contains("does not run either"), "{}", f.message);
 }
 
 pub(super) fn record(p: Platform) -> Manifest {
@@ -542,6 +456,7 @@ pub(super) fn record(p: Platform) -> Manifest {
         admin_writable: false,
         web_state: None,
         remote_updates: false,
+        account_ids: None,
     }
 }
 
@@ -599,6 +514,7 @@ fn an_edit_the_installed_unit_cannot_run_is_named_with_the_way_out() {
         let stateful = Manifest {
             web_state: Some(PathBuf::from("/var/lib/burrow/edge")),
             remote_updates: false,
+            account_ids: None,
             ..m.clone()
         };
         let low = misfits_of(&backend, &stateful, &web);

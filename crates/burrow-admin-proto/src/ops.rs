@@ -43,6 +43,13 @@ pub enum Op {
         path: Path,
         text: String,
     },
+    Place {
+        path: Path,
+        file: String,
+    },
+    DropFile {
+        file: String,
+    },
 }
 
 impl Op {
@@ -55,8 +62,9 @@ impl Op {
             | Op::SecretAdd { path, .. }
             | Op::SecretRemove { path, .. }
             | Op::PasswordSet { path, .. }
-            | Op::SetText { path, .. } => Some(path),
-            Op::ReplaceDocument { .. } => None,
+            | Op::SetText { path, .. }
+            | Op::Place { path, .. } => Some(path),
+            Op::ReplaceDocument { .. } | Op::DropFile { .. } => None,
         }
     }
 }

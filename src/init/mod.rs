@@ -292,10 +292,13 @@ fn ask_login(
     if path.exists() && !opts.force {
         return Err(already_exists(path));
     }
+    let why = if opts.yes {
+        "--yes asks nothing"
+    } else {
+        "stdin is not a terminal, so burrow cannot ask"
+    };
     let missing = |what: &str, flag: &str| {
-        Failure::usage(format!("missing {what}")).hint(format!(
-            "pass {flag} (stdin is not a terminal, so burrow cannot ask)"
-        ))
+        Failure::usage(format!("missing {what}")).hint(format!("pass {flag} ({why})"))
     };
     let server = match &opts.server {
         Some(s) => s.clone(),

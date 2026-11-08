@@ -25,6 +25,27 @@ pub struct Plan {
     pub reformat: Option<Reformat>,
     #[serde(default)]
     pub secrets_in_diff: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<FileDiff>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileChange {
+    Same,
+    Edit,
+    Create,
+    Remove,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiff {
+    pub file: String,
+    pub change: FileChange,
+    #[serde(default)]
+    pub diff: Diff,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left_empty: Option<bool>,
 }
 
 impl Plan {

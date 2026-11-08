@@ -1,6 +1,7 @@
 //! The review page of the admin UI: the server's plan of changes grouped for reading, the refusals of the lockout guard and the conflict dialog.
 
 mod detail;
+pub(crate) mod files;
 mod guard;
 mod page;
 
@@ -103,7 +104,12 @@ pub fn group_line(g: &Group) -> String {
 }
 
 pub fn nothing_to_apply(plan: &Plan) -> bool {
-    plan.changes.is_empty() && plan.diff.hunks.is_empty()
+    plan.changes.is_empty()
+        && plan.diff.hunks.is_empty()
+        && plan
+            .files
+            .iter()
+            .all(|f| f.change == burrow_admin_proto::plan::FileChange::Same)
 }
 
 fn diff_counts(d: &Diff) -> (usize, usize) {

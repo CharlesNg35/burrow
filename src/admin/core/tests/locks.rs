@@ -12,6 +12,8 @@ use crate::base::testkit::cert_pair;
 
 #[cfg(feature = "web")]
 use super::apply_now;
+#[cfg(feature = "web")]
+use super::one;
 use super::{World, core_for, p, session, world};
 
 struct Site {
@@ -104,9 +106,9 @@ fn a_sites_own_certificate_files_are_set_on_every_admin_path() {
     for ops in cases {
         let c = allowed(&core, &s, &ops);
         assert!(
-            super::yaml_has(&c.new_text, &other),
+            super::yaml_has(&c.new_docs.main().text, &other),
             "{ops:?}: {}",
-            c.new_text
+            c.new_docs.main().text
         );
     }
 }
@@ -172,7 +174,9 @@ fn a_revert_brings_back_the_files_of_that_version() {
         .unwrap()
         .replace(&site.file("a.pem"), &site.file("b.pem"))
         .replace(&site.file("a.key"), &site.file("b.key"));
-    core.store.write(&core.read().unwrap(), &edited).unwrap();
+    core.store
+        .write(&one(&core.read().unwrap()), &one(&edited))
+        .unwrap();
     let edit = plan::compute(
         &core,
         &s,
@@ -192,19 +196,21 @@ fn a_revert_brings_back_the_files_of_that_version() {
         }],
     )
     .unwrap();
-    let doc = crate::config::tree::parse(&crate::config::patch::split_text(&reverted.new_text).2)
-        .unwrap()
-        .to_json();
+    let doc = crate::config::tree::parse(
+        &crate::config::patch::split_text(&reverted.new_docs.main().text).2,
+    )
+    .unwrap()
+    .to_json();
     assert_eq!(
         doc["services"]["nas"]["web"]["tls"]["cert"],
         json!(site.file("a.pem")),
         "{}",
-        reverted.new_text
+        reverted.new_docs.main().text
     );
     assert!(
-        reverted.new_text.contains("target: 443"),
+        reverted.new_docs.main().text.contains("target: 443"),
         "{}",
-        reverted.new_text
+        reverted.new_docs.main().text
     );
     assert!(
         reverted
@@ -363,10 +369,17 @@ fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
         }],
     )
     .unwrap();
-    let doc = crate::config::tree::parse(&crate::config::patch::split_text(&reverted.new_text).2)
-        .unwrap()
-        .to_json();
-    assert_eq!(doc["web"]["certificates"], list, "{}", reverted.new_text);
+    let doc = crate::config::tree::parse(
+        &crate::config::patch::split_text(&reverted.new_docs.main().text).2,
+    )
+    .unwrap()
+    .to_json();
+    assert_eq!(
+        doc["web"]["certificates"],
+        list,
+        "{}",
+        reverted.new_docs.main().text
+    );
 }
 
 #[cfg(feature = "web")]
@@ -389,9 +402,9 @@ fn a_short_web_form_turns_into_one_with_files_and_back() {
         }];
         let c = allowed(&core, &s, &ops);
         assert!(
-            super::yaml_has(&c.new_text, &site.file("b.pem")),
+            super::yaml_has(&c.new_docs.main().text, &site.file("b.pem")),
             "{}",
-            c.new_text
+            c.new_docs.main().text
         );
     }
     let core = core_for(&site.w.text);

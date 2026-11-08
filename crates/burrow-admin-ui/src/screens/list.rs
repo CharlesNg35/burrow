@@ -95,6 +95,13 @@ pub fn ListCard(
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PhoneList {
+    #[default]
+    FillScreen,
+    AboveDetail,
+}
+
 #[component]
 pub fn ListPane(
     #[prop(into)] title: String,
@@ -116,8 +123,10 @@ pub fn ListPane(
     #[prop(optional)] empty_icon: Option<&'static str>,
     #[prop(optional)] query: Option<RwSignal<String>>,
     #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
+    #[prop(optional)] phone: PhoneList,
 ) -> impl IntoView {
-    let q = query.unwrap_or_else(|| RwSignal::new(String::new()));
+    let q = query
+        .unwrap_or_else(|| RwSignal::new(route::query(route::SEARCH_QUERY).unwrap_or_default()));
     let asked = route::query(route::FILTER_QUERY);
     let first = filters
         .iter()
@@ -125,16 +134,26 @@ pub fn ListPane(
         .find(|k| asked.as_deref() == Some(*k));
     let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
     let hay = Memo::new(move |_| rows.with(|r| r.iter().map(Row::haystack).collect::<Vec<_>>()));
+    let files = Memo::new(move |_| {
+        crate::store::store()
+            .with_files(|i| {
+                i.files
+                    .iter()
+                    .map(|f| f.name.to_lowercase())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    });
     let visible = Memo::new(move |_| {
         let needle = q.get().to_lowercase();
         let f = filter.get();
+        let files = files.get();
         hay.with(|h| {
             rows.with(|r| {
                 r.iter()
                     .zip(h)
                     .filter(|(r, h)| {
-                        (needle.is_empty() || h.contains(&needle))
-                            && (f == "all" || r.filters.contains(&f))
+                        r.found(h, &needle, &files) && (f == "all" || r.filters.contains(&f))
                     })
                     .map(|(r, _)| r.clone())
                     .collect::<Vec<_>>()
@@ -168,7 +187,7 @@ pub fn ListPane(
     let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
     view! {
         <aside
-            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
+            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))] mb-[calc(0px-var(--toast-pad,0px))] max-lg:pb-[var(--toast-pad,0px)]{}{}", if selected.get().is_some() { " max-lg:hidden" } else { "" }, if nothing.get() || phone == PhoneList::AboveDetail { "" } else { " max-lg:min-h-[calc(100vh-var(--hdr-h,64px))]" })
             aria-label=title.clone()
             data-testid=(!testid.is_empty()).then_some(testid)
         >

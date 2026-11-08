@@ -70,6 +70,7 @@ pub(super) fn outside(core: &Core, before: &Value, after: &Value) -> Vec<Diag> {
         line: None,
         col: None,
         before: false,
+        file: None,
     }]
 }
 

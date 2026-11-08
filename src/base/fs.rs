@@ -171,6 +171,35 @@ pub fn names(_path: &Path, _file: &std::fs::File) -> bool {
     true
 }
 
+#[cfg(unix)]
+pub const NO_FOLLOW_FOLDER: rustix::fs::OFlags = rustix::fs::OFlags::RDONLY
+    .union(rustix::fs::OFlags::DIRECTORY)
+    .union(rustix::fs::OFlags::NOFOLLOW)
+    .union(rustix::fs::OFlags::CLOEXEC);
+
+#[cfg(unix)]
+pub fn folder_at(
+    holder: &std::os::fd::OwnedFd,
+    name: &std::ffi::OsStr,
+    mode: u32,
+) -> std::io::Result<(std::os::fd::OwnedFd, bool)> {
+    use rustix::fs::{AtFlags, Mode};
+    let made = match rustix::fs::mkdirat(holder, name, Mode::from_bits_truncate(mode as _)) {
+        Ok(()) => true,
+        Err(rustix::io::Errno::EXIST) => false,
+        Err(e) => return Err(e.into()),
+    };
+    match rustix::fs::openat(holder, name, NO_FOLLOW_FOLDER, Mode::empty()) {
+        Ok(dir) => Ok((dir, made)),
+        Err(e) => {
+            if made {
+                let _ = rustix::fs::unlinkat(holder, name, AtFlags::REMOVEDIR);
+            }
+            Err(e.into())
+        }
+    }
+}
+
 #[cfg(windows)]
 pub(crate) fn restrict_on_windows(path: &Path) {
     let me = std::process::Command::new("whoami")

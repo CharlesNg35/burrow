@@ -1,0 +1,186 @@
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use super::{Refused, spare_prefix};
+
+#[cfg(test)]
+thread_local! {
+    pub static FAIL_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn hard_link(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_LINK.with(|f| f.get()) {
+        return Err(std::io::ErrorKind::Unsupported.into());
+    }
+    std::fs::hard_link(from, to)
+}
+
+pub struct Pending {
+    real: PathBuf,
+    spare: PathBuf,
+    text: Option<String>,
+    before: Option<String>,
+    made: Option<PathBuf>,
+}
+
+fn write_in_place(real: &Path, text: &str) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(real)?;
+    f.write_all(text.as_bytes())?;
+    f.sync_all()
+}
+
+impl Pending {
+    pub fn commit(&self) -> std::io::Result<()> {
+        match &self.text {
+            Some(text) => {
+                if let Err(e) = write_in_place(&self.real, text) {
+                    if let Some(before) = &self.before
+                        && write_in_place(&self.real, before).is_ok()
+                    {
+                        let _ = std::fs::remove_file(&self.spare);
+                    }
+                    return Err(e);
+                }
+                let _ = std::fs::remove_file(&self.spare);
+                Ok(())
+            }
+            None => {
+                let placed = match hard_link(&self.spare, &self.real) {
+                    Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                        copy_new(&self.spare, &self.real)
+                    }
+                    other => other,
+                };
+                let _ = std::fs::remove_file(&self.spare);
+                placed
+            }
+        }
+    }
+
+    pub fn made(&self) -> Option<&Path> {
+        self.made.as_deref()
+    }
+
+    pub fn discard(&self) {
+        let _ = std::fs::remove_file(&self.spare);
+    }
+}
+
+fn spare_for(real: &Path) -> Result<PathBuf, Refused> {
+    let (Some(folder), Some(name)) = (real.parent(), real.file_name()) else {
+        return Err(Refused::Io(std::io::ErrorKind::InvalidInput.into()));
+    };
+    Ok(folder.join(format!(
+        "{}{}",
+        spare_prefix(&name.to_string_lossy()),
+        std::process::id()
+    )))
+}
+
+fn copy_new(from: &Path, to: &Path) -> std::io::Result<()> {
+    let text = std::fs::read(from)?;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)?;
+    let written = f.write_all(&text).and_then(|()| f.sync_all());
+    if written.is_err() {
+        drop(f);
+        let _ = std::fs::remove_file(to);
+    }
+    written
+}
+
+fn write_new(spare: &Path, text: &str) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(spare);
+    let mut copy = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(spare)?;
+    copy.write_all(text.as_bytes())?;
+    copy.sync_all()
+}
+
+pub fn stage_replace(path: &Path, before: &str, text: &str) -> Result<Pending, Refused> {
+    if std::fs::read_to_string(path)? != before {
+        return Err(Refused::Changed);
+    }
+    let real = std::fs::canonicalize(path)?;
+    let spare = spare_for(&real)?;
+    write_new(&spare, text)?;
+    Ok(Pending {
+        real,
+        spare,
+        text: Some(text.to_string()),
+        before: Some(before.to_string()),
+        made: None,
+    })
+}
+
+pub fn stage_create(path: &Path, text: &str, _like: &Path) -> Result<Pending, Refused> {
+    let parent = path
+        .parent()
+        .ok_or(Refused::Io(std::io::ErrorKind::InvalidInput.into()))?;
+    let made = if parent.exists() {
+        None
+    } else {
+        std::fs::create_dir(parent)?;
+        Some(std::fs::canonicalize(parent)?)
+    };
+    let undo_made = |e: Refused| {
+        if let Some(d) = &made {
+            let _ = std::fs::remove_dir(d);
+        }
+        e
+    };
+    let name = path
+        .file_name()
+        .ok_or(Refused::Io(std::io::ErrorKind::InvalidInput.into()))?;
+    let real = std::fs::canonicalize(parent)
+        .map_err(|e| undo_made(e.into()))?
+        .join(name);
+    if real.exists() {
+        return Err(undo_made(Refused::Changed));
+    }
+    let spare = spare_for(&real).map_err(undo_made)?;
+    write_new(&spare, text).map_err(|e| undo_made(e.into()))?;
+    Ok(Pending {
+        real,
+        spare,
+        text: None,
+        before: None,
+        made,
+    })
+}
+
+pub struct Hidden {
+    real: PathBuf,
+    spare: PathBuf,
+}
+
+impl Hidden {
+    pub fn commit(&self) -> std::io::Result<()> {
+        std::fs::rename(&self.real, &self.spare)
+    }
+
+    pub fn undo(&self) -> std::io::Result<()> {
+        std::fs::rename(&self.spare, &self.real)
+    }
+
+    pub fn finish(&self) {
+        let _ = std::fs::remove_file(&self.spare);
+    }
+}
+
+pub fn stage_remove(path: &Path, before: &str) -> Result<Hidden, Refused> {
+    let real = std::fs::canonicalize(path)?;
+    if std::fs::read_to_string(&real)? != before {
+        return Err(Refused::Changed);
+    }
+    let spare = spare_for(&real)?;
+    Ok(Hidden { real, spare })
+}

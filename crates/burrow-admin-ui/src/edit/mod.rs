@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use burrow_admin_logic::changeset::Changeset;
+use burrow_admin_logic::files::FileMoves;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{ErrorBody, ErrorCode};
 use burrow_admin_proto::ops::Op;
@@ -50,6 +51,7 @@ pub struct Edit {
     pub draft: RwSignal<Changeset>,
     pub base_rev: RwSignal<String>,
     pub texts: RwSignal<BTreeMap<Path, String>>,
+    pub files: RwSignal<FileMoves>,
     pub local: RwSignal<BTreeMap<Path, String>>,
     pub related: Memo<BTreeMap<Path, String>>,
     pub plan: RwSignal<Option<Arc<Plan>>>,
@@ -82,7 +84,7 @@ fn restore(c: &mut Changeset, path: &[String], snap: Option<&Value>) {
     }
 }
 
-fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
+fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>, files: &FileMoves) -> Vec<Op> {
     let mut ops = draft.ops();
     for (path, text) in texts {
         ops.push(Op::SetText {
@@ -90,6 +92,7 @@ fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
             text: text.clone(),
         });
     }
+    ops.extend(files.ops());
     ops
 }
 
@@ -152,6 +155,7 @@ impl Edit {
             draft,
             base_rev: RwSignal::new(String::new()),
             texts: RwSignal::new(BTreeMap::new()),
+            files: RwSignal::new(FileMoves::default()),
             local: RwSignal::new(BTreeMap::new()),
             related: Memo::new(move |_| related_errors(draft)),
             plan: RwSignal::new(None),
@@ -175,11 +179,30 @@ impl Edit {
     }
 
     pub fn dirty(&self) -> bool {
-        self.draft.with(Changeset::dirty) || self.texts.with(|t| !t.is_empty())
+        self.draft.with(Changeset::dirty)
+            || self.texts.with(|t| !t.is_empty())
+            || self.files.with(|f| !f.is_empty())
     }
 
     pub fn ops(&self) -> Vec<Op> {
-        self.texts.with(|t| self.draft.with(|d| ops_of(d, t)))
+        self.files
+            .with(|f| self.texts.with(|t| self.draft.with(|d| ops_of(d, t, f))))
+    }
+
+    pub fn place(&self, item: &[String], file: &str, now: &str) {
+        self.files.update(|f| f.place(item, file, now));
+        self.changed();
+    }
+
+    pub fn drop_file(&self, file: &str, drop: bool) {
+        self.files.update(|f| {
+            if drop {
+                f.drops.insert(file.to_string());
+            } else {
+                f.drops.remove(file);
+            }
+        });
+        self.changed();
     }
 
     pub fn review_count(&self) -> usize {
@@ -233,7 +256,9 @@ impl Edit {
                 Self::saved_of(d, &open).changed_entities()
             }
         });
-        saved + self.texts.with(BTreeMap::len)
+        saved
+            + self.texts.with(BTreeMap::len)
+            + self.files.with(|f| self.draft.with(|d| f.counted(d)))
     }
 
     pub fn with_saved<T>(&self, f: impl FnOnce(&Changeset) -> T) -> T {
@@ -254,8 +279,10 @@ impl Edit {
         if open.is_empty() {
             return self.ops();
         }
-        self.texts
-            .with(|t| self.draft.with(|d| ops_of(&Self::saved_of(d, &open), t)))
+        self.files.with(|f| {
+            self.texts
+                .with(|t| self.draft.with(|d| ops_of(&Self::saved_of(d, &open), t, f)))
+        })
     }
 
     fn unsaved_values(&self) -> Vec<(Path, Option<Value>)> {
@@ -329,6 +356,9 @@ impl Edit {
         if self.scratch_set(path, v.clone()) {
             return;
         }
+        if v.is_none() && self.files.with_untracked(|f| f.placed(path).is_some()) {
+            self.files.update(|f| f.forget(path));
+        }
         self.draft.update(|d| d.set(path, v.unwrap_or(Value::Null)));
         self.changed();
     }
@@ -368,6 +398,13 @@ impl Edit {
     pub fn rename(&self, path: &[String], to: &str) -> bool {
         let mut ok = false;
         self.draft.update(|d| ok = d.rename(path, to));
+        if ok && let Some((_, parent)) = path.split_last() {
+            let mut next = parent.to_vec();
+            next.push(to.to_string());
+            if self.files.with_untracked(|f| f.placed(path).is_some()) {
+                self.files.update(|f| f.rename(path, &next));
+            }
+        }
         if ok {
             self.editing.update(|m| {
                 for (at, snap) in m.iter_mut() {
@@ -399,6 +436,7 @@ impl Edit {
     pub fn discard(&self) {
         self.draft.update(Changeset::reset);
         self.texts.set(BTreeMap::new());
+        self.files.set(FileMoves::default());
         self.local.set(BTreeMap::new());
         self.plan.set(None);
         self.end_conflict();
@@ -672,7 +710,7 @@ mod tests {
         d.set(&p(&["a"]), json!(2));
         let mut t = BTreeMap::new();
         t.insert(p(&["geo"]), "x: 1".to_string());
-        let ops = ops_of(&d, &t);
+        let ops = ops_of(&d, &t, &FileMoves::default());
         assert_eq!(ops.len(), 2);
         assert!(matches!(&ops[1], Op::SetText { path, .. } if path == &p(&["geo"])));
     }

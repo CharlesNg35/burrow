@@ -27,6 +27,8 @@ mod editors;
 mod edits;
 #[path = "admin_e2e/entries.rs"]
 mod entries;
+#[path = "admin_e2e/files.rs"]
+mod files;
 #[path = "admin_e2e/guards.rs"]
 mod guards;
 #[path = "admin_e2e/header.rs"]
@@ -51,6 +53,8 @@ mod passwords;
 mod ports;
 #[path = "admin_e2e/reach.rs"]
 mod reach;
+#[path = "admin_e2e/reconnects.rs"]
+mod reconnects;
 #[path = "common/releases.rs"]
 mod releases;
 #[path = "admin_e2e/reverts.rs"]
@@ -279,6 +283,14 @@ pub async fn wait_checked(c: &Ctx) {
     c.ui.wait_for("[data-testid=check-state]", SECS).await;
     c.ui.wait_for("[data-testid=check-state]:not([data-state=checking])", SECS)
         .await;
+}
+
+pub async fn added_toasts(c: &Ctx) -> usize {
+    let n: u64 = c
+        .ui
+        .eval("[...document.querySelectorAll('[data-testid=toast]')].filter(t => t.innerText.includes('Added to changes')).length")
+        .await;
+    n as usize
 }
 
 pub async fn review_now(c: &Ctx) {

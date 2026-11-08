@@ -10,7 +10,11 @@ For clients and visitors, use `burrow service status` and `burrow service logs -
 
 ## burrow status
 
-`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network. A server lists each client's burrow version, or `< 0.2.2` for a client too old to say. On a client's machine, from 0.2.2 on, it shows the running client too: its server, whether it is connected, how it runs, whether it allows remote updates and its last update ([updates.md](updates.md)). `burrow clients` lists the same clients with their burrow, system and a newer release, and `burrow clients update` updates them ([updates.md](updates.md#from-the-servers-command-line)).
+`burrow status` shows every burrow server running on this machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics, and opens nothing on the network.
+
+- A server lists each client's burrow version, or `< 0.2.2` for a client too old to say.
+- On a client's machine, from 0.2.2 on, it shows the running client too: its server, whether it is connected, how it runs, whether it allows remote updates and its last update ([updates.md](updates.md)).
+- `burrow clients` lists the same clients with their burrow, system and a newer release, and `burrow clients update` updates them ([updates.md](updates.md#from-the-servers-command-line)).
 
 Run it on the server machine:
 
@@ -23,7 +27,12 @@ burrow status -f --interval 5     # refresh every 5 seconds
 burrow status --json              # the raw data, for scripts
 ```
 
-A server installed as a service needs `sudo` (an administrator terminal on Windows). A server that does not answer is shown as not answering, not as stopped. With `-f`, times are shown to the minute (`5m`, `just now`), so they do not change every second. The output looks like this:
+- A server installed as a service needs `sudo` (an administrator terminal on Windows).
+- A server that does not answer is shown as not answering, not as stopped.
+- `--interval` takes seconds from 0.2 to 3600, fractions allowed, and needs `-f`.
+- With `-f`, times are shown to the minute (`5m`, `just now`), so they do not change every second.
+
+The output looks like this:
 
 ```
 $ sudo burrow status
@@ -73,11 +82,13 @@ A failing certificate gets a line with the reason, and a link when Let's Encrypt
 <details>
 <summary><b>What the columns mean</b></summary>
 
-- **OPEN:** connections open now. For a website this includes idle connections to the app, kept for up to 60 seconds for the next request. **TOTAL:** connections since the server started.
+- **OPEN:** connections open now. For a website this includes idle connections to the app, kept for up to 60 seconds for the next request.
+- **TOTAL:** connections since the server started.
 - **IDLE:** channels the client keeps open in advance, so a new connection starts at once. After a burst there can be up to `pool.max_idle` (64); channels that no connection needed for a minute close, so about 2 minutes later it is back to `pool.min_idle` (4).
 - **at limit** after a client's state: in the last minute the client refused new connections because it reached its `max_connections`. In `--json`, `at_limit` is true, and `busy_total` counts those refusals since the server started.
 - **REFUSED:** connections the service refused: a blocked source address, a limit (the service's own, or a client that answered busy at its `max_connections`), or no client to serve it.
-- **IN:** bytes from users to the target. **OUT:** bytes back to users.
+- **IN:** bytes from users to the target.
+- **OUT:** bytes back to users.
 - **LAST USED** of a visitor: `now` while it has connections open. Otherwise, how long ago it last opened or closed one, or a running `burrow visit` or `burrow init visitor` last checked in (`2m 30s ago`); or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
 - **CLIENTS** of a service: whether each client can serve it now. `failing` or `refused` means the client could not reach the target or its `allow` list refused it, so it is skipped for a while.
 - **refused handshakes:** connections that failed to log in, because of a wrong secret, an unknown name or a limit.
@@ -123,11 +134,17 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect. Anyone wh
 | `burrow_service_connections_open`, `_total` | gauge, counter | `service` | |
 | `burrow_service_refused_total` | counter | `service` | source address, limits, or no client |
 | `burrow_service_bytes_total` | counter | `service`, `direction` | `in` from users to the target, `out` back |
-| `burrow_web_responses_total` | counter | `service`, `class` | HTTP responses a website sent since the server started, by status class (`1xx` to `5xx`), including burrow's own pages such as 404, 413, 502 and maintenance. Only for services with `web:` that burrow terminates or serves as plain HTTP; a `tls: passthrough` site has none, because burrow cannot see its requests. Bytes are in `burrow_service_bytes_total`, as for every service. `burrow status` shows the same counts under each website, like `web responses 2xx 1203, 4xx 17`. |
+| `burrow_web_responses_total` | counter | `service`, `class` | HTTP responses a website sent since the server started, by status class (`1xx` to `5xx`), including burrow's own pages such as 404, 413, 502 and maintenance (more below the table) |
 | `burrow_service_client_up` | gauge | `service`, `client` | health check result, with `health_check` only |
 | `burrow_visitor_connections_open`, `_total` | gauge, counter | `visitor` | |
 | `burrow_certificate_expiry_timestamp_seconds` | gauge | `name` | when the certificate served for a web name expires, in Unix seconds |
 | `burrow_certificate_failures_total` | counter | `name` | failed tries to get or renew a web name's certificate since the server started |
+
+`burrow_web_responses_total`:
+
+- Only for services with `web:` that burrow terminates or serves as plain HTTP; a `tls: passthrough` site has none, because burrow cannot see its requests.
+- Bytes are in `burrow_service_bytes_total`, as for every service.
+- `burrow status` shows the same counts under each website, like `web responses 2xx 1203, 4xx 17`.
 
 </details>
 
@@ -142,9 +159,18 @@ Past tens of thousands of connections, the operating system's limits matter more
 
 The 100,000 connections opened in 5 seconds.
 
-Busy connections cost more. In a load test of websites over HTTPS, the server held about 70 KB per open or waiting connection (1,448 MB at 20,521 open files, 1,078 MB at 14,701) and was back to about 150 MB 3 minutes after the load. Size the machine's memory, and any `MemoryMax=` or container memory limit, for the peak number of connections at about 70 KB each plus about 50 MB: a limit that is too small can get burrow killed during a pile-up of slow connections, as a 512 MB `MemoryMax` did at about 7,900 open files. When its clients cannot open tunnel channels fast enough, burrow answers the waiting requests with a 503 "busy" page instead of holding them without end.
+Busy connections cost more. In a load test of websites over HTTPS, the server held about 70 KB per open or waiting connection (1,448 MB at 20,521 open files, 1,078 MB at 14,701) and was back to about 150 MB 3 minutes after the load.
 
-**Limits per client.** A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once. The server keeps at most `limits.max_connections_per_client` (8192) connections per client. Beyond these limits, new connections are refused and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit`, and the client logs a warning at most once a minute.
+Size the machine's memory, and any `MemoryMax=` or container memory limit, for the peak number of connections at about 70 KB each plus about 50 MB: a limit that is too small can get burrow killed during a pile-up of slow connections, as a 512 MB `MemoryMax` did at about 7,900 open files.
+
+When its clients cannot open tunnel channels fast enough, burrow answers the waiting requests with a 503 "busy" page instead of holding them without end.
+
+**Limits per client.**
+
+- A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once.
+- The server keeps at most `limits.max_connections_per_client` (8192) connections per client.
+
+Beyond these limits, new connections are refused and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit`, and the client logs a warning at most once a minute.
 
 Raise the limits in client.yaml and server.yaml; a saved file applies at once. Above about 28,000 connections through one client, also widen the local port range (see below):
 

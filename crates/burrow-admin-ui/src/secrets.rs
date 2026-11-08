@@ -19,7 +19,7 @@ pub struct Row {
     pub unset: bool,
 }
 
-pub fn rows(v: Option<&Value>) -> Vec<Row> {
+pub fn rows(v: Option<&Value>, file: &str) -> Vec<Row> {
     burrow_admin_proto::value::one_or_many(v)
         .iter()
         .filter_map(|i| {
@@ -35,7 +35,7 @@ pub fn rows(v: Option<&Value>) -> Vec<Row> {
             Some(Row {
                 fp: s.fp.clone().unwrap_or_default(),
                 source: match &s.src {
-                    SecretSrc::Literal => "in server.yaml".into(),
+                    SecretSrc::Literal => format!("in {file}"),
                     SecretSrc::Env(e) => format!("env: {e}"),
                 },
                 fresh: false,
@@ -63,7 +63,13 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
     let name = path.get(1).cloned().unwrap_or_default();
     let schema_path = format!("{section}/*/{}", path.get(2).cloned().unwrap_or_default());
     let p2 = path.clone();
-    let list = Memo::new(move |_| rows(e.value(&p2).as_ref()));
+    let list = Memo::new(move |_| {
+        let file = s
+            .item_file(&p2)
+            .or_else(|| s.with_files(burrow_admin_logic::files::main_name))
+            .unwrap_or_default();
+        rows(e.value(&p2).as_ref(), &file)
+    });
     let (sec2, name2) = (section.clone(), name.clone());
     let in_use = Signal::derive(move || in_use_fp(&sec2, &name2));
     let p3 = path.clone();
@@ -84,7 +90,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
             "Rotate secret".to_string()
         }
     });
-    let can = s.can_write_now();
+    let can = s.can_write_item(&path);
     let what = if section == ClientEntry::section() {
         ClientEntry::ENTITY
     } else {
@@ -452,7 +458,6 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
         VisitorEntry::ENTITY
     };
     let fetch = move |name: String, addr: Option<String>| {
-        data.set(None);
         let body = api::body(&msg::ConnectInfo {
             kind: kind.to_string(),
             name,
@@ -469,6 +474,13 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
         address.set(known.clone());
     }
     fetch(name.clone(), (!known.is_empty()).then_some(known));
+    {
+        let name = name.clone();
+        crate::store::on_reconnect(move || {
+            let at = address.get_untracked();
+            fetch(name.clone(), (!at.is_empty()).then_some(at));
+        });
+    }
     let n2 = StoredValue::new(name.clone());
     let body = move || match data.get() {
         None => view! { <p class="text-text-muted">"Loading…"</p> }.into_any(),
@@ -484,7 +496,10 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
                                     <label class="sr-only" for="connect-address">"Server address"</label>
                                     <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
                                 </div>
-                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) reason=Signal::derive(move || if address.with(|a| a.trim().is_empty()) { "Type the server address first".to_string() } else { String::new() }) on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
+                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) reason=Signal::derive(move || if address.with(|a| a.trim().is_empty()) { "Type the server address first".to_string() } else { String::new() }) on_click=move |_| {
+                                    data.set(None);
+                                    fetch(n2.get_value(), Some(address.get_untracked()));
+                                }/>
                             </div>
                         })}
                     </SnippetView>
@@ -508,13 +523,13 @@ mod tests {
             {"$secret": {"fp": null, "src": {"env": "HOME_SECRET"}, "unset": true}},
             {"$new_secret": {"handle": "h1", "fp": "bbbb0002"}}
         ]);
-        let r = rows(Some(&v));
+        let r = rows(Some(&v), "server.d/tool.yaml");
         assert_eq!(r.len(), 3);
-        assert_eq!(r[0].source, "in server.yaml");
+        assert_eq!(r[0].source, "in server.d/tool.yaml");
         assert!(r[1].unset);
         assert_eq!(r[1].source, "env: HOME_SECRET");
         assert!(r[2].fresh);
         assert_eq!(r[2].fp, "bbbb0002");
-        assert!(rows(None).is_empty());
+        assert!(rows(None, "server.yaml").is_empty());
     }
 }

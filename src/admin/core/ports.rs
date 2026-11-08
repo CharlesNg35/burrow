@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::config::Format;
+use crate::config::docs::Docs;
 use crate::config::settings::ServerSettings;
 use crate::metrics::Status;
 
@@ -20,19 +21,44 @@ pub struct Version {
     pub at: u64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Noted {
+    pub entries: Vec<(u128, burrow_admin_proto::msg::AuditEntry)>,
+    pub kept: Option<u128>,
+}
+
+impl Noted {
+    pub fn by_hand(v: &Version) -> Noted {
+        Noted {
+            entries: Vec::new(),
+            kept: Some(u128::from(v.at) * 1_000_000_000),
+        }
+    }
+}
+
 pub trait Store: Send + Sync {
     fn path(&self) -> &Path;
     fn state_dir(&self) -> PathBuf;
     fn log_dir(&self) -> Option<PathBuf>;
     fn format(&self) -> Format;
-    fn read(&self) -> std::io::Result<String>;
-    fn write(&self, before: &str, after: &str) -> Result<(), WriteError>;
+    fn read(&self) -> std::io::Result<Docs>;
+    fn write(&self, before: &Docs, after: &Docs) -> Result<(), WriteError>;
     fn writable(&self) -> Result<(), WhyNot>;
-    fn keep(&self, rev: &str, text: &str);
+    fn keep(&self, rev: &str, docs: &Docs);
     fn versions(&self) -> Vec<Version>;
-    fn version(&self, rev: &str) -> Option<String>;
+    fn version(&self, rev: &str) -> Option<Docs>;
     fn history_dir(&self) -> Option<PathBuf>;
     fn history_problem(&self) -> Option<String>;
+    fn read_only(&self, _name: &str) -> Option<String> {
+        None
+    }
+    fn taken(&self, _name: &str) -> bool {
+        false
+    }
+    fn note(&self, _entry: &burrow_admin_proto::msg::AuditEntry) {}
+    fn noted(&self, v: &Version) -> Noted {
+        Noted::by_hand(v)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

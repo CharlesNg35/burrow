@@ -1,9 +1,12 @@
+//! The previous install of a service during a reinstall: what it left, and how `Undo` puts it back when a step fails.
+//! `restore_setup` undoes as far as the reinstall got (`Reached`); `put_back` also restarts the previous service.
+
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
-use super::give_history;
+use super::uninstall::give_history;
 use super::{
     Backend, admin_history, delete_hint, install_args, is_source, save_manifest, say, stray, system,
 };
@@ -190,14 +193,103 @@ impl Drop for StartAgain<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Reached {
+    Files,
+    Env,
+    Unit,
+    Helper,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct Absent(Vec<PathBuf>);
+
+impl Absent {
+    pub(super) fn before(old: &Manifest, new: &Manifest) -> Absent {
+        let docs = crate::config::docs::drop_in_folder;
+        let pairs = [
+            (Some(old.config.clone()), Some(new.config.clone())),
+            (Some(docs(&old.config)), Some(docs(&new.config))),
+            (old.env_file.clone(), new.env_file.clone()),
+            (old.web_state.clone(), new.web_state.clone()),
+        ];
+        Absent(
+            pairs
+                .into_iter()
+                .filter_map(|(was, made)| made.filter(|m| was.as_ref() != Some(m)))
+                .filter(|p| {
+                    std::fs::symlink_metadata(p)
+                        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+                })
+                .collect(),
+        )
+    }
+
+    fn remove(&self) {
+        for path in &self.0 {
+            #[cfg(unix)]
+            if let (Some(dir), Some(name)) = (path.parent(), path.file_name()) {
+                super::nofollow::remove_entry(dir, name);
+            }
+            #[cfg(not(unix))]
+            let _ = std::fs::remove_file(path).or_else(|_| std::fs::remove_dir_all(path));
+        }
+    }
+}
+
 pub(super) struct Undo {
     pub(super) manifest: Manifest,
     pub(super) config: Option<Vec<u8>>,
+    pub(super) drop_ins: super::drop_ins::Snapshot,
     pub(super) env: BTreeMap<String, String>,
     pub(super) binary: Option<(PathBuf, PathBuf)>,
+    pub(super) absent: Absent,
 }
 
 impl Undo {
+    pub(super) fn restore_files(&self, backend: &dyn Backend) -> Result<(), Failure> {
+        let p = &self.manifest;
+        let mut steps: Vec<Result<(), Failure>> = Vec::new();
+        if let Some(bytes) = &self.config {
+            steps.push(system::write_file_mode(&p.config, bytes, 0o600));
+            steps.push(backend.secure_file(&p.config, &p.account));
+        }
+        steps.push(
+            self.drop_ins
+                .put_back(backend, &p.config, &p.account, p.admin_writable),
+        );
+        steps.push(backend.config_folder(p.folder(), &p.config, &p.account, p.admin_writable));
+        steps.into_iter().find_map(Result::err).map_or(Ok(()), Err)
+    }
+
+    pub(super) fn restore_setup(
+        &self,
+        backend: &dyn Backend,
+        new: &Manifest,
+        reached: Reached,
+    ) -> Vec<Result<(), Failure>> {
+        let p = &self.manifest;
+        let mut steps = vec![self.restore_files(backend)];
+        if new.account != p.account && p.web_state.is_some() {
+            steps.push(backend.state_folder(p).map(drop));
+        }
+        self.absent.remove();
+        if reached >= Reached::Env && p.env_file.is_some() {
+            steps.push(backend.write_env(p, &self.env));
+        }
+        if let Some((kept, binary)) = &self.binary {
+            steps.push(system::copy_file(kept, binary, true));
+            let _ = std::fs::remove_file(kept);
+        }
+        if reached >= Reached::Unit {
+            steps.push(backend.install(p));
+        }
+        if reached == Reached::Helper {
+            steps.push(backend.restore_updater(p, new));
+        }
+        steps
+    }
+
     pub(super) fn put_back(
         self,
         backend: &dyn Backend,
@@ -208,27 +300,9 @@ impl Undo {
     ) -> Failure {
         let _ = backend.stop(new);
         let p = &self.manifest;
-        let mut steps: Vec<Result<(), Failure>> = Vec::new();
-        if let Some(bytes) = &self.config {
-            steps.push(system::write_file_mode(&p.config, bytes, 0o600));
-            steps.push(backend.secure_file(&p.config, &p.account));
-        }
-        steps.push(backend.config_folder(p.folder(), &p.config, &p.account, p.admin_writable));
-        if p.env_file.is_some() {
-            steps.push(backend.write_env(p, &self.env));
-        }
-        if let Some((kept, binary)) = &self.binary {
-            steps.push(system::copy_file(kept, binary, true));
-            let _ = std::fs::remove_file(kept);
-        }
-        steps.push(backend.install(p));
+        let mut steps = self.restore_setup(backend, new, Reached::Helper);
         steps.push(save(p));
         steps.push(backend.start(p));
-        if let Some(env) = &new.env_file
-            && p.env_file.as_ref() != Some(env)
-        {
-            let _ = std::fs::remove_file(env);
-        }
         if new.created_account && new.account != p.account {
             let _ = backend.remove_account(&new.account);
         }
@@ -268,6 +342,15 @@ impl Undo {
     }
 }
 
+#[cfg(unix)]
+pub(super) fn shares_drop_ins<'a>(
+    config: &Path,
+    mut others: impl Iterator<Item = &'a Manifest>,
+) -> bool {
+    let folder = crate::config::docs::drop_in_folder(config);
+    others.any(|o| crate::config::docs::drop_in_folder(&o.config) == folder)
+}
+
 pub(super) fn release_previous(
     backend: &dyn Backend,
     old: &Manifest,
@@ -301,6 +384,9 @@ pub(super) fn release_previous(
         {
             let _ = system::give_plain_file(&old.config, 0, 0);
             give_history(&old.config, 0, 0);
+            if !shares_drop_ins(&old.config, others.iter().chain([new])) {
+                super::drop_ins::to_root(&old.config, &old.account);
+            }
         }
         if !is_source(&old.config, &[&old.source_config, &new.source_config]) {
             say(
@@ -358,3 +444,6 @@ pub(super) fn release_previous(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

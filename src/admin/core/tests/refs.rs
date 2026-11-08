@@ -68,7 +68,11 @@ fn an_admin_plan_writes_environment_and_file_references_like_the_file() {
     ] {
         let c = plan::compute(&core, &s, &base(), std::slice::from_ref(&op))
             .unwrap_or_else(|e| panic!("{op:?}: {}", e.message));
-        assert!(c.new_text.contains(written), "{}", c.new_text);
+        assert!(
+            c.new_docs.main().text.contains(written),
+            "{}",
+            c.new_docs.main().text
+        );
         let shown = format!(
             "{}{}",
             c.plan.diff.unified,
@@ -141,5 +145,6 @@ fn a_revert_brings_a_removed_reference_back() {
     let now = core.read().unwrap();
     let c = plan::compute(&core, &s, &text::rev(&now), &revert)
         .unwrap_or_else(|e| panic!("{}", e.message));
-    assert!(c.new_text.contains("X-Old: \"${OLD}\""), "{}", c.new_text);
+    let main = &c.new_docs.main().text;
+    assert!(main.contains("X-Old: \"${OLD}\""), "{main}");
 }

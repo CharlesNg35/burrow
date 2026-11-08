@@ -35,9 +35,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
         Memo::new(move |_| e.draft.with(|d| get(d.draft(), &path).is_some()))
     };
     let fresh = e.draft.with_untracked(|d| {
-        get(d.base(), &path).is_none()
-            && get(d.draft(), &path).is_some()
-            && d.renamed_from(&section, &name).is_none()
+        get(d.draft(), &path).is_some() && d.base_name(&section, &name).is_none()
     }) && untrack(|| crate::secrets::revealed_for(&section, &name)).is_none();
     if fresh && s.can_write_now() {
         e.start_edit(&path);
@@ -86,6 +84,8 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     };
     let path_data = path_data(&section, &name, editing);
     let protocol_tag = protocol_tag(&section, &name);
+    let file_tag = super::file::file_tag(path.clone());
+    let read_only_note = super::file::read_only_note(path.clone());
     let tab_counts = tab_counts(&section, &name, tab_list);
     let tab_errors = Signal::derive(move || {
         let p = problems.get();
@@ -95,8 +95,10 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
                 .collect::<Vec<usize>>()
         })
     });
-    let can = s.can_write_now();
+    let locked = s.item_locked(&path);
+    let can = s.can_write_item(&path);
     let parts = Parts {
+        locked,
         section: section.clone(),
         name: name.clone(),
         path: path.clone(),
@@ -130,8 +132,9 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
                 hidden=Signal::derive(move || !exists.get())
                 actions={view! { {head_actions} }.into_any()}
             >
-                <span class="min-w-0">{title_dot}{name.clone()}</span>{protocol_tag}
+                <span class="min-w-0">{title_dot}{name.clone()}</span>{protocol_tag}{file_tag}
             </burrow_ui_kit::PageHeader>
+            {read_only_note}
             <RenameEntity entity=ent_r name=name_r open=renaming/>
             <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
             {move || exists.get().then(save_bar.clone())}
@@ -152,6 +155,7 @@ pub(super) struct Parts {
     pub(super) problems: Memo<Vec<Problem>>,
     pub(super) menu: RwSignal<bool>,
     pub(super) renaming: RwSignal<bool>,
+    pub(super) locked: Option<String>,
 }
 
 fn track_editing(editing: Memo<bool>, path: Path) {

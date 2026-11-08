@@ -46,7 +46,11 @@ Several checks decide what a connection may reach, and the client has the last w
 
 ## Guessing names
 
-Wrong names and wrong secrets get exactly the same answer, after the same amount of work, so nobody can find out which client or visitor names exist. Connections that have not logged in yet are limited in number and time (`limits.max_handshakes`, `limits.handshake_timeout_secs`). When they run short, one address cannot take more than its share. On the web ports a connection over the limit waits for a free slot within its deadline, and an address loses connections that stall for more than a second while the server is busy.
+Wrong names and wrong secrets get exactly the same answer, after the same amount of work, so nobody can find out which client or visitor names exist.
+
+Connections that have not logged in yet are limited in number and time (`limits.max_handshakes`, `limits.handshake_timeout_secs`). When they run short, one address cannot take more than its share.
+
+On the web ports a connection over the limit waits for a free slot within its deadline, and an address loses connections that stall for more than a second while the server is busy.
 
 <details>
 <summary><b>More details</b></summary>
@@ -87,20 +91,34 @@ A website is open to every browser, so burrow checks each request before it reac
 - **Certificates and keys** from Let's Encrypt live in a folder only the service account can read (0700, files 0600). Your own key files must be readable by the account burrow runs as.
 - **The admin UI cannot run programs.** A DNS provider's `command` is changed in server.yaml only ([web.md](web.md)). A write admin may set every other web setting, as Caddy's admin API and Nginx Proxy Manager allow: certificate, key and CA paths, `error_pages`, `proxy_protocol_from`, and the access log (D87).
   - From burrow admin, the access log may only be a file inside the server's own folders: its state folder, or the service's log folder. A log line holds text a visitor chose, and a shell runs what it finds in its startup files, so a log written to a file like `~/.bashrc` could run that text as code. A file anywhere else is set in server.yaml.
-  - A write admin may set a DNS provider's credentials and where they go (`rfc2136.server`, `acme_dns.api`), and may write `${VAR}` and `file:` references wherever server.yaml allows them, as Caddy and Nginx Proxy Manager let their admins do. So a stolen write admin could send a credential, or a variable or file the server's account can read, to a server it names. Admin access is the protection here: keep admin secrets and `admin_from` tight (owner, 2026-11-06, D85).
+  - A write admin may set a DNS provider's credentials and where they go (`rfc2136.server`, `acme_dns.api`), and may write `${VAR}` and `file:` references wherever server.yaml allows them, as Caddy and Nginx Proxy Manager let their admins do. So a stolen write admin could send a credential, or a variable or file the server's account can read, to a server it names. Admin access is the protection here: keep admin secrets and `admin_from` tight ([D85](decisions.md)).
   - A write admin may set the web proxy's ports (`web.https`, `web.http`), as with a service's public `bind`. The review names each port it opens and the websites a removal stops. Moving a port the tunnel shares asks for a typed confirm and names the clients it cuts off, and a port another program holds is refused before anything is written. The same goes for the tunnel's own `listen`.
   - Instead of a file path, a write admin may upload a certificate, CA or revocation list. burrow checks it, keeps it private in its state folder, and never sends a key back ([Uploading files](web/certificates.md#uploading-files-in-the-admin-ui)).
 - **The local CA (`tls: internal`)** may sign only LAN names and addresses (X.509 name constraints in its root). Its key stays in the state folder, readable only by the service account, and the admin UI offers its certificate, never the key.
 
 ## Client updates
 
-A client updates itself only when its own config has `update.remote: true`. The server only asks. The client, or its updater, finds the latest official release itself, or uses a mirror set on the client machine. It checks the release against its `SHA256SUMS` and refuses anything that is not newer than what it runs. For a service, a small updater that runs as root does the replacing, and it takes no input from the client's account. It reads the opt-in from the installed config itself. The account can only start it, by a trigger file that the updater removes without reading, or on Windows by starting the updater service. The updater writes its result only into a folder the account may read but not change. Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
+A client updates itself only when its own config has `update.remote: true`. The server only asks.
+
+- The client, or its updater, finds the latest official release itself, or uses a mirror set on the client machine.
+- It checks the release against its `SHA256SUMS` and refuses anything that is not newer than what it runs.
+- For a service, a small updater that runs as root does the replacing, and it takes no input from the client's account. It reads the opt-in from the installed config itself.
+- The account can only start it, by a trigger file that the updater removes without reading, or on Windows by starting the updater service.
+- The updater writes its result only into a folder the account may read but not change.
+
+Someone who controls the server can therefore make a client move to a newer official release, but cannot make it run anything else ([updates.md](updates.md#what-the-server-cannot-do)).
 
 `burrow clients update` on the server machine asks through the server's local status endpoint on `127.0.0.1`, with the token that only the server's own account can read. That account can already change the server's config, so it gains nothing new ([D79](decisions.md#d79-burrow-clients-updates-clients-from-the-server-machine-through-one-write-route-of-the-local-status-endpoint)).
 
 ## Server updates
 
-A server can be updated from burrow admin or `burrow mcp` only when root turned it on: `update.remote: true` in server.yaml counts only after `sudo burrow service install`, which records it in the service's root-owned install record. The root updater trusts that record alone and never reads server.yaml, which the server's account may be allowed to change. The server's account can only start the updater, as a client's can; it still cannot write the binary, and it passes no version, file or path. The updater takes the newest official release, checks `SHA256SUMS`, never goes back to an older release, and puts the old binary back when the new server is not healthy within a minute. An admin with `admin: write` can therefore move the server to the latest official release, and nothing else. Clients are never asked to update past the server's own version ([updates.md](updates.md#update-the-server-from-burrow-admin)).
+A server can be updated from burrow admin or `burrow mcp` only when root turned it on: `update.remote: true` in server.yaml counts only after `sudo burrow service install`, which records it in the service's root-owned install record.
+
+- The root updater trusts that record alone and never reads server.yaml, which the server's account may be allowed to change.
+- The server's account can only start the updater, as a client's can; it still cannot write the binary, and it passes no version, file or path.
+- The updater takes the newest official release, checks `SHA256SUMS`, never goes back to an older release, and puts the old binary back when the new server is not healthy within a minute.
+
+An admin with `admin: write` can therefore move the server to the latest official release, and nothing else. Clients are never asked to update past the server's own version ([updates.md](updates.md#update-the-server-from-burrow-admin)).
 
 ## burrow admin
 
@@ -108,7 +126,12 @@ The web admin listens on `127.0.0.1` only and needs a random token that only you
 
 ## burrow mcp
 
-`burrow mcp` gives an AI app the same admin channel, with the same server rules. A visitor with `admin: write` can change the config through it unless it is started with `--read-only`. It applies only a plan the AI checked first, and secrets never reach the AI: new ones stay on the server behind a handle and reach you in files only you can read. Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
+`burrow mcp` gives an AI app the same admin channel, with the same server rules.
+
+- A visitor with `admin: write` can change the config through it unless it is started with `--read-only`.
+- It applies only a plan the AI checked first.
+- Secrets never reach the AI: new ones stay on the server behind a handle and reach you in files only you can read.
+- Over HTTP, it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages ([mcp.md](mcp.md#safety)).
 
 ## Next steps
 

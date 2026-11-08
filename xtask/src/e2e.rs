@@ -9,6 +9,7 @@ use crate::{tools, ui};
 pub const DEFAULT_CAP: usize = 6;
 const FIRST: usize = 2;
 const STEP: Duration = Duration::from_secs(3);
+const FLOW_LIMIT: Duration = Duration::from_secs(15 * 60);
 const BUSY_SHARE: f64 = 0.6;
 const SAFE_MB: u64 = 6 * 1024;
 const MB_PER_FLOW: u64 = 1536;
@@ -302,17 +303,46 @@ fn parse_args(args: &[String]) -> Result<(bool, Option<&str>, Option<usize>), St
     Ok((update, filter, asked))
 }
 
+fn stop(child: &mut Child) {
+    #[cfg(unix)]
+    let _ = Command::new("sh")
+        .args([
+            "-c",
+            "tree() { for c in $(pgrep -P \"$1\"); do tree \"$c\"; done; kill -KILL \"$1\" 2>/dev/null; }; tree \"$0\"",
+            &child.id().to_string(),
+        ])
+        .status();
+    let _ = child.kill();
+}
+
+fn overdue(since: Instant, limit: Duration) -> bool {
+    since.elapsed() >= limit
+}
+
 fn reap(running: &mut Vec<Running>, failed: &mut Vec<String>) -> Result<(), String> {
     let mut i = 0;
     while i < running.len() {
+        let late = overdue(running[i].since, FLOW_LIMIT);
+        if late {
+            stop(&mut running[i].child);
+        }
         match running[i].child.try_wait() {
             Ok(Some(status)) => {
                 let r = running.swap_remove(i);
                 let secs = r.since.elapsed().as_secs();
-                if status.success() {
+                if status.success() && !late {
                     println!("ok      {} ({secs} s)", r.name);
                 } else {
-                    println!("FAILED  {} ({secs} s), log: {}", r.name, r.log.display());
+                    let why = if late {
+                        ", stopped: ran past the 15 min limit"
+                    } else {
+                        ""
+                    };
+                    println!(
+                        "FAILED  {} ({secs} s{why}), log: {}",
+                        r.name,
+                        r.log.display()
+                    );
                     let text = std::fs::read_to_string(&r.log).unwrap_or_default();
                     let tail: Vec<&str> = text.lines().rev().take(25).collect();
                     for l in tail.into_iter().rev() {
@@ -360,6 +390,13 @@ fn spawn_flow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flow_past_its_limit_is_overdue() {
+        let then = Instant::now() - Duration::from_secs(5);
+        assert!(overdue(then, Duration::from_secs(5)));
+        assert!(!overdue(Instant::now(), FLOW_LIMIT));
+    }
 
     #[test]
     fn each_flow_runs_alone_in_its_own_process() {

@@ -79,15 +79,15 @@ pub fn apply_begin(
             confirm: missing.iter().map(|c| c.to_string()).collect(),
         })));
     }
-    if computed.new_text == computed.old_text {
+    if computed.new_docs == computed.old_docs {
         return Ok(Begun {
             computed,
             wrote: false,
             address: req.address.clone(),
         });
     }
-    core.store.keep(&computed.plan.base, &computed.old_text);
-    match core.store.write(&computed.old_text, &computed.new_text) {
+    core.store.keep(&computed.plan.base, &computed.old_docs);
+    match core.store.write(&computed.old_docs, &computed.new_docs) {
         Ok(()) => {}
         Err(WriteError::Changed) => {
             return Err(ApiError::new(
@@ -108,7 +108,7 @@ pub fn apply_begin(
         }
     }
     core.store
-        .keep(&computed.plan.result_rev, &computed.new_text);
+        .keep(&computed.plan.result_rev, &computed.new_docs);
     Ok(Begun {
         computed,
         wrote: true,
@@ -140,8 +140,15 @@ pub fn restore(core: &Core, begun: &Begun) -> bool {
     begun.wrote
         && core
             .store
-            .write(&begun.computed.new_text, &begun.computed.old_text)
+            .write(&begun.computed.new_docs, &begun.computed.old_docs)
             .is_ok()
+}
+
+fn log(core: &Core, begun: &Begun, entry: AuditEntry) {
+    let recorded = core.record(entry);
+    if begun.wrote {
+        core.store.note(&recorded);
+    }
 }
 
 pub fn finish(
@@ -176,11 +183,15 @@ pub fn finish(
                 "the server rejected the config written by burrow admin ({why}); {}",
                 if restored { "the previous file was written back" } else { "the previous file could NOT be written back" }
             );
-            core.record(entry(if restored {
-                "rejected, restored"
-            } else {
-                "rejected"
-            }));
+            log(
+                core,
+                &begun,
+                entry(if restored {
+                    "rejected, restored"
+                } else {
+                    "rejected"
+                }),
+            );
             let body = ReloadFailed {
                 restored,
                 reason: why.clone(),
@@ -214,11 +225,15 @@ pub fn finish(
                 changes = %summary.join("; "),
                 "config changed by admin"
             );
-            core.record(entry(if unbound.is_empty() {
-                "applied"
-            } else {
-                "applied, some ports could not listen"
-            }));
+            log(
+                core,
+                &begun,
+                entry(if unbound.is_empty() {
+                    "applied"
+                } else {
+                    "applied, some ports could not listen"
+                }),
+            );
             let handles: Vec<String> = begun
                 .computed
                 .fresh
