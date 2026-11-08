@@ -5337,3 +5337,8 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "bytecount"
+version = "0.6.9"
+source = "git+https://github.com/CharlesNg35/bytecount?rev=f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019#f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019"
