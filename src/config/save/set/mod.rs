@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::platform::{self, Hidden, Pending};
 use super::{Refused, write_back};
-use crate::config::docs::{Docs, read_only, taken, taken_message};
+use crate::config::docs::{Docs, clash, clash_message, read_only};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
@@ -205,10 +205,13 @@ pub fn write_set(main: &Path, before: &Docs, after: &Docs) -> Result<(), Refused
                 std::io::ErrorKind::PermissionDenied,
                 format!("{name} is read-only on disk: {}", why.why()),
             )))
-        } else if matches!(change, Change::Create { .. }) && taken(main, &name) {
+        } else if let Some(existing) = matches!(change, Change::Create { .. })
+            .then(|| clash(main, &name))
+            .flatten()
+        {
             Err(Refused::Io(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
-                taken_message(&name),
+                clash_message(&name, &existing),
             )))
         } else {
             stage(main, &path, &change)
