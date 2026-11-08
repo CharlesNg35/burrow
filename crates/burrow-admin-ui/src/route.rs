@@ -174,6 +174,10 @@ pub fn go_query(route: Route, query: Query) {
     go_with(store(), route, query);
 }
 
+pub fn go_query_in(s: crate::store::Store, route: Route, query: Query) {
+    go_with(s, route, query);
+}
+
 pub fn go_search(route: Route, text: &str) {
     go_with(store(), route, Some((SEARCH_QUERY, text)));
 }

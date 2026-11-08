@@ -18,7 +18,7 @@ fn text_changed(store: Store) {
     store.text.fetch();
     api::load_state(store);
     let (route, query) = crate::route::file_tab();
-    crate::route::go_query(route, query);
+    crate::route::go_query_in(store, route, query);
 }
 
 fn protocol_problem(e: serde_json::Error) -> ErrorBody {
@@ -232,7 +232,7 @@ impl Edit {
                 _ => {
                     store.text.problems.set(super::text::refusal(&e));
                     let (route, query) = crate::route::file_tab();
-                    crate::route::go_query(route, query);
+                    crate::route::go_query_in(store, route, query);
                 }
             }
         });
