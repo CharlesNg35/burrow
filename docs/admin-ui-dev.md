@@ -105,13 +105,13 @@ cargo test -p burrow-config -p burrow-admin-logic -p burrow-ui-kit -p burrow-adm
 cargo xtask ui --release && cargo xtask size --budget                                     # the release build and its size gate
 ```
 
-The size gate allows 2 MiB of gzipped WebAssembly and 2.4 MiB for all UI assets with the fonts, and warns above 90 % of either (owner, 2026-11-02). The room is for necessary improvements, not a reason to add code.
+The size gate allows 2 MiB of gzipped WebAssembly and 2.4 MiB for all UI assets with the fonts, and warns above 90 % of either. The room is for necessary improvements, not a reason to add code.
 
 On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).
 
 ## Messages, placement and layout
 
-These rules say where a message goes, how long it may be and how a row lines up. They apply to every screen and dialog; the owner's rulings still win. Each rule says how it is checked:
+These rules say where a message goes, how long it may be and how a row lines up. They apply to every screen and dialog. Each rule says how it is checked:
 
 - `e2e`: `tests/admin_e2e/design.js` runs before every screenshot of the browser flows (`Ui::shot`) and fails the step with the rule's number. It checks this UI only: a compat flow that drives an older burrow admin (`Options::admin_bin`) skips it, since that UI is fixed. `BURROW_E2E_SKIP_DESIGN=1` turns it off while you debug a flow.
 - `arch-check`: `cargo xtask arch-check` (`xtask/src/glyphs.rs`) reads the UI crates' source.
@@ -126,7 +126,7 @@ The e2e check finds the header line by `data-header-line` (set by `PageHeader` a
 | what the page is, in a few words | the page header line (`PageHeader` `sub`) | "29 services, 3 reached by websites" |
 | a fact about one card | that card's subline (`card_head` `sub`) or a row inside it | "3 of 4 clients up" |
 | something the user should look at or fix | Needs attention (Overview), and in place next to the field or row it is about | "The certificate for portal.example.com expires in 9 days" |
-| the user must act before anything else works | a `Banner` under the header: connection lost, config errors, config changed on the server (owner, 2026-10-19) | "Connection lost. Retrying…" |
+| the user must act before anything else works | a `Banner` under the header: connection lost, config errors, config changed on the server | "Connection lost. Retrying…" |
 | the answer to what the user just did | one toast | "Added to changes" |
 | what happened, with its full detail | Activity | the apply, its diff, the server's log line |
 | why a control is off, what a short value means | a tooltip (`title` or `Tooltip`) | button "Update" disabled, tooltip "the client runs as a container" |
@@ -183,7 +183,7 @@ Check: e2e, visible text outside `code`, `pre`, `.font-mono`, inputs, the About 
 - `Warning` for "needs a look": expiring soon, an offline client, a setting that will cut someone off.
 - `Success` only as the answer to an action or a positive summary with nothing else to say.
 - `Info` (accent) for neutral notes. Never red for a choice the user made (off, disabled, not set).
-- A danger card is never red-on-red (owner, 2026-10-19): `DANGER_CARD`.
+- A danger card is never red-on-red: `DANGER_CARD`.
 
 Good: an offline client is amber. Bad: a client the user turned off is red.
 
@@ -191,7 +191,7 @@ Check: review; the contrast tests in `crates/burrow-admin-ui/src/contrast.rs` ke
 
 ### 7. No redundant text
 
-Do not write what a visible control or icon already says: no "Update available" next to an "Update" button, no "Click to edit" next to Edit, no "Status: online" next to a green dot with the word online, no repeated entity name in a card that sits under that name. Helpful repeats across places are fine (owner, 2026-10-22).
+Do not write what a visible control or icon already says: no "Update available" next to an "Update" button, no "Click to edit" next to Edit, no "Status: online" next to a green dot with the word online, no repeated entity name in a card that sits under that name. Helpful repeats across places are fine.
 
 Good: a button "Update to 0.2.3". Bad: "0.2.3 is available" followed by a button "Update to 0.2.3".
 
@@ -203,7 +203,7 @@ Check: review.
 - Table cells of one row line up on their first line of text, whatever their font (mono, tag or text). Tables use `burrow_ui_kit::Table`, not a hand-made `<table>`.
 - On a narrow screen a row wraps whole items: a button, a tag or a "label: value" pair never breaks inside (`whitespace-nowrap` on the item, `flex-wrap` on the row).
 - A separator ("·") belongs to the item after it and is never the first or the last thing on a visual line. Use `burrow_ui_kit::Inline`, which hides a separator that would start a line; never type " · " between items that may wrap.
-- Buttons side by side have a gap (owner, 2026-10-22).
+- Buttons side by side have a gap.
 
 Good: `Client 0.2.2 [Update]` with the button centred on the text. Bad: the button 6 px lower than the text, or a line on a phone that starts with "· 2 services".
 
@@ -222,7 +222,7 @@ Check: arch-check refuses any other character in the product code of `burrow-adm
 ### 10. Phones
 
 - Check every screen at 390 px (and 360 px for new layouts), light and dark, and at 1440 and 1280.
-- No page scrolls sideways; tab, chip and navigation rows use `ScrollRow` (owner, 2026-10-30).
+- No page scrolls sideways; tab, chip and navigation rows use `ScrollRow`.
 - Header actions move under the title as one group; the header line wraps to at most 2 lines.
 - Touch targets are at least 24 × 24 px (WCAG 2.2 2.5.8).
 - Tables become stacked rows, not a sideways-scrolling grid, unless they are data tables a user reads across.
