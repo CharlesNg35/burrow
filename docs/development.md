@@ -184,7 +184,7 @@ cargo clippy --locked -p burrow --all-targets --no-default-features -- -D warnin
 cargo clippy --locked -p burrow-admin-ui -p burrow-ui-kit -p burrow-config --target wasm32-unknown-unknown -- -D warnings
 cargo xtask arch-check
 cargo audit
-cargo deny --workspace --locked check advisories bans licenses sources
+cargo deny --workspace --all-features --locked check advisories bans licenses sources
 ```
 
 - `cargo xtask arch-check` checks the file sizes, the comment rule and the layers of [CONTRIBUTING.md](../CONTRIBUTING.md).
