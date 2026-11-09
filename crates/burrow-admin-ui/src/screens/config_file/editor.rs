@@ -7,7 +7,7 @@ use burrow_admin_proto::text_edit::{EditText, PLACEHOLDER_PATTERN};
 use config_editor_leptos::{
     CloseRequest, ConfigDocuments, Diagnostic, DiagnosticOrigin, Document, DocumentsHandle,
     EditorSettings, EditorTheme, Language, SaveRequest, Schema, SchemaSource, SecretOptions,
-    Severity, flush_pending_edits,
+    Severity, check_syntax, flush_pending_edits,
 };
 use leptos::prelude::*;
 
@@ -50,13 +50,25 @@ fn schema_of(schema: &Value) -> Option<SchemaSource> {
     })
 }
 
-pub fn first_error(name: &str, problems: &[Diagnostic]) -> Option<String> {
-    let d = problems
+fn language_of(name: &str) -> Language {
+    Language::from_path(name).unwrap_or(Language::YAML)
+}
+
+pub fn syntax_hold(
+    name: &str,
+    problems: &[Diagnostic],
+    on_screen: impl FnOnce() -> Option<(Language, String)>,
+) -> Option<String> {
+    problems
         .iter()
         .find(|d| d.severity == Severity::Error && d.origin == DiagnosticOrigin::Editor)?;
+    let (language, text) = on_screen()?;
+    let d = check_syntax(language, &text)
+        .into_iter()
+        .find(|d| d.severity == Severity::Error)?;
     Some(match d.line {
-        Some(line) => format!("{name} has an error on line {line}: {}", d.message),
-        None => format!("{name} has an error: {}", d.message),
+        Some(line) => format!("{name} has a syntax error on line {line}: {}", d.message),
+        None => format!("{name} has a syntax error: {}", d.message),
     })
 }
 
@@ -288,7 +300,14 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                     let now = (!ok).then(|| tabs.editor(&id).and_then(|e| e.text())).flatten();
                     edit.synced(&id, ok, now);
                 })
-                on_problems=Callback::new(move |(id, found): (String, Vec<Diagnostic>)| edit.editor_errors(&id, first_error(&id, &found)))
+                on_problems=Callback::new(move |(id, found): (String, Vec<Diagnostic>)| {
+                    let on_screen = || {
+                        let shown = edit.shown.with_untracked(|s| s.get(&id).cloned());
+                        let language = shown.as_deref().and_then(language).unwrap_or_else(|| language_of(&id));
+                        Some((language, tabs.editor(&id)?.text()?))
+                    };
+                    edit.editor_errors(&id, syntax_hold(&id, &found, on_screen));
+                })
             />
         </div>
     }
@@ -317,29 +336,33 @@ mod tests {
     }
 
     #[test]
-    fn the_editors_own_errors_name_the_file_and_line() {
-        let mut d = Diagnostic::default();
-        d.line = Some(3);
-        d.message = "expected a value".into();
-        d.severity = Severity::Error;
+    fn only_a_syntax_error_holds_the_review() {
+        let mut schema = Diagnostic::default();
+        schema.line = Some(1);
+        schema.message = "/listen: not a valid address".into();
+        schema.severity = Severity::Error;
+        let valid = || Some((Language::YAML, "listen: x\n".to_string()));
         assert_eq!(
-            first_error("server.d/x.yaml", &[d.clone()]).as_deref(),
-            Some("server.d/x.yaml has an error on line 3: expected a value")
-        );
-        let mut warning = d.clone();
-        warning.severity = Severity::Warning;
-        assert_eq!(
-            first_error("server.yaml", &[warning]),
+            syntax_hold("server.yaml", &[schema.clone()], valid),
             None,
-            "a warning holds nothing"
+            "a schema error shows in the editor; the server decides in Review"
         );
-        let mut host = d;
+        let broken = || Some((Language::YAML, "listen: [\n".to_string()));
+        let held = syntax_hold("server.yaml", &[schema.clone()], broken).expect("held");
+        assert!(held.starts_with("server.yaml has a syntax error"), "{held}");
+        let parsed = std::cell::Cell::new(false);
+        let mut warning = schema.clone();
+        warning.severity = Severity::Warning;
+        let mut host = schema;
         host.origin = DiagnosticOrigin::Host;
         assert_eq!(
-            first_error("server.yaml", &[host]),
-            None,
-            "the server's own are not the editor's"
+            syntax_hold("server.yaml", &[warning, host], || {
+                parsed.set(true);
+                broken()
+            }),
+            None
         );
+        assert!(!parsed.get(), "nothing is parsed without an editor error");
     }
 
     #[test]
