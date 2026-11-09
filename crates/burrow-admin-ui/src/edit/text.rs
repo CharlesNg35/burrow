@@ -38,10 +38,10 @@ pub struct TextEdit {
     pub recent: RwSignal<Vec<String>>,
     pub unsaved: RwSignal<BTreeSet<String>>,
     pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
-    pub stuck: RwSignal<BTreeMap<String, (String, String)>>,
     pub leaving: RwSignal<Option<super::leave::Unwritten>>,
+    pub lost: RwSignal<Option<String>>,
     pub(super) then: StoredValue<Option<super::leave::Then>, LocalStorage>,
-    pub(super) let_through: StoredValue<bool>,
+    pub(super) pending_pop: StoredValue<Option<String>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -217,10 +217,10 @@ impl TextEdit {
             recent: RwSignal::new(Vec::new()),
             unsaved: RwSignal::new(BTreeSet::new()),
             spot: RwSignal::new(None),
-            stuck: RwSignal::new(BTreeMap::new()),
             leaving: RwSignal::new(None),
+            lost: RwSignal::new(None),
             then: StoredValue::new_local(None),
-            let_through: StoredValue::new(false),
+            pending_pop: StoredValue::new(None),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
         }
@@ -249,8 +249,8 @@ impl TextEdit {
         self.tabs.set(Vec::new());
         self.unsaved.set(BTreeSet::new());
         self.spot.set(None);
-        self.stuck.set(BTreeMap::new());
         self.leaving.set(None);
+        self.lost.set(None);
     }
 
     pub fn fetch(&self) {
@@ -276,14 +276,24 @@ impl TextEdit {
     }
 
     pub fn take(&self, next: EditText) {
-        let mut values = self.loaded.with_untracked(|l| {
+        let (mut values, gone) = self.loaded.with_untracked(|l| {
             let old = l.as_ref().and_then(|r| r.as_ref().ok()).map(|a| a.as_ref());
-            self.values.with_untracked(|v| rebased(old, &next, v))
+            self.values.with_untracked(|v| {
+                let gone = self.unsaved.with_untracked(|u| {
+                    self.new_files
+                        .with_untracked(|n| super::gone::gone_edits(old, &next, v, u, n))
+                });
+                (rebased(old, &next, v), gone)
+            })
         });
         let still = self.new_files.with_untracked(|n| {
             self.values
                 .with_untracked(|typed| super::new_file::kept_new(&next, n, typed, &mut values))
         });
+        self.prune(&next, &still);
+        if let (Some(note), Some(s)) = (super::gone::gone_note(&gone), crate::store::try_store()) {
+            s.toast(burrow_ui_kit::Tone::Warning, note, None);
+        }
         if self.new_files.with_untracked(|n| *n != still) {
             self.new_files.set(still);
         }

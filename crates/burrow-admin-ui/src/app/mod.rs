@@ -111,13 +111,22 @@ pub fn App() -> impl IntoView {
     provide_context(s);
     apply_theme(&saved_theme());
     burrow_ui_kit::auto_titles();
+    route::note_place();
     let on_pop = Closure::<dyn FnMut()>::new(move || {
-        let back = || {
+        if !route::moved() {
+            return;
+        }
+        let back = move || {
             if let Ok(h) = window().history() {
                 let _ = h.back();
             }
+            set_timeout(
+                move || s.text.drop_pending_pop(),
+                std::time::Duration::from_millis(2000),
+            );
+            crate::edit::Went::Later
         };
-        if !s.text.may_leave(back) {
+        if !s.text.popped() && !s.text.may_leave(back) {
             if let Ok(h) = window().history() {
                 let _ = h.push_state_with_url(
                     &wasm_bindgen::JsValue::NULL,
@@ -125,8 +134,10 @@ pub fn App() -> impl IntoView {
                     Some(&route::file_tab_href()),
                 );
             }
+            route::note_place();
             return;
         }
+        route::note_place();
         s.route.set(route::current());
         s.query_seen.update(|n| *n += 1);
     });
@@ -272,6 +283,7 @@ fn Body() -> impl IntoView {
         }
     });
     let route = Memo::new(move |_| s.route.get());
+    let last_schema = StoredValue::new(None::<String>);
     let schema = Memo::new(move |_| s.schema.with(|x| x.as_ref().map(|x| x.hash.clone())));
     let dim = Memo::new(move |_| {
         matches!(
@@ -318,7 +330,10 @@ fn Body() -> impl IntoView {
             None => view! {
                 <div class=move || if dim.get() { "opacity-45 grayscale-50" } else { "" } data-dimmed=move || dim.get().then_some("true")>
                     {move || {
-                        schema.track();
+                        let now = schema.get();
+                        if last_schema.try_update_value(|was| std::mem::replace(was, now.clone())).flatten().is_some_and(|was| Some(was) != now) {
+                            untrack(|| s.text.lose_unwritten());
+                        }
                         screens::screen(route.get())
                     }}
                 </div>

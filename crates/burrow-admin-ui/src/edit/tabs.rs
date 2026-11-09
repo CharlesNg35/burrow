@@ -157,9 +157,6 @@ impl TextEdit {
         self.unsaved.update(|u| {
             u.remove(name);
         });
-        self.stuck.update(|s| {
-            s.remove(name);
-        });
         self.drop_tab(name);
     }
 
@@ -176,6 +173,9 @@ impl TextEdit {
     }
 
     pub fn set_unsaved(&self, name: &str, dirty: bool) {
+        if dirty && self.lost.with_untracked(Option::is_some) {
+            self.lost.set(None);
+        }
         if self.unsaved.with_untracked(|u| u.contains(name) == dirty) {
             return;
         }

@@ -74,7 +74,13 @@ fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
         let read_only = edit_as::read_only_text(t);
         let waiting = edit_as::waits_text(t);
         let empty = t.empty_new_files();
-        if differ.is_none() && read_only.is_none() && waiting.is_none() && empty.is_empty() {
+        let lost = t.lost.get();
+        if differ.is_none()
+            && read_only.is_none()
+            && waiting.is_none()
+            && empty.is_empty()
+            && lost.is_none()
+        {
             return None;
         }
         Some(view! {
@@ -82,6 +88,7 @@ fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
                 {differ.map(differs_view)}
                 {read_only.map(|r| edit_as::note_line("lock", r, "file-read-only", false))}
                 {waiting.map(|n| edit_as::note_line("alert", n, "file-edit-as-waits", true))}
+                {lost.map(|n| edit_as::note_line("alert", n, "file-lost", true))}
                 {empty.into_iter().map(|n| edit_as::note_line("info", crate::edit::not_created(&n), "file-not-created", false)).collect_view()}
             </div>
         })
