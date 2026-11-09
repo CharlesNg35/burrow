@@ -12,6 +12,7 @@ mod scratch;
 mod session;
 mod tabs;
 mod text;
+mod unwritten;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -36,6 +37,7 @@ pub use new_file::{folder_of, new_name, not_created};
 pub(crate) use scratch::{NEW, Scratch};
 pub use tabs::Spot;
 pub use text::{Hook, TextEdit};
+pub use unwritten::{leave_question, leave_title};
 
 pub const VALIDATE_AFTER: Duration = Duration::from_millis(400);
 

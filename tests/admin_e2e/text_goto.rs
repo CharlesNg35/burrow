@@ -153,6 +153,32 @@ async fn still_here(c: &Ctx) {
     );
 }
 
+async fn two_files_hold_text(c: &mut Ctx) {
+    let other = name(5);
+    go_to(c, &other, &other).await;
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(&other)), SECS)
+        .await;
+    c.ui.select("#file-edit-as", "TOML").await;
+    c.ui.wait_true(
+        &format!(
+            "document.querySelector({}).value.includes('[services.svc5]')",
+            js(&input(&other))
+        ),
+        "web-5 shows as TOML",
+        SECS,
+    )
+    .await;
+    let last: String =
+        c.ui.eval(&format!(
+            "document.querySelector({}).value.trimEnd().split('\\n').pop()",
+            js(&input(&other))
+        ))
+        .await;
+    replace_in(c, &other, &last, &format!("{last}\nalso = [")).await;
+    dirty(c, &other, true).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+}
+
 async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     let last: String =
         c.ui.eval(&format!(
@@ -163,6 +189,20 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     replace_in(c, MAIN, &last, &format!("{last}\nbroken = [")).await;
     dirty(c, MAIN, true).await;
     tokio::time::sleep(Duration::from_millis(800)).await;
+    c.ui.select("#file-edit-as", "YAML").await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    c.ui.wait_true(
+        "document.querySelector('#file-edit-as').value === 'TOML'",
+        "asking for YAML back while the TOML cannot convert: the select shows the TOML still on screen",
+        SECS,
+    )
+    .await;
+    c.ui.wait_text(
+        "[data-testid=file-edit-as-waits]",
+        "YAML waits for the marked value",
+        SECS,
+    )
+    .await;
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.wait_for("[data-testid=file-cancel-dialog]", SECS)
         .await;
@@ -204,8 +244,15 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
         0,
         "the skip link goes nowhere, so nothing asks"
     );
+    two_files_hold_text(c).await;
     c.ui.click(SERVICES).await;
     c.ui.wait_for(LEAVE, SECS).await;
+    let named = c.ui.text(LEAVE).await;
+    assert!(
+        named.contains("server.yaml (TOML)") && named.contains("server.d/web-5.yaml (TOML)"),
+        "the dialog names both files: {named}"
+    );
+    phone_shot(c, "text-goto-leave-two").await;
     c.ui.click("[data-testid=file-leave-confirm]").await;
     c.ui.wait_true(
         "location.pathname.includes('/services')",
@@ -217,12 +264,13 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;
     c.ui.click("[data-testid=file-cancel]").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    if c.ui.count("[data-testid=file-cancel-dialog]").await > 0 {
-        c.ui.click("[data-testid=file-discard]").await;
-    }
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
+    assert_eq!(
+        c.ui.count("[data-testid=file-cancel-dialog]").await,
+        0,
+        "Leave forgot both files, so nothing is left to ask about"
+    );
     assert!(c.ui.count(EDITOR).await == 0);
 }
 

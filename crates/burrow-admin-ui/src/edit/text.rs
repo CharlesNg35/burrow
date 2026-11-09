@@ -16,7 +16,7 @@ use crate::api;
 
 pub const TEXT_CHECK_AFTER: Duration = Duration::from_millis(700);
 
-pub type Hook = std::rc::Rc<dyn Fn() -> Option<super::leave::Unwritten>>;
+pub type Hook = std::rc::Rc<dyn Fn() -> Vec<super::leave::Unwritten>>;
 
 type Banner = (RwSignal<Option<msg::ConfigEvent>>, Signal<bool>);
 
@@ -40,12 +40,13 @@ pub struct TextEdit {
     pub recent: RwSignal<Vec<String>>,
     pub unsaved: RwSignal<BTreeSet<String>>,
     pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
-    pub leaving: RwSignal<Option<super::leave::Unwritten>>,
+    pub leaving: RwSignal<Vec<super::leave::Unwritten>>,
     pub lost: RwSignal<Option<String>>,
-    pub held: RwSignal<Option<super::leave::Unwritten>>,
+    pub held: RwSignal<BTreeMap<String, super::leave::Unwritten>>,
+    pub(super) reported: StoredValue<BTreeSet<String>>,
     banner: StoredValue<Option<Banner>>,
     pub(super) then: StoredValue<Option<super::leave::Then>, LocalStorage>,
-    pub(super) pending_pop: StoredValue<Option<String>>,
+    pub(super) pending_pop: StoredValue<Option<Vec<String>>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -221,9 +222,10 @@ impl TextEdit {
             recent: RwSignal::new(Vec::new()),
             unsaved: RwSignal::new(BTreeSet::new()),
             spot: RwSignal::new(None),
-            leaving: RwSignal::new(None),
+            leaving: RwSignal::new(Vec::new()),
             lost: RwSignal::new(None),
-            held: RwSignal::new(None),
+            held: RwSignal::new(BTreeMap::new()),
+            reported: StoredValue::new(BTreeSet::new()),
             banner: StoredValue::new(None),
             then: StoredValue::new_local(None),
             pending_pop: StoredValue::new(None),
@@ -255,9 +257,10 @@ impl TextEdit {
         self.tabs.set(Vec::new());
         self.unsaved.set(BTreeSet::new());
         self.spot.set(None);
-        self.leaving.set(None);
+        self.leaving.set(Vec::new());
         self.lost.set(None);
-        self.held.set(None);
+        self.held.set(BTreeMap::new());
+        self.reported.set_value(BTreeSet::new());
     }
 
     pub fn fetch(&self) {
