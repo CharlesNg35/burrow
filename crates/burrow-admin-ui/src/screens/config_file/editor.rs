@@ -382,6 +382,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                 label="Config files"
                 settings=Signal::stored(settings)
                 on_select=Callback::new(move |id: String| {
+                    edit.used(&id);
                     active.set(id.clone());
                     switch.refresh_soon(id);
                 })

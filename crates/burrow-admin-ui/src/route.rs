@@ -194,12 +194,23 @@ pub fn go_in(s: crate::store::Store, route: Route) {
 }
 
 fn go_with(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
+    go_guarded(s, route, query, None);
+}
+
+pub fn go_then(s: crate::store::Store, route: Route, query: Query, after: impl Fn() + 'static) {
+    go_guarded(s, route, query, Some(std::rc::Rc::new(after)));
+}
+
+type After = Option<std::rc::Rc<dyn Fn()>>;
+
+fn go_guarded(s: crate::store::Store, route: Route, query: Option<(&str, &str)>, after: After) {
     if (s.route.get_untracked() == route && query.is_none()) || href_with(&route, query) == here() {
         return;
     }
-    let (to, asked) = (
+    let (to, asked, later) = (
         route.clone(),
         query.map(|(k, v)| (k.to_string(), v.to_string())),
+        after.clone(),
     );
     let again = move || {
         go_now(
@@ -207,10 +218,16 @@ fn go_with(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
             to.clone(),
             asked.as_ref().map(|(k, v)| (k.as_str(), v.as_str())),
         );
+        if let Some(f) = &later {
+            f();
+        }
         crate::edit::Went::Now
     };
     if s.text.may_leave(again) {
         go_now(s, route, query);
+        if let Some(f) = after {
+            f();
+        }
     }
 }
 
