@@ -54,9 +54,10 @@ pub(super) fn diff_map(
         .iter()
         .filter(|e| wanted.contains_key(&e.key))
         .count();
+    let have: std::collections::HashSet<&str> = entries.iter().map(|e| e.key.as_str()).collect();
     let added: Vec<(&String, &Value)> = wanted
         .iter()
-        .filter(|(k, _)| !entries.iter().any(|e| &e.key == *k))
+        .filter(|(k, _)| !have.contains(k.as_str()))
         .collect();
     if kept == 0 && added.is_empty() {
         edits.give_up(path, "the mapping becomes empty");
