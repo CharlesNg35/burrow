@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use burrow_admin_proto::codes;
 use burrow_admin_proto::plan::{Impact, Level};
@@ -65,12 +65,16 @@ pub fn impacts(
     restart: &[String],
     renames: &[Rename],
 ) -> Vec<Impact> {
+    let names = names_in(old, renames);
     let cx = Before {
         old,
         new,
-        status,
         sessions,
-        names: names_in(old, renames),
+        renamed: renamed_of(&names),
+        names,
+        service_open: open_by_name(status.services.iter().map(|s| (&s.name, s.open))),
+        client_open: open_by_name(status.clients.iter().map(|c| (&c.name, c.open))),
+        visitor_open: open_by_name(status.visitors.iter().map(|v| (&v.name, v.open))),
     };
     let mut out = Vec::new();
     service_impacts(&cx, &mut out);
@@ -78,13 +82,7 @@ pub fn impacts(
     visitor_impacts(&cx, &mut out);
     setting_impacts(&cx, restart, &mut out);
     let services = <burrow_config::ServiceEntry as burrow_config::Entry>::section();
-    let open = |name: &str| {
-        status
-            .services
-            .iter()
-            .find(|s| s.name == name)
-            .map_or(0, |s| s.open)
-    };
+    let open = |name: &str| cx.service_open(name);
     let seen = super::reach::Seen {
         renamed: &|name| cx.renamed_to(services, name).is_some(),
         open: &open,
@@ -98,9 +96,35 @@ pub fn impacts(
 struct Before<'a> {
     old: &'a ServerSettings,
     new: &'a ServerSettings,
-    status: &'a Status,
     sessions: &'a [LiveSession],
     names: BTreeMap<&'static str, BTreeMap<String, Origin>>,
+    renamed: BTreeMap<&'static str, HashMap<String, String>>,
+    service_open: HashMap<String, u64>,
+    client_open: HashMap<String, u64>,
+    visitor_open: HashMap<String, u64>,
+}
+
+fn renamed_of(
+    names: &BTreeMap<&'static str, BTreeMap<String, Origin>>,
+) -> BTreeMap<&'static str, HashMap<String, String>> {
+    names
+        .iter()
+        .map(|(section, names)| {
+            let mut to: HashMap<String, String> = HashMap::new();
+            for (now, o) in names.iter().filter(|(now, o)| o.base && **now != o.name) {
+                to.entry(o.name.clone()).or_insert_with(|| now.clone());
+            }
+            (*section, to)
+        })
+        .collect()
+}
+
+fn open_by_name<'a>(items: impl Iterator<Item = (&'a String, u64)>) -> HashMap<String, u64> {
+    let mut out = HashMap::new();
+    for (name, open) in items {
+        out.entry(name.clone()).or_insert(open);
+    }
+    out
 }
 
 fn names_in(
@@ -130,11 +154,7 @@ fn names_in(
 
 impl Before<'_> {
     fn renamed_to(&self, section: &str, name: &str) -> Option<String> {
-        self.names
-            .get(section)?
-            .iter()
-            .find(|(now, o)| o.base && o.name == name && *now != name)
-            .map(|(now, _)| now.clone())
+        self.renamed.get(section)?.get(name).cloned()
     }
 
     fn is_new(&self, section: &str, name: &str) -> bool {
@@ -144,26 +164,20 @@ impl Before<'_> {
     }
 
     fn client_open(&self, name: &str) -> u64 {
-        self.status
-            .clients
-            .iter()
-            .find(|c| c.name == name)
-            .map_or(0, |c| c.open)
+        self.client_open.get(name).copied().unwrap_or(0)
+    }
+
+    fn service_open(&self, name: &str) -> u64 {
+        self.service_open.get(name).copied().unwrap_or(0)
     }
 }
 
 fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
     use burrow_config::{Entry, ServiceEntry};
-    let (old, new, status) = (cx.old, cx.new, cx.status);
+    let (old, new) = (cx.old, cx.new);
     let renamed_to = |section: &str, name: &str| cx.renamed_to(section, name);
     let services = ServiceEntry::section();
-    let open_of = |name: &str| {
-        status
-            .services
-            .iter()
-            .find(|s| s.name == name)
-            .map_or(0, |s| s.open)
-    };
+    let open_of = |name: &str| cx.service_open(name);
     let mut retargeted: Vec<String> = Vec::new();
     let mut push = |level: Level, code: &str, message: String, confirm: Option<String>| {
         out.push(Impact {
@@ -365,7 +379,7 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
 
 fn visitor_impacts(cx: &Before, out: &mut Vec<Impact>) {
     use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-    let (old, new, status) = (cx.old, cx.new, cx.status);
+    let (old, new) = (cx.old, cx.new);
     let renamed_to = |section: &str, name: &str| cx.renamed_to(section, name);
     let services = ServiceEntry::section();
     let clients = ClientEntry::section();
@@ -378,13 +392,7 @@ fn visitor_impacts(cx: &Before, out: &mut Vec<Impact>) {
             confirm,
         })
     };
-    let visitor_open = |name: &str| {
-        status
-            .visitors
-            .iter()
-            .find(|v| v.name == name)
-            .map_or(0, |v| v.open)
-    };
+    let visitor_open = |name: &str| cx.visitor_open.get(name).copied().unwrap_or(0);
     for (name, auth) in &old.visitors {
         let open = visitor_open(name);
         let to = renamed_to(visitors, name);
