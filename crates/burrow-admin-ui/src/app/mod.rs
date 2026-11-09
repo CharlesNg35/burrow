@@ -105,12 +105,7 @@ fn watch_header() {
     on_resize.forget();
 }
 
-#[component]
-pub fn App() -> impl IntoView {
-    let s = Store::new(route::current());
-    provide_context(s);
-    apply_theme(&saved_theme());
-    burrow_ui_kit::auto_titles();
+fn listen_pops(s: Store) {
     route::note_place();
     let on_pop = Closure::<dyn FnMut()>::new(move || {
         if !route::moved() {
@@ -143,6 +138,15 @@ pub fn App() -> impl IntoView {
     });
     window().set_onpopstate(Some(on_pop.as_ref().unchecked_ref()));
     on_pop.forget();
+}
+
+#[component]
+pub fn App() -> impl IntoView {
+    let s = Store::new(route::current());
+    provide_context(s);
+    apply_theme(&saved_theme());
+    burrow_ui_kit::auto_titles();
+    listen_pops(s);
     let on_hash = Closure::<dyn FnMut()>::new(move || {
         if s.conn.get_untracked() == Conn::NoToken {
             api::connect(s);
