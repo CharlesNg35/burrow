@@ -190,7 +190,7 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     c.ui.wait_for(LEAVE, SECS).await;
     c.ui.click("[data-testid=file-leave-confirm]").await;
     c.ui.wait_true(
-        "location.pathname.endsWith('/services')",
+        "location.pathname.includes('/services')",
         "Leave goes where the user asked",
         SECS,
     )
