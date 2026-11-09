@@ -6,7 +6,8 @@ mod session;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-#[cfg(all(test, feature = "web"))]
+#[cfg(test)]
+#[allow(unused_imports)]
 pub(crate) use session::encode;
 pub use session::{Access, run};
 

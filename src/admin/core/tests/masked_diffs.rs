@@ -622,3 +622,34 @@ fn a_url_password_in_the_status_is_hidden() {
     never(&sent, &["ss88"]);
     assert!(sent.contains("https://«hidden»@ca.internal/dir"), "{sent}");
 }
+
+#[test]
+fn a_diagnostic_over_a_hidden_value_does_not_tell_its_length() {
+    let text = world().text.replace(
+        "    admin: write\n",
+        "    admin: write\n  weak:\n    secret: hunter2-is-a-weak-one\n",
+    );
+    let f = files("server.yaml", &text, &[]);
+    let s = f.session();
+    let state = dispatch(&f.core, &s, burrow_admin_proto::msg::req::STATE, &json!({})).unwrap();
+    let form = f.plan(&[Op::Set {
+        path: p(&["services", "web", "bind"]),
+        value: json!(7841),
+    }]);
+    let by_text = f.plan(&edit(&f, "bind: 7840", "bind: 7841"));
+    for diags in [
+        state["running"]["file_diags"].clone(),
+        serde_json::to_value(&form.diags).unwrap(),
+        serde_json::to_value(&by_text.diags).unwrap(),
+    ] {
+        let weak = diags
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["code"] == "weak-secret")
+            .unwrap_or_else(|| panic!("{diags}"))
+            .clone();
+        assert!(weak["line"].is_number(), "{weak}");
+        assert!(weak.get("end_col").is_none_or(|v| v.is_null()), "{weak}");
+    }
+}

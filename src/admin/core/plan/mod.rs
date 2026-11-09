@@ -22,6 +22,7 @@ use crate::config::{Loaded, Role, load::load_set, load::load_str_at, tree};
 
 use super::diags::Mapper;
 use super::ops::{self, Fresh};
+use super::text_edit::{covers_hidden, hidden_spans};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
 use locks::{refuse_changed_locks, refuse_locked};
@@ -84,11 +85,21 @@ pub fn check_docs(core: &Core, docs: &Docs) -> Checked {
     );
     let parsed = positions(docs);
     let mapper = Mapper::new(parsed.as_ref()).named(docs.names().map(str::to_string).collect());
+    let hidden = std::cell::OnceCell::new();
     let diags: Vec<Diag> = outcome
         .report
         .diagnostics
         .iter()
-        .map(|d| mapper.convert(d))
+        .map(|d| {
+            let mut out = mapper.convert(d);
+            if let (Some(_), Some(at), Some(tree)) = (out.end_line, d.span, parsed.as_ref()) {
+                let hidden = hidden.get_or_init(|| hidden_spans(tree, &core.schema().root));
+                if covers_hidden(hidden, at) {
+                    (out.end_line, out.end_col) = (None, None);
+                }
+            }
+            out
+        })
         .collect();
     let settings = match outcome.loaded {
         Some(Loaded::Server(s, _)) => Some(*s),

@@ -309,7 +309,6 @@ pub(super) fn assemble(
         .iter()
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
-    let hidden = values::Hidden::of_docs(&[old_docs, new_docs], &core.schema().root);
     let shown = crate::admin::core::text_edit::Shown::new(core, &fresh_pairs, d.renames);
     let diff = shown.diff(
         &new_docs.main().name,
@@ -317,6 +316,7 @@ pub(super) fn assemble(
         &new_docs.main().text,
     );
     let file_diffs = files::diffs(old_docs, new_docs, &|n, a, b| shown.diff(n, a, b));
+    let hidden = shown.hidden(old_docs, new_docs);
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let mut changes = summary::changes(
         &hidden.value(&old_shown),

@@ -3,6 +3,7 @@
 
 #![cfg(test)]
 
+mod one_file;
 pub(super) mod probe;
 mod renames;
 mod scale;

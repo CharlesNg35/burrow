@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Range;
 
 use burrow_admin_proto::schema::Node as SchemaNode;
@@ -6,7 +7,7 @@ use burrow_syntax::env::{FILE_REF, is_reference};
 use serde_json::Value as J;
 
 use crate::admin::core::{text, values};
-use crate::config::tree::{Node, Value};
+use crate::config::tree::{Node, Span, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Place {
@@ -20,6 +21,7 @@ pub struct Spot {
     pub path: Vec<String>,
     pub range: Range<usize>,
     pub value: String,
+    pub span: Span,
 }
 
 struct Walk<'a> {
@@ -59,6 +61,7 @@ impl Walk<'_> {
             path: self.path.clone(),
             range: scalar_range(n, self.body),
             value: scalar_text(n),
+            span: n.span,
         });
     }
 
@@ -108,7 +111,7 @@ impl Walk<'_> {
         }
     }
 
-    fn listed(&mut self, n: &Node, wanted: &[crate::config::tree::Span]) {
+    fn listed(&mut self, n: &Node, wanted: &HashSet<SpanKey>) {
         match &n.value {
             Value::Map(entries) => {
                 for e in entries {
@@ -126,10 +129,32 @@ impl Walk<'_> {
             }
             Value::Null => {}
             Value::Str(s) if is_reference(s) => {}
-            _ if wanted.contains(&n.span) => self.spot(n),
+            _ if wanted.contains(&span_key(n.span)) => self.spot(n),
             _ => {}
         }
     }
+}
+
+type SpanKey = (usize, usize, usize);
+
+pub fn hidden_spans(tree: &Node, root: &SchemaNode) -> Vec<Span> {
+    let mut out: Vec<Span> = walked(tree, "", root).into_iter().map(|s| s.span).collect();
+    out.sort_by_key(|s| span_key(*s));
+    out.dedup();
+    out
+}
+
+pub fn covers_hidden(hidden: &[Span], at: Span) -> bool {
+    let end = (at.file.index(), at.end.offset.max(at.start.offset + 1), 0);
+    let before = hidden.partition_point(|h| span_key(*h) < end);
+    before > 0 && {
+        let h = hidden[before - 1];
+        h.file == at.file && h.end.offset > at.start.offset
+    }
+}
+
+fn span_key(s: Span) -> SpanKey {
+    (s.file.index(), s.start.offset, s.end.offset)
 }
 
 fn env_only(s: &str) -> bool {
@@ -193,7 +218,7 @@ pub fn scalar_range(n: &Node, body: &str) -> Range<usize> {
     start..start + trimmed
 }
 
-pub fn field_spots(tree: &Node, body: &str, root: &SchemaNode) -> Vec<Spot> {
+fn walked(tree: &Node, body: &str, root: &SchemaNode) -> Vec<Spot> {
     let none = |_: &str| None;
     let shown = values::present(&tree.to_json(), Some(root), "", &none);
     let mut w = Walk {
@@ -203,9 +228,16 @@ pub fn field_spots(tree: &Node, body: &str, root: &SchemaNode) -> Vec<Spot> {
         out: Vec::new(),
     };
     w.shown(tree, Some(&shown));
-    let extra = crate::config::check::secret_spans(tree);
+    let extra = crate::config::check::secret_spans(tree)
+        .into_iter()
+        .map(span_key)
+        .collect();
     w.listed(tree, &extra);
-    let mut out = w.out;
+    w.out
+}
+
+pub fn field_spots(tree: &Node, body: &str, root: &SchemaNode) -> Vec<Spot> {
+    let mut out = walked(tree, body, root);
     out.sort_by_key(|s| (s.range.start, s.range.end));
     out.dedup_by_key(|s| s.range.clone());
     out
@@ -227,7 +259,18 @@ fn covered(n: &Node, body: &str, out: &mut Vec<Range<usize>>) {
 pub fn comments(tree: &Node, body: &str) -> Vec<Range<usize>> {
     let mut spans = Vec::new();
     covered(tree, body, &mut spans);
-    let inside = |at: usize| spans.iter().any(|r| r.start <= at && at < r.end);
+    spans.sort_by_key(|r| r.start);
+    let reach: Vec<usize> = spans
+        .iter()
+        .scan(0, |end, r| {
+            *end = r.end.max(*end);
+            Some(*end)
+        })
+        .collect();
+    let inside = |at: usize| {
+        let before = spans.partition_point(|r| r.start <= at);
+        before > 0 && reach[before - 1] > at
+    };
     let mut out = Vec::new();
     let mut line_start = 0;
     for line in body.split_inclusive('\n') {
@@ -261,6 +304,7 @@ pub fn comment_spots(tree: &Node, body: &str, file: &str) -> Vec<Spot> {
             path: Vec::new(),
             range: c.start + r.start..c.start + r.end,
             value: comment[r].to_string(),
+            span: Span::default(),
         }));
     }
     out

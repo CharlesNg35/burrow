@@ -8,6 +8,7 @@ pub mod schema;
 mod search;
 mod shown;
 mod spots;
+pub use spots::{covers_hidden, hidden_spans};
 mod unmask;
 
 use std::sync::OnceLock;
@@ -62,14 +63,17 @@ fn named<'a>(core: &Core, docs: &Docs, name: &'a str) -> mask::Named<'a> {
 
 fn masked(core: &Core, docs: &Docs) -> Result<Vec<mask::Masked>, ApiError> {
     let root = &core.schema().root;
+    let mut taken = mask::Taken::new();
     docs.list
         .iter()
         .map(|d| {
-            mask::mask(
+            mask::mask_renamed(
                 named(core, docs, &d.name),
                 &d.text,
                 root,
                 &core.text_edit.ids,
+                &[],
+                &mut taken,
             )
             .map_err(|why| {
                 ApiError::new(

@@ -269,7 +269,9 @@ fn misread(done: &str, moves: &[Move], found: &[Found]) -> Vec<usize> {
     };
     let mut all = Vec::new();
     scalars(&tree, done, &mut all);
-    let reads = |m: &Move, value: &str| all.iter().any(|(r, s)| *r == m.done && s == value);
+    let all: std::collections::HashSet<(Range<usize>, &str)> =
+        all.iter().map(|(r, s)| (r.clone(), s.as_str())).collect();
+    let reads = |m: &Move, value: &str| all.contains(&(m.done.clone(), value));
     found
         .iter()
         .zip(moves)
