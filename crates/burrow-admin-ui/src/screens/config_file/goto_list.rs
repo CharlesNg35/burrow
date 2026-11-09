@@ -241,7 +241,7 @@ fn option(g: GoTo, t: TextEdit, i: usize, row: Row, needle: &str) -> AnyView {
         .into_any(),
         Row::Hit(kind, f) => {
             let label = if kind == Kind::File {
-                view! { <FileName name=f.label.clone() mark=needle.to_string()/> }.into_any()
+                view! { <FileName name=f.label.clone() mark=needle.to_string() class="font-mono"/> }.into_any()
             } else {
                 marked(&f.label, needle)
             };

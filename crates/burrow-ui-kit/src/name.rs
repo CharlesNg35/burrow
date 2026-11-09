@@ -28,19 +28,20 @@ pub fn FileName(
 ) -> impl IntoView {
     let (start, end) = split_name(&name);
     let (start, end) = (start.to_string(), end.to_string());
-    let outer = format!("inline-block min-w-0 max-w-full truncate align-bottom {class}");
+    let outer =
+        format!("inline-block min-w-0 max-w-full truncate align-bottom tracking-normal {class}");
     if end.is_empty() {
         return view! { <span class=outer title=name.clone()>{lead}{marked(&name, &mark)}</span> }
             .into_any();
     }
     let room = format!(
-        "max-width: calc(100% - {}ch)",
+        "max-width: round(down, calc(100% - {}ch), 1ch)",
         (lead.chars().count() + end.chars().count() + 1)
     );
     view! {
         <span class=outer title=name.clone()>
             {lead}
-            <span class="inline-block truncate align-bottom" style=room>{marked(&start, &mark)}</span>
+            <span class="inline-block truncate align-bottom" style=room data-name-start="">{marked(&start, &mark)}</span>
             {marked(&end, &mark)}
         </span>
     }
