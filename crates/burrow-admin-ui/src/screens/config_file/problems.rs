@@ -61,17 +61,17 @@ fn host(m: Merged) -> HostDiagnostic {
     let message = m.messages.join("; ");
     let d = match m.place {
         Place::Path(p) => HostDiagnostic::at_path(field(&p), sev, message),
-        Place::At(line, col, end) => HostDiagnostic::at_range(
-            TextRange::new(
-                TextPosition::new(line as usize, col as usize),
-                match end {
-                    Some((l, c)) => TextPosition::new(l as usize, c as usize),
-                    None => TextPosition::new(line as usize + 1, 1),
-                },
-            ),
-            sev,
-            message,
-        ),
+        Place::At(line, col, end) => {
+            let start = TextPosition::new(line as usize, col as usize);
+            match end {
+                Some((l, c)) => HostDiagnostic::at_range(
+                    TextRange::new(start, TextPosition::new(l as usize, c as usize)),
+                    sev,
+                    message,
+                ),
+                None => HostDiagnostic::at_position(start, sev, message),
+            }
+        }
         Place::Document => HostDiagnostic::document(sev, message),
     };
     let d = d.with_source(SOURCE);
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_path_a_problem_marks_its_line_or_the_whole_file() {
+    fn without_a_path_a_problem_marks_its_point_its_span_or_the_whole_file() {
         let mut lined = diag(Severity::Error, "yaml", "bad indent", None, None);
         lined.line = Some(4);
         lined.col = Some(3);
@@ -242,10 +242,8 @@ mod tests {
         let got = host_problems(&[lined, root], "server.yaml", "server.yaml");
         assert_eq!(
             got[0].target,
-            DiagnosticTarget::Range(TextRange::new(
-                TextPosition::new(4, 3),
-                TextPosition::new(5, 1)
-            ))
+            DiagnosticTarget::Position(TextPosition::new(4, 3)),
+            "no end: a point, which the editor widens to a whole secret placeholder"
         );
         assert_eq!(got[1].target, DiagnosticTarget::Document);
         assert_eq!(got[1].severity, config_editor_leptos::Severity::Info);

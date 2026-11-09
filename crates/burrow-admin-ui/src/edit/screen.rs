@@ -167,6 +167,25 @@ mod tests {
     }
 
     #[test]
+    fn a_new_server_value_the_edit_language_cannot_hold_shows_in_the_files_language() {
+        let t = TextEdit::new();
+        t.edit_as.update(|a| {
+            a.insert("server.yaml".into(), "TOML".into());
+        });
+        t.shown_as("server.yaml", "TOML");
+        t.shown_as("server.yaml", "YAML");
+        let (shown, asked) = (
+            t.shown.get_untracked()["server.yaml"].clone(),
+            t.edit_as.get_untracked()["server.yaml"].clone(),
+        );
+        assert_eq!(
+            (shown.as_str(), asked.as_str()),
+            ("YAML", "YAML"),
+            "the select follows the editor to the file's language and nothing claims to wait"
+        );
+    }
+
+    #[test]
     fn text_out_of_sync_is_held_until_the_editor_says_it_is_written_back() {
         let t = TextEdit::new();
         t.shown_as("server.yaml", "TOML");
