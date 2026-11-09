@@ -210,7 +210,7 @@ fn header(kind: &'static str, h: Head, open: bool, searching: bool, panel: Strin
             }
         >
             <Icon name=if open { "chevron-down" } else { "chevron-right" } small=true/>
-            <span class="flex min-w-0 font-mono text-[13px] normal-case" data-testid="group-file"><FileName name=label/></span>
+            <span class="flex min-w-0 font-mono text-[13px] normal-case tracking-normal" data-testid="group-file"><FileName name=label/></span>
             {lock}
             {problems}
             <span class="ml-auto shrink-0" data-testid="group-count">{count}</span>
