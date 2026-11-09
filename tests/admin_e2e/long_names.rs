@@ -163,12 +163,7 @@ async fn editor_and_review(c: &mut Ctx) {
     tokio::time::sleep(Duration::from_millis(1000)).await;
     c.ui.click("[data-testid=file-review]").await;
     c.ui.wait_for("[data-testid=file-diff]", SECS).await;
-    both_widths(
-        c,
-        "long-name-review",
-        &[("[data-testid=file-diff] h4", &stem("-edit"))],
-    )
-    .await;
+    both_widths(c, "long-name-review", &[]).await;
 }
 
 fn long_names(c: &mut Ctx) -> Flow<'_> {

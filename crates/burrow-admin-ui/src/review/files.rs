@@ -1,6 +1,6 @@
 use burrow_admin_logic::files::{change_label, empty_offer};
 use burrow_admin_proto::plan::{FileChange, FileDiff};
-use burrow_ui_kit::{Button, DiffView, FileName};
+use burrow_ui_kit::{Button, DiffView};
 use leptos::prelude::*;
 
 use crate::screens::activity::diff_lines;
@@ -46,7 +46,7 @@ pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: Offer
         .map(|f| {
             let lines = diff_lines(&f.diff);
             let same = f.change == FileChange::Same;
-            let (name, change) = (f.file.clone(), format!(": {}", change_label(&f.change)));
+            let head = format!("{}: {}", f.file, change_label(&f.change));
             let empty = (offer.on() && f.left_empty == Some(true)).then(|| {
                 let file = f.file.clone();
                 view! {
@@ -69,7 +69,7 @@ pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: Offer
             });
             view! {
                 <section class="mb-3 overflow-hidden rounded-card border border-border bg-surface" data-testid="file-diff" data-file=f.file.clone()>
-                    <h4 class="flex min-w-0 border-b border-border px-4 py-2 font-mono text-[12.5px] text-text-muted" class:border-b-0=same><FileName name=name/><span class="shrink-0 whitespace-pre">{change}</span></h4>
+                    <h4 class="border-b border-border px-4 py-2 font-mono text-[12.5px] text-text-muted [overflow-wrap:anywhere]" class:border-b-0=same>{head}</h4>
                     {(!same && !lines.is_empty()).then(|| view! { <DiffView lines=lines split=split testid="review-diff"/> })}
                     {empty}
                     {kept}
