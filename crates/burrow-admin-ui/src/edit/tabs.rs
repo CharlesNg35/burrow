@@ -136,6 +136,12 @@ impl TextEdit {
     }
 
     pub fn discard_tab(&self, name: &str) {
+        if self
+            .held
+            .with_untracked(|h| h.as_ref().is_some_and(|u| u.name == name))
+        {
+            self.held.set(None);
+        }
         if self.is_new(name) {
             self.drop_new(name);
             return;

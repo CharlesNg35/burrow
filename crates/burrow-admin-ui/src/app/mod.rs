@@ -109,6 +109,7 @@ fn listen_pops(s: Store) {
     route::note_place();
     let on_pop = Closure::<dyn FnMut()>::new(move || {
         if !route::moved() {
+            s.text.drop_pending_pop();
             return;
         }
         let back = move || {
@@ -288,8 +289,14 @@ fn Body() -> impl IntoView {
         }
     });
     let route = Memo::new(move |_| s.route.get());
-    let last_schema = StoredValue::new(None::<String>);
     let schema = Memo::new(move |_| s.schema.with(|x| x.as_ref().map(|x| x.hash.clone())));
+    Effect::new(move |was: Option<Option<String>>| {
+        let now = schema.get();
+        if was.flatten().is_some_and(|w| Some(w) != now) {
+            untrack(|| s.text.lose_unwritten());
+        }
+        now
+    });
     let dim = Memo::new(move |_| {
         matches!(
             s.conn.get(),
@@ -335,10 +342,7 @@ fn Body() -> impl IntoView {
             None => view! {
                 <div class=move || if dim.get() { "opacity-45 grayscale-50" } else { "" } data-dimmed=move || dim.get().then_some("true")>
                     {move || {
-                        let now = schema.get();
-                        if last_schema.try_update_value(|was| std::mem::replace(was, now.clone())).flatten().is_some_and(|was| Some(was) != now) {
-                            untrack(|| s.text.lose_unwritten());
-                        }
+                        schema.track();
                         screens::screen(route.get())
                     }}
                 </div>

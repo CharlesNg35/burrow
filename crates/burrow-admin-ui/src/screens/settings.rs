@@ -360,12 +360,19 @@ fn card_while_parent_on(c: &crate::form::SettingsCard) -> AnyView {
         .into_any()
 }
 
+fn follows_search(now: Tab) -> bool {
+    now.holds_fields()
+}
+
 fn follow_matches(rows: Memo<Vec<(Tab, Row)>>, tab: RwSignal<Tab>, look: Look) {
     Effect::new(move |_| {
         if !look.narrowed() {
             return;
         }
         let now = tab.get_untracked();
+        if !follows_search(now) {
+            return;
+        }
         let hit = rows.with(|r| {
             let here = r.iter().any(|(t, x)| *t == now && look.shows(x));
             let first = r.iter().find(|(_, x)| look.shows(x)).map(|(t, _)| *t);
@@ -552,6 +559,13 @@ fn discard_settings(e: Edit) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_search_never_moves_the_view_off_the_config_file_or_files_tab() {
+        assert!(!follows_search(Tab::File), "the text editor stays put");
+        assert!(!follows_search(Tab::Files));
+        assert!(follows_search(Tab::Server));
+    }
     use burrow_admin_proto::diag::{Diag, Severity};
 
     fn diag(severity: Severity, path: &[&str]) -> Diag {

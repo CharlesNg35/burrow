@@ -137,6 +137,7 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
                 on_dirty: Callback::new(move |(name, dirty): (String, bool)| t.set_unsaved(&name, dirty)),
                 tabs: t.tabs.into(),
                 spot: t.spot,
+                edit: t,
             };
             view! { <Deferred load=move || text_editor(props) what="the editor" testid="editor-load"/> }.into_any()
         }

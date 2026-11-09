@@ -83,7 +83,10 @@ impl TextEdit {
         self.leaving.set(None);
         let then = self.then.try_update_value(Option::take).flatten();
         match then.map_or(Went::Not, |then| then()) {
-            Went::Now => self.forget(&u.name),
+            Went::Now => {
+                self.forget(&u.name);
+                self.held.set(None);
+            }
             Went::Later => self.pending_pop.set_value(Some(u.name)),
             Went::Not => {}
         }
@@ -93,14 +96,31 @@ impl TextEdit {
         match self.pending_pop.try_update_value(Option::take).flatten() {
             Some(name) => {
                 self.forget(&name);
+                self.held.set(None);
                 true
             }
             None => false,
         }
     }
 
-    pub fn lose_unwritten(&self) {
+    pub fn note_unwritten(&self) {
+        let now = self.unwritten();
+        if self.held.with_untracked(|h| *h != now) {
+            self.held.set(now);
+        }
+    }
+
+    pub fn note_unwritten_on_unmount(&self) {
+        if self.lost.with_untracked(Option::is_some) {
+            return;
+        }
         if let Some(u) = self.unwritten() {
+            self.held.set(Some(u));
+        }
+    }
+
+    pub fn lose_unwritten(&self) {
+        if let Some(u) = self.held.try_update(Option::take).flatten() {
             self.forget(&u.name);
             self.lost.set(Some(u.lost()));
         }
@@ -198,15 +218,23 @@ mod tests {
     fn a_server_change_says_the_unsaved_edit_as_text_is_gone() {
         let t = TextEdit::new();
         t.open.set(true);
-        t.lose_unwritten();
-        assert!(
-            t.lost.get_untracked().is_none(),
-            "nothing held, nothing to say"
-        );
         t.unsaved.update(|u| {
             u.insert("server.yaml".into());
         });
-        t.before_review.set_value(Some(Rc::new(|| Some(stuck()))));
+        let editor = Owner::new();
+        editor.with(|| {
+            t.before_review.set_value(Some(Rc::new(|| Some(stuck()))));
+            on_cleanup(move || {
+                t.note_unwritten_on_unmount();
+                let _ = t.before_review.try_set_value(None);
+            });
+        });
+        t.note_unwritten();
+        editor.cleanup();
+        assert!(
+            t.before_review.with_value(Option::is_none),
+            "as on a remount: the editor's hook is gone before the screen looks"
+        );
         t.lose_unwritten();
         assert_eq!(
             t.lost.get_untracked().as_deref(),
@@ -215,10 +243,19 @@ mod tests {
             )
         );
         assert!(t.unsaved.get_untracked().is_empty());
+        assert!(t.held.get_untracked().is_none());
+        t.lose_unwritten();
         t.set_unsaved("server.yaml", true);
         assert!(
             t.lost.get_untracked().is_none(),
             "typing again clears the note"
+        );
+        let quiet = TextEdit::new();
+        quiet.open.set(true);
+        quiet.lose_unwritten();
+        assert!(
+            quiet.lost.get_untracked().is_none(),
+            "nothing held, nothing to say"
         );
     }
 

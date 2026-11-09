@@ -42,6 +42,7 @@ pub struct TextEdit {
     pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
     pub leaving: RwSignal<Option<super::leave::Unwritten>>,
     pub lost: RwSignal<Option<String>>,
+    pub held: RwSignal<Option<super::leave::Unwritten>>,
     banner: StoredValue<Option<Banner>>,
     pub(super) then: StoredValue<Option<super::leave::Then>, LocalStorage>,
     pub(super) pending_pop: StoredValue<Option<String>>,
@@ -222,6 +223,7 @@ impl TextEdit {
             spot: RwSignal::new(None),
             leaving: RwSignal::new(None),
             lost: RwSignal::new(None),
+            held: RwSignal::new(None),
             banner: StoredValue::new(None),
             then: StoredValue::new_local(None),
             pending_pop: StoredValue::new(None),
@@ -255,6 +257,7 @@ impl TextEdit {
         self.spot.set(None);
         self.leaving.set(None);
         self.lost.set(None);
+        self.held.set(None);
     }
 
     pub fn fetch(&self) {

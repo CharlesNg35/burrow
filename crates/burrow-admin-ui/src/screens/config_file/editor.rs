@@ -17,6 +17,8 @@ use super::edit_as::{own_label, shown};
 use super::follow::follow;
 use super::problems::host_problems;
 
+const HELD_AFTER: std::time::Duration = std::time::Duration::from_millis(300);
+
 pub const SECRET_HINT: &str = "The current secret, kept as it is. Type a new value to replace it.";
 
 #[derive(Clone, Copy)]
@@ -37,6 +39,7 @@ pub struct EditorProps {
     pub on_dirty: Callback<(String, bool)>,
     pub tabs: Signal<Vec<String>>,
     pub spot: RwSignal<Option<(String, Spot)>>,
+    pub edit: crate::edit::TextEdit,
 }
 
 fn schema_of(schema: &Value) -> Option<SchemaSource> {
@@ -247,7 +250,21 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         on_dirty,
         tabs: open,
         spot,
+        edit,
     } = p;
+    let typed = StoredValue::new(0u64);
+    let check_held = move || {
+        typed.update_value(|n| *n += 1);
+        let n = typed.get_value();
+        set_timeout(
+            move || {
+                if typed.try_get_value() == Some(n) {
+                    edit.note_unwritten();
+                }
+            },
+            HELD_AFTER,
+        );
+    };
     let first = text.get_untracked();
     let schemas = first.as_ref().map(|t| Schemas::of(t)).unwrap_or_default();
     let pattern = first
@@ -315,6 +332,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         unwritten(&files, edit_as, tabs)
     })));
     on_cleanup(move || {
+        edit.note_unwritten_on_unmount();
         let _ = before_review.try_set_value(None);
     });
     follow(active, spot, tabs);
@@ -322,7 +340,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         switch.refresh_soon(name);
     }
     Ok(view! {
-        <div class="min-w-0 w-full" data-testid="file-editor">
+        <div class="min-w-0 w-full" data-testid="file-editor" on:input=move |_| check_held()>
             <ConfigDocuments
                 documents=list
                 initial_active=main
@@ -334,6 +352,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                     switch.refresh_soon(id);
                 })
                 on_change=Callback::new(move |change: (String, String)| {
+                    check_held();
                     switch.refresh(&change.0);
                     on_change.run(change);
                 })
