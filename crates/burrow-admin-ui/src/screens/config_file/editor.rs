@@ -13,7 +13,7 @@ use leptos::prelude::*;
 
 use crate::edit::{Spot, Unwritten};
 
-use super::edit_as::{own_label, shown};
+use super::edit_as::{own_label, seen};
 use super::follow::follow;
 use super::problems::host_problems;
 
@@ -160,16 +160,18 @@ fn unwritten(files: &[String], switch: Shown) -> Vec<Unwritten> {
         .iter()
         .filter_map(|name| {
             let editor = switch.tabs.editor(name).filter(|e| e.is_mounted())?;
-            if editor.value().is_some() {
+            let text = editor.text().unwrap_or_default();
+            let host = editor.value();
+            let shown = switch.apply(name, Some(&text), host.as_deref());
+            if host.is_some() {
                 return None;
             }
             let own = own_label(name);
-            let shown = switch.refresh(name);
             Some(Unwritten {
                 name: name.clone(),
                 shown: if shown == own { "edited".into() } else { shown },
                 own: own.to_string(),
-                text: editor.text().unwrap_or_default(),
+                text,
             })
         })
         .collect()
@@ -193,30 +195,42 @@ struct Shown {
     asked: RwSignal<BTreeMap<String, String>>,
     shown: RwSignal<BTreeMap<String, String>>,
     tabs: DocumentsHandle,
+    edit: crate::edit::TextEdit,
 }
 
 impl Shown {
-    fn refresh(&self, name: &str) -> String {
+    fn apply(&self, name: &str, on_screen: Option<&str>, host: Option<&str>) -> String {
         let own = own_label(name);
         let asked = self
             .asked
             .with_untracked(|a| a.get(name).cloned())
             .unwrap_or_else(|| own.to_string());
         let before = self.shown.with_untracked(|s| s.get(name).cloned());
+        let picked = self.edit.picked.with_value(|p| p.contains(name));
+        let now = seen(own, &asked, before.as_deref(), picked, on_screen, host);
+        if now.settled && picked {
+            self.edit.picked.update_value(|p| {
+                p.remove(name);
+            });
+        }
+        if now.asked_back {
+            self.asked.update(|a| {
+                a.insert(name.to_string(), own.to_string());
+            });
+        }
+        if before.as_deref() != Some(now.shown.as_str()) {
+            self.shown.update(|s| {
+                s.insert(name.to_string(), now.shown.clone());
+            });
+        }
+        now.shown
+    }
+
+    fn refresh(&self, name: &str) {
         let editor = self.tabs.editor(name).filter(|e| e.is_mounted());
         let on_screen = editor.and_then(|e| e.text());
         let host = editor.and_then(|e| e.value());
-        let now = shown(
-            own,
-            &asked,
-            before.as_deref(),
-            on_screen.as_deref(),
-            host.as_deref(),
-        );
-        self.shown.update(|s| {
-            s.insert(name.to_string(), now.clone());
-        });
-        now
+        self.apply(name, on_screen.as_deref(), host.as_deref());
     }
 
     fn refresh_soon(&self, name: String) {
@@ -224,9 +238,7 @@ impl Shown {
         for ms in [60, 400, 1200] {
             let name = name.clone();
             set_timeout(
-                move || {
-                    me.refresh(&name);
-                },
+                move || me.refresh(&name),
                 std::time::Duration::from_millis(ms),
             );
         }
@@ -306,6 +318,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         asked: edit_as,
         shown,
         tabs,
+        edit,
     };
     Effect::new(move |_| {
         edit_as.track();
@@ -318,7 +331,6 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         set_timeout(
             move || {
                 if typed.try_get_value() == Some(n) {
-                    switch.refresh(&active.get_untracked());
                     edit.note_unwritten();
                 }
             },
@@ -335,7 +347,6 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         unwritten(&files, switch)
     })));
     on_cleanup(move || {
-        edit.note_unwritten_on_unmount();
         let _ = before_review.try_set_value(None);
     });
     follow(active, spot, tabs);

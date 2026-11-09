@@ -44,6 +44,7 @@ pub struct TextEdit {
     pub lost: RwSignal<Option<String>>,
     pub held: RwSignal<BTreeMap<String, super::leave::Unwritten>>,
     pub(super) reported: StoredValue<BTreeSet<String>>,
+    pub picked: StoredValue<BTreeSet<String>>,
     banner: StoredValue<Option<Banner>>,
     pub(super) then: StoredValue<Option<super::leave::Then>, LocalStorage>,
     pub(super) pending_pop: StoredValue<Option<Vec<String>>>,
@@ -226,6 +227,7 @@ impl TextEdit {
             lost: RwSignal::new(None),
             held: RwSignal::new(BTreeMap::new()),
             reported: StoredValue::new(BTreeSet::new()),
+            picked: StoredValue::new(BTreeSet::new()),
             banner: StoredValue::new(None),
             then: StoredValue::new_local(None),
             pending_pop: StoredValue::new(None),
@@ -261,6 +263,7 @@ impl TextEdit {
         self.lost.set(None);
         self.held.set(BTreeMap::new());
         self.reported.set_value(BTreeSet::new());
+        self.picked.set_value(BTreeSet::new());
     }
 
     pub fn fetch(&self) {
