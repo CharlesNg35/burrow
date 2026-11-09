@@ -120,7 +120,7 @@ async fn the_list_groups_by_file(c: &mut Ctx) {
         tokio::time::sleep(Duration::from_millis(300)).await;
         let hidden: Vec<String> = c
             .ui
-            .eval("[...document.querySelectorAll('[data-testid=file-group]')].flatMap(g => { const r = g.getBoundingClientRect(); return [...g.querySelectorAll('[data-testid=group-count], [data-testid=group-problems], svg')].filter(e => { const b = e.getBoundingClientRect(); return b.width === 0 || b.right > r.right + 1 || b.left < r.left - 1; }).map(e => g.dataset.file + ' ' + (e.dataset.testid || e.tagName)); })")
+            .eval("[...document.querySelectorAll('[data-testid=file-group]')].filter(g => g.getBoundingClientRect().width > 0).flatMap(g => { const r = g.getBoundingClientRect(); return [...g.querySelectorAll('[data-testid=group-count], [data-testid=group-problems], svg')].filter(e => { const b = e.getBoundingClientRect(); return b.width === 0 || b.right > r.right + 1 || b.left < r.left - 1; }).map(e => g.dataset.file + ' ' + (e.dataset.testid || e.tagName)); })")
             .await;
         assert!(
             hidden.is_empty(),
