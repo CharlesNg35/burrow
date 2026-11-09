@@ -291,8 +291,8 @@ impl TextEdit {
                 .with_untracked(|typed| super::new_file::kept_new(&next, n, typed, &mut values))
         });
         self.prune(&next, &still);
-        if let (Some(note), Some(s)) = (super::gone::gone_note(&gone), crate::store::try_store()) {
-            s.toast(burrow_ui_kit::Tone::Warning, note, None);
+        if let Some(note) = super::gone::gone_note(&gone) {
+            self.lost.set(Some(note));
         }
         if self.new_files.with_untracked(|n| *n != still) {
             self.new_files.set(still);
