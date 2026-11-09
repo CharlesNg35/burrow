@@ -44,7 +44,7 @@ pub fn check_server(
 
     check_public_address(cfg, listen, websocket.as_ref(), spans, out);
 
-    let mut seen = Vec::new();
+    let mut seen = secrets::Seen::new();
     let clients = check_clients(cfg, spans, &mut seen, out);
 
     super::local::check_reserved(cfg, spans, out);
@@ -218,7 +218,7 @@ fn only_self(cfg: &ServerConfig) -> bool {
 fn check_clients(
     cfg: &ServerConfig,
     spans: &Spans,
-    seen: &mut Vec<([u8; 32], String)>,
+    seen: &mut secrets::Seen,
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, ClientAuth> {
     if cfg.clients.is_empty() && !only_self(cfg) {
@@ -256,7 +256,7 @@ fn check_visitors(
     cfg: &ServerConfig,
     self_allow: Option<&AllowList>,
     spans: &Spans,
-    seen: &mut Vec<([u8; 32], String)>,
+    seen: &mut secrets::Seen,
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, VisitorAuth> {
     let mut visitors = BTreeMap::new();
