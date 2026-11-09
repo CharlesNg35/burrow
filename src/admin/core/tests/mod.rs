@@ -158,7 +158,22 @@ impl Live for FakeLive {
         self.status.lock().unwrap().clone()
     }
     fn settings(&self) -> Arc<ServerSettings> {
-        Arc::new(settings_of(&self.text.lock().unwrap()))
+        thread_local! {
+            static LAST: std::cell::RefCell<Option<(String, Arc<ServerSettings>)>> =
+                const { std::cell::RefCell::new(None) };
+        }
+        let text = self.text.lock().unwrap().clone();
+        LAST.with(|last| {
+            let mut last = last.borrow_mut();
+            match &*last {
+                Some((t, s)) if *t == text => s.clone(),
+                _ => {
+                    let s = Arc::new(settings_of(&text));
+                    *last = Some((text, s.clone()));
+                    s
+                }
+            }
+        })
     }
     fn sessions(&self) -> Vec<LiveSession> {
         self.sessions.lock().unwrap().clone()
