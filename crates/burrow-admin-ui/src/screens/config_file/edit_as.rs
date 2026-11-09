@@ -38,6 +38,12 @@ pub fn options(own: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+fn show_on_screen(label: String) {
+    if let Some(select) = document().get_element_by_id("file-edit-as") {
+        let _ = js_sys::Reflect::set(&select, &"value".into(), &label.into());
+    }
+}
+
 pub fn controls(t: TextEdit) -> impl IntoView {
     let options = Signal::derive(move || t.active.with(|a| options(own_label(a))));
     let pick = Callback::new(move |label: String| {
@@ -50,13 +56,9 @@ pub fn controls(t: TextEdit) -> impl IntoView {
                 a.insert(name, label);
             });
         }
+        show_on_screen(untrack(|| shown_now(t)));
     });
-    Effect::new(move |_| {
-        let now = shown_now(t);
-        if let Some(select) = document().get_element_by_id("file-edit-as") {
-            let _ = js_sys::Reflect::set(&select, &"value".into(), &now.into());
-        }
-    });
+    Effect::new(move |_| show_on_screen(shown_now(t)));
     view! {
         <span class="flex min-w-0 items-center gap-2" data-testid="file-edit-as" data-shown=move || shown_now(t)>
             <span aria-hidden="true">"Edit as"</span>
