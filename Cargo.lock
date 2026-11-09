@@ -990,7 +990,7 @@ dependencies = [
 [[package]]
 name = "config-editor-leptos"
 version = "0.1.0"
-source = "git+https://github.com/paradoxe35/config-editor?rev=b50b5293163172597a85e8ab038275b7798c6fa9#b50b5293163172597a85e8ab038275b7798c6fa9"
+source = "git+https://github.com/paradoxe35/config-editor?rev=27af66551f3d367e73c8d45cb96c92c5e293d3a2#27af66551f3d367e73c8d45cb96c92c5e293d3a2"
 dependencies = [
  "jsonschema",
  "leptos",
