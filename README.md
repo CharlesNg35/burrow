@@ -334,7 +334,7 @@ Settings, in six tabs, with one search across all of them:
 - Files: server.yaml and its drop-in files in `server.d/`
 - Config file
 
-Config file shows the whole config as YAML, secrets as fingerprints, to read, copy or download.
+Config file shows the whole config as YAML, secrets as fingerprints, to read, copy or download; write admins can **Edit** it as text: every file in a tab, checked as you type, secrets kept as placeholders, **Edit as** YAML, JSON or TOML, **Go to** (Ctrl+P) for files, items and text, and **Review changes** before anything is written.
 
 Here the Web tab, with the web proxy's ports, login services and names that only redirect, Let's Encrypt (still off), your own certificates and the local certificate authority.
 

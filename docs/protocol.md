@@ -369,7 +369,7 @@ Every optional capability is behind a feature string; a caller uses it only when
 | `server.updates` | the `update_server` request |
 | `config.view` | the `config_view` request |
 | `config.check-text` | the `check_text` request |
-| `config.text` | the `config_text` request and the `replace_text` operation: whole file texts back from the editor, and a text under a new name makes that drop-in, checked as `place` checks a new file (an empty one makes none). It is the only operation of its change; each placeholder must stand where the file had it (in any file), else the change is refused as `invalid` with one diagnostic per placeholder. Diagnostics may carry `end_line` and `end_col` |
+| `config.text` | the `config_text` request and the `replace_text` operation: whole file texts back from the editor, and a text under a new name makes that drop-in, checked as `place` checks a new file (an empty one makes none). It is the only operation of its change; each placeholder must stand where the file had it (in any file; one from a comment only in its own file), else the change is refused as `invalid` with one diagnostic per placeholder. Diagnostics may carry `end_line` and `end_col` |
 | `config.search-text` | the `search_text` request |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
