@@ -35,8 +35,8 @@ pub fn FileName(
             .into_any();
     }
     let room = format!(
-        "max-width: calc(round(down, calc(100% - {}ch), 1ch) + 1px)",
-        (lead.chars().count() + end.chars().count() + 1)
+        "max-width: calc(100% - {n}ch); max-width: calc(round(down, calc(100% - {n}ch), 1ch) + 1px)",
+        n = lead.chars().count() + end.chars().count() + 1
     );
     view! {
         <span class=outer title=name.clone()>
