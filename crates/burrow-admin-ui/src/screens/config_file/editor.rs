@@ -218,7 +218,8 @@ impl Shown {
                 a.insert(name.to_string(), own.to_string());
             });
         }
-        if before.as_deref() != Some(now.shown.as_str()) {
+        let waiting_pick = picked && !now.settled;
+        if waiting_pick || before.as_deref() != Some(now.shown.as_str()) {
             self.shown.update(|s| {
                 s.insert(name.to_string(), now.shown.clone());
             });

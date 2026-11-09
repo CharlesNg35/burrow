@@ -310,11 +310,12 @@ async fn edit_as_follows_the_screen(c: &Ctx, value: &str, what: &str) {
         SECS,
     )
     .await;
-    assert_eq!(
-        c.ui.count("[data-testid=file-edit-as-waits]").await,
-        0,
-        "{what}: nothing waits"
-    );
+    c.ui.wait_true(
+        "!document.querySelector('[data-testid=file-edit-as-waits]')",
+        &format!("{what}: nothing waits"),
+        SECS,
+    )
+    .await;
 }
 
 async fn shows(c: &Ctx, file: &str, part: &str, what: &str) {
