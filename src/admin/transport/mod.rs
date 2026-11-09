@@ -6,6 +6,8 @@ mod session;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+#[cfg(all(test, feature = "web"))]
+pub(crate) use session::encode;
 pub use session::{Access, run};
 
 pub const PING: Duration = Duration::from_secs(25);

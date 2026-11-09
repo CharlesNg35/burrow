@@ -31,8 +31,7 @@ struct Ctx {
     access: Arc<dyn Access>,
 }
 
-fn encode(mut v: Value) -> Vec<u8> {
-    crate::base::redact::json(&mut v);
+pub(crate) fn encode(v: Value) -> Vec<u8> {
     serde_json::to_vec(&v).unwrap_or_default()
 }
 

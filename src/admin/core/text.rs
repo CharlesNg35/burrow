@@ -83,7 +83,10 @@ pub fn secret_shown(fp: Option<&str>) -> String {
 }
 
 pub fn mask_secrets(line: &str, fresh: &[(String, String)]) -> String {
-    let line = &burrow_syntax::secret_fmt::hide_url_passwords(line);
+    mask_tokens(&burrow_syntax::secret_fmt::hide_url_passwords(line), fresh)
+}
+
+pub fn mask_tokens(line: &str, fresh: &[(String, String)]) -> String {
     let mut out = String::with_capacity(line.len());
     let mut at = 0;
     for r in tokens(line) {

@@ -324,10 +324,10 @@ impl Report {
                 *c = '*';
             }
         }
+        star_url_passwords(&mut line);
         if self.mask_tokens {
             mask_long_tokens(&mut line);
         }
-        star_url_passwords(&mut line);
         mask_secret_tokens(&mut line);
         Some(line.into_iter().collect())
     }
@@ -414,6 +414,16 @@ mod tests {
             text,
             "error: unknown client \"hom\"\n  --> server.yaml:4:13\n   |\n 4 |     client: hom\n   |             ^^^ no client with this name\n   = help: did you mean \"home\"?\n\n"
         );
+    }
+
+    #[test]
+    fn a_url_password_is_starred_before_long_tokens() {
+        let src = "a: https://acme-account-with-a-long-name:pw12@ca.internal/dir ]\n";
+        let mut r = Report::new("server.yaml", src);
+        r.mask_tokens = true;
+        r.push(Diagnostic::error("x", "invalid syntax").at(span(1, 1, 3, 0)));
+        let text = r.render_text(Style { color: false });
+        assert!(!text.contains("pw12"), "{text}");
     }
 
     #[test]

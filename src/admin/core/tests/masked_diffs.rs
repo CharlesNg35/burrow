@@ -501,3 +501,124 @@ fn a_password_in_a_url_never_shows_in_the_web_summary_or_in_validate() {
         }
     }
 }
+
+#[cfg(feature = "web")]
+#[test]
+fn the_config_text_crosses_the_wire_unchanged_and_reads_back_as_no_change() {
+    for (from, to, shown, hidden) in [
+        (
+            "      hosts: [site.example.com]\n",
+            "      hosts: [site.example.com, https://a.example,ops:pw@b.example]\n",
+            "hosts: [site.example.com, https://a.example,ops:pw@b.example]",
+            "",
+        ),
+        (
+            "        Authorization:",
+            "        X-Note: \"https://u:p\\tq@h.example\"\n        Authorization:",
+            "X-Note: \"«secret ",
+            "p\\tq",
+        ),
+        (
+            "        Authorization:",
+            "        X-Note: [\"https://u:p\\u0020q@h.example\", plain]\n        Authorization:",
+            "X-Note: [\"«secret ",
+            "u0020q",
+        ),
+    ] {
+        let text = world().text.replace(
+            "services:\n",
+            &format!("{SITE}services:\n{}", site("site").replace(from, to)),
+        );
+        let f = files("server.yaml", &text, &[]);
+        let s = f.session();
+        let body = dispatch(
+            &f.core,
+            &s,
+            burrow_admin_proto::msg::req::CONFIG_TEXT,
+            &json!({}),
+        )
+        .unwrap();
+        let wire =
+            crate::admin::transport::encode(burrow_admin_proto::msg::reply_ok(1, body.clone()));
+        let back: serde_json::Value = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(back, burrow_admin_proto::msg::reply_ok(1, body.clone()));
+        let masked = body["files"][0]["text"].as_str().unwrap();
+        assert!(masked.contains(shown), "{masked}");
+        assert!(hidden.is_empty() || !masked.contains(hidden), "{masked}");
+        let same = f.plan(&edit(&f, "bind: 8005", "bind: 8005"));
+        assert!(same.changes.is_empty(), "{:#?}", same.changes);
+        let moved = f.plan(&edit(&f, "bind: 8005", "bind: 8006"));
+        assert!(
+            !moved.diff.unified.contains("«hidden»"),
+            "{}",
+            moved.diff.unified
+        );
+        assert!(
+            !moved.diff.unified.contains("X-Note: -")
+                && !moved.diff.unified.contains("-        X-Note"),
+            "{}",
+            moved.diff.unified
+        );
+    }
+}
+
+#[cfg(feature = "web")]
+#[test]
+fn a_url_password_with_a_space_or_a_quote_is_hidden_as_a_whole_value() {
+    for written in [" ", "<", ">", "\\\"", "`", "\\t"] {
+        let directory = format!("\"https://acme:pa{written}ss77@ca.internal/dir\"");
+        let f = url_files(&directory);
+        let s = f.session();
+        let ask = |t: &str| dispatch(&f.core, &s, t, &json!({})).unwrap().to_string();
+        let shown = edit_text(&f.core, &s);
+        let plan = f.plan(&edit(
+            &f,
+            "email: ops@example.com",
+            "email: ops2@example.com",
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        let text = std::fs::read_to_string(f._dir.path().join("server.yaml")).unwrap();
+        crate::base::fs::write_private(&path, &text).unwrap();
+        let v = crate::config::validate::validate(&path, None, false, &url_env).unwrap();
+        let style = crate::base::style::Style { color: false };
+        for sent in [
+            ask(burrow_admin_proto::msg::req::STATE),
+            ask(burrow_admin_proto::msg::req::CONFIG_VIEW),
+            serde_json::to_string(&shown).unwrap(),
+            serde_json::to_string(&plan).unwrap(),
+            crate::config::validate::render_text(&v.outcome, false, style),
+            crate::config::validate::render_json(&v.outcome, false),
+        ] {
+            never(&sent, &["ss77"]);
+        }
+    }
+}
+
+#[test]
+fn a_url_password_in_the_status_is_hidden() {
+    let w = world();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    crate::base::fs::write_private(&path, &w.text).unwrap();
+    let mut status = burrow_admin_proto::status::Status::default();
+    status.acme = Some(burrow_admin_proto::status::AcmeStatus {
+        directory: "https://acme:pa ss88@ca.internal/dir".into(),
+        ..Default::default()
+    });
+    let live = FakeLive {
+        text: Arc::new(Mutex::new(w.text.clone())),
+        status: Mutex::new(status),
+        sessions: Mutex::new(Vec::new()),
+        busy: Vec::new(),
+        allows: Default::default(),
+    };
+    let core = Core::new(
+        Box::new(FileStore::new(&path)),
+        Box::new(live),
+        Box::new(|_: &str| None),
+    );
+    let sent = serde_json::to_string(&core.status()).unwrap();
+    never(&sent, &["ss88"]);
+    assert!(sent.contains("https://«hidden»@ca.internal/dir"), "{sent}");
+}

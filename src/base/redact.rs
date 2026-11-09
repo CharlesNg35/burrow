@@ -1,13 +1,13 @@
 use std::io::Write;
 
-use burrow_syntax::secret_fmt::hide_url_passwords;
+use burrow_syntax::secret_fmt::{hide_url_passwords, hide_value_url_passwords};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 pub fn json(v: &mut Value) {
     match v {
-        Value::String(s) if s.contains("://") => *s = hide_url_passwords(s),
+        Value::String(s) if s.contains("://") => *s = hide_value_url_passwords(s),
         Value::Array(items) => items.iter_mut().for_each(json),
         Value::Object(m) => m.values_mut().for_each(json),
         _ => {}

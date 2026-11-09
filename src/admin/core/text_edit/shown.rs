@@ -50,7 +50,7 @@ impl<'a> Shown<'a> {
     }
 
     fn line(&self, line: &str) -> String {
-        let mut out = text::mask_secrets(line, &[]);
+        let mut out = text::mask_tokens(line, &[]);
         for fp in &self.fresh {
             out = out.replace(&placeholder(fp), &format!("«new secret {fp}»"));
         }
