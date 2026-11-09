@@ -224,7 +224,9 @@ impl Shown {
         for ms in [60, 400, 1200] {
             let name = name.clone();
             set_timeout(
-                move || me.refresh(&name),
+                move || {
+                    me.refresh(&name);
+                },
                 std::time::Duration::from_millis(ms),
             );
         }
