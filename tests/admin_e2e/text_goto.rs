@@ -208,11 +208,12 @@ async fn unwritten_text_comes_back(c: &mut Ctx) {
     .await;
     two_files_hold_text(c).await;
     c.ui.click("[data-testid=settings-tabs] [role=tab]").await;
-    c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
-        .await;
+    c.ui.wait_gone(CARD, SECS).await;
     let _: bool = c
         .ui
         .eval("(() => { [...document.querySelectorAll('[data-testid=settings-tabs] [role=tab]')].find(t => t.textContent.includes('Config file')).click(); return true; })()")
+        .await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;
     c.ui.wait_for(EDITOR, SECS).await;
     show(c, &name(5)).await;
