@@ -17,6 +17,10 @@ use super::edit_as::{own_label, seen};
 use super::follow::follow;
 use super::problems::host_problems;
 
+fn undo_key(e: &web_sys::KeyboardEvent) -> bool {
+    (e.ctrl_key() || e.meta_key()) && matches!(e.key().as_str(), "z" | "Z" | "y" | "Y")
+}
+
 const HELD_AFTER: std::time::Duration = std::time::Duration::from_millis(300);
 
 pub const SECRET_HINT: &str = "The current secret, kept as it is. Type a new value to replace it.";
@@ -360,7 +364,15 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
             data-testid="file-editor"
             on:input=move |_| check_held()
             on:beforeinput=move |_| check_held()
-            on:keydown=move |_| check_held()
+            on:keydown=move |e| {
+                if undo_key(&e) {
+                    let name = active.get_untracked();
+                    edit.picked.update_value(|p| {
+                        p.remove(&name);
+                    });
+                }
+                check_held();
+            }
             on:paste=move |_| check_held()
         >
             <ConfigDocuments
