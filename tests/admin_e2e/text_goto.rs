@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::text_edit::{
-    ADD, CARD, EDITOR, MAIN, close_of, dirty, go_to, input, js, name_new_file, replace_in, show,
-    start, tab,
+    ADD, CARD, EDITOR, GOTO, MAIN, PANEL, close_of, dirty, go_to, input, js, name_new_file,
+    replace_in, show, start, tab,
 };
 use super::text_tabs::{name, opts, tabs};
 use super::{Ctx, SECS, open, run};
@@ -76,9 +76,8 @@ async fn a_new_file_keeps_its_tab(c: &mut Ctx) {
 
 async fn matches_land_on_their_field(c: &mut Ctx) {
     show(c, MAIN).await;
-    let _: bool =
-        c.ui.eval("(() => { scrollTo(0, 60); return true; })()")
-            .await;
+    c.ui.click(GOTO).await;
+    c.ui.wait_for(PANEL, SECS).await;
     let top: f64 = c.ui.eval("scrollY").await;
     go_to(c, "the home box", "# the home box").await;
     exactly(
@@ -88,6 +87,11 @@ async fn matches_land_on_their_field(c: &mut Ctx) {
         "a match in a comment selects just the match",
     )
     .await;
+    assert_eq!(
+        c.ui.eval::<f64>("scrollY").await,
+        top,
+        "jumping to a match leaves the page where it is"
+    );
     go_to(c, "3005", "target: 3005").await;
     exactly(
         c,
@@ -96,11 +100,6 @@ async fn matches_land_on_their_field(c: &mut Ctx) {
         "a match in a value selects just the match",
     )
     .await;
-    assert_eq!(
-        c.ui.eval::<f64>("scrollY").await,
-        top,
-        "jumping to a match leaves the page where it is"
-    );
     show(c, MAIN).await;
     c.ui.select("#file-edit-as", "TOML").await;
     c.ui.wait_true(
