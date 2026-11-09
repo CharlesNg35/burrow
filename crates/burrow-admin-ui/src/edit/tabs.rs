@@ -9,6 +9,7 @@ pub enum Spot {
     Here,
     Path(Vec<String>),
     Pointer(String),
+    Range(u32, u32, u32),
 }
 
 pub fn used(recent: &[String], name: &str) -> Vec<String> {

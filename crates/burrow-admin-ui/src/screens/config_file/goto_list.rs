@@ -146,7 +146,15 @@ pub fn field_at(language: Language, text: &str, line: u32, col: u32) -> Option<S
         })
 }
 
-fn spot_of(t: TextEdit, file: &str, line: u32, col: u32) -> Spot {
+fn spot_of(t: TextEdit, file: &str, (line, col, end): (u32, u32, u32)) -> Spot {
+    let own = super::edit_as::own_label(file);
+    let shown = t
+        .shown
+        .with_untracked(|s| s.get(file).cloned())
+        .unwrap_or_else(|| own.to_string());
+    if shown == own {
+        return Spot::Range(line, col, end);
+    }
     let language = Language::from_path(file).unwrap_or(Language::YAML);
     t.values
         .with_untracked(|v| {
@@ -167,7 +175,9 @@ fn pick(g: GoTo, t: TextEdit, row: Row) {
             g.open.set(false);
             match (f.path, f.line) {
                 (Some(p), _) => t.open_at(&f.file, Spot::Path(p)),
-                (None, Some((l, col))) => t.open_at(&f.file, spot_of(t, &f.file, l, col)),
+                (None, Some((l, col, end))) => {
+                    t.open_at(&f.file, spot_of(t, &f.file, (l, col, end)))
+                }
                 (None, None) => t.open_at(&f.file, Spot::Here),
             }
         }

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use config_editor_leptos::{DocumentsHandle, EditorHandle, FieldPath};
+use config_editor_leptos::{DocumentsHandle, EditorHandle, FieldPath, TextPosition, TextRange};
 use leptos::prelude::*;
 
 use super::problems::field;
@@ -16,6 +16,10 @@ fn reveal(e: &EditorHandle, spot: &Spot) -> bool {
         }
         Spot::Path(p) => e.reveal(field(p)),
         Spot::Pointer(p) => e.reveal(FieldPath::from_pointer(p)),
+        Spot::Range(line, col, end) => e.reveal_range(TextRange::new(
+            TextPosition::new(*line as usize, *col as usize),
+            TextPosition::new(*line as usize, *end as usize),
+        )),
     }
 }
 

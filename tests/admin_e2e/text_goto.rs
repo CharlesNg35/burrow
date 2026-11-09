@@ -24,6 +24,19 @@ async fn selected_from(c: &Ctx, file: &str, text: &str, what: &str) {
     .await;
 }
 
+async fn exactly(c: &Ctx, file: &str, text: &str, what: &str) {
+    c.ui.wait_true(
+        &format!(
+            "(() => {{ const i = document.querySelector({}); const at = i ? i.value.indexOf({t}) : -1; return at >= 0 && document.activeElement === i && i.selectionStart === at && i.selectionEnd === at + {t}.length; }})()",
+            js(&input(file)),
+            t = js(text)
+        ),
+        what,
+        SECS,
+    )
+    .await;
+}
+
 async fn phone_shot(c: &mut Ctx, step: &str) {
     c.ui.viewport(390, 900).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -63,14 +76,32 @@ async fn a_new_file_keeps_its_tab(c: &mut Ctx) {
 
 async fn matches_land_on_their_field(c: &mut Ctx) {
     show(c, MAIN).await;
+    let _: bool =
+        c.ui.eval("(() => { scrollTo(0, 60); return true; })()")
+            .await;
+    let top: f64 = c.ui.eval("scrollY").await;
     go_to(c, "the home box", "# the home box").await;
-    selected_from(
+    exactly(
         c,
         MAIN,
-        "home:",
-        "a match in a comment opens at the next field",
+        "the home box",
+        "a match in a comment selects just the match",
     )
     .await;
+    go_to(c, "3005", "target: 3005").await;
+    exactly(
+        c,
+        &name(5),
+        "3005",
+        "a match in a value selects just the match",
+    )
+    .await;
+    assert_eq!(
+        c.ui.eval::<f64>("scrollY").await,
+        top,
+        "jumping to a match leaves the page where it is"
+    );
+    show(c, MAIN).await;
     c.ui.select("#file-edit-as", "TOML").await;
     c.ui.wait_true(
         &format!(
