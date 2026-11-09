@@ -61,6 +61,7 @@ The admin UI crate (`crates/burrow-admin-ui`) has its own layers, from the botto
 - Stage files by name; never `git add -A`.
 - When `rust-toolchain.toml` moves to a newer Rust, check D52 in `docs/decisions.md` (64-bit time on the 32-bit ARM builds).
 - The root `Cargo.toml` patches bytecount with a fork that keeps WebAssembly SIMD out of the admin UI (D88 in `docs/decisions.md`). Remove the `[patch.crates-io]` entry and its `allow-git` line in `deny.toml` once a bytecount release compiles its wasm SIMD path only with `simd128` enabled; `cargo xtask ui` then still proves no wasm uses SIMD.
+- The admin UI's config text editor, config-editor-leptos, is not on crates.io: `crates/burrow-admin-ui/Cargo.toml` takes it from git by `rev`, and `deny.toml` allows that repository (`allow-git`). To move it, change the `rev` in its own commit, then run `cargo xtask ui --release && cargo xtask size --budget` and the text editor's browser flows (`cargo xtask e2e text`).
 - The fuzz targets build on the dated nightly in `fuzz/rust-toolchain.toml`, which CI reads too. It stays before 2026-11-01 because later nightlies reject burrow-admin-proto's recursive `SemType` with E0391, a rustc regression (rust-lang/rust#165263), not a real cycle; move it forward once that issue is closed.
 
 ## Design
