@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::text_edit::{
-    ADD, CARD, EDITOR, GOTO, MAIN, PANEL, close_of, dirty, go_to, input, js, name_new_file,
+    ADD, CARD, EDITOR, GOTO, MAIN, PANEL, close_of, dirty, go_to, input, js, key, name_new_file,
     replace_in, show, start, tab,
 };
 use super::text_tabs::{name, opts, tabs};
@@ -300,11 +300,73 @@ async fn a_file_removed_on_the_server_takes_its_edits(c: &mut Ctx) {
     c.ui.wait_for(&input(MAIN), SECS).await;
 }
 
+async fn edit_as_follows_the_screen(c: &Ctx, value: &str, what: &str) {
+    c.ui.wait_true(
+        &format!(
+            "document.querySelector('#file-edit-as').value === {}",
+            js(value)
+        ),
+        what,
+        SECS,
+    )
+    .await;
+    c.ui.wait_true(
+        "!document.querySelector('[data-testid=file-edit-as-waits]')",
+        &format!("{what}: nothing waits"),
+        SECS,
+    )
+    .await;
+}
+
+async fn shows(c: &Ctx, file: &str, part: &str, what: &str) {
+    c.ui.wait_true(
+        &format!(
+            "document.querySelector({}).value.includes({})",
+            js(&input(file)),
+            js(part)
+        ),
+        what,
+        SECS,
+    )
+    .await;
+}
+
+async fn undo_and_empty_follow_the_screen(c: &mut Ctx) {
+    show(c, MAIN).await;
+    c.ui.select("#file-edit-as", "TOML").await;
+    shows(c, MAIN, "max_connections = ", "server.yaml shows as TOML").await;
+    key(c, MAIN, "z", "KeyZ", "ctrlKey: true,").await;
+    shows(c, MAIN, "max_connections: ", "Undo goes back to the YAML").await;
+    edit_as_follows_the_screen(c, "YAML", "after Undo the select shows the file's YAML").await;
+    c.ui.select("#file-edit-as", "TOML").await;
+    shows(
+        c,
+        MAIN,
+        "max_connections = ",
+        "picking TOML again switches again",
+    )
+    .await;
+    edit_as_follows_the_screen(c, "TOML", "TOML again").await;
+    c.ui.select("#file-edit-as", "YAML").await;
+    shows(c, MAIN, "max_connections: ", "back to YAML").await;
+    name_new_file(c, "blank").await;
+    c.ui.click("[data-testid=file-new-add]").await;
+    let blank = "server.d/blank.yaml";
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(blank)), SECS)
+        .await;
+    c.ui.select("#file-edit-as", "TOML").await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    edit_as_follows_the_screen(c, "TOML", "an empty file reads as TOML once asked").await;
+    c.ui.click(&close_of(blank)).await;
+    c.ui.wait_gone(&tab(blank), SECS).await;
+}
+
 fn text_goto(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         a_new_file_keeps_its_tab(c).await;
         a_file_removed_on_the_server_takes_its_edits(c).await;
+        undo_and_empty_follow_the_screen(c).await;
         matches_land_on_their_field(c).await;
         leaving_unwritten_text_asks(c).await;
         c.ui.assert_no_errors();

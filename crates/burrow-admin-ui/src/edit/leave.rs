@@ -51,22 +51,6 @@ impl TextEdit {
         let _ = self.unwritten();
     }
 
-    pub fn note_unwritten_on_unmount(&self) {
-        let Some(now) = self.live() else {
-            return;
-        };
-        let fresh: Vec<Unwritten> = self
-            .reported
-            .with_value(|r| now.into_iter().filter(|u| !r.contains(&u.name)).collect());
-        if !fresh.is_empty() {
-            self.held.update(|h| {
-                for u in fresh {
-                    h.insert(u.name.clone(), u);
-                }
-            });
-        }
-    }
-
     pub fn lose_unwritten(&self) {
         let mut all = self.held.try_update(std::mem::take).unwrap_or_default();
         if let Some(now) = self.live() {
@@ -288,7 +272,6 @@ mod tests {
         editor.with(|| {
             screen(t, now);
             on_cleanup(move || {
-                t.note_unwritten_on_unmount();
                 let _ = t.before_review.try_set_value(None);
             });
         });
@@ -298,19 +281,12 @@ mod tests {
     const LOST_TWO: &str = "The server changed; text that could not be saved yet is gone in server.d/a.yaml and server.yaml";
 
     #[test]
-    fn a_server_change_names_the_lost_text_when_the_editor_unmounts_first() {
+    fn a_server_change_after_the_unmount_names_what_the_last_check_held() {
         let t = TextEdit::new();
         t.open.set(true);
-        edited(t, &["server.yaml", "server.d/a.yaml"]);
+        edited(t, &["server.yaml"]);
         let editor = editor_mounted(t, vec![stuck("server.yaml", "TOML")]);
         t.note_unwritten();
-        screen(
-            t,
-            vec![
-                stuck("server.yaml", "TOML"),
-                stuck("server.d/a.yaml", "JSON"),
-            ],
-        );
         editor.cleanup();
         assert!(
             t.before_review.with_value(Option::is_none),
@@ -319,8 +295,9 @@ mod tests {
         t.lose_unwritten();
         assert_eq!(
             t.lost.get_untracked().as_deref(),
-            Some(LOST_TWO),
-            "the last keystrokes count too"
+            Some(
+                "The server changed; the TOML text in server.yaml that could not be saved as YAML yet is gone"
+            )
         );
         assert!(t.unsaved.get_untracked().is_empty());
         assert!(t.held.get_untracked().is_empty());

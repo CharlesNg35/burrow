@@ -487,6 +487,12 @@ fn load_schema(store: Store, have: String) {
         move |r| match r.map(serde_json::from_value::<SchemaReply>) {
             Ok(Ok(reply)) => {
                 if let Some(s) = reply.schema {
+                    if store
+                        .schema
+                        .with_untracked(|o| o.as_ref().is_some_and(|o| o.hash != s.hash))
+                    {
+                        store.text.lose_unwritten();
+                    }
                     store.schema.set(Some(Arc::new(s)));
                 }
                 load_state(store);
