@@ -398,8 +398,18 @@ fn check_service_lists(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
+    let mut by_client: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (service, svc) in services {
+        for c in &svc.clients {
+            let list = by_client.entry(c.as_str()).or_default();
+            if list.last() != Some(&service.as_str()) {
+                list.push(service.as_str());
+            }
+        }
+    }
     for name in clients.keys() {
-        let list = super::super::settings::services_for(services, name);
+        let mine = by_client.get(name.as_str()).map_or(&[][..], Vec::as_slice);
+        let list = super::super::settings::services_info(services, mine);
         let (count, size) = (
             list.len(),
             crate::wire::protocol::ServerMsg::Services(list)
