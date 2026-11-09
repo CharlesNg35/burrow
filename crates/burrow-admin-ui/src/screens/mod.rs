@@ -220,7 +220,7 @@ pub fn clear_of_bar() {
 
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
     view! {
-        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px)-var(--toast-pad,0px))] items-start max-lg:content-start lg:grid-cols-[380px_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-surface)_379px,var(--color-border)_379px,var(--color-border)_380px,transparent_380px)]">
+        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px)-var(--toast-pad,0px))] grid-cols-[minmax(0,1fr)] items-start max-lg:content-start lg:grid-cols-[380px_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-surface)_379px,var(--color-border)_379px,var(--color-border)_380px,transparent_380px)]">
             {list}
             {detail}
         </div>
