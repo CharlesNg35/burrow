@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-Drop-in config files: a server can keep services, clients and visitors in `server.d/*.yaml` next to `server.yaml` (see docs/configuration.md). burrow admin sets up Let's Encrypt and DNS providers and locks far fewer settings, `burrow mcp` can change the config by default for a write admin, and `burrow init --yes` asks nothing.
+## [0.2.4]
+
+Drop-in config files: a server can keep services, clients and visitors in `server.d/*.yaml` next to `server.yaml` (see docs/configuration.md). burrow admin edits the config as text (server.yaml and every drop-in, with schema checks and secrets kept on the server), sets up Let's Encrypt and DNS providers and locks far fewer settings, `burrow mcp` can change the config by default for a write admin, and `burrow init --yes` asks nothing.
 
 - **Drop-in files:** read in name order, only while the folder exists. They hold only `services`, `clients` and `visitors`; the same name in two files, a server-wide key or a file anyone can change is an error at its file and line.
 - **Errors name their file:** `burrow validate` lists the files read, each item's file and the read-only files; `burrow status` names a service's file.
