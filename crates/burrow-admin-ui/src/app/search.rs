@@ -248,13 +248,15 @@ pub(super) fn SearchPopover() -> impl IntoView {
     });
     let run = move |h: Hit| {
         s.search_open.set(false);
-        route::go(h.go.clone());
-        if let Some((k, v)) = h.query {
-            route::set_query(k, v);
-            if k == "new" {
-                s.creating.set(Some(h.go.section().to_string()));
+        let new = h
+            .query
+            .is_some_and(|(k, _)| k == "new")
+            .then(|| h.go.section().to_string());
+        route::go_then(s, h.go.clone(), h.query, move || {
+            if let Some(sec) = new.clone() {
+                s.creating.set(Some(sec));
             }
-        }
+        });
     };
     let body = move || {
         let list = hits.get();

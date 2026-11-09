@@ -153,6 +153,15 @@ async fn still_here(c: &Ctx) {
     );
 }
 
+async fn search_for(c: &Ctx, words: &str) {
+    c.ui.click("[data-testid=search-open]").await;
+    c.ui.fill("[data-testid=search] input", words).await;
+    c.ui.wait_for("[data-testid=search] [role=option] button", SECS)
+        .await;
+    c.ui.click("[data-testid=search] [role=option] button")
+        .await;
+}
+
 async fn two_files_hold_text(c: &mut Ctx) {
     let other = name(5);
     go_to(c, &other, &other).await;
@@ -223,6 +232,15 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     c.ui.click("[data-testid=settings-tabs] [role=tab]").await;
     leave_dialog(c).await;
     still_here(c).await;
+    search_for(c, "new service").await;
+    leave_dialog(c).await;
+    still_here(c).await;
+    assert!(
+        c.ui.eval::<String>("location.search")
+            .await
+            .contains("tab=file"),
+        "Stay on a search action keeps the address"
+    );
     let _: bool =
         c.ui.eval("(() => { history.back(); return true; })()")
             .await;
@@ -245,7 +263,7 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
         "the skip link goes nowhere, so nothing asks"
     );
     two_files_hold_text(c).await;
-    c.ui.click(SERVICES).await;
+    search_for(c, "rotate secret of home").await;
     c.ui.wait_for(LEAVE, SECS).await;
     let named = c.ui.text(LEAVE).await;
     assert!(
@@ -255,11 +273,24 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     phone_shot(c, "text-goto-leave-two").await;
     c.ui.click("[data-testid=file-leave-confirm]").await;
     c.ui.wait_true(
-        "location.pathname.includes('/services')",
-        "Leave goes where the user asked",
+        "location.pathname.endsWith('/clients/home') && location.search.includes('tab=secrets')",
+        "Leave goes where the search action asked, with its tab",
         SECS,
     )
     .await;
+    c.ui.click(SERVICES).await;
+    c.ui.wait_true(
+        "location.pathname.includes('/services')",
+        "on to Services",
+        SECS,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        c.ui.count("[data-testid=new-entity]").await,
+        0,
+        "the New service the user stayed away from does not open later"
+    );
     c.ui.nav("/settings?tab=file").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;

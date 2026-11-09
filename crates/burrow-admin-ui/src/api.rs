@@ -344,6 +344,19 @@ fn send(t: &str, body: Value, done: Done) -> Option<u32> {
     sent
 }
 
+fn file_editor_shown(store: Store) -> bool {
+    shows_file_editor(
+        store.text.open.get_untracked(),
+        &store.route.get_untracked(),
+        crate::route::query(crate::route::TAB_QUERY).as_deref(),
+    )
+}
+
+pub fn shows_file_editor(open: bool, route: &crate::route::Route, tab: Option<&str>) -> bool {
+    open && *route == crate::route::Route::Settings
+        && tab == Some(burrow_admin_logic::settings_tabs::Tab::File.key())
+}
+
 fn incoming(store: Store, text: &str) {
     match Incoming::parse(text) {
         Some(Incoming::Reply { re, result }) => {
@@ -403,7 +416,7 @@ fn event(store: Store, ev: &str, body: Value) {
                         store.changed_from.set((old, js_sys::Date::now()));
                         store.note_rev(&c.rev);
                         store.changed.set(Some(c));
-                    } else if !untrack(|| store.text.dirty()) {
+                    } else if !(untrack(|| store.text.dirty()) && file_editor_shown(store)) {
                         let by = if c.by.is_empty() || c.by == "file" {
                             "by a hand edit".to_string()
                         } else {
@@ -551,6 +564,24 @@ pub fn load_history(store: Store) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_config_changed_toast_waits_only_on_the_open_text_editor() {
+        use crate::route::Route;
+        assert!(shows_file_editor(true, &Route::Settings, Some("file")));
+        assert!(
+            !shows_file_editor(true, &Route::Settings, Some("server")),
+            "another Settings tab"
+        );
+        assert!(
+            !shows_file_editor(true, &Route::Overview, None),
+            "another page"
+        );
+        assert!(
+            !shows_file_editor(false, &Route::Settings, Some("file")),
+            "the editor is closed"
+        );
+    }
 
     #[test]
     fn a_tab_keeps_retrying_every_2_s_for_5_minutes_after_burrow_admin_stops() {

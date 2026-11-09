@@ -112,6 +112,15 @@ impl TextEdit {
         self.active.set(name.to_string());
     }
 
+    pub fn used(&self, name: &str) {
+        if self
+            .recent
+            .with_untracked(|r| r.first().map(String::as_str) != Some(name))
+        {
+            self.recent.update(|r| *r = used(r, name));
+        }
+    }
+
     pub fn open_at(&self, name: &str, spot: Spot) {
         self.open_file(name);
         self.spot.set(Some((name.to_string(), spot)));
@@ -332,6 +341,39 @@ mod tests {
             "an edit kept in TextEdit asks too"
         );
         assert_eq!(t.recent.get_untracked()[0], "server.d/a.yaml");
+    }
+
+    #[test]
+    fn a_tab_picked_in_the_strip_counts_as_used() {
+        use burrow_admin_proto::text_edit::{EditFile, EditText};
+        let t = TextEdit::new();
+        let files: Vec<String> = many(MAX_TABS + 1);
+        t.loaded.set(Some(Ok(std::sync::Arc::new(EditText {
+            files: files
+                .iter()
+                .map(|n| EditFile {
+                    name: n.clone(),
+                    text: "a: 1\n".into(),
+                    read_only: None,
+                })
+                .collect(),
+            ..EditText::default()
+        }))));
+        t.tabs.set(names(&["server.yaml"]));
+        for f in &files[1..MAX_TABS] {
+            t.open_file(f);
+        }
+        t.used("server.d/1.yaml");
+        t.open_file(&files[MAX_TABS]);
+        let open = t.tabs.get_untracked();
+        assert!(
+            open.contains(&"server.d/1.yaml".to_string()),
+            "just used: stays"
+        );
+        assert!(
+            !open.contains(&"server.d/2.yaml".to_string()),
+            "the oldest unused closes: {open:?}"
+        );
     }
 
     #[test]
