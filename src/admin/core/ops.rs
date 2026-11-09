@@ -196,9 +196,15 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
             }
         }
     }
-    if document.is_some() && ops.len() > 1 {
+    let others = ops
+        .iter()
+        .filter(|o| {
+            !(matches!(o, Op::DropFile { .. }) && matches!(document, Some(Document::Edited(_))))
+        })
+        .count();
+    if document.is_some() && others > 1 {
         return Err(err(
-            "replace_document and replace_text must be the only operation",
+            "replace_document and replace_text must be the only operation, besides drop_file with replace_text",
         ));
     }
     Ok(Applied {

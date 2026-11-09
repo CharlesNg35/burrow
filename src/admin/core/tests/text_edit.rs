@@ -150,7 +150,7 @@ fn replace_text_stands_alone_and_names_only_files_burrow_can_use() {
         (e.code, e.message.as_str()),
         (
             ErrorCode::BadRequest,
-            "replace_text must be the only operation"
+            "replace_text goes alone, or with drop_file for files it leaves empty"
         )
     );
     let other = vec![Op::ReplaceText {

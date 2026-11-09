@@ -171,10 +171,13 @@ fn sent(ops: &[Op]) -> Result<Option<&[TextFile]>, ApiError> {
     }) else {
         return Ok(None);
     };
-    if ops.len() > 1 {
+    if ops
+        .iter()
+        .any(|o| !matches!(o, Op::ReplaceText { .. } | Op::DropFile { .. }))
+    {
         return Err(ApiError::new(
             ErrorCode::BadRequest,
-            "replace_text must be the only operation",
+            "replace_text goes alone, or with drop_file for files it leaves empty",
         ));
     }
     Ok(Some(files))

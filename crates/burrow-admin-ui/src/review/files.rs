@@ -6,32 +6,64 @@ use leptos::prelude::*;
 use crate::screens::activity::diff_lines;
 use crate::store::store;
 
-pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: bool) -> AnyView {
-    let s = store();
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum Offer {
+    Not,
+    Draft,
+    Text,
+}
+
+impl Offer {
+    fn on(self) -> bool {
+        self != Offer::Not
+    }
+
+    fn dropped(self, file: &str) -> bool {
+        let s = store();
+        match self {
+            Offer::Not => false,
+            Offer::Draft => s.edit.files.with_untracked(|m| m.drops.contains(file)),
+            Offer::Text => s.text.drops.with_untracked(|d| d.contains(file)),
+        }
+    }
+
+    fn set(self, file: &str, drop: bool) {
+        let s = store();
+        match self {
+            Offer::Not => {}
+            Offer::Draft => s.edit.drop_file(file, drop),
+            Offer::Text => {
+                s.text.drop_file(file, drop);
+                s.edit.open_text(s);
+            }
+        }
+    }
+}
+
+pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: Offer) -> AnyView {
     files
         .iter()
         .map(|f| {
             let lines = diff_lines(&f.diff);
             let same = f.change == FileChange::Same;
             let head = format!("{}: {}", f.file, change_label(&f.change));
-            let empty = (offer && f.left_empty == Some(true)).then(|| {
+            let empty = (offer.on() && f.left_empty == Some(true)).then(|| {
                 let file = f.file.clone();
                 view! {
                     <div class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5 text-[13px] text-text-muted" data-testid="empty-file">
                         <span>{empty_offer(&file)}</span>
                         <span class="ml-auto"></span>
-                        <Button label=format!("Delete {file}") variant=burrow_ui_kit::ButtonLook::Secondary testid="drop-file" on_click=move |_| s.edit.drop_file(&file, true)/>
+                        <Button label=format!("Delete {file}") variant=burrow_ui_kit::ButtonLook::Secondary testid="drop-file" on_click=move |_| offer.set(&file, true)/>
                     </div>
                 }
             });
-            let kept = (offer && f.change == FileChange::Remove
-                && s.edit.files.with_untracked(|m| m.drops.contains(&f.file)))
+            let kept = (f.change == FileChange::Remove && offer.dropped(&f.file))
             .then(|| {
                 let file = f.file.clone();
                 view! {
                     <div class="flex items-center gap-2 border-t border-border px-4 py-2.5 text-[13px]">
                         <span class="ml-auto"></span>
-                        <Button label="Keep the empty file" variant=burrow_ui_kit::ButtonLook::Ghost testid="keep-file" on_click=move |_| s.edit.drop_file(&file, false)/>
+                        <Button label="Keep the empty file" variant=burrow_ui_kit::ButtonLook::Ghost testid="keep-file" on_click=move |_| offer.set(&file, false)/>
                     </div>
                 }
             });

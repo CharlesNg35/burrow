@@ -68,6 +68,55 @@ fn an_item_moved_to_another_file_keeps_its_secret() {
     assert_eq!(set.read(SPARE).unwrap(), "# kept apart\n");
 }
 
+fn emptied(set: &Set, s: &crate::admin::core::Session) -> Vec<Op> {
+    let t = edit_text(&set.core, s);
+    let shown = t.files[1].text.clone();
+    let block = shown.split_once("clients:\n").unwrap().1.to_string();
+    replace(&t, |x| {
+        if x == shown {
+            "# kept apart\n".to_string()
+        } else {
+            x.replace("clients:\n", &format!("clients:\n{block}"))
+        }
+    })
+}
+
+#[test]
+fn a_drop_in_emptied_in_the_text_is_offered_for_deletion_and_deleted_with_the_same_change() {
+    let secret = Secret::generate();
+    let set = Set::new(&[("spare.yaml", &spare(&secret))]);
+    let s = set.session(true);
+    let mut ops = emptied(&set, &s);
+    let plan = set.plan(&s, &ops).unwrap();
+    let offer = plan.files.iter().find(|f| f.file == SPARE).unwrap();
+    assert_eq!(offer.left_empty, Some(true), "Review offers to delete it");
+    ops.push(Op::DropFile { file: SPARE.into() });
+    let plan = set.plan(&s, &ops).unwrap();
+    assert!(
+        plan.changes
+            .iter()
+            .any(|c| c.summary == format!("deletes {SPARE}, which holds nothing any more")),
+        "{:?}",
+        plan.changes
+    );
+    set.apply(&s, &ops).unwrap();
+    assert_eq!(set.read(SPARE), None, "the emptied drop-in is gone");
+    assert!(set.read("server.yaml").unwrap().contains("  spare:\n"));
+}
+
+#[test]
+fn a_text_change_may_not_delete_a_drop_in_that_still_holds_items() {
+    let set = Set::new(&[("apps.yaml", BLOG)]);
+    let s = set.session(true);
+    let t = edit_text(&set.core, &s);
+    let mut ops = replace(&t, |x| x.replace("3001", "3002"));
+    ops.push(Op::DropFile {
+        file: "server.d/apps.yaml".into(),
+    });
+    let e = set.plan(&s, &ops).unwrap_err();
+    assert!(e.message.contains("still holds items"), "{}", e.message);
+}
+
 #[test]
 fn a_read_only_file_is_marked_and_a_change_to_it_is_refused() {
     let set = Set::new(&[("apps.yaml", BLOG)]);

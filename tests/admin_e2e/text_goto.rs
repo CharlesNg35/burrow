@@ -6,7 +6,7 @@ use super::text_edit::{
     replace_in, show, start, tab,
 };
 use super::text_tabs::{name, opts, tabs};
-use super::{Ctx, SECS, open, run};
+use super::{Ctx, SECS, apply_now, open, run};
 
 const SERVICES: &str = "nav[aria-label=Sections] a[href$='/services']";
 
@@ -330,6 +330,37 @@ async fn undo_and_empty_follow_the_screen(c: &mut Ctx) {
     c.ui.wait_gone(&tab(blank), SECS).await;
 }
 
+async fn an_emptied_drop_in_is_deleted_from_a_text_review(c: &mut Ctx) {
+    let gone = name(11);
+    show(c, &gone).await;
+    let text: String =
+        c.ui.eval(&format!(
+            "document.querySelector({}).value",
+            js(&input(&gone))
+        ))
+        .await;
+    replace_in(c, &gone, &text, "# nothing here any more\n").await;
+    dirty(c, &gone, true).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    c.ui.click("[data-testid=file-review]").await;
+    let offer = format!("[data-testid=file-diff][data-file='{gone}'] [data-testid=drop-file]");
+    c.ui.wait_for(&offer, SECS).await;
+    c.ui.click(&offer).await;
+    c.ui.wait_text("[data-testid=review]", &format!("{gone}: deleted"), SECS)
+        .await;
+    c.ui.wait_for(
+        &format!("[data-testid=file-diff][data-file='{gone}'] [data-testid=keep-file]"),
+        SECS,
+    )
+    .await;
+    c.ui.fill("[data-confirm=svc11]", "svc11").await;
+    apply_now(c, "Applied").await;
+    assert!(
+        !c.world.file(&gone).exists(),
+        "the drop-in emptied in the text is deleted with the same change"
+    );
+}
+
 fn text_goto(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -338,6 +369,8 @@ fn text_goto(c: &mut Ctx) -> Flow<'_> {
         undo_and_empty_follow_the_screen(c).await;
         matches_land_on_their_field(c).await;
         unwritten_text_comes_back(c).await;
+        start(c).await;
+        an_emptied_drop_in_is_deleted_from_a_text_review(c).await;
         c.ui.assert_no_errors();
     })
 }

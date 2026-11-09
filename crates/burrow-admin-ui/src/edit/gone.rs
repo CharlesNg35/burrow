@@ -51,6 +51,9 @@ impl TextEdit {
         if self.held.with_untracked(|h| h.keys().any(|n| !exists(n))) {
             self.held.update(|h| h.retain(|n, _| exists(n)));
         }
+        if self.drops.with_untracked(|d| d.iter().any(|n| !exists(n))) {
+            self.drops.update(|d| d.retain(exists));
+        }
         for map in [self.edit_as, self.shown] {
             if map.with_untracked(|m| m.keys().any(|n| !exists(n))) {
                 map.update(|m| m.retain(|n, _| exists(n)));

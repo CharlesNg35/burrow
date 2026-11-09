@@ -324,10 +324,7 @@ pub fn write(
     for (i, (doc, target)) in docs.iter().zip(&targets).enumerate() {
         if moves.drops.contains(&doc.name) {
             if i == 0 || holds_items(target) {
-                return Err(WriteError::Bad(format!(
-                    "{} cannot be deleted: it still holds items",
-                    doc.name
-                )));
+                return Err(still_holds(&doc.name));
             }
             continue;
         }
@@ -367,13 +364,40 @@ pub fn write(
         });
     }
     if let Some(gone) = moves.drops.iter().find(|d| base.get(d).is_none()) {
-        return Err(WriteError::Bad(format!(
-            "{gone} is not one of the config files"
-        )));
+        return Err(not_a_file(gone));
     }
     Ok(Written {
         docs: Docs { list },
         reformat,
+    })
+}
+
+fn still_holds(file: &str) -> WriteError {
+    WriteError::Bad(format!("{file} cannot be deleted: it still holds items"))
+}
+
+fn not_a_file(file: &str) -> WriteError {
+    WriteError::Bad(format!("{file} is not one of the config files"))
+}
+
+pub fn drop_edited(base: &Docs, edited: &Docs, drops: &[String]) -> Result<Docs, WriteError> {
+    if let Some(gone) = drops.iter().find(|d| base.get(d).is_none()) {
+        return Err(not_a_file(gone));
+    }
+    let main = &edited.main().name;
+    if let Some(full) = drops
+        .iter()
+        .find(|d| *d == main || edited.text_of(d).is_some_and(|t| !empty_of_items(t)))
+    {
+        return Err(still_holds(full));
+    }
+    Ok(Docs {
+        list: edited
+            .list
+            .iter()
+            .filter(|d| !drops.contains(&d.name))
+            .cloned()
+            .collect(),
     })
 }
 
