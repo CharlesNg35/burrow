@@ -118,7 +118,10 @@ pub(super) fn new_document(
     };
     let mut kept = Vec::new();
     let (new_docs, reformat) = match &applied.document {
-        Some(ops::Document::Edited(doc)) => (doc.clone(), None),
+        Some(ops::Document::Edited(doc)) => (
+            files::drop_edited(old_docs, doc, &applied.drops).map_err(failed)?,
+            None,
+        ),
         Some(ops::Document::Restored(doc)) => {
             let (target, notes) = keep_locked(&core.schema, raw, &applied.target);
             kept = notes;

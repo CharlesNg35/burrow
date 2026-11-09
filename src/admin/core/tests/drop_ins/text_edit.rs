@@ -93,7 +93,9 @@ fn a_drop_in_emptied_in_the_text_is_offered_for_deletion_and_deleted_with_the_sa
     ops.push(Op::DropFile { file: SPARE.into() });
     let plan = set.plan(&s, &ops).unwrap();
     assert!(
-        plan.changes.iter().any(|c| c.summary == format!("deletes {SPARE}, which holds nothing any more")),
+        plan.changes
+            .iter()
+            .any(|c| c.summary == format!("deletes {SPARE}, which holds nothing any more")),
         "{:?}",
         plan.changes
     );
