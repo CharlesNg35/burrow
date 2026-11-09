@@ -333,7 +333,7 @@ Requests:
 - `update_server` (feature `server.updates`): have the server's root updater install the latest release; `dry_run` only says from which version to which, or why it cannot.
 - `config_view` (feature `config.view`): the config as YAML text with secrets as fingerprints, as the Config file tab shows it.
 - `check_text` (feature `config.check-text`): check a config or a fragment of up to 4 MiB with the server's own validation, writing nothing; open to `admin: read` too.
-- `config_text` (feature `config.text`): every config file's exact text for the text editor, with each secret replaced by a placeholder like `«secret 3f2a9c1d»`, the files' revision, which files are read-only, the editor's JSON Schema, and `drop_in_schema`, the same schema for a drop-in (only `services`, `clients` and `visitors`); open to `admin: read` too.
+- `config_text` (feature `config.text`): every config file's exact text for the text editor, with each secret replaced by a placeholder like `«secret 3f2a9c1d»`: `{}` gives `{rev, schema_hash, schema, placeholder, files: [{name, text, read_only?}], drop_in_schema}`. `rev` is the files' revision, `schema` the editor's JSON Schema, `placeholder` the placeholders' pattern (`«secret [0-9a-f]{8}»`), `read_only` says why a file cannot be written, and `drop_in_schema` is the same schema for a drop-in (only `services`, `clients` and `visitors`); open to `admin: read` too.
 - `search_text` (feature `config.search-text`): find text in the files as `config_text` shows them, secrets masked: `{query, limit?}` gives `{rev, matches: [{file, line, col, end_col, excerpt}], more, unsearchable?}`. The match ignores case and stays on one line; lines and columns count from 1 as the admin's editor counts them (a byte-order mark is the first character of line 1; CRLF, LF and a lone CR each end a line); `limit` is 50 by default and at most 200, and `more` says there were more; a file that does not parse is listed in `unsearchable` instead of being searched; open to `admin: read` too.
 - `ping`.
 
@@ -357,7 +357,7 @@ Every optional capability is behind a feature string; a caller uses it only when
 | `suggest.free-port` | the `suggest` request: a free port on the server, or a free name |
 | `history` | the `history` request |
 | `revert` | the `revert` request |
-| `ops.rename` | the `rename` operation, optionally with its references |
+| `ops.rename` | the `rename` operation, optionally with its references; a `history` entry lists its change's renames in `renames`, each `[path, new name]` with the old name last in the path |
 | `ops.set-text` | the `set_text` operation |
 | `upload` | the `upload` request (a certificate, CA or revocation list kept on the server) |
 | `passwords` | the `hash_password` request and the `password_set` operation |
