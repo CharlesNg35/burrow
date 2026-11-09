@@ -169,15 +169,11 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     c.ui.click("[data-testid=file-keep]").await;
     c.ui.click("[data-testid=settings-tabs] [role=tab][aria-selected=true]")
         .await;
-    let _: bool = c
-        .ui
-        .eval("(() => { document.querySelector('a[href=\"#main\"]').click(); return true; })()")
-        .await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(
         c.ui.count(LEAVE).await,
         0,
-        "the tab already shown and the skip link go nowhere, so nothing asks"
+        "the tab already shown goes nowhere, so nothing asks"
     );
     c.ui.click(SERVICES).await;
     leave_dialog(c).await;
@@ -197,6 +193,16 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
             .await
             .contains("tab=file"),
         "Stay keeps the address of the Config file tab"
+    );
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector('a[href=\"#main\"]').click(); return true; })()")
+        .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        c.ui.count(LEAVE).await,
+        0,
+        "the skip link goes nowhere, so nothing asks"
     );
     c.ui.click(SERVICES).await;
     c.ui.wait_for(LEAVE, SECS).await;
