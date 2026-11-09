@@ -76,9 +76,12 @@ async fn titled(c: &Ctx, css: &str, full: &str, step: &str) {
     assert!(ok, "{step}: {css} holds the full name {full} in a title");
 }
 
-async fn both_widths(c: &mut Ctx, step: &str, check: &[(&str, &str)]) {
+async fn both_widths(c: &mut Ctx, step: &str, path: &str, check: &[(&str, &str)]) {
     for w in [1440, 390] {
         c.ui.viewport(w, 900).await;
+        if !path.is_empty() {
+            c.ui.nav(path).await;
+        }
         tokio::time::sleep(Duration::from_millis(300)).await;
         fits(c, &format!("{step} at {w}px")).await;
         for (css, full) in check {
@@ -106,6 +109,7 @@ async fn the_detail_page_keeps_its_actions(c: &mut Ctx) {
     both_widths(
         c,
         "long-name-detail",
+        "",
         &[("[data-testid=file-tag]", &stem("-lock"))],
     )
     .await;
@@ -117,7 +121,15 @@ async fn the_list_groups_by_file(c: &mut Ctx) {
     centred(c, "the group header lock").await;
     for w in [1440, 390] {
         c.ui.viewport(w, 900).await;
+        c.ui.nav("/services").await;
+        c.ui.wait_for("[data-testid=entity-list] [data-testid=file-group]", SECS)
+            .await;
         tokio::time::sleep(Duration::from_millis(300)).await;
+        let shown: u64 = c
+            .ui
+            .eval("[...document.querySelectorAll('[data-testid=file-group]')].filter(g => g.getBoundingClientRect().width > 0).length")
+            .await;
+        assert!(shown >= 3, "the group headers show at {w}px: {shown}");
         let hidden: Vec<String> = c
             .ui
             .eval("[...document.querySelectorAll('[data-testid=file-group]')].filter(g => g.getBoundingClientRect().width > 0).flatMap(g => { const r = g.getBoundingClientRect(); return [...g.querySelectorAll('[data-testid=group-count], [data-testid=group-problems], svg')].filter(e => { const b = e.getBoundingClientRect(); return b.width === 0 || b.right > r.right + 1 || b.left < r.left - 1; }).map(e => g.dataset.file + ' ' + (e.dataset.testid || e.tagName)); })")
@@ -130,6 +142,7 @@ async fn the_list_groups_by_file(c: &mut Ctx) {
     both_widths(
         c,
         "long-name-list",
+        "/services",
         &[("[data-testid=file-group]", &stem("-lock"))],
     )
     .await;
@@ -142,6 +155,7 @@ async fn settings_files(c: &mut Ctx) {
     both_widths(
         c,
         "long-name-files",
+        "",
         &[("[data-testid=config-file]", &stem("-edit"))],
     )
     .await;
@@ -151,7 +165,7 @@ async fn editor_and_review(c: &mut Ctx) {
     start(c).await;
     let file = editable();
     go_to(c, &file, &file).await;
-    both_widths(c, "long-name-editor", &[]).await;
+    both_widths(c, "long-name-editor", "", &[]).await;
     let ok: bool = c
         .ui
         .eval(&format!(
@@ -163,7 +177,7 @@ async fn editor_and_review(c: &mut Ctx) {
     tokio::time::sleep(Duration::from_millis(1000)).await;
     c.ui.click("[data-testid=file-review]").await;
     c.ui.wait_for("[data-testid=file-diff]", SECS).await;
-    both_widths(c, "long-name-review", &[]).await;
+    both_widths(c, "long-name-review", "", &[]).await;
 }
 
 fn long_names(c: &mut Ctx) -> Flow<'_> {
