@@ -398,3 +398,18 @@ fn a_comment_placeholder_stays_in_its_own_file() {
         problems[0].message
     );
 }
+
+#[test]
+fn two_secrets_with_one_fingerprint_in_one_field_are_never_swapped() {
+    let mut ids = Ids::default();
+    ids.same_fingerprint = true;
+    let (a, b) = (Secret::generate().encode(), Secret::generate().encode());
+    let text = format!(
+        "listen: 7835\nclients:\n  - name: one\n    secret: {a}\n  - name: two\n    secret: {b}\nservices:\n  web: {{ client: one, target: 3000 }}\n"
+    );
+    let m = masked(&text, false, &ids);
+    let ids_seen: Vec<&str> = m.text.split("«secret ").skip(1).map(|r| &r[..8]).collect();
+    assert_eq!(ids_seen.len(), 2, "{}", m.text);
+    assert_ne!(ids_seen[0], ids_seen[1], "{}", m.text);
+    assert_eq!(back(&m.text, &m).unwrap(), text);
+}

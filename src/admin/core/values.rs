@@ -325,24 +325,34 @@ pub struct Hidden {
 
 impl Hidden {
     pub fn in_texts(texts: &[&str], root: &Node) -> Hidden {
+        let parsed: Vec<(crate::config::tree::Node, Vec<String>)> = texts
+            .iter()
+            .filter_map(|t| {
+                let (_, _, src) = crate::config::patch::split_text(t);
+                let tree = crate::config::tree::parse(&src).ok()?;
+                let fields = super::text_edit::hidden_values(&tree, &src, root);
+                Some((tree, fields))
+            })
+            .collect();
+        Hidden::of_trees(parsed.iter().map(|(t, f)| (t, f.as_slice())), root)
+    }
+
+    pub fn of_trees<'a>(
+        parts: impl IntoIterator<Item = (&'a crate::config::tree::Node, &'a [String])>,
+        root: &Node,
+    ) -> Hidden {
         let mut out = Hidden {
             hashes: Vec::new(),
             headers: Vec::new(),
             values: Vec::new(),
         };
-        for t in texts {
-            let (_, _, src) = crate::config::patch::split_text(t);
-            if let Ok(tree) = crate::config::tree::parse(&src) {
-                let v = tree.to_json();
-                hashes(&v, Some(root), &mut out.hashes);
-                header_values(&v, &mut out.headers);
-                credentials(&v, Some(root), "", &mut out.headers);
-                out.values.extend(
-                    super::text_edit::hidden_values(&tree, &src, root)
-                        .into_iter()
-                        .filter(|v| Secret::parse(v).is_err()),
-                );
-            }
+        for (tree, fields) in parts {
+            let v = tree.to_json();
+            hashes(&v, Some(root), &mut out.hashes);
+            header_values(&v, &mut out.headers);
+            credentials(&v, Some(root), "", &mut out.headers);
+            out.values
+                .extend(fields.iter().filter(|v| Secret::parse(v).is_err()).cloned());
         }
         out
     }

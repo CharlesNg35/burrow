@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use blake2::digest::{KeyInit, Mac};
 use burrow_admin_proto::schema::Node as SchemaNode;
@@ -12,21 +12,51 @@ use crate::wire::secret::Secret;
 
 pub struct Ids {
     key: [u8; 32],
+    #[cfg(test)]
+    pub same_fingerprint: bool,
 }
 
 impl Default for Ids {
     fn default() -> Ids {
         let mut key = [0u8; 32];
         getrandom::fill(&mut key).expect("operating system random source is available");
-        Ids { key }
+        Ids {
+            key,
+            #[cfg(test)]
+            same_fingerprint: false,
+        }
     }
 }
+
+pub type Taken = HashMap<(Place, String), String>;
 
 impl Ids {
     pub fn of(&self, place: &Place, value: &str) -> String {
         if let Ok(s) = Secret::parse(value) {
+            #[cfg(test)]
+            if self.same_fingerprint {
+                return "00000000".into();
+            }
             return s.fingerprint();
         }
+        self.mac(place, value)
+    }
+
+    pub fn free(&self, place: &Place, value: &str, taken: &mut Taken) -> String {
+        let mut id = self.of(place, value);
+        let mut n = 0u32;
+        while taken
+            .get(&(place.clone(), id.clone()))
+            .is_some_and(|v| v != value)
+        {
+            n += 1;
+            id = self.mac(place, &format!("{value}\u{0}{n}"));
+        }
+        taken.insert((place.clone(), id.clone()), value.to_string());
+        id
+    }
+
+    fn mac(&self, place: &Place, value: &str) -> String {
         let mut mac =
             <blake2::Blake2sMac256 as KeyInit>::new_from_slice(&self.key).expect("a 32-byte key");
         let place = place.key();
@@ -101,6 +131,8 @@ pub type Table = BTreeMap<(Place, String), Kept>;
 pub struct Masked {
     pub text: String,
     pub kept: Vec<((Place, String), Kept)>,
+    pub tree: Node,
+    pub fields: Vec<String>,
 }
 
 pub fn indent_at(body: &str, at: usize) -> usize {
@@ -129,7 +161,7 @@ pub struct Named<'a> {
 }
 
 pub fn mask(file: Named, text: &str, root: &SchemaNode, ids: &Ids) -> Result<Masked, String> {
-    mask_renamed(file, text, root, ids, &[])
+    mask_renamed(file, text, root, ids, &[], &mut Taken::new())
 }
 
 fn renamed(place: &Place, renames: &[Rename]) -> Place {
@@ -154,6 +186,7 @@ pub fn mask_renamed(
     root: &SchemaNode,
     ids: &Ids,
     renames: &[Rename],
+    taken: &mut Taken,
 ) -> Result<Masked, String> {
     let json = file.format == Format::Json;
     let (bom, body) = split_bom(text);
@@ -165,13 +198,17 @@ pub fn mask_renamed(
     let mut out = String::with_capacity(text.len());
     out.push_str(bom);
     let mut kept = Vec::new();
+    let mut fields = Vec::new();
     let mut at = 0;
     for s in spots(&tree, body, root, file.name) {
+        if matches!(s.place, Place::Field(_)) {
+            fields.push(s.value.clone());
+        }
         if s.range.start < at || s.range.is_empty() {
             continue;
         }
         let written = &body[s.range.clone()];
-        let id = ids.of(&renamed(&s.place, renames), &s.value);
+        let id = ids.free(&renamed(&s.place, renames), &s.value, taken);
         let token = match s.place {
             Place::Comment(_) => placeholder(&id),
             Place::Field(_) => Style::of(written).token(&id, json),
@@ -191,5 +228,10 @@ pub fn mask_renamed(
         at = s.range.end;
     }
     out.push_str(&body[at..]);
-    Ok(Masked { text: out, kept })
+    Ok(Masked {
+        text: out,
+        kept,
+        tree,
+        fields,
+    })
 }
