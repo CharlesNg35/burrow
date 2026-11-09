@@ -346,17 +346,31 @@ Events:
 - `revoked`: the caller lost its admin right, its secret, its visitor or its source, or its admin level changed; end-of-stream follows.
 - `bye`: the server stops.
 
-Additions since v0.1.2, each behind its feature string:
+Every optional capability is behind a feature string; a caller uses it only when `welcome` lists it:
 
 | Feature | Adds |
 |---|---|
+| `status.stream` | `subscribe` and the `status` event |
+| `config.events` | the `config` event when the file changes |
+| `secret.generate` | the `generate_secret` request: the server makes a secret and keeps it behind a handle |
+| `connect.snippets` | the `connect_info` request: the commands and files to connect a client or visitor |
+| `suggest.free-port` | the `suggest` request: a free port on the server, or a free name |
+| `history` | the `history` request |
+| `revert` | the `revert` request |
+| `ops.rename` | the `rename` operation, optionally with its references |
+| `ops.set-text` | the `set_text` operation |
 | `upload` | the `upload` request (a certificate, CA or revocation list kept on the server) |
 | `passwords` | the `hash_password` request and the `password_set` operation |
 | `local-ca` | the `local_ca` request (the local CA's certificate) |
 | `history.ids` | `id` on each history entry and `history {entry: id}`; without it a caller asks `history {diff: rev}`, which still means the newest entry with that revision |
 | `client.allow` | `allow` on each connected client in the `status` event: the Allow list (`0x82`) of its session, `["any"]` for `allow_all`, left out until the client sent one; without the feature a caller shows the list as unknown |
 | `config.files` | [drop-in files](configuration.md#drop-in-files): `file.files` in `state` (each file, its items and why it is read-only), one diff per file in a plan and in `history`, and the `place` and `drop_file` operations. A caller that lists `config.files` in `understands` of its `welcome` request may change items in drop-in files; the server answers `not-writable` to any other caller's change there |
+| `client.updates` | the `update_clients` request |
+| `server.updates` | the `update_server` request |
+| `config.view` | the `config_view` request |
+| `config.check-text` | the `check_text` request |
 | `config.text` | the `config_text` request and the `replace_text` operation: whole file texts back from the editor, and a text under a new name makes that drop-in, checked as `place` checks a new file (an empty one makes none). It is the only operation of its change; each placeholder must stand where the file had it (in any file), else the change is refused as `invalid` with one diagnostic per placeholder. Diagnostics may carry `end_line` and `end_col` |
+| `config.search-text` | the `search_text` request |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 

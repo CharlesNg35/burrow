@@ -163,7 +163,7 @@ cargo test --release --test heavy -- --ignored --nocapture --test-threads 1
 | `BURROW_CHURN_ROUNDS`, `BURROW_CHURN_CONNS` | `20`, `2000` | rounds and connections per round of the churn tests |
 | `BURROW_TEST_TRANSPORT` | `tcp` | `ws` runs them over WebSocket |
 
-The admin side has one measurement of its own: a server config with 100 drop-in files and 1000 services, clients and visitors with secrets. It prints how long opening the text editor (`config_text`), a `search_text`, the live check and Review of a one-file text edit, Apply and `check_docs` take, and how big the replies are:
+The admin side has one measurement of its own: a server config with 100 drop-in files, 1000 services, 200 clients and 100 visitors with secrets. It prints how long opening the text editor (`config_text`), a `search_text`, the live check and Review of a one-file text edit, Apply and `check_docs` take, and how big the replies are:
 
 ```sh
 cargo test --release -p burrow --lib scale -- --ignored --nocapture
@@ -184,7 +184,7 @@ cargo clippy --locked -p burrow --all-targets --no-default-features -- -D warnin
 cargo clippy --locked -p burrow-admin-ui -p burrow-ui-kit -p burrow-config --target wasm32-unknown-unknown -- -D warnings
 cargo xtask arch-check
 cargo audit
-cargo deny check advisories bans licenses sources
+cargo deny --workspace --locked check advisories bans licenses sources
 ```
 
 - `cargo xtask arch-check` checks the file sizes, the comment rule and the layers of [CONTRIBUTING.md](../CONTRIBUTING.md).
