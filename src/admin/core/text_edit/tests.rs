@@ -199,6 +199,10 @@ fn a_placeholder_anywhere_but_its_own_field_is_refused_and_named() {
         .text
         .replace(&format!("{home} # rotated"), &format!("\"x{home}\""));
     assert!(refused(&partial, &m).contains("stands for a whole value"));
+    let glued = m
+        .text
+        .replace(&format!("{home} # rotated"), &format!("{home}Z # rotated"));
+    assert!(refused(&glued, &m).contains("stands for a whole value"));
     let as_key = format!("{}\n{home}: 1\n", m.text);
     assert!(refused(&as_key, &m).contains("cannot be a key"));
     let other_field = m

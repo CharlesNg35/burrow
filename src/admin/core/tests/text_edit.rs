@@ -561,3 +561,64 @@ fn a_weak_secret_leaves_every_structural_field_as_it_is() {
             .all(|d| !d.code.contains("«") && d.path.iter().flatten().all(|k| !k.contains("«")))
     );
 }
+
+#[test]
+fn a_list_item_holding_a_secret_moves_with_its_secret_through_the_plan() {
+    let mut w = world();
+    let spare = crate::wire::secret::Secret::generate();
+    w.text = w.text.replace(
+        &format!("    secret: {}\n", w.home.encode()),
+        &format!(
+            "    secret:\n      - {}\n      - {}\n",
+            w.home.encode(),
+            spare.encode()
+        ),
+    );
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let t = edit_text(&core, &s);
+    let (a, b) = (
+        format!("      - «secret {}»\n", w.home.fingerprint()),
+        format!("      - «secret {}»\n", spare.fingerprint()),
+    );
+    let ops = replace(&t, |x| x.replace(&format!("{a}{b}"), &format!("{b}{a}")));
+    let plan = applied(&core, &s, &ops);
+    assert!(plan.valid, "{:?}", plan.diags);
+    let now = core.read().unwrap();
+    assert!(
+        now.contains(&format!(
+            "    secret:\n      - {}\n      - {}\n",
+            spare.encode(),
+            w.home.encode()
+        )),
+        "{now}"
+    );
+}
+
+#[test]
+fn a_key_moved_with_its_comment_is_a_layout_change_in_review() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let t = edit_text(&core, &s);
+    let ops = replace(&t, |x| {
+        let at = x.find("clients:\n").unwrap();
+        let end = x.find("visitors:\n").unwrap();
+        let (block, rest) = (&x[at..end], format!("{}{}", &x[..at], &x[end..]));
+        format!("{rest}\n{}", block.trim_end())
+    });
+    let plan = applied(&core, &s, &ops);
+    let lines: Vec<&str> = plan.changes.iter().map(|c| c.summary.as_str()).collect();
+    assert_eq!(lines, ["server.yaml: comments or layout changed"]);
+    let now = core.read().unwrap();
+    assert!(
+        now.find("visitors:").unwrap() < now.find("  # the home box\n  home:").unwrap(),
+        "the block moved with its comment: {now}"
+    );
+    assert!(now.contains(&w.home.encode()), "its secret came back");
+    let diff = serde_json::to_string(&plan.files[0].diff).unwrap();
+    assert!(
+        diff.contains("the home box") && !diff.contains(&w.home.encode()),
+        "the file diff shows the move, with its secret hidden: {diff}"
+    );
+}
