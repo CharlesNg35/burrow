@@ -353,6 +353,7 @@ async fn an_emptied_drop_in_is_deleted_from_a_text_review(c: &mut Ctx) {
         SECS,
     )
     .await;
+    c.ui.fill("[data-confirm=svc11]", "svc11").await;
     apply_now(c, "Applied").await;
     assert!(
         !c.world.file(&gone).exists(),
