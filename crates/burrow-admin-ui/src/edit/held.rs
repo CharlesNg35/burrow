@@ -2,7 +2,7 @@ use leptos::prelude::*;
 
 use super::Edit;
 
-pub const TEXT_FIRST: &str = "Review or cancel your Config file text edits first";
+pub const TEXT_FIRST: &str = "Review or cancel your Raw config text edits first";
 
 impl Edit {
     fn inside_open_edit(&self, path: &[String]) -> bool {

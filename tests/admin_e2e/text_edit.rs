@@ -587,7 +587,7 @@ async fn text_and_form_edits_wait_for_each_other(c: &mut Ctx, tool_before: &str)
         "Add to changes does not add while the text waits"
     );
     shots_plain(c, "text-edit-form-waits").await;
-    click_toast(c, "Open Config file").await;
+    click_toast(c, "Open Raw config").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;
     dirty(c, MAIN, true).await;

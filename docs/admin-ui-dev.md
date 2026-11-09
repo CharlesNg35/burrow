@@ -23,7 +23,7 @@ The UI never hard-codes the config. The server sends its **schema** (built by `#
 | `domain/` | one field: `domain::editor(FieldCtx)` picks the control for a schema node by its semantic type (text, number, duration, rate, list, map, address, reference) |
 | `form/` | a whole object: cards and sections, "More settings", read-only view mode, "Reached by", groups of fields that do not apply |
 | `rename.rs` | the rename dialog and the name input of every create and rename |
-| `screens/` | the pages: overview, the services, clients and visitors lists and pages (`entity/`), create wizards (`create/`), paths and flow diagrams, settings, activity, the Config file tab with the text editor, Go to and Edit as (`config_file/`), lists grouped by file (`file_groups.rs`); `screens/placement.rs` puts each field on a tab |
+| `screens/` | the pages: overview, the services, clients and visitors lists and pages (`entity/`), create wizards (`create/`), paths and flow diagrams, settings, activity, the Raw config tab with the text editor, Go to and Edit as (`config_file/`), lists grouped by file (`file_groups.rs`); `screens/placement.rs` puts each field on a tab |
 | `review/` | the Review page and its guards |
 | `app/` | the shell: header, search, menus |
 

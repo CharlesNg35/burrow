@@ -58,7 +58,7 @@ mod tests {
     const FILE_LOAD: &str = "a file that does not load at all; the admin UI shows it with its line and column, as burrow validate does";
     const PLAIN: &str = "already a plain sentence about this server";
     const TEXT_EDITOR: &str =
-        "only in the Config file editor, which shows it at the placeholder with its file and line";
+        "only in the Raw config editor, which shows it at the placeholder with its file and line";
     const IMPACT: &str = "an impact or confirm line the server writes in plain words for Review";
     const REFUSED: &str =
         "a refusal or admin-only check the server writes as a plain sentence about this change";

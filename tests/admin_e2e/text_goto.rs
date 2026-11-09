@@ -211,7 +211,7 @@ async fn unwritten_text_comes_back(c: &mut Ctx) {
     c.ui.wait_gone(CARD, SECS).await;
     let _: bool = c
         .ui
-        .eval("(() => { [...document.querySelectorAll('[data-testid=settings-tabs] [role=tab]')].find(t => t.textContent.includes('Config file')).click(); return true; })()")
+        .eval("(() => { [...document.querySelectorAll('[data-testid=settings-tabs] [role=tab]')].find(t => t.textContent.includes('Raw config')).click(); return true; })()")
         .await;
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;

@@ -1,4 +1,4 @@
-//! The Config file tab: the server's config as text, and the raw text editor for write admins.
+//! The Raw config tab: the server's config as text, and the raw text editor for write admins.
 //! `ConfigFile` is the entry; edit.rs holds the edit-mode chrome, editor.rs the editor itself (behind one function, loaded lazily).
 
 mod edit;

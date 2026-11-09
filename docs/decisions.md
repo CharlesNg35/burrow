@@ -1029,7 +1029,7 @@ The raw config editor would add more to the admin's first download than every ot
 
 ## D89. The config text editor: masked texts, placeholders bound to their field, and a schema that says less than burrow
 
-burrow admin's Config file tab edits the files as text (2026-11-08). The server's side:
+burrow admin's Raw config tab (named Config file until 2026-11-09) edits the files as text (2026-11-08). The server's side:
 
 - **Masked, byte for byte.** `config_text` sends each file's exact text with every value the admin hides anywhere replaced by a placeholder (`«secret <id>»`): what `values::present` hides (secret fields, password hashes, credential headers, anything holding a burrow secret), `check::secret_spans`, and in comments the tokens the diffs mask. `${VAR}` references, and `file:` where the field takes references, show as written. A quoted value keeps its quotes; a JSON file gets `"«secret <id>»"`; a block scalar becomes one plain placeholder.
 - **Ids.** A burrow secret's id is its fingerprint, as everywhere else. Any other value's id is 8 hex of a keyed BLAKE2s MAC of its field and value with a key made at start (D90).
@@ -1066,7 +1066,7 @@ The owner's decision (2026-11-08): `style-src 'self' 'unsafe-inline'`; the rest 
 
 ## D92. The config text editor edits a file as YAML, JSON or TOML; the server stores only the file's own language
 
-Owner, 2026-11-08: the Config file tab's editor shows the open file as YAML, JSON or TOML (the editor's Edit as), for whoever reads one more easily than another. TOML is only a view: the server still receives and stores the file in its own language (YAML or JSON), with its comments and layout; only what was changed is written back (config-editor-leptos's Edit-as rules). Measured on the lazy editor chunk: Edit as between YAML and JSON adds about 2 KB, the TOML language about 81 KB gzipped, so the all-wasm budget goes from 2.3 MiB to 2.5 MiB (2,621,440 B; raised to 3.5 MiB the same day, D88); the main wasm and its 2 MiB do not change.
+Owner, 2026-11-08: the Raw config tab's editor shows the open file as YAML, JSON or TOML (the editor's Edit as), for whoever reads one more easily than another. TOML is only a view: the server still receives and stores the file in its own language (YAML or JSON), with its comments and layout; only what was changed is written back (config-editor-leptos's Edit-as rules). Measured on the lazy editor chunk: Edit as between YAML and JSON adds about 2 KB, the TOML language about 81 KB gzipped, so the all-wasm budget goes from 2.3 MiB to 2.5 MiB (2,621,440 B; raised to 3.5 MiB the same day, D88); the main wasm and its 2 MiB do not change.
 
 - The switch is per file and kept with the edit session (across Review and back), the file's own language first.
 - The label shows the language on screen, not the one asked for: a switch that waits (TOML has no `null`, so `key:` blocks it with the key named by the editor) still shows the file's own language. burrow takes it from the editor (`on_edit_as_change` per document, config-editor-leptos 8656af4 and later), also for an undo across a switch; picking the asked language again asks the editor again (`DocumentsHandle::edit_as`).

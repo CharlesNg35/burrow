@@ -142,7 +142,7 @@ burrow gives the AI app these tools. Some are listed only when writing is allowe
 | Tool | What it does | Listed when |
 |---|---|---|
 | `get_status` | the live status: clients with their burrow version and system, the latest release, visitors, services, traffic | always |
-| `get_config` | the config and its version; secrets only as fingerprints or `${ENV}` names, password hashes and credential headers hidden. `show: with_defaults` adds every default in effect, as burrow admin's Config file tab does | always |
+| `get_config` | the config and its version; secrets only as fingerprints or `${ENV}` names, password hashes and credential headers hidden. `show: with_defaults` adds every default in effect, as burrow admin's Raw config tab does | always |
 | `describe_settings` | what each key means: type, default, help with examples, essential or advanced, locked | always |
 | `list_versions` | the kept versions, who changed what, which can be reverted | always |
 | `validate_config` | checks a server, client or visitor config (`role`, server by default) or a fragment, like a `web:` section: the server checks it with its own validation, environment variables and files, as `burrow validate` does there (`checked_by: server`); writes nothing | always |

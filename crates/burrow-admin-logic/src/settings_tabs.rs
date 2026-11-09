@@ -45,7 +45,7 @@ impl Tab {
             Tab::Web => "Web",
             Tab::Monitoring => "Monitoring",
             Tab::Files => "Files",
-            Tab::File => "Config file",
+            Tab::File => "Raw config",
         }
     }
 
@@ -174,5 +174,15 @@ mod tests {
         assert_eq!(problems_in(Tab::Connections, &paths, &sections), 1);
         assert_eq!(problems_in(Tab::Server, &paths, &sections), 1);
         assert_eq!(problems_in(Tab::Monitoring, &paths, &sections), 0);
+    }
+
+    #[test]
+    fn the_text_tab_is_named_raw_config() {
+        assert_eq!(Tab::File.label(), "Raw config");
+        assert_eq!(
+            Tab::parse("file"),
+            Some(Tab::File),
+            "the URL keeps its slug"
+        );
     }
 }
