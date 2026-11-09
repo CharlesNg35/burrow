@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::icon::Icon;
+use crate::icon::{ICON_LINE, Icon};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tone {
@@ -476,11 +476,11 @@ pub fn LockLine(
 ) -> impl IntoView {
     view! {
         <p
-            class=format!("flex items-center gap-1.5 text-xs text-text-muted {class}")
+            class=format!("flex items-start gap-1.5 text-xs text-text-muted {class}")
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            <Icon name="lock" small=true/>
-            {text}
+            <span class=ICON_LINE><Icon name="lock" small=true/></span>
+            <span class="min-w-0 [overflow-wrap:anywhere]">{text}</span>
         </p>
     }
 }

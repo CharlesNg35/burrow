@@ -1,7 +1,7 @@
 use burrow_admin_logic::goto::{Found, Item, Kind, Sources, find};
 use burrow_admin_proto::text_search::{self, MAX_LIMIT, TextMatch};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::{Icon, Kbd, PickHead, PickOption, marked};
+use burrow_ui_kit::{FileName, Icon, Kbd, PickHead, PickOption, marked};
 use config_editor_leptos::{Language, TextPosition};
 use leptos::prelude::*;
 
@@ -240,7 +240,11 @@ fn option(g: GoTo, t: TextEdit, i: usize, row: Row, needle: &str) -> AnyView {
         }
         .into_any(),
         Row::Hit(kind, f) => {
-            let label = marked(&f.label, needle);
+            let label = if kind == Kind::File {
+                view! { <FileName name=f.label.clone() mark=needle.to_string()/> }.into_any()
+            } else {
+                marked(&f.label, needle)
+            };
             view! {
                 <PickOption icon=kind.icon() id=id active=active on_hover=hover on_pick=Callback::new(move |_| pick(g, t, row.clone())) note=f.note.clone() testid="file-goto-hit">
                     {label}

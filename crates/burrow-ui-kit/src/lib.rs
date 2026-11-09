@@ -15,6 +15,7 @@ mod field;
 mod icon;
 mod inline;
 mod input;
+mod name;
 mod overlay;
 mod path;
 mod pick;
@@ -42,12 +43,13 @@ pub use deferred::{Deferred, LoadFailed};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
-pub use icon::{Icon, path as icon_path};
+pub use icon::{ICON_LINE, Icon, path as icon_path};
 pub use inline::{Inline, inline};
 pub use input::{
     ChipInput, ConfirmInput, INPUT_H, Segmented, Select, TextArea, TextInput, Toggle, field_class,
     split_entries,
 };
+pub use name::{FILE_TAG_WIDTH, FileName, split_name};
 pub use overlay::{
     Dialog, Modal, Tooltip, active as active_element, auto_titles, focus_first, trap as trap_focus,
 };

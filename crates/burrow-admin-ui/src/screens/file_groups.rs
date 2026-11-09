@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use burrow_ui_kit::{Icon, LABEL, Select, Tone, tag_class};
+use burrow_ui_kit::{FileName, Icon, LABEL, Select, Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::store::{Grouping, ListGroups, store};
@@ -210,10 +210,10 @@ fn header(kind: &'static str, h: Head, open: bool, searching: bool, panel: Strin
             }
         >
             <Icon name=if open { "chevron-down" } else { "chevron-right" } small=true/>
-            <span class="min-w-0 truncate font-mono text-[13px] normal-case" data-testid="group-file">{label}</span>
+            <span class="flex min-w-0 font-mono text-[13px] normal-case" data-testid="group-file"><FileName name=label/></span>
             {lock}
             {problems}
-            <span class="ml-auto" data-testid="group-count">{count}</span>
+            <span class="ml-auto shrink-0" data-testid="group-count">{count}</span>
         </button>
     }
     .into_any()

@@ -1,5 +1,5 @@
 use burrow_admin_logic::wording::{WriteAction, needs_write_admin};
-use burrow_ui_kit::{Icon, Kbd, ScrollRow, Tone, active_item, tag_class};
+use burrow_ui_kit::{FILE_TAG_WIDTH, FileName, Icon, Kbd, ScrollRow, Tone, active_item, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Link};
@@ -32,7 +32,13 @@ pub fn TocRow(
 }
 
 fn kept_tag(k: &Kept) -> impl IntoView + use<> {
-    view! { <span class=tag_class(Tone::Neutral) data-testid="row-file">{k.text()}</span> }
+    let class = format!("{} {FILE_TAG_WIDTH}", tag_class(Tone::Neutral));
+    let (lead, file) = match k {
+        Kept::File(f) => ("", Some(f.clone())),
+        Kept::ReadOnly(f) => ("read-only · ", Some(f.clone())),
+        Kept::ReadOnlyHere => ("read-only", None),
+    };
+    view! { <span class=class data-testid="row-file">{lead}{file.map(|f| view! { <FileName name=f/> })}</span> }
 }
 
 #[component]
