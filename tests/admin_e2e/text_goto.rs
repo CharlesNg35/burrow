@@ -99,14 +99,12 @@ async fn leave_dialog(c: &Ctx) {
         SECS,
     )
     .await;
-    assert_eq!(
-        c.ui.eval::<String>(
-            "document.activeElement && document.activeElement.dataset.testid || ''"
-        )
-        .await,
-        "file-leave-stay",
-        "Stay is the default"
-    );
+    c.ui.wait_true(
+        "!!document.activeElement && document.activeElement.dataset.testid === 'file-leave-stay'",
+        "Stay is the default",
+        SECS,
+    )
+    .await;
 }
 
 async fn still_here(c: &Ctx) {
