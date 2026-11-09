@@ -231,8 +231,21 @@ pub(super) fn run_change(
     let base = set.base();
     let computed = match plan::compute(&set.core, s, &base, ops) {
         Ok(c) => c,
-        Err(e) => return plan_failed(set, &before, ops, &e, stats),
+        Err(e) => {
+            super::dump::note("error", &serde_json::to_value(e.wire()).unwrap());
+            return plan_failed(set, &before, ops, &e, stats);
+        }
     };
+    let texts: Vec<(&str, &str)> = computed
+        .new_docs
+        .list
+        .iter()
+        .map(|d| (d.name.as_str(), d.text.as_str()))
+        .collect();
+    super::dump::note(
+        "plan",
+        &serde_json::json!({"plan": computed.plan, "texts": texts}),
+    );
     let planned = &computed.plan;
     no_secret_shown(planned, secrets)?;
     diffs_as_before(&computed, stats)?;

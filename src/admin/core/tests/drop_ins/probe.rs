@@ -5,6 +5,7 @@
 #![cfg(test)]
 
 mod check;
+mod dump;
 mod model;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -325,9 +326,11 @@ fn run_seed(seed: u64, order: Order, stats: &mut Stats) -> Option<(String, Failu
         secrets.extend(ops.iter().filter_map(added_secret));
         changes.push(ops.clone());
         if let Err(e) = run_change(&set, &s, &secrets, &ops, stats) {
+            dump::flush(&format!("{order:?}"), seed);
             return Some((kind(&e).to_string(), (seed, changes, e)));
         }
     }
+    dump::flush(&format!("{order:?}"), seed);
     None
 }
 
