@@ -11,10 +11,10 @@ The UI never hard-codes the config. The server sends its **schema** (built by `#
 | where | what it holds |
 | --- | --- |
 | `crates/burrow-config/src/model/` | the config model: every key, its label, help, units, examples, groups and relations (`#[admin(...)]`), and typed field paths such as `ServiceEntry::TARGET` |
-| `crates/burrow-admin-logic` | the logic without a browser: checks that mirror the server's (`check`), choice lists for pickers (`choices`), relations (`relations`), "More settings" (`more`), wording (`wording`), the changeset (`changeset`) |
-| `crates/burrow-ui-kit` | generic components: buttons, link buttons, inputs, pickers (`combo`), dialogs, tabs and scroll rows, charts, path diagrams |
+| `crates/burrow-admin-logic` | the logic without a browser: checks that mirror the server's (`check`), choice lists for pickers (`choices`), relations (`relations`), "More settings" (`more`), wording (`wording`), the changeset (`changeset`), Go to's matching and order (`goto`) |
+| `crates/burrow-ui-kit` | generic components: buttons, link buttons, inputs, pickers (`combo`), dialogs, tabs and scroll rows, charts, path diagrams, a part loaded from a lazy chunk (`Deferred`) |
 | `crates/burrow-admin-ui/src/store.rs`, `api.rs`, `route.rs` | the one store (schema, config, status, the draft), the connection to `burrow admin`, the routes |
-| `edit/` | the draft: changes, local errors, validation by the server after each pause, the plan to apply and its change groups |
+| `edit/` | the draft: changes, local errors, validation by the server after each pause, the plan to apply and its change groups; the text edit of the config files (`text.rs`) and its tabs (`tabs.rs`) |
 | `entities.rs` | adding a client, visitor or service to the draft (`create_with`), and the name check of a new one |
 | `format.rs` | how times, sizes and counts read, and a client's presence with this server's reserved names |
 | `field.rs` | what every control gets: `FieldCtx`, `set_checked` (sets a value after the shared check), plain values and links to entries |
@@ -23,7 +23,7 @@ The UI never hard-codes the config. The server sends its **schema** (built by `#
 | `domain/` | one field: `domain::editor(FieldCtx)` picks the control for a schema node by its semantic type (text, number, duration, rate, list, map, address, reference) |
 | `form/` | a whole object: cards and sections, "More settings", read-only view mode, "Reached by", groups of fields that do not apply |
 | `rename.rs` | the rename dialog and the name input of every create and rename |
-| `screens/` | the pages: overview, the services, clients and visitors lists and pages (`entity/`), create wizards (`create/`), paths and flow diagrams, settings, activity; `screens/placement.rs` puts each field on a tab |
+| `screens/` | the pages: overview, the services, clients and visitors lists and pages (`entity/`), create wizards (`create/`), paths and flow diagrams, settings, activity, the Config file tab with the text editor, Go to and Edit as (`config_file/`), lists grouped by file (`file_groups.rs`); `screens/placement.rs` puts each field on a tab |
 | `review/` | the Review page and its guards |
 | `app/` | the shell: header, search, menus |
 
@@ -35,6 +35,7 @@ These folders are in layers (model, controls, editor, pages; see [CONTRIBUTING.m
 - `src/admin/core/agree.rs` (in the `burrow` crate): the UI's checks and the server's check agree on every value of every semantic type.
 - `src/config/check/tests_codes.rs`: every diagnostic code the UI reads is one validate emits.
 - `crates/burrow-admin-logic/src/diag_words.rs`: every diagnostic reads as plain words.
+- `src/admin/core/tests/editor_schema/` (in the `burrow` crate): the text editor's JSON Schema marks a problem only where burrow's own check has an error (D89).
 - `tests/admin_e2e/`: the browser flows, with screenshots and visual baselines.
 - `tests/admin_e2e/design.js`: before every screenshot, the rules of [Messages, placement and layout](#messages-placement-and-layout); `xtask/src/glyphs.rs`: no symbol the fonts lack.
 
