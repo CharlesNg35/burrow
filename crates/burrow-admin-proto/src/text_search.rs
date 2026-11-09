@@ -62,6 +62,32 @@ fn excerpt(line: &[char], at: usize, len: usize) -> String {
     out
 }
 
+pub fn lines(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' => {
+                out.push(&text[start..i]);
+                start = i + 1;
+            }
+            b'\r' => {
+                out.push(&text[start..i]);
+                if bytes.get(i + 1) == Some(&b'\n') {
+                    i += 1;
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out.push(&text[start..]);
+    out
+}
+
 pub fn find(files: &[(&str, &str)], query: &str, limit: usize) -> (Vec<TextMatch>, bool) {
     let query: Vec<char> = query.trim().chars().map(folded).collect();
     let mut out = Vec::new();
@@ -69,9 +95,7 @@ pub fn find(files: &[(&str, &str)], query: &str, limit: usize) -> (Vec<TextMatch
         return (out, false);
     }
     for (file, text) in files {
-        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        for (i, line) in text.split('\n').enumerate() {
-            let line = line.strip_suffix('\r').unwrap_or(line);
+        for (i, line) in lines(text).into_iter().enumerate() {
             let chars: Vec<char> = line.chars().collect();
             let lower: Vec<char> = chars.iter().copied().map(folded).collect();
             let mut at = 0;
@@ -88,7 +112,7 @@ pub fn find(files: &[(&str, &str)], query: &str, limit: usize) -> (Vec<TextMatch
                     line: i as u32 + 1,
                     col: at as u32 + 1,
                     end_col: (at + query.len()) as u32 + 1,
-                    excerpt: excerpt(&chars, at, query.len()),
+                    excerpt: excerpt(&chars, at, query.len()).replace('\u{feff}', ""),
                 });
                 at += query.len();
             }
@@ -100,6 +124,26 @@ pub fn find(files: &[(&str, &str)], query: &str, limit: usize) -> (Vec<TextMatch
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn columns_count_as_the_editor_does_with_a_bom_and_lone_carriage_returns() {
+        let (found, _) = find(
+            &[("a", "\u{feff}listen: 1\rweb: 2\r\nweb: 3\n")],
+            "listen",
+            10,
+        );
+        assert_eq!((found[0].line, found[0].col), (1, 2), "the BOM is column 1");
+        assert_eq!(found[0].excerpt, "listen: 1");
+        let (web, _) = find(&[("a", "\u{feff}listen: 1\rweb: 2\r\nweb: 3\n")], "web", 10);
+        let at: Vec<(u32, u32)> = web.iter().map(|m| (m.line, m.col)).collect();
+        assert_eq!(
+            at,
+            [(2, 1), (3, 1)],
+            "a lone CR ends a line, CRLF is one break"
+        );
+        assert_eq!(lines("a\rb\r\nc\nd"), ["a", "b", "c", "d"]);
+        assert_eq!(lines(""), [""]);
+    }
 
     #[test]
     fn matches_are_case_blind_per_line_with_one_based_columns() {
