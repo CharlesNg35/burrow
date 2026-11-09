@@ -844,13 +844,13 @@ async fn a_drop_in_takes_only_items(c: &mut Ctx) {
         .await;
 }
 
-const ADD: &str = "[data-testid=file-editor] .config-editor-documents__add";
+pub(super) const ADD: &str = "[data-testid=file-editor] .config-editor-documents__add";
 
 pub(super) fn close_of(name: &str) -> String {
     format!("{EDITOR} [role=tab][data-document-id='{name}'] .config-editor-documents__close")
 }
 
-async fn name_new_file(c: &Ctx, name: &str) {
+pub(super) async fn name_new_file(c: &Ctx, name: &str) {
     c.ui.click(ADD).await;
     c.ui.wait_for("[data-testid=file-new-dialog]", SECS).await;
     c.ui.fill("#file-new-name", name).await;

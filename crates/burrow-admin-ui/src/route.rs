@@ -163,6 +163,11 @@ pub fn file_tab() -> (Route, Query) {
     )
 }
 
+pub fn file_tab_href() -> String {
+    let (route, query) = file_tab();
+    href_with(&route, query)
+}
+
 fn href_with(route: &Route, query: Option<(&str, &str)>) -> String {
     match query {
         Some((k, v)) => format!("{}?{k}={}", href(route), encode(v)),
@@ -188,6 +193,20 @@ pub fn go_in(s: crate::store::Store, route: Route) {
 
 fn go_with(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
     if s.route.get_untracked() == route && query.is_none() {
+        return;
+    }
+    let (to, asked) = (
+        route.clone(),
+        query.map(|(k, v)| (k.to_string(), v.to_string())),
+    );
+    let again = move || {
+        go_with(
+            s,
+            to.clone(),
+            asked.as_ref().map(|(k, v)| (k.as_str(), v.as_str())),
+        )
+    };
+    if !s.text.may_leave(again) {
         return;
     }
     if let Ok(h) = window().history() {

@@ -13,11 +13,11 @@ const MAX_TABS: usize = 10;
 const REVIEW: &str = "[data-testid=file-review]";
 const MORE: &str = "[data-testid=file-goto-more]";
 
-fn name(i: usize) -> String {
+pub(super) fn name(i: usize) -> String {
     format!("server.d/web-{i}.yaml")
 }
 
-fn opts() -> Options {
+pub(super) fn opts() -> Options {
     Options {
         drop_ins: (1..=FILES)
             .map(|i| {
@@ -36,7 +36,7 @@ fn opts() -> Options {
     }
 }
 
-async fn tabs(c: &Ctx) -> Vec<String> {
+pub(super) async fn tabs(c: &Ctx) -> Vec<String> {
     c.ui.all_attrs(&format!("{EDITOR} [role=tab]"), "data-document-id")
         .await
 }

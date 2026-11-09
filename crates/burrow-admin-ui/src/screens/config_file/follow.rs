@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use config_editor_leptos::{DocumentsHandle, EditorHandle, TextPosition};
+use config_editor_leptos::{DocumentsHandle, EditorHandle, FieldPath, TextPosition, TextRange};
 use leptos::prelude::*;
 
 use super::problems::field;
@@ -15,9 +15,11 @@ fn reveal(e: &EditorHandle, spot: &Spot) -> bool {
             true
         }
         Spot::Path(p) => e.reveal(field(p)),
-        Spot::Line(line, col) => e
-            .path_at(TextPosition::new(*line as usize, *col as usize))
-            .is_some_and(|p| e.reveal(p)),
+        Spot::Pointer(p) => e.reveal(FieldPath::from_pointer(p)),
+        Spot::Range(line, col, end) => e.reveal_range(TextRange::new(
+            TextPosition::new(*line as usize, *col as usize),
+            TextPosition::new(*line as usize, *end as usize),
+        )),
     }
 }
 
@@ -57,8 +59,13 @@ pub(super) fn follow(
                     }
                     let (name, at) = &want;
                     let mounted = tabs.editor(name).filter(EditorHandle::is_mounted);
-                    if mounted.is_some_and(|e| reveal(&e, at)) || ms == TRIES_MS[TRIES_MS.len() - 1]
-                    {
+                    let done = mounted.is_some_and(|e| {
+                        reveal(&e, at) || {
+                            e.focus();
+                            true
+                        }
+                    });
+                    if done || ms == TRIES_MS[TRIES_MS.len() - 1] {
                         spot.set(None);
                     }
                 },

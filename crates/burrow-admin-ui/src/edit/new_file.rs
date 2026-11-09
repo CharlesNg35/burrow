@@ -85,7 +85,7 @@ impl TextEdit {
             v.insert(name.clone(), String::new());
         });
         self.new_files.update(|n| n.push(name.clone()));
-        self.open_file(&name);
+        self.open_at(&name, super::Spot::Here);
         self.adding.set(false);
     }
 

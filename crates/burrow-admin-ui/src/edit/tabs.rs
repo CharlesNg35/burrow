@@ -8,7 +8,8 @@ pub const MAX_TABS: usize = 10;
 pub enum Spot {
     Here,
     Path(Vec<String>),
-    Line(u32, u32),
+    Pointer(String),
+    Range(u32, u32, u32),
 }
 
 pub fn used(recent: &[String], name: &str) -> Vec<String> {
@@ -94,11 +95,15 @@ impl TextEdit {
         matches!((now, server), (Some(n), Some(s)) if n != s)
     }
 
+    fn keeps_tab(&self, name: &str) -> bool {
+        self.is_new(name) || self.file_dirty(name)
+    }
+
     pub fn open_file(&self, name: &str) {
         let main = self.main_name();
         let next = self.tabs.with_untracked(|tabs| {
             self.recent
-                .with_untracked(|r| opened(tabs, r, name, &main, |n| self.file_dirty(n)))
+                .with_untracked(|r| opened(tabs, r, name, &main, |n| self.keeps_tab(n)))
         });
         if self.tabs.with_untracked(|t| *t != next) {
             self.tabs.set(next);
@@ -151,6 +156,9 @@ impl TextEdit {
         }
         self.unsaved.update(|u| {
             u.remove(name);
+        });
+        self.stuck.update(|s| {
+            s.remove(name);
         });
         self.drop_tab(name);
     }
@@ -314,5 +322,38 @@ mod tests {
             "an edit kept in TextEdit asks too"
         );
         assert_eq!(t.recent.get_untracked()[0], "server.d/a.yaml");
+    }
+
+    #[test]
+    fn the_ten_tab_rule_never_closes_a_new_file() {
+        use burrow_admin_proto::text_edit::{EditFile, EditText};
+        let t = TextEdit::new();
+        let files: Vec<String> = many(MAX_TABS + 1);
+        t.loaded.set(Some(Ok(std::sync::Arc::new(EditText {
+            files: files
+                .iter()
+                .map(|n| EditFile {
+                    name: n.clone(),
+                    text: "a: 1\n".into(),
+                    read_only: None,
+                })
+                .collect(),
+            ..EditText::default()
+        }))));
+        t.tabs.set(names(&["server.yaml"]));
+        t.new_files.set(names(&["server.d/new.yaml"]));
+        t.values.update(|v| {
+            v.insert("server.d/new.yaml".into(), String::new());
+        });
+        t.open_file("server.d/new.yaml");
+        for f in &files[1..] {
+            t.open_file(f);
+        }
+        let open = t.tabs.get_untracked();
+        assert_eq!(open.len(), MAX_TABS);
+        assert!(
+            open.contains(&"server.d/new.yaml".to_string()),
+            "an empty new file keeps its tab until the user closes it: {open:?}"
+        );
     }
 }

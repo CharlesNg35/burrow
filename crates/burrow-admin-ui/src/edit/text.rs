@@ -16,7 +16,7 @@ use crate::api;
 
 pub const TEXT_CHECK_AFTER: Duration = Duration::from_millis(700);
 
-pub type Hook = std::rc::Rc<dyn Fn() -> Option<String>>;
+pub type Hook = std::rc::Rc<dyn Fn() -> Option<super::leave::Unwritten>>;
 
 pub type LoadedText = Option<Result<Arc<EditText>, String>>;
 
@@ -38,6 +38,10 @@ pub struct TextEdit {
     pub recent: RwSignal<Vec<String>>,
     pub unsaved: RwSignal<BTreeSet<String>>,
     pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
+    pub stuck: RwSignal<BTreeMap<String, (String, String)>>,
+    pub leaving: RwSignal<Option<super::leave::Unwritten>>,
+    pub(super) then: StoredValue<Option<super::leave::Then>, LocalStorage>,
+    pub(super) let_through: StoredValue<bool>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
 }
@@ -213,6 +217,10 @@ impl TextEdit {
             recent: RwSignal::new(Vec::new()),
             unsaved: RwSignal::new(BTreeSet::new()),
             spot: RwSignal::new(None),
+            stuck: RwSignal::new(BTreeMap::new()),
+            leaving: RwSignal::new(None),
+            then: StoredValue::new_local(None),
+            let_through: StoredValue::new(false),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
         }
@@ -241,6 +249,8 @@ impl TextEdit {
         self.tabs.set(Vec::new());
         self.unsaved.set(BTreeSet::new());
         self.spot.set(None);
+        self.stuck.set(BTreeMap::new());
+        self.leaving.set(None);
     }
 
     pub fn fetch(&self) {
@@ -323,7 +333,9 @@ impl TextEdit {
     }
 
     pub fn dirty(&self) -> bool {
-        !self.changed_files().is_empty() || self.new_files.with(|n| !n.is_empty())
+        !self.changed_files().is_empty()
+            || self.new_files.with(|n| !n.is_empty())
+            || self.unsaved.with(|u| !u.is_empty())
     }
 
     pub fn ops(&self) -> Vec<Op> {

@@ -112,6 +112,21 @@ pub fn App() -> impl IntoView {
     apply_theme(&saved_theme());
     burrow_ui_kit::auto_titles();
     let on_pop = Closure::<dyn FnMut()>::new(move || {
+        let back = || {
+            if let Ok(h) = window().history() {
+                let _ = h.back();
+            }
+        };
+        if !s.text.may_leave(back) {
+            if let Ok(h) = window().history() {
+                let _ = h.push_state_with_url(
+                    &wasm_bindgen::JsValue::NULL,
+                    "",
+                    Some(&route::file_tab_href()),
+                );
+            }
+            return;
+        }
         s.route.set(route::current());
         s.query_seen.update(|n| *n += 1);
     });

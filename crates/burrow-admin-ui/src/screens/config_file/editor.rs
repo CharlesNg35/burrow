@@ -11,7 +11,7 @@ use config_editor_leptos::{
 };
 use leptos::prelude::*;
 
-use crate::edit::Spot;
+use crate::edit::{Spot, Unwritten};
 
 use super::edit_as::{own_label, shown};
 use super::follow::follow;
@@ -156,18 +156,23 @@ fn unwritten(
     files: &[String],
     edit_as: RwSignal<BTreeMap<String, String>>,
     tabs: DocumentsHandle,
-) -> Option<String> {
+) -> Option<Unwritten> {
     files.iter().find_map(|name| {
         let own = own_label(name);
-        requested(
+        let shown = requested(
             own,
             edit_as.with_untracked(|a| a.get(name).cloned()).as_deref(),
         )?;
         let editor = tabs.editor(name).filter(|e| e.is_mounted())?;
-        editor
-            .value()
-            .is_none()
-            .then(|| format!("{name} cannot be written as {own} yet; fix the text first"))
+        if editor.value().is_some() {
+            return None;
+        }
+        Some(Unwritten {
+            name: name.clone(),
+            shown: shown.label().to_string(),
+            own: own.to_string(),
+            text: editor.text().unwrap_or_default(),
+        })
     })
 }
 
