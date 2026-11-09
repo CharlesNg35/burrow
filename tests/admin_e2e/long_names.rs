@@ -39,11 +39,6 @@ fn opts() -> Options {
 
 const FITS: &str = "(() => { const w = innerWidth; const out = []; if (document.scrollingElement.scrollWidth > w + 1) out.push('page ' + document.scrollingElement.scrollWidth + ' > ' + w); for (const e of document.querySelectorAll('[data-testid=file-tag], [data-testid=row-file], [data-testid=group-file], [data-testid=file-group], [data-testid=config-file] .font-mono, [data-testid=file-diff] h4')) { const r = e.getBoundingClientRect(); const p = e.parentElement.getBoundingClientRect(); if (r.width > 0 && (r.right > p.right + 1 || r.right > w + 1)) out.push((e.dataset.testid || e.tagName) + ' ' + Math.round(r.right) + ' > ' + Math.round(Math.min(p.right, w))); } return out; })()";
 
-/// For each icon+text pair: the gap between the icon's ink centre (its drawn
-/// shapes, scaled from the viewBox) and the middle of the text's cap height
-/// (the baseline, found with a zero-size inline-block placed before the text, so on its first line,
-/// minus half the height of "H"), in CSS pixels, and the icon's ink
-/// height over that cap height.
 const INK: &str = "(() => { const c = document.createElement('canvas').getContext('2d'); const out = []; for (const t of document.querySelectorAll('span[class*=\"h-[18px]\"], [data-testid=read-only-file], [data-testid=file-group], button, [role=tab]')) { const svg = t.querySelector(':scope > svg, :scope > span > svg'); if (!svg || svg.getBoundingClientRect().width === 0) continue; const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT); let node = null, n; while ((n = walker.nextNode())) { if (n.textContent.trim() && !n.parentElement.closest('.sr-only') && n.parentElement.getBoundingClientRect().width > 0) { node = n; break; } } if (!node) continue; const cs = getComputedStyle(node.parentElement); c.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily; const m = c.measureText('H'); const probe = document.createElement('span'); probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline'; node.before(probe); const base = probe.getBoundingClientRect().bottom; probe.remove(); const text = base - m.actualBoundingBoxAscent / 2; const s = svg.getBoundingClientRect(); const vb = svg.viewBox.baseVal; const b = svg.getBBox(); const icon = s.top + (b.y - vb.y + b.height / 2) * s.height / (vb.height || 24); const ink = b.height * s.height / (vb.height || 24); out.push({ tag: (t.dataset.testid || t.textContent.trim().slice(0, 24)), off: Math.round((icon - text) * 10) / 10, size: Math.round(ink / m.actualBoundingBoxAscent * 100) / 100 }); } return out; })()";
 
 async fn fits(c: &Ctx, step: &str) {
@@ -56,7 +51,6 @@ async fn fits(c: &Ctx, step: &str) {
 
 async fn centred(c: &Ctx, step: &str) {
     let found: Vec<serde_json::Value> = c.ui.eval(INK).await;
-    eprintln!("ink offsets, {step}: {found:?}");
     let off: Vec<&serde_json::Value> = found
         .iter()
         .filter(|f| {

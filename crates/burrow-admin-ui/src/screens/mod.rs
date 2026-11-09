@@ -119,14 +119,6 @@ pub enum Kept {
 }
 
 impl Kept {
-    pub fn text(&self) -> String {
-        match self {
-            Kept::File(f) => f.clone(),
-            Kept::ReadOnly(f) => format!("read-only · {f}"),
-            Kept::ReadOnlyHere => "read-only".into(),
-        }
-    }
-
     pub fn in_its_file(&self) -> Option<Kept> {
         match self {
             Kept::File(_) => None,

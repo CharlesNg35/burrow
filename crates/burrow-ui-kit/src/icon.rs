@@ -71,8 +71,6 @@ pub fn path(name: &str) -> &'static str {
     }
 }
 
-/// The box for an icon before a text that may wrap: one line high, so the
-/// icon stays centred on the first line.
 pub const ICON_LINE: &str = "flex h-[1lh] shrink-0 items-center self-start";
 
 #[component]
