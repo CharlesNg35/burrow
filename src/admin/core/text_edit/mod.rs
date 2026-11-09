@@ -46,17 +46,30 @@ impl Default for TextEdit {
     }
 }
 
-fn json_at(core: &Core, i: usize) -> bool {
-    i == 0 && core.store.format() == Format::Json
+fn named<'a>(core: &Core, docs: &Docs, name: &'a str) -> mask::Named<'a> {
+    let main = docs.main().name == name;
+    mask::Named {
+        name,
+        format: if main {
+            core.store.format()
+        } else {
+            Format::Yaml
+        },
+    }
 }
 
 fn masked(core: &Core, docs: &Docs) -> Result<Vec<mask::Masked>, ApiError> {
     let root = &core.schema().root;
     docs.list
         .iter()
-        .enumerate()
-        .map(|(i, d)| {
-            mask::mask(&d.text, json_at(core, i), root, &core.text_edit.ids).map_err(|why| {
+        .map(|d| {
+            mask::mask(
+                named(core, docs, &d.name),
+                &d.text,
+                root,
+                &core.text_edit.ids,
+            )
+            .map_err(|why| {
                 ApiError::new(
                     ErrorCode::Invalid,
                     format!("{} does not parse ({why}); fix it by hand first", d.name),
@@ -114,17 +127,42 @@ pub fn config_text(core: &Core) -> Result<EditText, ApiError> {
     })
 }
 
-const IDS: [&str; 5] = ["plan", "base", "result_rev", "current", "rev"];
+const FREE_TEXT: [&str; 6] = ["message", "label", "help", "summary", "hint", "unified"];
 
-fn veil_strings(v: &mut Value, hidden: &values::Hidden) {
+fn veil_text(v: &mut Value, hidden: &values::Hidden) {
     match v {
         Value::String(s) => *s = text::mask_secrets(&hidden.line(s), &[]),
-        Value::Array(a) => a.iter_mut().for_each(|x| veil_strings(x, hidden)),
-        Value::Object(m) => m
-            .iter_mut()
-            .filter(|(k, _)| !IDS.contains(&k.as_str()))
-            .for_each(|(_, x)| veil_strings(x, hidden)),
+        Value::Array(a) => a.iter_mut().for_each(|x| veil_text(x, hidden)),
         _ => {}
+    }
+}
+
+fn veil_body(v: &mut Value, hidden: &values::Hidden) {
+    match v {
+        Value::Array(a) => a.iter_mut().for_each(|x| veil_body(x, hidden)),
+        Value::Object(m) => {
+            for (k, x) in m.iter_mut() {
+                match FREE_TEXT.contains(&k.as_str()) {
+                    true => veil_text(x, hidden),
+                    false => veil_body(x, hidden),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn veil_diff(d: &mut burrow_admin_proto::plan::Diff, line: &dyn Fn(&str) -> String) {
+    d.unified = d
+        .unified
+        .split('\n')
+        .map(line)
+        .collect::<Vec<_>>()
+        .join("\n");
+    for h in &mut d.hunks {
+        for (_, l) in &mut h.lines {
+            *l = line(l);
+        }
     }
 }
 
@@ -189,7 +227,7 @@ pub fn edited(core: &Core, old: &Docs, ops: &[Op]) -> Result<Option<Edited>, Api
     let mut shifts = Vec::new();
     let mut problems = Vec::new();
     for f in files {
-        match unmask::unmask(&f.name, &f.text, &table) {
+        match unmask::unmask(named(core, old, &f.name), &f.text, &table) {
             Ok((text, shift)) => {
                 match docs.list.iter_mut().find(|d| d.name == f.name) {
                     Some(d) => d.text = text,
@@ -236,18 +274,31 @@ impl Edited {
 
     pub fn veil(&self, core: &Core, plan: &mut Plan) {
         let hidden = self.hidden(core);
-        if let Ok(mut v) = serde_json::to_value(&*plan) {
-            veil_strings(&mut v, &hidden);
-            if let Ok(back) = serde_json::from_value(v) {
-                *plan = back;
-            }
+        let line = |s: &str| text::mask_secrets(&hidden.line(s), &[]);
+        for d in &mut plan.diags {
+            d.message = line(&d.message);
+            d.label = d.label.as_deref().map(line);
+            d.help = d.help.as_deref().map(line);
+        }
+        for c in &mut plan.changes {
+            c.summary = line(&c.summary);
+        }
+        for i in &mut plan.impacts {
+            i.message = line(&i.message);
+        }
+        for r in &mut plan.refusals {
+            r.message = line(&r.message);
+        }
+        veil_diff(&mut plan.diff, &line);
+        for f in &mut plan.files {
+            veil_diff(&mut f.diff, &line);
         }
     }
 
     pub fn veil_error(&self, core: &Core, mut e: ApiError) -> ApiError {
         let hidden = self.hidden(core);
         e.message = text::mask_secrets(&hidden.line(&e.message), &[]);
-        veil_strings(&mut e.body, &hidden);
+        veil_body(&mut e.body, &hidden);
         e
     }
 

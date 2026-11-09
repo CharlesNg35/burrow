@@ -4,8 +4,9 @@ use burrow_admin_proto::codes::SECRET_PLACEHOLDER;
 use burrow_admin_proto::diag::{Diag, Severity};
 use burrow_admin_proto::text_edit::{placeholder, placeholders_in};
 
-use super::mask::{Style, Table, indent_at, split_bom};
+use super::mask::{Named, Style, Table, indent_at, split_bom};
 use super::spots::{Place, comments, field_place, scalar_range, scalar_text};
+use crate::config::Format;
 use crate::config::tree::{self, Node, Value};
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,7 @@ struct Found {
 
 struct Visit<'a> {
     file: &'a str,
+    format: Format,
     body: &'a str,
     table: &'a Table,
     path: Vec<String>,
@@ -129,7 +131,7 @@ impl Visit<'_> {
         match self.table.get(&key) {
             Some(k) => {
                 let style = Style::of(&self.body[at.clone()]);
-                let text = k.written_for(style, indent_at(self.body, at.start));
+                let text = k.written_for(style, indent_at(self.body, at.start), self.format);
                 self.found.push(Found {
                     at,
                     text,
@@ -160,7 +162,10 @@ impl Visit<'_> {
         for c in comments(tree, self.body) {
             for (r, id) in placeholders_in(&self.body[c.clone()]) {
                 let at = c.start + r.start..c.start + r.end;
-                match self.table.get(&(Place::Comment, id.to_string())) {
+                match self
+                    .table
+                    .get(&(Place::Comment(self.file.to_string()), id.to_string()))
+                {
                     Some(k) => self.found.push(Found {
                         at,
                         text: k.written.clone(),
@@ -168,7 +173,7 @@ impl Visit<'_> {
                     }),
                     None => {
                         let why = format!(
-                            "{} in a comment stands for no current secret; remove it",
+                            "{} in a comment stands for no secret in this file's comments; remove it",
                             placeholder(id)
                         );
                         self.problem(at, why);
@@ -179,7 +184,8 @@ impl Visit<'_> {
     }
 }
 
-pub fn unmask(file: &str, text: &str, table: &Table) -> Result<(String, Shift), Vec<Diag>> {
+pub fn unmask(named: Named, text: &str, table: &Table) -> Result<(String, Shift), Vec<Diag>> {
+    let file = named.name;
     let (bom, body) = split_bom(text);
     let mut shift = Shift {
         file: file.to_string(),
@@ -192,6 +198,7 @@ pub fn unmask(file: &str, text: &str, table: &Table) -> Result<(String, Shift), 
     };
     let mut v = Visit {
         file,
+        format: named.format,
         body,
         table,
         path: Vec::new(),
@@ -215,8 +222,12 @@ pub fn unmask(file: &str, text: &str, table: &Table) -> Result<(String, Shift), 
         }
         moves = build(body, &found);
         if !misread(&moves.0, &moves.1, &found).is_empty() {
-            return Err(vec![v_problem(file, body)]);
+            return Err(vec![v_problem(file, body, PUT_BACK)]);
         }
+    }
+    let json = |t: &str| serde_json::from_str::<serde::de::IgnoredAny>(t).is_ok();
+    if named.format == Format::Json && json(body) && !json(&moves.0) {
+        return Err(vec![v_problem(file, body, NOT_JSON)]);
     }
     let (done, list) = moves;
     shift.moves = list;
@@ -268,9 +279,14 @@ fn misread(done: &str, moves: &[Move], found: &[Found]) -> Vec<usize> {
         .collect()
 }
 
-fn v_problem(file: &str, body: &str) -> Diag {
+const PUT_BACK: &str =
+    "a secret could not be put back where its placeholder stands; write the value on its own line";
+const NOT_JSON: &str = "with its secrets put back the file would no longer be JSON; keep each secret placeholder in double quotes";
+
+fn v_problem(file: &str, body: &str, why: &str) -> Diag {
     let mut v = Visit {
         file,
+        format: Format::Yaml,
         body,
         table: &Table::new(),
         path: Vec::new(),
@@ -278,10 +294,7 @@ fn v_problem(file: &str, body: &str) -> Diag {
         found: Vec::new(),
         problems: Vec::new(),
     };
-    v.problem(
-        0..0,
-        "a secret could not be put back where its placeholder stands; write the value on its own line".into(),
-    );
+    v.problem(0..0, why.into());
     v.problems.remove(0)
 }
 

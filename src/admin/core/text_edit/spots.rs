@@ -11,7 +11,7 @@ use crate::config::tree::{Node, Value};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Place {
     Field(Vec<String>),
-    Comment,
+    Comment(String),
 }
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl Place {
     pub fn key(&self) -> String {
         match self {
             Place::Field(p) => p.join("\u{0}"),
-            Place::Comment => "#".into(),
+            Place::Comment(file) => format!("#{file}"),
         }
     }
 }
@@ -246,14 +246,14 @@ pub fn comments(tree: &Node, body: &str) -> Vec<Range<usize>> {
     out
 }
 
-pub fn comment_spots(tree: &Node, body: &str) -> Vec<Spot> {
+pub fn comment_spots(tree: &Node, body: &str, file: &str) -> Vec<Spot> {
     let mut out = Vec::new();
     for c in comments(tree, body) {
         for r in text::tokens(&body[c.clone()]) {
             let token = &body[c.start + r.start..c.start + r.end];
             if text::hides_token(token) {
                 out.push(Spot {
-                    place: Place::Comment,
+                    place: Place::Comment(file.to_string()),
                     path: Vec::new(),
                     range: c.start + r.start..c.start + r.end,
                     value: token.to_string(),

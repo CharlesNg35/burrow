@@ -1,5 +1,6 @@
 use super::mask::{self, Ids, Masked, Table};
 use super::unmask::unmask;
+use crate::config::Format;
 use crate::wire::secret::Secret;
 use burrow_admin_proto::schema::Node;
 use burrow_admin_proto::text_edit::placeholder;
@@ -8,8 +9,15 @@ fn root() -> Node {
     crate::config::admin_schema::server_schema().root
 }
 
+fn named(name: &str, json: bool) -> mask::Named<'_> {
+    mask::Named {
+        name,
+        format: if json { Format::Json } else { Format::Yaml },
+    }
+}
+
 fn masked(text: &str, json: bool, ids: &Ids) -> Masked {
-    mask::mask(text, json, &root(), ids).unwrap()
+    mask::mask(named("server.yaml", json), text, &root(), ids).unwrap()
 }
 
 fn table(m: &Masked) -> Table {
@@ -17,7 +25,7 @@ fn table(m: &Masked) -> Table {
 }
 
 fn back(sent: &str, from: &Masked) -> Result<String, Vec<burrow_admin_proto::diag::Diag>> {
-    unmask("server.yaml", sent, &table(from)).map(|(t, _)| t)
+    unmask(named("server.yaml", false), sent, &table(from)).map(|(t, _)| t)
 }
 
 struct Styles {
@@ -94,7 +102,10 @@ fn a_json_file_keeps_valid_json_with_a_quoted_placeholder() {
         placeholder(&s.fingerprint())
     );
     assert!(!m.text.contains("12345"), "{}", m.text);
-    assert_eq!(back(&m.text, &m).unwrap(), text);
+    let json = unmask(named("server.yaml", true), &m.text, &table(&m))
+        .unwrap()
+        .0;
+    assert_eq!(json, text);
 }
 
 #[test]
@@ -197,7 +208,9 @@ fn a_placeholder_anywhere_but_its_own_field_is_refused_and_named() {
     let comment = m
         .text
         .replace("# tcp", &format!("# {}", placeholder("0badf00d")));
-    assert!(refused(&comment, &m).contains("in a comment stands for no current secret"));
+    assert!(
+        refused(&comment, &m).contains("in a comment stands for no secret in this file's comments")
+    );
 }
 
 #[test]
@@ -353,4 +366,35 @@ fn other_values_get_ids_of_their_own_field_and_burrow_secrets_their_fingerprint(
     assert_eq!(found[2], s.fingerprint());
     assert_eq!(found[3], s.fingerprint());
     assert_eq!(back(&m.text, &m).unwrap(), text);
+}
+
+#[test]
+fn a_yaml_only_secret_moved_into_a_json_file_comes_back_as_json() {
+    let ids = Ids::default();
+    let drop_in = "clients:\n  odd:\n    secret: \"hun\\x74er2\\e\"\n";
+    let m = mask::mask(named("server.d/a.yaml", false), drop_in, &root(), &ids).unwrap();
+    let p = &m.text[burrow_admin_proto::text_edit::placeholders_in(&m.text)[0]
+        .0
+        .clone()];
+    let sent = format!("{{\"clients\": {{\"odd\": {{\"secret\": \"{p}\"}}}}}}\n");
+    let (got, _) = unmask(named("server.json", true), &sent, &table(&m)).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&got).unwrap_or_else(|e| panic!("{got}: {e}"));
+    assert_eq!(v["clients"]["odd"]["secret"], "hunter2\u{1b}");
+}
+
+#[test]
+fn a_comment_placeholder_stays_in_its_own_file() {
+    let ids = Ids::default();
+    let st = styles();
+    let m = masked(&st.text, false, &ids);
+    let fp0 = placeholder(&st.fps[0]);
+    let other = format!("# moved here: {fp0}\nservices: {{}}\n");
+    let problems = unmask(named("server.d/new.yaml", false), &other, &table(&m)).unwrap_err();
+    assert!(
+        problems[0]
+            .message
+            .contains("in a comment stands for no secret in this file's comments"),
+        "{:?}",
+        problems[0].message
+    );
 }

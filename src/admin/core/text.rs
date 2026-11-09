@@ -44,7 +44,7 @@ pub fn hash_parts(parts: &[&[u8]]) -> String {
     rev_of(&h.finalize())
 }
 
-fn token_char(c: char) -> bool {
+pub fn token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_')
 }
 

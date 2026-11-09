@@ -5,6 +5,7 @@ use burrow_admin_proto::schema::Node as SchemaNode;
 use burrow_admin_proto::text_edit::placeholder;
 
 use super::spots::{Place, Spot, comment_spots, field_spots};
+use crate::config::Format;
 use crate::config::tree::{self, Node};
 use crate::wire::secret::Secret;
 
@@ -74,12 +75,23 @@ pub struct Kept {
 }
 
 impl Kept {
-    pub fn written_for(&self, style: Style, indent: usize) -> String {
+    pub fn written_for(&self, style: Style, indent: usize, format: Format) -> String {
+        let quoted = serde_json::to_string(&self.value).unwrap_or_default();
+        if format == Format::Json {
+            let same = match serde_json::from_str::<serde_json::Value>(&self.written) {
+                Ok(serde_json::Value::String(v)) => v == self.value,
+                Ok(v @ (serde_json::Value::Number(_) | serde_json::Value::Bool(_))) => {
+                    serde_json::from_str::<serde_json::Value>(&self.value).is_ok_and(|x| x == v)
+                }
+                _ => false,
+            };
+            return if same { self.written.clone() } else { quoted };
+        }
         let moved = self.written.contains('\n') && indent != self.indent;
         if style == self.shown && !moved {
             return self.written.clone();
         }
-        serde_json::to_string(&self.value).unwrap_or_default()
+        quoted
     }
 }
 
@@ -95,9 +107,9 @@ pub fn indent_at(body: &str, at: usize) -> usize {
     body[line..].len() - body[line..].trim_start_matches(' ').len()
 }
 
-pub fn spots(tree: &Node, body: &str, root: &SchemaNode) -> Vec<Spot> {
+pub fn spots(tree: &Node, body: &str, root: &SchemaNode, file: &str) -> Vec<Spot> {
     let mut all = field_spots(tree, body, root);
-    all.extend(comment_spots(tree, body));
+    all.extend(comment_spots(tree, body, file));
     all.sort_by_key(|s| s.range.start);
     all
 }
@@ -109,7 +121,14 @@ pub fn split_bom(text: &str) -> (&str, &str) {
     }
 }
 
-pub fn mask(text: &str, json: bool, root: &SchemaNode, ids: &Ids) -> Result<Masked, String> {
+#[derive(Debug, Clone, Copy)]
+pub struct Named<'a> {
+    pub name: &'a str,
+    pub format: Format,
+}
+
+pub fn mask(file: Named, text: &str, root: &SchemaNode, ids: &Ids) -> Result<Masked, String> {
+    let json = file.format == Format::Json;
     let (bom, body) = split_bom(text);
     let tree = tree::parse(body).map_err(|e| {
         e.first()
@@ -120,14 +139,14 @@ pub fn mask(text: &str, json: bool, root: &SchemaNode, ids: &Ids) -> Result<Mask
     out.push_str(bom);
     let mut kept = Vec::new();
     let mut at = 0;
-    for s in spots(&tree, body, root) {
+    for s in spots(&tree, body, root, file.name) {
         if s.range.start < at || s.range.is_empty() {
             continue;
         }
         let written = &body[s.range.clone()];
         let id = ids.of(&s.place, &s.value);
         let token = match s.place {
-            Place::Comment => placeholder(&id),
+            Place::Comment(_) => placeholder(&id),
             Place::Field(_) => Style::of(written).token(&id, json),
         };
         out.push_str(&body[at..s.range.start]);

@@ -484,7 +484,7 @@ fn every_line_of_a_text_plan_is_veiled_with_the_secrets_of_both_texts() {
     plan.diags[0].message = "unknown field \"LEAKC7\" and LEAKNEW8".into();
     plan.changes.push(burrow_admin_proto::plan::Change {
         kind: burrow_admin_proto::plan::ChangeKind::Other,
-        path: p(&["clients", "LEAKC7"]),
+        path: p(&["clients", "home"]),
         summary: "Client home: LEAKC7 set to nothing".into(),
         part_of: None,
     });
@@ -530,4 +530,44 @@ fn a_secret_moved_into_a_flow_mapping_never_shows_a_part_of_itself() {
         .unwrap()
         .to_json();
     assert_eq!(back["clients"]["home"]["secret"], "hunter2,LEAKC7");
+}
+
+#[test]
+fn a_weak_secret_leaves_every_structural_field_as_it_is() {
+    let w = world();
+    let text = w.text.replace(&w.home.encode(), "home-error-secret");
+    let core = super::core_running(&text, &w.text);
+    let s = session(&w, AdminLevel::Write);
+    let t = edit_text(&core, &s);
+    let ops = replace(&t, |x| x.replace("# the home box", "# the home server"));
+    let plan = planned(&core, &s, &ops).unwrap();
+    assert!(!plan.valid);
+    let weak = plan
+        .diags
+        .iter()
+        .find(|d| d.code == "weak-secret")
+        .unwrap_or_else(|| panic!("{:#?}", plan.diags));
+    assert!(weak.is_error(), "{weak:?}");
+    assert_eq!(
+        weak.path.as_deref(),
+        Some(&p(&["clients", "home", "secret"])[..])
+    );
+    assert_eq!(weak.file.as_deref(), Some("server.yaml"));
+    assert!(
+        weak.help
+            .as_deref()
+            .is_some_and(|h| h.contains("gensecret")),
+        "{weak:?}"
+    );
+    let sent = serde_json::to_string(&plan).unwrap();
+    assert!(!sent.contains("home-error-secret"), "{sent}");
+    assert!(
+        sent.contains("\"  home:\"") && sent.contains("\"severity\":\"error\""),
+        "{sent}"
+    );
+    assert!(
+        plan.diags
+            .iter()
+            .all(|d| !d.code.contains("«") && d.path.iter().flatten().all(|k| !k.contains("«")))
+    );
 }

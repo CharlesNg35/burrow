@@ -314,30 +314,52 @@ pub fn veil_headers(line: &str, pairs: &[(String, String)]) -> String {
     out
 }
 
-const FRAGMENT: usize = 4;
+const PART: usize = 4;
 
-fn fragments(value: &str) -> Vec<String> {
-    if Secret::parse(value).is_ok() {
-        return Vec::new();
+fn veil_parts(line: &str, values: &[String]) -> String {
+    let mut out = line.to_string();
+    let mut longest: Vec<&String> = values.iter().filter(|v| !v.is_empty()).collect();
+    longest.sort_by_key(|v| std::cmp::Reverse(v.len()));
+    for value in longest {
+        let mut done = String::with_capacity(out.len());
+        let mut rest = out.as_str();
+        while let Some(at) = rest.find(value.as_str()) {
+            let before = rest[..at].chars().next_back();
+            let after = rest[at + value.len()..].chars().next();
+            let whole = !before.is_some_and(super::text::token_char)
+                && !after.is_some_and(super::text::token_char);
+            done.push_str(&rest[..at]);
+            done.push_str(if whole { HEADER_SHOWN } else { value });
+            rest = &rest[at + value.len()..];
+        }
+        done.push_str(rest);
+        out = done;
     }
-    let mut out = vec![value.to_string()];
-    for r in super::text::tokens(value) {
-        out.push(value[r].to_string());
+    let parts: Vec<&str> = values
+        .iter()
+        .flat_map(|v| super::text::tokens(v).into_iter().map(move |r| &v[r]))
+        .filter(|p| p.chars().count() >= PART)
+        .collect();
+    let mut done = String::with_capacity(out.len());
+    let mut at = 0;
+    for r in super::text::tokens(&out) {
+        done.push_str(&out[at..r.start]);
+        let token = &out[r.clone()];
+        done.push_str(if parts.contains(&token) {
+            HEADER_SHOWN
+        } else {
+            token
+        });
+        at = r.end;
     }
-    out.extend(
-        value
-            .split(|c: char| !c.is_alphanumeric())
-            .map(str::to_string),
-    );
-    out.retain(|f| f.chars().count() >= FRAGMENT);
-    out.sort_by_key(|f| std::cmp::Reverse(f.len()));
-    out.dedup();
-    out
+    done.push_str(&out[at..]);
+    done
 }
 
 pub struct Hidden {
     hashes: Vec<String>,
     headers: Vec<(String, String)>,
+    values: Vec<String>,
 }
 
 impl Hidden {
@@ -345,6 +367,7 @@ impl Hidden {
         let mut out = Hidden {
             hashes: Vec::new(),
             headers: Vec::new(),
+            values: Vec::new(),
         };
         for t in texts {
             let (_, _, src) = crate::config::patch::split_text(t);
@@ -353,17 +376,19 @@ impl Hidden {
                 hashes(&v, Some(root), &mut out.hashes);
                 header_values(&v, &mut out.headers);
                 credentials(&v, Some(root), "", &mut out.headers);
-                for value in super::text_edit::hidden_values(&tree, &src, root) {
-                    out.headers
-                        .extend(fragments(&value).into_iter().map(|f| (String::new(), f)));
-                }
+                out.values.extend(
+                    super::text_edit::hidden_values(&tree, &src, root)
+                        .into_iter()
+                        .filter(|v| Secret::parse(v).is_err()),
+                );
             }
         }
         out
     }
 
     pub fn line(&self, line: &str) -> String {
-        veil_headers(&veil(line, &self.hashes), &self.headers)
+        let line = veil_headers(&veil(line, &self.hashes), &self.headers);
+        veil_parts(&line, &self.values)
     }
 
     pub fn value(&self, v: &Value) -> Value {
