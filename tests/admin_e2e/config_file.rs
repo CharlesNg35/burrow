@@ -48,7 +48,16 @@ async fn file_tab(c: &Ctx) -> String {
             .last()
             .map(String::as_str),
         Some("file"),
-        "Config file is the last Settings tab"
+        "Raw config is the last Settings tab"
+    );
+    let name: String =
+        c.ui.eval(&format!(
+            "document.querySelector('{TABS} [data-tab=file]').textContent.trim()"
+        ))
+        .await;
+    assert!(
+        name.starts_with("Raw config"),
+        "the tab is named Raw config: {name:?}"
     );
     c.ui.wait_text(TEXT, "secrets show as fingerprints", SECS)
         .await
