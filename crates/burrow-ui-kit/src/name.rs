@@ -35,7 +35,7 @@ pub fn FileName(
             .into_any();
     }
     let room = format!(
-        "max-width: round(down, calc(100% - {}ch), 1ch)",
+        "max-width: calc(round(down, calc(100% - {}ch), 1ch) + 1px)",
         (lead.chars().count() + end.chars().count() + 1)
     );
     view! {
