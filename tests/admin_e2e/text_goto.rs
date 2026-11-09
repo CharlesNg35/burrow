@@ -366,11 +366,11 @@ fn text_goto(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         a_new_file_keeps_its_tab(c).await;
         a_file_removed_on_the_server_takes_its_edits(c).await;
-        an_emptied_drop_in_is_deleted_from_a_text_review(c).await;
-        start(c).await;
         undo_and_empty_follow_the_screen(c).await;
         matches_land_on_their_field(c).await;
         unwritten_text_comes_back(c).await;
+        start(c).await;
+        an_emptied_drop_in_is_deleted_from_a_text_review(c).await;
         c.ui.assert_no_errors();
     })
 }
