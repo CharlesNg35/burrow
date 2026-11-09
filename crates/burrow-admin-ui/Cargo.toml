@@ -12,7 +12,7 @@ burrow-admin-proto = { path = "../burrow-admin-proto" }
 burrow-config = { path = "../burrow-config" }
 burrow-syntax = { path = "../burrow-syntax" }
 burrow-ui-kit = { path = "../burrow-ui-kit" }
-config-editor-leptos = { git = "https://github.com/paradoxe35/config-editor", rev = "8ea6b76ece4ce5ed95a8420e81b068964006bbab", default-features = false, features = ["yaml", "json", "toml", "protect", "diff", "folding", "search", "schema-validation"] }
+config-editor-leptos = { git = "https://github.com/paradoxe35/config-editor", rev = "86f9f8b7358f8487ba4a08ca60cc4b4085584cc8", default-features = false, features = ["yaml", "json", "toml", "protect", "diff", "folding", "search", "schema-validation"] }
 console_error_panic_hook = "0.1.7"
 js-sys = "0.3"
 leptos = { version = "=0.8.23", features = ["csr"] }
