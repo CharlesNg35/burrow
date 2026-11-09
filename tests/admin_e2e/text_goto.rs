@@ -167,6 +167,18 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     c.ui.wait_for("[data-testid=file-cancel-dialog]", SECS)
         .await;
     c.ui.click("[data-testid=file-keep]").await;
+    c.ui.click("[data-testid=settings-tabs] [role=tab][aria-selected=true]")
+        .await;
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector('a[href=\"#main\"]').click(); return true; })()")
+        .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        c.ui.count(LEAVE).await,
+        0,
+        "the tab already shown and the skip link go nowhere, so nothing asks"
+    );
     c.ui.click(SERVICES).await;
     leave_dialog(c).await;
     phone_shot(c, "text-goto-leave").await;
@@ -208,10 +220,36 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
     assert!(c.ui.count(EDITOR).await == 0);
 }
 
+async fn a_file_removed_on_the_server_takes_its_edits(c: &mut Ctx) {
+    let gone = name(12);
+    show(c, &gone).await;
+    replace_in(c, &gone, "target: 3012", "target: 4012").await;
+    dirty(c, &gone, true).await;
+    std::fs::remove_file(c.world.file(&gone)).expect("remove the drop-in");
+    c.ui.wait_text(
+        "body",
+        "server.d/web-12.yaml was removed on the server; its edits here are gone",
+        Duration::from_secs(20),
+    )
+    .await;
+    c.ui.wait_gone(&tab(&gone), SECS).await;
+    c.ui.wait_true(
+        "document.querySelector('[data-testid=file-review]').disabled",
+        "nothing left to review",
+        SECS,
+    )
+    .await;
+    c.ui.click("[data-testid=file-cancel]").await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
+        .await;
+    start(c).await;
+}
+
 fn text_goto(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         a_new_file_keeps_its_tab(c).await;
+        a_file_removed_on_the_server_takes_its_edits(c).await;
         matches_land_on_their_field(c).await;
         leaving_unwritten_text_asks(c).await;
         c.ui.assert_no_errors();
