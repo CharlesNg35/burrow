@@ -145,14 +145,29 @@ pub fn services_for(
     services
         .iter()
         .filter(|(_, svc)| svc.clients.iter().any(|c| c == client))
-        .map(|(name, svc)| crate::wire::protocol::ServiceInfo {
-            name: name.clone(),
-            protocol: svc.protocol,
-            bind_port: svc.bind.map_or(0, |b| b.port()),
-            target: svc.target.clone(),
-            ports: svc.ports,
-        })
+        .map(|(name, svc)| service_info(name, svc))
         .collect()
+}
+
+pub fn services_info(
+    services: &BTreeMap<String, Service>,
+    names: &[&str],
+) -> Vec<crate::wire::protocol::ServiceInfo> {
+    names
+        .iter()
+        .filter_map(|n| services.get_key_value(*n))
+        .map(|(name, svc)| service_info(name, svc))
+        .collect()
+}
+
+fn service_info(name: &str, svc: &Service) -> crate::wire::protocol::ServiceInfo {
+    crate::wire::protocol::ServiceInfo {
+        name: name.to_string(),
+        protocol: svc.protocol,
+        bind_port: svc.bind.map_or(0, |b| b.port()),
+        target: svc.target.clone(),
+        ports: svc.ports,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

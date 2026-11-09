@@ -14,6 +14,33 @@ pub(super) struct Taken<'a> {
     pub web: Option<SocketAddr>,
     pub web_http: Option<SocketAddr>,
     pub binds: Vec<(SocketAddr, u16, Protocol, &'a str)>,
+    pub starts: std::collections::BTreeMap<u32, Vec<usize>>,
+    pub widest: u32,
+}
+
+impl<'a> Taken<'a> {
+    fn first_clash(&self, protocol: Protocol, bind: SocketAddr, ports: u16) -> Option<&'a str> {
+        let from = u32::from(bind.port()).saturating_sub(self.widest.saturating_sub(1));
+        let to = u32::from(bind.port()) + u32::from(ports.max(1)) - 1;
+        self.starts
+            .range(from..=to)
+            .flat_map(|(_, at)| at.iter().copied())
+            .filter(|&i| {
+                let (b, n, p, _) = self.binds[i];
+                p == protocol && ranges_conflict(b, n, bind, ports)
+            })
+            .min()
+            .map(|i| self.binds[i].3)
+    }
+
+    fn add(&mut self, bind: SocketAddr, ports: u16, protocol: Protocol, name: &'a str) {
+        self.starts
+            .entry(u32::from(bind.port()))
+            .or_default()
+            .push(self.binds.len());
+        self.widest = self.widest.max(u32::from(ports.max(1)));
+        self.binds.push((bind, ports, protocol, name));
+    }
 }
 
 pub(super) fn check_service<'a>(
@@ -337,11 +364,7 @@ fn check_bind<'a>(
 ) {
     let at = spans.value(&["services", name, "bind"]);
     let shown = show_addr(bind, ports);
-    if let Some((_, _, _, other)) = taken
-        .binds
-        .iter()
-        .find(|(b, n, p, _)| *p == protocol && ranges_conflict(*b, *n, bind, ports))
-    {
+    if let Some(other) = taken.first_clash(protocol, bind, ports) {
         out.push(
             Diagnostic::error(
                 burrow_admin_proto::codes::DUPLICATE_BIND,
@@ -351,7 +374,7 @@ fn check_bind<'a>(
                 ),
             )
             .about(name)
-            .about(*other)
+            .about(other)
             .at(at)
             .label("address already used")
             .help("pick a different port for one of the services"),
@@ -411,7 +434,7 @@ fn check_bind<'a>(
             )),
         );
     }
-    taken.binds.push((bind, ports, protocol, name));
+    taken.add(bind, ports, protocol, name);
 }
 
 fn sources(
