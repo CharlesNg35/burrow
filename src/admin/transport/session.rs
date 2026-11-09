@@ -31,12 +31,13 @@ struct Ctx {
     access: Arc<dyn Access>,
 }
 
-fn encode(v: &Value) -> Vec<u8> {
-    serde_json::to_vec(v).unwrap_or_default()
+fn encode(mut v: Value) -> Vec<u8> {
+    crate::base::redact::json(&mut v);
+    serde_json::to_vec(&v).unwrap_or_default()
 }
 
 fn reply(id: u32, result: Result<Value, ApiError>) -> Vec<u8> {
-    let bytes = encode(&match result {
+    let bytes = encode(match result {
         Ok(body) => msg::reply_ok(id, body),
         Err(e) => msg::reply_err(id, &e.wire()),
     });
@@ -45,7 +46,7 @@ fn reply(id: u32, result: Result<Value, ApiError>) -> Vec<u8> {
     }
     debug!("admin reply {id} is {} bytes, over the limit", bytes.len());
     let too_large = ApiError::new(ErrorCode::TooLarge, frame::FrameError::TooLarge.to_string());
-    encode(&msg::reply_err(id, &too_large.wire()))
+    encode(msg::reply_err(id, &too_large.wire()))
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
@@ -354,7 +355,7 @@ pub async fn run(
             } => {
                 let status = crate::admin::hooks::status(cx.hub.core.status());
                 let ev = msg::event(msg::ev::STATUS, serde_json::to_value(status).unwrap_or_default());
-                let _ = tx.try_send(encode(&ev));
+                let _ = tx.try_send(encode(ev));
             }
             changed = reloads.changed() => {
                 if changed.is_err() {
@@ -368,25 +369,25 @@ pub async fn run(
                         }
                     }
                     let ev = msg::event(msg::ev::REVOKED, serde_json::to_value(Revoked { reason }).unwrap_or_default());
-                    let _ = send(encode(&ev), heard + silence).await;
+                    let _ = send(encode(ev), heard + silence).await;
                     break "revoked";
                 }
                 if config_events
                     && let Some(ev) = config_event(&hub, &mut last_rev).await
-                    && !send(encode(&ev), heard + silence).await
+                    && !send(encode(ev), heard + silence).await
                 {
                     break "closed";
                 }
             }
             _ = file_check.tick(), if config_events => {
                 if let Some(ev) = config_event(&hub, &mut last_rev).await
-                    && !send(encode(&ev), heard + silence).await
+                    && !send(encode(ev), heard + silence).await
                 {
                     break "closed";
                 }
             }
             _ = shutdown.changed() => {
-                let _ = send(encode(&msg::event(msg::ev::BYE, serde_json::json!({}))), heard + silence).await;
+                let _ = send(encode(msg::event(msg::ev::BYE, serde_json::json!({}))), heard + silence).await;
                 break "server stopping";
             }
             _ = tokio::time::sleep_until(heard + silence) => {

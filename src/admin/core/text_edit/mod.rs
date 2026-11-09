@@ -133,7 +133,7 @@ const FREE_TEXT: [&str; 6] = ["message", "label", "help", "summary", "hint", "un
 
 fn veil_text(v: &mut Value, hidden: &values::Hidden) {
     match v {
-        Value::String(s) => *s = text::mask_secrets(&hidden.line(s), &[]),
+        Value::String(s) => *s = hidden.text(s),
         Value::Array(a) => a.iter_mut().for_each(|x| veil_text(x, hidden)),
         _ => {}
     }
@@ -250,19 +250,12 @@ pub fn edited(core: &Core, old: &Docs, ops: &[Op]) -> Result<Option<Edited>, Api
 
 impl Edited {
     fn hidden(&self, core: &Core) -> values::Hidden {
-        let texts: Vec<&str> = self
-            .old
-            .list
-            .iter()
-            .chain(&self.docs.list)
-            .map(|d| d.text.as_str())
-            .collect();
-        values::Hidden::in_texts(&texts, &core.schema().root)
+        values::Hidden::of_docs(&[&self.old, &self.docs], &core.schema().root)
     }
 
     pub fn veil_error(&self, core: &Core, mut e: ApiError) -> ApiError {
         let hidden = self.hidden(core);
-        e.message = text::mask_secrets(&hidden.line(&e.message), &[]);
+        e.message = hidden.text(&e.message);
         veil_body(&mut e.body, &hidden);
         e
     }

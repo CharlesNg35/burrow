@@ -249,17 +249,19 @@ pub fn comments(tree: &Node, body: &str) -> Vec<Range<usize>> {
 pub fn comment_spots(tree: &Node, body: &str, file: &str) -> Vec<Spot> {
     let mut out = Vec::new();
     for c in comments(tree, body) {
-        for r in text::tokens(&body[c.clone()]) {
-            let token = &body[c.start + r.start..c.start + r.end];
-            if text::hides_token(token) {
-                out.push(Spot {
-                    place: Place::Comment(file.to_string()),
-                    path: Vec::new(),
-                    range: c.start + r.start..c.start + r.end,
-                    value: token.to_string(),
-                });
-            }
-        }
+        let comment = &body[c.clone()];
+        let urls = burrow_syntax::secret_fmt::url_passwords(comment);
+        let in_url = |r: &Range<usize>| urls.iter().any(|u| u.start < r.end && r.start < u.end);
+        let tokens = text::tokens(comment).into_iter();
+        let hidden = tokens.filter(|r| !in_url(r) && text::hides_token(&comment[r.clone()]));
+        let mut found: Vec<Range<usize>> = urls.iter().cloned().chain(hidden).collect();
+        found.sort_by_key(|r| r.start);
+        out.extend(found.into_iter().map(|r| Spot {
+            place: Place::Comment(file.to_string()),
+            path: Vec::new(),
+            range: c.start + r.start..c.start + r.end,
+            value: comment[r].to_string(),
+        }));
     }
     out
 }

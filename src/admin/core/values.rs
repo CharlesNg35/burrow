@@ -154,7 +154,8 @@ fn present_at(
         }
         Value::String(s) if s.contains("${") => {
             let resolved = expand_value(s, env);
-            if resolved.as_deref().is_some_and(super::text::holds_secret) {
+            let hides = |t: &str| super::text::holds_secret(t) || url_with_password(t);
+            if hides(s) || resolved.as_deref().is_some_and(hides) {
                 return value::secret(&secret_info(s, env));
             }
             value::env(&EnvInfo {
@@ -346,8 +347,27 @@ impl Hidden {
         out
     }
 
+    pub fn of_docs(docs: &[&crate::config::docs::Docs], root: &Node) -> Hidden {
+        let texts: Vec<&str> = docs
+            .iter()
+            .flat_map(|d| &d.list)
+            .map(|d| d.text.as_str())
+            .collect();
+        Hidden::in_texts(&texts, root)
+    }
+
     pub fn line(&self, line: &str) -> String {
         veil_values(&veil(line, &self.hashes), &self.values)
+    }
+
+    pub fn text(&self, text: &str) -> String {
+        super::text::mask_secrets(&self.line(text), &[])
+    }
+
+    pub fn diag(&self, d: &mut burrow_admin_proto::diag::Diag) {
+        d.message = self.text(&d.message);
+        d.label = d.label.as_deref().map(|t| self.text(t));
+        d.help = d.help.as_deref().map(|t| self.text(t));
     }
 
     pub fn value(&self, v: &Value) -> Value {

@@ -445,9 +445,16 @@ impl Core {
             })
             .collect();
         let notice = older::notice(self, s, checked.raw.as_ref());
-        let (errors, mut warnings): (Vec<_>, Vec<_>) =
+        let (mut errors, mut warnings): (Vec<_>, Vec<_>) =
             checked.diags.into_iter().partition(|d| d.is_error());
         warnings.extend(notice);
+        if !errors.is_empty() || !warnings.is_empty() {
+            let hidden = values::Hidden::of_docs(&[&docs], &self.schema().root);
+            errors
+                .iter_mut()
+                .chain(&mut warnings)
+                .for_each(|d| hidden.diag(d));
+        }
         Ok(State {
             rev: rev.clone(),
             file: self.file_info(s, &docs),

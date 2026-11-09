@@ -362,7 +362,7 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
     let hosts = with_ports(s, web, routes::hosts(web));
     let (https, addresses) = shown(web.https);
     let (http, http_addresses) = shown(web.http);
-    Some(WebSummary {
+    Some(crate::base::redact::data(WebSummary {
         https,
         addresses,
         http,
@@ -388,7 +388,7 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
             (true, false) => "HTTP/1.1 only".into(),
         },
         wildcards: wildcard_lines(web),
-    })
+    }))
 }
 
 #[cfg(feature = "web")]

@@ -20,13 +20,7 @@ pub(super) fn conflict(core: &Core, base: &str, old_docs: &Docs, current: String
     let theirs = before.as_ref().and_then(|b| {
         let (before, after) =
             values::hide_headers(&b.tree().ok()?.to_json(), &old_docs.tree().ok()?.to_json());
-        let texts: Vec<&str> = b
-            .list
-            .iter()
-            .chain(&old_docs.list)
-            .map(|d| d.text.as_str())
-            .collect();
-        let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
+        let hidden = values::Hidden::of_docs(&[b, old_docs], &core.schema().root);
         Some(summary::changes(
             &hidden.value(&before),
             &hidden.value(&after),
@@ -315,13 +309,7 @@ pub(super) fn assemble(
         .iter()
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
-    let texts: Vec<&str> = old_docs
-        .list
-        .iter()
-        .chain(&new_docs.list)
-        .map(|d| d.text.as_str())
-        .collect();
-    let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
+    let hidden = values::Hidden::of_docs(&[old_docs, new_docs], &core.schema().root);
     let shown = crate::admin::core::text_edit::Shown::new(core, &fresh_pairs, d.renames);
     let diff = shown.diff(
         &new_docs.main().name,
@@ -381,19 +369,14 @@ pub(super) fn assemble(
 }
 
 fn veil_text(plan: &mut Plan, hidden: &values::Hidden) {
-    let line = |s: &str| text::mask_secrets(&hidden.line(s), &[]);
-    for d in &mut plan.diags {
-        d.message = line(&d.message);
-        d.label = d.label.as_deref().map(line);
-        d.help = d.help.as_deref().map(line);
-    }
+    plan.diags.iter_mut().for_each(|d| hidden.diag(d));
     for c in &mut plan.changes {
-        c.summary = line(&c.summary);
+        c.summary = hidden.text(&c.summary);
     }
     for i in &mut plan.impacts {
-        i.message = line(&i.message);
+        i.message = hidden.text(&i.message);
     }
     for r in &mut plan.refusals {
-        r.message = line(&r.message);
+        r.message = hidden.text(&r.message);
     }
 }

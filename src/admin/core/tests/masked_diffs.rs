@@ -21,6 +21,15 @@ struct Files {
 }
 
 fn files(main: &str, text: &str, drop_ins: &[(&str, &str)]) -> Files {
+    files_with(main, text, drop_ins, |_| None)
+}
+
+fn files_with(
+    main: &str,
+    text: &str,
+    drop_ins: &[(&str, &str)],
+    env: fn(&str) -> Option<String>,
+) -> Files {
     let w = world();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(main);
@@ -40,7 +49,7 @@ fn files(main: &str, text: &str, drop_ins: &[(&str, &str)]) -> Files {
     let core = Core::new(
         Box::new(FileStore::new(&path)),
         Box::new(live),
-        Box::new(|_: &str| None),
+        Box::new(env),
     );
     Files { _dir: dir, core, w }
 }
@@ -358,31 +367,137 @@ fn a_renamed_items_hidden_value_reads_unchanged_in_the_history_and_in_a_revert()
     );
 }
 
-#[test]
-fn a_password_in_a_url_is_hidden_in_the_views_the_text_and_the_diffs() {
-    let w = world();
-    let text = w.text.replace(
-        "listen: 7835 # tcp\n",
-        "listen: 7835 # tcp\npublic_address: wss://ops:urlpass-9z@tunnel.example.com/burrow\n",
+#[cfg(feature = "web")]
+const URL_WEB: &str = "web:\n  https: 443\n  http: 80\n  # was https://acme:commentpw33@ca.old/dir\n  letsencrypt:\n    email: ops@example.com\n    directory: {DIR}\n";
+
+#[cfg(feature = "web")]
+const URL_PASSWORDS: [&str; 7] = [
+    "literalpw22",
+    "resolvedpw66",
+    "ss55word",
+    "literalpw44",
+    "commentpw33",
+    "headerpw55",
+    "acme:pa",
+];
+
+#[cfg(feature = "web")]
+fn url_env(name: &str) -> Option<String> {
+    match name {
+        "CA_HOST" => Some("ca.internal".into()),
+        "ACME_PW" => Some("resolvedpw66".into()),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "web")]
+fn url_files(directory: &str) -> Files {
+    let site = site("site").replace(
+        "        Authorization:",
+        "        X-Note: \"see https://u:headerpw55@h.example/x\"\n        Authorization:",
     );
-    let f = files("server.yaml", &text, &[]);
-    let s = f.session();
-    let view = dispatch(
-        &f.core,
-        &s,
-        burrow_admin_proto::msg::req::CONFIG_VIEW,
-        &json!({}),
-    )
-    .unwrap();
-    let state = dispatch(&f.core, &s, burrow_admin_proto::msg::req::STATE, &json!({})).unwrap();
-    let shown = edit_text(&f.core, &s);
-    let plan = f.plan(&edit(&f, "listen: 7835", "listen: 7836"));
-    for sent in [
-        view.to_string(),
-        state.to_string(),
-        serde_json::to_string(&shown).unwrap(),
-        serde_json::to_string(&plan).unwrap(),
+    let text = world().text.replace(
+        "services:\n",
+        &format!("{}services:\n{site}", URL_WEB.replace("{DIR}", directory)),
+    );
+    files_with("server.yaml", &text, &[], url_env)
+}
+
+#[cfg(feature = "web")]
+#[test]
+fn a_password_in_a_url_never_leaves_the_server() {
+    let mut applied = 0;
+    for directory in [
+        "https://acme:literalpw22@${CA_HOST}/dir",
+        "https://acme:${ACME_PW}@ca.internal/dir",
+        "https://acme:pa/ss55word@ca.internal/dir",
+        "http://acme:literalpw44@ca.internal/dir",
     ] {
-        never(&sent, &["urlpass-9z"]);
+        let f = url_files(directory);
+        let s = f.session();
+        let ask = |t: &str, body: serde_json::Value| dispatch(&f.core, &s, t, &body).unwrap();
+        let state = ask(burrow_admin_proto::msg::req::STATE, json!({}));
+        let shown = edit_text(&f.core, &s);
+        assert!(
+            shown.files[0].text.contains("# was https://«secret "),
+            "{directory}: {}",
+            shown.files[0].text
+        );
+        let plan = f.plan(&edit(
+            &f,
+            "email: ops@example.com",
+            "email: ops2@example.com",
+        ));
+        assert!(
+            !plan.diff.unified.contains("-  # was"),
+            "{}",
+            plan.diff.unified
+        );
+        let mut sent = vec![
+            ask(burrow_admin_proto::msg::req::CONFIG_VIEW, json!({})).to_string(),
+            ask(
+                burrow_admin_proto::msg::req::CONFIG_VIEW,
+                json!({"show": "with_defaults"}),
+            )
+            .to_string(),
+            state.to_string(),
+            serde_json::to_string(&shown).unwrap(),
+            serde_json::to_string(&plan).unwrap(),
+        ];
+        if plan.valid {
+            f.apply(&edit(
+                &f,
+                "email: ops@example.com",
+                "email: ops2@example.com",
+            ));
+            sent.push(f.history());
+            applied += 1;
+        }
+        for sent in &sent {
+            never(sent, &URL_PASSWORDS);
+        }
+        let diags = state["diags"].to_string() + &state["running"]["file_diags"].to_string();
+        if directory.starts_with("http:") {
+            assert!(diags.contains("http://«hidden»@ca.internal/dir"), "{diags}");
+        }
+    }
+    assert_eq!(applied, 3);
+}
+
+#[cfg(feature = "web")]
+#[test]
+fn a_password_in_a_url_never_shows_in_the_web_summary_or_in_validate() {
+    let text = |directory: &str| {
+        world().text.replace(
+            "services:\n",
+            &format!("{}services:\n", URL_WEB.replace("{DIR}", directory)),
+        )
+    };
+    let settings = super::settings_of(&text("https://acme:literalpw77@ca.internal/dir"));
+    let summary = crate::config::web_summary::summary(&settings).unwrap();
+    for sent in [
+        serde_json::to_string(&summary).unwrap(),
+        crate::config::web_summary::text(&summary),
+    ] {
+        never(&sent, &["literalpw77"]);
+        assert!(sent.contains("https://«hidden»@ca.internal/dir"), "{sent}");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    for (directory, pw) in [
+        ("https://acme:literalpw77@ca.internal/dir", "literalpw77"),
+        ("http://acme:literalpw44@ca.internal/dir", "literalpw44"),
+        ("https://acme:pa/ss55word@ca.internal/dir", "ss55word"),
+    ] {
+        let path = dir.path().join("server.yaml");
+        crate::base::fs::write_private(&path, &text(directory)).unwrap();
+        let nothing = |_: &str| None;
+        let v = crate::config::validate::validate(&path, None, false, &nothing).unwrap();
+        let style = crate::base::style::Style { color: false };
+        for sent in [
+            crate::config::validate::render_text(&v.outcome, false, style),
+            crate::config::validate::render_json(&v.outcome, false),
+        ] {
+            never(&sent, &[pw, "commentpw33"]);
+        }
     }
 }
