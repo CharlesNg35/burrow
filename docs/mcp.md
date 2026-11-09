@@ -210,6 +210,8 @@ A change always takes two steps:
 1. `check_change` returns the diff and a plan id.
 2. `apply_change` applies exactly that plan.
 
+`check_change` takes burrow admin's operations, like `set`, `add`, `rename` or `secret_add`, but not `replace_text`: that one is for burrow admin's text editor, which shows each file with its secrets as placeholders, and `burrow mcp` refuses it.
+
 Impacts that need your OK, like a restart or dropped connections, must be named in `apply_change`, so the AI has to ask you first. If the config changed in between, the server refuses and the AI checks again. A plan is kept for 30 minutes, with at most 16 plans at a time.
 
 With drop-in files ([configuration.md](configuration.md#drop-in-files)), the AI:

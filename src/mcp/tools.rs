@@ -52,7 +52,8 @@ pub struct ConfigArgs {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CheckArgs {
     #[schemars(
-        description = "The changes, in order. Paths are lists of keys, like [\"services\", \"web\", \"bind\"]"
+        description = "The changes, in order. Paths are lists of keys, like [\"services\", \"web\", \"bind\"]",
+        schema_with = "super::ops::ops_schema"
     )]
     pub ops: Vec<Op>,
 }
@@ -343,6 +344,9 @@ impl Tools {
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn check_change(&self, Parameters(a): Parameters<CheckArgs>) -> CallToolResult {
+        if super::ops::editor_op(&a.ops) {
+            return refused("text-op", super::ops::TEXT_OP);
+        }
         let checked = async {
             let base = self.rev().await?;
             let asked = body(&Validate {
