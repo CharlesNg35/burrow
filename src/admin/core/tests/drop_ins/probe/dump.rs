@@ -17,6 +17,8 @@ fn random_run(run: &str) -> bool {
 }
 
 fn canon(text: &str) -> String {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let text = &text.replace(&*exe.to_string_lossy(), "EXE");
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut out = String::with_capacity(text.len());
     let mut run = String::new();
