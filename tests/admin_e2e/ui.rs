@@ -442,12 +442,16 @@ impl Ui {
             .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
             .await
             .expect("viewport");
-        self.wait_true(
-            &format!("innerWidth === {w}"),
-            "the new viewport width",
-            Duration::from_secs(5),
-        )
-        .await;
+        let started = Instant::now();
+        while !self.eval::<bool>(&format!("innerWidth === {w}")).await {
+            if started.elapsed() > Duration::from_secs(5) {
+                let wide: Vec<String> = self
+                    .eval(&format!("[...document.querySelectorAll('body *')].filter(e => {{ const r = e.getBoundingClientRect(); return r.width > {w}; }}).filter(e => ![...e.children].some(k => k.getBoundingClientRect().width > {w})).slice(0, 8).map(e => e.tagName + '.' + String(e.className).slice(0, 80) + ' ' + Math.round(e.getBoundingClientRect().width) + ' ' + (e.dataset.testid || ''))"))
+                    .await;
+                panic!("the page stays wider than {w} px; the innermost wide elements: {wide:?}");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
         self.settle().await;
     }
 
