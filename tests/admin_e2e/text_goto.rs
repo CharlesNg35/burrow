@@ -8,7 +8,6 @@ use super::text_edit::{
 use super::text_tabs::{name, opts, tabs};
 use super::{Ctx, SECS, open, run};
 
-const LEAVE: &str = "[data-testid=file-leave-dialog]";
 const SERVICES: &str = "nav[aria-label=Sections] a[href$='/services']";
 
 async fn selected_from(c: &Ctx, file: &str, text: &str, what: &str) {
@@ -121,38 +120,6 @@ async fn matches_land_on_their_field(c: &mut Ctx) {
     .await;
 }
 
-async fn leave_dialog(c: &Ctx) {
-    c.ui.wait_for(LEAVE, SECS).await;
-    c.ui.wait_text(
-        LEAVE,
-        "server.yaml has TOML text that cannot be saved as YAML yet.",
-        SECS,
-    )
-    .await;
-    c.ui.wait_true(
-        "!!document.activeElement && document.activeElement.dataset.testid === 'file-leave-stay'",
-        "Stay is the default",
-        SECS,
-    )
-    .await;
-}
-
-async fn still_here(c: &Ctx) {
-    c.ui.click("[data-testid=file-leave-stay]").await;
-    c.ui.wait_gone(LEAVE, SECS).await;
-    c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
-        .await;
-    assert!(
-        c.ui.eval::<String>(&format!(
-            "document.querySelector({}).value",
-            js(&input(MAIN))
-        ))
-        .await
-        .contains("broken = ["),
-        "the text on screen is still there"
-    );
-}
-
 async fn search_for(c: &Ctx, words: &str) {
     c.ui.click("[data-testid=search-open]").await;
     c.ui.fill("[data-testid=search] input", words).await;
@@ -188,7 +155,13 @@ async fn two_files_hold_text(c: &mut Ctx) {
     tokio::time::sleep(Duration::from_millis(800)).await;
 }
 
-async fn leaving_unwritten_text_asks(c: &mut Ctx) {
+async fn back_on_the_file_tab(c: &Ctx) {
+    c.ui.nav("/settings?tab=file").await;
+    c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
+        .await;
+}
+
+async fn unwritten_text_comes_back(c: &mut Ctx) {
     let last: String =
         c.ui.eval(&format!(
             "document.querySelector({}).value.trimEnd().split('\\n').pop()",
@@ -212,96 +185,60 @@ async fn leaving_unwritten_text_asks(c: &mut Ctx) {
         SECS,
     )
     .await;
-    c.ui.click("[data-testid=file-cancel]").await;
-    c.ui.wait_for("[data-testid=file-cancel-dialog]", SECS)
-        .await;
-    c.ui.click("[data-testid=file-keep]").await;
-    c.ui.click("[data-testid=settings-tabs] [role=tab][aria-selected=true]")
-        .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(
-        c.ui.count(LEAVE).await,
-        0,
-        "the tab already shown goes nowhere, so nothing asks"
-    );
-    c.ui.click(SERVICES).await;
-    leave_dialog(c).await;
-    phone_shot(c, "text-goto-leave").await;
-    c.ui.shot("text-goto-leave").await;
-    still_here(c).await;
-    c.ui.click("[data-testid=settings-tabs] [role=tab]").await;
-    leave_dialog(c).await;
-    still_here(c).await;
-    search_for(c, "new service").await;
-    leave_dialog(c).await;
-    still_here(c).await;
-    assert!(
-        c.ui.eval::<String>("location.search")
-            .await
-            .contains("tab=file"),
-        "Stay on a search action keeps the address"
-    );
-    let _: bool =
-        c.ui.eval("(() => { history.back(); return true; })()")
-            .await;
-    leave_dialog(c).await;
-    still_here(c).await;
-    assert!(
-        c.ui.eval::<String>("location.search")
-            .await
-            .contains("tab=file"),
-        "Stay keeps the address of the Config file tab"
-    );
-    let _: bool = c
-        .ui
-        .eval("(() => { document.querySelector('a[href=\"#main\"]').click(); return true; })()")
-        .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(
-        c.ui.count(LEAVE).await,
-        0,
-        "the skip link goes nowhere, so nothing asks"
-    );
-    two_files_hold_text(c).await;
-    search_for(c, "rotate secret of home").await;
-    c.ui.wait_for(LEAVE, SECS).await;
-    let named = c.ui.text(LEAVE).await;
-    assert!(
-        named.contains("server.yaml (TOML)") && named.contains("server.d/web-5.yaml (TOML)"),
-        "the dialog names both files: {named}"
-    );
-    phone_shot(c, "text-goto-leave-two").await;
-    c.ui.click("[data-testid=file-leave-confirm]").await;
-    c.ui.wait_true(
-        "location.pathname.endsWith('/clients/home') && location.search.includes('tab=secrets')",
-        "Leave goes where the search action asked, with its tab",
-        SECS,
-    )
-    .await;
     c.ui.click(SERVICES).await;
     c.ui.wait_true(
         "location.pathname.includes('/services')",
-        "on to Services",
+        "leaving the tab goes at once, nothing to ask",
         SECS,
     )
     .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(
-        c.ui.count("[data-testid=new-entity]").await,
-        0,
-        "the New service the user stayed away from does not open later"
-    );
-    c.ui.nav("/settings?tab=file").await;
+    back_on_the_file_tab(c).await;
+    shows(
+        c,
+        MAIN,
+        "broken = [",
+        "the TOML that could not be saved yet comes back as it was",
+    )
+    .await;
+    c.ui.wait_true(
+        "document.querySelector('#file-edit-as').value === 'TOML'",
+        "and shows as TOML",
+        SECS,
+    )
+    .await;
+    two_files_hold_text(c).await;
+    c.ui.click("[data-testid=settings-tabs] [role=tab]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;
+    let _: bool = c
+        .ui
+        .eval("(() => { [...document.querySelectorAll('[data-testid=settings-tabs] [role=tab]')].find(t => t.textContent.includes('Config file')).click(); return true; })()")
+        .await;
+    c.ui.wait_for(EDITOR, SECS).await;
+    show(c, &name(5)).await;
+    shows(
+        c,
+        &name(5),
+        "also = [",
+        "a second file's text comes back too",
+    )
+    .await;
+    show(c, MAIN).await;
+    shows(c, MAIN, "broken = [", "and the first one's").await;
+    search_for(c, "rotate secret of home").await;
+    c.ui.wait_true(
+        "location.pathname.endsWith('/clients/home') && location.search.includes('tab=secrets')",
+        "a search action lands where it asked, with its tab",
+        SECS,
+    )
+    .await;
+    back_on_the_file_tab(c).await;
     c.ui.click("[data-testid=file-cancel]").await;
+    c.ui.wait_for("[data-testid=file-cancel-dialog]", SECS)
+        .await;
+    c.ui.click("[data-testid=file-discard]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
-    assert_eq!(
-        c.ui.count("[data-testid=file-cancel-dialog]").await,
-        0,
-        "Leave forgot both files, so nothing is left to ask about"
-    );
     assert!(c.ui.count(EDITOR).await == 0);
 }
 
@@ -399,12 +336,12 @@ fn text_goto(c: &mut Ctx) -> Flow<'_> {
         a_file_removed_on_the_server_takes_its_edits(c).await;
         undo_and_empty_follow_the_screen(c).await;
         matches_land_on_their_field(c).await;
-        leaving_unwritten_text_asks(c).await;
+        unwritten_text_comes_back(c).await;
         c.ui.assert_no_errors();
     })
 }
 
 #[test]
-fn go_to_lands_on_fields_in_any_language_and_leaving_unwritten_text_asks() {
+fn go_to_lands_on_fields_in_any_language_and_unwritten_text_comes_back() {
     run("text-goto", opts(), false, text_goto);
 }

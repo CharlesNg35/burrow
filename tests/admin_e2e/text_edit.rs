@@ -426,20 +426,12 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
     let home = placeholder_after(&main, "home:\n    secret: ");
     let office = placeholder_after(&main, "office:\n    secret: ");
     assert_ne!(home, office);
-    replace_in(c, MAIN, &office, "").await;
-    replace_in(
-        c,
-        MAIN,
-        "office:\n    secret: ",
-        &format!("office:\n    secret: {home}"),
-    )
-    .await;
+    replace_in(c, MAIN, &office, &home).await;
     dirty(c, MAIN, true).await;
     let now = text_of(c, MAIN).await;
-    let at = now.find("office:").unwrap_or(0);
-    println!(
-        "moved {home} over {office}; the editor's text there: {:?}",
-        &now[at..(at + 80).min(now.len())]
+    assert!(
+        now.contains(&format!("office:\n    secret: {home}")),
+        "a whole placeholder pasted over another stays whole"
     );
     burrow_problem(c, MAIN, "placeholder").await;
     page_in_place(c, "the moved placeholder").await;
