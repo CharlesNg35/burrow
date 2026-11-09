@@ -87,7 +87,10 @@ impl TextEdit {
     }
 
     pub fn may_leave(&self, then: impl Fn() -> Went + 'static) -> bool {
-        let all = self.unwritten();
+        let Some(all) = self.live() else {
+            return true;
+        };
+        self.hold(&all);
         if all.is_empty() {
             return true;
         }
@@ -113,11 +116,7 @@ impl TextEdit {
         self.leaving.set(Vec::new());
         let then = self.then.try_update_value(Option::take).flatten();
         match then.map_or(Went::Not, |then| then()) {
-            Went::Now => {
-                for n in names(&all) {
-                    self.forget(&n);
-                }
-            }
+            Went::Now => self.let_go(&names(&all)),
             Went::Later => self.pending_pop.set_value(Some(names(&all))),
             Went::Not => {}
         }
@@ -126,13 +125,19 @@ impl TextEdit {
     pub fn popped(&self) -> bool {
         match self.pending_pop.try_update_value(Option::take).flatten() {
             Some(all) => {
-                for n in all {
-                    self.forget(&n);
-                }
+                self.let_go(&all);
                 true
             }
             None => false,
         }
+    }
+
+    fn let_go(&self, all: &[String]) {
+        for n in all {
+            self.forget(n);
+        }
+        self.reported
+            .update_value(|r| r.extend(all.iter().cloned()));
     }
 
     pub fn drop_pending_pop(&self) {
@@ -227,6 +232,36 @@ mod tests {
         assert!(t.popped(), "the Back it started is let through once");
         assert!(t.unsaved.get_untracked().is_empty());
         assert!(!t.popped(), "only once");
+    }
+
+    #[test]
+    fn what_leave_let_go_is_not_held_again_when_the_editor_unmounts() {
+        let t = TextEdit::new();
+        t.open.set(true);
+        edited(t, &["server.yaml", "server.d/a.yaml"]);
+        let editor = editor_mounted(
+            t,
+            vec![
+                stuck("server.yaml", "TOML"),
+                stuck("server.d/a.yaml", "JSON"),
+            ],
+        );
+        assert!(!t.may_leave(|| Went::Now));
+        t.leave();
+        editor.cleanup();
+        assert!(
+            t.held.get_untracked().is_empty(),
+            "the unmount after Leave holds nothing"
+        );
+        assert!(
+            t.may_leave(|| Went::Now),
+            "with no editor left, coming back is not asked about"
+        );
+        t.lose_unwritten();
+        assert!(
+            t.lost.get_untracked().is_none(),
+            "no note for text the user chose to lose"
+        );
     }
 
     #[test]
