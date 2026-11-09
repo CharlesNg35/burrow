@@ -616,7 +616,7 @@ fn a_key_moved_with_its_comment_is_a_layout_change_in_review() {
         "the block moved with its comment: {now}"
     );
     assert!(now.contains(&w.home.encode()), "its secret came back");
-    let diff = serde_json::to_string(&plan.files[0].diff).unwrap();
+    let diff = serde_json::to_string(&plan.diff).unwrap();
     assert!(
         diff.contains("the home box") && !diff.contains(&w.home.encode()),
         "the file diff shows the move, with its secret hidden: {diff}"
