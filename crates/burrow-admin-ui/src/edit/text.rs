@@ -18,6 +18,8 @@ pub const TEXT_CHECK_AFTER: Duration = Duration::from_millis(700);
 
 pub type Hook = std::rc::Rc<dyn Fn() -> Option<super::leave::Unwritten>>;
 
+type Banner = (RwSignal<Option<msg::ConfigEvent>>, Signal<bool>);
+
 pub type LoadedText = Option<Result<Arc<EditText>, String>>;
 
 #[derive(Clone, Copy)]
@@ -40,7 +42,7 @@ pub struct TextEdit {
     pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
     pub leaving: RwSignal<Option<super::leave::Unwritten>>,
     pub lost: RwSignal<Option<String>>,
-    banner: StoredValue<Option<(RwSignal<Option<msg::ConfigEvent>>, Signal<bool>)>>,
+    banner: StoredValue<Option<Banner>>,
     pub(super) then: StoredValue<Option<super::leave::Then>, LocalStorage>,
     pub(super) pending_pop: StoredValue<Option<String>>,
     checks: StoredValue<u64>,
