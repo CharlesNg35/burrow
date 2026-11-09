@@ -145,11 +145,7 @@ impl TextEdit {
     }
 
     pub fn discard_tab(&self, name: &str) {
-        if self.held.with_untracked(|h| h.contains_key(name)) {
-            self.held.update(|h| {
-                h.remove(name);
-            });
-        }
+        self.forget(name);
         if self.is_new(name) {
             self.drop_new(name);
             return;

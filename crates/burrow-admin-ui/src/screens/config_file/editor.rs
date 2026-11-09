@@ -83,16 +83,21 @@ impl Schemas {
     }
 }
 
+struct Kept<'a> {
+    asked: &'a BTreeMap<String, String>,
+    held: &'a BTreeMap<String, Unwritten>,
+}
+
 fn documents(
     t: &EditText,
     values: &BTreeMap<String, String>,
     problems: &[Diag],
     schemas: &Schemas,
     secrets: &SecretOptions,
-    asked: &BTreeMap<String, String>,
-    held: &BTreeMap<String, Unwritten>,
+    kept: Kept,
     open: &[String],
 ) -> Vec<Document> {
+    let Kept { asked, held } = kept;
     let main = t.files.first().map(|f| f.name.as_str()).unwrap_or_default();
     open.iter()
         .filter_map(|name| {
@@ -133,14 +138,6 @@ fn documents(
                 None => d,
             })
         })
-        .collect()
-}
-
-fn names(t: &EditText, new: &[String]) -> Vec<String> {
-    t.files
-        .iter()
-        .map(|f| f.name.clone())
-        .chain(new.iter().cloned())
         .collect()
 }
 
@@ -208,7 +205,17 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                     problems.with(|ps| {
                         edit_as.with(|a| {
                             held.with(|h| {
-                                open.with(|o| documents(t, v, ps, &schemas, &secrets, a, h, o))
+                                open.with(|o| {
+                                    documents(
+                                        t,
+                                        v,
+                                        ps,
+                                        &schemas,
+                                        &secrets,
+                                        Kept { asked: a, held: h },
+                                        o,
+                                    )
+                                })
                             })
                         })
                     })
@@ -293,6 +300,14 @@ mod tests {
     use super::*;
     use burrow_admin_proto::text_edit::EditFile;
 
+    fn names(t: &EditText, new: &[String]) -> Vec<String> {
+        t.files
+            .iter()
+            .map(|f| f.name.clone())
+            .chain(new.iter().cloned())
+            .collect()
+    }
+
     fn file(name: &str, text: &str) -> EditFile {
         EditFile {
             name: name.into(),
@@ -311,19 +326,15 @@ mod tests {
             first_error("server.d/x.yaml", &[d.clone()]).as_deref(),
             Some("server.d/x.yaml has an error on line 3: expected a value")
         );
-        let warning = Diagnostic {
-            severity: Severity::Warning,
-            ..d.clone()
-        };
+        let mut warning = d.clone();
+        warning.severity = Severity::Warning;
         assert_eq!(
             first_error("server.yaml", &[warning]),
             None,
             "a warning holds nothing"
         );
-        let host = Diagnostic {
-            origin: DiagnosticOrigin::Host,
-            ..d
-        };
+        let mut host = d;
+        host.origin = DiagnosticOrigin::Host;
         assert_eq!(
             first_error("server.yaml", &[host]),
             None,
@@ -359,8 +370,10 @@ mod tests {
             &[],
             &Schemas::default(),
             &SecretOptions::default(),
-            &BTreeMap::new(),
-            &held,
+            Kept {
+                asked: &BTreeMap::new(),
+                held: &held,
+            },
             &names(&t, &[]),
         );
         assert_eq!(docs[0].edit_as, Some(Language::TOML));
@@ -390,8 +403,10 @@ mod tests {
             &[],
             &Schemas::of(&t),
             &SecretOptions::default(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            Kept {
+                asked: &BTreeMap::new(),
+                held: &BTreeMap::new(),
+            },
             &names(&t, &[]),
         );
         assert_eq!(docs.len(), 2);
@@ -458,8 +473,10 @@ mod tests {
             &[],
             &Schemas::default(),
             &SecretOptions::default(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            Kept {
+                asked: &BTreeMap::new(),
+                held: &BTreeMap::new(),
+            },
             &names(&t, &[]),
         );
         assert_eq!(docs.len(), 2);
@@ -483,8 +500,10 @@ mod tests {
             &[],
             &Schemas::default(),
             &SecretOptions::default(),
-            &asked,
-            &BTreeMap::new(),
+            Kept {
+                asked: &asked,
+                held: &BTreeMap::new(),
+            },
             &names(&t, &[]),
         );
         assert_eq!(docs[0].edit_as, Some(Language::TOML));
@@ -509,8 +528,10 @@ mod tests {
             &[],
             &Schemas::default(),
             &SecretOptions::default(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            Kept {
+                asked: &BTreeMap::new(),
+                held: &BTreeMap::new(),
+            },
             &names(&t, &["server.d/new.yaml".to_string()]),
         );
         assert_eq!(docs.len(), 3);
@@ -524,8 +545,10 @@ mod tests {
             &[],
             &Schemas::default(),
             &SecretOptions::default(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
+            Kept {
+                asked: &BTreeMap::new(),
+                held: &BTreeMap::new(),
+            },
             &["server.d/ro.yaml".to_string(), "server.yaml".to_string()],
         );
         assert_eq!(

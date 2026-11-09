@@ -163,11 +163,6 @@ pub fn file_tab() -> (Route, Query) {
     )
 }
 
-pub fn file_tab_href() -> String {
-    let (route, query) = file_tab();
-    href_with(&route, query)
-}
-
 fn href_with(route: &Route, query: Option<(&str, &str)>) -> String {
     match query {
         Some((k, v)) => format!("{}?{k}={}", href(route), encode(v)),

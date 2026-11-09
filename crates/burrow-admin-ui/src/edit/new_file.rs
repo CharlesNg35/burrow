@@ -99,9 +99,7 @@ impl TextEdit {
         self.values.update(|v| {
             v.remove(name);
         });
-        self.unsaved.update(|u| {
-            u.remove(name);
-        });
+        self.forget(name);
         self.drop_tab(name);
     }
 
