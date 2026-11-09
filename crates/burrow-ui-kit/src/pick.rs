@@ -11,18 +11,34 @@ pub fn word_at(lower: &str, needle: &str) -> Option<usize> {
     })
 }
 
+fn lowered(label: &str) -> (String, Vec<(usize, usize)>) {
+    let mut lower = String::with_capacity(label.len());
+    let mut starts = Vec::with_capacity(label.len() + 1);
+    for (at, c) in label.char_indices() {
+        starts.push((lower.len(), at));
+        lower.extend(c.to_lowercase());
+    }
+    starts.push((lower.len(), label.len()));
+    (lower, starts)
+}
+
+fn found_in(label: &str, needle: &str) -> Option<(usize, usize)> {
+    if needle.is_empty() {
+        return None;
+    }
+    let (lower, starts) = lowered(label);
+    let at = word_at(&lower, needle).or_else(|| lower.find(needle))?;
+    let original = |i: usize| starts.iter().find(|(l, _)| *l == i).map(|(_, o)| *o);
+    Some((original(at)?, original(at + needle.len())?))
+}
+
 pub fn marked(label: &str, needle: &str) -> AnyView {
-    let lower = label.to_lowercase();
-    match (!needle.is_empty())
-        .then(|| word_at(&lower, needle).or_else(|| lower.find(needle)))
-        .flatten()
-    {
-        Some(at) if label.is_char_boundary(at) && label.is_char_boundary(at + needle.len()) => {
-            let (a, rest) = label.split_at(at);
-            let (b, c) = rest.split_at(needle.len());
+    match found_in(label, needle) {
+        Some((from, to)) => {
+            let (a, b, c) = (&label[..from], &label[from..to], &label[to..]);
             view! { <span>{a.to_string()}<span class="font-bold text-accent-ink">{b.to_string()}</span>{c.to_string()}</span> }.into_any()
         }
-        _ => view! { <span>{label.to_string()}</span> }.into_any(),
+        None => view! { <span>{label.to_string()}</span> }.into_any(),
     }
 }
 
@@ -62,7 +78,22 @@ pub fn PickOption(
 
 #[cfg(test)]
 mod tests {
-    use super::word_at;
+    use super::{found_in, word_at};
+
+    #[test]
+    fn the_highlight_lands_on_the_matched_letters_whatever_their_lowercase_length() {
+        let label = "İstanbul web";
+        let (from, to) = found_in(label, "web").unwrap();
+        assert_eq!(&label[from..to], "web");
+        let (from, to) = found_in(label, "stan").unwrap();
+        assert_eq!(&label[from..to], "stan");
+        assert_eq!(
+            found_in("Web-17", "web").map(|(f, t)| &"Web-17"[f..t]),
+            Some("Web")
+        );
+        assert_eq!(found_in("abc", ""), None);
+        assert_eq!(found_in("abc", "x"), None);
+    }
 
     #[test]
     fn an_action_matches_where_a_word_starts() {
