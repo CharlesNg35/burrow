@@ -356,6 +356,8 @@ fn check_all_services<'a>(
         web: https,
         web_http: http,
         binds: Vec::new(),
+        starts: BTreeMap::new(),
+        widest: 0,
     };
     for (name, svc) in &cfg.services {
         if let Some(service) = check_service(name, svc, &mut taken, spans, out) {
