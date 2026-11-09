@@ -314,11 +314,14 @@ pub fn veil_headers(line: &str, pairs: &[(String, String)]) -> String {
     out
 }
 
-const PART: usize = 4;
+const WHOLE: usize = 8;
 
-fn veil_parts(line: &str, values: &[String]) -> String {
+fn veil_values(line: &str, values: &[String]) -> String {
     let mut out = line.to_string();
-    let mut longest: Vec<&String> = values.iter().filter(|v| !v.is_empty()).collect();
+    let mut longest: Vec<&String> = values
+        .iter()
+        .filter(|v| v.chars().count() >= WHOLE)
+        .collect();
     longest.sort_by_key(|v| std::cmp::Reverse(v.len()));
     for value in longest {
         let mut done = String::with_capacity(out.len());
@@ -335,25 +338,7 @@ fn veil_parts(line: &str, values: &[String]) -> String {
         done.push_str(rest);
         out = done;
     }
-    let parts: Vec<&str> = values
-        .iter()
-        .flat_map(|v| super::text::tokens(v).into_iter().map(move |r| &v[r]))
-        .filter(|p| p.chars().count() >= PART)
-        .collect();
-    let mut done = String::with_capacity(out.len());
-    let mut at = 0;
-    for r in super::text::tokens(&out) {
-        done.push_str(&out[at..r.start]);
-        let token = &out[r.clone()];
-        done.push_str(if parts.contains(&token) {
-            HEADER_SHOWN
-        } else {
-            token
-        });
-        at = r.end;
-    }
-    done.push_str(&out[at..]);
-    done
+    out
 }
 
 pub struct Hidden {
@@ -388,7 +373,7 @@ impl Hidden {
 
     pub fn line(&self, line: &str) -> String {
         let line = veil_headers(&veil(line, &self.hashes), &self.headers);
-        veil_parts(&line, &self.values)
+        veil_values(&line, &self.values)
     }
 
     pub fn value(&self, v: &Value) -> Value {
@@ -615,22 +600,20 @@ mod tests {
     }
 
     #[test]
-    fn fragments_of_a_hidden_value_are_veiled_in_any_line() {
+    fn a_hidden_value_of_eight_or_more_is_veiled_as_a_whole_token_and_words_stay() {
         let schema = crate::config::admin_schema::server_schema();
-        let text = "clients:\n  home:\n    secret: hunter2,LEAKC7\n";
+        let text = "clients:\n  home:\n    secret: hunter2,LEAKC7\nweb:\n  letsencrypt:\n    email: a@b.c\n    dns:\n      - domains: [b.c]\n        acme_dns: { api: https://a, username: admin, password: ops, subdomain: s }\n";
         let h = Hidden::in_texts(&[text], &schema.root);
-        for line in [
-            "unknown field \"LEAKC7\" in client \"home\"",
-            "Client home: LEAKC7 set to nothing",
-            "    secret: hunter2,LEAKC7",
+        let shown = h.line("the secret hunter2,LEAKC7 was given");
+        assert!(!shown.contains("hunter2,LEAKC7"), "{shown}");
+        for words in [
+            "-    admin: write",
+            "+    admin: read",
+            "visitor ops",
+            "listen: 7835",
         ] {
-            let shown = h.line(line);
-            assert!(
-                !shown.contains("LEAKC7") && !shown.contains("hunter2"),
-                "{shown}"
-            );
+            assert_eq!(h.line(words), words);
         }
-        assert_eq!(h.line("listen: 7835"), "listen: 7835");
     }
 
     #[test]

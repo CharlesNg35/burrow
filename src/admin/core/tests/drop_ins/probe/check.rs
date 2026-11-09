@@ -73,6 +73,9 @@ pub(super) struct Stats {
     refused: usize,
     bad_request: BTreeMap<String, usize>,
     ambiguous: usize,
+    diff_lines: usize,
+    secret_lines: usize,
+    now_whole: usize,
 }
 
 impl Stats {
@@ -82,10 +85,73 @@ impl Stats {
 
     pub(super) fn said(&self) -> String {
         format!(
-            "applied {}, refused {}, ambiguous {}, bad requests {:?}",
-            self.applied, self.refused, self.ambiguous, self.bad_request
+            "applied {}, refused {}, ambiguous {}, bad requests {:?}, diff lines {}: {} with a secret, of which {} now hide the whole written value, the rest as before",
+            self.applied,
+            self.refused,
+            self.ambiguous,
+            self.bad_request,
+            self.diff_lines,
+            self.secret_lines,
+            self.now_whole
         )
     }
+}
+
+fn diffs_as_before(c: &plan::Computed, stats: &mut Stats) -> Result<(), String> {
+    use crate::admin::core::{diff, text};
+    let fresh: Vec<(String, String)> = c
+        .fresh
+        .iter()
+        .map(|f| (f.value.clone(), f.fp.clone()))
+        .collect();
+    let before = |l: &str| text::mask_secrets(l, &fresh);
+    let mut pairs = vec![(
+        c.old_docs.main().text.as_str(),
+        c.new_docs.main().text.as_str(),
+        &c.plan.diff,
+    )];
+    for f in &c.plan.files {
+        let (a, b) = (c.old_docs.text_of(&f.file), c.new_docs.text_of(&f.file));
+        if a != b {
+            pairs.push((a.unwrap_or(""), b.unwrap_or(""), &f.diff));
+        }
+    }
+    for (a, b, shown) in pairs {
+        let old = diff::unified(a, b, &before);
+        let same_lines = old.hunks.len() == shown.hunks.len()
+            && old.hunks.iter().zip(&shown.hunks).all(|(x, y)| {
+                x.lines.len() == y.lines.len()
+                    && x.lines
+                        .iter()
+                        .zip(&y.lines)
+                        .all(|(p, q)| p.0 == q.0 && as_before(&p.1, &q.1))
+            });
+        if !same_lines {
+            return Err(format!(
+                "a-diff: the diff changed\nbefore:\n{}\nnow:\n{}",
+                old.unified, shown.unified
+            ));
+        }
+        for (x, y) in old.hunks.iter().zip(&shown.hunks) {
+            stats.diff_lines += y.lines.len();
+            for (p, q) in x.lines.iter().zip(&y.lines) {
+                stats.secret_lines += usize::from(q.1.contains("secret "));
+                stats.now_whole += usize::from(p.1 != q.1);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn as_before(old: &str, now: &str) -> bool {
+    if old == now {
+        return true;
+    }
+    let key = |l: &str| l.rsplit_once(": ").map(|(k, _)| k.to_string());
+    let (Some(k), Some(v)) = (key(old), now.rsplit_once(": ")) else {
+        return false;
+    };
+    k == v.0 && old.contains("«secret ") && v.1.trim_start_matches('"').starts_with("«secret ")
 }
 
 fn short(m: &str) -> String {
@@ -169,6 +235,7 @@ pub(super) fn run_change(
     };
     let planned = &computed.plan;
     no_secret_shown(planned, secrets)?;
+    diffs_as_before(&computed, stats)?;
     let raw = set.core.docs().unwrap().tree().unwrap().to_json();
     let applied = ops::apply(&raw, ops, &NoCx).map_err(|e| format!("e-ops: {}", e.0))?;
     let intended = norm(&applied.target);

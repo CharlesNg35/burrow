@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use burrow_admin_proto::msg::{AuditEntry, ErrorCode, HistoryReply, HistoryRequest};
 
-use super::{AUDIT_RING, ApiError, Core, diff, plan, text, values};
+use super::{AUDIT_RING, ApiError, Core, plan};
 
 impl Core {
     pub fn history(&self, req: &HistoryRequest) -> Result<HistoryReply, ApiError> {
@@ -46,16 +46,9 @@ impl Core {
                 let before = self.store.version(&entry.base);
                 match (before, after) {
                     (Some(b), Some(a)) => {
-                        let texts: Vec<&str> = b
-                            .list
-                            .iter()
-                            .chain(&a.list)
-                            .map(|d| d.text.as_str())
-                            .collect();
-                        let hidden = values::Hidden::in_texts(&texts, &self.schema().root);
-                        let mask = |l: &str| text::mask_secrets(&hidden.line(l), &[]);
-                        files = plan::files::diffs(&b, &a, &mask);
-                        Some(diff::unified(&b.main().text, &a.main().text, &mask))
+                        let shown = super::text_edit::Shown::new(self, &[], &[]);
+                        files = plan::files::diffs(&b, &a, &|n, x, y| shown.diff(n, x, y));
+                        Some(shown.diff(&a.main().name, &b.main().text, &a.main().text))
                     }
                     _ => None,
                 }

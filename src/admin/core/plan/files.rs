@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use burrow_admin_proto::plan::{Change, ChangeKind, FileChange, FileDiff};
+use burrow_admin_proto::plan::{Change, ChangeKind, Diff, FileChange, FileDiff};
 use burrow_config::renames::{Origin, base_name, origins, within};
 use burrow_config::{Entry, ServiceEntry};
 use serde_json::{Map, Value};
@@ -425,7 +425,7 @@ pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &
     }
 }
 
-pub fn diffs(old: &Docs, new: &Docs, mask: &dyn Fn(&str) -> String) -> Vec<FileDiff> {
+pub fn diffs(old: &Docs, new: &Docs, show: &dyn Fn(&str, &str, &str) -> Diff) -> Vec<FileDiff> {
     if old.list.len() < 2 && new.list.len() < 2 {
         return Vec::new();
     }
@@ -450,7 +450,7 @@ pub fn diffs(old: &Docs, new: &Docs, mask: &dyn Fn(&str) -> String) -> Vec<FileD
                 diff: if change == FileChange::Same {
                     Default::default()
                 } else {
-                    crate::admin::core::diff::unified(a.unwrap_or(""), b.unwrap_or(""), mask)
+                    show(name, a.unwrap_or(""), b.unwrap_or(""))
                 },
                 change,
                 left_empty,

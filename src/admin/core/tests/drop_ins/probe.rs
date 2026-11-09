@@ -1,5 +1,5 @@
 //! A randomized probe of multi-file plans: random admin changes on a set with drop-ins, each checked against invariants.
-//! Seeds are fixed; PROBE_SEED moves the first seed and PROBE_CASES sets how many run per order (default 80).
+//! Seeds are fixed; PROBE_SEED moves the first seed, PROBE_CASES sets how many run per order (default 80), PROBE_REPORT prints the counts.
 //! `model` generates changes and predicts where items land, `check` plans, applies and checks one change.
 
 #![cfg(test)]
@@ -356,6 +356,12 @@ fn run_range(order: Order, lo: u64, hi: u64) {
     }
     assert!(failures.is_empty(), "{report}");
     assert!(stats.applied() > 0, "{report}");
+    if std::env::var_os("PROBE_REPORT").is_some() {
+        #[allow(clippy::disallowed_macros)]
+        {
+            eprintln!("{report}");
+        }
+    }
 }
 
 fn bounds() -> (u64, u64) {

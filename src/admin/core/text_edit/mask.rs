@@ -6,6 +6,7 @@ use burrow_admin_proto::text_edit::placeholder;
 
 use super::spots::{Place, Spot, comment_spots, field_spots};
 use crate::config::Format;
+use crate::config::patch::Rename;
 use crate::config::tree::{self, Node};
 use crate::wire::secret::Secret;
 
@@ -128,6 +129,32 @@ pub struct Named<'a> {
 }
 
 pub fn mask(file: Named, text: &str, root: &SchemaNode, ids: &Ids) -> Result<Masked, String> {
+    mask_renamed(file, text, root, ids, &[])
+}
+
+fn renamed(place: &Place, renames: &[Rename]) -> Place {
+    let Place::Field(path) = place else {
+        return place.clone();
+    };
+    let mut path = path.clone();
+    for r in renames {
+        if let Some((_, parent)) = r.path.split_last()
+            && path.len() >= r.path.len()
+            && path.starts_with(&r.path)
+        {
+            path[parent.len()] = r.to.clone();
+        }
+    }
+    Place::Field(path)
+}
+
+pub fn mask_renamed(
+    file: Named,
+    text: &str,
+    root: &SchemaNode,
+    ids: &Ids,
+    renames: &[Rename],
+) -> Result<Masked, String> {
     let json = file.format == Format::Json;
     let (bom, body) = split_bom(text);
     let tree = tree::parse(body).map_err(|e| {
@@ -144,7 +171,7 @@ pub fn mask(file: Named, text: &str, root: &SchemaNode, ids: &Ids) -> Result<Mas
             continue;
         }
         let written = &body[s.range.clone()];
-        let id = ids.of(&s.place, &s.value);
+        let id = ids.of(&renamed(&s.place, renames), &s.value);
         let token = match s.place {
             Place::Comment(_) => placeholder(&id),
             Place::Field(_) => Style::of(written).token(&id, json),
