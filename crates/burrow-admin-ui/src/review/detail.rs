@@ -22,6 +22,10 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, source: Source) -> AnyView {
     let n = change_groups(&plan).len();
     let errors = plan.errors();
     let empty = nothing_to_apply(&plan);
+    let offer = match source {
+        Source::Text => super::files::Offer::Text,
+        _ => super::files::Offer::Draft,
+    };
     let old_problems = plan.diags.iter().filter(|d| d.before).count();
     let paths = if source.standalone() {
         Vec::new()
@@ -128,7 +132,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, source: Source) -> AnyView {
                     "."
                 </p>
             })}
-            {(!empty).then(|| diff_section(&plan, lines, added, removed, split))}
+            {(!empty).then(|| diff_section(&plan, (lines, added, removed), split, offer))}
             {destructive.then(|| view! {
                 <div class=format!("mb-6 rounded-[10px] p-3.5 {}", burrow_ui_kit::DANGER_CARD) data-testid="confirms">
                     <p class="flex items-center gap-2 text-sm font-semibold text-danger"><Icon name="alert"/>"Destructive change"</p>
@@ -300,10 +304,9 @@ fn impact_section<V: IntoView + 'static>(
 
 fn diff_section(
     plan: &Plan,
-    lines: Vec<DiffLine>,
-    added: usize,
-    removed: usize,
+    (lines, added, removed): (Vec<DiffLine>, usize, usize),
     split: RwSignal<bool>,
+    offer: super::files::Offer,
 ) -> impl IntoView + use<> {
     let secrets_in_diff = plan.secrets_in_diff.is_empty();
     view! {
@@ -333,7 +336,7 @@ fn diff_section(
         }
         .into_any()
     } else {
-        view! { <div class="mb-6" data-testid="file-diffs">{super::files::file_diffs(&plan.files, split, true)}</div> }.into_any()
+        view! { <div class="mb-6" data-testid="file-diffs">{super::files::file_diffs(&plan.files, split, offer)}</div> }.into_any()
     }}
     }
 }

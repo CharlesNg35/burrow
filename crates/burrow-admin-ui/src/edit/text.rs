@@ -41,6 +41,7 @@ pub struct TextEdit {
     pub unsaved: RwSignal<BTreeSet<String>>,
     pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
     pub lost: RwSignal<Option<String>>,
+    pub drops: RwSignal<BTreeSet<String>>,
     pub held: RwSignal<BTreeMap<String, super::screen::Unwritten>>,
     pub(super) errors: RwSignal<BTreeMap<String, String>>,
     pub ask: StoredValue<Option<super::screen::Ask>, LocalStorage>,
@@ -159,12 +160,13 @@ pub fn settle_banner(changed: RwSignal<Option<msg::ConfigEvent>>, draft_dirty: b
     }
 }
 
-pub fn text_ops(files: Vec<TextFile>) -> Vec<Op> {
+pub fn text_ops(files: Vec<TextFile>, drops: &BTreeSet<String>) -> Vec<Op> {
     if files.is_empty() {
-        Vec::new()
-    } else {
-        vec![Op::ReplaceText { files }]
+        return Vec::new();
     }
+    std::iter::once(Op::ReplaceText { files })
+        .chain(drops.iter().map(|f| Op::DropFile { file: f.clone() }))
+        .collect()
 }
 
 #[derive(Default, Deserialize)]
@@ -221,6 +223,7 @@ impl TextEdit {
             unsaved: RwSignal::new(BTreeSet::new()),
             spot: RwSignal::new(None),
             lost: RwSignal::new(None),
+            drops: RwSignal::new(BTreeSet::new()),
             held: RwSignal::new(BTreeMap::new()),
             errors: RwSignal::new(BTreeMap::new()),
             ask: StoredValue::new_local(None),
@@ -254,6 +257,7 @@ impl TextEdit {
         self.unsaved.set(BTreeSet::new());
         self.spot.set(None);
         self.lost.set(None);
+        self.drops.set(BTreeSet::new());
         self.held.set(BTreeMap::new());
         self.errors.set(BTreeMap::new());
     }
@@ -366,7 +370,22 @@ impl TextEdit {
     }
 
     pub fn ops(&self) -> Vec<Op> {
-        text_ops(untrack(|| self.changed_files()))
+        text_ops(
+            untrack(|| self.changed_files()),
+            &self.drops.get_untracked(),
+        )
+    }
+
+    pub fn drop_file(&self, file: &str, drop: bool) {
+        if self.drops.with_untracked(|d| d.contains(file) != drop) {
+            self.drops.update(|d| {
+                if drop {
+                    d.insert(file.to_string());
+                } else {
+                    d.remove(file);
+                }
+            });
+        }
     }
 
     pub fn set_value(&self, name: &str, text: String) {
@@ -459,7 +478,8 @@ mod tests {
             ("server.d/10-web.yaml", "b: 2\n"),
             ("server.d/20-ro.yaml", "c: 9\n"),
         ]);
-        let ops = text_ops(changed_of(&files, &values));
+        let none = BTreeSet::new();
+        let ops = text_ops(changed_of(&files, &values), &none);
         assert_eq!(
             ops,
             vec![Op::ReplaceText {
@@ -469,8 +489,41 @@ mod tests {
                 }]
             }]
         );
-        assert!(text_ops(changed_of(&files, &typed(&[("server.yaml", "a: 1\n")]))).is_empty());
-        assert!(text_ops(changed_of(&files, &BTreeMap::new())).is_empty());
+        assert!(
+            text_ops(
+                changed_of(&files, &typed(&[("server.yaml", "a: 1\n")])),
+                &none
+            )
+            .is_empty()
+        );
+        assert!(text_ops(changed_of(&files, &BTreeMap::new()), &none).is_empty());
+    }
+
+    #[test]
+    fn a_drop_in_emptied_in_the_text_is_deleted_with_the_text_change() {
+        let files = vec![file("server.d/10-web.yaml", "services:\n  a: {}\n", false)];
+        let values = typed(&[("server.d/10-web.yaml", "# nothing here\n")]);
+        let drops: BTreeSet<String> = ["server.d/10-web.yaml".to_string()].into();
+        let ops = text_ops(changed_of(&files, &values), &drops);
+        assert_eq!(
+            ops[1..],
+            [Op::DropFile {
+                file: "server.d/10-web.yaml".into()
+            }],
+            "the delete Review offered goes with the same change"
+        );
+        assert!(
+            text_ops(Vec::new(), &drops).is_empty(),
+            "nothing is deleted without a text change"
+        );
+        let t = TextEdit::new();
+        t.drop_file("server.d/10-web.yaml", true);
+        assert!(t.drops.get_untracked().contains("server.d/10-web.yaml"));
+        t.drop_file("server.d/10-web.yaml", false);
+        assert!(
+            t.drops.get_untracked().is_empty(),
+            "Keep the empty file takes it back"
+        );
     }
 
     #[test]
