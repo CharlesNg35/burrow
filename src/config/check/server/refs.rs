@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::base::suggest::{closest, quoted_list};
 use crate::config::check::Spans;
 use crate::config::diagnostics::Diagnostic;
@@ -50,6 +52,10 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
     let clients = declared(root, "clients");
     let visitors = declared(root, "visitors");
     let services = declared(root, "services");
+    let (client_set, visitor_set): (HashSet<&str>, HashSet<&str>) = (
+        clients.iter().copied().collect(),
+        visitors.iter().copied().collect(),
+    );
     if let Some(Value::Map(logins)) = root
         .get("web")
         .and_then(|w| w.get("forward_auth"))
@@ -66,7 +72,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             if let Some(client) = svc.value.get("client")
                 && let Some(name) = client.as_str()
                 && name != SELF
-                && !clients.contains(&name)
+                && !client_set.contains(name)
             {
                 out.push(unknown_ref("client", name, &clients, by(), client.span));
             }
@@ -77,7 +83,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
                         .unwrap_or(item);
                     if let Some(name) = item.as_str()
                         && name != SELF
-                        && !clients.contains(&name)
+                        && !client_set.contains(name)
                     {
                         out.push(unknown_ref("client", name, &clients, by(), item.span));
                     }
@@ -86,7 +92,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             if let Some(Value::Seq(items)) = svc.value.get("visitors").map(|v| &v.value) {
                 for item in items {
                     if let Some(name) = item.as_str()
-                        && !visitors.contains(&name)
+                        && !visitor_set.contains(name)
                     {
                         out.push(unknown_ref("visitor", name, &visitors, by(), item.span));
                     }
@@ -100,7 +106,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
                 continue;
             };
             for r in reach {
-                if r.key != SELF && !clients.contains(&r.key.as_str()) {
+                if r.key != SELF && !client_set.contains(r.key.as_str()) {
                     let by = format!("\"reach\" of visitor \"{}\"", visitor.key);
                     out.push(unknown_ref("client", &r.key, &clients, by, r.key_span));
                 }
