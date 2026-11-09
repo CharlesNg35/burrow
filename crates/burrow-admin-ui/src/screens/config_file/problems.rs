@@ -61,17 +61,17 @@ fn host(m: Merged) -> HostDiagnostic {
     let message = m.messages.join("; ");
     let d = match m.place {
         Place::Path(p) => HostDiagnostic::at_path(field(&p), sev, message),
-        Place::At(line, col, end) => HostDiagnostic::at_range(
-            TextRange::new(
-                TextPosition::new(line as usize, col as usize),
-                match end {
-                    Some((l, c)) => TextPosition::new(l as usize, c as usize),
-                    None => TextPosition::new(line as usize + 1, 1),
-                },
-            ),
-            sev,
-            message,
-        ),
+        Place::At(line, col, end) => {
+            let start = TextPosition::new(line as usize, col as usize);
+            match end {
+                Some((l, c)) => HostDiagnostic::at_range(
+                    TextRange::new(start, TextPosition::new(l as usize, c as usize)),
+                    sev,
+                    message,
+                ),
+                None => HostDiagnostic::at_position(start, sev, message),
+            }
+        }
         Place::Document => HostDiagnostic::document(sev, message),
     };
     let d = d.with_source(SOURCE);
