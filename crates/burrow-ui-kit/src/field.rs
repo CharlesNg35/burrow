@@ -16,7 +16,7 @@ pub struct FieldState {
 
 pub fn tag_class(tone: Tone) -> String {
     format!(
-        "inline-flex h-[18px] items-center gap-1 rounded-xs px-1.5 text-[10px] font-bold tracking-wide whitespace-nowrap [&>svg]:size-[10px] {}",
+        "inline-flex h-[18px] items-center gap-1 rounded-xs px-1.5 text-[10px] font-bold tracking-wide whitespace-nowrap [&>svg]:size-[10px] [&>svg]:-translate-y-px {}",
         tone.tag()
     )
 }

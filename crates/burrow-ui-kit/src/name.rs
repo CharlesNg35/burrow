@@ -24,17 +24,22 @@ pub fn FileName(
     #[prop(into)] name: String,
     #[prop(optional)] class: &'static str,
     #[prop(optional, into)] mark: String,
+    #[prop(optional)] lead: &'static str,
 ) -> impl IntoView {
     let (start, end) = split_name(&name);
     let (start, end) = (start.to_string(), end.to_string());
     let outer = format!("inline-block min-w-0 max-w-full truncate align-bottom {class}");
     if end.is_empty() {
-        return view! { <span class=outer title=name.clone()>{marked(&name, &mark)}</span> }
+        return view! { <span class=outer title=name.clone()>{lead}{marked(&name, &mark)}</span> }
             .into_any();
     }
-    let room = format!("max-width: calc(100% - {}ch)", end.chars().count() + 1);
+    let room = format!(
+        "max-width: calc(100% - {}ch)",
+        (lead.chars().count() + end.chars().count() + 1)
+    );
     view! {
         <span class=outer title=name.clone()>
+            {lead}
             <span class="inline-block truncate align-bottom" style=room>{marked(&start, &mark)}</span>
             {marked(&end, &mark)}
         </span>

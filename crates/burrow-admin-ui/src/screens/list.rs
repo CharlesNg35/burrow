@@ -38,7 +38,7 @@ fn kept_tag(k: &Kept) -> impl IntoView + use<> {
         Kept::ReadOnly(f) => ("read-only · ", Some(f.clone())),
         Kept::ReadOnlyHere => ("read-only", None),
     };
-    view! { <span class=class data-testid="row-file">{lead}{file.map(|f| view! { <FileName name=f/> })}</span> }
+    view! { <span class=class data-testid="row-file">{match file { Some(f) => view! { <FileName name=f lead=lead/> }.into_any(), None => lead.into_any() }}</span> }
 }
 
 #[component]
