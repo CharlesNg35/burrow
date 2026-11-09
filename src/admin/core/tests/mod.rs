@@ -13,6 +13,7 @@ mod headers;
 mod locks;
 #[cfg(feature = "web")]
 mod locks_web;
+mod masked_diffs;
 mod older;
 #[cfg(feature = "web")]
 mod passwords;

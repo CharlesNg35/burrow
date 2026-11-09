@@ -6,6 +6,7 @@
 mod mask;
 pub mod schema;
 mod search;
+mod shown;
 mod spots;
 mod unmask;
 
@@ -23,6 +24,7 @@ use crate::config::Format;
 use crate::config::docs::Docs;
 pub use mask::Ids;
 pub use search::search_text;
+pub use shown::Shown;
 
 pub struct TextEdit {
     ids: Ids,

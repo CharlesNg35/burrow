@@ -321,10 +321,13 @@ pub(super) fn assemble(
         .map(|d| d.text.as_str())
         .collect();
     let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
-    let mask = |l: &str| text::mask_secrets(&hidden.line(l), &fresh_pairs);
-    let diff =
-        crate::admin::core::diff::unified(&old_docs.main().text, &new_docs.main().text, &mask);
-    let file_diffs = files::diffs(old_docs, new_docs, &mask);
+    let shown = crate::admin::core::text_edit::Shown::new(core, &fresh_pairs, &applied.renames);
+    let diff = shown.diff(
+        &new_docs.main().name,
+        &old_docs.main().text,
+        &new_docs.main().text,
+    );
+    let file_diffs = files::diffs(old_docs, new_docs, &|n, a, b| shown.diff(n, a, b));
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let mut changes = summary::changes(
         &hidden.value(&old_shown),
