@@ -562,6 +562,7 @@ fn kept(v: ports::Version) -> AuditEntry {
         revertible: true,
         details_kept: false,
         reverts: None,
+        renames: Vec::new(),
     }
 }
 

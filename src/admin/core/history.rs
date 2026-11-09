@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use burrow_admin_proto::msg::{AuditEntry, ErrorCode, HistoryReply, HistoryRequest};
 
 use super::{AUDIT_RING, ApiError, Core, plan};
+use crate::config::patch::Rename;
 
 impl Core {
     pub fn history(&self, req: &HistoryRequest) -> Result<HistoryReply, ApiError> {
@@ -46,7 +47,8 @@ impl Core {
                 let before = self.store.version(&entry.base);
                 match (before, after) {
                     (Some(b), Some(a)) => {
-                        let shown = super::text_edit::Shown::new(self, &[], &[]);
+                        let renames = as_renames(&entry.renames);
+                        let shown = super::text_edit::Shown::new(self, &[], &renames);
                         files = plan::files::diffs(&b, &a, &|n, x, y| shown.diff(n, x, y));
                         Some(shown.diff(&a.main().name, &b.main().text, &a.main().text))
                     }
@@ -61,4 +63,39 @@ impl Core {
             files,
         })
     }
+
+    pub fn renames_back(&self, from: &str, to: &str) -> Vec<Rename> {
+        let audit = self.audit.lock().expect("audit lock");
+        let mut out = Vec::new();
+        let mut at = from.to_string();
+        for _ in 0..audit.len() {
+            if at == to {
+                return out;
+            }
+            let Some(e) = audit.iter().find(|e| e.rev == at && e.base != e.rev) else {
+                return Vec::new();
+            };
+            for (path, name) in e.renames.iter().rev() {
+                if let Some((old, parent)) = path.split_last() {
+                    let mut back = parent.to_vec();
+                    back.push(name.clone());
+                    out.push(Rename {
+                        path: back,
+                        to: old.clone(),
+                    });
+                }
+            }
+            at = e.base.clone();
+        }
+        if at == to { out } else { Vec::new() }
+    }
+}
+
+fn as_renames(list: &[(burrow_admin_proto::Path, String)]) -> Vec<Rename> {
+    list.iter()
+        .map(|(path, to)| Rename {
+            path: path.clone(),
+            to: to.clone(),
+        })
+        .collect()
 }

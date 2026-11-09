@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::msg::{ErrorCode, InvalidBody};
 use burrow_admin_proto::ops::Op;
-use burrow_admin_proto::plan::{Change, ChangeKind, Plan};
+use burrow_admin_proto::plan::{Change, ChangeKind};
 use burrow_admin_proto::text_edit::{EditFile, EditText, PLACEHOLDER_PATTERN, TextFile};
 use serde_json::Value;
 
@@ -154,20 +154,6 @@ fn veil_body(v: &mut Value, hidden: &values::Hidden) {
     }
 }
 
-fn veil_diff(d: &mut burrow_admin_proto::plan::Diff, line: &dyn Fn(&str) -> String) {
-    d.unified = d
-        .unified
-        .split('\n')
-        .map(line)
-        .collect::<Vec<_>>()
-        .join("\n");
-    for h in &mut d.hunks {
-        for (_, l) in &mut h.lines {
-            *l = line(l);
-        }
-    }
-}
-
 pub struct Edited {
     pub docs: Docs,
     old: Docs,
@@ -272,29 +258,6 @@ impl Edited {
             .map(|d| d.text.as_str())
             .collect();
         values::Hidden::in_texts(&texts, &core.schema().root)
-    }
-
-    pub fn veil(&self, core: &Core, plan: &mut Plan) {
-        let hidden = self.hidden(core);
-        let line = |s: &str| text::mask_secrets(&hidden.line(s), &[]);
-        for d in &mut plan.diags {
-            d.message = line(&d.message);
-            d.label = d.label.as_deref().map(line);
-            d.help = d.help.as_deref().map(line);
-        }
-        for c in &mut plan.changes {
-            c.summary = line(&c.summary);
-        }
-        for i in &mut plan.impacts {
-            i.message = line(&i.message);
-        }
-        for r in &mut plan.refusals {
-            r.message = line(&r.message);
-        }
-        veil_diff(&mut plan.diff, &line);
-        for f in &mut plan.files {
-            veil_diff(&mut f.diff, &line);
-        }
     }
 
     pub fn veil_error(&self, core: &Core, mut e: ApiError) -> ApiError {

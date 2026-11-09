@@ -16,6 +16,19 @@ pub fn credential_header(name: &str) -> bool {
         || CREDENTIAL_HEADER_ENDINGS.iter().any(|e| name.ends_with(e))
 }
 
+pub fn url_with_password(text: &str) -> bool {
+    let Some((scheme, rest)) = text.trim().split_once("://") else {
+        return false;
+    };
+    let plain = !scheme.is_empty()
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let userinfo = authority.rsplit_once('@').map(|(u, _)| u);
+    plain && userinfo.is_some_and(|u| u.split_once(':').is_some_and(|(_, p)| !p.is_empty()))
+}
+
 pub const SECRET_LEN: usize = 32;
 pub const MAX_SECRETS: usize = 4;
 
@@ -32,6 +45,27 @@ pub fn looks_like_secret(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_url_with_a_password_is_known() {
+        for yes in [
+            "wss://ops:pw@tunnel.example.com/burrow",
+            "https://u:p@ca.internal/acme",
+            "socks5://a:b@h:1080",
+        ] {
+            assert!(url_with_password(yes), "{yes}");
+        }
+        for no in [
+            "wss://tunnel.example.com/burrow",
+            "https://user@host/",
+            "https://host/path?x=a:b@c",
+            "ops@example.com",
+            "mailto:a:b@c",
+            "https://u:@host/",
+        ] {
+            assert!(!url_with_password(no), "{no}");
+        }
+    }
 
     #[test]
     fn shapes() {

@@ -478,6 +478,8 @@ pub struct AuditEntry {
     pub details_kept: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reverts: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renames: Vec<(Path, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
