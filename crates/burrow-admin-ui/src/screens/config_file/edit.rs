@@ -46,8 +46,8 @@ pub(super) fn waiting_note(s: Store, waiting: RwSignal<bool>) -> impl IntoView {
 
 fn review(s: Store) {
     let t = s.text;
-    let why = t.before_review.with_value(|h| h.as_ref().and_then(|h| h()));
-    if let Some(why) = why {
+    let why = t.unwritten();
+    if let Some(why) = why.first() {
         s.toast(Tone::Warning, why.reason(), None);
         return;
     }

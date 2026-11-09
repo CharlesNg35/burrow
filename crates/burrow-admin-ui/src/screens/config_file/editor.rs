@@ -155,28 +155,24 @@ pub fn first_shown(names: &[String], active: &str) -> String {
         .unwrap_or_default()
 }
 
-fn unwritten(
-    files: &[String],
-    edit_as: RwSignal<BTreeMap<String, String>>,
-    tabs: DocumentsHandle,
-) -> Option<Unwritten> {
-    files.iter().find_map(|name| {
-        let own = own_label(name);
-        let shown = requested(
-            own,
-            edit_as.with_untracked(|a| a.get(name).cloned()).as_deref(),
-        )?;
-        let editor = tabs.editor(name).filter(|e| e.is_mounted())?;
-        if editor.value().is_some() {
-            return None;
-        }
-        Some(Unwritten {
-            name: name.clone(),
-            shown: shown.label().to_string(),
-            own: own.to_string(),
-            text: editor.text().unwrap_or_default(),
+fn unwritten(files: &[String], switch: Shown) -> Vec<Unwritten> {
+    files
+        .iter()
+        .filter_map(|name| {
+            let editor = switch.tabs.editor(name).filter(|e| e.is_mounted())?;
+            if editor.value().is_some() {
+                return None;
+            }
+            let own = own_label(name);
+            let shown = switch.refresh(name);
+            Some(Unwritten {
+                name: name.clone(),
+                shown: if shown == own { "edited".into() } else { shown },
+                own: own.to_string(),
+                text: editor.text().unwrap_or_default(),
+            })
         })
-    })
+        .collect()
 }
 
 pub fn language(label: &str) -> Option<Language> {
@@ -200,23 +196,27 @@ struct Shown {
 }
 
 impl Shown {
-    fn refresh(&self, name: &str) {
+    fn refresh(&self, name: &str) -> String {
         let own = own_label(name);
         let asked = self
             .asked
             .with_untracked(|a| a.get(name).cloned())
             .unwrap_or_else(|| own.to_string());
-        let now = if asked == own {
-            own.to_string()
-        } else {
-            let editor = self.tabs.editor(name);
-            let on_screen = editor.and_then(|e| e.text());
-            let host = editor.and_then(|e| e.value());
-            shown(own, &asked, on_screen.as_deref(), host.as_deref())
-        };
+        let before = self.shown.with_untracked(|s| s.get(name).cloned());
+        let editor = self.tabs.editor(name).filter(|e| e.is_mounted());
+        let on_screen = editor.and_then(|e| e.text());
+        let host = editor.and_then(|e| e.value());
+        let now = shown(
+            own,
+            &asked,
+            before.as_deref(),
+            on_screen.as_deref(),
+            host.as_deref(),
+        );
         self.shown.update(|s| {
-            s.insert(name.to_string(), now);
+            s.insert(name.to_string(), now.clone());
         });
+        now
     }
 
     fn refresh_soon(&self, name: String) {
@@ -252,19 +252,6 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         spot,
         edit,
     } = p;
-    let typed = StoredValue::new(0u64);
-    let check_held = move || {
-        typed.update_value(|n| *n += 1);
-        let n = typed.get_value();
-        set_timeout(
-            move || {
-                if typed.try_get_value() == Some(n) {
-                    edit.note_unwritten();
-                }
-            },
-            HELD_AFTER,
-        );
-    };
     let first = text.get_untracked();
     let schemas = first.as_ref().map(|t| Schemas::of(t)).unwrap_or_default();
     let pattern = first
@@ -322,6 +309,20 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         edit_as.track();
         switch.refresh_soon(active.get_untracked());
     });
+    let typed = StoredValue::new(0u64);
+    let check_held = move || {
+        typed.update_value(|n| *n += 1);
+        let n = typed.get_value();
+        set_timeout(
+            move || {
+                if typed.try_get_value() == Some(n) {
+                    switch.refresh(&active.get_untracked());
+                    edit.note_unwritten();
+                }
+            },
+            HELD_AFTER,
+        );
+    };
     before_review.set_value(Some(std::rc::Rc::new(move || {
         flush_pending_edits();
         let files = text.with_untracked(|t| {
@@ -329,7 +330,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                 .map(|t| names(t, &new_files.get_untracked()))
                 .unwrap_or_default()
         });
-        unwritten(&files, edit_as, tabs)
+        unwritten(&files, switch)
     })));
     on_cleanup(move || {
         edit.note_unwritten_on_unmount();
@@ -340,7 +341,14 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         switch.refresh_soon(name);
     }
     Ok(view! {
-        <div class="min-w-0 w-full" data-testid="file-editor" on:input=move |_| check_held()>
+        <div
+            class="min-w-0 w-full"
+            data-testid="file-editor"
+            on:input=move |_| check_held()
+            on:beforeinput=move |_| check_held()
+            on:keydown=move |_| check_held()
+            on:paste=move |_| check_held()
+        >
             <ConfigDocuments
                 documents=list
                 initial_active=main
@@ -359,7 +367,10 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                 on_save=Callback::new(move |_: (String, SaveRequest)| on_review.run(()))
                 on_add=on_add
                 on_close=Callback::new(move |r: CloseRequest| on_close.run((r.id, r.dirty)))
-                on_dirty_change=on_dirty
+                on_dirty_change=Callback::new(move |d: (String, bool)| {
+                    check_held();
+                    on_dirty.run(d);
+                })
             />
         </div>
     }

@@ -1,43 +1,10 @@
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use leptos::prelude::*;
 
 use super::TextEdit;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Unwritten {
-    pub name: String,
-    pub shown: String,
-    pub own: String,
-    pub text: String,
-}
-
-impl Unwritten {
-    pub fn reason(&self) -> String {
-        format!(
-            "{} cannot be written as {} yet; fix the text first",
-            self.name, self.own
-        )
-    }
-
-    pub fn lost(&self) -> String {
-        format!(
-            "The server changed; the {} text in {} that could not be saved as {} yet is gone",
-            self.shown, self.name, self.own
-        )
-    }
-
-    pub fn title(&self) -> String {
-        format!("Leave and lose the {} text?", self.shown)
-    }
-
-    pub fn question(&self) -> String {
-        format!(
-            "{} has {} text that cannot be saved as {} yet.",
-            self.name, self.shown, self.own
-        )
-    }
-}
+pub use super::unwritten::Unwritten;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Went {
@@ -48,81 +15,123 @@ pub enum Went {
 
 pub type Then = Rc<dyn Fn() -> Went>;
 
+fn names(all: &[Unwritten]) -> Vec<String> {
+    all.iter().map(|u| u.name.clone()).collect()
+}
+
 impl TextEdit {
-    pub fn unwritten(&self) -> Option<Unwritten> {
+    fn live(&self) -> Option<Vec<Unwritten>> {
         if !self.open.get_untracked() {
-            return None;
+            return Some(Vec::new());
         }
         self.before_review
-            .try_with_value(|h| h.as_ref().and_then(|h| h()))
+            .try_with_value(|h| h.as_ref().map(|h| h()))
             .flatten()
     }
 
-    pub fn may_leave(&self, then: impl Fn() -> Went + 'static) -> bool {
-        let Some(u) = self.unwritten() else {
-            return true;
+    pub fn unwritten(&self) -> Vec<Unwritten> {
+        match self.live() {
+            Some(now) => {
+                self.hold(&now);
+                now
+            }
+            None => self.held.with_untracked(|h| h.values().cloned().collect()),
+        }
+    }
+
+    fn hold(&self, now: &[Unwritten]) {
+        let map: BTreeMap<String, Unwritten> =
+            now.iter().map(|u| (u.name.clone(), u.clone())).collect();
+        if self.held.with_untracked(|h| *h != map) {
+            self.held.set(map);
+        }
+    }
+
+    pub fn note_unwritten(&self) {
+        let _ = self.unwritten();
+    }
+
+    pub fn note_unwritten_on_unmount(&self) {
+        let Some(now) = self.live() else {
+            return;
         };
+        let fresh: Vec<Unwritten> = self
+            .reported
+            .with_value(|r| now.into_iter().filter(|u| !r.contains(&u.name)).collect());
+        if !fresh.is_empty() {
+            self.held.update(|h| {
+                for u in fresh {
+                    h.insert(u.name.clone(), u);
+                }
+            });
+        }
+    }
+
+    pub fn lose_unwritten(&self) {
+        let mut all = self.held.try_update(std::mem::take).unwrap_or_default();
+        if let Some(now) = self.live() {
+            for u in now {
+                all.insert(u.name.clone(), u);
+            }
+        }
+        let all: Vec<Unwritten> = self
+            .reported
+            .with_value(|r| all.into_values().filter(|u| !r.contains(&u.name)).collect());
+        if let Some(note) = super::unwritten::lost_note(&all) {
+            for u in &all {
+                self.forget(&u.name);
+            }
+            self.reported.update_value(|r| r.extend(names(&all)));
+            self.lost.set(Some(note));
+        }
+    }
+
+    pub fn may_leave(&self, then: impl Fn() -> Went + 'static) -> bool {
+        let all = self.unwritten();
+        if all.is_empty() {
+            return true;
+        }
         self.pending_pop.set_value(None);
         self.then.set_value(Some(Rc::new(then)));
-        self.leaving.set(Some(u));
+        self.leaving.set(all);
         false
     }
 
     pub fn stay(&self) {
         self.then.set_value(None);
         self.pending_pop.set_value(None);
-        if self.leaving.with_untracked(Option::is_some) {
-            self.leaving.set(None);
+        if self.leaving.with_untracked(|l| !l.is_empty()) {
+            self.leaving.set(Vec::new());
         }
     }
 
     pub fn leave(&self) {
-        let Some(u) = self.leaving.get_untracked() else {
+        let all = self.leaving.get_untracked();
+        if all.is_empty() {
             return;
-        };
-        self.leaving.set(None);
+        }
+        self.leaving.set(Vec::new());
         let then = self.then.try_update_value(Option::take).flatten();
         match then.map_or(Went::Not, |then| then()) {
             Went::Now => {
-                self.forget(&u.name);
-                self.held.set(None);
+                for n in names(&all) {
+                    self.forget(&n);
+                }
             }
-            Went::Later => self.pending_pop.set_value(Some(u.name)),
+            Went::Later => self.pending_pop.set_value(Some(names(&all))),
             Went::Not => {}
         }
     }
 
     pub fn popped(&self) -> bool {
         match self.pending_pop.try_update_value(Option::take).flatten() {
-            Some(name) => {
-                self.forget(&name);
-                self.held.set(None);
+            Some(all) => {
+                for n in all {
+                    self.forget(&n);
+                }
                 true
             }
             None => false,
-        }
-    }
-
-    pub fn note_unwritten(&self) {
-        let now = self.unwritten();
-        if self.held.with_untracked(|h| *h != now) {
-            self.held.set(now);
-        }
-    }
-
-    pub fn note_unwritten_on_unmount(&self) {
-        if self.lost.with_untracked(Option::is_some) {
-            return;
-        }
-        if let Some(u) = self.unwritten() {
-            self.held.set(Some(u));
-        }
-    }
-
-    pub fn lose_unwritten(&self) {
-        if let Some(u) = self.held.try_update(Option::take).flatten() {
-            self.forget(&u.name);
-            self.lost.set(Some(u.lost()));
         }
     }
 
@@ -130,10 +139,15 @@ impl TextEdit {
         self.pending_pop.set_value(None);
     }
 
-    fn forget(&self, name: &str) {
+    pub(super) fn forget(&self, name: &str) {
         self.unsaved.update(|s| {
             s.remove(name);
         });
+        if self.held.with_untracked(|h| h.contains_key(name)) {
+            self.held.update(|h| {
+                h.remove(name);
+            });
+        }
     }
 }
 
@@ -141,115 +155,172 @@ impl TextEdit {
 mod tests {
     use super::*;
 
-    fn stuck() -> Unwritten {
+    fn stuck(name: &str, shown: &str) -> Unwritten {
         Unwritten {
-            name: "server.yaml".into(),
-            shown: "TOML".into(),
+            name: name.into(),
+            shown: shown.into(),
             own: "YAML".into(),
-            text: "heartbeat =\n".into(),
+            text: "broken = [\n".into(),
         }
     }
 
+    fn edited(t: TextEdit, names: &[&str]) {
+        t.unsaved
+            .update(|u| u.extend(names.iter().map(|n| n.to_string())));
+    }
+
+    fn screen(t: TextEdit, now: Vec<Unwritten>) {
+        t.before_review
+            .set_value(Some(Rc::new(move || now.clone())));
+    }
+
     #[test]
-    fn leaving_asks_only_while_a_file_holds_text_that_cannot_be_written_back() {
+    fn leaving_asks_for_every_file_and_forgets_exactly_those() {
         let t = TextEdit::new();
         t.open.set(true);
-        t.unsaved.update(|u| {
-            u.insert("server.yaml".into());
-        });
+        edited(t, &["server.yaml", "server.d/a.yaml", "server.d/b.yaml"]);
         let gone = RwSignal::new(0);
         let go = move || {
             gone.update(|n| *n += 1);
             Went::Now
         };
+        screen(t, Vec::new());
         assert!(t.may_leave(go), "nothing held: leave at once");
-        t.before_review.set_value(Some(Rc::new(|| Some(stuck()))));
+        screen(
+            t,
+            vec![
+                stuck("server.yaml", "TOML"),
+                stuck("server.d/a.yaml", "JSON"),
+            ],
+        );
         assert!(!t.may_leave(go));
-        assert_eq!(t.leaving.get_untracked(), Some(stuck()));
+        assert_eq!(t.leaving.get_untracked().len(), 2, "the dialog names both");
+        assert_eq!(t.held.get_untracked().len(), 2);
         t.stay();
-        assert!(t.leaving.get_untracked().is_none());
+        assert!(t.leaving.get_untracked().is_empty());
         assert_eq!(gone.get_untracked(), 0, "Stay goes nowhere");
         assert!(!t.may_leave(go));
         t.leave();
         assert_eq!(gone.get_untracked(), 1, "Leave goes where the user asked");
-        assert!(
-            t.unsaved.get_untracked().is_empty(),
-            "the file's unsaved state goes with the navigation"
+        assert_eq!(
+            t.unsaved.get_untracked(),
+            ["server.d/b.yaml".to_string()].into(),
+            "both files go with the navigation, the other edit stays"
         );
+        assert!(t.held.get_untracked().is_empty());
         assert!(!t.may_leave(go), "the next exit asks again");
-        assert_eq!(
-            stuck().question(),
-            "server.yaml has TOML text that cannot be saved as YAML yet."
-        );
-        assert_eq!(
-            stuck().reason(),
-            "server.yaml cannot be written as YAML yet; fix the text first"
-        );
     }
 
     #[test]
-    fn a_leave_that_does_not_navigate_keeps_the_edit_and_lets_nothing_through() {
+    fn a_leave_that_does_not_navigate_keeps_the_edits_and_lets_nothing_through() {
         let t = TextEdit::new();
         t.open.set(true);
-        t.unsaved.update(|u| {
-            u.insert("server.yaml".into());
-        });
-        t.before_review.set_value(Some(Rc::new(|| Some(stuck()))));
+        edited(t, &["server.yaml"]);
+        screen(t, vec![stuck("server.yaml", "TOML")]);
         assert!(!t.may_leave(|| Went::Not));
         t.leave();
-        assert!(
-            t.unsaved.get_untracked().contains("server.yaml"),
-            "nothing navigated, so the edit is still a change"
-        );
+        assert!(t.unsaved.get_untracked().contains("server.yaml"));
         assert!(!t.popped(), "no pop is let through");
-        assert!(!t.may_leave(|| Went::Now), "the next exit asks");
         assert!(!t.may_leave(|| Went::Later));
         t.leave();
-        assert!(
-            t.unsaved.get_untracked().contains("server.yaml"),
-            "a Back that has not happened yet keeps the edit"
-        );
+        assert!(t.unsaved.get_untracked().contains("server.yaml"));
         assert!(t.popped(), "the Back it started is let through once");
         assert!(t.unsaved.get_untracked().is_empty());
         assert!(!t.popped(), "only once");
     }
 
     #[test]
-    fn a_server_change_says_the_unsaved_edit_as_text_is_gone() {
+    fn closing_one_tab_drops_only_its_file() {
         let t = TextEdit::new();
         t.open.set(true);
-        t.unsaved.update(|u| {
-            u.insert("server.yaml".into());
-        });
+        screen(
+            t,
+            vec![
+                stuck("server.d/a.yaml", "TOML"),
+                stuck("server.d/b.yaml", "JSON"),
+            ],
+        );
+        t.note_unwritten();
+        t.forget("server.d/a.yaml");
+        assert_eq!(
+            t.held.get_untracked().keys().cloned().collect::<Vec<_>>(),
+            ["server.d/b.yaml"]
+        );
+    }
+
+    fn editor_mounted(t: TextEdit, now: Vec<Unwritten>) -> Owner {
         let editor = Owner::new();
         editor.with(|| {
-            t.before_review.set_value(Some(Rc::new(|| Some(stuck()))));
+            screen(t, now);
             on_cleanup(move || {
                 t.note_unwritten_on_unmount();
                 let _ = t.before_review.try_set_value(None);
             });
         });
+        editor
+    }
+
+    const LOST_TWO: &str = "The server changed; text that could not be saved yet is gone in server.d/a.yaml and server.yaml";
+
+    #[test]
+    fn a_server_change_names_the_lost_text_when_the_editor_unmounts_first() {
+        let t = TextEdit::new();
+        t.open.set(true);
+        edited(t, &["server.yaml", "server.d/a.yaml"]);
+        let editor = editor_mounted(t, vec![stuck("server.yaml", "TOML")]);
         t.note_unwritten();
+        screen(
+            t,
+            vec![
+                stuck("server.yaml", "TOML"),
+                stuck("server.d/a.yaml", "JSON"),
+            ],
+        );
         editor.cleanup();
         assert!(
             t.before_review.with_value(Option::is_none),
-            "as on a remount: the editor's hook is gone before the screen looks"
+            "the editor's hook is gone before the screen looks"
         );
         t.lose_unwritten();
         assert_eq!(
             t.lost.get_untracked().as_deref(),
-            Some(
-                "The server changed; the TOML text in server.yaml that could not be saved as YAML yet is gone"
-            )
+            Some(LOST_TWO),
+            "the last keystrokes count too"
         );
         assert!(t.unsaved.get_untracked().is_empty());
-        assert!(t.held.get_untracked().is_none());
-        t.lose_unwritten();
-        t.set_unsaved("server.yaml", true);
-        assert!(
-            t.lost.get_untracked().is_none(),
-            "typing again clears the note"
+        assert!(t.held.get_untracked().is_empty());
+    }
+
+    #[test]
+    fn a_server_change_names_the_lost_text_when_it_is_seen_before_the_unmount() {
+        let t = TextEdit::new();
+        t.open.set(true);
+        edited(t, &["server.yaml", "server.d/a.yaml"]);
+        let editor = editor_mounted(t, vec![stuck("server.yaml", "TOML")]);
+        t.note_unwritten();
+        screen(
+            t,
+            vec![
+                stuck("server.yaml", "TOML"),
+                stuck("server.d/a.yaml", "JSON"),
+            ],
         );
+        t.lose_unwritten();
+        assert_eq!(
+            t.lost.get_untracked().as_deref(),
+            Some(LOST_TWO),
+            "read from the editors that are still there"
+        );
+        editor.cleanup();
+        assert!(
+            t.held.get_untracked().is_empty(),
+            "the unmount does not hold what was already reported"
+        );
+        t.lost.set(None);
+        t.lose_unwritten();
+        assert!(t.lost.get_untracked().is_none(), "no second note");
+        t.set_unsaved("server.yaml", true);
+        assert!(t.unsaved.get_untracked().contains("server.yaml"));
         let quiet = TextEdit::new();
         quiet.open.set(true);
         quiet.lose_unwritten();

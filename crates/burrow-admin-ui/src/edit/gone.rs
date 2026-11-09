@@ -48,6 +48,9 @@ impl TextEdit {
         {
             self.unsaved.update(|u| u.retain(exists));
         }
+        if self.held.with_untracked(|h| h.keys().any(|n| !exists(n))) {
+            self.held.update(|h| h.retain(|n, _| exists(n)));
+        }
         for map in [self.edit_as, self.shown] {
             if map.with_untracked(|m| m.keys().any(|n| !exists(n))) {
                 map.update(|m| m.retain(|n, _| exists(n)));
@@ -125,11 +128,26 @@ mod tests {
         t.shown.update(|m| {
             m.insert("server.d/x.yaml".into(), "TOML".into());
         });
+        t.held.update(|h| {
+            h.insert(
+                "server.d/x.yaml".into(),
+                crate::edit::Unwritten {
+                    name: "server.d/x.yaml".into(),
+                    shown: "TOML".into(),
+                    own: "YAML".into(),
+                    text: String::new(),
+                },
+            );
+        });
         t.prune(&text(&[("server.yaml", "a: 1\n")]), &[]);
         assert_eq!(
             t.unsaved.get_untracked(),
             ["server.yaml".to_string()].into()
         );
         assert!(t.edit_as.get_untracked().is_empty() && t.shown.get_untracked().is_empty());
+        assert!(
+            t.held.get_untracked().is_empty(),
+            "no later note for a file that is gone"
+        );
     }
 }

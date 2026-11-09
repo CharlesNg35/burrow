@@ -19,14 +19,25 @@ pub fn choices(own: &str) -> Vec<&'static str> {
     out
 }
 
-pub fn shown(own: &str, asked: &str, on_screen: Option<&str>, host: Option<&str>) -> String {
-    if asked == own {
-        return own.to_string();
-    }
+pub fn shown(
+    own: &str,
+    asked: &str,
+    before: Option<&str>,
+    on_screen: Option<&str>,
+    host: Option<&str>,
+) -> String {
     let lf = |t: &str| t.replace("\r\n", "\n");
+    let other = |l: &str| (l != own).then(|| l.to_string());
     match (on_screen, host) {
+        (None, _) => asked.to_string(),
         (Some(screen), Some(host)) if lf(screen) == lf(host) => own.to_string(),
-        _ => asked.to_string(),
+        (Some(_), Some(_)) => other(asked)
+            .or_else(|| before.and_then(other))
+            .unwrap_or_else(|| asked.to_string()),
+        (Some(_), None) => before
+            .and_then(other)
+            .or_else(|| other(asked))
+            .unwrap_or_else(|| own.to_string()),
     }
 }
 
@@ -126,17 +137,34 @@ mod tests {
     #[test]
     fn the_label_follows_what_is_on_screen() {
         let host = "a: 1\nb: null\n";
-        assert_eq!(shown("YAML", "YAML", Some(host), Some(host)), "YAML");
-        assert_eq!(shown("YAML", "TOML", Some("a = 1\n"), Some(host)), "TOML");
+        assert_eq!(shown("YAML", "YAML", None, Some(host), Some(host)), "YAML");
         assert_eq!(
-            shown("YAML", "TOML", Some(host), Some(host)),
+            shown("YAML", "TOML", None, Some("a = 1\n"), Some(host)),
+            "TOML"
+        );
+        assert_eq!(
+            shown("YAML", "TOML", None, Some(host), Some(host)),
             "YAML",
             "a switch that waits still shows the file's own language"
         );
         assert_eq!(
-            shown("YAML", "JSON", Some("{\"a\": 1}"), None),
+            shown("YAML", "JSON", None, Some("{\"a\": 1"), None),
             "JSON",
             "an edit not yet written back is still the asked language"
+        );
+        assert_eq!(
+            shown("YAML", "YAML", Some("TOML"), Some("broken = [\n"), None),
+            "TOML",
+            "asking for the file's language back while the TOML cannot convert: TOML stays on screen"
+        );
+        assert_eq!(
+            waits("YAML", "TOML").as_deref(),
+            Some("YAML waits for the marked value")
+        );
+        assert_eq!(
+            shown("YAML", "TOML", Some("TOML"), None, None),
+            "TOML",
+            "not mounted: as asked"
         );
         assert_eq!(waits("TOML", "TOML"), None, "no note once it shows");
         assert_eq!(waits("YAML", "YAML"), None);

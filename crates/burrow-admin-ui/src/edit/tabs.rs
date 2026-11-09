@@ -136,11 +136,10 @@ impl TextEdit {
     }
 
     pub fn discard_tab(&self, name: &str) {
-        if self
-            .held
-            .with_untracked(|h| h.as_ref().is_some_and(|u| u.name == name))
-        {
-            self.held.set(None);
+        if self.held.with_untracked(|h| h.contains_key(name)) {
+            self.held.update(|h| {
+                h.remove(name);
+            });
         }
         if self.is_new(name) {
             self.drop_new(name);
@@ -181,6 +180,11 @@ impl TextEdit {
     pub fn set_unsaved(&self, name: &str, dirty: bool) {
         if dirty && self.lost.with_untracked(Option::is_some) {
             self.lost.set(None);
+        }
+        if dirty {
+            self.reported.update_value(|r| {
+                r.remove(name);
+            });
         }
         if self.unsaved.with_untracked(|u| u.contains(name) == dirty) {
             return;
