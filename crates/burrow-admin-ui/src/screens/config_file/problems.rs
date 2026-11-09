@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_path_a_problem_marks_its_line_or_the_whole_file() {
+    fn without_a_path_a_problem_marks_its_point_its_span_or_the_whole_file() {
         let mut lined = diag(Severity::Error, "yaml", "bad indent", None, None);
         lined.line = Some(4);
         lined.col = Some(3);
@@ -242,10 +242,8 @@ mod tests {
         let got = host_problems(&[lined, root], "server.yaml", "server.yaml");
         assert_eq!(
             got[0].target,
-            DiagnosticTarget::Range(TextRange::new(
-                TextPosition::new(4, 3),
-                TextPosition::new(5, 1)
-            ))
+            DiagnosticTarget::Position(TextPosition::new(4, 3)),
+            "no end: a point, which the editor widens to a whole secret placeholder"
         );
         assert_eq!(got[1].target, DiagnosticTarget::Document);
         assert_eq!(got[1].severity, config_editor_leptos::Severity::Info);
