@@ -106,34 +106,8 @@ fn watch_header() {
 }
 
 fn listen_pops(s: Store) {
-    route::note_place();
     let on_pop = Closure::<dyn FnMut()>::new(move || {
-        if !route::moved() {
-            s.text.drop_pending_pop();
-            return;
-        }
-        let back = move || {
-            if let Ok(h) = window().history() {
-                let _ = h.back();
-            }
-            set_timeout(
-                move || s.text.drop_pending_pop(),
-                std::time::Duration::from_millis(2000),
-            );
-            crate::edit::Went::Later
-        };
-        if !s.text.popped() && !s.text.may_leave(back) {
-            if let Ok(h) = window().history() {
-                let _ = h.push_state_with_url(
-                    &wasm_bindgen::JsValue::NULL,
-                    "",
-                    Some(&route::file_tab_href()),
-                );
-            }
-            route::note_place();
-            return;
-        }
-        route::note_place();
+        s.text.capture();
         s.route.set(route::current());
         s.query_seen.update(|n| *n += 1);
     });
@@ -290,13 +264,6 @@ fn Body() -> impl IntoView {
     });
     let route = Memo::new(move |_| s.route.get());
     let schema = Memo::new(move |_| s.schema.with(|x| x.as_ref().map(|x| x.hash.clone())));
-    Effect::new(move |was: Option<Option<String>>| {
-        let now = schema.get();
-        if was.flatten().is_some_and(|w| Some(w) != now) {
-            untrack(|| s.text.lose_unwritten());
-        }
-        now
-    });
     let dim = Memo::new(move |_| {
         matches!(
             s.conn.get(),

@@ -46,7 +46,7 @@ pub(super) fn waiting_note(s: Store, waiting: RwSignal<bool>) -> impl IntoView {
 
 fn review(s: Store) {
     let t = s.text;
-    let why = t.unwritten();
+    let why = t.held_now();
     if let Some(why) = why.first() {
         s.toast(Tone::Warning, why.reason(), None);
         return;
@@ -126,12 +126,9 @@ pub(super) fn edit_body(s: Store) -> impl IntoView {
                 problems: t.problems.into(),
                 on_change: Callback::new(move |(name, text): (String, String)| t.set_value(&name, text)),
                 on_review: Callback::new(move |_| review(s)),
-                unsavable: t.unsavable,
                 before_review: t.before_review,
                 edit_as: t.edit_as,
-                shown: t.shown,
                 active: t.active,
-                new_files: t.new_files.into(),
                 on_add: Callback::new(move |_| t.adding.set(true)),
                 on_close: Callback::new(move |(name, dirty): (String, bool)| t.close_tab(&name, dirty)),
                 on_dirty: Callback::new(move |(name, dirty): (String, bool)| t.set_unsaved(&name, dirty)),

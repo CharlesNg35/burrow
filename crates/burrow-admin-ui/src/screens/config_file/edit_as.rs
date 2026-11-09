@@ -5,79 +5,12 @@ use crate::edit::TextEdit;
 
 pub const LANGUAGES: [&str; 3] = ["YAML", "JSON", "TOML"];
 
-pub fn own_label(name: &str) -> &'static str {
-    if name.to_ascii_lowercase().ends_with(".json") {
-        "JSON"
-    } else {
-        "YAML"
-    }
-}
+pub use crate::edit::own_label;
 
 pub fn choices(own: &str) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = LANGUAGES.iter().copied().filter(|l| *l == own).collect();
     out.extend(LANGUAGES.iter().copied().filter(|l| *l != own));
     out
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Seen {
-    pub shown: String,
-    pub asked_back: bool,
-    pub settled: bool,
-}
-
-fn neutral(text: &str) -> bool {
-    text.lines().all(|l| {
-        let l = l.trim();
-        l.is_empty() || l.starts_with('#')
-    })
-}
-
-pub fn seen(
-    own: &str,
-    asked: &str,
-    before: Option<&str>,
-    picked: bool,
-    on_screen: Option<&str>,
-    host: Option<&str>,
-) -> Seen {
-    let lf = |t: &str| t.replace("\r\n", "\n");
-    let other = |l: &str| (l != own).then(|| l.to_string());
-    let shown = |l: String| Seen {
-        settled: l == asked,
-        shown: l,
-        asked_back: false,
-    };
-    match (on_screen, host) {
-        (None, _) => Seen {
-            shown: asked.to_string(),
-            asked_back: false,
-            settled: false,
-        },
-        (Some(_), None) => shown(
-            before
-                .and_then(other)
-                .or_else(|| other(asked))
-                .unwrap_or_else(|| own.to_string()),
-        ),
-        (Some(screen), Some(_)) if neutral(screen) => shown(asked.to_string()),
-        (Some(screen), Some(host)) if lf(screen) == lf(host) => {
-            if picked && asked != own {
-                shown(own.to_string())
-            } else {
-                Seen {
-                    shown: own.to_string(),
-                    asked_back: asked != own,
-                    settled: true,
-                }
-            }
-        }
-        (Some(_), Some(_)) => shown(
-            other(asked)
-                .or_else(|| before.and_then(other))
-                .unwrap_or_else(|| asked.to_string()),
-        ),
-    }
 }
 
 pub fn waits(asked: &str, shown: &str) -> Option<String> {
@@ -109,12 +42,14 @@ pub fn controls(t: TextEdit) -> impl IntoView {
     let options = Signal::derive(move || t.active.with(|a| options(own_label(a))));
     let pick = Callback::new(move |label: String| {
         let name = t.active.get_untracked();
-        t.picked.update_value(|p| {
-            p.insert(name.clone());
-        });
-        t.edit_as.update(|a| {
-            a.insert(name, label);
-        });
+        let same = t.edit_as.with_untracked(|a| a.get(&name) == Some(&label));
+        if same {
+            t.ask_again(&name, &label);
+        } else {
+            t.edit_as.update(|a| {
+                a.insert(name, label);
+            });
+        }
     });
     Effect::new(move |_| {
         let now = shown_now(t);
@@ -178,64 +113,6 @@ mod tests {
 
     #[test]
     fn the_label_follows_what_is_on_screen() {
-        let host = "a: 1\nb: null\n";
-        let at =
-            |asked: &str,
-             before: Option<&str>,
-             picked: bool,
-             screen: Option<&str>,
-             h: Option<&str>| { seen("YAML", asked, before, picked, screen, h) };
-        assert_eq!(
-            at("YAML", None, false, Some(host), Some(host)).shown,
-            "YAML"
-        );
-        assert_eq!(
-            at("TOML", None, true, Some("a = 1\n"), Some(host)).shown,
-            "TOML"
-        );
-        let waits_now = at("TOML", None, true, Some(host), Some(host));
-        assert_eq!(
-            (waits_now.shown.as_str(), waits_now.asked_back),
-            ("YAML", false),
-            "a switch just picked that waits still shows the file's own language"
-        );
-        let undone = at("TOML", Some("TOML"), false, Some(host), Some(host));
-        assert_eq!(
-            (undone.shown.as_str(), undone.asked_back, undone.settled),
-            ("YAML", true, true),
-            "an Undo back to the file's text: the select goes back to the file's language"
-        );
-        assert_eq!(
-            at("YAML", Some("TOML"), false, Some("broken = [\n"), None).shown,
-            "TOML",
-            "asking for the file's language back while the TOML cannot convert: TOML stays on screen"
-        );
-        assert_eq!(
-            at("JSON", None, true, Some("{\"a\": 1"), None).shown,
-            "JSON"
-        );
-        let empty = at("TOML", None, true, Some(""), Some(""));
-        assert_eq!(
-            (empty.shown.as_str(), empty.settled),
-            ("TOML", true),
-            "an empty or comment-only file reads as the language asked"
-        );
-        assert_eq!(
-            at(
-                "TOML",
-                None,
-                true,
-                Some("# only a comment\n"),
-                Some("# only a comment\n")
-            )
-            .shown,
-            "TOML"
-        );
-        assert_eq!(
-            at("TOML", Some("TOML"), false, None, None).shown,
-            "TOML",
-            "not mounted: as asked"
-        );
         assert_eq!(
             waits("YAML", "TOML").as_deref(),
             Some("YAML waits for the marked value")

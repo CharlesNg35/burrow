@@ -7,7 +7,6 @@ mod editor;
 mod follow;
 mod goto;
 mod goto_list;
-mod leave;
 mod new_file;
 mod problems;
 
@@ -241,7 +240,6 @@ pub fn ConfigFile() -> impl IntoView {
             {edit::cancel_dialog(s, asking)}
             {new_file::name_dialog(s.text)}
             {new_file::close_dialog(s.text)}
-            {leave::leave_dialog(s.text)}
         </section>
     }
 }

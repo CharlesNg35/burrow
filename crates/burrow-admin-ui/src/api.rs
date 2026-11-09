@@ -504,7 +504,7 @@ fn load_schema(store: Store, have: String) {
                         .schema
                         .with_untracked(|o| o.as_ref().is_some_and(|o| o.hash != s.hash))
                     {
-                        store.text.lose_unwritten();
+                        store.text.capture();
                     }
                     store.schema.set(Some(Arc::new(s)));
                 }

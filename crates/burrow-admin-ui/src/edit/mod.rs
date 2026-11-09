@@ -6,9 +6,9 @@ mod diags;
 mod gone;
 mod groups;
 mod held;
-mod leave;
 mod new_file;
 mod scratch;
+mod screen;
 mod session;
 mod tabs;
 mod text;
@@ -32,12 +32,11 @@ use diags::related_errors;
 pub(crate) use diags::{diags_at, severity_tone};
 pub(crate) use groups::{Group, change_groups};
 pub use held::TEXT_FIRST;
-pub use leave::{Unwritten, Went};
 pub use new_file::{folder_of, new_name, not_created};
 pub(crate) use scratch::{NEW, Scratch};
+pub use screen::{Unwritten, own_label};
 pub use tabs::Spot;
 pub use text::{Hook, TextEdit};
-pub use unwritten::{leave_question, leave_title};
 
 pub const VALIDATE_AFTER: Duration = Duration::from_millis(400);
 

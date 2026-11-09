@@ -190,11 +190,6 @@ impl TextEdit {
         if dirty && self.lost.with_untracked(Option::is_some) {
             self.lost.set(None);
         }
-        if dirty {
-            self.reported.update_value(|r| {
-                r.remove(name);
-            });
-        }
         if self.unsaved.with_untracked(|u| u.contains(name) == dirty) {
             return;
         }

@@ -124,7 +124,6 @@ pub fn replace(route: Route) {
     if s.route.get_untracked() != route {
         s.route.set(route);
     }
-    note_place();
 }
 
 pub fn query(key: &str) -> Option<String> {
@@ -146,7 +145,6 @@ pub fn set_query(key: &str, value: &str) {
             Some(&format!("{path}?{key}={}", encode(value))),
         );
     }
-    note_place();
 }
 
 pub fn go(route: Route) {
@@ -207,31 +205,14 @@ fn go_guarded(s: crate::store::Store, route: Route, query: Option<(&str, &str)>,
     if (s.route.get_untracked() == route && query.is_none()) || href_with(&route, query) == here() {
         return;
     }
-    let (to, asked, later) = (
-        route.clone(),
-        query.map(|(k, v)| (k.to_string(), v.to_string())),
-        after.clone(),
-    );
-    let again = move || {
-        go_now(
-            s,
-            to.clone(),
-            asked.as_ref().map(|(k, v)| (k.as_str(), v.as_str())),
-        );
-        if let Some(f) = &later {
-            f();
-        }
-        crate::edit::Went::Now
-    };
-    if s.text.may_leave(again) {
-        go_now(s, route, query);
-        if let Some(f) = after {
-            f();
-        }
+    go_now(s, route, query);
+    if let Some(f) = after {
+        f();
     }
 }
 
 fn go_now(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
+    s.text.capture();
     if let Ok(h) = window().history() {
         let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&href_with(&route, query)));
     }
@@ -242,11 +223,6 @@ fn go_now(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
     s.route.set(route);
     s.query_seen.update(|n| *n += 1);
     window().scroll_to_with_x_and_y(0.0, 0.0);
-    note_place();
-}
-
-thread_local! {
-    static SEEN: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
 pub fn here() -> String {
@@ -256,16 +232,6 @@ pub fn here() -> String {
         l.pathname().unwrap_or_default(),
         l.search().unwrap_or_default()
     )
-}
-
-pub fn note_place() {
-    let now = here();
-    SEEN.with(|s| *s.borrow_mut() = now);
-}
-
-pub fn moved() -> bool {
-    let now = here();
-    SEEN.with(|s| *s.borrow() != now)
 }
 
 #[component]

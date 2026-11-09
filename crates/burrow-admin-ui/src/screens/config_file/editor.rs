@@ -3,23 +3,19 @@ use std::sync::Arc;
 
 use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::text_edit::{EditFile, EditText, PLACEHOLDER_PATTERN};
+use burrow_admin_proto::text_edit::{EditText, PLACEHOLDER_PATTERN};
 use config_editor_leptos::{
-    CloseRequest, ConfigDocuments, Document, DocumentsHandle, EditorSettings, EditorTheme,
-    Language, SaveRequest, Schema, SchemaSource, SecretOptions, Severity, check_syntax,
-    flush_pending_edits,
+    CloseRequest, ConfigDocuments, Diagnostic, DiagnosticOrigin, Document, DocumentsHandle,
+    EditorSettings, EditorTheme, Language, SaveRequest, Schema, SchemaSource, SecretOptions,
+    Severity, flush_pending_edits,
 };
 use leptos::prelude::*;
 
 use crate::edit::{Spot, Unwritten};
 
-use super::edit_as::{own_label, seen};
+use super::edit_as::own_label;
 use super::follow::follow;
 use super::problems::host_problems;
-
-fn undo_key(e: &web_sys::KeyboardEvent) -> bool {
-    (e.ctrl_key() || e.meta_key()) && matches!(e.key().as_str(), "z" | "Z" | "y" | "Y")
-}
 
 const HELD_AFTER: std::time::Duration = std::time::Duration::from_millis(300);
 
@@ -32,12 +28,9 @@ pub struct EditorProps {
     pub problems: Signal<Vec<Diag>>,
     pub on_change: Callback<(String, String)>,
     pub on_review: Callback<()>,
-    pub unsavable: RwSignal<Option<String>>,
     pub before_review: StoredValue<Option<crate::edit::Hook>, LocalStorage>,
     pub active: RwSignal<String>,
     pub edit_as: RwSignal<BTreeMap<String, String>>,
-    pub shown: RwSignal<BTreeMap<String, String>>,
-    pub new_files: Signal<Vec<String>>,
     pub on_add: Callback<()>,
     pub on_close: Callback<(String, bool)>,
     pub on_dirty: Callback<(String, bool)>,
@@ -57,23 +50,13 @@ fn schema_of(schema: &Value) -> Option<SchemaSource> {
     })
 }
 
-fn language_of(name: &str) -> Language {
-    Language::from_path(name).unwrap_or(Language::YAML)
-}
-
-pub fn syntax_problem(files: &[EditFile], values: &BTreeMap<String, String>) -> Option<String> {
-    files.iter().find_map(|f| {
-        let now = values.get(&f.name).filter(|v| **v != f.text)?;
-        let d = check_syntax(language_of(&f.name), now)
-            .into_iter()
-            .find(|d| d.severity == Severity::Error)?;
-        Some(match d.line {
-            Some(line) => format!(
-                "{} has a syntax error on line {line}: {}",
-                f.name, d.message
-            ),
-            None => format!("{} has a syntax error: {}", f.name, d.message),
-        })
+pub fn first_error(name: &str, problems: &[Diagnostic]) -> Option<String> {
+    let d = problems
+        .iter()
+        .find(|d| d.severity == Severity::Error && d.origin == DiagnosticOrigin::Editor)?;
+    Some(match d.line {
+        Some(line) => format!("{name} has an error on line {line}: {}", d.message),
+        None => format!("{name} has an error: {}", d.message),
     })
 }
 
@@ -107,6 +90,7 @@ fn documents(
     schemas: &Schemas,
     secrets: &SecretOptions,
     asked: &BTreeMap<String, String>,
+    held: &BTreeMap<String, Unwritten>,
     open: &[String],
 ) -> Vec<Document> {
     let main = t.files.first().map(|f| f.name.as_str()).unwrap_or_default();
@@ -115,10 +99,13 @@ fn documents(
             let d = match t.files.iter().find(|f| f.name == *name) {
                 Some(f) => {
                     let now = values.get(&f.name).unwrap_or(&f.text).clone();
-                    Document::new(f.name.clone(), f.name.clone(), now)
+                    let d = Document::new(f.name.clone(), f.name.clone(), now)
                         .baseline(f.text.clone())
-                        .read_only(f.read_only.is_some())
-                        .closable(f.name != main)
+                        .closable(f.name != main);
+                    match &f.read_only {
+                        Some(why) => d.read_only_reason(why.clone()),
+                        None => d,
+                    }
                 }
                 None => {
                     let now = values.get(name)?.clone();
@@ -130,9 +117,16 @@ fn documents(
             let d = d
                 .secrets(secrets.clone())
                 .host_diagnostics(host_problems(problems, name, main));
-            let d = match requested(own_label(name), asked.get(name).map(String::as_str)) {
-                Some(l) => d.edit_as(l),
-                None => d,
+            let kept = held
+                .get(name)
+                .and_then(|u| Some((requested(&u.own, Some(&u.shown))?, u.text.clone())));
+            let d = match (
+                kept,
+                requested(own_label(name), asked.get(name).map(String::as_str)),
+            ) {
+                (Some((l, text)), _) => d.edit_as_text(l, text),
+                (None, Some(l)) => d.edit_as(l),
+                (None, None) => d,
             };
             Some(match schemas.for_file(name == main) {
                 Some(s) => d.schema(s.clone()),
@@ -159,28 +153,6 @@ pub fn first_shown(names: &[String], active: &str) -> String {
         .unwrap_or_default()
 }
 
-fn unwritten(files: &[String], switch: Shown) -> Vec<Unwritten> {
-    files
-        .iter()
-        .filter_map(|name| {
-            let editor = switch.tabs.editor(name).filter(|e| e.is_mounted())?;
-            let text = editor.text().unwrap_or_default();
-            let host = editor.value();
-            let shown = switch.apply(name, Some(&text), host.as_deref());
-            if host.is_some() {
-                return None;
-            }
-            let own = own_label(name);
-            Some(Unwritten {
-                name: name.clone(),
-                shown: if shown == own { "edited".into() } else { shown },
-                own: own.to_string(),
-                text,
-            })
-        })
-        .collect()
-}
-
 pub fn language(label: &str) -> Option<Language> {
     match label {
         "YAML" => Some(Language::YAML),
@@ -194,60 +166,8 @@ pub fn requested(own: &str, asked: Option<&str>) -> Option<Language> {
     asked.filter(|a| *a != own).and_then(language)
 }
 
-#[derive(Clone, Copy)]
-struct Shown {
-    asked: RwSignal<BTreeMap<String, String>>,
-    shown: RwSignal<BTreeMap<String, String>>,
-    tabs: DocumentsHandle,
-    edit: crate::edit::TextEdit,
-}
-
-impl Shown {
-    fn apply(&self, name: &str, on_screen: Option<&str>, host: Option<&str>) -> String {
-        let own = own_label(name);
-        let asked = self
-            .asked
-            .with_untracked(|a| a.get(name).cloned())
-            .unwrap_or_else(|| own.to_string());
-        let before = self.shown.with_untracked(|s| s.get(name).cloned());
-        let picked = self.edit.picked.with_value(|p| p.contains(name));
-        let now = seen(own, &asked, before.as_deref(), picked, on_screen, host);
-        if now.settled && picked {
-            self.edit.picked.update_value(|p| {
-                p.remove(name);
-            });
-        }
-        if now.asked_back {
-            self.asked.update(|a| {
-                a.insert(name.to_string(), own.to_string());
-            });
-        }
-        let waiting_pick = picked && !now.settled;
-        if waiting_pick || before.as_deref() != Some(now.shown.as_str()) {
-            self.shown.update(|s| {
-                s.insert(name.to_string(), now.shown.clone());
-            });
-        }
-        now.shown
-    }
-
-    fn refresh(&self, name: &str) {
-        let editor = self.tabs.editor(name).filter(|e| e.is_mounted());
-        let on_screen = editor.and_then(|e| e.text());
-        let host = editor.and_then(|e| e.value());
-        self.apply(name, on_screen.as_deref(), host.as_deref());
-    }
-
-    fn refresh_soon(&self, name: String) {
-        let me = *self;
-        for ms in [60, 400, 1200] {
-            let name = name.clone();
-            set_timeout(
-                move || me.refresh(&name),
-                std::time::Duration::from_millis(ms),
-            );
-        }
-    }
+fn label_of(l: Language) -> String {
+    l.label().to_string()
 }
 
 #[leptos::wasm_split::wasm_split(config_editor, wasm_split_path = ::leptos::wasm_split, fallible)]
@@ -258,12 +178,9 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         problems,
         on_change,
         on_review,
-        unsavable,
         before_review,
         active,
         edit_as,
-        shown,
-        new_files,
         on_add,
         on_close,
         on_dirty,
@@ -283,34 +200,21 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         .with_hint(SECRET_HINT);
     let main = first_shown(&open.get_untracked(), &active.get_untracked());
     active.set(main.clone());
+    let held = edit.held;
     let list = Signal::derive(move || {
         text.with(|t| {
             t.as_ref().map_or_else(Vec::new, |t| {
                 values.with(|v| {
                     problems.with(|ps| {
-                        edit_as
-                            .with(|a| open.with(|o| documents(t, v, ps, &schemas, &secrets, a, o)))
+                        edit_as.with(|a| {
+                            held.with(|h| {
+                                open.with(|o| documents(t, v, ps, &schemas, &secrets, a, h, o))
+                            })
+                        })
                     })
                 })
             })
         })
-    });
-    Effect::new(move |_| {
-        let why = text.with(|t| {
-            t.as_ref().and_then(|t| {
-                let mut files = t.files.clone();
-                new_files.with(|n| {
-                    files.extend(n.iter().map(|name| EditFile {
-                        name: name.clone(),
-                        ..EditFile::default()
-                    }))
-                });
-                values.with(|v| syntax_problem(&files, v))
-            })
-        });
-        if unsavable.with_untracked(|u| *u != why) {
-            unsavable.set(why);
-        }
     });
     let settings = EditorSettings {
         theme: EditorTheme::ViraInspired,
@@ -319,24 +223,22 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         ..EditorSettings::default()
     };
     let tabs = DocumentsHandle::new();
-    let switch = Shown {
-        asked: edit_as,
-        shown,
-        tabs,
-        edit,
+    let keep = move || {
+        let names: Vec<String> = held.with_untracked(|h| h.keys().cloned().collect());
+        for name in names {
+            if let Some(now) = tabs.editor(&name).and_then(|e| e.text()) {
+                edit.keep_text(&name, now);
+            }
+        }
     };
-    Effect::new(move |_| {
-        edit_as.track();
-        switch.refresh_soon(active.get_untracked());
-    });
     let typed = StoredValue::new(0u64);
-    let check_held = move || {
+    let keep_soon = move || {
         typed.update_value(|n| *n += 1);
         let n = typed.get_value();
         set_timeout(
             move || {
                 if typed.try_get_value() == Some(n) {
-                    edit.note_unwritten();
+                    keep();
                 }
             },
             HELD_AFTER,
@@ -344,37 +246,21 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
     };
     before_review.set_value(Some(std::rc::Rc::new(move || {
         flush_pending_edits();
-        let files = text.with_untracked(|t| {
-            t.as_ref()
-                .map(|t| names(t, &new_files.get_untracked()))
-                .unwrap_or_default()
-        });
-        unwritten(&files, switch)
+        keep();
     })));
+    edit.ask
+        .set_value(Some(std::rc::Rc::new(move |name: &str, label: &str| {
+            if let Some(l) = language(label) {
+                tabs.edit_as(name, l);
+            }
+        })));
     on_cleanup(move || {
         let _ = before_review.try_set_value(None);
+        let _ = edit.ask.try_set_value(None);
     });
     follow(active, spot, tabs);
-    for name in edit_as.with_untracked(|a| a.keys().cloned().collect::<Vec<_>>()) {
-        switch.refresh_soon(name);
-    }
     Ok(view! {
-        <div
-            class="min-w-0 w-full"
-            data-testid="file-editor"
-            on:input=move |_| check_held()
-            on:beforeinput=move |_| check_held()
-            on:keydown=move |e| {
-                if undo_key(&e) {
-                    let name = active.get_untracked();
-                    edit.picked.update_value(|p| {
-                        p.remove(&name);
-                    });
-                }
-                check_held();
-            }
-            on:paste=move |_| check_held()
-        >
+        <div class="min-w-0 w-full" data-testid="file-editor" on:input=move |_| keep_soon() on:paste=move |_| keep_soon()>
             <ConfigDocuments
                 documents=list
                 initial_active=main
@@ -383,21 +269,19 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                 settings=Signal::stored(settings)
                 on_select=Callback::new(move |id: String| {
                     edit.used(&id);
-                    active.set(id.clone());
-                    switch.refresh_soon(id);
+                    active.set(id);
                 })
-                on_change=Callback::new(move |change: (String, String)| {
-                    check_held();
-                    switch.refresh(&change.0);
-                    on_change.run(change);
-                })
+                on_change=on_change
                 on_save=Callback::new(move |_: (String, SaveRequest)| on_review.run(()))
                 on_add=on_add
                 on_close=Callback::new(move |r: CloseRequest| on_close.run((r.id, r.dirty)))
-                on_dirty_change=Callback::new(move |d: (String, bool)| {
-                    check_held();
-                    on_dirty.run(d);
+                on_dirty_change=on_dirty
+                on_edit_as_change=Callback::new(move |(id, l): (String, Language)| edit.shown_as(&id, &label_of(l)))
+                on_sync_change=Callback::new(move |(id, ok): (String, bool)| {
+                    let now = (!ok).then(|| tabs.editor(&id).and_then(|e| e.text())).flatten();
+                    edit.synced(&id, ok, now);
                 })
+                on_problems=Callback::new(move |(id, found): (String, Vec<Diagnostic>)| edit.editor_errors(&id, first_error(&id, &found)))
             />
         </div>
     }
@@ -407,6 +291,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burrow_admin_proto::text_edit::EditFile;
 
     fn file(name: &str, text: &str) -> EditFile {
         EditFile {
@@ -417,27 +302,75 @@ mod tests {
     }
 
     #[test]
-    fn a_syntax_error_in_an_edited_file_holds_the_review() {
-        let files = vec![
-            file("server.yaml", "a: 1\n"),
-            file("server.d/x.yaml", "b: [\n"),
-        ];
-        let mut values = BTreeMap::new();
-        values.insert("server.d/x.yaml".to_string(), "b: [\n".to_string());
+    fn the_editors_own_errors_name_the_file_and_line() {
+        let mut d = Diagnostic::default();
+        d.line = Some(3);
+        d.message = "expected a value".into();
+        d.severity = Severity::Error;
         assert_eq!(
-            syntax_problem(&files, &values),
-            None,
-            "an untouched file is the server's"
+            first_error("server.d/x.yaml", &[d.clone()]).as_deref(),
+            Some("server.d/x.yaml has an error on line 3: expected a value")
         );
-        values.insert("server.yaml".to_string(), "a: [1\n".to_string());
-        let why = syntax_problem(&files, &values).expect("a syntax error");
-        assert!(why.starts_with("server.yaml has a syntax error"), "{why}");
-        values.insert("server.yaml".to_string(), "a: 2\n".to_string());
-        assert_eq!(syntax_problem(&files, &values), None);
-        let json = vec![file("server.json", "{}")];
-        let mut v = BTreeMap::new();
-        v.insert("server.json".to_string(), "{\"a\": }".to_string());
-        assert!(syntax_problem(&json, &v).is_some());
+        let warning = Diagnostic {
+            severity: Severity::Warning,
+            ..d.clone()
+        };
+        assert_eq!(
+            first_error("server.yaml", &[warning]),
+            None,
+            "a warning holds nothing"
+        );
+        let host = Diagnostic {
+            origin: DiagnosticOrigin::Host,
+            ..d
+        };
+        assert_eq!(
+            first_error("server.yaml", &[host]),
+            None,
+            "the server's own are not the editor's"
+        );
+    }
+
+    #[test]
+    fn held_edit_as_text_opens_again_where_the_user_left_it() {
+        let t = EditText {
+            files: vec![
+                file("server.yaml", "a: 1\n"),
+                EditFile {
+                    read_only: Some("not writable by burrow".into()),
+                    ..file("server.d/ro.yaml", "c: 1\n")
+                },
+            ],
+            ..EditText::default()
+        };
+        let mut held = BTreeMap::new();
+        held.insert(
+            "server.yaml".to_string(),
+            Unwritten {
+                name: "server.yaml".into(),
+                shown: "TOML".into(),
+                own: "YAML".into(),
+                text: "a = [\n".into(),
+            },
+        );
+        let docs = documents(
+            &t,
+            &BTreeMap::new(),
+            &[],
+            &Schemas::default(),
+            &SecretOptions::default(),
+            &BTreeMap::new(),
+            &held,
+            &names(&t, &[]),
+        );
+        assert_eq!(docs[0].edit_as, Some(Language::TOML));
+        assert_eq!(docs[0].edit_as_text.as_deref(), Some("a = [\n"));
+        assert_eq!(docs[0].value, "a: 1\n", "the value stays the file's");
+        assert!(docs[1].read_only);
+        assert_eq!(
+            docs[1].read_only_reason.as_deref(),
+            Some("not writable by burrow")
+        );
     }
 
     #[test]
@@ -457,6 +390,7 @@ mod tests {
             &[],
             &Schemas::of(&t),
             &SecretOptions::default(),
+            &BTreeMap::new(),
             &BTreeMap::new(),
             &names(&t, &[]),
         );
@@ -525,6 +459,7 @@ mod tests {
             &Schemas::default(),
             &SecretOptions::default(),
             &BTreeMap::new(),
+            &BTreeMap::new(),
             &names(&t, &[]),
         );
         assert_eq!(docs.len(), 2);
@@ -549,6 +484,7 @@ mod tests {
             &Schemas::default(),
             &SecretOptions::default(),
             &asked,
+            &BTreeMap::new(),
             &names(&t, &[]),
         );
         assert_eq!(docs[0].edit_as, Some(Language::TOML));
@@ -574,6 +510,7 @@ mod tests {
             &Schemas::default(),
             &SecretOptions::default(),
             &BTreeMap::new(),
+            &BTreeMap::new(),
             &names(&t, &["server.d/new.yaml".to_string()]),
         );
         assert_eq!(docs.len(), 3);
@@ -587,6 +524,7 @@ mod tests {
             &[],
             &Schemas::default(),
             &SecretOptions::default(),
+            &BTreeMap::new(),
             &BTreeMap::new(),
             &["server.d/ro.yaml".to_string(), "server.yaml".to_string()],
         );
