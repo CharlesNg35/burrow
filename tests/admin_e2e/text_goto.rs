@@ -248,7 +248,8 @@ async fn a_file_removed_on_the_server_takes_its_edits(c: &mut Ctx) {
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
         .await;
-    start(c).await;
+    c.ui.click("[data-testid=file-edit]").await;
+    c.ui.wait_for(&input(MAIN), SECS).await;
 }
 
 fn text_goto(c: &mut Ctx) -> Flow<'_> {
