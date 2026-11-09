@@ -122,6 +122,7 @@ pub struct Computed {
     pub fresh: Vec<Fresh>,
     pub passwords: Vec<String>,
     pub reverts: Option<String>,
+    pub renames: Vec<crate::config::patch::Rename>,
 }
 
 struct Cx<'a> {
@@ -224,10 +225,6 @@ pub fn compute(
     let edited = super::text_edit::edited(core, &old_docs, ops_list)?;
     match &edited {
         Some(e) => planned(core, s, (base, ops_list), old_docs, raw, Some(e))
-            .map(|mut c| {
-                e.veil(core, &mut c.plan);
-                c
-            })
             .map_err(|err| e.veil_error(core, err)),
         None => planned(core, s, (base, ops_list), old_docs, raw, None),
     }
@@ -258,12 +255,19 @@ fn planned(
     refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
     let file = check_docs(core, &old_docs);
+    let renames = match ops_list {
+        [Op::ReplaceDocument { from_history }] => {
+            core.renames_back(&text::docs_rev(&old_docs), from_history)
+        }
+        _ => applied.renames.clone(),
+    };
     let d = Draft {
         raw: &raw,
         new_raw: &new_raw,
         old_docs: &old_docs,
         new_docs: &new_docs,
         applied: &applied,
+        renames: &renames,
     };
     let mut v = judge(core, s, &d, &running, &file, &checked);
     v.impacts.extend(kept);
@@ -278,6 +282,7 @@ fn planned(
         new_docs,
         fresh: applied.fresh,
         passwords: applied.passwords,
+        renames,
         reverts: ops_list.iter().find_map(|o| match o {
             Op::ReplaceDocument { from_history } => Some(from_history.clone()),
             _ => None,

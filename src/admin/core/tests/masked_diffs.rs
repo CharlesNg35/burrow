@@ -275,3 +275,114 @@ fn a_file_that_does_not_parse_has_its_diff_not_shown() {
     );
     never(&serde_json::to_string(&plan).unwrap(), &["hunter2-raw"]);
 }
+
+#[test]
+fn a_short_password_blanks_no_word_in_a_text_plan_or_a_form_plan() {
+    let w = world();
+    let text = format!(
+        "{}{}",
+        w.text,
+        ACME.replace("{USER}", "dns").replace("{PASS}", "pass")
+    );
+    let f = files("server.yaml", &text, &[]);
+    let by_text = f.plan(&edit(&f, "subdomain: s1", "subdomain: s2"));
+    let by_form = f.plan(&[Op::Set {
+        path: p(&["visitors", "ops", "admin"]),
+        value: json!("read"),
+    }]);
+    for plan in [by_text, by_form] {
+        let sent = serde_json::to_string(&plan).unwrap();
+        assert!(!sent.contains("«hidden»"), "{sent}");
+        let lines: Vec<&str> = plan.diff.unified.lines().collect();
+        assert!(
+            lines.iter().any(|l| l.contains("password: «secret "))
+                || !plan.diff.unified.contains("acme_dns"),
+            "{}",
+            plan.diff.unified
+        );
+        for d in &plan.diags {
+            for text in [Some(&d.message), d.help.as_ref(), d.label.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                assert!(!text.contains("«hidden»"), "{text}");
+            }
+        }
+    }
+}
+
+#[cfg(feature = "web")]
+const SITE: &str = "web: { https: 443, http: 80, letsencrypt: { email: ops@example.com } }\n";
+
+#[cfg(feature = "web")]
+fn site(name: &str) -> String {
+    format!(
+        "  {name}:\n    client: home\n    bind: 8005\n    target: 3621\n    web:\n      hosts: [{name}.example.com]\n      request_headers:\n        Authorization: Basic weak-header-value-1\n"
+    )
+}
+
+#[cfg(feature = "web")]
+fn shows_changed(diff: &str, word: &str) -> bool {
+    diff.lines()
+        .any(|l| (l.starts_with('-') || l.starts_with('+')) && l.contains(word))
+}
+
+#[cfg(feature = "web")]
+#[test]
+fn a_renamed_items_hidden_value_reads_unchanged_in_the_history_and_in_a_revert() {
+    let w = world();
+    let text = w
+        .text
+        .replace("services:\n", &format!("{SITE}services:\n{}", site("site")));
+    let f = files("server.yaml", &text, &[]);
+    let base = text::docs_rev(&f.core.docs().unwrap());
+    f.apply(&[Op::Rename {
+        path: p(&["services", "site"]),
+        to: "site2".into(),
+        refs: true,
+    }]);
+    let h: serde_json::Value = serde_json::from_str(&f.history()).unwrap();
+    let diff = h["diff"]["unified"].as_str().unwrap();
+    assert!(shows_changed(diff, "site2"), "{diff}");
+    assert!(!shows_changed(diff, "Authorization"), "{diff}");
+    let back = f.plan(&[Op::ReplaceDocument { from_history: base }]);
+    assert!(
+        shows_changed(&back.diff.unified, "site2"),
+        "{}",
+        back.diff.unified
+    );
+    assert!(
+        !shows_changed(&back.diff.unified, "Authorization"),
+        "{}",
+        back.diff.unified
+    );
+}
+
+#[test]
+fn a_password_in_a_url_is_hidden_in_the_views_the_text_and_the_diffs() {
+    let w = world();
+    let text = w.text.replace(
+        "listen: 7835 # tcp\n",
+        "listen: 7835 # tcp\npublic_address: wss://ops:urlpass-9z@tunnel.example.com/burrow\n",
+    );
+    let f = files("server.yaml", &text, &[]);
+    let s = f.session();
+    let view = dispatch(
+        &f.core,
+        &s,
+        burrow_admin_proto::msg::req::CONFIG_VIEW,
+        &json!({}),
+    )
+    .unwrap();
+    let state = dispatch(&f.core, &s, burrow_admin_proto::msg::req::STATE, &json!({})).unwrap();
+    let shown = edit_text(&f.core, &s);
+    let plan = f.plan(&edit(&f, "listen: 7835", "listen: 7836"));
+    for sent in [
+        view.to_string(),
+        state.to_string(),
+        serde_json::to_string(&shown).unwrap(),
+        serde_json::to_string(&plan).unwrap(),
+    ] {
+        never(&sent, &["urlpass-9z"]);
+    }
+}

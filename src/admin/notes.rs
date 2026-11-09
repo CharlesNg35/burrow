@@ -101,6 +101,7 @@ mod tests {
             revertible: true,
             details_kept: true,
             reverts: None,
+            renames: Vec::new(),
         }
     }
 

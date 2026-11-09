@@ -201,6 +201,7 @@ pub(super) struct Draft<'a> {
     pub(super) old_docs: &'a Docs,
     pub(super) new_docs: &'a Docs,
     pub(super) applied: &'a ops::Applied,
+    pub(super) renames: &'a [patch::Rename],
 }
 
 pub(super) struct Verdict {
@@ -321,7 +322,7 @@ pub(super) fn assemble(
         .map(|d| d.text.as_str())
         .collect();
     let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
-    let shown = crate::admin::core::text_edit::Shown::new(core, &fresh_pairs, &applied.renames);
+    let shown = crate::admin::core::text_edit::Shown::new(core, &fresh_pairs, d.renames);
     let diff = shown.diff(
         &new_docs.main().name,
         &old_docs.main().text,
@@ -344,7 +345,7 @@ pub(super) fn assemble(
         &impacts_json,
         &refusals_json,
     ]);
-    Plan {
+    let mut plan = Plan {
         plan: hash,
         base: base.to_string(),
         result_rev: text::docs_rev(new_docs),
@@ -374,5 +375,25 @@ pub(super) fn assemble(
         }),
         secrets_in_diff: "masked".into(),
         files: file_diffs,
+    };
+    veil_text(&mut plan, &hidden);
+    plan
+}
+
+fn veil_text(plan: &mut Plan, hidden: &values::Hidden) {
+    let line = |s: &str| text::mask_secrets(&hidden.line(s), &[]);
+    for d in &mut plan.diags {
+        d.message = line(&d.message);
+        d.label = d.label.as_deref().map(line);
+        d.help = d.help.as_deref().map(line);
+    }
+    for c in &mut plan.changes {
+        c.summary = line(&c.summary);
+    }
+    for i in &mut plan.impacts {
+        i.message = line(&i.message);
+    }
+    for r in &mut plan.refusals {
+        r.message = line(&r.message);
     }
 }

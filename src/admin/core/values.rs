@@ -3,7 +3,7 @@ use burrow_admin_proto::value::{self, EnvInfo, SecretInfo, SecretSrc};
 use serde_json::{Map, Value};
 
 use burrow_config::WebSite;
-use burrow_syntax::secret_fmt::credential_header;
+use burrow_syntax::secret_fmt::{credential_header, url_with_password};
 
 use crate::config::check::secretish;
 use crate::config::env::{EnvSource, expand_value};
@@ -163,7 +163,9 @@ fn present_at(
                 resolved,
             })
         }
-        Value::String(s) if super::text::holds_secret(s) => value::secret(&secret_info(s, env)),
+        Value::String(s) if super::text::holds_secret(s) || url_with_password(s) => {
+            value::secret(&secret_info(s, env))
+        }
         other => other.clone(),
     }
 }
@@ -287,33 +289,6 @@ fn header_values(v: &Value, out: &mut Vec<(String, String)>) {
     }
 }
 
-fn written_forms(value: &str) -> Vec<String> {
-    let json = serde_json::to_string(value).unwrap_or_default();
-    let mut forms = vec![
-        value.to_string(),
-        json.trim_matches('"').to_string(),
-        value.replace('\'', "''"),
-    ];
-    forms.retain(|f| !f.is_empty());
-    forms.sort_by_key(|f| std::cmp::Reverse(f.len()));
-    forms.dedup();
-    forms
-}
-
-pub fn veil_headers(line: &str, pairs: &[(String, String)]) -> String {
-    let lower = line.to_ascii_lowercase();
-    let mut out = line.to_string();
-    for (name, value) in pairs {
-        if !lower.contains(&name.to_ascii_lowercase()) && value.len() < 8 {
-            continue;
-        }
-        for form in written_forms(value) {
-            out = out.replace(form.as_str(), HEADER_SHOWN);
-        }
-    }
-    out
-}
-
 const WHOLE: usize = 8;
 
 fn veil_values(line: &str, values: &[String]) -> String {
@@ -372,8 +347,7 @@ impl Hidden {
     }
 
     pub fn line(&self, line: &str) -> String {
-        let line = veil_headers(&veil(line, &self.hashes), &self.headers);
-        veil_values(&line, &self.values)
+        veil_values(&veil(line, &self.hashes), &self.values)
     }
 
     pub fn value(&self, v: &Value) -> Value {
@@ -579,24 +553,6 @@ mod tests {
         assert_eq!(out["visitors"]["token"]["admin"], "read", "{out}");
         assert_eq!(out["services"], raw["services"], "{out}");
         assert_eq!(raw_of(&out["services"]), raw["services"]);
-    }
-
-    #[test]
-    fn header_values_are_veiled_in_every_written_form() {
-        let pairs = vec![
-            ("Authorization".to_string(), "Basic it's \"x\"".to_string()),
-            ("Cookie".to_string(), "a".to_string()),
-        ];
-        for line in [
-            "+        Authorization: Basic it's \"x\"",
-            "+        Authorization: \"Basic it's \\\"x\\\"\"",
-            "+        Authorization: 'Basic it''s \"x\"'",
-        ] {
-            let out = veil_headers(line, &pairs);
-            assert!(out.contains(HEADER_SHOWN) && !out.contains("it"), "{out}");
-        }
-        assert_eq!(veil_headers("+  name: a", &pairs), "+  name: a");
-        assert!(veil_headers("+  Cookie: a", &pairs).ends_with(HEADER_SHOWN));
     }
 
     #[test]
