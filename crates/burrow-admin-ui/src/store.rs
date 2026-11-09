@@ -142,6 +142,9 @@ impl OwnJob {
 impl Store {
     pub fn new(route: Route) -> Self {
         let text = crate::edit::TextEdit::new();
+        let changed = RwSignal::new(None);
+        let edit = Edit::held_by(Signal::derive(move || text.dirty()));
+        text.watch_banner(changed, Signal::derive(move || edit.dirty()));
         Store {
             conn: RwSignal::new(Conn::Connecting),
             opened: RwSignal::new(0),
@@ -165,7 +168,7 @@ impl Store {
             admin_down: RwSignal::new(false),
             now: RwSignal::new(js_sys::Date::now()),
             history: RwSignal::new(None),
-            changed: RwSignal::new(None),
+            changed,
             changed_from: RwSignal::new((String::new(), 0.0)),
             added_at: RwSignal::new(std::collections::BTreeMap::new()),
             rev_at: RwSignal::new(std::collections::BTreeMap::new()),
@@ -177,7 +180,7 @@ impl Store {
             error: RwSignal::new(None),
             server_updating: RwSignal::new(OwnJob::Idle),
             retry: RwSignal::new(None),
-            edit: Edit::held_by(Signal::derive(move || text.dirty())),
+            edit,
             text,
             list_groups: RwSignal::new(std::collections::BTreeMap::new()),
             more_open: StoredValue::new(std::collections::BTreeMap::new()),
@@ -433,12 +436,20 @@ pub fn short_rev(rev: &str) -> String {
         .collect()
 }
 
+thread_local! {
+    static PAGE: std::cell::Cell<Option<Store>> = const { std::cell::Cell::new(None) };
+}
+
+pub fn set_page(s: Store) {
+    PAGE.with(|p| p.set(Some(s)));
+}
+
 pub fn store() -> Store {
-    expect_context::<Store>()
+    try_store().expect("the page's store")
 }
 
 pub fn try_store() -> Option<Store> {
-    use_context::<Store>()
+    use_context::<Store>().or_else(|| PAGE.with(std::cell::Cell::get))
 }
 
 pub fn on_reconnect(again: impl Fn() + 'static) {

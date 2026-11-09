@@ -144,6 +144,7 @@ fn listen_pops(s: Store) {
 pub fn App() -> impl IntoView {
     let s = Store::new(route::current());
     provide_context(s);
+    crate::store::set_page(s);
     apply_theme(&saved_theme());
     burrow_ui_kit::auto_titles();
     listen_pops(s);

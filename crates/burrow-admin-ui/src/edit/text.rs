@@ -40,6 +40,7 @@ pub struct TextEdit {
     pub spot: RwSignal<Option<(String, super::tabs::Spot)>>,
     pub leaving: RwSignal<Option<super::leave::Unwritten>>,
     pub lost: RwSignal<Option<String>>,
+    banner: StoredValue<Option<(RwSignal<Option<msg::ConfigEvent>>, Signal<bool>)>>,
     pub(super) then: StoredValue<Option<super::leave::Then>, LocalStorage>,
     pub(super) pending_pop: StoredValue<Option<String>>,
     checks: StoredValue<u64>,
@@ -219,6 +220,7 @@ impl TextEdit {
             spot: RwSignal::new(None),
             leaving: RwSignal::new(None),
             lost: RwSignal::new(None),
+            banner: StoredValue::new(None),
             then: StoredValue::new_local(None),
             pending_pop: StoredValue::new(None),
             checks: StoredValue::new(0),
@@ -314,10 +316,22 @@ impl TextEdit {
         }
         self.values.set(values);
         self.loaded.set(Some(Ok(Arc::new(next))));
-        if let Some(s) = crate::store::try_store() {
-            settle_banner(s.changed, untrack(|| s.edit.dirty()));
-        }
+        self.settle();
         self.changed();
+    }
+
+    pub fn watch_banner(
+        &self,
+        changed: RwSignal<Option<msg::ConfigEvent>>,
+        draft_dirty: Signal<bool>,
+    ) {
+        self.banner.set_value(Some((changed, draft_dirty)));
+    }
+
+    pub fn settle(&self) {
+        if let Some((changed, draft_dirty)) = self.banner.get_value() {
+            settle_banner(changed, untrack(|| draft_dirty.get()));
+        }
     }
 
     pub fn text(&self) -> Option<Arc<EditText>> {
@@ -543,6 +557,32 @@ mod tests {
             values["server.yaml"],
             "a text that changed beyond its ids is left to the editor's notice"
         );
+    }
+
+    #[test]
+    fn a_rebase_outside_any_component_takes_down_the_changed_banner() {
+        let ev = msg::ConfigEvent {
+            rev: "b2s:2".into(),
+            by: "ops".into(),
+            ok: true,
+        };
+        let changed = RwSignal::new(Some(ev.clone()));
+        let draft_dirty = RwSignal::new(true);
+        let t = TextEdit::new();
+        t.watch_banner(changed, draft_dirty.into());
+        assert!(
+            leptos::prelude::Owner::current().is_none(),
+            "as in a reply callback: no component around"
+        );
+        t.settle();
+        assert_eq!(
+            changed.get_untracked(),
+            Some(ev),
+            "the draft still needs it"
+        );
+        draft_dirty.set(false);
+        t.settle();
+        assert_eq!(changed.get_untracked(), None);
     }
 
     #[test]
