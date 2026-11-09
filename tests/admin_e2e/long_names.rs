@@ -41,8 +41,9 @@ const FITS: &str = "(() => { const w = innerWidth; const out = []; if (document.
 
 /// For each icon+text pair: the gap between the icon's ink centre (its drawn
 /// shapes, scaled from the viewBox) and the middle of the text's cap height
-/// (baseline minus half the height of "H"), in CSS pixels.
-const INK: &str = "(() => { const c = document.createElement('canvas').getContext('2d'); const out = []; for (const t of document.querySelectorAll('span[class*=\"h-[18px]\"], [data-testid=read-only-file], [data-testid=file-group]')) { const svg = t.querySelector(':scope > svg'); if (!svg || svg.getBoundingClientRect().width === 0) continue; const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT); let node = null, n; while ((n = walker.nextNode())) { if (n.textContent.trim() && !n.parentElement.closest('.sr-only') && n.parentElement.getBoundingClientRect().width > 0) { node = n; break; } } if (!node) continue; const r = document.createRange(); r.selectNodeContents(node); const rect = r.getClientRects()[0]; const cs = getComputedStyle(node.parentElement); c.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily; const m = c.measureText('H'); const lh = m.fontBoundingBoxAscent + m.fontBoundingBoxDescent; const base = rect.top + (rect.height - lh) / 2 + m.fontBoundingBoxAscent; const text = base - m.actualBoundingBoxAscent / 2; const s = svg.getBoundingClientRect(); const vb = svg.viewBox.baseVal; const b = svg.getBBox(); const icon = s.top + (b.y - vb.y + b.height / 2) * s.height / (vb.height || 24); out.push({ tag: (t.dataset.testid || t.textContent.trim().slice(0, 24)), off: Math.round((icon - text) * 10) / 10 }); } return out; })()";
+/// (baseline minus half the height of "H"), in CSS pixels, and the icon's ink
+/// height over that cap height.
+const INK: &str = "(() => { const c = document.createElement('canvas').getContext('2d'); const out = []; for (const t of document.querySelectorAll('span[class*=\"h-[18px]\"], [data-testid=read-only-file], [data-testid=file-group]')) { const svg = t.querySelector(':scope > svg'); if (!svg || svg.getBoundingClientRect().width === 0) continue; const walker = document.createTreeWalker(t, NodeFilter.SHOW_TEXT); let node = null, n; while ((n = walker.nextNode())) { if (n.textContent.trim() && !n.parentElement.closest('.sr-only') && n.parentElement.getBoundingClientRect().width > 0) { node = n; break; } } if (!node) continue; const r = document.createRange(); r.selectNodeContents(node); const rect = r.getClientRects()[0]; const cs = getComputedStyle(node.parentElement); c.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily; const m = c.measureText('H'); const lh = m.fontBoundingBoxAscent + m.fontBoundingBoxDescent; const base = rect.top + (rect.height - lh) / 2 + m.fontBoundingBoxAscent; const text = base - m.actualBoundingBoxAscent / 2; const s = svg.getBoundingClientRect(); const vb = svg.viewBox.baseVal; const b = svg.getBBox(); const icon = s.top + (b.y - vb.y + b.height / 2) * s.height / (vb.height || 24); const ink = b.height * s.height / (vb.height || 24); out.push({ tag: (t.dataset.testid || t.textContent.trim().slice(0, 24)), off: Math.round((icon - text) * 10) / 10, size: Math.round(ink / m.actualBoundingBoxAscent * 100) / 100 }); } return out; })()";
 
 async fn fits(c: &Ctx, step: &str) {
     let wide: Vec<String> = c.ui.eval(FITS).await;
@@ -57,11 +58,13 @@ async fn centred(c: &Ctx, step: &str) {
     eprintln!("ink offsets, {step}: {found:?}");
     let off: Vec<&serde_json::Value> = found
         .iter()
-        .filter(|f| f["off"].as_f64().unwrap_or(0.0).abs() > 1.0)
+        .filter(|f| {
+            f["off"].as_f64().unwrap_or(9.0).abs() > 0.5 || f["size"].as_f64().unwrap_or(9.0) > 1.4
+        })
         .collect();
     assert!(
         !found.is_empty() && off.is_empty(),
-        "{step}: an icon and its text sit apart by more than 1 px: {off:?} (all: {found:?})"
+        "{step}: an icon sits more than 0.5 px off its text's middle or stands over 1.4 times its cap height: {off:?} (all: {found:?})"
     );
 }
 
