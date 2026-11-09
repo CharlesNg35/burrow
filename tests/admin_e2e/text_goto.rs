@@ -346,12 +346,8 @@ async fn an_emptied_drop_in_is_deleted_from_a_text_review(c: &mut Ctx) {
     let offer = format!("[data-testid=file-diff][data-file='{gone}'] [data-testid=drop-file]");
     c.ui.wait_for(&offer, SECS).await;
     c.ui.click(&offer).await;
-    c.ui.wait_text(
-        "[data-testid=review]",
-        &format!("deletes {gone}, which holds nothing any more"),
-        SECS,
-    )
-    .await;
+    c.ui.wait_text("[data-testid=review]", &format!("{gone}: deleted"), SECS)
+        .await;
     c.ui.wait_for(
         &format!("[data-testid=file-diff][data-file='{gone}'] [data-testid=keep-file]"),
         SECS,
