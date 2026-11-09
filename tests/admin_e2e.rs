@@ -43,6 +43,8 @@ mod le_places;
 mod letsencrypt;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
+#[path = "admin_e2e/long_names.rs"]
+mod long_names;
 #[path = "admin_e2e/modes.rs"]
 mod modes;
 #[path = "admin_e2e/more.rs"]
