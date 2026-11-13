@@ -185,12 +185,12 @@ async fn no_csp_violation(c: &mut Ctx) {
     let styled: (usize, String) = c
         .ui
         .eval(&format!(
-            "(() => {{ const e = document.querySelector('{EDITOR} .config-editor, {EDITOR} .config-editor-documents'); return [document.querySelectorAll('{EDITOR} style').length, e ? getComputedStyle(e).getPropertyValue('--config-editor-bg').trim() : '']; }})()"
+            "(() => {{ const e = document.querySelector('{EDITOR} .config-editor, {EDITOR} .config-editor-documents'); return [[...document.querySelectorAll('style')].filter(s => s.textContent.includes('.config-editor')).length, e ? getComputedStyle(e).getPropertyValue('--config-editor-bg').trim() : '']; }})()"
         ))
         .await;
     assert!(
         styled.0 > 0 && !styled.1.is_empty(),
-        "the editor injects its own stylesheet and it applies: {styled:?}"
+        "the editor injects its own stylesheet (once per page, in <head>) and it applies: {styled:?}"
     );
     replace_in(c, MAIN, "max_connections: 1", "max_connections: 9").await;
     dirty(c, MAIN, true).await;
