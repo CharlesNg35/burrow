@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use burrow_admin_proto::plan::{Change, ChangeKind, FileChange, FileDiff};
+use burrow_admin_proto::plan::{Change, ChangeKind, Diff, FileChange, FileDiff};
 use burrow_config::renames::{Origin, base_name, origins, within};
 use burrow_config::{Entry, ServiceEntry};
 use serde_json::{Map, Value};
@@ -268,6 +268,14 @@ impl Moves<'_> {
     };
 }
 
+pub fn new_file(base: &[Doc], prefix: &str, file: &str) -> Result<(), WriteError> {
+    let names: Vec<&str> = base.iter().map(|d| d.name.as_str()).collect();
+    match burrow_config::drop_ins::new_name_problem(&names, prefix, file) {
+        Some(why) => Err(WriteError::Bad(why)),
+        None => Ok(()),
+    }
+}
+
 fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
     let mut out = Places::new();
     for (path, file) in moves.places {
@@ -283,27 +291,13 @@ fn placed(base: &mut Vec<Doc>, moves: &Moves) -> Result<Places, WriteError> {
         }
         let at = match base.iter().position(|d| d.name == *file) {
             Some(at) => at,
-            None if base.iter().any(|d| d.name.eq_ignore_ascii_case(file)) => {
-                let other = base
-                    .iter()
-                    .find(|d| d.name.eq_ignore_ascii_case(file))
-                    .map_or("", |d| d.name.as_str());
-                return Err(WriteError::Bad(format!(
-                    "{file} and {other} differ only in upper and lower case, which macOS and Windows treat as one file; pick another file name"
-                )));
-            }
-            None if burrow_config::drop_ins::new_name_ok(moves.prefix, file) => {
+            None => {
+                new_file(base, moves.prefix, file)?;
                 base.push(Doc {
                     name: file.clone(),
                     text: String::new(),
                 });
                 base.len() - 1
-            }
-            None => {
-                return Err(WriteError::Bad(format!(
-                    "\"{file}\" is not a file name burrow can use; use {}/<name>.yaml with letters, digits, dots, dashes or underscores",
-                    moves.prefix
-                )));
             }
         };
         out.insert((section.clone(), name.clone()), at);
@@ -330,10 +324,7 @@ pub fn write(
     for (i, (doc, target)) in docs.iter().zip(&targets).enumerate() {
         if moves.drops.contains(&doc.name) {
             if i == 0 || holds_items(target) {
-                return Err(WriteError::Bad(format!(
-                    "{} cannot be deleted: it still holds items",
-                    doc.name
-                )));
+                return Err(still_holds(&doc.name));
             }
             continue;
         }
@@ -373,13 +364,40 @@ pub fn write(
         });
     }
     if let Some(gone) = moves.drops.iter().find(|d| base.get(d).is_none()) {
-        return Err(WriteError::Bad(format!(
-            "{gone} is not one of the config files"
-        )));
+        return Err(not_a_file(gone));
     }
     Ok(Written {
         docs: Docs { list },
         reformat,
+    })
+}
+
+fn still_holds(file: &str) -> WriteError {
+    WriteError::Bad(format!("{file} cannot be deleted: it still holds items"))
+}
+
+fn not_a_file(file: &str) -> WriteError {
+    WriteError::Bad(format!("{file} is not one of the config files"))
+}
+
+pub fn drop_edited(base: &Docs, edited: &Docs, drops: &[String]) -> Result<Docs, WriteError> {
+    if let Some(gone) = drops.iter().find(|d| base.get(d).is_none()) {
+        return Err(not_a_file(gone));
+    }
+    let main = &edited.main().name;
+    if let Some(full) = drops
+        .iter()
+        .find(|d| *d == main || edited.text_of(d).is_some_and(|t| !empty_of_items(t)))
+    {
+        return Err(still_holds(full));
+    }
+    Ok(Docs {
+        list: edited
+            .list
+            .iter()
+            .filter(|d| !drops.contains(&d.name))
+            .cloned()
+            .collect(),
     })
 }
 
@@ -431,7 +449,7 @@ pub fn note_moves(old: &Docs, applied: &crate::admin::core::ops::Applied, out: &
     }
 }
 
-pub fn diffs(old: &Docs, new: &Docs, mask: &dyn Fn(&str) -> String) -> Vec<FileDiff> {
+pub fn diffs(old: &Docs, new: &Docs, show: &dyn Fn(&str, &str, &str) -> Diff) -> Vec<FileDiff> {
     if old.list.len() < 2 && new.list.len() < 2 {
         return Vec::new();
     }
@@ -456,7 +474,7 @@ pub fn diffs(old: &Docs, new: &Docs, mask: &dyn Fn(&str) -> String) -> Vec<FileD
                 diff: if change == FileChange::Same {
                     Default::default()
                 } else {
-                    crate::admin::core::diff::unified(a.unwrap_or(""), b.unwrap_or(""), mask)
+                    show(name, a.unwrap_or(""), b.unwrap_or(""))
                 },
                 change,
                 left_empty,

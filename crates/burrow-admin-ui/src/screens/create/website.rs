@@ -465,8 +465,7 @@ fn steps(
             <div data-testid="new-website-client">{row(ServiceEntry::CLIENT.schema())}</div>
             <div></div>
             {step(3, "App on it", "Where the client finds the app.")}
-            <div data-testid="new-website-target">{row(ServiceEntry::TARGET.schema())}</div>
-            <div></div>
+            <div class="md:col-span-2" data-testid="new-website-target">{row(ServiceEntry::TARGET.schema())}</div>
             {step(4, "HTTPS", "Who does HTTPS for this website.")}
             <div class="md:col-span-2" data-testid="new-website-tls">
                 {move || view! {

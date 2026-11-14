@@ -45,7 +45,16 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 pub fn fetch(url: &str, to: &Path, sha256: &str) -> Result<(), String> {
     let status = Command::new("curl")
-        .args(["-fsSL", "--retry", "3", "-o"])
+        .args([
+            "-fsSL",
+            "--retry",
+            "8",
+            "--retry-delay",
+            "5",
+            "--retry-max-time",
+            "300",
+            "-o",
+        ])
         .arg(to)
         .arg(url)
         .status()

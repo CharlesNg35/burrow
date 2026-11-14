@@ -63,6 +63,8 @@ fn code_line(line: &str) -> AnyView {
     view! { <span>{line.to_string()}</span> }.into_any()
 }
 
+const SCROLL: &str = "overflow-auto max-h-[max(80vh,min(240px,100vh))] supports-[height:1dvh]:max-h-[max(80dvh,min(240px,100dvh))] px-4 py-3.5 font-mono max-sm:pt-2 sm:pr-44 text-[12.5px] leading-[1.7] whitespace-pre focus-visible:outline-offset-[-2px]";
+
 #[component]
 pub fn CodeBlock(
     #[prop(into)] text: Signal<String>,
@@ -71,6 +73,7 @@ pub fn CodeBlock(
 ) -> impl IntoView {
     let copied = RwSignal::new(false);
     let name = file_name.clone();
+    let region = file_name.unwrap_or_else(|| "Code".to_string());
     let btn = "inline-flex h-[24px] cursor-pointer items-center gap-1.5 rounded-sm border border-white/15 bg-white/5 px-2 text-xs font-semibold text-code-text/85 hover:bg-white/10 hover:text-code-text";
     view! {
         <div class="relative overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid)>
@@ -95,7 +98,12 @@ pub fn CodeBlock(
                     }
                 })}
             </div>
-            <pre class="overflow-x-auto px-4 py-3.5 font-mono max-sm:pt-2 sm:pr-44 text-[12.5px] leading-[1.7] whitespace-pre">
+            <pre
+                class=SCROLL
+                tabindex="0"
+                role="region"
+                aria-label=region
+            >
                 {move || {
                     let t = text.get();
                     let n = t.lines().count();

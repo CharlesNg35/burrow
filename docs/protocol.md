@@ -331,8 +331,10 @@ Requests:
 - `schema`, `state`, `subscribe`, `validate`, `apply`, `generate_secret`, `connect_info`, `suggest`, `history`, `revert`.
 - `update_clients` (feature `client.updates`): ask clients to update to a release, one at a time; `dry_run` only says which clients it would ask.
 - `update_server` (feature `server.updates`): have the server's root updater install the latest release; `dry_run` only says from which version to which, or why it cannot.
-- `config_view` (feature `config.view`): the config as YAML text with secrets as fingerprints, as the Config file tab shows it.
+- `config_view` (feature `config.view`): the config as YAML text with secrets as fingerprints, as the Raw config tab shows it.
 - `check_text` (feature `config.check-text`): check a config or a fragment of up to 4 MiB with the server's own validation, writing nothing; open to `admin: read` too.
+- `config_text` (feature `config.text`): every config file's exact text for the text editor, with each secret replaced by a placeholder like `«secret 3f2a9c1d»`: `{}` gives `{rev, schema_hash, schema, placeholder, files: [{name, text, read_only?}], drop_in_schema}`. `rev` is the files' revision, `schema` the editor's JSON Schema, `placeholder` the placeholders' pattern (`«secret [0-9a-f]{8}»`), `read_only` says why a file cannot be written, and `drop_in_schema` is the same schema for a drop-in (only `services`, `clients` and `visitors`); open to `admin: read` too.
+- `search_text` (feature `config.search-text`): find text in the files as `config_text` shows them, secrets masked: `{query, limit?}` gives `{rev, matches: [{file, line, col, end_col, excerpt}], more, unsearchable?}`. The match ignores case and stays on one line; lines and columns count from 1 as the admin's editor counts them (a byte-order mark is the first character of line 1; CRLF, LF and a lone CR each end a line); `limit` is 50 by default and at most 200, and `more` says there were more; a file that does not parse is listed in `unsearchable` instead of being searched; open to `admin: read` too.
 - `ping`.
 
 `validate`, `apply`, `generate_secret`, `revert`, `update_clients` and `update_server` need `admin: write`.
@@ -344,22 +346,37 @@ Events:
 - `revoked`: the caller lost its admin right, its secret, its visitor or its source, or its admin level changed; end-of-stream follows.
 - `bye`: the server stops.
 
-Additions since v0.1.2, each behind its feature string:
+Every optional capability is behind a feature string; a caller uses it only when `welcome` lists it:
 
 | Feature | Adds |
 |---|---|
+| `status.stream` | `subscribe` and the `status` event |
+| `config.events` | the `config` event when the file changes |
+| `secret.generate` | the `generate_secret` request: the server makes a secret and keeps it behind a handle |
+| `connect.snippets` | the `connect_info` request: the commands and files to connect a client or visitor |
+| `suggest.free-port` | the `suggest` request: a free port on the server, or a free name |
+| `history` | the `history` request |
+| `revert` | the `revert` request |
+| `ops.rename` | the `rename` operation, optionally with its references; a `history` entry lists its change's renames in `renames`, each `[path, new name]` with the old name last in the path |
+| `ops.set-text` | the `set_text` operation |
 | `upload` | the `upload` request (a certificate, CA or revocation list kept on the server) |
 | `passwords` | the `hash_password` request and the `password_set` operation |
 | `local-ca` | the `local_ca` request (the local CA's certificate) |
 | `history.ids` | `id` on each history entry and `history {entry: id}`; without it a caller asks `history {diff: rev}`, which still means the newest entry with that revision |
 | `client.allow` | `allow` on each connected client in the `status` event: the Allow list (`0x82`) of its session, `["any"]` for `allow_all`, left out until the client sent one; without the feature a caller shows the list as unknown |
 | `config.files` | [drop-in files](configuration.md#drop-in-files): `file.files` in `state` (each file, its items and why it is read-only), one diff per file in a plan and in `history`, and the `place` and `drop_file` operations. A caller that lists `config.files` in `understands` of its `welcome` request may change items in drop-in files; the server answers `not-writable` to any other caller's change there |
+| `client.updates` | the `update_clients` request |
+| `server.updates` | the `update_server` request |
+| `config.view` | the `config_view` request |
+| `config.check-text` | the `check_text` request |
+| `config.text` | the `config_text` request and the `replace_text` operation: whole file texts back from the editor, and a text under a new name makes that drop-in, checked as `place` checks a new file (an empty one makes none). It is the only operation of its change, besides `drop_file` for drop-ins its text leaves without services, clients and visitors (the same rule as `drop_file` everywhere); each placeholder must stand where the file had it (in any file; one from a comment only in its own file), else the change is refused as `invalid` with one diagnostic per placeholder. Diagnostics may carry `end_line` and `end_col` |
+| `config.search-text` | the `search_text` request |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 
 Config values travel as the raw tree of the file, not the typed model, so short forms stay as written. A secret becomes `{"$secret": {"fp": "ab12cd34", "src": "literal"}}` (or `"src": {"env": "VAR"}`), and any other value with `${...}` becomes `{"$env": {"raw": "${VAR}", "vars": ["VAR"]}}`. Secrets never leave the server, except a secret the server generated for an `apply`, which that one reply carries once.
 
-Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `password_set`, `replace_document`, `set_text`, and with `config.files` `place` and `drop_file`) against a revision, the first 8 bytes of the BLAKE2s-256 hash of the exact file bytes, as hex with a `b2s:` prefix (`b2s:86832e7bac93127a`); the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.
+Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `password_set`, `replace_document`, `set_text`, with `config.files` `place` and `drop_file`, and with `config.text` `replace_text`) against a revision, the first 8 bytes of the BLAKE2s-256 hash of the exact file bytes, as hex with a `b2s:` prefix (`b2s:86832e7bac93127a`); the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.
 
 Compatibility rules:
 

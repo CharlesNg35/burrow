@@ -39,7 +39,9 @@ pub fn init_logging(l: &Logging) -> Result<(), Failure> {
                     crate::base::failure::file_reason(&e)
                 ))
             })?;
-            let builder = builder.with_writer(file).with_ansi(false);
+            let builder = builder
+                .with_writer(move || crate::base::redact::Logs(file.clone()))
+                .with_ansi(false);
             if json {
                 builder.json().flatten_event(true).try_init()
             } else {
@@ -47,14 +49,14 @@ pub fn init_logging(l: &Logging) -> Result<(), Failure> {
             }
         }
         (None, true) => builder
-            .with_writer(|| crate::base::failure::QuietStderr)
+            .with_writer(|| crate::base::redact::Logs(crate::base::failure::QuietStderr))
             .json()
             .flatten_event(true)
             .try_init(),
         (None, false) => {
             let color = Style::detect(std::io::stderr().is_terminal()).color;
             builder
-                .with_writer(|| crate::base::failure::QuietStderr)
+                .with_writer(|| crate::base::redact::Logs(crate::base::failure::QuietStderr))
                 .with_ansi(color)
                 .try_init()
         }

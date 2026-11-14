@@ -96,11 +96,13 @@ pub fn TextInput(
         return view! { <div class="relative min-w-0 flex-1">{input}</div> }.into_any();
     }
     view! {
-        <label class=move || format!("min-w-0 flex-1 {}", adorned_class(invalid.get(), mono, disabled.get())) data-adorned="">
-            {prefix.map(|p| view! { <span class="shrink-0 font-mono text-[13px] font-bold text-text-faint select-none" data-adornment="prefix">{p}</span> })}
-            {input}
-            {suffix.map(|s| view! { <span class="shrink-0 whitespace-nowrap text-xs text-text-muted select-none" data-adornment="suffix">{s}</span> })}
-        </label>
+        <div class="relative min-w-0 flex-1">
+            <label class=move || adorned_class(invalid.get(), mono, disabled.get()) data-adorned="">
+                {prefix.map(|p| view! { <span class="shrink-0 whitespace-nowrap font-semibold text-text-faint select-none" data-adornment="prefix">{p}</span> })}
+                {input}
+                {suffix.map(|s| view! { <span class="shrink-0 whitespace-nowrap text-text-muted select-none" data-adornment="suffix">{s}</span> })}
+            </label>
+        </div>
     }
     .into_any()
 }
@@ -146,6 +148,7 @@ pub fn Select(
                 aria-label=label
                 aria-invalid=move || invalid.get().then_some("true")
                 disabled=move || disabled.get()
+                prop:value=move || value.get()
                 on:change:target=move |e| on_change.run(e.target().value())
             >
                 {move || {

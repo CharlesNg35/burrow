@@ -120,6 +120,13 @@ fn an_older_admin_on_client_entries(c: &mut Ctx) -> Flow<'_> {
 fn the_new_admin_on_an_older_server(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         dashboard(c, "older-server-dashboard").await;
+        c.ui.nav("/settings?tab=file").await;
+        c.ui.wait_for("[data-testid=config-file]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=file-edit]").await,
+            0,
+            "an older server has no text editor"
+        );
         let port = change_bind(c).await;
         applied(c, "older-server-applied").await;
         bound_on(c, port);

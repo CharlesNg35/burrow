@@ -4,6 +4,7 @@
 mod entries;
 mod entry_summary;
 mod entry_target;
+mod free_port;
 mod parts;
 mod picker;
 
@@ -58,6 +59,7 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
     let port_text = RwSignal::new(start.from.clone());
     let range_on = RwSignal::new(!start.to.is_empty());
     let specific = RwSignal::new(is_specific(&start.host));
+    let kind_bind = matches!(kind, Kind::Bind { .. });
     let (ranges, unix_ok, max) = match &kind {
         Kind::Bind { ranges, max, .. } => (*ranges, false, *max),
         Kind::Target { ranges, unix } => (*ranges, *unix, None),
@@ -138,11 +140,19 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
         has_error,
         count,
     };
+    let wand = (kind_bind && free_port::offered(&fc.path)).then(|| {
+        let path = fc.path.clone();
+        let commit = commit.clone();
+        let w: parts::Wand = std::sync::Arc::new(move || {
+            free_port::button(path.clone(), a, commit.clone()).into_any()
+        });
+        w
+    });
     let network = network(
         id.clone(),
         msg.clone(),
         a,
-        ranges,
+        parts::PortTools { ranges, wand },
         on_port,
         commit.clone(),
         host_control,

@@ -1,10 +1,11 @@
 //! A randomized probe of multi-file plans: random admin changes on a set with drop-ins, each checked against invariants.
-//! Seeds are fixed; PROBE_SEED moves the first seed and PROBE_CASES sets how many run per order (default 80).
+//! Seeds are fixed; PROBE_SEED moves the first seed, PROBE_CASES sets how many run per order (default 80), PROBE_REPORT prints the counts.
 //! `model` generates changes and predicts where items land, `check` plans, applies and checks one change.
 
 #![cfg(test)]
 
 mod check;
+mod dump;
 mod model;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,7 +22,7 @@ use model::{gen_change, ui_order};
 const SECTIONS: [&str; 3] = ["services", "clients", "visitors"];
 const MAIN: &str = "server.yaml";
 
-struct Rng(u64);
+pub(in crate::admin::core::tests) struct Rng(pub(in crate::admin::core::tests) u64);
 impl Rng {
     fn step(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -30,10 +31,10 @@ impl Rng {
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
     }
-    fn below(&mut self, n: usize) -> usize {
+    pub(in crate::admin::core::tests) fn below(&mut self, n: usize) -> usize {
         (self.step() % n.max(1) as u64) as usize
     }
-    fn chance(&mut self, pct: u64) -> bool {
+    pub(in crate::admin::core::tests) fn chance(&mut self, pct: u64) -> bool {
         self.step() % 100 < pct
     }
     fn pick<'a, T>(&mut self, v: &'a [T]) -> Option<&'a T> {
@@ -325,9 +326,11 @@ fn run_seed(seed: u64, order: Order, stats: &mut Stats) -> Option<(String, Failu
         secrets.extend(ops.iter().filter_map(added_secret));
         changes.push(ops.clone());
         if let Err(e) = run_change(&set, &s, &secrets, &ops, stats) {
+            dump::flush(&format!("{order:?}"), seed);
             return Some((kind(&e).to_string(), (seed, changes, e)));
         }
     }
+    dump::flush(&format!("{order:?}"), seed);
     None
 }
 
@@ -356,6 +359,12 @@ fn run_range(order: Order, lo: u64, hi: u64) {
     }
     assert!(failures.is_empty(), "{report}");
     assert!(stats.applied() > 0, "{report}");
+    if std::env::var_os("PROBE_REPORT").is_some() {
+        #[allow(clippy::disallowed_macros)]
+        {
+            eprintln!("{report}");
+        }
+    }
 }
 
 fn bounds() -> (u64, u64) {

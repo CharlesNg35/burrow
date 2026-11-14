@@ -20,13 +20,7 @@ pub(super) fn conflict(core: &Core, base: &str, old_docs: &Docs, current: String
     let theirs = before.as_ref().and_then(|b| {
         let (before, after) =
             values::hide_headers(&b.tree().ok()?.to_json(), &old_docs.tree().ok()?.to_json());
-        let texts: Vec<&str> = b
-            .list
-            .iter()
-            .chain(&old_docs.list)
-            .map(|d| d.text.as_str())
-            .collect();
-        let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
+        let hidden = values::Hidden::of_docs(&[b, old_docs], &core.schema().root);
         Some(summary::changes(
             &hidden.value(&before),
             &hidden.value(&after),
@@ -124,7 +118,11 @@ pub(super) fn new_document(
     };
     let mut kept = Vec::new();
     let (new_docs, reformat) = match &applied.document {
-        Some(doc) => {
+        Some(ops::Document::Edited(doc)) => (
+            files::drop_edited(old_docs, doc, &applied.drops).map_err(failed)?,
+            None,
+        ),
+        Some(ops::Document::Restored(doc)) => {
             let (target, notes) = keep_locked(&core.schema, raw, &applied.target);
             kept = notes;
             let docs = if kept.is_empty() {
@@ -162,10 +160,13 @@ pub(super) fn refuse_files(
 ) -> Result<(), ApiError> {
     let main = &old.main().name;
     for (name, change) in crate::config::save::changes(old, new) {
-        if matches!(change, crate::config::save::Change::Create { .. }) && core.store.taken(&name) {
+        if let Some(existing) = matches!(change, crate::config::save::Change::Create { .. })
+            .then(|| core.store.clash(&name))
+            .flatten()
+        {
             return Err(ApiError::new(
                 ErrorCode::BadRequest,
-                crate::config::docs::taken_message(&name),
+                crate::config::docs::clash_message(&name, &existing),
             ));
         }
         let why = if let Some(why) = core.store.read_only(&name) {
@@ -197,6 +198,7 @@ pub(super) struct Draft<'a> {
     pub(super) old_docs: &'a Docs,
     pub(super) new_docs: &'a Docs,
     pub(super) applied: &'a ops::Applied,
+    pub(super) renames: &'a [patch::Rename],
 }
 
 pub(super) struct Verdict {
@@ -281,6 +283,8 @@ fn listen_clash(c: crate::config::settings::ListenClash) -> Diag {
         help: Some("restart the server after changing listen, then use the old address".into()),
         line: None,
         col: None,
+        end_line: None,
+        end_col: None,
         before: false,
         subjects: Vec::new(),
         file: None,
@@ -308,17 +312,14 @@ pub(super) fn assemble(
         .iter()
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
-    let texts: Vec<&str> = old_docs
-        .list
-        .iter()
-        .chain(&new_docs.list)
-        .map(|d| d.text.as_str())
-        .collect();
-    let hidden = values::Hidden::in_texts(&texts, &core.schema().root);
-    let mask = |l: &str| text::mask_secrets(&hidden.line(l), &fresh_pairs);
-    let diff =
-        crate::admin::core::diff::unified(&old_docs.main().text, &new_docs.main().text, &mask);
-    let file_diffs = files::diffs(old_docs, new_docs, &mask);
+    let shown = crate::admin::core::text_edit::Shown::new(core, &fresh_pairs, d.renames);
+    let diff = shown.diff(
+        &new_docs.main().name,
+        &old_docs.main().text,
+        &new_docs.main().text,
+    );
+    let file_diffs = files::diffs(old_docs, new_docs, &|n, a, b| shown.diff(n, a, b));
+    let hidden = shown.hidden(old_docs, new_docs);
     let (old_shown, new_shown) = values::hide_headers(raw, new_raw);
     let mut changes = summary::changes(
         &hidden.value(&old_shown),
@@ -335,7 +336,7 @@ pub(super) fn assemble(
         &impacts_json,
         &refusals_json,
     ]);
-    Plan {
+    let mut plan = Plan {
         plan: hash,
         base: base.to_string(),
         result_rev: text::docs_rev(new_docs),
@@ -365,5 +366,20 @@ pub(super) fn assemble(
         }),
         secrets_in_diff: "masked".into(),
         files: file_diffs,
+    };
+    veil_text(&mut plan, &hidden);
+    plan
+}
+
+fn veil_text(plan: &mut Plan, hidden: &values::Hidden) {
+    plan.diags.iter_mut().for_each(|d| hidden.diag(d));
+    for c in &mut plan.changes {
+        c.summary = hidden.text(&c.summary);
+    }
+    for i in &mut plan.impacts {
+        i.message = hidden.text(&i.message);
+    }
+    for r in &mut plan.refusals {
+        r.message = hidden.text(&r.message);
     }
 }

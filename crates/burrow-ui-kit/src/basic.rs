@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::icon::Icon;
+use crate::icon::{ICON_LINE, Icon};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tone {
@@ -189,7 +189,7 @@ pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView 
         <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
             <h2 class="text-[13.5px] font-bold">{title}</h2>
             {sub.map(|s| view! { <span class="text-xs text-text-muted" data-card-sub="">{s}</span> })}
-            <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{right}</div>
+            <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-text-muted max-sm:has-[>[data-toolbar]]:basis-full">{right}</div>
         </div>
     }
     .into_any()
@@ -476,11 +476,11 @@ pub fn LockLine(
 ) -> impl IntoView {
     view! {
         <p
-            class=format!("flex items-center gap-1.5 text-xs text-text-muted {class}")
+            class=format!("flex items-start gap-1.5 text-xs text-text-muted {class}")
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            <Icon name="lock" small=true/>
-            {text}
+            <span class=ICON_LINE><Icon name="lock" small=true/></span>
+            <span class="min-w-0 [overflow-wrap:anywhere]">{text}</span>
         </p>
     }
 }

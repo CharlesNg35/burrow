@@ -77,17 +77,18 @@ fn one_row(
         row.tags.insert(0, m);
     }
     row.file = s.item_file(&entity_path).unwrap_or_default();
+    row.problems = super::problems::problems_of(section, &entity_path).len()
+        + usize::from(matches!(row.dot, Some(Tone::Danger | Tone::Warning)));
     if let Some((file, locked)) = super::file::file_label(&entity_path) {
         row.terms.push('\n');
         row.terms.push_str(&file);
         let main = s.with_files(burrow_admin_logic::files::main_name);
         if locked || main.as_deref() != Some(file.as_str()) {
-            let text = if locked {
-                format!("read-only · {file}")
+            row.kept = Some(if locked {
+                crate::screens::Kept::ReadOnly(file)
             } else {
-                file
-            };
-            row.tags.push((text, Tone::Neutral));
+                crate::screens::Kept::File(file)
+            });
         }
     }
     row
@@ -283,6 +284,13 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
     });
     let can = s.can_write_now();
     let new_menu = new_menu(&section, site, adding);
+    let kind = [
+        ServiceEntry::section(),
+        burrow_config::ClientEntry::section(),
+        burrow_config::VisitorEntry::section(),
+    ]
+    .into_iter()
+    .find(|k| *k == section);
     let list = view! {
         <ListPane
             title=plural(&section)
@@ -298,6 +306,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             selected=selected_sig
             empty=(format!("No {} yet", section), format!("Add the first {what} with the + button."))
             testid="entity-list"
+            by_file=kind
         />
     }
     .into_any();

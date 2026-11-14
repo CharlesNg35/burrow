@@ -105,18 +105,24 @@ fn watch_header() {
     on_resize.forget();
 }
 
-#[component]
-pub fn App() -> impl IntoView {
-    let s = Store::new(route::current());
-    provide_context(s);
-    apply_theme(&saved_theme());
-    burrow_ui_kit::auto_titles();
+fn listen_pops(s: Store) {
     let on_pop = Closure::<dyn FnMut()>::new(move || {
+        s.text.capture();
         s.route.set(route::current());
         s.query_seen.update(|n| *n += 1);
     });
     window().set_onpopstate(Some(on_pop.as_ref().unchecked_ref()));
     on_pop.forget();
+}
+
+#[component]
+pub fn App() -> impl IntoView {
+    let s = Store::new(route::current());
+    provide_context(s);
+    crate::store::set_page(s);
+    apply_theme(&saved_theme());
+    burrow_ui_kit::auto_titles();
+    listen_pops(s);
     let on_hash = Closure::<dyn FnMut()>::new(move || {
         if s.conn.get_untracked() == Conn::NoToken {
             api::connect(s);
@@ -127,7 +133,7 @@ pub fn App() -> impl IntoView {
     request_animation_frame(watch_header);
     let on_leave = Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(
         move |ev: web_sys::BeforeUnloadEvent| {
-            if s.edit.dirty() {
+            if untrack(|| s.unsaved()) {
                 ev.prevent_default();
                 ev.set_return_value("You have changes that are not applied.");
             }
@@ -224,7 +230,18 @@ pub fn App() -> impl IntoView {
                     })
                     .collect::<Vec<_>>()
             })
-            on_action=move |_| route::go(Route::Review)
+            on_action=move |id: u64| {
+                let text = s.toasts.with_untracked(|t| {
+                    t.iter()
+                        .any(|x| x.id == id && x.action.as_deref() == Some(crate::store::TEXT_FIRST_ACTION))
+                });
+                if text {
+                    let (to, query) = route::file_tab();
+                    route::go_query(to, query);
+                } else {
+                    route::go(Route::Review);
+                }
+            }
             on_hover=move |h: bool| s.toast_hold.set(h)
             page=Signal::derive(move || s.route.with(Route::path))
         />

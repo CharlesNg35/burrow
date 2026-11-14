@@ -359,6 +359,7 @@ fn sizes(root: &Path) -> Result<(Vec<String>, PathBuf), String> {
         vec![
             format!("release-binary {binary}"),
             format!("wasm-gzip {}", ui.wasm),
+            format!("wasm-lazy-gzip {}", ui.lazy),
             format!("wasm-raw {wasm_raw}"),
         ],
         bin,

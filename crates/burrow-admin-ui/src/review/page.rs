@@ -21,10 +21,10 @@ pub fn ReviewPage() -> impl IntoView {
     let s = store();
     let e = s.edit;
     let fresh = move || {
-        let reverting = e
+        let standalone = e
             .review
-            .with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()));
-        if !reverting && untrack(|| e.dirty()) {
+            .with_untracked(|r| r.as_ref().is_some_and(crate::edit::Review::standalone));
+        if !standalone && untrack(|| e.dirty()) {
             e.open_review();
         }
     };
@@ -34,7 +34,7 @@ pub fn ReviewPage() -> impl IntoView {
     on_cleanup(move || {
         let _ = e.auto_apply.try_set(false);
         if e.review
-            .try_with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+            .try_with_untracked(|r| r.as_ref().is_some_and(crate::edit::Review::standalone))
             .unwrap_or(false)
         {
             let _ = e.review.try_set(None);
@@ -42,12 +42,12 @@ pub fn ReviewPage() -> impl IntoView {
     });
     let plan = Memo::new(move |_| e.review_plan());
     auto_apply(s, plan);
-    let revert = Memo::new(move |_| {
+    let standalone = Memo::new(move |_| {
         e.review
-            .with(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+            .with(|r| r.as_ref().is_some_and(crate::edit::Review::standalone))
     });
     let open = Memo::new(move |_| e.review.with(Option::is_some));
-    let rows = review_rows(s, plan, revert);
+    let rows = review_rows(s, plan, standalone);
     let count = Signal::stored(String::new());
     let list = view! {
         <ListPane
@@ -65,7 +65,7 @@ pub fn ReviewPage() -> impl IntoView {
         />
     }
     .into_any();
-    let body = review_body(s, open, revert, plan);
+    let body = review_body(s, open, standalone, plan);
     let detail = view! { <DetailPane>{body}</DetailPane> }.into_any();
     master_detail(list, detail)
 }
@@ -113,11 +113,13 @@ fn follow_applied(s: Store) {
             });
             match shown {
                 Some((sec, name)) => route::go(Route::Detail(sec, name)),
-                None => route::go(
-                    e.after_apply
+                None => {
+                    let (to, query) = e
+                        .after_apply
                         .get_untracked()
-                        .unwrap_or_else(|| s.prev.get_untracked()),
-                ),
+                        .unwrap_or_else(|| (s.prev.get_untracked(), None));
+                    route::go_query(to, query);
+                }
             }
         }
         rev
@@ -142,7 +144,7 @@ fn auto_apply(s: Store, plan: Memo<Option<std::sync::Arc<Plan>>>) {
 fn review_rows(
     s: Store,
     plan: Memo<Option<std::sync::Arc<Plan>>>,
-    revert: Memo<bool>,
+    standalone: Memo<bool>,
 ) -> Signal<Vec<Row>> {
     let e = s.edit;
     Signal::derive(move || {
@@ -158,7 +160,7 @@ fn review_rows(
                 let (icon, tone) = kind_look(g.head.kind);
                 let entity = g.head.path.len() == 2
                     && crate::route::SECTIONS.contains(&g.head.path[0].as_str());
-                let to = if entity && !revert.get_untracked() && draft_has(&g.head.path) {
+                let to = if entity && !standalone.get_untracked() && draft_has(&g.head.path) {
                     Route::Detail(g.head.path[0].clone(), g.head.path[1].clone())
                 } else {
                     Route::Review
@@ -182,12 +184,18 @@ fn review_rows(
 fn review_body(
     s: Store,
     open: Memo<bool>,
-    revert: Memo<bool>,
+    standalone: Memo<bool>,
     plan: Memo<Option<std::sync::Arc<Plan>>>,
 ) -> impl Fn() -> AnyView + Copy {
     let e = s.edit;
+    let source = move || {
+        e.review.with(|r| {
+            r.as_ref()
+                .map_or(crate::edit::Source::Draft, |r| r.source.clone())
+        })
+    };
     move || {
-        let unadded = if revert.get() {
+        let unadded = if standalone.get() {
             Vec::new()
         } else {
             not_added(s)
@@ -204,7 +212,7 @@ fn review_body(
             }
             .into_any();
         }
-        if !revert.get() && !e.dirty() {
+        if !standalone.get() && !e.dirty() {
             return view! {
                 {outcome_view()}
                 <EmptyState icon="check" title="Nothing to apply" message="Your changes leave the file as it is." testid="review-empty">
@@ -213,7 +221,7 @@ fn review_body(
             }
             .into_any();
         }
-        if !revert.get()
+        if !standalone.get()
             && let Some((base, now)) = stale(s).or_else(|| conflicted(s, plan))
         {
             return view! {
@@ -225,7 +233,7 @@ fn review_body(
             .into_any();
         }
         let note = (!unadded.is_empty()).then(|| not_added_view(&unadded));
-        let pending = !revert.get() && e.checking.get();
+        let pending = !standalone.get() && e.checking.get();
         match (plan.get().filter(|_| !pending), e.check_error.get()) {
             (None, Some(err)) if !pending => check_failed(s, &err),
             (None, _) => view! {
@@ -236,7 +244,7 @@ fn review_body(
                 </div>
             }
             .into_any(),
-            (Some(p), _) => view! { {note} {outcome_view()} {detail(p, revert.get())} }.into_any(),
+            (Some(p), _) => view! { {note} {outcome_view()} {detail(p, source())} }.into_any(),
         }
     }
 }
@@ -291,7 +299,7 @@ pub fn stale(s: Store) -> Option<(String, String)> {
     let e = s.edit;
     if !e.dirty()
         || e.review
-            .with(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+            .with(|r| r.as_ref().is_some_and(crate::edit::Review::standalone))
     {
         return None;
     }

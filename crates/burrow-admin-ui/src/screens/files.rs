@@ -1,6 +1,6 @@
 use burrow_admin_logic::files::{files_of, folder_name, item_count, main_name};
 use burrow_admin_proto::msg::ConfigFile;
-use burrow_ui_kit::{Icon, Tone, tag_class};
+use burrow_ui_kit::{FileName, Icon, Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
@@ -45,7 +45,7 @@ fn file_row(f: ConfigFile, main: &str) -> impl IntoView + use<> {
         .collect_view();
     view! {
         <li class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-3 first:border-t-0" data-testid="config-file" data-file=f.name.clone()>
-            <span class="font-mono text-[13px] font-semibold">{f.name.clone()}</span>
+            <span class="flex min-w-0 max-w-full font-mono text-[13px] font-semibold"><FileName name=f.name.clone()/></span>
             {state}
             <span class="text-[13px] text-text-muted">{item_count(&f)}</span>
             <span class="flex flex-wrap gap-3 sm:ml-auto">{links}</span>

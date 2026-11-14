@@ -52,8 +52,8 @@ pub trait Store: Send + Sync {
     fn read_only(&self, _name: &str) -> Option<String> {
         None
     }
-    fn taken(&self, _name: &str) -> bool {
-        false
+    fn clash(&self, _name: &str) -> Option<String> {
+        None
     }
     fn note(&self, _entry: &burrow_admin_proto::msg::AuditEntry) {}
     fn noted(&self, v: &Version) -> Noted {

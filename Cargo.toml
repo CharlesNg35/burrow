@@ -1,6 +1,6 @@
 [package]
 name = "burrow"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 description = "Fast, secure, lightweight reverse tunnel"
 license = "MIT"
@@ -56,7 +56,7 @@ http-body-util = "0.1.5"
 hyper = { version = "1.12.0", default-features = false, features = ["http1", "server", "client"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 notify = "8.2.0"
-rmcp = { version = "3.7.0", default-features = false, features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "3.9.0", default-features = false, features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
 rpassword = { version = "7.5.4", optional = true }
 pem = "4.0.0"
 percent-encoding = "2.3.2"
@@ -85,10 +85,10 @@ zeroize = { version = "1.9.1", features = ["derive"] }
 libc = "0.2.190"
 nix = { version = "0.31.3", default-features = false, features = ["user"] }
 signal-hook = "0.3.18"
-rustix = { version = "1.1.5", default-features = false, features = ["fs", "process", "std"] }
+rustix = { version = "1.1.6", default-features = false, features = ["fs", "process", "std"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
-rustix = { version = "1.1.5", default-features = false, features = ["net"] }
+rustix = { version = "1.1.6", default-features = false, features = ["net"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi-util = "0.1.11"
@@ -110,14 +110,15 @@ chromiumoxide = { version = "=0.9.1", default-features = false }
 h2 = "0.4.20"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"
+jsonschema = { version = "0.60.2", default-features = false }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem", "crypto"] }
-rmcp = { version = "3.7.0", default-features = false, features = ["client", "transport-child-process"] }
+rmcp = { version = "3.9.0", default-features = false, features = ["client", "transport-child-process"] }
 tempfile = "3.27.0"
 tokio = { version = "1.53.3", features = ["test-util"] }
 toml = "1.1.8"
 
 [target.'cfg(unix)'.dev-dependencies]
-rustix = { version = "1.1.5", default-features = false, features = ["pty", "std"] }
+rustix = { version = "1.1.6", default-features = false, features = ["pty", "std"] }
 
 [build-dependencies]
 blake2 = "0.10.6"
@@ -163,3 +164,6 @@ crc32fast.opt-level = 3
 [[bench]]
 name = "cipher"
 harness = false
+
+[patch.crates-io]
+bytecount = { git = "https://github.com/CharlesNg35/bytecount", rev = "f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019" }

@@ -4,6 +4,9 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained, not vulnerable; a build-time proc-macro that leptos 0.8 pulls in" },
+]
 
 [licenses]
 version = 2
@@ -20,6 +23,9 @@ allow = [
     "Unlicense",
     "Zlib",
     "CDLA-Permissive-2.0",
+    # permissive without attribution terms: borrow-or-share (via jsonschema) and xxhash-rust
+    "MIT-0",
+    "BSL-1.0",
 ]
 exceptions = [
     { crate = "option-ext", allow = ["MPL-2.0"] },
@@ -33,3 +39,7 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-git = [
+    "https://github.com/CharlesNg35/bytecount",
+    "https://github.com/paradoxe35/config-editor",
+]

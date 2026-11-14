@@ -119,7 +119,7 @@ Moving around:
 
 - **Search** (the magnifier, or `/`) finds pages, services, clients and visitors by name, settings, Activity entries and actions like "New client…", "Rotate secret of home…" or "Review". Arrow keys and `Enter` pick one; `Esc` closes. On a list page, `/` goes to the list's search.
 - Times read like `5m` or `2h 5m`; hover one for the exact moment.
-- The theme is System, Light or Dark, from the button at the top or the account menu, and is kept in your browser.
+- The theme is System, Light or Dark, from the button at the top or the account menu, and is kept in your browser; other view choices (open More settings sections, Group by file) last until the page is reloaded.
 - On a phone, a list and an item's page show one at a time, with a back arrow at the top, and the Overview's tables become cards.
 - When the connection drops, a banner counts down to the next try and offers **Retry now**. Your changes not applied yet are kept.
 - A **Read-only** tag at the top says why when you cannot change anything: the visitor has `admin: read`, or the server cannot write its config file, with the command that fixes it.
@@ -130,6 +130,7 @@ Moving around:
 - After the apply, the secret is shown once, with the ready config and commands as on the Connect tab, with the secret filled in. Copy or download it then; afterwards only its fingerprint shows. For a new client the page waits until it connects, and says from where. **Done** closes it once you tick "I have saved the secret".
 - **New service** (+ on Services, then Service) takes a name; set its client and target on its page next. **New website** (+, then Website) asks for the names, the client and the app's port on it, and HTTPS.
 - To change an item or the settings, click **Edit**, change the fields, and click **Add to changes**, or **Discard**. Change as many items as you like; **Review** at the top counts them. Closing or reloading the tab with changes not applied asks first.
+- Review draws the path of a changed service (who reaches it, the server, the client, the target), marking what changed. With two or more changed services each is one line, for example "ssh  target 127.0.0.1:22 → 127.0.0.1:2223  changed", and a click (or `Enter`) opens its path.
 - Review shows the diff, in one column or side by side, what it affects, and every error and warning, checked by the server as `burrow validate` does. **Apply** writes it; **Discard all** drops every change.
 
 ## Installed servers
@@ -150,22 +151,30 @@ A reinstall, for example to change `--run-as`, still copies the source over it:
 What the pages do, and what stays a file edit:
 
 - A service page says how the service is reached: a public port, a website and visitors, in any mix. Turning one off keeps its values until you add the change, and Review says what goes: the port that closes, the website and its settings, or the visitors that can no longer reach it.
+- The wand next to a public port proposes a free one: the server picks a port that nothing on it listens on and that no service, also in changes waiting in Review, uses. Click it again for the next free port. With Port range on it proposes as many ports in a row as the target's range has. The port stays empty until you click it.
 - Settings has six tabs:
   - **Server:** the listener, this server and security.
   - **Connections:** WebSocket, ready connections to clients, heartbeat, TCP, UDP and limits.
   - **Web:** the web proxy, Let's Encrypt, its DNS check providers, your own certificates and the local CA.
   - **Monitoring.**
   - **Files:** the config file and its [drop-in files](#drop-in-files). A server older than v0.2.4 has no Files tab.
-  - **Config file.**
+  - **Raw config.**
 
   The search and the All, Needs a restart and Changed filters above them look through every tab, and each tab says how many of its settings match, are changed or are locked.
-- **Config file** shows the server's config as YAML, view only, for read and write admins alike.
+- **Raw config** shows the server's config as YAML, for read and write admins alike.
   - With [drop-in files](#drop-in-files) it shows the whole config the server reads: server.yaml first, then each drop-in's services, clients and visitors under a `# from server.d/<file>` line.
   - It shows the keys the files set; **Show defaults too** adds every default in effect.
   - Secrets never show: each one reads as its fingerprint, like `«secret 3f2a9c1d»`, or as the `${ENV}` name it comes from, and a password hash reads `«password hash»`. This is the same view `burrow mcp` gives with `get_config`.
   - **Copy** and **Download** take that same text; the download is named like `server.redacted.yaml`, because it is not a working config without the secrets.
   - When the running server differs from the file, a note at the top links to Needs attention. That is when the file has errors, a change waits for a restart, or something in it could not be opened.
-  - Change the config in the other tabs, on the entity pages or with `burrow edit`.
+  - **Edit** (write admins, servers from v0.2.4) opens the files as text, server.yaml first (while changes from the other tabs wait in Review, Edit says so and asks you to apply or discard them first); the other files open as tabs when you go to them. A file read-only on disk says why and stays as it is.
+    - **Go to** (Ctrl+P, Cmd+P on a Mac, also inside the editor) finds a file, service, client or visitor by its name or by letters in order (`w17` finds `web-17.yaml`), exact names first, and text in the files as they are now, edits included. Pick one with the arrow keys and Enter, or click it: a file opens in a tab, an item opens its file at the item, a text match at its line. With nothing typed it lists the files you opened last and the files with problems. Files with problems that are not open are counted on the Go to button.
+    - A drop-in's tab closes with its ×; the file stays. A tab with edits asks first: keep editing, or discard its edits. server.yaml stays open. When ten tabs are open, opening another closes the one you used longest ago that has no edits and is not a new file; if every tab has edits or is new, they all stay open.
+    - **+** after the tabs makes a new drop-in file: type its name (`server.d/<name>.yaml`, following [the name rules](configuration.md#drop-in-files): letters, digits, dots, dashes and underscores, not a name that exists, also in other upper and lower case), and it opens as a new tab. It holds only services, clients and visitors, like every drop-in. It is created when you apply it with text in it; an empty new file is not created, and the note under the head says so. Closing a new file's tab drops the file, after asking when it has text. An existing file is not deleted here: when a change in the other tabs leaves a drop-in empty, Review offers to delete it.
+    - Each secret reads as a placeholder like `«secret 3f2a9c1d»`; leave it to keep the secret, or type a new value over it. A placeholder works only in the field it came from, also when you move the item to another file; anywhere else the change is refused, naming the file, line and field. `${VAR}` and `file:` references show as written.
+    - Problems show as you type, the server's own a moment later. **Review changes** (or Ctrl+S) opens Review with a diff per file; the two locked settings below are refused here too.
+    - **Edit as** shows the open file as YAML, JSON or TOML; the file's own language is first. The file is still saved in its own language, with its comments and layout. TOML has no empty value, so a key without a value (`key:` in YAML) keeps the file in its own language and the editor names the key; give it a value or remove it, then switch again. Each file keeps its choice while you go to Review and back. Text typed in another language that cannot be saved in the file's own language yet stays as it is: leave the Raw config tab, or let the server restart, and it is there again when you come back. Review changes waits until it can be written back, and also while a file has a syntax error; other problems the editor marks are for the server's check in Review.
+  - Change the config also in the other tabs, on the entity pages or with `burrow edit`.
 - Two settings are shown but are changed only in server.yaml on the server: a DNS provider's `command`, which runs a program on the server, and `update.remote`, which only root turns on. The server refuses changes to them. Every other setting, file paths included, is changed here.
 - Moving `listen` is checked like a web port and takes effect when the server restarts. Turning off encryption of forwarded data (`insecure_plaintext`) reconnects every client. Review asks you to type the setting's name for both.
 - The access log is turned on here with a file in the server's own folders: its state folder, or its log folder when it runs as a service. A file anywhere else is set in server.yaml, because a log line holds text a visitor chose, and a shell's startup file there could run it.
@@ -272,7 +281,8 @@ When the server reads a folder of drop-in files ([configuration.md](configuratio
 - **Add** writes a new item to `server.yaml`, or, with **Save in**, to a file of its own (`server.d/<name>.yaml`) or to another drop-in file.
 - **Split into its own file** and **Merge into server.yaml** in an item's ⋯ menu move it between files. When a drop-in file is left with nothing in it, Review offers to delete it.
 - **Rename** with references updates them in every file; it is refused when a reference sits in a read-only file.
-- **Review** shows one diff per file ("server.yaml: no change").
+- **Review** shows one diff per file the change touches, and one line for the rest ("3 other files have no change."; its tooltip names them). Activity shows a past change the same way.
+- **Group** by file, next to the search of the Services, Clients and Visitors lists, shows one section per file that holds such items: server.yaml first, then the drop-ins in the order the server reads them. A section header shows the file, its number of items, a lock for a read-only file and, while folded, the number of problems in it. Click a header (or press `Enter` on it) to fold or open it. A search opens every file with a match and hides the others; clearing it brings back what you had folded. With three files or more the lists start grouped; None shows the plain list. The choice and the folded files are kept until the page is reloaded or closed.
 - **Settings → Files** lists each file, how many items it holds and whether it is read-only; its links open the list of that file's items.
 - A file that is **read-only on disk** shows a lock; its items can be looked at but not edited, renamed, moved or removed.
 - A change is written to every file it touches or to none. If a file changed on disk since you opened your change, it is refused and names the file; review your change again.
@@ -295,8 +305,9 @@ The admin can change the server's config, so it is guarded closely:
 
 - The UI listens on `127.0.0.1` only, and needs a random token that is never on the command line. The token is kept for up to 12 hours per visitor config, in a file only you can read, so an open tab reconnects when you run `burrow admin` again. Expired session files are deleted the next time `burrow admin` starts. For a remote machine, use `ssh -L`.
 - Secrets are generated by the server and shown once; existing secrets never leave the server. A session holds up to 256 new secrets and passwords that are not applied yet, each for 30 minutes.
+- A password in a URL, like `https://acme:pw@ca.internal/dir`, is hidden everywhere, also in a comment and when the password comes from `${VAR}`. A value that holds one is a secret in the views, the Raw config tab, Review and the history (`«secret 3f2a9c1d»`); in a comment only its `acme:pw` part is (`https://«secret 3f2a9c1d»@ca.internal/dir`). Messages, diagnostics, `burrow status`, `burrow validate`, `burrow mcp` and the server's log show `https://«hidden»@ca.internal/dir`; the config lines `burrow validate` quotes show stars there.
 - Credential headers in `request_headers` and `response_headers`, like `Authorization`, `Cookie` or `X-Api-Key`, show by name only, also to read-only admins, in diffs and in the server's log ([Headers](web/headers-limits-pages.md)).
-- burrow admin may write `${VAR}` and `file:` references wherever server.yaml allows them, like a DNS provider's `${CF_TOKEN}`. `burrow validate`, status, Review, the Config file tab and the Overview show a reference as written, never its value.
+- burrow admin may write `${VAR}` and `file:` references wherever server.yaml allows them, like a DNS provider's `${CF_TOKEN}`. `burrow validate`, status, Review, the Raw config tab and the Overview show a reference as written, never its value.
 - Admin access is the protection. A write admin can give a visitor `admin`, raise `read` to `write`, add a secret to an admin visitor, widen its `admin_from` and rename an admin visitor, as in Portainer, Nginx Proxy Manager or Cloudflare. Keep admin secrets and `admin_from` tight.
 - The server refuses two changes: removing the visitor you are signed in as, and leaving no visitor with write access.
 - A change that ends your own session asks you to type your visitor's name in Review: lowering your level, removing the secret you signed in with, an `admin_from` that leaves out your address, or moving the listener you came in through. After Apply the session ends, and the page says what to do next.

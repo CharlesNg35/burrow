@@ -64,11 +64,11 @@ fn handler(token: String, snapshot: Snapshot, update: Option<Update>) -> Handler
         }
         let target = req.uri().path_and_query().map_or("", |p| p.as_str());
         match (req.method().as_str(), target) {
-            ("GET", "/status") => (
-                200,
-                "application/json",
-                serde_json::to_string(&snapshot()).expect("status serializes"),
-            ),
+            ("GET", "/status") => (200, "application/json", {
+                let mut status = serde_json::to_value(snapshot()).expect("status serializes");
+                crate::base::redact::json(&mut status);
+                status.to_string()
+            }),
             ("POST", UPDATE_PATH) if update.is_some() => {
                 let (code, text) = match body {
                     Ok(body) => update.as_ref().map_or((404, String::new()), |u| u(body)),

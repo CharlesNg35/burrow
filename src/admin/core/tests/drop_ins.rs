@@ -3,8 +3,11 @@
 
 #![cfg(test)]
 
-mod probe;
+mod one_file;
+pub(super) mod probe;
 mod renames;
+mod scale;
+mod text_edit;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -649,7 +652,7 @@ fn a_new_file_named_like_an_entry_the_listing_skips_is_refused_at_plan_time() {
     assert_eq!(e.code, ErrorCode::BadRequest, "{}", e.message);
     assert!(
         e.message
-            .contains("server.d/blog.yaml: a file or folder with this name already exists"),
+            .contains("server.d/blog.yaml already exists; pick another file name"),
         "{}",
         e.message
     );

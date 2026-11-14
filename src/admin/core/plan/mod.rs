@@ -22,6 +22,7 @@ use crate::config::{Loaded, Role, load::load_set, load::load_str_at, tree};
 
 use super::diags::Mapper;
 use super::ops::{self, Fresh};
+use super::text_edit::{covers_hidden, hidden_spans};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
 use locks::{refuse_changed_locks, refuse_locked};
@@ -84,11 +85,21 @@ pub fn check_docs(core: &Core, docs: &Docs) -> Checked {
     );
     let parsed = positions(docs);
     let mapper = Mapper::new(parsed.as_ref()).named(docs.names().map(str::to_string).collect());
+    let hidden = std::cell::OnceCell::new();
     let diags: Vec<Diag> = outcome
         .report
         .diagnostics
         .iter()
-        .map(|d| mapper.convert(d))
+        .map(|d| {
+            let mut out = mapper.convert(d);
+            if let (Some(_), Some(at), Some(tree)) = (out.end_line, d.span, parsed.as_ref()) {
+                let hidden = hidden.get_or_init(|| hidden_spans(tree, &core.schema().root));
+                if covers_hidden(hidden, at) {
+                    (out.end_line, out.end_col) = (None, None);
+                }
+            }
+            out
+        })
         .collect();
     let settings = match outcome.loaded {
         Some(Loaded::Server(s, _)) => Some(*s),
@@ -122,11 +133,13 @@ pub struct Computed {
     pub fresh: Vec<Fresh>,
     pub passwords: Vec<String>,
     pub reverts: Option<String>,
+    pub renames: Vec<crate::config::patch::Rename>,
 }
 
 struct Cx<'a> {
     core: &'a Core,
     session: &'a Session,
+    edited: Option<&'a Docs>,
 }
 
 impl ops::Context for Cx<'_> {
@@ -141,6 +154,9 @@ impl ops::Context for Cx<'_> {
     }
     fn env(&self) -> &dyn crate::config::env::EnvSource {
         &*self.core.env
+    }
+    fn edited(&self) -> Option<&Docs> {
+        self.edited
     }
 }
 
@@ -217,31 +233,67 @@ pub fn compute(
     let raw = parse_current(&old_docs)?;
     refuse_locked(core, ops_list)?;
     locks::refuse_misplaced_passwords(core, ops_list)?;
-    let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
-        .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
+    let edited = super::text_edit::edited(core, &old_docs, ops_list)?;
+    match &edited {
+        Some(e) => planned(core, s, (base, ops_list), old_docs, raw, Some(e))
+            .map_err(|err| e.veil_error(core, err)),
+        None => planned(core, s, (base, ops_list), old_docs, raw, None),
+    }
+}
+
+fn planned(
+    core: &Core,
+    s: &Session,
+    (base, ops_list): (&str, &[Op]),
+    old_docs: Docs,
+    raw: Value,
+    edited: Option<&super::text_edit::Edited>,
+) -> Result<Computed, ApiError> {
+    let cx = Cx {
+        core,
+        session: s,
+        edited: edited.map(|e| &e.docs),
+    };
+    let applied =
+        ops::apply(&raw, ops_list, &cx).map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
     let (new_docs, reformat, kept) = new_document(core, &raw, &old_docs, &applied)?;
     refuse_files(core, s, &old_docs, &new_docs)?;
     let checked = check_docs(core, &new_docs);
-    let new_raw = new_docs.tree().map(|n| n.to_json()).unwrap_or(Value::Null);
+    let new_raw = new_docs
+        .tree()
+        .map(|n| n.to_json())
+        .unwrap_or_else(|_| raw.clone());
     refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
     let file = check_docs(core, &old_docs);
+    let renames = match ops_list {
+        [Op::ReplaceDocument { from_history }] => {
+            core.renames_back(&text::docs_rev(&old_docs), from_history)
+        }
+        _ => applied.renames.clone(),
+    };
     let d = Draft {
         raw: &raw,
         new_raw: &new_raw,
         old_docs: &old_docs,
         new_docs: &new_docs,
         applied: &applied,
+        renames: &renames,
     };
     let mut v = judge(core, s, &d, &running, &file, &checked);
     v.impacts.extend(kept);
-    let plan = assemble(core, base, &d, checked, file, v, reformat);
+    let mut plan = assemble(core, base, &d, checked, file, v, reformat);
+    if let Some(e) = edited {
+        e.place(&mut plan.diags);
+        e.note(&old_docs, &mut plan.changes);
+    }
     Ok(Computed {
         plan,
         old_docs,
         new_docs,
         fresh: applied.fresh,
         passwords: applied.passwords,
+        renames,
         reverts: ops_list.iter().find_map(|o| match o {
             Op::ReplaceDocument { from_history } => Some(from_history.clone()),
             _ => None,

@@ -8,14 +8,17 @@ mod basic;
 mod button;
 mod code;
 mod combo;
+mod deferred;
 mod disclosure;
 mod feedback;
 mod field;
 mod icon;
 mod inline;
 mod input;
+mod name;
 mod overlay;
 mod path;
+mod pick;
 mod radio;
 mod room;
 mod scroll;
@@ -36,19 +39,22 @@ pub use button::{
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};
+pub use deferred::{Deferred, LoadFailed};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
-pub use icon::{Icon, path as icon_path};
+pub use icon::{ICON_LINE, Icon, path as icon_path};
 pub use inline::{Inline, inline};
 pub use input::{
     ChipInput, ConfirmInput, INPUT_H, Segmented, Select, TextArea, TextInput, Toggle, field_class,
     split_entries,
 };
+pub use name::{FILE_TAG_WIDTH, FileName, split_name};
 pub use overlay::{
     Dialog, Modal, Tooltip, active as active_element, auto_titles, focus_first, trap as trap_focus,
 };
 pub use path::{Edge, EdgeState, Hop, HopState, PathData, PathDiagram};
+pub use pick::{PickHead, PickOption, marked, word_at};
 pub use radio::{RadioList, RadioOption};
 pub use room::cover_top;
 pub use scroll::{ScrollRow, active_item};

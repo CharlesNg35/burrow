@@ -3,7 +3,7 @@ use burrow_admin_proto::value::{self, EnvInfo, SecretInfo, SecretSrc};
 use serde_json::{Map, Value};
 
 use burrow_config::WebSite;
-use burrow_syntax::secret_fmt::credential_header;
+use burrow_syntax::secret_fmt::{credential_header, url_with_password};
 
 use crate::config::check::secretish;
 use crate::config::env::{EnvSource, expand_value};
@@ -80,6 +80,14 @@ fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
     }
 }
 
+pub fn secret_field(node: Option<&Node>, key: &str, is_name: bool) -> bool {
+    is_secret(node) || (!is_name && secretish(key) && !is_path(node))
+}
+
+pub fn hidden_field(node: Option<&Node>, key: &str, is_name: bool) -> bool {
+    is_hash(node) || secret_field(node, key, is_name)
+}
+
 pub fn fingerprint_of(raw: &str, env: &dyn EnvSource) -> Option<String> {
     secret_info(raw, env).fp
 }
@@ -119,7 +127,7 @@ fn present_at(
     if is_hash(node) && v.is_string() {
         return value::hash();
     }
-    if is_secret(node) || (!is_name && secretish(key) && !is_path(node)) {
+    if secret_field(node, key, is_name) {
         return present_secret(v, env);
     }
     match v {
@@ -146,7 +154,8 @@ fn present_at(
         }
         Value::String(s) if s.contains("${") => {
             let resolved = expand_value(s, env);
-            if resolved.as_deref().is_some_and(super::text::holds_secret) {
+            let hides = |t: &str| super::text::holds_secret(t) || url_with_password(t);
+            if hides(s) || resolved.as_deref().is_some_and(hides) {
                 return value::secret(&secret_info(s, env));
             }
             value::env(&EnvInfo {
@@ -155,7 +164,9 @@ fn present_at(
                 resolved,
             })
         }
-        Value::String(s) if super::text::holds_secret(s) => value::secret(&secret_info(s, env)),
+        Value::String(s) if super::text::holds_secret(s) || url_with_password(s) => {
+            value::secret(&secret_info(s, env))
+        }
         other => other.clone(),
     }
 }
@@ -196,11 +207,20 @@ pub fn veil_value(v: &Value, hashes: &[String]) -> Value {
     }
 }
 
+fn written_secret(node: Option<&Node>, s: &str) -> bool {
+    use burrow_syntax::env::{FILE_REF, is_reference as written_reference};
+    if s.is_empty() || Secret::parse(s).is_ok() {
+        return false;
+    }
+    if is_reference(node) {
+        return !written_reference(s);
+    }
+    is_secret(node) && !(written_reference(s) && !s.trim().starts_with(FILE_REF))
+}
+
 fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String, String)>) {
     match v {
-        Value::String(s)
-            if is_reference(node) && !s.is_empty() && !burrow_syntax::env::is_reference(s) =>
-        {
+        Value::String(s) if written_secret(node, s) => {
             out.push((key.to_string(), s.clone()));
         }
         Value::Object(m) => m
@@ -209,6 +229,7 @@ fn credentials(v: &Value, node: Option<&Node>, key: &str, out: &mut Vec<(String,
         Value::Array(items) => {
             let item = match node.map(|n| &n.sem) {
                 Some(SemType::List(l)) => Some(&*l.item),
+                _ if is_secret(node) => node,
                 _ => None,
             };
             items.iter().for_each(|i| credentials(i, item, key, out));
@@ -233,7 +254,7 @@ pub fn veil_written(v: &Value, pairs: &[(String, String)]) -> Value {
 pub const HEADER_SHOWN: &str = "«hidden»";
 pub const HEADER_CHANGED: &str = "«hidden, changed»";
 
-fn header_map(key: &str) -> bool {
+pub fn header_map(key: &str) -> bool {
     [WebSite::REQUEST_HEADERS, WebSite::RESPONSE_HEADERS]
         .iter()
         .any(|f| f.key() == key)
@@ -269,29 +290,29 @@ fn header_values(v: &Value, out: &mut Vec<(String, String)>) {
     }
 }
 
-fn written_forms(value: &str) -> Vec<String> {
-    let json = serde_json::to_string(value).unwrap_or_default();
-    let mut forms = vec![
-        value.to_string(),
-        json.trim_matches('"').to_string(),
-        value.replace('\'', "''"),
-    ];
-    forms.retain(|f| !f.is_empty());
-    forms.sort_by_key(|f| std::cmp::Reverse(f.len()));
-    forms.dedup();
-    forms
-}
+const WHOLE: usize = 8;
 
-pub fn veil_headers(line: &str, pairs: &[(String, String)]) -> String {
-    let lower = line.to_ascii_lowercase();
+fn veil_values(line: &str, values: &[String]) -> String {
     let mut out = line.to_string();
-    for (name, value) in pairs {
-        if !lower.contains(&name.to_ascii_lowercase()) && value.len() < 8 {
-            continue;
+    let mut longest: Vec<&String> = values
+        .iter()
+        .filter(|v| v.chars().count() >= WHOLE)
+        .collect();
+    longest.sort_by_key(|v| std::cmp::Reverse(v.len()));
+    for value in longest {
+        let mut done = String::with_capacity(out.len());
+        let mut rest = out.as_str();
+        while let Some(at) = rest.find(value.as_str()) {
+            let before = rest[..at].chars().next_back();
+            let after = rest[at + value.len()..].chars().next();
+            let whole = !before.is_some_and(super::text::token_char)
+                && !after.is_some_and(super::text::token_char);
+            done.push_str(&rest[..at]);
+            done.push_str(if whole { HEADER_SHOWN } else { value });
+            rest = &rest[at + value.len()..];
         }
-        for form in written_forms(value) {
-            out = out.replace(form.as_str(), HEADER_SHOWN);
-        }
+        done.push_str(rest);
+        out = done;
     }
     out
 }
@@ -299,28 +320,64 @@ pub fn veil_headers(line: &str, pairs: &[(String, String)]) -> String {
 pub struct Hidden {
     hashes: Vec<String>,
     headers: Vec<(String, String)>,
+    values: Vec<String>,
 }
 
 impl Hidden {
     pub fn in_texts(texts: &[&str], root: &Node) -> Hidden {
+        let parsed: Vec<(crate::config::tree::Node, Vec<String>)> = texts
+            .iter()
+            .filter_map(|t| {
+                let (_, _, src) = crate::config::patch::split_text(t);
+                let tree = crate::config::tree::parse(&src).ok()?;
+                let fields = super::text_edit::hidden_values(&tree, &src, root);
+                Some((tree, fields))
+            })
+            .collect();
+        Hidden::of_trees(parsed.iter().map(|(t, f)| (t, f.as_slice())), root)
+    }
+
+    pub fn of_trees<'a>(
+        parts: impl IntoIterator<Item = (&'a crate::config::tree::Node, &'a [String])>,
+        root: &Node,
+    ) -> Hidden {
         let mut out = Hidden {
             hashes: Vec::new(),
             headers: Vec::new(),
+            values: Vec::new(),
         };
-        for t in texts {
-            let (_, _, src) = crate::config::patch::split_text(t);
-            if let Ok(tree) = crate::config::tree::parse(&src) {
-                let v = tree.to_json();
-                hashes(&v, Some(root), &mut out.hashes);
-                header_values(&v, &mut out.headers);
-                credentials(&v, Some(root), "", &mut out.headers);
-            }
+        for (tree, fields) in parts {
+            let v = tree.to_json();
+            hashes(&v, Some(root), &mut out.hashes);
+            header_values(&v, &mut out.headers);
+            credentials(&v, Some(root), "", &mut out.headers);
+            out.values
+                .extend(fields.iter().filter(|v| Secret::parse(v).is_err()).cloned());
         }
         out
     }
 
+    pub fn of_docs(docs: &[&crate::config::docs::Docs], root: &Node) -> Hidden {
+        let texts: Vec<&str> = docs
+            .iter()
+            .flat_map(|d| &d.list)
+            .map(|d| d.text.as_str())
+            .collect();
+        Hidden::in_texts(&texts, root)
+    }
+
     pub fn line(&self, line: &str) -> String {
-        veil_headers(&veil(line, &self.hashes), &self.headers)
+        veil_values(&veil(line, &self.hashes), &self.values)
+    }
+
+    pub fn text(&self, text: &str) -> String {
+        super::text::mask_secrets(&self.line(text), &[])
+    }
+
+    pub fn diag(&self, d: &mut burrow_admin_proto::diag::Diag) {
+        d.message = self.text(&d.message);
+        d.label = d.label.as_deref().map(|t| self.text(t));
+        d.help = d.help.as_deref().map(|t| self.text(t));
     }
 
     pub fn value(&self, v: &Value) -> Value {
@@ -529,21 +586,20 @@ mod tests {
     }
 
     #[test]
-    fn header_values_are_veiled_in_every_written_form() {
-        let pairs = vec![
-            ("Authorization".to_string(), "Basic it's \"x\"".to_string()),
-            ("Cookie".to_string(), "a".to_string()),
-        ];
-        for line in [
-            "+        Authorization: Basic it's \"x\"",
-            "+        Authorization: \"Basic it's \\\"x\\\"\"",
-            "+        Authorization: 'Basic it''s \"x\"'",
+    fn a_hidden_value_of_eight_or_more_is_veiled_as_a_whole_token_and_words_stay() {
+        let schema = crate::config::admin_schema::server_schema();
+        let text = "clients:\n  home:\n    secret: hunter2,LEAKC7\nweb:\n  letsencrypt:\n    email: a@b.c\n    dns:\n      - domains: [b.c]\n        acme_dns: { api: https://a, username: admin, password: ops, subdomain: s }\n";
+        let h = Hidden::in_texts(&[text], &schema.root);
+        let shown = h.line("the secret hunter2,LEAKC7 was given");
+        assert!(!shown.contains("hunter2,LEAKC7"), "{shown}");
+        for words in [
+            "-    admin: write",
+            "+    admin: read",
+            "visitor ops",
+            "listen: 7835",
         ] {
-            let out = veil_headers(line, &pairs);
-            assert!(out.contains(HEADER_SHOWN) && !out.contains("it"), "{out}");
+            assert_eq!(h.line(words), words);
         }
-        assert_eq!(veil_headers("+  name: a", &pairs), "+  name: a");
-        assert!(veil_headers("+  Cookie: a", &pairs).ends_with(HEADER_SHOWN));
     }
 
     #[test]

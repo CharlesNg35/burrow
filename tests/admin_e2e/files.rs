@@ -54,7 +54,23 @@ async fn items_name_their_file(c: &mut Ctx) {
         row.contains("server.d/apps.yaml"),
         "the list row names the file: {row}"
     );
-    assert!(row.contains("read-only · server.d/tool.yaml"), "{row}");
+    let wiki = "[data-testid=entity-list] [data-row=wiki] [data-testid=row-file]";
+    assert_eq!(
+        c.ui.text(wiki).await,
+        "read-only",
+        "grouped by file, the card leaves the file name to its section"
+    );
+    assert_eq!(
+        c.ui.count("[data-testid=entity-list] [data-row=blog] [data-testid=row-file]")
+            .await,
+        0
+    );
+    c.ui.select("[data-testid=list-group] select", "none").await;
+    c.ui.wait_text(wiki, "read-only · server.d/tool.yaml", SECS)
+        .await;
+    let flat = c.ui.text("[data-testid=entity-list]").await;
+    assert!(flat.contains("server.d/apps.yaml"), "{flat}");
+    c.ui.select("[data-testid=list-group] select", "file").await;
     both_widths(c, "files-item-tag").await;
 }
 
@@ -65,8 +81,13 @@ async fn an_edit_stays_in_its_file(c: &mut Ctx) {
     wait_checked(c).await;
     open_review(c, "files-review-edit").await;
     let diffs = c.ui.text("[data-testid=file-diffs]").await;
-    assert!(diffs.contains("server.yaml: no change"), "{diffs}");
     assert!(diffs.contains("server.d/apps.yaml: changed"), "{diffs}");
+    assert!(
+        !diffs.contains(": no change"),
+        "only the changed files get a box: {diffs}"
+    );
+    let same = c.ui.text("[data-testid=files-same]").await;
+    assert_eq!(same, "3 other files have no change.");
     both_widths(c, "files-review-edit").await;
     applied(c, "files-edit-applied").await;
     let apps = read(c, "server.d/apps.yaml").unwrap();

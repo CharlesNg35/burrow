@@ -16,6 +16,7 @@ pub fn path(name: &str) -> &'static str {
         "check" => "M5 12.5l4.5 4.5L19 7.5",
         "lock" => "M7 11V8a5 5 0 0110 0v3M5.5 11h13v9.5h-13zM12 15v2",
         "copy" => "M9 9h11v11H9zM5 15H4V4h11v1",
+        "file" => "M6 3h8l4 4v14H6zM14 3v4h4",
         "download" => "M12 4v11m-5-5l5 5 5-5M5 20h14",
         "arrow-up" => "M12 20V9m-5 5l5-5 5 5M5 4h14",
         "server" | "box" => "M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9",
@@ -48,6 +49,9 @@ pub fn path(name: &str) -> &'static str {
         "chevron-down" => "M6 9l6 6 6-6",
         "chevron-right" => "M9 6l6 6-6 6",
         "chevron-left" => "M15 6l-6 6 6 6",
+        "wand" => {
+            "M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M15 9h.01M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"
+        }
         "search" => "M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4",
         "filter" => "M4 5h16l-6 7.5V19l-4-2v-4.5z",
         "refresh" => "M20 5v5h-5M4 19v-5h5M18.5 9A7 7 0 006 7.5L4 10M5.5 15A7 7 0 0018 16.5l2-2.5",
@@ -69,6 +73,8 @@ pub fn path(name: &str) -> &'static str {
         _ => "M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v5.5M12 7.8v.01",
     }
 }
+
+pub const ICON_LINE: &str = "flex h-[1lh] shrink-0 items-center self-start";
 
 #[component]
 pub fn Icon(

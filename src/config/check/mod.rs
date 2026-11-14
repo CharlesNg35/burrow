@@ -225,7 +225,17 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             _ => {}
         }
     }
+    url_spans(root, &mut out);
     out
+}
+
+fn url_spans(n: &Node, out: &mut Vec<Span>) {
+    match &n.value {
+        Value::Str(s) if burrow_syntax::secret_fmt::url_with_password(s) => out.push(n.span),
+        Value::Seq(items) => items.iter().for_each(|i| url_spans(i, out)),
+        Value::Map(entries) => entries.iter().for_each(|e| url_spans(&e.value, out)),
+        _ => {}
+    }
 }
 
 fn name_error(kind: &str, name: &str, span: Span) -> Diagnostic {

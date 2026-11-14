@@ -47,6 +47,8 @@ pub fn pieces(s: &str) -> Vec<Piece<'_>> {
 
 pub const FILE_REF: &str = "file:";
 
+pub const REFERENCE_PATTERN: &str = r"\$\{[A-Za-z_][A-Za-z0-9_]*\}";
+
 pub fn is_reference(s: &str) -> bool {
     let t = s.trim();
     if let Some(path) = t.strip_prefix(FILE_REF) {

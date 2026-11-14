@@ -18,6 +18,7 @@ pub mod snippets;
 mod status;
 pub mod summary;
 pub mod text;
+pub mod text_edit;
 pub mod updates;
 pub mod uploads;
 pub mod values;
@@ -222,6 +223,7 @@ pub struct Core {
     last_good: Mutex<Option<String>>,
     seen: Mutex<VecDeque<(String, Docs)>>,
     started: Instant,
+    text_edit: text_edit::TextEdit,
 }
 
 const SEEN: usize = 8;
@@ -259,6 +261,7 @@ impl Core {
             last_good: Mutex::new(None),
             seen: Mutex::new(VecDeque::new()),
             started: Instant::now(),
+            text_edit: text_edit::TextEdit::new(),
         }
     }
 
@@ -442,9 +445,16 @@ impl Core {
             })
             .collect();
         let notice = older::notice(self, s, checked.raw.as_ref());
-        let (errors, mut warnings): (Vec<_>, Vec<_>) =
+        let (mut errors, mut warnings): (Vec<_>, Vec<_>) =
             checked.diags.into_iter().partition(|d| d.is_error());
         warnings.extend(notice);
+        if !errors.is_empty() || !warnings.is_empty() {
+            let hidden = values::Hidden::of_docs(&[&docs], &self.schema().root);
+            errors
+                .iter_mut()
+                .chain(&mut warnings)
+                .for_each(|d| hidden.diag(d));
+        }
         Ok(State {
             rev: rev.clone(),
             file: self.file_info(s, &docs),
@@ -559,6 +569,7 @@ fn kept(v: ports::Version) -> AuditEntry {
         revertible: true,
         details_kept: false,
         reverts: None,
+        renames: Vec::new(),
     }
 }
 

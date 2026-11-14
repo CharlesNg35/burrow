@@ -40,12 +40,15 @@ pub fn not_here(
     running: &ServerSettings,
     next: &ServerSettings,
 ) -> Vec<Diag> {
-    let before = binds(running);
+    let before: std::collections::HashSet<(Vec<String>, std::net::IpAddr)> = binds(running)
+        .into_iter()
+        .map(|(p, b)| (p, b.ip()))
+        .collect();
     binds(next)
         .into_iter()
         .filter(|(path, a)| {
             !a.ip().is_unspecified()
-                && !before.iter().any(|(p, b)| p == path && b.ip() == a.ip())
+                && !before.contains(&(path.clone(), a.ip()))
                 && probe(SocketAddr::new(a.ip(), 0))
                     .is_err_and(|e| e.kind() == std::io::ErrorKind::AddrNotAvailable)
         })
@@ -64,6 +67,8 @@ pub fn not_here(
             help: Some(crate::base::ports::not_here_hint()),
             line: None,
             col: None,
+            end_line: None,
+            end_col: None,
             before: false,
             file: None,
         })

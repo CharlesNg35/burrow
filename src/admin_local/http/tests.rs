@@ -142,7 +142,7 @@ fn every_response_carries_the_security_headers() {
         .map(|(k, v)| format!("{k}: {}\r\n", v.to_str().unwrap()))
         .collect();
     for h in [
-        "content-security-policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'",
+        "content-security-policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'",
         "cache-control: no-store",
         "x-content-type-options: nosniff",
         "referrer-policy: no-referrer",
@@ -154,6 +154,12 @@ fn every_response_carries_the_security_headers() {
     ] {
         assert!(r.contains(h), "{h}");
     }
+    assert_eq!(
+        r.matches("'unsafe-inline'").count(),
+        1,
+        "only styles may be inline, never scripts"
+    );
+    assert!(!r.contains("'unsafe-eval'"));
     assert_eq!(r.matches("cache-control").count(), 1);
     for code in [302, 400, 403, 404, 500] {
         let r = response(code, "text/plain", &[], Vec::new());
