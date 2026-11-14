@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::world::{self, Options};
-use super::{Ctx, SECS, apply_now, open, run};
+use super::{Ctx, SECS, adornments_clear, apply_now, open, run};
 
 pub(super) const CARD: &str = "[data-testid=config-file]";
 pub(super) const EDITOR: &str = "[data-testid=file-editor]";
@@ -873,7 +873,11 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
     c.ui.fill("#file-new-name", "apps").await;
     c.ui.wait_text("[data-testid=file-new-problem]", "already exists", SECS)
         .await;
+    adornments_clear(c, "the new file's name").await;
     c.ui.shot("text-edit-new-file-name").await;
+    c.ui.viewport(390, 900).await;
+    adornments_clear(c, "the new file's name at 390 px").await;
+    c.ui.viewport(1440, 900).await;
     c.ui.fill("#file-new-name", "extra").await;
     c.ui.wait_gone("[data-testid=file-new-problem]", SECS).await;
     c.ui.click("[data-testid=file-new-add]").await;
