@@ -3,8 +3,7 @@ use burrow_admin_proto::plan::Plan;
 use burrow_admin_proto::value::get;
 use burrow_ui_kit::DiffLine;
 use burrow_ui_kit::{
-    Button, Callout, ConfirmInput, DiffView, Icon, PathDiagram, Segmented, Tone, button_class,
-    tag_class,
+    Button, Callout, ConfirmInput, DiffView, Icon, Segmented, Tone, button_class, tag_class,
 };
 use leptos::prelude::*;
 
@@ -105,7 +104,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, source: Source) -> AnyView {
             <nav class="mb-1.5 text-sm font-semibold text-text" aria-label="Breadcrumb">"Review"</nav>
             {header_view(&facts, applies)}
             {refused.then(|| view! { <Refused refusals=plan.refusals.clone()/> })}
-            {paths.into_iter().map(|(name, p)| view! { <div data-review-path=name><PathDiagram data=p/></div> }).collect_view()}
+            {super::routes::diagrams(paths)}
             {plan.reformat.clone().map(|r| {
                 let place = if r.scope.is_empty() {
                     "the whole file".to_string()
