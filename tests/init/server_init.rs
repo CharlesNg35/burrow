@@ -180,9 +180,9 @@ async fn printed_client_config_connects_to_generated_server() {
     let echo = echo_server().await;
     let text = std::fs::read_to_string(&server_path)
         .unwrap()
+        .replace("127.0.0.1:3000", &echo.to_string())
         .replace("0.0.0.0:7835", &format!("127.0.0.1:{port}"))
-        .replace("0.0.0.0:7840", &format!("127.0.0.1:{svc_port}"))
-        .replace("127.0.0.1:3000", &echo.to_string());
+        .replace("0.0.0.0:7840", &format!("127.0.0.1:{svc_port}"));
     std::fs::write(&server_path, text).unwrap();
     let Loaded::Server(server_settings, _) = load(&server_path) else {
         panic!()
