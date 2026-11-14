@@ -95,9 +95,6 @@ pub fn TextInput(
     if !adorned {
         return view! { <div class="relative min-w-0 flex-1">{input}</div> }.into_any();
     }
-    // The wrapper takes `flex-1` (as the plain input's does) so the framed
-    // box keeps its height in a column; prefix, text and suffix share the
-    // input's font and size, so they sit on one baseline.
     view! {
         <div class="relative min-w-0 flex-1">
             <label class=move || adorned_class(invalid.get(), mono, disabled.get()) data-adorned="">

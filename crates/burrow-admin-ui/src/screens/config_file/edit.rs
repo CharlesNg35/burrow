@@ -70,9 +70,6 @@ pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>, go: super::goto::Go
         None if t.dirty() => String::new(),
         None => "No edits yet".into(),
     });
-    // On a phone the tools take the card's full width in two rows: Go to
-    // (with its text) beside Edit as, then Cancel and Review changes as two
-    // halves; from `sm` up they are one row on the right, as before.
     view! {
         <div class="flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:basis-full" data-toolbar="" data-testid="file-tools">
         <div class="flex min-w-0 items-center gap-2 max-sm:basis-full">

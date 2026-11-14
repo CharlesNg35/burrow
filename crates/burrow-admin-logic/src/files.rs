@@ -165,9 +165,6 @@ pub fn change_label(change: &burrow_admin_proto::plan::FileChange) -> &'static s
     }
 }
 
-/// The one line under a change's file diffs for the files it leaves as
-/// they are (`unchanged`); `shown` is how many changed files are listed
-/// above it. `None` when every file changes.
 pub fn unchanged_note(unchanged: &[&str], shown: usize) -> Option<String> {
     match (unchanged, shown) {
         ([], _) => None,

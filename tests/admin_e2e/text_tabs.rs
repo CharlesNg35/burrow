@@ -323,9 +323,6 @@ fn edit_opens_files_on_demand_with_go_to_and_keeps_at_most_ten_tabs() {
     run("text-tabs", opts(), false, text_tabs);
 }
 
-/// On a phone the editing tools fill the card's width in two rows: Go to,
-/// with its words, beside Edit as, then Cancel and Review changes as two
-/// equal halves, all inside the card and the page.
 async fn phone_toolbar(c: &Ctx, width: u32) {
     let bad: Vec<String> = c.ui.eval(TOOLBAR_LAYOUT).await;
     assert!(bad.is_empty(), "the editing tools at {width} px: {bad:?}");

@@ -40,8 +40,6 @@ impl Offer {
     }
 }
 
-/// Only the files a change touches get a box; the files it leaves as they
-/// are share one quiet line under them, naming them in its tooltip.
 pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: Offer) -> AnyView {
     let (same, changed): (Vec<&FileDiff>, Vec<&FileDiff>) =
         files.iter().partition(|f| f.change == FileChange::Same);
