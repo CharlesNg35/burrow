@@ -102,15 +102,24 @@ pub(super) fn host_control(
     }
 }
 
+pub(super) type Wand = std::sync::Arc<dyn Fn() -> AnyView + Send + Sync>;
+
+#[derive(Clone)]
+pub(super) struct PortTools {
+    pub ranges: bool,
+    pub wand: Option<Wand>,
+}
+
 pub(super) fn network(
     id: String,
     msg: String,
     a: Addr,
-    ranges: bool,
+    tools: PortTools,
     on_port: impl Fn(String) + Clone + Send + Sync + 'static,
     commit: impl Fn() + Clone + Send + Sync + 'static,
     host_control: impl Fn() -> AnyView + Clone + Send + Sync + 'static,
 ) -> impl Fn() -> AnyView {
+    let PortTools { ranges, wand } = tools;
     let Addr {
         parts,
         port_text,
@@ -129,6 +138,7 @@ pub(super) fn network(
         let c_to = c_to.clone();
         let c_range = c_range.clone();
         let host_control = host_control.clone();
+        let wand = wand.clone();
         view! {
             <div class="flex flex-wrap items-center gap-2" data-parts="network">
                 {host_control()}
@@ -173,6 +183,7 @@ pub(super) fn network(
                         }
                     }
                 </Show>
+                {wand.map(|w| w())}
                 {move || count.get().filter(|n| *n > 1).map(|n| view! {
                     <span class=if has_error.get() { "text-xs text-danger" } else { "text-xs text-text-muted" } data-testid="port-count">
                         {format!("{n} ports")}

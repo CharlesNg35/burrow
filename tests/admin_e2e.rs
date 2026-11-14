@@ -31,6 +31,8 @@ mod entries;
 mod file_groups;
 #[path = "admin_e2e/files.rs"]
 mod files;
+#[path = "admin_e2e/free_port.rs"]
+mod free_port;
 #[path = "admin_e2e/guards.rs"]
 mod guards;
 #[path = "admin_e2e/header.rs"]

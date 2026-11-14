@@ -151,6 +151,7 @@ A reinstall, for example to change `--run-as`, still copies the source over it:
 What the pages do, and what stays a file edit:
 
 - A service page says how the service is reached: a public port, a website and visitors, in any mix. Turning one off keeps its values until you add the change, and Review says what goes: the port that closes, the website and its settings, or the visitors that can no longer reach it.
+- The wand next to a public port proposes a free one: the server picks a port that nothing on it listens on and that no service, also in changes waiting in Review, uses. Click it again for the next free port. With Port range on it proposes as many ports in a row as the target's range has. The port stays empty until you click it.
 - Settings has six tabs:
   - **Server:** the listener, this server and security.
   - **Connections:** WebSocket, ready connections to clients, heartbeat, TCP, UDP and limits.
