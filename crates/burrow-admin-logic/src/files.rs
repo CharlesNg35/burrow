@@ -165,6 +165,18 @@ pub fn change_label(change: &burrow_admin_proto::plan::FileChange) -> &'static s
     }
 }
 
+/// The one line under a change's file diffs for the files it leaves as
+/// they are (`unchanged`); `shown` is how many changed files are listed
+/// above it. `None` when every file changes.
+pub fn unchanged_note(unchanged: &[&str], shown: usize) -> Option<String> {
+    match (unchanged, shown) {
+        ([], _) => None,
+        (_, 0) => Some("No file changes.".into()),
+        ([one], _) => Some(format!("{one} has no change.")),
+        (many, _) => Some(format!("{} other files have no change.", many.len())),
+    }
+}
+
 pub fn empty_offer(file: &str) -> String {
     format!("{file} holds no services, clients or visitors after this change.")
 }
@@ -180,6 +192,23 @@ pub fn item_count(file: &ConfigFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_files_are_one_line() {
+        assert_eq!(unchanged_note(&[], 2), None);
+        assert_eq!(
+            unchanged_note(&["server.yaml"], 1).as_deref(),
+            Some("server.yaml has no change.")
+        );
+        assert_eq!(
+            unchanged_note(&["server.yaml", "server.d/a.yaml", "server.d/b.yaml"], 1).as_deref(),
+            Some("3 other files have no change.")
+        );
+        assert_eq!(
+            unchanged_note(&["server.yaml"], 0).as_deref(),
+            Some("No file changes.")
+        );
+    }
 
     type Listed<'a> = (&'a str, Option<&'a str>, &'a [&'a [&'a str]]);
 

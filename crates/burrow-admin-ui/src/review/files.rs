@@ -1,4 +1,4 @@
-use burrow_admin_logic::files::{change_label, empty_offer};
+use burrow_admin_logic::files::{change_label, empty_offer, unchanged_note};
 use burrow_admin_proto::plan::{FileChange, FileDiff};
 use burrow_ui_kit::{Button, DiffView};
 use leptos::prelude::*;
@@ -40,14 +40,23 @@ impl Offer {
     }
 }
 
+/// Only the files a change touches get a box; the files it leaves as they
+/// are share one quiet line under them, naming them in its tooltip.
 pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: Offer) -> AnyView {
-    files
-        .iter()
-        .map(|f| {
-            let lines = diff_lines(&f.diff);
-            let same = f.change == FileChange::Same;
-            let head = format!("{}: {}", f.file, change_label(&f.change));
-            let empty = (offer.on() && f.left_empty == Some(true)).then(|| {
+    let (same, changed): (Vec<&FileDiff>, Vec<&FileDiff>) =
+        files.iter().partition(|f| f.change == FileChange::Same);
+    let names: Vec<&str> = same.iter().map(|f| f.file.as_str()).collect();
+    let note = unchanged_note(&names, changed.len()).map(|text| {
+        view! { <p class="text-xs text-text-muted [overflow-wrap:anywhere]" title=names.join("\n") data-testid="files-same">{text}</p> }
+    });
+    view! { {changed.into_iter().map(|f| file_box(f, split, offer)).collect_view()} {note} }
+        .into_any()
+}
+
+fn file_box(f: &FileDiff, split: RwSignal<bool>, offer: Offer) -> impl IntoView {
+    let lines = diff_lines(&f.diff);
+    let head = format!("{}: {}", f.file, change_label(&f.change));
+    let empty = (offer.on() && f.left_empty == Some(true)).then(|| {
                 let file = f.file.clone();
                 view! {
                     <div class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5 text-[13px] text-text-muted" data-testid="empty-file">
@@ -57,7 +66,7 @@ pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: Offer
                     </div>
                 }
             });
-            let kept = (f.change == FileChange::Remove && offer.dropped(&f.file))
+    let kept = (f.change == FileChange::Remove && offer.dropped(&f.file))
             .then(|| {
                 let file = f.file.clone();
                 view! {
@@ -67,15 +76,13 @@ pub(crate) fn file_diffs(files: &[FileDiff], split: RwSignal<bool>, offer: Offer
                     </div>
                 }
             });
-            view! {
-                <section class="mb-3 overflow-hidden rounded-card border border-border bg-surface" data-testid="file-diff" data-file=f.file.clone()>
-                    <h4 class="border-b border-border px-4 py-2 font-mono text-[12.5px] text-text-muted [overflow-wrap:anywhere]" class:border-b-0=same>{head}</h4>
-                    {(!same && !lines.is_empty()).then(|| view! { <DiffView lines=lines split=split testid="review-diff"/> })}
-                    {empty}
-                    {kept}
-                </section>
-            }
-        })
-        .collect_view()
-        .into_any()
+    let bare = lines.is_empty() && empty.is_none() && kept.is_none();
+    view! {
+        <section class="mb-3 overflow-hidden rounded-card border border-border bg-surface" data-testid="file-diff" data-file=f.file.clone()>
+            <h4 class="border-b border-border px-4 py-2 font-mono text-[12.5px] text-text-muted [overflow-wrap:anywhere]" class:border-b-0=bare>{head}</h4>
+            {(!lines.is_empty()).then(|| view! { <DiffView lines=lines split=split testid="review-diff"/> })}
+            {empty}
+            {kept}
+        </section>
+    }
 }

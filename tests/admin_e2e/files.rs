@@ -81,8 +81,13 @@ async fn an_edit_stays_in_its_file(c: &mut Ctx) {
     wait_checked(c).await;
     open_review(c, "files-review-edit").await;
     let diffs = c.ui.text("[data-testid=file-diffs]").await;
-    assert!(diffs.contains("server.yaml: no change"), "{diffs}");
     assert!(diffs.contains("server.d/apps.yaml: changed"), "{diffs}");
+    assert!(
+        !diffs.contains(": no change"),
+        "only the changed files get a box: {diffs}"
+    );
+    let same = c.ui.text("[data-testid=files-same]").await;
+    assert_eq!(same, "3 other files have no change.");
     both_widths(c, "files-review-edit").await;
     applied(c, "files-edit-applied").await;
     let apps = read(c, "server.d/apps.yaml").unwrap();
