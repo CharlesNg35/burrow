@@ -53,15 +53,22 @@ pub fn host_name(text: &str, single: SingleLabel) -> Result<String, String> {
             "\"{text}\" is not a host name; use letters, digits and - between dots, like blog.example.com"
         ));
     }
-    if labels
-        .last()
-        .is_some_and(|l| l.bytes().all(|b| b.is_ascii_digit()))
-    {
+    if labels.last().is_some_and(|l| ends_in_a_number(l)) {
         return Err(format!(
             "\"{text}\" is not a host name or an IP address; write a name like blog.example.com or an address like 203.0.113.10"
         ));
     }
     Ok(name)
+}
+
+fn ends_in_a_number(label: &str) -> bool {
+    let hex = label
+        .strip_prefix("0x")
+        .or_else(|| label.strip_prefix("0X"));
+    match hex {
+        Some(digits) => digits.bytes().all(|b| b.is_ascii_hexdigit()),
+        None => label.bytes().all(|b| b.is_ascii_digit()),
+    }
 }
 
 fn good_label(l: &str) -> bool {
