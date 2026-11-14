@@ -70,9 +70,16 @@ pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>, go: super::goto::Go
         None if t.dirty() => String::new(),
         None => "No edits yet".into(),
     });
+    // On a phone the tools take the card's full width in two rows: Go to
+    // (with its text) beside Edit as, then Cancel and Review changes as two
+    // halves; from `sm` up they are one row on the right, as before.
     view! {
+        <div class="flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:basis-full" data-toolbar="" data-testid="file-tools">
+        <div class="flex min-w-0 items-center gap-2 max-sm:basis-full">
         {super::goto::button(go, t)}
         {super::edit_as::controls(t)}
+        </div>
+        <div class="flex gap-2 max-sm:basis-full max-sm:[&>span]:flex-1 max-sm:[&_button]:w-full">
         <Button label="Cancel" size=ButtonSize::Small testid="file-cancel" on_click=move |_| {
             if untrack(|| t.dirty()) {
                 asking.set(true);
@@ -81,6 +88,8 @@ pub(super) fn edit_buttons(s: Store, asking: RwSignal<bool>, go: super::goto::Go
             }
         }/>
         <Button label="Review changes" variant=ButtonLook::Primary size=ButtonSize::Small testid="file-review" disabled=blocked reason=reason on_click=move |_| review(s)/>
+        </div>
+        </div>
     }
     .into_any()
 }

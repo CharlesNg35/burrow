@@ -109,7 +109,7 @@ pub fn button(g: GoTo, t: TextEdit) -> impl IntoView {
         <button
             type="button"
             id="file-goto"
-            class="flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-input border border-border bg-input px-2 text-xs text-text-faint outline-none hover:border-border-strong focus-visible:border-accent focus-visible:ring-3 focus-visible:ring-accent-weak sm:w-[260px]"
+            class="flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-input border border-border bg-input px-2 text-xs text-text-faint outline-none hover:border-border-strong focus-visible:border-accent focus-visible:ring-3 focus-visible:ring-accent-weak max-sm:flex-1 sm:w-[260px]"
             aria-label=label
             aria-haspopup="listbox"
             aria-expanded=move || g.open.get().to_string()
@@ -118,7 +118,7 @@ pub fn button(g: GoTo, t: TextEdit) -> impl IntoView {
             on:click=move |_| if g.open.get_untracked() { g.open.set(false) } else { g.show() }
         >
             <Icon name="search" small=true/>
-            <span class="truncate max-sm:hidden">{PLACEHOLDER}</span>
+            <span class="truncate">{PLACEHOLDER}</span>
             {move || (count.get() > 0).then(|| view! {
                 <span class="rounded-full bg-warning-weak px-1.5 text-2xs font-semibold leading-4 text-warning" data-testid="file-goto-problems">{count.get()}</span>
             })}

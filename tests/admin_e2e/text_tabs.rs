@@ -290,12 +290,17 @@ async fn problems_in_closed_files_are_counted(c: &mut Ctx) {
     press(c, "Escape").await;
     c.ui.viewport(390, 900).await;
     assert!(on_screen(c, GOTO).await, "Go to is on screen at 390px");
-    let words: bool = c
-        .ui
-        .eval("getComputedStyle(document.querySelector('[data-testid=file-goto] span.truncate')).display === 'none'")
-        .await;
-    assert!(words, "on a phone Go to is an icon");
+    phone_toolbar(c, 390).await;
+    c.ui.shot("text-tabs-toolbar-390").await;
+    c.ui.viewport(320, 900).await;
+    phone_toolbar(c, 320).await;
+    c.ui.shot("text-tabs-toolbar-320").await;
     c.ui.viewport(1440, 900).await;
+    let one_row: bool = c
+        .ui
+        .eval("(() => { const t = [...document.querySelectorAll('[data-testid=file-tools] :is(#file-goto, #file-edit-as, button[data-testid])')].map(e => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)); return new Set(t).size === 1; })()")
+        .await;
+    assert!(one_row, "on a desktop the editing tools stay in one row");
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.click("[data-testid=file-discard]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=false]"), SECS)
@@ -317,3 +322,13 @@ fn text_tabs(c: &mut Ctx) -> Flow<'_> {
 fn edit_opens_files_on_demand_with_go_to_and_keeps_at_most_ten_tabs() {
     run("text-tabs", opts(), false, text_tabs);
 }
+
+/// On a phone the editing tools fill the card's width in two rows: Go to,
+/// with its words, beside Edit as, then Cancel and Review changes as two
+/// equal halves, all inside the card and the page.
+async fn phone_toolbar(c: &Ctx, width: u32) {
+    let bad: Vec<String> = c.ui.eval(TOOLBAR_LAYOUT).await;
+    assert!(bad.is_empty(), "the editing tools at {width} px: {bad:?}");
+}
+
+const TOOLBAR_LAYOUT: &str = "(() => { const bad = []; const r = s => document.querySelector(s).getBoundingClientRect(); const tools = r('[data-testid=file-tools]'); const head = document.querySelector('[data-testid=file-tools]').parentElement.parentElement; const hs = getComputedStyle(head); const inner = head.getBoundingClientRect().width - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight); if (Math.abs(tools.width - inner) > 1) bad.push('the tools are ' + tools.width + ' px wide, the card ' + inner); const go = r('#file-goto'), as = r('#file-edit-as'), no = r('[data-testid=file-cancel]'), yes = r('[data-testid=file-review]'); const mid = q => q.top + q.height / 2; if (Math.abs(mid(go) - mid(as)) > 1) bad.push('Go to and Edit as are not on one row'); if (Math.abs(mid(no) - mid(yes)) > 1) bad.push('Cancel and Review changes are not on one row'); if (mid(no) <= mid(go)) bad.push('Cancel and Review changes are not below'); if (Math.abs(no.width - yes.width) > 1) bad.push('Cancel is ' + no.width + ' px, Review changes ' + yes.width); if (Math.abs(yes.right - as.right) > 1 || Math.abs(no.left - go.left) > 1) bad.push('the rows do not share their edges'); if (getComputedStyle(document.querySelector('[data-testid=file-goto] span.truncate')).display === 'none') bad.push('Go to lost its words'); for (const q of [tools, go, as, no, yes]) if (q.left < tools.left - 0.5 || q.right > tools.right + 0.5) bad.push('a tool sticks out of the card'); if (document.documentElement.scrollWidth > innerWidth) bad.push('the page scrolls sideways: ' + document.documentElement.scrollWidth); return bad; })()";
