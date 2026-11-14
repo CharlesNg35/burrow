@@ -52,6 +52,13 @@ async fn several_services_are_one_line_each(c: &mut Ctx) {
         "{lines:?}"
     );
     both_widths(c, "review-paths-folded").await;
+    c.ui.viewport(390, 900).await;
+    let whole: bool = c
+        .ui
+        .eval("[...document.querySelectorAll('[data-testid=review-path-line] .font-mono')].every(l => l.scrollWidth <= l.clientWidth + 1 && l.getBoundingClientRect().right <= innerWidth)")
+        .await;
+    assert!(whole, "on a phone each line shows its whole change");
+    c.ui.viewport(1440, 900).await;
     c.ui.click(&format!("[data-review-path=ssh] {LINE}")).await;
     c.ui.wait_true(
         "document.querySelector('[data-review-path=ssh]').open",

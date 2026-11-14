@@ -77,7 +77,7 @@ pub(super) fn diagrams(mut paths: Vec<(String, PathData)>) -> AnyView {
                     <summary class="flex cursor-pointer list-none items-center gap-3 rounded-card border border-border bg-surface px-4 py-2.5 text-[13px] hover:bg-surface-2 group-open:mb-2 [&::-webkit-details-marker]:hidden" data-testid="review-path-line">
                         <span class="flex shrink-0 text-text-muted transition-transform group-open:rotate-90"><Icon name="chevron-right" small=true/></span>
                         <span class="shrink-0 font-semibold">{name}</span>
-                        <span class="min-w-0 flex-1 truncate font-mono text-xs text-text-muted" title=title>{line}</span>
+                        <span class="min-w-0 flex-1 font-mono text-xs text-text-muted [overflow-wrap:anywhere] sm:truncate" title=title>{line}</span>
                         <Tag text=tag.to_string() tone=tone/>
                     </summary>
                     <PathDiagram data=p/>
