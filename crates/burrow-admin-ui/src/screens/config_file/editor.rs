@@ -46,7 +46,7 @@ fn schema_of(schema: &Value) -> Option<SchemaSource> {
     let json = schema.to_string();
     Some(match Schema::compile(&json) {
         Ok(s) => SchemaSource::Compiled(s),
-        Err(_) => SchemaSource::Json(json),
+        Err(_) => SchemaSource::from(json),
     })
 }
 
