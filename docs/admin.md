@@ -130,6 +130,7 @@ Moving around:
 - After the apply, the secret is shown once, with the ready config and commands as on the Connect tab, with the secret filled in. Copy or download it then; afterwards only its fingerprint shows. For a new client the page waits until it connects, and says from where. **Done** closes it once you tick "I have saved the secret".
 - **New service** (+ on Services, then Service) takes a name; set its client and target on its page next. **New website** (+, then Website) asks for the names, the client and the app's port on it, and HTTPS.
 - To change an item or the settings, click **Edit**, change the fields, and click **Add to changes**, or **Discard**. Change as many items as you like; **Review** at the top counts them. Closing or reloading the tab with changes not applied asks first.
+- Review draws the path of a changed service (who reaches it, the server, the client, the target), marking what changed. With two or more changed services each is one line, for example "ssh  target 127.0.0.1:22 → 127.0.0.1:2223  changed", and a click (or `Enter`) opens its path.
 - Review shows the diff, in one column or side by side, what it affects, and every error and warning, checked by the server as `burrow validate` does. **Apply** writes it; **Discard all** drops every change.
 
 ## Installed servers
