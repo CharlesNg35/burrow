@@ -437,12 +437,12 @@ pub async fn baseline_of(c: &mut Ctx, name: &str, css: &str) {
 async fn baseline(c: &mut Ctx, name: &str) {
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; for (const e of document.querySelectorAll('[data-testid=server-line]')) e.style.fontVariantNumeric = 'tabular-nums'; return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; for (const e of document.querySelectorAll('[data-testid=server-line]')) e.style.fontVariantNumeric = 'tabular-nums'; const kept = []; const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); while (w.nextNode()) { const n = w.currentNode; if (/[0-9]/.test(n.nodeValue)) { kept.push([n, n.nodeValue]); n.nodeValue = n.nodeValue.replace(/[0-9]/g, '0'); } } window.__baselineDigits = kept; return true; })()")
         .await;
     let png = c.ui.png().await;
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } for (const [n, v] of window.__baselineDigits || []) n.nodeValue = v; window.__baselineDigits = []; return true; })()")
         .await;
     check_baseline(c, name, png);
 }
