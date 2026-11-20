@@ -23,6 +23,7 @@ pub struct LetsEncrypt {
     #[admin(
         help = "Let's Encrypt's contact for this server, for example ops@example.com; giving it accepts Let's Encrypt's terms"
     )]
+    #[schemars(example = &"ops@example.com")]
     pub email: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -46,6 +47,7 @@ pub struct LetsEncrypt {
         none_label = "The public CAs",
         advanced
     )]
+    #[schemars(example = &"certs/internal-ca.pem")]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -69,6 +71,7 @@ pub struct LetsEncrypt {
         none_label = "The authority's default profile",
         advanced
     )]
+    #[schemars(example = &"shortlived")]
     pub profile: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
@@ -129,6 +132,7 @@ pub struct CertFile {
         label = "Host names",
         help = "The names this file is used for, for example *.example.com and example.com; the certificate must cover each"
     )]
+    #[schemars(example = &["*.example.com", "example.com"])]
     pub hosts: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -140,6 +144,7 @@ pub struct CertFile {
         help = "The certificate chain file on the server, for example certs/fullchain.pem or /etc/letsencrypt/live/example.com/fullchain.pem",
         none_label = "Not set"
     )]
+    #[schemars(example = &"certs/fullchain.pem")]
     pub cert: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -150,6 +155,7 @@ pub struct CertFile {
         label = "Private key file",
         none_label = "Not set"
     )]
+    #[schemars(example = &"certs/privkey.pem")]
     pub key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

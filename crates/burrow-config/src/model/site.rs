@@ -19,6 +19,7 @@ pub struct WebSite {
         label = "Names",
         help = "Names that lead to this service, for example nas.example.com, *.apps.example.com or 203.0.113.10"
     )]
+    #[schemars(example = &["nas.example.com"], example = &["*.apps.example.com"])]
     pub hosts: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
@@ -30,6 +31,7 @@ pub struct WebSite {
         empty_label = "All paths",
         enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; the app does its own HTTPS here")
     )]
+    #[schemars(example = &["/api"])]
     pub paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -87,6 +89,7 @@ pub struct WebSite {
         advanced,
         enabled_if(all(ne(tls, "passthrough"), len_ge(paths, 1)), "This needs burrow to do the HTTPS and at least one path")
     )]
+    #[schemars(example = &"/v1")]
     pub app_path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
@@ -99,6 +102,7 @@ pub struct WebSite {
         advanced,
         enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; the app does its own HTTPS here")
     )]
+    #[schemars(example = &["www.example.com"])]
     pub redirect_from: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
@@ -191,6 +195,7 @@ pub struct WebSite {
         advanced,
         enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; the app does its own HTTPS here")
     )]
+    #[schemars(example = 20)]
     pub rate_limit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -250,6 +255,7 @@ pub struct WebSite {
             "This needs burrow to do the HTTPS; the app does its own HTTPS here"
         )
     )]
+    #[schemars(example = &"8GB")]
     pub max_body_size: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -266,6 +272,7 @@ pub struct WebSite {
             "This needs burrow to do the HTTPS; the app does its own HTTPS here"
         )
     )]
+    #[schemars(example = 300)]
     pub response_header_timeout_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
@@ -303,6 +310,7 @@ pub struct WebSite {
         advanced,
         enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; the app does its own HTTPS here")
     )]
+    #[schemars(example = &"pages/shop/")]
     pub error_pages: Option<String>,
 }
 
@@ -341,6 +349,7 @@ pub struct SiteFiles {
         help = "The certificate chain file on the server, for example certs/fullchain.pem or /etc/letsencrypt/live/example.com/fullchain.pem",
         none_label = "Not set"
     )]
+    #[schemars(example = &"certs/fullchain.pem")]
     pub cert: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -351,6 +360,7 @@ pub struct SiteFiles {
         label = "Private key file",
         none_label = "Not set"
     )]
+    #[schemars(example = &"certs/privkey.pem")]
     pub key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

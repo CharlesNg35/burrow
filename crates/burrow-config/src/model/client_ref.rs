@@ -33,6 +33,7 @@ pub struct ServiceClient {
         help = "Where this client connects instead of the main target, for example 10.0.0.12:3000",
         none_label = "The main target"
     )]
+    #[schemars(example = &"10.0.0.12:3000")]
     pub target: Option<Target>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

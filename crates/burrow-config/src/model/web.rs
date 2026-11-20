@@ -23,6 +23,7 @@ pub struct WebConfig {
         help = "The port where websites are reached by name, including those whose app does its own HTTPS, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
         none_label = "No HTTPS port"
     )]
+    #[schemars(example = 443)]
     pub https: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -34,6 +35,7 @@ pub struct WebConfig {
         help = "The port for plain HTTP, for example 80: sites with HTTPS off, the step from http:// to https:// and Let's Encrypt's check; a port alone listens on IPv4 and IPv6",
         none_label = "No HTTP port"
     )]
+    #[schemars(example = 80)]
     pub http: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -79,6 +81,7 @@ pub struct WebConfig {
         none_label = "Off",
         advanced
     )]
+    #[schemars(example = 20)]
     pub rate_limit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -112,6 +115,7 @@ pub struct WebConfig {
         none_label = "10 seconds",
         advanced
     )]
+    #[schemars(example = 10)]
     pub request_header_timeout_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -124,6 +128,7 @@ pub struct WebConfig {
         none_label = "60 seconds",
         advanced
     )]
+    #[schemars(example = 60)]
     pub idle_timeout_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
@@ -146,6 +151,7 @@ pub struct WebConfig {
         empty_label = "None",
         advanced
     )]
+    #[schemars(example = &["173.245.48.0/20"], example = &["127.0.0.1/32"])]
     pub trusted_proxies: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
@@ -158,6 +164,7 @@ pub struct WebConfig {
         empty_label = "None",
         advanced
     )]
+    #[schemars(example = &["10.0.0.5/32"])]
     pub proxy_protocol_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -211,6 +218,7 @@ pub struct WebConfig {
         none_label = "Unlimited",
         advanced
     )]
+    #[schemars(example = &"100MB")]
     pub max_body_size: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -223,6 +231,7 @@ pub struct WebConfig {
         none_label = "60 seconds",
         advanced
     )]
+    #[schemars(example = 60)]
     pub response_header_timeout_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
@@ -257,6 +266,7 @@ pub struct WebConfig {
         none_label = "Built in",
         advanced
     )]
+    #[schemars(example = &"pages/")]
     pub error_pages: Option<String>,
 }
 

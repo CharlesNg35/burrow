@@ -39,6 +39,7 @@ pub struct ServerConfig {
         applies = restart,
         none_label = "No TCP listener"
     )]
+    #[schemars(example = &"0.0.0.0:7835", example = 7835)]
     pub listen: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -50,6 +51,7 @@ pub struct ServerConfig {
         applies = live,
         none_label = "Not set"
     )]
+    #[schemars(example = &"tunnel.example.com", example = &"wss://tunnel.example.com/burrow")]
     pub public_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -110,18 +112,33 @@ pub struct ServerConfig {
     pub insecure_plaintext: bool,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(group = network, applies = live, advanced)]
+    #[schemars(
+        description = "How often the server and each client check that the connection between them is still there"
+    )]
     pub heartbeat: Heartbeat,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(group = limits, advanced)]
+    #[schemars(
+        description = "Limits on connections to this server: how many clients and visitors may set up at once, how long that may take, and how many connections each client gets"
+    )]
     pub limits: Limits,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(label = "Ready connections to clients", group = network, applies = reload, advanced)]
+    #[schemars(
+        description = "Spare connections each client keeps open to this server, so a new visitor connection starts without waiting"
+    )]
     pub pool: Pool,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(label = "TCP", group = network, applies = live, advanced)]
+    #[schemars(
+        description = "TCP settings for forwarded connections: keepalive checks on idle connections and sending small writes at once"
+    )]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(label = "UDP", group = network, applies = live, advanced)]
+    #[schemars(
+        description = "UDP settings for services with protocol udp: how many senders a port keeps and when a quiet sender is forgotten"
+    )]
     pub udp: UdpOptions,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Serve Prometheus metrics at /metrics; off unless set")]
@@ -134,6 +151,9 @@ pub struct ServerConfig {
     pub metrics: Option<MetricsConfig>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(label = "Updates", group = security, applies = restart)]
+    #[schemars(
+        description = "Whether an admin may update this server to the latest release from burrow admin"
+    )]
     pub update: ServerUpdate,
 }
 
@@ -164,6 +184,7 @@ pub struct MetricsConfig {
         description = "Address for the metrics endpoint, for example 127.0.0.1:9100; a port alone means 127.0.0.1"
     )]
     #[admin(ty = ip_port(default_ip = "127.0.0.1"), label = "Listen address")]
+    #[schemars(example = &"127.0.0.1:9100")]
     pub listen: Bind,
 }
 
@@ -176,6 +197,7 @@ pub struct WebSocketConfig {
         description = "Address to accept WebSocket connections on, for example 127.0.0.1:7836 behind a proxy; a port alone means 0.0.0.0"
     )]
     #[admin(label = "Listen address")]
+    #[schemars(example = &"127.0.0.1:7836")]
     pub listen: Bind,
     #[serde(default = "default_ws_path")]
     #[schemars(description = "URL path clients connect to, for example /burrow")]
@@ -191,6 +213,7 @@ pub struct WebSocketConfig {
         help = "The name that leads to burrow's WebSocket listener when it shares the web proxy's HTTPS port, for example tunnel.example.com",
         none_label = "Not shared"
     )]
+    #[schemars(example = &"tunnel.example.com")]
     pub host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -245,6 +268,7 @@ pub struct TlsFiles {
         ty = path(must_exist, relative_to = "config"),
         label = "Certificate file"
     )]
+    #[schemars(example = &"certs/fullchain.pem")]
     pub cert: String,
     #[schemars(
         description = "Private key PEM file, relative to the config file, for example certs/privkey.pem"
@@ -253,6 +277,7 @@ pub struct TlsFiles {
         ty = path(must_exist, relative_to = "config"),
         label = "Private key file"
     )]
+    #[schemars(example = &"certs/privkey.pem")]
     pub key: String,
 }
 
@@ -266,5 +291,6 @@ pub struct SelfEntry {
         description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
     )]
     #[admin(help = "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "May reach on this server", empty_label = "Nothing")]
+    #[schemars(example = &["127.0.0.1/32", "10.0.0.0/8", "192.168.1.10:22", "unix:/run/app.sock"])]
     pub allow: Vec<String>,
 }

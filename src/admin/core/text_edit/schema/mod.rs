@@ -1,8 +1,10 @@
 //! The editor's JSON Schema: the config model's schemars schema, inlined and marked from the admin schema tree.
-//! Start at `editor_schema`; `groups` adds the admin's one-of groups as options, `env` lets `${VAR}` stand for any value.
+//! Start at `editor_schema`; `groups` adds the admin's one-of groups as options, `choices` each enum value's label and help,
+//! `env` lets `${VAR}` stand for any value.
 //! It may only say less than burrow's own check: every config burrow accepts validates against it,
 //! and in a build without the web proxy it refuses the web keys as burrow does (a service's `web` may be null).
 
+mod choices;
 mod env;
 mod groups;
 
@@ -177,6 +179,7 @@ fn within(js: &mut Value, node: &Node, key: &str, depth: usize) {
                 groups::add(js, o);
             }
         }
+        SemType::Enum(e) => choices::add(js, e),
         SemType::Map(m) => entries(js, &m.value, key, depth),
         SemType::RefMap(m) => entries(js, &m.value, key, depth),
         SemType::List(l) => {
