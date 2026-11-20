@@ -6,6 +6,7 @@ version = 2
 yanked = "deny"
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained, not vulnerable; a build-time proc-macro that leptos 0.8 pulls in" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, not vulnerable; rmcp (up to 3.11) and schemars' chrono04 feature, which rmcp turns on, require it" },
 ]
 
 [licenses]
