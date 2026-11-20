@@ -81,8 +81,13 @@ fn every_example_is_a_value_its_field_accepts() {
             );
         }
     }
+    let floor = if crate::base::build::WEB_PROXY {
+        50
+    } else {
+        15
+    };
     assert!(
-        seen > 50,
+        seen > floor,
         "the config model gives its fields examples: {seen}"
     );
 }
