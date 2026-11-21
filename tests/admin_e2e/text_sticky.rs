@@ -5,19 +5,23 @@ use super::{Ctx, SECS, open, run};
 
 const STICKY: &str = ".config-editor__sticky-line";
 
-fn opts() -> Options {
-    let fillers: String = (1..=30)
+fn fillers(from: u16, to: u16) -> String {
+    (from..=to)
         .map(|i| {
             format!(
                 "  app{i:02}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
                 9000 + i
             )
         })
-        .collect();
+        .collect()
+}
+
+fn opts() -> Options {
+    let (before, after) = (fillers(1, 30), fillers(31, 60));
     Options {
         extra_top: "web:\n  http: 127.0.0.1:HTTP_PORT\n".into(),
         extra_services: format!(
-            "{fillers}  site:\n    client: home\n    target: 8080\n    web:\n      hosts: [site.example.com]\n      tls: \"off\"\n      request_headers:\n        X-One: \"1\"\n        X-Two: \"2\"\n        X-Three: \"3\"\n        X-Four: \"4\"\n        X-Five: \"5\"\n        X-Six: \"6\"\n      response_headers:\n        X-Seven: \"7\"\n"
+            "{before}  site:\n    client: home\n    target: 8080\n    web:\n      hosts: [site.example.com]\n      tls: \"off\"\n      request_headers:\n        X-One: \"1\"\n        X-Two: \"2\"\n        X-Three: \"3\"\n        X-Four: \"4\"\n        X-Five: \"5\"\n        X-Six: \"6\"\n      response_headers:\n        X-Seven: \"7\"\n{after}"
         ),
         ..Options::default()
     }
