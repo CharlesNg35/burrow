@@ -1073,3 +1073,12 @@ Owner, 2026-11-08: the Raw config tab's editor shows the open file as YAML, JSON
 - Review changes refuses, with the file's name, while an edit in another language cannot be written back yet (the editor's `on_sync_change` says the text on screen is not written back), instead of applying the text from before it, and while a file has a syntax error: an error the editor marks (`on_problems`) holds Review only when parsing the text on screen once (`check_syntax`) finds a syntax error; schema problems stay in the editor, and the server's check decides them (2026-11-09).
 - Text that cannot be written back yet is kept with the edit session and handed back to the editor when it opens again (`Document::edit_as_text`), after leaving the tab or a server restart (2026-11-09). There is no leave prompt.
 
+
+## D93. reactive_graph 0.2.16 is patched with upstream's fix for dead subscribers and owners
+
+Owner, 2026-11-21. In reactive_graph 0.2.16, the newest release for Leptos 0.8, a view that mounts and unmounts under a long-lived owner leaves dead entries behind: its effects and memos stay in the subscriber set of each signal they read, and its owner stays in its parent's `children` (leptos-rs/leptos#4965). In burrow admin that is about 450 bytes for each list row, tab or popup that comes and goes, kept until the page closes, and every update of those signals walks them. Measured: 1000 cycles kept 444 KB.
+
+- **Upstream's own fix** (leptos-rs/leptos#4966, commits `915a70d2be` and `fd4b21709c`, in reactive_graph 0.3.0-rc1 and on `leptos_0.8_latest`, not yet released for 0.8) is applied to a copy of 0.2.16 in `patches/reactive_graph/`, used through `[patch.crates-io]`. When a subscriber set or a `children` list is about to grow, it first drops the entries whose node is gone, and reserves room for the live ones: amortized O(1), order kept, no `unsafe`.
+- **Not removing at disposal:** removing a node from each source when it is dropped would run inside `Drop`, where a source's lock may already be held, and each removal shifts the list (O(subscribers)); upstream chose pruning for these reasons.
+- **Not a git pin** on `leptos_0.8_latest`: that branch carries other unreleased changes, and `deny.toml` would allow one more git source.
+- **Tests:** upstream's three tests and burrow's `tests/flat_memory.rs` (1000 mount/unmount cycles, flat heap) fail without the fix; CI runs them. `patches/README.md` says how to move the patch to a newer 0.2.x and when to delete it: once a release for Leptos 0.8 contains the fix.

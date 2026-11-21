@@ -166,4 +166,5 @@ name = "cipher"
 harness = false
 
 [patch.crates-io]
+reactive_graph = { path = "patches/reactive_graph" }
 bytecount = { git = "https://github.com/CharlesNg35/bytecount", rev = "f9dd655e3cadaba5d8941f5fe0c7ac2b026c5019" }

@@ -1,5 +1,6 @@
 /target
 /fuzz/target
+/patches/*/target
 /fuzz/artifacts
 /fuzz/coverage
 /bench/results/raw

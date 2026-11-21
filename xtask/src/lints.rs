@@ -322,6 +322,7 @@ fn listed(root: &Path) -> Vec<String> {
     let mut files: Vec<String> = run(&["ls-files"])
         .lines()
         .chain(run(&["ls-files", "--others", "--exclude-standard"]).lines())
+        .filter(|p| !p.starts_with(crate::shape::VENDORED))
         .map(str::to_string)
         .collect();
     files.sort();
