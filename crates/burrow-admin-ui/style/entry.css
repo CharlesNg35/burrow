@@ -70,4 +70,4 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 }
 
-.config-editor-documents__tab-readonly .config-editor-documents__name { padding-inline-end: 0.15em; }
+.config-editor-documents__tab-readonly .config-editor-documents__name > :last-child { padding-inline-end: 0.15em; }
