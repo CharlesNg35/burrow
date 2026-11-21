@@ -391,7 +391,7 @@ async fn opens_with_the_main_file(c: &mut Ctx) {
         !c.ui.enabled(REVIEW).await,
         "nothing to review after typing in it"
     );
-    let whole: bool = c.ui.eval(&format!("(() => {{ const n = document.querySelector(\"{} .config-editor-documents__name\"); const last = n.lastElementChild; return getComputedStyle(n).fontStyle === 'italic' && last.textContent.endsWith('.yaml') && parseFloat(getComputedStyle(last).paddingRight) > 0; }})()", tab(TOOL))).await;
+    let whole: bool = c.ui.eval(&format!("(() => {{ const n = document.querySelector(\"{} .config-editor-documents__name\"); const last = [...n.querySelectorAll('.config-editor-documents__name-start, .config-editor-documents__name-end')].pop(); return getComputedStyle(n).fontStyle === 'italic' && !!last && last.textContent.endsWith('.yaml') && parseFloat(getComputedStyle(last).paddingRight) > 0; }})()", tab(TOOL))).await;
     assert!(
         whole,
         "a read-only tab's italic name keeps room for its last letter's slant"
