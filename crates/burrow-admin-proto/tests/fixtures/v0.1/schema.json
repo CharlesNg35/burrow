@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:1f652e1a698a09a0",
+  "hash": "b2s:fc7c7e2968de6f2b",
   "root": {
     "label": "Server",
     "sem": {
@@ -3273,6 +3273,7 @@
           "key": "heartbeat",
           "node": {
             "label": "Heartbeat",
+            "help": "How often the server and each client check that the connection between them is still there",
             "sem": {
               "t": "object",
               "fields": [
@@ -3301,6 +3302,7 @@
           "key": "limits",
           "node": {
             "label": "Limits",
+            "help": "Limits on connections to this server: how many clients and visitors may set up at once, how long that may take, and how many connections each client gets",
             "sem": {
               "t": "object",
               "fields": [
@@ -3374,6 +3376,7 @@
           "key": "pool",
           "node": {
             "label": "Ready connections to clients",
+            "help": "Spare connections each client keeps open to this server, so a new visitor connection starts without waiting",
             "sem": {
               "t": "object",
               "fields": [
@@ -3416,6 +3419,7 @@
           "key": "tcp",
           "node": {
             "label": "TCP",
+            "help": "TCP settings for forwarded connections: keepalive checks on idle connections and sending small writes at once",
             "sem": {
               "t": "object",
               "fields": [
@@ -3454,6 +3458,7 @@
           "key": "udp",
           "node": {
             "label": "UDP",
+            "help": "UDP settings for services with protocol udp: how many senders a port keeps and when a quiet sender is forgotten",
             "sem": {
               "t": "object",
               "fields": [
@@ -3530,6 +3535,7 @@
           "key": "update",
           "node": {
             "label": "Updates",
+            "help": "Whether an admin may update this server to the latest release from burrow admin",
             "sem": {
               "t": "object",
               "fields": [

@@ -276,19 +276,28 @@ fn links(path: &Path) -> Option<u64> {
         .map(|i| i.number_of_links())
 }
 
-pub fn taken(main: &Path, name: &str) -> bool {
-    let there = path_of(main, name).is_some_and(|p| std::fs::symlink_metadata(p).is_ok());
-    there
-        && !list(main)
-            .ok()
-            .flatten()
-            .is_some_and(|l| l.names.iter().any(|n| n == name))
+pub fn clash(main: &Path, name: &str) -> Option<String> {
+    let prefix = drop_in_folder_name(main);
+    let file = name.strip_prefix(&prefix)?.strip_prefix('/')?;
+    let entries = std::fs::read_dir(drop_in_folder(main)).ok()?;
+    let listed = list(main)
+        .ok()
+        .flatten()
+        .map(|l| l.names)
+        .unwrap_or_default();
+    entries
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|e| e.eq_ignore_ascii_case(file))
+        .map(|e| format!("{prefix}/{e}"))
+        .find(|e| e != name || !listed.contains(e))
 }
 
-pub fn taken_message(name: &str) -> String {
-    format!(
-        "{name}: a file or folder with this name already exists (names may differ only in case); pick another name"
-    )
+pub fn clash_message(name: &str, existing: &str) -> String {
+    match existing == name {
+        true => burrow_config::drop_ins::exists_message(name),
+        false => burrow_config::drop_ins::case_clash_message(name, existing),
+    }
 }
 
 pub fn open_to_others(path: &Path) -> bool {

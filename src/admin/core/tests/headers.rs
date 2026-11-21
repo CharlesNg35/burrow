@@ -93,7 +93,7 @@ fn plan_diffs_and_summaries_hide_credential_header_values() {
         assert!(!shown.contains(v), "{v} shows in {shown}");
     }
     assert!(
-        c.plan.diff.unified.contains("X-Api-Key: «hidden»"),
+        c.plan.diff.unified.contains("X-Api-Key: «secret "),
         "{}",
         c.plan.diff.unified
     );
@@ -139,6 +139,6 @@ fn the_history_diff_hides_credential_header_values() {
     assert!(
         reply
             .diff
-            .is_some_and(|d| d.unified.contains("Authorization: «hidden»"))
+            .is_some_and(|d| d.unified.contains("Authorization: «secret "))
     );
 }

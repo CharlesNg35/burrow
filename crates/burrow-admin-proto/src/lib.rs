@@ -13,8 +13,11 @@ pub mod msg;
 pub mod older;
 pub mod ops;
 pub mod plan;
+pub mod requests;
 pub mod schema;
 pub mod status;
+pub mod text_edit;
+pub mod text_search;
 pub mod updates;
 pub mod value;
 pub mod view;
@@ -50,6 +53,8 @@ pub mod features {
     pub const SERVER_UPDATES: &str = "server.updates";
     pub const CONFIG_VIEW: &str = "config.view";
     pub const CHECK_TEXT: &str = "config.check-text";
+    pub const CONFIG_TEXT: &str = "config.text";
+    pub const SEARCH_TEXT: &str = "config.search-text";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -71,5 +76,21 @@ pub mod features {
         SERVER_UPDATES,
         CONFIG_VIEW,
         CHECK_TEXT,
+        CONFIG_TEXT,
+        SEARCH_TEXT,
     ];
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_feature_is_in_the_protocol_doc() {
+        let doc = include_str!("../../../docs/protocol.md");
+        for f in crate::features::ALL {
+            assert!(
+                doc.contains(&format!("| `{f}` |")),
+                "docs/protocol.md has no table row for the feature {f}"
+            );
+        }
+    }
 }

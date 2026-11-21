@@ -104,8 +104,11 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
             "the sidebar shows the IP: {home}"
         );
         c.ui.fill("#list-search", "s17").await;
-        c.ui.wait_gone("[data-testid=entity-list] [data-row=z50]", SECS)
-            .await;
+        c.ui.wait_gone(
+            "[data-testid=entity-list] [data-row=z50]:not([hidden])",
+            SECS,
+        )
+        .await;
         c.ui.wait_for("[data-testid=entity-list] [data-row=home]", SECS)
             .await;
         c.ui.shot("clients-sidebar-search-by-service").await;

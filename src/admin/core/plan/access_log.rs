@@ -69,6 +69,8 @@ pub(super) fn outside(core: &Core, before: &Value, after: &Value) -> Vec<Diag> {
         help: Some(format!("from here, use {}", examples.join(" or "))),
         line: None,
         col: None,
+        end_line: None,
+        end_col: None,
         before: false,
         file: None,
     }]

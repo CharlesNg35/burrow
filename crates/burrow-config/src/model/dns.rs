@@ -25,6 +25,7 @@ pub struct DnsEntry {
         ty = list(host_name),
         help = "The domains whose DNS records this provider can set, for example example.com; each covers every name under it, like wiki.example.com"
     )]
+    #[schemars(example = &["example.com"])]
     pub domains: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Set the records through Cloudflare's API with an API token")]
@@ -65,6 +66,7 @@ pub struct DnsEntry {
         readonly = "Runs a program on the server: set it in server.yaml (see docs/web/certificates.md#a-command-for-any-provider)",
         locked
     )]
+    #[schemars(example = &"/usr/local/bin/burrow-dns")]
     pub command: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
@@ -76,6 +78,7 @@ pub struct DnsEntry {
         help = "Start each with *., for example *.example.com: one certificate for example.com and every site one label under it",
         empty_label = "None"
     )]
+    #[schemars(example = &["*.example.com"])]
     pub wildcards: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -88,6 +91,7 @@ pub struct DnsEntry {
         none_label = "120 seconds",
         advanced
     )]
+    #[schemars(example = 120)]
     pub wait_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
@@ -99,6 +103,7 @@ pub struct DnsEntry {
         empty_label = "The system's",
         advanced
     )]
+    #[schemars(example = &["1.1.1.1"])]
     pub resolvers: Vec<String>,
 }
 
@@ -115,6 +120,7 @@ pub struct CloudflareDns {
         label = "API token",
         help = "An API token with Zone:Read and DNS:Edit permissions, scoped to these zones, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token"
     )]
+    #[schemars(example = &"${CF_DNS_TOKEN}")]
     pub token: String,
 }
 
@@ -129,11 +135,13 @@ pub struct Rfc2136Dns {
     #[admin(
         help = "The zone's primary nameserver with its port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers"
     )]
+    #[schemars(example = &"192.168.1.2:53")]
     pub server: String,
     #[schemars(
         description = "The TSIG key's name, as in the server's key file, for example burrow-key"
     )]
     #[admin(help = "The TSIG key's name, as in the server's key file, for example burrow-key")]
+    #[schemars(example = &"burrow-key")]
     pub key_name: String,
     #[schemars(
         description = "The TSIG secret in base64, as in the server's key file, from ${TSIG_SECRET} or file:path"
@@ -143,6 +151,7 @@ pub struct Rfc2136Dns {
         label = "Key secret",
         help = "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret"
     )]
+    #[schemars(example = &"${TSIG_SECRET}")]
     pub secret: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -153,6 +162,7 @@ pub struct Rfc2136Dns {
         none_label = "hmac-sha256",
         advanced
     )]
+    #[schemars(example = &"hmac-sha512")]
     pub algorithm: Option<String>,
 }
 
@@ -168,6 +178,7 @@ pub struct AcmeDnsDns {
         label = "Server address",
         help = "The acme-dns server's address, for example https://auth.example.org"
     )]
+    #[schemars(example = &"https://auth.example.org")]
     pub api: String,
     #[schemars(description = "The account's user name, from ${ACMEDNS_USER} or file:path")]
     #[admin(
@@ -175,12 +186,14 @@ pub struct AcmeDnsDns {
         label = "User name",
         help = "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file like file:/etc/burrow/acmedns.user"
     )]
+    #[schemars(example = &"${ACMEDNS_USER}")]
     pub username: String,
     #[schemars(description = "The account's password, from ${ACMEDNS_KEY} or file:path")]
     #[admin(
         ty = secret_ref(max = 1, reference),
         help = "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file like file:/etc/burrow/acmedns.key"
     )]
+    #[schemars(example = &"${ACMEDNS_KEY}")]
     pub password: String,
     #[schemars(
         description = "The account's subdomain, for example d420c923-bbd7-4056-ab64-c3ca54c9b3cf"
@@ -188,5 +201,6 @@ pub struct AcmeDnsDns {
     #[admin(
         help = "The account's subdomain, which each name's _acme-challenge CNAME points to, for example d420c923-bbd7-4056-ab64-c3ca54c9b3cf"
     )]
+    #[schemars(example = &"d420c923-bbd7-4056-ab64-c3ca54c9b3cf")]
     pub subdomain: String,
 }

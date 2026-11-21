@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::basic::Tone;
-use crate::icon::Icon;
+use crate::icon::{ICON_LINE, Icon};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Toast {
@@ -102,8 +102,8 @@ pub fn ToastHost(
                                 on:mouseenter=move |_| on_hover.run(true)
                                 on:mouseleave=move |_| on_hover.run(false)
                             >
-                                <span class=t.tone.text()><Icon name=t.tone.icon()/></span>
-                                <span class="flex-1">{t.text.clone()}</span>
+                                <span class=format!("{ICON_LINE} {}", t.tone.text())><Icon name=t.tone.icon()/></span>
+                                <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{t.text.clone()}</span>
                                 {t.action.clone().map(|a| view! {
                                     <button type="button" class="cursor-pointer text-sm font-semibold text-accent-ink hover:underline" on:click=move |_| on_action.run(id)>{a}</button>
                                 })}

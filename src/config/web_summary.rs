@@ -29,7 +29,10 @@ fn account(l: &LetsEncrypt, written: &Written) -> String {
     let directory = match l.directory.as_str() {
         LETSENCRYPT_PRODUCTION => "Let's Encrypt (production)".to_string(),
         LETSENCRYPT_STAGING => "Let's Encrypt (staging)".to_string(),
-        other => format!("the ACME server {}", written.shown(other)),
+        other => format!(
+            "the ACME server {}",
+            burrow_syntax::secret_fmt::hide_value_url_passwords(written.shown(other))
+        ),
     };
     let mut out = format!("{directory} as {}", written.shown(&l.email));
     if let Some(p) = &l.profile {
@@ -362,7 +365,7 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
     let hosts = with_ports(s, web, routes::hosts(web));
     let (https, addresses) = shown(web.https);
     let (http, http_addresses) = shown(web.http);
-    Some(WebSummary {
+    Some(crate::base::redact::data(WebSummary {
         https,
         addresses,
         http,
@@ -388,7 +391,7 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
             (true, false) => "HTTP/1.1 only".into(),
         },
         wildcards: wildcard_lines(web),
-    })
+    }))
 }
 
 #[cfg(feature = "web")]

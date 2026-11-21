@@ -6,6 +6,9 @@ mod session;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use session::encode;
 pub use session::{Access, run};
 
 pub const PING: Duration = Duration::from_secs(25);

@@ -20,14 +20,14 @@ const ENV_TOKEN: &str = "cf-env-token-from-env-file-31";
 const ENV_PASS: &str = "acme-dns-env-pass-from-env-file-42";
 const ENV_HEADER: &str = "upstream-env-header-value-53";
 
-struct Secrets {
-    world: World,
-    office: [Secret; 2],
-    phone: Secret,
-    text: String,
+pub(super) struct Secrets {
+    pub(super) world: World,
+    pub(super) office: [Secret; 2],
+    pub(super) phone: Secret,
+    pub(super) text: String,
 }
 
-fn every_secret() -> Secrets {
+pub(super) fn every_secret() -> Secrets {
     let world = world();
     let office = [Secret::generate(), Secret::generate()];
     let phone = Secret::generate();
@@ -61,7 +61,7 @@ fn every_secret() -> Secrets {
     }
 }
 
-fn core_of(s: &Secrets, laptop: &Secret) -> Core {
+pub(super) fn core_of(s: &Secrets, laptop: &Secret) -> Core {
     let mut core = core_running(&s.text, &s.world.text);
     let vars = [
         ("PHONE_SECRET", s.phone.encode()),
@@ -78,7 +78,7 @@ fn core_of(s: &Secrets, laptop: &Secret) -> Core {
     core
 }
 
-fn never_shown(s: &Secrets, laptop: &Secret) -> Vec<String> {
+pub(super) fn never_shown(s: &Secrets, laptop: &Secret) -> Vec<String> {
     let mut out: Vec<String> = LITERALS.iter().map(|l| l.to_string()).collect();
     out.extend([ENV_TOKEN, ENV_PASS, ENV_HEADER].map(str::to_string));
     out.extend(

@@ -138,11 +138,11 @@ impl Mapper {
     }
 
     pub fn convert(&self, d: &Diagnostic) -> Diag {
-        let path = d
-            .span
-            .filter(|s| s.start.line > 0)
+        let placed = d.span.filter(|s| s.start.line > 0);
+        let path = placed
             .and_then(|s| self.path_at(s))
             .map(|p| own_field(d, p));
+        let end = placed.filter(|s| s.end.line > 0 && s.end.offset > s.start.offset);
         let also = also(d, path.as_deref());
         Diag {
             severity: match d.severity {
@@ -155,14 +155,10 @@ impl Mapper {
             also,
             label: d.label.as_deref().map(mask_text),
             help: d.help.as_deref().map(mask_text),
-            line: d
-                .span
-                .filter(|s| s.start.line > 0)
-                .map(|s| s.start.line as u32),
-            col: d
-                .span
-                .filter(|s| s.start.line > 0)
-                .map(|s| s.start.col as u32),
+            line: placed.map(|s| s.start.line as u32),
+            col: placed.map(|s| s.start.col as u32),
+            end_line: end.map(|s| s.end.line as u32),
+            end_col: end.map(|s| s.end.col as u32),
             before: false,
             subjects: d.subjects.clone(),
             file: d
@@ -195,6 +191,28 @@ mod tests {
             ["services", "web", "bind"]
         );
         assert_eq!(m.path_at(at("web")).unwrap(), ["services", "web"]);
+    }
+
+    #[test]
+    fn a_diagnostic_over_a_value_says_where_it_ends() {
+        let text = "services:\n  web:\n    bind: nonsense\n";
+        let root = crate::config::tree::parse(text).unwrap();
+        let value = root
+            .get("services")
+            .unwrap()
+            .get("web")
+            .unwrap()
+            .get("bind")
+            .unwrap();
+        let m = Mapper::new(Some(&root));
+        let mut d = Diagnostic::error("x", "not an address");
+        d.span = Some(value.span);
+        let shown = m.convert(&d);
+        assert_eq!((shown.line, shown.col), (Some(3), Some(11)));
+        assert_eq!((shown.end_line, shown.end_col), (Some(3), Some(19)));
+        d.span = Some(Span::point(value.span.start));
+        let point = m.convert(&d);
+        assert_eq!((point.end_line, point.end_col), (None, None));
     }
 
     #[test]

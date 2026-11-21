@@ -53,8 +53,15 @@ pub fn keys() -> BTreeSet<String> {
 fn is_test(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|a| {
         a.path().is_ident("cfg")
-            && matches!(&a.meta, syn::Meta::List(l) if l.tokens.to_string() == "test")
+            && matches!(&a.meta, syn::Meta::List(l) if test_only(&l.tokens.to_string()))
     })
+}
+
+fn test_only(cfg: &str) -> bool {
+    cfg == "test"
+        || cfg
+            .strip_prefix("all (")
+            .is_some_and(|rest| rest.starts_with("test ,"))
 }
 
 struct StripTests;
@@ -224,6 +231,10 @@ mod tests {
         assert!(problems_in("x.rs", only_tests, &keys).unwrap().is_empty());
         let shipped = "#![cfg(not(test))]\nfn a() { let x = \"bind\"; }\n";
         assert_eq!(problems_in("x.rs", shipped, &keys).unwrap().len(), 1);
+        let gated = "#[cfg(all(test, feature = \"bind\"))]\nuse a::b;\n";
+        assert!(problems_in("x.rs", gated, &keys).unwrap().is_empty());
+        let not_test = "#[cfg(all(unix, feature = \"bind\"))]\nuse a::b;\n";
+        assert_eq!(problems_in("x.rs", not_test, &keys).unwrap().len(), 1);
     }
 
     #[test]

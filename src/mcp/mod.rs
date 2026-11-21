@@ -8,6 +8,7 @@ pub mod handover;
 pub mod http;
 pub mod journal;
 pub mod mode;
+mod ops;
 pub mod plans;
 pub mod setup;
 pub mod startup;

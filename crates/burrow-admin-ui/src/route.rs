@@ -153,6 +153,16 @@ pub fn go(route: Route) {
 
 pub type Query = Option<(&'static str, &'static str)>;
 
+pub fn file_tab() -> (Route, Query) {
+    (
+        Route::Settings,
+        Some((
+            TAB_QUERY,
+            burrow_admin_logic::settings_tabs::Tab::File.key(),
+        )),
+    )
+}
+
 fn href_with(route: &Route, query: Option<(&str, &str)>) -> String {
     match query {
         Some((k, v)) => format!("{}?{k}={}", href(route), encode(v)),
@@ -164,6 +174,10 @@ pub fn go_query(route: Route, query: Query) {
     go_with(store(), route, query);
 }
 
+pub fn go_query_in(s: crate::store::Store, route: Route, query: Query) {
+    go_with(s, route, query);
+}
+
 pub fn go_search(route: Route, text: &str) {
     go_with(store(), route, Some((SEARCH_QUERY, text)));
 }
@@ -173,9 +187,27 @@ pub fn go_in(s: crate::store::Store, route: Route) {
 }
 
 fn go_with(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
-    if s.route.get_untracked() == route && query.is_none() {
+    go_guarded(s, route, query, None);
+}
+
+pub fn go_then(s: crate::store::Store, route: Route, query: Query, after: impl Fn() + 'static) {
+    go_guarded(s, route, query, Some(std::rc::Rc::new(after)));
+}
+
+type After = Option<std::rc::Rc<dyn Fn()>>;
+
+fn go_guarded(s: crate::store::Store, route: Route, query: Option<(&str, &str)>, after: After) {
+    if (s.route.get_untracked() == route && query.is_none()) || href_with(&route, query) == here() {
         return;
     }
+    go_now(s, route, query);
+    if let Some(f) = after {
+        f();
+    }
+}
+
+fn go_now(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
+    s.text.capture();
     if let Ok(h) = window().history() {
         let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&href_with(&route, query)));
     }
@@ -186,6 +218,15 @@ fn go_with(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
     s.route.set(route);
     s.query_seen.update(|n| *n += 1);
     window().scroll_to_with_x_and_y(0.0, 0.0);
+}
+
+pub fn here() -> String {
+    let l = window().location();
+    format!(
+        "{}{}",
+        l.pathname().unwrap_or_default(),
+        l.search().unwrap_or_default()
+    )
 }
 
 #[component]

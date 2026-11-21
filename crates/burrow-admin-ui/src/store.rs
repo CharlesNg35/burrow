@@ -90,9 +90,35 @@ pub struct Store {
     pub server_updating: RwSignal<OwnJob>,
     pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,
+    pub text: crate::edit::TextEdit,
+    pub list_groups: RwSignal<std::collections::BTreeMap<&'static str, ListGroups>>,
+    pub more_open: StoredValue<std::collections::BTreeMap<String, bool>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grouping {
+    Flat,
+    ByFile,
+}
+
+impl Grouping {
+    pub fn default_for(files: usize) -> Self {
+        if files >= 3 {
+            Grouping::ByFile
+        } else {
+            Grouping::Flat
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListGroups {
+    pub mode: Option<Grouping>,
+    pub closed: std::collections::BTreeSet<String>,
 }
 
 pub const REVIEW: &str = "Review";
+pub const TEXT_FIRST_ACTION: &str = "Open Raw config";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Retry {
@@ -115,6 +141,10 @@ impl OwnJob {
 
 impl Store {
     pub fn new(route: Route) -> Self {
+        let text = crate::edit::TextEdit::new();
+        let changed = RwSignal::new(None);
+        let edit = Edit::held_by(Signal::derive(move || text.dirty()));
+        text.watch_banner(changed, Signal::derive(move || edit.dirty()));
         Store {
             conn: RwSignal::new(Conn::Connecting),
             opened: RwSignal::new(0),
@@ -138,7 +168,7 @@ impl Store {
             admin_down: RwSignal::new(false),
             now: RwSignal::new(js_sys::Date::now()),
             history: RwSignal::new(None),
-            changed: RwSignal::new(None),
+            changed,
             changed_from: RwSignal::new((String::new(), 0.0)),
             added_at: RwSignal::new(std::collections::BTreeMap::new()),
             rev_at: RwSignal::new(std::collections::BTreeMap::new()),
@@ -150,7 +180,10 @@ impl Store {
             error: RwSignal::new(None),
             server_updating: RwSignal::new(OwnJob::Idle),
             retry: RwSignal::new(None),
-            edit: Edit::new(),
+            edit,
+            text,
+            list_groups: RwSignal::new(std::collections::BTreeMap::new()),
+            more_open: StoredValue::new(std::collections::BTreeMap::new()),
         }
     }
 
@@ -229,6 +262,10 @@ impl Store {
         self.can_write_now() && untrack(|| self.item_locked(item)).is_none()
     }
 
+    pub fn unsaved(&self) -> bool {
+        self.edit.dirty() || self.text.dirty()
+    }
+
     pub fn can_write_now(&self) -> bool {
         untrack(|| self.can_write())
     }
@@ -261,7 +298,14 @@ impl Store {
         set_timeout(move || me.drop_toast(id), std::time::Duration::from_secs(5));
     }
 
+    pub fn text_first(&self) {
+        self.toast(Tone::Info, crate::edit::TEXT_FIRST, Some(TEXT_FIRST_ACTION));
+    }
+
     pub fn added_to_changes(&self) {
+        if untrack(|| self.text.dirty()) {
+            return;
+        }
         self.toast(Tone::Success, "Added to changes", Some(REVIEW));
     }
 
@@ -392,12 +436,20 @@ pub fn short_rev(rev: &str) -> String {
         .collect()
 }
 
+thread_local! {
+    static PAGE: std::cell::Cell<Option<Store>> = const { std::cell::Cell::new(None) };
+}
+
+pub fn set_page(s: Store) {
+    PAGE.with(|p| p.set(Some(s)));
+}
+
 pub fn store() -> Store {
-    expect_context::<Store>()
+    try_store().expect("the page's store")
 }
 
 pub fn try_store() -> Option<Store> {
-    use_context::<Store>()
+    use_context::<Store>().or_else(|| PAGE.with(std::cell::Cell::get))
 }
 
 pub fn on_reconnect(again: impl Fn() + 'static) {

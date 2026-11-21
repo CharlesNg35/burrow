@@ -69,6 +69,15 @@ async fn wizard_steps(c: &mut Ctx) {
     );
     c.ui.fill("[data-testid=new-website-email] input", "ops@example.com")
         .await;
+    c.ui.viewport(1280, 900).await;
+    let off: f64 = c
+        .ui
+        .eval("(() => { const t = document.querySelector('[data-testid=new-website-target] [data-parts=network]'); const port = t.querySelector('input[inputmode=numeric]').getBoundingClientRect(); const toggle = t.querySelector('[id$=-range]').closest('.ml-4').getBoundingClientRect(); return Math.abs((port.top + port.height / 2) - (toggle.top + toggle.height / 2)); })()")
+        .await;
+    assert!(
+        off <= 2.0,
+        "Port range stays on the port's line at 1280 px: {off} px off"
+    );
     three(c, "wizard-no-check").await;
     tls(c, "internal").await;
     let lan = problem(c, "is not a name on your network").await;

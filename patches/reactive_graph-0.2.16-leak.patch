@@ -1,0 +1,267 @@
+diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/Cargo.toml reactive_graph/Cargo.toml
+--- a/Cargo.toml	2006-07-24 01:21:28.000000000 +0000
++++ b/Cargo.toml	2026-11-21 09:54:55.871627718 +0000
+@@ -51,6 +51,10 @@
+ path = "src/lib.rs"
+ 
+ [[test]]
++name = "flat_memory"
++path = "tests/flat_memory.rs"
++
++[[test]]
+ name = "async_derived"
+ path = "tests/async_derived.rs"
+ 
+@@ -177,6 +181,10 @@
+ features = ["console"]
+ default-features = false
+ 
++[lints.rust.unused]
++level = "allow"
++priority = -1
++
+ [lints.rust.unexpected_cfgs]
+ level = "warn"
+ priority = 0
+@@ -184,3 +192,5 @@
+     "cfg(leptos_debuginfo)",
+     "cfg(rustc_nightly)",
+ ]
++
++[workspace]
+diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/src/graph/sets.rs reactive_graph/src/graph/sets.rs
+--- a/src/graph/sets.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/src/graph/sets.rs	2026-11-21 08:47:44.179468073 +0000
+@@ -69,6 +69,15 @@
+     }
+ 
+     pub fn subscribe(&mut self, subscriber: AnySubscriber) {
++        // A subscriber dropped without running again (such as a removed
++        // `<For>` row's render effect) never unsubscribes itself. Drop such
++        // entries when the set would reallocate; `retain` keeps the order
++        // `unsubscribe` relies on. See `OwnerInner::push_child` for why the
++        // reserve keeps this amortized O(1).
++        if self.0.len() == self.0.capacity() {
++            self.0.retain(|subscriber| subscriber.1.strong_count() > 0);
++            self.0.reserve(self.0.len());
++        }
+         self.0.insert(subscriber);
+     }
+ 
+diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/src/owner.rs reactive_graph/src/owner.rs
+--- a/src/owner.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/src/owner.rs	2026-11-21 08:47:44.179468073 +0000
+@@ -180,11 +180,7 @@
+             shared_context,
+         };
+         if let Some(parent) = parent.and_then(|n| n.upgrade()) {
+-            parent
+-                .write()
+-                .or_poisoned()
+-                .children
+-                .push(Arc::downgrade(&this.inner));
++            parent.write().or_poisoned().push_child(&this.inner);
+         }
+         this
+     }
+@@ -257,7 +253,7 @@
+             #[cfg(feature = "hydration")]
+             shared_context: self.shared_context.clone(),
+         };
+-        inner.children.push(Arc::downgrade(&child.inner));
++        inner.push_child(&child.inner);
+         child
+     }
+ 
+@@ -505,6 +501,23 @@
+     paused: bool,
+ }
+ 
++impl OwnerInner {
++    fn push_child(&mut self, child: &Arc<RwLock<OwnerInner>>) {
++        // Prune dead `Weak`s when `children` would reallocate: a long-lived
++        // parent, such as a `<For>` whose rows come from `Owner::new`, would
++        // otherwise accumulate them and walk them on cleanup. Reserving room
++        // for the live children makes the next scan wait at least that many
++        // pushes, so this stays amortized O(1) even when few die in between.
++        if !self.children.is_empty()
++            && self.children.len() == self.children.capacity()
++        {
++            self.children.retain(|child| child.strong_count() > 0);
++            self.children.reserve(self.children.len());
++        }
++        self.children.push(Arc::downgrade(child));
++    }
++}
++
+ impl Debug for OwnerInner {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         f.debug_struct("OwnerInner")
+@@ -601,6 +614,38 @@
+     };
+     use std::{sync::mpsc, thread, time::Duration};
+ 
++    // A long-lived parent under which many short-lived children are created and
++    // dropped must not accumulate dead `Weak` refs: `child` prunes them when
++    // the `children` Vec would otherwise grow.
++    #[test]
++    fn dropped_children_do_not_leak_weak_refs() {
++        let parent = Owner::new();
++
++        for _ in 0..10_000 {
++            let child = parent.child();
++            drop(child);
++        }
++
++        let len = parent.inner.read().or_poisoned().children.len();
++        assert!(len <= 64, "parent accumulated {len} dead child Weak refs");
++    }
++
++    // The same holds for owners created with `Owner::new` under a current
++    // owner, as `<For>` creates the owner of each row.
++    #[test]
++    fn dropped_owners_created_under_a_parent_do_not_leak_weak_refs() {
++        let parent = Owner::new();
++
++        parent.with(|| {
++            for _ in 0..10_000 {
++                drop(Owner::new());
++            }
++        });
++
++        let len = parent.inner.read().or_poisoned().children.len();
++        assert!(len <= 64, "parent accumulated {len} dead child Weak refs");
++    }
++
+     fn does_not_deadlock(f: impl FnOnce() + Send + 'static) -> bool {
+         let (tx, rx) = mpsc::channel();
+         thread::spawn(move || {
+diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/src/signal/arc_rw.rs reactive_graph/src/signal/arc_rw.rs
+--- a/src/signal/arc_rw.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/src/signal/arc_rw.rs	2026-11-21 08:47:44.179468073 +0000
+@@ -277,3 +277,59 @@
+         UntrackedWriteGuard::try_new(Arc::clone(&self.value))
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::ArcRwSignal;
++    use crate::{computed::ArcMemo, traits::Get};
++    use or_poisoned::OrPoisoned;
++
++    // A subscriber that is dropped without running again never removes
++    // itself from the signal's subscriber set: `subscribe` prunes such
++    // entries when the set would otherwise grow.
++    #[test]
++    fn dropped_subscribers_do_not_accumulate_in_signal() {
++        let signal = ArcRwSignal::new(0);
++
++        for _ in 0..10_000 {
++            let memo = ArcMemo::new({
++                let signal = signal.clone();
++                move |_| signal.get()
++            });
++            assert_eq!(memo.get(), 0);
++        }
++
++        let len = signal.inner.read().or_poisoned().len();
++        assert!(len <= 64, "signal kept {len} dead subscribers");
++    }
++
++    // The same for render effects, which is how the views of removed rows
++    // (for example, those of a re-keyed `<For>`) subscribe.
++    #[cfg(feature = "effects")]
++    #[tokio::test]
++    async fn dropped_render_effects_do_not_accumulate_in_signal() {
++        use crate::{effect::RenderEffect, owner::Owner};
++        use any_spawner::Executor;
++        use tokio::task;
++
++        _ = Executor::init_tokio();
++        let owner = Owner::new();
++        owner.set();
++        task::LocalSet::new()
++            .run_until(async {
++                let signal = ArcRwSignal::new(0);
++
++                for _ in 0..10_000 {
++                    let signal = signal.clone();
++                    drop(RenderEffect::new(move |_| {
++                        signal.get();
++                    }));
++                }
++                Executor::tick().await;
++
++                let len = signal.inner.read().or_poisoned().len();
++                assert!(len <= 64, "signal kept {len} dead subscribers");
++            })
++            .await;
++    }
++}
+diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/tests/flat_memory.rs reactive_graph/tests/flat_memory.rs
+--- a/tests/flat_memory.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/tests/flat_memory.rs	2026-11-21 08:48:03.515800990 +0000
+@@ -0,0 +1,62 @@
++// burrow: 1000 mount/unmount cycles under a long-lived owner and signal keep
++// the heap flat. Fails on reactive_graph 0.2.16 without leptos-rs/leptos#4966.
++
++use reactive_graph::{
++    computed::Memo,
++    owner::Owner,
++    signal::RwSignal,
++    traits::{Get, GetUntracked, Set},
++};
++use std::{
++    alloc::{GlobalAlloc, Layout, System},
++    sync::atomic::{AtomicIsize, Ordering::Relaxed},
++};
++
++struct Counting;
++
++static LIVE: AtomicIsize = AtomicIsize::new(0);
++
++// SAFETY: forwards every call to `System` unchanged and only counts sizes.
++unsafe impl GlobalAlloc for Counting {
++    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
++        LIVE.fetch_add(layout.size() as isize, Relaxed);
++        unsafe { System.alloc(layout) }
++    }
++
++    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
++        LIVE.fetch_sub(layout.size() as isize, Relaxed);
++        unsafe { System.dealloc(ptr, layout) }
++    }
++}
++
++#[global_allocator]
++static ALLOC: Counting = Counting;
++
++fn mount_and_unmount(parent: &Owner, signal: RwSignal<u32>, times: usize) {
++    parent.with(|| {
++        for _ in 0..times {
++            let row = Owner::new();
++            row.with(|| {
++                let memo = Memo::new(move |_| signal.get() + 1);
++                assert_eq!(memo.get(), signal.get_untracked() + 1);
++            });
++            row.cleanup();
++            drop(row);
++            signal.set(signal.get_untracked() + 1);
++        }
++    });
++}
++
++#[test]
++fn a_thousand_mount_and_unmount_cycles_keep_memory_flat() {
++    let parent = Owner::new();
++    let signal = parent.with(|| RwSignal::new(0u32));
++    mount_and_unmount(&parent, signal, 1000);
++    let warm = LIVE.load(Relaxed);
++    mount_and_unmount(&parent, signal, 1000);
++    let grown = LIVE.load(Relaxed) - warm;
++    assert!(
++        grown < 64 * 1024,
++        "1000 more cycles kept {grown} bytes (reactive_graph 0.2.16 keeps about 450 per cycle)"
++    );
++}

@@ -5,6 +5,7 @@
 
 mod check_text;
 mod drop_ins;
+mod editor_schema;
 mod files;
 #[cfg(feature = "web")]
 mod headers;
@@ -12,6 +13,7 @@ mod headers;
 mod locks;
 #[cfg(feature = "web")]
 mod locks_web;
+mod masked_diffs;
 mod older;
 #[cfg(feature = "web")]
 mod passwords;
@@ -25,6 +27,8 @@ mod restart;
 mod reverts;
 mod snippets;
 mod status;
+mod text_edit;
+mod text_search;
 mod uploads;
 mod view;
 #[cfg(feature = "web")]
@@ -154,7 +158,22 @@ impl Live for FakeLive {
         self.status.lock().unwrap().clone()
     }
     fn settings(&self) -> Arc<ServerSettings> {
-        Arc::new(settings_of(&self.text.lock().unwrap()))
+        thread_local! {
+            static LAST: std::cell::RefCell<Option<(String, Arc<ServerSettings>)>> =
+                const { std::cell::RefCell::new(None) };
+        }
+        let text = self.text.lock().unwrap().clone();
+        LAST.with(|last| {
+            let mut last = last.borrow_mut();
+            match &*last {
+                Some((t, s)) if *t == text => s.clone(),
+                _ => {
+                    let s = Arc::new(settings_of(&text));
+                    *last = Some((text, s.clone()));
+                    s
+                }
+            }
+        })
     }
     fn sessions(&self) -> Vec<LiveSession> {
         self.sessions.lock().unwrap().clone()

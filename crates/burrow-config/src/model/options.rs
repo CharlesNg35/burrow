@@ -148,6 +148,7 @@ pub struct UdpOptions {
         help = "Most UDP senders one service port keeps at once; a datagram from a new sender beyond it is dropped. For example 20000; the default is 4096",
         applies = live
     )]
+    #[schemars(example = 20000)]
     pub max_peers: u32,
 }
 

@@ -221,7 +221,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
             {move || match diff.get() {
                 None => view! { <div class="p-4"><Skeleton lines=3/></div> }.into_any(),
-                Some(Ok((_, files))) if !files.is_empty() => view! { <div class="p-3" data-testid="activity-files">{crate::review::files::file_diffs(&files, RwSignal::new(false), false)}</div> }.into_any(),
+                Some(Ok((_, files))) if !files.is_empty() => view! { <div class="p-3" data-testid="activity-files">{crate::review::files::file_diffs(&files, RwSignal::new(false), crate::review::files::Offer::Not)}</div> }.into_any(),
                 Some(Ok((lines, _))) => view! { <DiffView lines=lines testid="activity-diff"/> }.into_any(),
                 Some(Err(e)) => view! { <p class="px-4 py-3 text-text-muted">{e}</p> }.into_any(),
             }}

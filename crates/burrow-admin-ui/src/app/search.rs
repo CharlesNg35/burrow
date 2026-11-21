@@ -2,7 +2,7 @@ use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
-use burrow_ui_kit::{Icon, Kbd, Modal};
+use burrow_ui_kit::{Icon, Kbd, Modal, PickHead, PickOption, marked, word_at};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
@@ -16,30 +16,6 @@ struct Hit {
     facet: String,
     go: Route,
     query: Option<(&'static str, &'static str)>,
-}
-
-fn word_at(lower: &str, needle: &str) -> Option<usize> {
-    lower.match_indices(needle).map(|(i, _)| i).find(|&i| {
-        lower[..i]
-            .chars()
-            .next_back()
-            .is_none_or(|c| !c.is_alphanumeric())
-    })
-}
-
-fn marked(label: &str, needle: &str) -> AnyView {
-    let lower = label.to_lowercase();
-    match (!needle.is_empty())
-        .then(|| word_at(&lower, needle).or_else(|| lower.find(needle)))
-        .flatten()
-    {
-        Some(at) if label.is_char_boundary(at) && label.is_char_boundary(at + needle.len()) => {
-            let (a, rest) = label.split_at(at);
-            let (b, c) = rest.split_at(needle.len());
-            view! { <span>{a.to_string()}<span class="font-bold text-accent-ink">{b.to_string()}</span>{c.to_string()}</span> }.into_any()
-        }
-        _ => view! { <span>{label.to_string()}</span> }.into_any(),
-    }
 }
 
 fn search_hits(s: Store, needle: &str) -> Vec<Hit> {
@@ -272,13 +248,15 @@ pub(super) fn SearchPopover() -> impl IntoView {
     });
     let run = move |h: Hit| {
         s.search_open.set(false);
-        route::go(h.go.clone());
-        if let Some((k, v)) = h.query {
-            route::set_query(k, v);
-            if k == "new" {
-                s.creating.set(Some(h.go.section().to_string()));
+        let new = h
+            .query
+            .is_some_and(|(k, _)| k == "new")
+            .then(|| h.go.section().to_string());
+        route::go_then(s, h.go.clone(), h.query, move || {
+            if let Some(sec) = new.clone() {
+                s.creating.set(Some(sec));
             }
-        }
+        });
     };
     let body = move || {
         let list = hits.get();
@@ -291,25 +269,21 @@ pub(super) fn SearchPopover() -> impl IntoView {
         list.into_iter()
             .enumerate()
             .map(|(i, h)| {
-                let head = (h.section != last).then(|| view! { <li class="px-2.5 pt-2.5 pb-1 text-2xs font-bold tracking-[0.08em] text-text-faint uppercase" role="presentation">{h.section}</li> });
+                let head = (h.section != last).then(|| view! { <PickHead text=h.section/> });
                 last = h.section;
                 let h2 = h.clone();
+                let label = marked(&h.label, &needle);
                 view! {
                     {head}
-                    <li role="option" aria-selected=(i == act).to_string()>
-                        <button
-                            type="button"
-                            class="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm"
-                            class:bg-surface-3=i == act
-                            on:mouseenter=move |_| active.set(i)
-                            on:click=move |_| run(h2.clone())
-                        >
-                            <span class="text-text-muted"><Icon name=h.icon/></span>
-                            {marked(&h.label, &needle)}
-                            <span class="ml-auto truncate text-xs text-text-muted">{h.facet.clone()}</span>
-                            {(i == act).then(|| view! { <Kbd text="Enter"/> })}
-                        </button>
-                    </li>
+                    <PickOption
+                        icon=h.icon
+                        active=Signal::derive(move || i == act)
+                        on_hover=Callback::new(move |_| active.set(i))
+                        on_pick=Callback::new(move |_| run(h2.clone()))
+                        note=h.facet.clone()
+                    >
+                        {label}
+                    </PickOption>
                 }
             })
             .collect_view()
@@ -370,21 +344,5 @@ pub(super) fn SearchPopover() -> impl IntoView {
                     <span class="ml-auto">"Searches services, clients, visitors, settings and history"</span>
                 </div>
         </Modal>
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::word_at;
-
-    #[test]
-    fn an_action_matches_where_a_word_starts() {
-        assert_eq!(word_at("rotate secret of etiolles…", "et"), Some(17));
-        assert_eq!(word_at("rotate secret of home…", "et"), None);
-        assert_eq!(
-            word_at("rotate secret of etiolles-ai-pve…", "pve"),
-            Some(29)
-        );
-        assert_eq!(word_at("rotate secret of home…", "secret of"), Some(7));
     }
 }

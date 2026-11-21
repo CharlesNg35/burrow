@@ -68,6 +68,7 @@ pub struct VisitorEntry {
         none_label = "Unlimited",
         advanced
     )]
+    #[schemars(example = 20)]
     pub max_connections: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -93,6 +94,7 @@ pub struct VisitorEntry {
         empty_label = "Any address",
         advanced
     )]
+    #[schemars(example = &["203.0.113.0/24", "10.0.0.0/8"])]
     pub admin_from: Vec<String>,
 }
 
@@ -223,6 +225,7 @@ pub struct ServiceEntry {
         none_label = "No public port",
         cross(target, protocol)
     )]
+    #[schemars(example = 8080, example = &"127.0.0.1:8080", example = &"30000-30010")]
     pub bind: Option<Bind>,
     #[schemars(
         description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
@@ -234,6 +237,7 @@ pub struct ServiceEntry {
         same_len(bind),
         cross(bind, protocol)
     )]
+    #[schemars(example = &"127.0.0.1:3000", example = &"10.0.0.5:22")]
     pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(
@@ -266,6 +270,7 @@ pub struct ServiceEntry {
         description = "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty"
     )]
     #[admin(help = "Only these addresses or networks may connect, for example 203.0.113.0/24 or 10.0.0.0/8", ty = list(cidr), group = access, empty_label = "Empty means everyone may connect")]
+    #[schemars(example = &["203.0.113.0/24", "10.0.0.0/8"])]
     pub allow_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Source IPs or CIDRs that may never connect")]
@@ -276,6 +281,7 @@ pub struct ServiceEntry {
         advanced,
         narrow
     )]
+    #[schemars(example = &["198.51.100.7", "198.51.100.0/24"])]
     pub deny_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -300,6 +306,7 @@ pub struct ServiceEntry {
         wide,
         advanced
     )]
+    #[schemars(example = &"40mbit", example = &"5MB")]
     pub bandwidth: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -382,6 +389,7 @@ pub struct HealthCheck {
         help = "For a website: ask the app for this path through each client, for example /healthz; an answer of 2xx or 3xx counts as up, and the path must not need a login",
         none_label = "Only open a connection"
     )]
+    #[schemars(example = &"/healthz")]
     pub path: Option<String>,
 }
 

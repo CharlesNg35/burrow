@@ -11,6 +11,7 @@ pub mod output;
 pub(crate) mod ports;
 pub mod process;
 pub mod prompt;
+pub mod redact;
 pub mod slots;
 pub mod style;
 pub mod suggest;

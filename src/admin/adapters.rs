@@ -331,8 +331,8 @@ impl Store for FileStore {
         }
     }
 
-    fn taken(&self, name: &str) -> bool {
-        crate::config::docs::taken(&self.path, name)
+    fn clash(&self, name: &str) -> Option<String> {
+        crate::config::docs::clash(&self.path, name)
     }
 
     fn note(&self, entry: &AuditEntry) {

@@ -233,6 +233,17 @@ fn the_messages_say_how_to_write_a_name() {
         "\"*.com\" is too wide; a wildcard needs a parent name, like *.example.com"
     );
     assert!(host_name("nas", R).unwrap_err().contains("a full name"));
+    for numeric in ["ab4f.2.0x", "a.0X1F", "a.0xbeef", "a.123"] {
+        assert!(
+            host_name(numeric, R)
+                .unwrap_err()
+                .contains("or an IP address"),
+            "{numeric}: a last label read as a number, as browsers and rustls read it"
+        );
+    }
+    for name in ["a.0xg", "a.x0", "a.0x-1", "a.10x"] {
+        assert!(host_name(name, R).is_ok(), "{name}");
+    }
     assert!(host_name("", R).unwrap_err().contains("required"));
     assert!(
         host_name("bad_name.example.com", R)

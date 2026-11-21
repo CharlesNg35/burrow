@@ -44,7 +44,7 @@ pub fn check_server(
 
     check_public_address(cfg, listen, websocket.as_ref(), spans, out);
 
-    let mut seen = Vec::new();
+    let mut seen = secrets::Seen::new();
     let clients = check_clients(cfg, spans, &mut seen, out);
 
     super::local::check_reserved(cfg, spans, out);
@@ -218,7 +218,7 @@ fn only_self(cfg: &ServerConfig) -> bool {
 fn check_clients(
     cfg: &ServerConfig,
     spans: &Spans,
-    seen: &mut Vec<([u8; 32], String)>,
+    seen: &mut secrets::Seen,
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, ClientAuth> {
     if cfg.clients.is_empty() && !only_self(cfg) {
@@ -256,7 +256,7 @@ fn check_visitors(
     cfg: &ServerConfig,
     self_allow: Option<&AllowList>,
     spans: &Spans,
-    seen: &mut Vec<([u8; 32], String)>,
+    seen: &mut secrets::Seen,
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, VisitorAuth> {
     let mut visitors = BTreeMap::new();
@@ -356,6 +356,8 @@ fn check_all_services<'a>(
         web: https,
         web_http: http,
         binds: Vec::new(),
+        starts: BTreeMap::new(),
+        widest: 0,
     };
     for (name, svc) in &cfg.services {
         if let Some(service) = check_service(name, svc, &mut taken, spans, out) {
@@ -398,8 +400,18 @@ fn check_service_lists(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
+    let mut by_client: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (service, svc) in services {
+        for c in &svc.clients {
+            let list = by_client.entry(c.as_str()).or_default();
+            if list.last() != Some(&service.as_str()) {
+                list.push(service.as_str());
+            }
+        }
+    }
     for name in clients.keys() {
-        let list = super::super::settings::services_for(services, name);
+        let mine = by_client.get(name.as_str()).map_or(&[][..], Vec::as_slice);
+        let list = super::super::settings::services_info(services, mine);
         let (count, size) = (
             list.len(),
             crate::wire::protocol::ServerMsg::Services(list)

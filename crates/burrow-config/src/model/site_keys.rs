@@ -41,6 +41,7 @@ pub struct RedirectRule {
         label = "Send to",
         help = "A full address or a path on the same name, for example https://example.com/new or /new; the rest of the path and the query are kept"
     )]
+    #[schemars(example = &"https://example.com/new", example = &"/new")]
     pub to: String,
     #[serde(default, skip_serializing_if = "super::is_false")]
     #[schemars(
@@ -87,6 +88,7 @@ pub struct TargetCa {
         help = "The CA that signed the app's certificate, for example certs/corp-ca.pem",
         none_label = "Not set"
     )]
+    #[schemars(example = &"certs/corp-ca.pem")]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -155,6 +157,7 @@ pub struct AccessLogOptions {
         ty = path(relative_to = "config"),
         help = "Where each request is written, one line each, for example logs/access.log"
     )]
+    #[schemars(example = &"logs/access.log")]
     pub file: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "common (the default, like nginx and Apache) or json")]

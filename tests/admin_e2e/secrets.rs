@@ -90,6 +90,11 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=shown-once] [data-tab=file]").await;
         let config = c.ui.text("[data-testid=config-text] pre").await;
         assert!(config.contains("name: lab"), "{config}");
+        assert!(
+            c.ui.eval::<bool>("(() => { const p = document.querySelector('[data-testid=config-text] pre'); return p.scrollHeight <= p.clientHeight + 1; })()")
+                .await,
+            "a short config shows whole, without a scrollbar"
+        );
         assert!(config.contains(&secret), "{config}");
         c.ui.shot("secret-shown-once-with-client-yaml").await;
         c.ui.click("[data-testid=shown-once] [data-tab=commands]")

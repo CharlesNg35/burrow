@@ -48,7 +48,16 @@ async fn file_tab(c: &Ctx) -> String {
             .last()
             .map(String::as_str),
         Some("file"),
-        "Config file is the last Settings tab"
+        "Raw config is the last Settings tab"
+    );
+    let name: String =
+        c.ui.eval(&format!(
+            "document.querySelector('{TABS} [data-tab=file]').textContent.trim()"
+        ))
+        .await;
+    assert!(
+        name.starts_with("Raw config"),
+        "the tab is named Raw config: {name:?}"
     );
     c.ui.wait_text(TEXT, "secrets show as fingerprints", SECS)
         .await
@@ -121,6 +130,45 @@ async fn shots(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
+const BOX: &str = "(() => { const p = document.querySelector('[data-testid=file-text] pre'); return { inner: p.scrollHeight, shown: p.clientHeight, page: document.documentElement.scrollHeight, window: innerHeight, role: p.getAttribute('role'), tab: p.tabIndex, name: p.getAttribute('aria-label'), sideways: p.scrollWidth > p.clientWidth }; })()";
+
+async fn a_long_file_scrolls_in_its_own_box(c: &mut Ctx) {
+    for (w, h, size) in [
+        (1440, 900, "1440"),
+        (390, 844, "390"),
+        (844, 390, "landscape"),
+    ] {
+        c.ui.viewport(w, h).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let b: serde_json::Value = c.ui.eval(BOX).await;
+        let n = |k: &str| b[k].as_f64().unwrap_or(0.0);
+        assert!(
+            n("inner") > n("shown") + 10.0,
+            "{size}: the text scrolls inside its box: {b}"
+        );
+        assert!(
+            n("shown") <= n("window") * 0.8 + 1.0,
+            "{size}: at most 80% of the window: {b}"
+        );
+        assert!(
+            n("shown") >= 240.0_f64.min(n("window")) - 1.0,
+            "{size}: never uselessly small: {b}"
+        );
+        assert!(
+            n("page") < n("inner"),
+            "{size}: the page does not grow with the text: {b}"
+        );
+        assert_eq!(b["role"], "region", "{size}: a named region: {b}");
+        assert_eq!(b["tab"], 0, "{size}: reachable by keyboard: {b}");
+        assert_eq!(
+            b["name"], "server.redacted.yaml",
+            "{size}: named after the file: {b}"
+        );
+        c.ui.view_shot(&format!("file-long-scroll-{size}")).await;
+    }
+    c.ui.viewport(1440, 900).await;
+}
+
 async fn differs_exactly_when_the_file_does(c: &mut Ctx) {
     assert_eq!(c.ui.count(NOTE).await, 0, "the server runs its file");
     c.world
@@ -174,9 +222,15 @@ fn web_and_long(c: &mut Ctx) -> Flow<'_> {
         assert_eq!(
             c.ui.count("[data-testid=edit]").await,
             0,
-            "nothing to edit here"
+            "no form to edit here"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=file-edit]").await,
+            1,
+            "a write admin may edit the text"
         );
         shots(c, "file-written").await;
+        a_long_file_scrolls_in_its_own_box(c).await;
         let all = defaults(c, true).await;
         secret_free(c, &all, hash.as_deref());
         assert!(all.contains("with every default in effect") && all.contains("\nweb:\n"));
@@ -218,6 +272,11 @@ fn read_only(c: &mut Ctx) -> Flow<'_> {
             0
         );
         assert_eq!(c.ui.count("[data-testid=config-file] textarea").await, 0);
+        assert_eq!(
+            c.ui.count("[data-testid=file-edit]").await,
+            0,
+            "a read admin cannot edit the text"
+        );
         assert_eq!(c.ui.count(NOTE).await, 0);
         shots(c, "file-read-only").await;
         c.ui.assert_no_errors();

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use saphyr_parser::{Event, Parser, ScalarStyle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -165,7 +167,7 @@ pub const MAX_DEPTH: usize = 64;
 
 enum Frame {
     Seq(Vec<Node>, Span),
-    Map(Vec<Entry>, Span, Option<(String, Span)>),
+    Map(Vec<Entry>, Span, Option<(String, Span)>, HashSet<String>),
 }
 
 pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
@@ -232,7 +234,7 @@ pub fn parse_in(src: &str, file: FileId) -> Result<Node, Vec<ParseError>> {
                 continue;
             }
             Event::MappingStart(..) => {
-                stack.push(Frame::Map(Vec::new(), span, None));
+                stack.push(Frame::Map(Vec::new(), span, None, HashSet::new()));
                 continue;
             }
             Event::SequenceEnd => match stack.pop() {
@@ -250,7 +252,7 @@ pub fn parse_in(src: &str, file: FileId) -> Result<Node, Vec<ParseError>> {
                 _ => unreachable!("parser emits balanced events"),
             },
             Event::MappingEnd => match stack.pop() {
-                Some(Frame::Map(entries, start, _)) => Node {
+                Some(Frame::Map(entries, start, _, _)) => Node {
                     value: Value::Map(entries),
                     span: Span {
                         file,
@@ -264,7 +266,7 @@ pub fn parse_in(src: &str, file: FileId) -> Result<Node, Vec<ParseError>> {
                 _ => unreachable!("parser emits balanced events"),
             },
             Event::Scalar(text, style, _, _) => {
-                if let Some(Frame::Map(_, _, pending @ None)) = stack.last_mut() {
+                if let Some(Frame::Map(_, _, pending @ None, _)) = stack.last_mut() {
                     *pending = Some((text.to_string(), span));
                     continue;
                 }
@@ -275,7 +277,7 @@ pub fn parse_in(src: &str, file: FileId) -> Result<Node, Vec<ParseError>> {
         match stack.last_mut() {
             None => root = Some(node),
             Some(Frame::Seq(items, _)) => items.push(node),
-            Some(Frame::Map(entries, _, pending)) => match pending.take() {
+            Some(Frame::Map(entries, _, pending, keys)) => match pending.take() {
                 None => {
                     errors.push(ParseError {
                         message: format!("mapping keys must be strings, found {}", node.kind()),
@@ -284,7 +286,7 @@ pub fn parse_in(src: &str, file: FileId) -> Result<Node, Vec<ParseError>> {
                     *pending = Some((String::new(), node.span));
                 }
                 Some((key, key_span)) => {
-                    if entries.iter().any(|e| e.key == key) {
+                    if !keys.insert(key.clone()) {
                         errors.push(ParseError {
                             message: format!("duplicate key \"{key}\""),
                             span: key_span,

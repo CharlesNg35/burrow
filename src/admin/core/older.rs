@@ -23,6 +23,8 @@ pub fn notice(core: &Core, s: &Session, raw: Option<&Value>) -> Option<Diag> {
         help: Some(help),
         line: None,
         col: None,
+        end_line: None,
+        end_col: None,
         before: false,
         subjects: Vec::new(),
         file: None,

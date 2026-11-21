@@ -171,6 +171,12 @@ pub fn finish(
         revertible: true,
         details_kept: true,
         reverts: begun.computed.reverts.clone(),
+        renames: begun
+            .computed
+            .renames
+            .iter()
+            .map(|r| (r.path.clone(), r.to.clone()))
+            .collect(),
     };
     let summary: Vec<&str> = plan.changes.iter().map(|c| c.summary.as_str()).collect();
     match reload {

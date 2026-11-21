@@ -1,5 +1,6 @@
 use std::fmt::Write as _;
 
+use burrow_syntax::secret_fmt::{hide_url_passwords, url_passwords};
 use serde::Serialize;
 
 use crate::base::style::Style;
@@ -29,7 +30,7 @@ impl Diagnostic {
         Diagnostic {
             severity: Severity::Error,
             code,
-            message: message.into(),
+            message: hide_url_passwords(&message.into()),
             span: None,
             label: None,
             help: None,
@@ -51,12 +52,12 @@ impl Diagnostic {
     }
 
     pub fn label(mut self, label: impl Into<String>) -> Self {
-        self.label = Some(label.into());
+        self.label = Some(hide_url_passwords(&label.into()));
         self
     }
 
     pub fn help(mut self, help: impl Into<String>) -> Self {
-        self.help = Some(help.into());
+        self.help = Some(hide_url_passwords(&help.into()));
         self
     }
 
@@ -127,6 +128,15 @@ fn mask_secret_tokens(line: &mut [char]) {
         if crate::wire::secret::Secret::parse(&token).is_ok() {
             line[start..i].iter_mut().for_each(|c| *c = '*');
         }
+    }
+}
+
+fn star_url_passwords(line: &mut [char]) {
+    let text: String = line.iter().collect();
+    for r in url_passwords(&text) {
+        let from = text[..r.start].chars().count();
+        let len = text[r].chars().count();
+        line[from..from + len].iter_mut().for_each(|c| *c = '*');
     }
 }
 
@@ -314,6 +324,7 @@ impl Report {
                 *c = '*';
             }
         }
+        star_url_passwords(&mut line);
         if self.mask_tokens {
             mask_long_tokens(&mut line);
         }
@@ -403,6 +414,16 @@ mod tests {
             text,
             "error: unknown client \"hom\"\n  --> server.yaml:4:13\n   |\n 4 |     client: hom\n   |             ^^^ no client with this name\n   = help: did you mean \"home\"?\n\n"
         );
+    }
+
+    #[test]
+    fn a_url_password_is_starred_before_long_tokens() {
+        let src = "a: https://acme-account-with-a-long-name:pw12@ca.internal/dir ]\n";
+        let mut r = Report::new("server.yaml", src);
+        r.mask_tokens = true;
+        r.push(Diagnostic::error("x", "invalid syntax").at(span(1, 1, 3, 0)));
+        let text = r.render_text(Style { color: false });
+        assert!(!text.contains("pw12"), "{text}");
     }
 
     #[test]

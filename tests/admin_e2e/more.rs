@@ -97,16 +97,25 @@ async fn collapsed_and_remembered(c: &mut Ctx) {
     c.ui.nav("/services/ssh").await;
     settings_tab(c, "/services/web").await;
     assert!(expanded(c, ACCESS).await, "the choice survives navigation");
-    reload(c, "/services/web").await;
-    assert!(expanded(c, ACCESS).await, "the choice survives a reload");
     key_on(c, ACCESS, "Enter").await;
     wait_expanded(c, ACCESS, false).await;
+    c.ui.nav("/services/ssh").await;
+    settings_tab(c, "/services/web").await;
+    assert!(!expanded(c, ACCESS).await, "closing is remembered too");
     key_on(c, ACCESS, " ").await;
     wait_expanded(c, ACCESS, true).await;
-    key_on(c, ACCESS, "Enter").await;
-    wait_expanded(c, ACCESS, false).await;
     reload(c, "/services/web").await;
-    assert!(!expanded(c, ACCESS).await, "closing is remembered too");
+    assert!(
+        !expanded(c, ACCESS).await,
+        "the choice lives in the page's memory: a reload starts closed again"
+    );
+    let stored: usize =
+        c.ui.eval("Object.keys(localStorage).filter(k => k.includes('more')).length")
+            .await;
+    assert_eq!(
+        stored, 0,
+        "nothing about More settings is kept in localStorage"
+    );
 }
 
 async fn set_fields_open(c: &mut Ctx) {

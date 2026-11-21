@@ -11,10 +11,10 @@ The UI never hard-codes the config. The server sends its **schema** (built by `#
 | where | what it holds |
 | --- | --- |
 | `crates/burrow-config/src/model/` | the config model: every key, its label, help, units, examples, groups and relations (`#[admin(...)]`), and typed field paths such as `ServiceEntry::TARGET` |
-| `crates/burrow-admin-logic` | the logic without a browser: checks that mirror the server's (`check`), choice lists for pickers (`choices`), relations (`relations`), "More settings" (`more`), wording (`wording`), the changeset (`changeset`) |
-| `crates/burrow-ui-kit` | generic components: buttons, link buttons, inputs, pickers (`combo`), dialogs, tabs and scroll rows, charts, path diagrams |
+| `crates/burrow-admin-logic` | the logic without a browser: checks that mirror the server's (`check`), choice lists for pickers (`choices`), relations (`relations`), "More settings" (`more`), wording (`wording`), the changeset (`changeset`), Go to's matching and order (`goto`) |
+| `crates/burrow-ui-kit` | generic components: buttons, link buttons, inputs, pickers (`combo`), dialogs, tabs and scroll rows, charts, path diagrams, a part loaded from a lazy chunk (`Deferred`) |
 | `crates/burrow-admin-ui/src/store.rs`, `api.rs`, `route.rs` | the one store (schema, config, status, the draft), the connection to `burrow admin`, the routes |
-| `edit/` | the draft: changes, local errors, validation by the server after each pause, the plan to apply and its change groups |
+| `edit/` | the draft: changes, local errors, validation by the server after each pause, the plan to apply and its change groups; the text edit of the config files (`text.rs`) and its tabs (`tabs.rs`) |
 | `entities.rs` | adding a client, visitor or service to the draft (`create_with`), and the name check of a new one |
 | `format.rs` | how times, sizes and counts read, and a client's presence with this server's reserved names |
 | `field.rs` | what every control gets: `FieldCtx`, `set_checked` (sets a value after the shared check), plain values and links to entries |
@@ -23,7 +23,7 @@ The UI never hard-codes the config. The server sends its **schema** (built by `#
 | `domain/` | one field: `domain::editor(FieldCtx)` picks the control for a schema node by its semantic type (text, number, duration, rate, list, map, address, reference) |
 | `form/` | a whole object: cards and sections, "More settings", read-only view mode, "Reached by", groups of fields that do not apply |
 | `rename.rs` | the rename dialog and the name input of every create and rename |
-| `screens/` | the pages: overview, the services, clients and visitors lists and pages (`entity/`), create wizards (`create/`), paths and flow diagrams, settings, activity; `screens/placement.rs` puts each field on a tab |
+| `screens/` | the pages: overview, the services, clients and visitors lists and pages (`entity/`), create wizards (`create/`), paths and flow diagrams, settings, activity, the Raw config tab with the text editor, Go to and Edit as (`config_file/`), lists grouped by file (`file_groups.rs`); `screens/placement.rs` puts each field on a tab |
 | `review/` | the Review page and its guards |
 | `app/` | the shell: header, search, menus |
 
@@ -35,6 +35,7 @@ These folders are in layers (model, controls, editor, pages; see [CONTRIBUTING.m
 - `src/admin/core/agree.rs` (in the `burrow` crate): the UI's checks and the server's check agree on every value of every semantic type.
 - `src/config/check/tests_codes.rs`: every diagnostic code the UI reads is one validate emits.
 - `crates/burrow-admin-logic/src/diag_words.rs`: every diagnostic reads as plain words.
+- `src/admin/core/tests/editor_schema/` (in the `burrow` crate): the text editor's JSON Schema marks a problem only where burrow's own check has an error (D89).
 - `tests/admin_e2e/`: the browser flows, with screenshots and visual baselines.
 - `tests/admin_e2e/design.js`: before every screenshot, the rules of [Messages, placement and layout](#messages-placement-and-layout); `xtask/src/glyphs.rs`: no symbol the fonts lack.
 
@@ -74,6 +75,8 @@ cargo run -- admin -c dev/visitor.yaml --ui-dir crates/burrow-admin-ui/dist
 
 `burrow admin` opens the browser; after a rebuild, refresh the page. `--ui-dir` serves the files from that folder instead of the embedded copy, and works only in debug builds. The configs in `dev/` hold public secrets: never use them on a real server.
 
+`RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` in the environment would make cargo skip the wasm flags in `.cargo/config.toml`, so `cargo xtask ui` passes the wasm build one `CARGO_ENCODED_RUSTFLAGS` with your flags first, then those config flags and the `-Clink-arg=--emit-relocs` the chunk split needs.
+
 After a UI change, run the browser flows:
 
 ```bash
@@ -105,7 +108,24 @@ cargo test -p burrow-config -p burrow-admin-logic -p burrow-ui-kit -p burrow-adm
 cargo xtask ui --release && cargo xtask size --budget                                     # the release build and its size gate
 ```
 
-The size gate allows 2 MiB of gzipped WebAssembly and 2.4 MiB for all UI assets with the fonts, and warns above 90 % of either. The room is for necessary improvements, not a reason to add code.
+The size gate allows 2 MiB of gzipped WebAssembly for the main module, 3.5 MiB for all WebAssembly with the lazy chunks, and 0.4 MiB more for the fonts, CSS, JavaScript and HTML (3.9 MiB in all), and warns above 90 % of each. The room is for necessary improvements, not a reason to add code.
+
+**Lazy chunks.** A large part that only some admins open (the raw config editor) can load on demand from its own WebAssembly chunk, so the first page stays small. Mark one function as the split point and show it through `burrow_ui_kit::Deferred`, which shows "Loading …" and, when the chunk cannot be fetched, a "Try again" button:
+
+```rust
+// crates/burrow-admin-ui/src/screens/example.rs
+#[leptos::wasm_split::wasm_split(big_part, wasm_split_path = ::leptos::wasm_split, fallible)]
+fn big_part(props: BigProps) -> Result<AnyView, burrow_ui_kit::LoadFailed> {
+    Ok(view! { <BigPart props/> }.into_any())
+}
+
+view! { <Deferred load=move || big_part(props.clone()) what="the big part"/> }
+```
+
+- Everything only that function reaches moves into `split_big_part-<hash>.wasm`; `cargo xtask ui` splits the module with `wasm_split_cli_support` before wasm-bindgen and writes a small loader, `__wasm_split.<hash>.js`. `cargo xtask size` reports the main wasm and the chunks apart.
+- Use `fallible`, not Leptos' `#[lazy]`: without it a failed fetch panics, and a panic stops the whole UI.
+- The function takes its arguments by value and returns `Result<AnyView, LoadFailed>`; it is called again on "Try again".
+- No wasm may use WebAssembly SIMD, so burrow admin keeps working in browsers without it (Safari before 16.4); `cargo xtask ui` fails naming the file that does. One crate with a `#[target_feature(enable = "simd128")]` function is enough to put SIMD into the whole module (D88).
 
 On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).
 

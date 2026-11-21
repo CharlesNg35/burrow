@@ -73,6 +73,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-ui-kit",
             "burrow-syntax",
             "console_error_panic_hook",
+            "leptos-config-editor",
         ],
         &["serde_json", "burrow-web"],
     ),

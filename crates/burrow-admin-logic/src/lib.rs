@@ -15,6 +15,8 @@ pub mod entity;
 pub mod entries;
 pub mod fallback;
 pub mod files;
+pub mod free_port;
+pub mod goto;
 pub mod health;
 pub mod history;
 pub mod input;

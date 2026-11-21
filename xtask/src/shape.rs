@@ -305,6 +305,8 @@ fn header_shape(path: &str, src: &str, header_lines: usize) -> Option<String> {
     }
 }
 
+pub(crate) const VENDORED: &str = "patches/";
+
 pub(crate) fn tracked(root: &Path) -> Result<Vec<String>, String> {
     let out = Command::new("git")
         .args(["ls-files", "-z", "--", "*.rs"])
@@ -319,7 +321,7 @@ pub(crate) fn tracked(root: &Path) -> Result<Vec<String>, String> {
     }
     Ok(String::from_utf8_lossy(&out.stdout)
         .split('\0')
-        .filter(|p| !p.is_empty())
+        .filter(|p| !p.is_empty() && !p.starts_with(VENDORED))
         .map(str::to_string)
         .collect())
 }

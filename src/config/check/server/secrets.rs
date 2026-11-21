@@ -9,12 +9,14 @@ use crate::wire::noise::MAX_SECRETS_PER_CLIENT;
 use crate::wire::secret::Secret;
 use burrow_config::{Secrets, WebSocketConfig};
 
+pub(super) type Seen = std::collections::HashMap<[u8; 32], String>;
+
 pub(super) fn check_secrets(
     kind: &str,
     name: &str,
     secret: &Secrets,
     spans: &Spans,
-    seen: &mut Vec<([u8; 32], String)>,
+    seen: &mut Seen,
     out: &mut Vec<Diagnostic>,
 ) -> Vec<Secret> {
     let section = match kind {
@@ -59,7 +61,7 @@ pub(super) fn check_secrets(
         };
         match Secret::parse(text) {
             Ok(s) => {
-                if let Some((_, other)) = seen.iter().find(|(b, _)| b == s.as_bytes()) {
+                if let Some(other) = seen.get(s.as_bytes()) {
                     let msg = if *other == owner {
                         format!("{owner} lists the same secret twice")
                     } else {
@@ -80,7 +82,7 @@ pub(super) fn check_secrets(
                             )),
                     );
                 }
-                seen.push((*s.as_bytes(), owner.clone()));
+                seen.entry(*s.as_bytes()).or_insert_with(|| owner.clone());
                 secrets.push(s);
             }
             Err(e) => out.push(secret_error(&owner, &e, span)),

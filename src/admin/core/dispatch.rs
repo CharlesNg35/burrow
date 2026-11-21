@@ -37,6 +37,11 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
             let r: ShownRequest = parse(body)?;
             ok(view::config_view(core, r.show)?)
         }
+        msg::req::CONFIG_TEXT => ok(super::text_edit::config_text(core)?),
+        msg::req::SEARCH_TEXT => {
+            let r: burrow_admin_proto::text_search::SearchText = parse(body)?;
+            ok(super::text_edit::search_text(core, &r)?)
+        }
         msg::req::VALIDATE => {
             let r: msg::Validate = parse(body)?;
             if !s.writes() {

@@ -180,6 +180,12 @@ services:
 
 - **Off until the folder exists.** Only the server reads one; clients and visitors keep one file. For an installed service the folder is `/etc/burrow/<name>/server.d/` (Windows: next to `server.yaml` in the same folder); in Docker, `/etc/burrow/server.d/` next to `/etc/burrow/server.yaml`.
 - **Which files.** Every file ending in `.yaml`, in name order. Hidden files and other names are skipped, so rename a file to `blog.yaml.off` to switch it off. A `.yml` or `.json` file gets a warning that it is not read.
+- **Names burrow makes.** A drop-in file that burrow admin or `burrow mcp` creates is named `server.d/<name>.yaml`, where `<name>` works on Linux, macOS and Windows:
+  - only letters, digits, dots, dashes and underscores;
+  - not starting with a dot or a dash, not ending with a dot, and without `..`;
+  - at most 100 characters before `.yaml`;
+  - not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM0`…`COM9`, `LPT0`…`LPT9`, also before another dot, like `con.blog`);
+  - not the name of an existing file, also in other upper and lower case (`Blog.yaml` next to `blog.yaml`), since macOS and Windows treat those as one file.
 - **What goes in them.** Only `services`, `clients` and `visitors`. Server-wide settings (`listen`, `web`, `limits` …) belong in `server.yaml`; one in a drop-in file is an error at its line.
 - **One name, one place.** The same service, client or visitor name in two files is an error that names both places. Nothing is merged or overridden.
 - **Permissions.** A drop-in file, or the folder, that every user on the machine can change (`chmod o+w`) is refused with an error, so the server does not load the set. A drop-in that every user can read gets the same warning as `server.yaml`. `${VAR}` works as in `server.yaml`.

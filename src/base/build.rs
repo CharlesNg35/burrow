@@ -1,3 +1,5 @@
+pub const WEB_PROXY: bool = cfg!(feature = "web");
+
 pub fn os() -> &'static str {
     if cfg!(target_os = "linux") {
         "linux"

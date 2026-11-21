@@ -27,8 +27,12 @@ mod editors;
 mod edits;
 #[path = "admin_e2e/entries.rs"]
 mod entries;
+#[path = "admin_e2e/file_groups.rs"]
+mod file_groups;
 #[path = "admin_e2e/files.rs"]
 mod files;
+#[path = "admin_e2e/free_port.rs"]
+mod free_port;
 #[path = "admin_e2e/guards.rs"]
 mod guards;
 #[path = "admin_e2e/header.rs"]
@@ -41,6 +45,8 @@ mod le_places;
 mod letsencrypt;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
+#[path = "admin_e2e/long_names.rs"]
+mod long_names;
 #[path = "admin_e2e/modes.rs"]
 mod modes;
 #[path = "admin_e2e/more.rs"]
@@ -59,6 +65,8 @@ mod reconnects;
 mod releases;
 #[path = "admin_e2e/reverts.rs"]
 mod reverts;
+#[path = "admin_e2e/review_paths.rs"]
+mod review_paths;
 #[path = "admin_e2e/screens.rs"]
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
@@ -79,6 +87,14 @@ mod site_keys;
 mod table_shots;
 #[path = "admin_e2e/tables.rs"]
 mod tables;
+#[path = "admin_e2e/text_edit.rs"]
+mod text_edit;
+#[path = "admin_e2e/text_goto.rs"]
+mod text_goto;
+#[path = "admin_e2e/text_sticky.rs"]
+mod text_sticky;
+#[path = "admin_e2e/text_tabs.rs"]
+mod text_tabs;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
 #[path = "admin_e2e/updates.rs"]
@@ -398,13 +414,20 @@ async fn ax_clean(c: &Ctx, screen: &str) {
     );
 }
 
-pub const ADORNMENTS: &str = "(() => { const bad = []; for (const i of document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea')) { const r = i.getBoundingClientRect(); if (!r.width || !r.height) continue; const cs = getComputedStyle(i); const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft); const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight); const around = i.closest('[data-adorned]') || i.parentElement; for (const a of around.querySelectorAll('*')) { if (a === i || a.contains(i)) continue; const pos = getComputedStyle(a).position; if (!a.hasAttribute('data-adornment') && pos !== 'absolute' && pos !== 'fixed') continue; const q = a.getBoundingClientRect(); if (!q.width || !q.height) continue; if (Math.min(right, q.right) - Math.max(left, q.left) > 0.5 && Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top) > 0.5) bad.push((i.id || i.name || 'input') + ': ' + (a.textContent || a.tagName).trim().slice(0, 40)); } } return bad; })()";
+pub const ADORNMENTS: &str = "(() => { const bad = []; for (const i of document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea')) { if (i.closest('.config-editor, .config-editor-documents')) continue; const r = i.getBoundingClientRect(); if (!r.width || !r.height) continue; const cs = getComputedStyle(i); const left = r.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft); const right = r.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight); const around = i.closest('[data-adorned]') || i.parentElement; for (const a of around.querySelectorAll('*')) { if (a === i || a.contains(i)) continue; const pos = getComputedStyle(a).position; if (!a.hasAttribute('data-adornment') && pos !== 'absolute' && pos !== 'fixed') continue; const q = a.getBoundingClientRect(); if (!q.width || !q.height) continue; if (Math.min(right, q.right) - Math.max(left, q.left) > 0.5 && Math.min(r.bottom, q.bottom) - Math.max(r.top, q.top) > 0.5) bad.push((i.id || i.name || 'input') + ': ' + (a.textContent || a.tagName).trim().slice(0, 40)); } } return bad; })()";
+
+pub const ADORNMENTS_ALIGNED: &str = "(() => { const bad = []; for (const i of document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio])')) { if (i.closest('.config-editor, .config-editor-documents')) continue; const r = i.getBoundingClientRect(); if (!r.width || !r.height) continue; const box = i.closest('[data-adorned]') || i; const b = box.getBoundingClientRect(); const id = i.id || i.name || 'input'; if (box.className.includes('h-[38px]') && Math.abs(b.height - 38) > 0.5) bad.push(id + ': the field is ' + b.height + ' px high, not 38'); if (box === i) continue; const ci = getComputedStyle(i); const mid = r.top + r.height / 2; for (const a of box.querySelectorAll('[data-adornment]')) { const q = a.getBoundingClientRect(); if (!q.width) continue; const ca = getComputedStyle(a); if (ca.fontSize !== ci.fontSize || ca.fontFamily !== ci.fontFamily) bad.push(id + ': ' + a.textContent + ' is ' + ca.fontSize + ' ' + ca.fontFamily.slice(0, 20) + ', the text ' + ci.fontSize + ' ' + ci.fontFamily.slice(0, 20)); const d = q.top + q.height / 2 - mid; if (Math.abs(d) > 1) bad.push(id + ': ' + a.textContent + ' sits ' + d.toFixed(1) + ' px off the text'); } } return bad; })()";
 
 pub async fn adornments_clear(c: &Ctx, at: &str) {
     let bad: Vec<String> = c.ui.eval(ADORNMENTS).await;
     assert!(
         bad.is_empty(),
         "{at}: a prefix, suffix or icon is drawn over the typed text: {bad:?}"
+    );
+    let bad: Vec<String> = c.ui.eval(ADORNMENTS_ALIGNED).await;
+    assert!(
+        bad.is_empty(),
+        "{at}: a field is squashed or its prefix or suffix is off its text: {bad:?}"
     );
 }
 
@@ -416,12 +439,12 @@ pub async fn baseline_of(c: &mut Ctx, name: &str, css: &str) {
 async fn baseline(c: &mut Ctx, name: &str) {
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; for (const e of document.querySelectorAll('[data-testid=server-line]')) e.style.fontVariantNumeric = 'tabular-nums'; return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('.font-mono, .tabular-nums, [data-testid=server-line], [data-testid=you], [data-tone] .tabular-nums')) e.style.visibility = 'hidden'; for (const e of document.querySelectorAll('[data-testid=server-line]')) e.style.fontVariantNumeric = 'tabular-nums'; const kept = []; const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); while (w.nextNode()) { const n = w.currentNode; if (/[0-9]/.test(n.nodeValue)) { kept.push([n, n.nodeValue]); n.nodeValue = n.nodeValue.replace(/[0-9]/g, '0'); } } window.__baselineDigits = kept; return true; })()")
         .await;
     let png = c.ui.png().await;
     let _: bool = c
         .ui
-        .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } return true; })()")
+        .eval("(() => { for (const e of document.querySelectorAll('[style]')) { e.style.visibility = ''; e.style.fontVariantNumeric = ''; } for (const [n, v] of window.__baselineDigits || []) n.nodeValue = v; window.__baselineDigits = []; return true; })()")
         .await;
     check_baseline(c, name, png);
 }

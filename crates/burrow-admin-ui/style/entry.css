@@ -69,3 +69,5 @@
   :focus-visible { @apply outline-2 outline-offset-2 outline-accent; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 }
+
+:not(#\#):not(#\#):not(#\#) .config-editor-documents__tab-readonly :is(.config-editor-documents__name-start, .config-editor-documents__name-end) { padding-inline-end: 0.15em; }

@@ -435,14 +435,22 @@ fn a_new_file_whose_name_is_taken_by_an_entry_the_listing_skips_names_it() {
     match r {
         Err(Refused::Io(e)) => assert!(
             e.to_string()
-                .contains("server.d/new.yaml: a file or folder with this name already exists"),
+                .contains("server.d/new.yaml already exists; pick another file name"),
             "{e}"
         ),
         other => panic!("{other:?}"),
     }
-    assert!(crate::config::docs::taken(&main, "server.d/new.yaml"));
-    assert!(!crate::config::docs::taken(&main, "server.d/a.yaml"));
-    assert!(!crate::config::docs::taken(&main, "server.d/free.yaml"));
+    let clash = |n: &str| crate::config::docs::clash(&main, n);
+    assert_eq!(
+        clash("server.d/new.yaml").as_deref(),
+        Some("server.d/new.yaml")
+    );
+    assert_eq!(
+        clash("server.d/NEW.yaml").as_deref(),
+        Some("server.d/new.yaml")
+    );
+    assert_eq!(clash("server.d/a.yaml"), None);
+    assert_eq!(clash("server.d/free.yaml"), None);
 }
 
 #[test]

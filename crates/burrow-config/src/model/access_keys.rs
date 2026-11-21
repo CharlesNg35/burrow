@@ -14,6 +14,7 @@ pub struct ForwardAuthConfig {
         ty = ref_(service),
         help = "The service of the login portal that checks each visitor, for example authelia"
     )]
+    #[schemars(example = &"authelia")]
     pub service: String,
     #[schemars(
         description = "The path on that service that answers the check, for example /api/authz/forward-auth"
@@ -22,6 +23,7 @@ pub struct ForwardAuthConfig {
         ty = url_path,
         help = "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/caddy for authentik"
     )]
+    #[schemars(example = &"/api/authz/forward-auth", example = &"/outpost.goauthentik.io/auth/nginx")]
     pub path: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
@@ -33,6 +35,7 @@ pub struct ForwardAuthConfig {
         help = "Headers from the login service's answer that the app receives, for example Remote-User; a visitor's own copies are always removed",
         empty_label = "None"
     )]
+    #[schemars(example = &["Remote-User", "Remote-Groups"])]
     pub copy_headers: Vec<String>,
 }
 
@@ -170,6 +173,7 @@ pub struct ClientAuthFiles {
         help = "The CA that signs your devices' certificates, with its intermediates, for example certs/devices-ca.pem",
         none_label = "Not set"
     )]
+    #[schemars(example = &"certs/devices-ca.pem")]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -192,6 +196,7 @@ pub struct ClientAuthFiles {
         help = "Devices you revoked, as the CA publishes them, for example certs/devices.crl; re-read when the file changes",
         none_label = "None"
     )]
+    #[schemars(example = &"certs/devices.crl")]
     pub crl: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

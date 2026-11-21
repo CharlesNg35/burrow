@@ -4,6 +4,7 @@ mod detail;
 pub(crate) mod files;
 mod guard;
 mod page;
+mod routes;
 
 use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan};
 use burrow_admin_proto::serde_json::Value;

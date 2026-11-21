@@ -22,7 +22,7 @@ A secret is 32 random bytes (256 bits). Someone who records a connection could t
 
 When you remove a client or visitor, or the secret it connected with, saving the server's config closes its open connections at once.
 
-Secrets never appear in logs or error messages, only their length or a short fingerprint.
+Secrets never appear in logs or error messages, only their length or a short fingerprint. A password in a URL, like `https://acme:pw@ca.internal/dir`, is hidden too: logs and messages show `https://«hidden»@ca.internal/dir` ([admin.md](admin.md#security-notes)).
 
 ## Encryption
 

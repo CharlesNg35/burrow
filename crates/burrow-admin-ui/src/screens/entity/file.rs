@@ -1,6 +1,6 @@
 use burrow_admin_logic::files;
 use burrow_admin_proto::Path;
-use burrow_ui_kit::{Icon, LockLine, MENU_ITEM, Tone, tag_class};
+use burrow_ui_kit::{FILE_TAG_WIDTH, FileName, Icon, LockLine, MENU_ITEM, Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::store::store;
@@ -25,11 +25,12 @@ pub(super) fn file_tag(path: Path) -> impl Fn() -> Option<AnyView> + Clone + use
     move || {
         let (name, locked) = file_label(&path)?;
         let title = format!("Kept in {name}");
+        let class = format!("{} {FILE_TAG_WIDTH}", tag_class(Tone::Neutral));
         Some(
             view! {
-                <span class=tag_class(Tone::Neutral) data-testid="file-tag" title=title>
+                <span class=class data-testid="file-tag" title=title>
                     {locked.then(|| view! { <Icon name="lock" small=true/> })}
-                    <span class="font-mono">{name}</span>
+                    <FileName name=name class="font-mono"/>
                 </span>
             }
             .into_any(),
