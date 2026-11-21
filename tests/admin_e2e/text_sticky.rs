@@ -7,7 +7,12 @@ const STICKY: &str = ".config-editor__sticky-line";
 
 fn opts() -> Options {
     let fillers: String = (1..=30)
-        .map(|i| format!("  app{i:02}:\n    client: home\n    target: {}\n", 9000 + i))
+        .map(|i| {
+            format!(
+                "  app{i:02}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
+                9000 + i
+            )
+        })
         .collect();
     Options {
         extra_top: "web:\n  http: 127.0.0.1:HTTP_PORT\n".into(),
