@@ -1,6 +1,6 @@
 use burrow_admin_logic::wording::{diag_text, help_shown};
 use burrow_admin_proto::diag::{Diag, Severity};
-use config_editor_leptos::{FieldPath, HostDiagnostic, TextPosition, TextRange};
+use leptos_config_editor::{FieldPath, HostDiagnostic, TextPosition, TextRange};
 
 pub const SOURCE: &str = "burrow";
 
@@ -40,11 +40,11 @@ fn message_of(d: &Diag) -> String {
     }
 }
 
-fn severity(s: Severity) -> config_editor_leptos::Severity {
+fn severity(s: Severity) -> leptos_config_editor::Severity {
     match s {
-        Severity::Error => config_editor_leptos::Severity::Error,
-        Severity::Warning => config_editor_leptos::Severity::Warning,
-        Severity::Info => config_editor_leptos::Severity::Info,
+        Severity::Error => leptos_config_editor::Severity::Error,
+        Severity::Warning => leptos_config_editor::Severity::Warning,
+        Severity::Info => leptos_config_editor::Severity::Info,
     }
 }
 
@@ -116,7 +116,7 @@ pub fn host_problems(diags: &[Diag], file: &str, main: &str) -> Vec<HostDiagnost
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config_editor_leptos::DiagnosticTarget;
+    use leptos_config_editor::DiagnosticTarget;
 
     fn diag(
         sev: Severity,
@@ -167,12 +167,12 @@ mod tests {
             main[0].target,
             DiagnosticTarget::Path(FieldPath::from("/services/web/bind"))
         );
-        assert_eq!(main[0].severity, config_editor_leptos::Severity::Error);
+        assert_eq!(main[0].severity, leptos_config_editor::Severity::Error);
         assert_eq!(main[0].code.as_deref(), Some("x-port"));
         assert_eq!(main[0].source.as_deref(), Some(SOURCE));
         let drop_in = host_problems(&diags, "server.d/10-web.yaml", "server.yaml");
         assert_eq!(drop_in.len(), 1);
-        assert_eq!(drop_in[0].severity, config_editor_leptos::Severity::Warning);
+        assert_eq!(drop_in[0].severity, leptos_config_editor::Severity::Warning);
         assert!(host_problems(&diags, "server.d/other.yaml", "server.yaml").is_empty());
     }
 
@@ -230,7 +230,7 @@ mod tests {
         assert!(text.contains("first") && text.contains("second"), "{text}");
         assert_eq!(text.matches("second").count(), 1, "the same text once");
         assert_eq!(got[0].code, None, "two codes name none");
-        assert_eq!(got[1].severity, config_editor_leptos::Severity::Warning);
+        assert_eq!(got[1].severity, leptos_config_editor::Severity::Warning);
     }
 
     #[test]
@@ -246,7 +246,7 @@ mod tests {
             "no end: a point, which the editor widens to a whole secret placeholder"
         );
         assert_eq!(got[1].target, DiagnosticTarget::Document);
-        assert_eq!(got[1].severity, config_editor_leptos::Severity::Info);
+        assert_eq!(got[1].severity, leptos_config_editor::Severity::Info);
         let mut spans = diag(Severity::Error, "yaml", "a block", None, None);
         spans.line = Some(2);
         spans.col = Some(1);

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use config_editor_leptos::{DocumentsHandle, EditorHandle, FieldPath, TextPosition, TextRange};
 use leptos::prelude::*;
+use leptos_config_editor::{DocumentsHandle, EditorHandle, FieldPath, TextPosition, TextRange};
 
 use super::problems::field;
 use crate::edit::Spot;

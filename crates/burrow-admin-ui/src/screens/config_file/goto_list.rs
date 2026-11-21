@@ -2,8 +2,8 @@ use burrow_admin_logic::goto::{Found, Item, Kind, Sources, find};
 use burrow_admin_proto::text_search::{self, MAX_LIMIT, TextMatch};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{FileName, Icon, Kbd, PickHead, PickOption, marked};
-use config_editor_leptos::{Language, TextPosition};
 use leptos::prelude::*;
+use leptos_config_editor::{Language, TextPosition};
 
 use super::goto::{GoTo, PLACEHOLDER, problem_files};
 use crate::edit::{Spot, TextEdit};

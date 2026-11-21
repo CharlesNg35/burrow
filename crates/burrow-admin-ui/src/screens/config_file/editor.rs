@@ -4,12 +4,12 @@ use std::sync::Arc;
 use burrow_admin_proto::diag::Diag;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::text_edit::{EditText, PLACEHOLDER_PATTERN};
-use config_editor_leptos::{
+use leptos::prelude::*;
+use leptos_config_editor::{
     CloseRequest, ConfigDocuments, Diagnostic, DiagnosticOrigin, Document, DocumentsHandle,
     EditorSettings, EditorTheme, Language, SaveRequest, Schema, SchemaSource, SecretOptions,
     Severity, check_syntax, flush_pending_edits,
 };
-use leptos::prelude::*;
 
 use crate::edit::{Spot, Unwritten};
 
