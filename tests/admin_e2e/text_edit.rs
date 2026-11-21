@@ -391,6 +391,11 @@ async fn opens_with_the_main_file(c: &mut Ctx) {
         !c.ui.enabled(REVIEW).await,
         "nothing to review after typing in it"
     );
+    let whole: bool = c.ui.eval(&format!("(() => {{ const n = document.querySelector(\"{} .config-editor-documents__name\"); return getComputedStyle(n).fontStyle === 'italic' && parseFloat(getComputedStyle(n).paddingRight) > 0; }})()", tab(TOOL))).await;
+    assert!(
+        whole,
+        "a read-only tab's italic name keeps room for its last letter's slant"
+    );
     shots(c, "text-edit-read-only-file").await;
     show(c, MAIN).await;
     assert_eq!(c.ui.count("[data-testid=file-read-only]").await, 0);
