@@ -1,6 +1,6 @@
 diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/Cargo.toml reactive_graph/Cargo.toml
---- a/Cargo.toml
-+++ b/Cargo.toml
+--- a/Cargo.toml	2006-07-24 01:21:28.000000000 +0000
++++ b/Cargo.toml	2026-11-21 09:54:55.871627718 +0000
 @@ -51,6 +51,10 @@
  path = "src/lib.rs"
  
@@ -12,15 +12,26 @@ diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/
  name = "async_derived"
  path = "tests/async_derived.rs"
  
-@@ -184,3 +188,5 @@
+@@ -177,6 +181,10 @@
+ features = ["console"]
+ default-features = false
+ 
++[lints.rust.unused]
++level = "allow"
++priority = -1
++
+ [lints.rust.unexpected_cfgs]
+ level = "warn"
+ priority = 0
+@@ -184,3 +192,5 @@
      "cfg(leptos_debuginfo)",
      "cfg(rustc_nightly)",
  ]
 +
 +[workspace]
 diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/src/graph/sets.rs reactive_graph/src/graph/sets.rs
---- a/src/graph/sets.rs
-+++ b/src/graph/sets.rs
+--- a/src/graph/sets.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/src/graph/sets.rs	2026-11-21 08:47:44.179468073 +0000
 @@ -69,6 +69,15 @@
      }
  
@@ -38,8 +49,8 @@ diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/
      }
  
 diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/src/owner.rs reactive_graph/src/owner.rs
---- a/src/owner.rs
-+++ b/src/owner.rs
+--- a/src/owner.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/src/owner.rs	2026-11-21 08:47:44.179468073 +0000
 @@ -180,11 +180,7 @@
              shared_context,
          };
@@ -126,8 +137,8 @@ diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/
          let (tx, rx) = mpsc::channel();
          thread::spawn(move || {
 diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/src/signal/arc_rw.rs reactive_graph/src/signal/arc_rw.rs
---- a/src/signal/arc_rw.rs
-+++ b/src/signal/arc_rw.rs
+--- a/src/signal/arc_rw.rs	2006-07-24 01:21:28.000000000 +0000
++++ b/src/signal/arc_rw.rs	2026-11-21 08:47:44.179468073 +0000
 @@ -277,3 +277,59 @@
          UntrackedWriteGuard::try_new(Arc::clone(&self.value))
      }
@@ -189,8 +200,8 @@ diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/
 +    }
 +}
 diff -ruN '--exclude=.cargo-ok' '--exclude=target' /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reactive_graph-0.2.16/tests/flat_memory.rs reactive_graph/tests/flat_memory.rs
---- a/tests/flat_memory.rs
-+++ b/tests/flat_memory.rs
+--- a/tests/flat_memory.rs	1970-01-01 00:00:00.000000000 +0000
++++ b/tests/flat_memory.rs	2026-11-21 08:48:03.515800990 +0000
 @@ -0,0 +1,62 @@
 +// burrow: 1000 mount/unmount cycles under a long-lived owner and signal keep
 +// the heap flat. Fails on reactive_graph 0.2.16 without leptos-rs/leptos#4966.

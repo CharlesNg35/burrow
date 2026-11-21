@@ -181,6 +181,10 @@ version = "0.3"
 features = ["console"]
 default-features = false
 
+[lints.rust.unused]
+level = "allow"
+priority = -1
+
 [lints.rust.unexpected_cfgs]
 level = "warn"
 priority = 0

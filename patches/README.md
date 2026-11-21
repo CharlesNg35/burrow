@@ -14,7 +14,7 @@ Both stay until the signal or the parent goes away. In burrow admin, that is abo
 
 burrow adds `tests/flat_memory.rs`: 1000 mount/unmount cycles must not grow the heap. Without the fix, they keep about 444 KB. The test's counting allocator is its only `unsafe`.
 
-The whole change against the crates.io release is `reactive_graph-0.2.16-leak.patch`. The vendored `Cargo.toml` also gets an empty `[workspace]` and the `flat_memory` test target.
+The whole change against the crates.io release is `reactive_graph-0.2.16-leak.patch`. The vendored `Cargo.toml` also gets an empty `[workspace]`, the `flat_memory` test target and `unused = "allow"`, since Cargo silences the warnings of crates.io dependencies but not of path ones.
 
 ### Check it
 ```bash
