@@ -42,5 +42,4 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
     "https://github.com/CharlesNg35/bytecount",
-    "https://github.com/paradoxe35/config-editor",
 ]
