@@ -87,26 +87,26 @@ async fn under_the_header(c: &Ctx) {
 
 async fn nested_blocks_stick(c: &mut Ctx, width: i64, step: &str) {
     c.ui.viewport(width, 900).await;
-    scroll_to(c, "X-Five: \"5\"").await;
+    scroll_to(c, "X-One: \"1\"").await;
     shows(
         c,
         &["services:", "site:", "web:", "request_headers:"],
-        "X-Five",
+        "X-One",
     )
     .await;
     under_the_header(c).await;
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     c.ui.shot(step).await;
-    scroll_to(c, "target: 9015").await;
+    scroll_to(c, "app15:").await;
     shows(c, &["services:", "app15:"], "app15").await;
 }
 
 async fn a_click_goes_back_to_the_block(c: &Ctx) {
-    scroll_to(c, "X-Five: \"5\"").await;
+    scroll_to(c, "X-One: \"1\"").await;
     shows(
         c,
         &["services:", "site:", "web:", "request_headers:"],
-        "X-Five",
+        "X-One",
     )
     .await;
     let row = row_of(c, "site:").await;
