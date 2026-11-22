@@ -86,6 +86,7 @@
   :is([data-fill="desk"], [data-fill="desk"] [data-fill-part]) > * { flex-shrink: 0; }
   [data-fill="desk"] :is([data-fill-part], [data-fill-scroll]) { flex: 1 1 0; min-height: 0; }
   [data-fill="desk"] [data-fill-scroll] { max-height: none; }
+  :not(#\#):not(#\#):not(#\#) [data-fill="desk"] [data-fill-part] > .config-editor-documents { flex: 1 1 0; min-height: 0; }
 }
 [data-fill="all"] { height: calc(100dvh - var(--hdr-h, 64px) - var(--toast-pad, 0px)); padding-bottom: 2rem; }
 [data-fill="all"] [data-fill-part] { margin-bottom: 0; }
@@ -93,3 +94,6 @@
 :is([data-fill="all"], [data-fill="all"] [data-fill-part]) > * { flex-shrink: 0; }
 [data-fill="all"] :is([data-fill-part], [data-fill-scroll]) { flex: 1 1 0; min-height: 0; }
 [data-fill="all"] [data-fill-scroll] { max-height: none; }
+/* The editor's root sizes to its content; in a fill box it takes the box's height, which its view
+   (height: 100%) then fills. The editor's own rules use two ids, so this one uses three. */
+:not(#\#):not(#\#):not(#\#) [data-fill="all"] [data-fill-part] > .config-editor-documents { flex: 1 1 0; min-height: 0; }
