@@ -185,9 +185,18 @@ pub fn Kpi(
 }
 
 pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView {
+    card_head_beside(title, ().into_any(), sub, right)
+}
+
+pub fn card_head_beside(
+    title: String,
+    beside: AnyView,
+    sub: Option<String>,
+    right: AnyView,
+) -> AnyView {
     view! {
         <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-            <h2 class="text-[13.5px] font-bold">{title}</h2>
+            <div class="flex items-center gap-1.5"><h2 class="text-[13.5px] font-bold">{title}</h2>{beside}</div>
             {sub.map(|s| view! { <span class="text-xs text-text-muted" data-card-sub="">{s}</span> })}
             <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-text-muted max-sm:has-[>[data-toolbar]]:basis-full">{right}</div>
         </div>
@@ -228,6 +237,7 @@ pub fn Card(
 pub fn PageHeader(
     #[prop(optional, into)] kicker: Option<String>,
     #[prop(optional, into)] sub: Option<String>,
+    #[prop(optional, into)] sub_beside: Option<Signal<String>>,
     #[prop(optional, into)] hidden: Signal<bool>,
     #[prop(optional, into)] phone_hidden: Signal<bool>,
     #[prop(optional)] actions: Option<AnyView>,
@@ -238,7 +248,15 @@ pub fn PageHeader(
         <header class=format!("mb-[22px] flex flex-wrap items-start gap-3.5 {class}") class:hidden=move || hidden.get() class:max-sm:hidden=move || phone_hidden.get()>
             <div class="min-w-0 flex-1">
                 {kicker.map(|k| view! { <p class="mb-1.5 text-[12.5px] font-semibold">{k}</p> })}
-                <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
+                {match sub_beside {
+                    None => view! { <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1> }.into_any(),
+                    Some(line) => view! {
+                        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
+                            <p class="text-sm text-text-muted" data-header-line="">{move || line.get()}</p>
+                        </div>
+                    }.into_any(),
+                }}
                 {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted" data-header-line="">{s}</p> })}
             </div>
             {actions.map(|a| view! { <div class="flex items-center gap-2">{a}</div> })}

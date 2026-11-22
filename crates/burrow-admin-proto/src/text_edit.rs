@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const SCHEMA_ID: &str = "https://burrow.invalid/schema/server.yaml";
+pub const DROP_IN_SCHEMA_ID: &str = "https://burrow.invalid/schema/server.d";
+
+pub fn pointer(path: &[String]) -> String {
+    path.iter()
+        .map(|k| format!("/{}", k.replace('~', "~0").replace('/', "~1")))
+        .collect()
+}
+
 pub const PLACEHOLDER_PATTERN: &str = "«secret [0-9a-f]{8}»";
 
 const OPEN: &str = "«secret ";
@@ -39,6 +48,8 @@ pub struct EditText {
     pub files: Vec<EditFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drop_in_schema: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_maps: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -59,6 +70,18 @@ pub struct TextFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_is_a_json_pointer() {
+        let path = |p: &[&str]| p.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        assert_eq!(pointer(&path(&["clients"])), "/clients");
+        assert_eq!(
+            pointer(&path(&["web", "forward_auth"])),
+            "/web/forward_auth"
+        );
+        assert_eq!(pointer(&path(&["a/b", "c~d"])), "/a~1b/c~0d");
+        assert_eq!(pointer(&[]), "");
+    }
 
     #[test]
     fn a_placeholder_matches_its_own_pattern_shape() {

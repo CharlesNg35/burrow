@@ -53,10 +53,16 @@ async fn shows(c: &Ctx, want: &[&str], at: &str) {
         if now == want {
             return;
         }
-        assert!(
-            std::time::Instant::now() < until,
-            "at {at}, the sticky lines are {want:?}, not {now:?}"
-        );
+        if std::time::Instant::now() >= until {
+            let box_: serde_json::Value = c
+                .ui
+                .eval(&format!(
+                    "(() => {{ const t = document.querySelector({}); const s = getComputedStyle(t); return {{ top: t.scrollTop, shown: t.clientHeight, all: t.scrollHeight, line: s.lineHeight, pad: s.paddingTop, rows: t.value.split('\\n').length }}; }})()",
+                    js(&input(MAIN))
+                ))
+                .await;
+            panic!("at {at}, the sticky lines are {want:?}, not {now:?}; the text area: {box_}");
+        }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }

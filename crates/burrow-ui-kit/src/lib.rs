@@ -31,7 +31,7 @@ pub use bar::{StickyBar, bar_status, bar_top, view_height};
 pub use basic::{
     CARD_VIEW, Card, Chip, Dot, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, PageHeader, PillTabs,
     SectionHead, Stat, Stats, StatusDot, TABLE_VIEW, TabMark, Table, Tabs, Tag, Tone, WIDE_ONLY,
-    card_head, chip_class,
+    card_head, card_head_beside, chip_class,
 };
 pub use button::{
     Button, ButtonLook, ButtonSize, IconButton, LinkButton, MENU_ITEM, MenuItem, SpinDot,

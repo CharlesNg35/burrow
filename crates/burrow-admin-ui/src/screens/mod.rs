@@ -17,6 +17,7 @@ pub mod paths;
 pub mod placement;
 mod settings;
 pub mod update_dialog;
+pub mod update_follow;
 pub mod updates;
 
 use burrow_ui_kit::{EmptyState, Icon, Tone, button_class};

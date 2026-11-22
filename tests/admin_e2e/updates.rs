@@ -263,11 +263,17 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         every_look(c, "client-update-dialog").await;
         c.ui.click("[data-testid=client-update-confirm]").await;
         c.ui.wait_text(
-            "[data-testid=live] [data-testid=client-update-tag]",
-            "updated",
+            "[data-testid=toasts]",
+            &format!("home updated to {NEW}"),
             Duration::from_secs(60),
         )
         .await;
+        assert_eq!(
+            c.ui.count("[data-testid=live] [data-testid=client-update-tag]")
+                .await,
+            0,
+            "a finished update leaves no tag"
+        );
         let shown = c.ui.text("[data-testid=live] [data-stat=burrow]").await;
         assert!(shown.contains(NEW), "{shown}");
         assert_eq!(

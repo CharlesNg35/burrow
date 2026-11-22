@@ -70,4 +70,28 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 }
 
-:not(#\#):not(#\#):not(#\#) .config-editor-documents__tab-readonly :is(.config-editor-documents__name-start, .config-editor-documents__name-end) { padding-inline-end: 0.15em; }
+/* A page that fills the window under the header (Settings → Raw config): the page is a column as
+   tall as the window, and each [data-fill-part] box down to the text takes the height left, so the
+   text scrolls inside its box and the page does not. Everything else in a box keeps its height.
+   "desk" from 640 px wide (a phone's page keeps scrolling past the editor, which suits its
+   keyboard); "all" (full screen) everywhere. The floor keeps the box usable in a short window; the
+   room main keeps for toasts (--toast-pad) is left out, so the page still does not scroll. */
+@media (min-width: 40rem) {
+  [data-fill="desk"] { height: max(calc(100dvh - var(--hdr-h, 64px) - var(--toast-pad, 0px)), 560px); }
+  :is([data-fill="desk"], [data-fill="desk"] [data-fill-part]) { display: flex; flex-direction: column; min-height: 0; }
+  [data-fill="desk"] { padding-bottom: 2rem; }
+  [data-fill="desk"] [data-fill-part] { margin-bottom: 0; }
+  :is([data-fill="desk"], [data-fill="desk"] [data-fill-part]) > * { flex-shrink: 0; }
+  [data-fill="desk"] :is([data-fill-part], [data-fill-scroll]) { flex: 1 1 0; min-height: 0; }
+  [data-fill="desk"] [data-fill-scroll] { max-height: none; }
+  :not(#\#):not(#\#):not(#\#) [data-fill="desk"] [data-fill-part] > .config-editor-documents { flex: 1 1 0; min-height: 0; }
+}
+[data-fill="all"] { height: calc(100dvh - var(--hdr-h, 64px) - var(--toast-pad, 0px)); padding-bottom: 2rem; }
+[data-fill="all"] [data-fill-part] { margin-bottom: 0; }
+:is([data-fill="all"], [data-fill="all"] [data-fill-part]) { display: flex; flex-direction: column; min-height: 0; }
+:is([data-fill="all"], [data-fill="all"] [data-fill-part]) > * { flex-shrink: 0; }
+[data-fill="all"] :is([data-fill-part], [data-fill-scroll]) { flex: 1 1 0; min-height: 0; }
+[data-fill="all"] [data-fill-scroll] { max-height: none; }
+/* The editor's root sizes to its content; in a fill box it takes the box's height, which its view
+   (height: 100%) then fills. The editor's own rules use two ids, so this one uses three. */
+:not(#\#):not(#\#):not(#\#) [data-fill="all"] [data-fill-part] > .config-editor-documents { flex: 1 1 0; min-height: 0; }

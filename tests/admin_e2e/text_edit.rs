@@ -210,14 +210,17 @@ async fn no_csp_violation(c: &mut Ctx) {
     )
     .await;
     key(c, MAIN, "Escape", "Escape", "").await;
-    if present(c, ".config-editor__diff-change-trigger").await {
-        c.ui.click(&format!("{EDITOR} .config-editor__diff-change-trigger"))
-            .await;
+    let shown = format!("[role=tabpanel][data-document-id='{MAIN}']");
+    if present(c, &format!("{shown} .config-editor__diff-change-trigger")).await {
+        c.ui.click(&format!(
+            "{EDITOR} {shown} .config-editor__diff-change-trigger"
+        ))
+        .await;
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
     let peek = present(c, ".config-editor__diff-peek").await;
-    if present(c, ".config-editor__fold-toggle").await {
-        c.ui.click(&format!("{EDITOR} .config-editor__fold-toggle"))
+    if present(c, &format!("{shown} .config-editor__fold-toggle")).await {
+        c.ui.click(&format!("{EDITOR} {shown} .config-editor__fold-toggle"))
             .await;
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
@@ -334,6 +337,9 @@ pub(super) async fn shots(c: &mut Ctx, step: &str) {
             near(&band["above"]) && (band["below"].is_null() || near(&band["below"])),
             "{step} at {w}px: the notes sit in the band between the head and the editor: {band}"
         );
+        if w >= 640 {
+            super::text_fill::fills(c, EDITOR, &format!("{step} at {w}px")).await;
+        }
         c.ui.shot(&format!("{step}-{size}")).await;
     }
     c.ui.viewport(1440, 900).await;
@@ -695,6 +701,8 @@ async fn kept_scroll(c: &Ctx, was: f64, step: &str) -> f64 {
 }
 
 async fn focus_leaves_the_page_where_it_is(c: &mut Ctx) {
+    c.ui.viewport(390, 900).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     show(c, APPS).await;
     show(c, MAIN).await;
     let _: bool =
@@ -712,6 +720,7 @@ async fn focus_leaves_the_page_where_it_is(c: &mut Ctx) {
         .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     kept_scroll(c, at, "a switch back").await;
+    c.ui.viewport(1440, 900).await;
 }
 
 fn number_after(text: &str, key: &str) -> String {

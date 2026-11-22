@@ -89,17 +89,16 @@ fn flow(c: &mut Ctx) -> super::edits::Flow<'_> {
         latest("9.0.0-test.2");
         ask(c, "9.0.0-test.2", "update").await;
         c.ui.wait_text(
-            "[data-testid=server-update-state]",
-            "updated 9.0.0-test.1 → 9.0.0-test.2",
+            "[data-testid=toasts]",
+            "Server updated to 9.0.0-test.2",
             RESTART,
         )
         .await;
-        c.ui.wait_text("[data-testid=toasts]", "updated", SECS)
-            .await;
-        let why =
-            c.ui.attr_of("[data-testid=server-update-state]", "title")
-                .await;
-        assert!(why.contains("asked by ops"), "{why}");
+        assert_eq!(
+            c.ui.count("[data-testid=server-update-state]").await,
+            0,
+            "a finished update leaves no line; the toast told the admin who asked"
+        );
         let sub = c.ui.text("[data-testid=overview-sub] [data-item]").await;
         assert_eq!(
             sub, "v9.0.0-test.2",

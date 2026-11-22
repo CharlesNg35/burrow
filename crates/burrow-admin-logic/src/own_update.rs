@@ -1,12 +1,11 @@
 use burrow_admin_proto::status::Status;
-use burrow_admin_proto::updates::{RemoteUpdates, UpdateState, UpdateStatus, job_text, state_text};
+use burrow_admin_proto::updates::{RemoteUpdates, UpdateState, job_text, state_text};
 
 use crate::presence::Mood;
 use crate::version::server_is_older;
 
 pub const UPDATING: &str = "updating, the server restarts…";
 pub const RESULT_SHOWN_SECS: u64 = 24 * 3600;
-pub const DONE_SHOWN_SECS: u64 = 3600;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ServerFigure {
@@ -26,15 +25,8 @@ impl ServerFigure {
     }
 }
 
-pub fn shown_for(state: UpdateState) -> u64 {
-    match state {
-        UpdateState::Done => DONE_SHOWN_SECS,
-        _ => RESULT_SHOWN_SECS,
-    }
-}
-
-fn done(u: &UpdateStatus) -> (String, Mood) {
-    (format!("updated {} → {}", u.from, u.to), Mood::Good)
+pub fn recent_failure(state: UpdateState, secs_ago: u64) -> bool {
+    state.failed() && secs_ago < RESULT_SHOWN_SECS
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,18 +34,16 @@ pub enum Say {
     Running,
     Failed,
     Available,
-    Done,
     Nothing,
 }
 
 pub fn say(running: bool, last: Option<(UpdateState, u64)>, newer: bool) -> Say {
-    let recent = last.filter(|(s, ago)| *ago < shown_for(*s)).map(|(s, _)| s);
-    match (running, recent, newer) {
+    let failed = last.is_some_and(|(s, ago)| recent_failure(s, ago));
+    match (running, failed, newer) {
         (true, _, _) => Say::Running,
-        (false, Some(s), _) if s.failed() => Say::Failed,
-        (false, _, true) => Say::Available,
-        (false, Some(UpdateState::Done), false) => Say::Done,
-        _ => Say::Nothing,
+        (false, true, _) => Say::Failed,
+        (false, false, true) => Say::Available,
+        (false, false, false) => Say::Nothing,
     }
 }
 
@@ -83,7 +73,6 @@ pub fn figure(st: &Status) -> Option<ServerFigure> {
             format!("Update to {} {}", u.to, state_text(u.state)),
             Mood::Offer,
         )),
-        (Say::Done, Some(u)) => Some(done(u)),
         _ => None,
     };
     let still = (says == Say::Failed).then(|| format!("still on {}", st.version));
@@ -107,7 +96,7 @@ pub fn figure(st: &Status) -> Option<ServerFigure> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burrow_admin_proto::updates::{LatestRelease, ServerUpdate};
+    use burrow_admin_proto::updates::{LatestRelease, ServerUpdate, UpdateStatus};
 
     fn status(remote: RemoteUpdates, latest: &str, last: Option<UpdateStatus>) -> Status {
         Status {
@@ -149,13 +138,13 @@ mod tests {
             let f = figure(&status(remote, "0.2.2", None)).unwrap();
             assert!(!f.says_something() && !f.can_ask, "{remote:?}");
         }
-        let old = job(UpdateState::Done, "", DONE_SHOWN_SECS);
-        let f = figure(&status(RemoteUpdates::On, "0.2.2", Some(old))).unwrap();
+        let just_done = job(UpdateState::Done, "", 5);
+        let f = figure(&status(RemoteUpdates::On, "0.2.2", Some(just_done))).unwrap();
         assert!(
             !f.says_something(),
-            "an hour after an update the header is as before"
+            "a finished update leaves no line, also right after it: a reload shows the header as before"
         );
-        let failed = job(UpdateState::RolledBack, "x", DONE_SHOWN_SECS);
+        let failed = job(UpdateState::RolledBack, "x", 3600);
         let done_newer = job(UpdateState::Done, "", 5);
         let f = figure(&status(RemoteUpdates::On, "0.2.4", Some(done_newer))).unwrap();
         assert!(
@@ -205,15 +194,7 @@ mod tests {
             Some(job(UpdateState::Done, "1 of 1 clients connected again", 9)),
         ))
         .unwrap();
-        assert_eq!(
-            done.state,
-            Some(("updated 0.2.2 → 0.2.3".into(), Mood::Good))
-        );
-        assert!(
-            done.detail.ends_with("asked by ops (203.0.113.7)"),
-            "{}",
-            done.detail
-        );
+        assert_eq!(done.state, None, "a success leaves the line");
         let back = figure(&status(
             RemoteUpdates::On,
             "0.2.3",
@@ -224,6 +205,11 @@ mod tests {
             back.state,
             Some(("Update to 0.2.3 rolled back".into(), Mood::Offer)),
             "short and calm; the reason is in Needs attention"
+        );
+        assert!(
+            back.detail.ends_with("asked by ops (203.0.113.7)"),
+            "{}",
+            back.detail
         );
         assert_eq!(back.still.as_deref(), Some("still on 0.2.2"));
         assert_eq!(
@@ -240,7 +226,6 @@ mod tests {
     #[test]
     fn one_message_at_a_time_in_priority_order() {
         use UpdateState::{Done, Failed, RolledBack};
-        let hour = DONE_SHOWN_SECS;
         let day = RESULT_SHOWN_SECS;
         let cases = [
             (true, Some((RolledBack, 5)), true, Say::Running),
@@ -250,8 +235,7 @@ mod tests {
             (false, Some((RolledBack, day)), true, Say::Available),
             (false, Some((Done, 5)), true, Say::Available),
             (false, None, true, Say::Available),
-            (false, Some((Done, 5)), false, Say::Done),
-            (false, Some((Done, hour)), false, Say::Nothing),
+            (false, Some((Done, 5)), false, Say::Nothing),
             (false, Some((RolledBack, day)), false, Say::Nothing),
             (false, None, false, Say::Nothing),
         ];

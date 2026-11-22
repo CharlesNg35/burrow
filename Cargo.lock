@@ -470,7 +470,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burrow"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "arbtest",
  "argon2",
@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-derive"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-logic"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "burrow-admin-proto",
  "burrow-config",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-proto"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "burrow-syntax",
  "schemars",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-ui"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
@@ -591,7 +591,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-config"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "burrow-admin-derive",
  "burrow-admin-proto",
@@ -602,7 +602,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-io"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "bytes",
  "http-body-util",
@@ -613,11 +613,11 @@ dependencies = [
 
 [[package]]
 name = "burrow-syntax"
-version = "0.2.5"
+version = "0.2.6"
 
 [[package]]
 name = "burrow-ui-kit"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "js-sys",
  "leptos",
@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-web"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "argon2",
  "async-compression",
@@ -1585,9 +1585,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -2551,15 +2551,17 @@ dependencies = [
 
 [[package]]
 name = "leptos-config-editor"
-version = "0.1.2"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "172b5051cf21d7d51dff1a5de9272b747b97ada4989b67a15c17953de2890991"
+checksum = "519229ec32112b25a4b03eac606eaf67f360439be70b780b11b312e6fd9e6044"
 dependencies = [
+ "aho-corasick",
  "jsonschema",
  "leptos",
  "noyalib",
  "regex",
  "regex-lite",
+ "regex-syntax",
  "serde",
  "serde_json",
  "text-size",
@@ -4858,9 +4860,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

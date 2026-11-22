@@ -69,7 +69,7 @@ A client that allows remote updates but cannot do them says why, for example "th
   - an **Update** button when the update is possible. When it is not, there is no button, and the tag's tooltip says why.
 - Both ask for confirmation first. The dialog links to the release's page on GitHub ("What's new in 0.2.3", in a new tab), and burrow admin fetches nothing from it.
 - **Update all** updates one client at a time. The next client starts only after the one before it has connected again with the new version, and it stops at the first client that fails, says so and names the reason.
-- The result shows under the client's figures ("0.2.2 → 0.2.3: updated, asked by ops (203.0.113.7)", or "rolled back" with the reason) and in the server's log.
+- When the update ends, the admin who asked gets a message once ("home updated to 0.2.3", or "home: update rolled back — see Needs attention"). A success leaves no tag, as the new version shows among the figures; a roll back or failure stays as a tag for a day, with the reason in its tooltip. The server's log has every result.
 - burrow admin needs `admin: write`; read-only admins see versions but no buttons.
 
 A client is offered an update only when the latest release is not newer than the server: see [Clients never go past the server](#clients-never-go-past-the-server).
@@ -232,8 +232,8 @@ sudo burrow service install -c server.yaml    # records the opt-in where the ser
 
    Otherwise the old binary is put back and started, and the result says "rolled back" with the reason.
 5. burrow admin shows "updating, the server restarts…" on that line and a banner while the connection is down, and reconnects on its own. It then shows the result there:
-   - "updated 0.2.2 → 0.2.3" for an hour, with who asked and how many clients connected again on hover;
-   - or, for a day, "Update to 0.2.3 rolled back · still on 0.2.2 · Details".
+   - a success is a message, once, for the admin who asked ("Server updated to 0.2.3"); the line then shows the new version, as after a reload;
+   - a roll back stays for a day: "Update to 0.2.3 rolled back · still on 0.2.2 · Details".
 
    Details leads to Needs attention, which:
    - says in plain words what happened ("0.2.3 started but didn't become healthy within a minute, so 0.2.2 was put back. The server is running normally.");
@@ -242,7 +242,7 @@ sudo burrow service install -c server.yaml    # records the opt-in where the ser
 
    A client's rolled back update shows the same way, as "Update of home to 0.2.3 rolled back".
 
-   The line shows one message at a time: an update running, then a roll back, then a newer release, then a recent success. Clients reconnecting is reported but never causes a roll back.
+   The line shows one message at a time: an update running, then a roll back, then a newer release. Clients reconnecting is reported but never causes a roll back.
 
 One update runs at a time, and none starts while a config change is being applied. The server's log names who asked. `burrow mcp` has the `update_server` tool for a write admin, which goes through the same entry point ([mcp.md](mcp.md#what-the-ai-can-do)).
 

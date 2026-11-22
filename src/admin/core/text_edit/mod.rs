@@ -130,6 +130,12 @@ pub fn config_text(core: &Core) -> Result<EditText, ApiError> {
         placeholder: PLACEHOLDER_PATTERN.into(),
         files,
         drop_in_schema: Some(drop_in_schema(core).clone()),
+        key_maps: core
+            .schema()
+            .entities
+            .iter()
+            .map(|e| burrow_admin_proto::text_edit::pointer(&e.path))
+            .collect(),
     })
 }
 

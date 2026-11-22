@@ -55,7 +55,7 @@ pub struct ClientInfo {
     pub available: Option<String>,
     pub blocked: Option<String>,
     pub update: Option<UpdateStatus>,
-    pub update_recent: bool,
+    pub failed_recently: bool,
 }
 
 pub fn client<'a>(status: &'a Status, name: &str) -> Option<&'a ClientStatus> {
@@ -80,10 +80,10 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
         available: c.available.clone(),
         blocked: c.blocked.clone(),
         update: c.update.clone().map(|u| UpdateStatus { secs_ago: 0, ..u }),
-        update_recent: c
+        failed_recently: c
             .update
             .as_ref()
-            .is_some_and(|u| u.secs_ago < crate::own_update::shown_for(u.state)),
+            .is_some_and(|u| crate::own_update::recent_failure(u.state, u.secs_ago)),
     }
 }
 
@@ -215,7 +215,7 @@ impl ClientInfo {
             self.update.as_ref().is_some_and(|u| !u.state.finished()),
             self.update
                 .as_ref()
-                .map(|u| (u.state, if self.update_recent { 0 } else { u64::MAX })),
+                .map(|u| (u.state, if self.failed_recently { 0 } else { u64::MAX })),
             self.available.is_some(),
         );
         let tag = |t: String, m: Mood| Card {
@@ -246,7 +246,6 @@ impl ClientInfo {
                 )),
                 can_ask: ready,
             },
-            (Say::Done, Some(u), _) => tag(state_text(u.state).into(), Mood::Good),
             _ => Card::default(),
         }
     }
@@ -546,7 +545,7 @@ mod tests {
             "the reason is the tooltip"
         );
         c.blocked = None;
-        c.update_recent = true;
+        c.failed_recently = true;
         c.update = Some(UpdateStatus {
             from: "0.2.2".into(),
             to: "0.2.3".into(),
@@ -569,8 +568,7 @@ mod tests {
         c.update.as_mut().unwrap().state = UpdateState::Done;
         c.available = None;
         let done = c.card(true);
-        assert_eq!(done.tag.unwrap().0, "updated");
-        assert!(!done.can_ask);
+        assert_eq!(done, Card::default(), "a success leaves no tag");
         let quiet = ClientInfo {
             version: "0.2.3".into(),
             ..ClientInfo::default()
