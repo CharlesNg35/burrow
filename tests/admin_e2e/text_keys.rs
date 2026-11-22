@@ -59,10 +59,7 @@ async fn names_across_files(c: &mut Ctx) {
         has(&rows, "box", TOOL),
         "a client of a file not open is offered, with its file: {rows:?}"
     );
-    assert!(
-        named(&rows, "self"),
-        "and the word self: {rows:?}"
-    );
+    assert!(named(&rows, "self"), "and the word self: {rows:?}");
     c.ui.view_shot("text-keys-offered").await;
     key(c, APPS, "Escape", "Escape", "").await;
     replace_in(c, APPS, "visitors: [laptop]", "visitors: [laptop, ]").await;
