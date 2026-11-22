@@ -459,6 +459,8 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
+    let at: String = c.ui.eval("location.pathname + location.search").await;
+    println!("DEBUG after review click: {at} review={}", c.ui.count("[data-testid=review]").await);
     if c.ui.count("[data-testid=review]").await > 0 {
         c.ui.click("[data-testid=keep-editing]").await;
         c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
@@ -470,6 +472,11 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
 
 async fn cancel_asks_when_edited(c: &mut Ctx) {
     let before = c.world.config();
+    for _ in 0..8 {
+        let at: String = c.ui.eval("location.pathname + location.search + ' | ' + (document.querySelector('[data-tab][aria-selected=true]')?.dataset.tab ?? '-') + ' | editing=' + (document.querySelector('[data-testid=config-file]')?.dataset.editing ?? '-')").await;
+        println!("DEBUG before cancel: {at}");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.wait_for("[data-testid=file-cancel-dialog]", SECS)
         .await;
