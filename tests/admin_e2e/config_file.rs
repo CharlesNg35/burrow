@@ -130,7 +130,7 @@ async fn shots(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
-const BOX: &str = "(() => { const p = document.querySelector('[data-testid=file-text] pre'); return { inner: p.scrollHeight, shown: p.clientHeight, page: document.documentElement.scrollHeight, window: innerHeight, role: p.getAttribute('role'), tab: p.tabIndex, name: p.getAttribute('aria-label'), sideways: p.scrollWidth > p.clientWidth }; })()";
+const BOX: &str = "(() => { const p = document.querySelector('[data-testid=file-text] pre'); return { inner: p.scrollHeight, shown: p.clientHeight, page: document.documentElement.scrollHeight, window: innerHeight, header: document.querySelector('[data-testid=header]').getBoundingClientRect().height, role: p.getAttribute('role'), tab: p.tabIndex, name: p.getAttribute('aria-label'), sideways: p.scrollWidth > p.clientWidth }; })()";
 
 async fn a_long_file_scrolls_in_its_own_box(c: &mut Ctx) {
     for (w, h, size) in [
@@ -146,10 +146,17 @@ async fn a_long_file_scrolls_in_its_own_box(c: &mut Ctx) {
             n("inner") > n("shown") + 10.0,
             "{size}: the text scrolls inside its box: {b}"
         );
-        assert!(
-            n("shown") <= n("window") * 0.8 + 1.0,
-            "{size}: at most 80% of the window: {b}"
-        );
+        if w >= 640 {
+            assert!(
+                n("page") <= n("window").max(n("header") + 560.0) + 1.0,
+                "{size}: the text fills the window under the header and the page does not scroll (a short window keeps a usable box): {b}"
+            );
+        } else {
+            assert!(
+                n("shown") <= n("window") * 0.8 + 1.0,
+                "{size}: on a phone at most 80% of the window, and the page scrolls past it: {b}"
+            );
+        }
         assert!(
             n("shown") >= 240.0_f64.min(n("window")) - 1.0,
             "{size}: never uselessly small: {b}"

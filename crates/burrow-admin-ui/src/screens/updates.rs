@@ -72,6 +72,11 @@ fn ask(s: Store, clients: Vec<String>, all: bool, version: Option<String>) {
                     .unwrap_or_default();
                 s.toast(Tone::Warning, format!("Nothing to update: {why}"), None);
             } else {
+                if !all {
+                    s.clients_updating.update(|j| {
+                        j.extend(reply.asked.iter().map(|n| (n.clone(), OwnJob::Asked)));
+                    });
+                }
                 s.toast(
                     Tone::Success,
                     format!("Asked {} to update to {}", reply.asked.join(", "), reply.to),
@@ -382,45 +387,4 @@ impl ServerUpdate {
             move || ask_server(s),
         )
     }
-}
-
-pub fn follow_server_update() {
-    let s = store();
-    Effect::new(move |_| {
-        let job = s.server_updating.get();
-        if !job.busy() {
-            return;
-        }
-        let Some(last) = s.status.with(|st| {
-            st.as_deref()
-                .and_then(|st| st.server_update.as_ref())
-                .and_then(|u| u.last.clone())
-        }) else {
-            return;
-        };
-        match (job, last.state.finished()) {
-            (OwnJob::Asked, false) => s.server_updating.set(OwnJob::Running),
-            (OwnJob::Running, true) => {
-                s.server_updating.set(OwnJob::Idle);
-                match last.state {
-                    burrow_admin_proto::updates::UpdateState::Done => {
-                        s.toast(
-                            Tone::Success,
-                            format!("Server updated to {}", last.to),
-                            None,
-                        );
-                    }
-                    burrow_admin_proto::updates::UpdateState::RolledBack => {
-                        s.toast(
-                            Tone::Warning,
-                            "Update rolled back — see Needs attention",
-                            None,
-                        );
-                    }
-                    _ => s.toast(Tone::Warning, "Update failed — see Needs attention", None),
-                }
-            }
-            _ => {}
-        }
-    });
 }

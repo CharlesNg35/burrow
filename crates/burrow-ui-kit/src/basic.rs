@@ -185,9 +185,19 @@ pub fn Kpi(
 }
 
 pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView {
+    card_head_beside(title, ().into_any(), sub, right)
+}
+
+/// A card head with a small control right after its title (`beside`), which stays on the title's line.
+pub fn card_head_beside(
+    title: String,
+    beside: AnyView,
+    sub: Option<String>,
+    right: AnyView,
+) -> AnyView {
     view! {
         <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-            <h2 class="text-[13.5px] font-bold">{title}</h2>
+            <div class="flex items-center gap-1.5"><h2 class="text-[13.5px] font-bold">{title}</h2>{beside}</div>
             {sub.map(|s| view! { <span class="text-xs text-text-muted" data-card-sub="">{s}</span> })}
             <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-text-muted max-sm:has-[>[data-toolbar]]:basis-full">{right}</div>
         </div>

@@ -310,7 +310,7 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
         let now = tab.get();
         if !now.holds_fields() {
             return Some(
-                view! { <div data-tab-panel=now.key()><super::config_file::ConfigFile/></div> }
+                view! { <div data-tab-panel=now.key() data-fill-part=""><super::config_file::ConfigFile/></div> }
                     .into_any(),
             );
         }
@@ -420,6 +420,20 @@ pub fn Settings() -> impl IntoView {
         s.added_to_changes();
     };
     let can = s.can_write_now();
+    let full = s.raw_full;
+    Effect::new(move |_| {
+        if tab.get() != Tab::File && full.get_untracked() {
+            full.set(false);
+        }
+    });
+    on_cleanup(move || {
+        let _ = full.try_set(false);
+    });
+    let fill = move || match (tab.get() == Tab::File, full.get()) {
+        (true, true) => Some("all"),
+        (true, false) => Some("desk"),
+        (false, _) => None,
+    };
     let filters = vec![
         ("all", "All".into()),
         (
@@ -437,7 +451,8 @@ pub fn Settings() -> impl IntoView {
         <Provider value=ShowKeys(true)>
         <Provider value=PageSearch(look.query)>
         <Provider value=crate::form::EditMode(Signal::derive(move || editing.get()))>
-        <div class="px-8 pt-7 pb-12 max-sm:px-4" id="detail">
+        <div class=move || if full.get() { "px-8 pt-4 pb-12 max-sm:px-4" } else { "px-8 pt-7 pb-12 max-sm:px-4" } id="detail" data-fill=fill>
+            <div class:hidden=move || full.get() data-testid="settings-head">
             <burrow_ui_kit::PageHeader
                 kicker="Settings"
                 sub="Everything in server.yaml except clients, visitors and services."
@@ -450,10 +465,11 @@ pub fn Settings() -> impl IntoView {
                 "Server settings"
             </burrow_ui_kit::PageHeader>
             {tab_bar(rows, tab, look, search_box(look.query, "Search settings".into(), Signal::stored(false)).into_any())}
+            </div>
             <div class="mb-4" class:hidden=move || !tab.get().holds_fields() data-testid="settings-search">
                 {filter_chips(filters, look.filter, plain_rows, true, Signal::stored(false))}
             </div>
-            <div data-testid="settings">{tab_cards(tab, look, rows)}</div>
+            <div data-testid="settings" data-fill-part="">{tab_cards(tab, look, rows)}</div>
             {move || editing.get().then(|| {
                 crate::screens::bar::save_bar(crate::screens::bar::SaveBar {
                     count: problems.get(),

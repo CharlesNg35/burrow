@@ -322,7 +322,8 @@ fn Body() -> impl IntoView {
 #[component]
 fn Banners() -> impl IntoView {
     let s = store();
-    crate::screens::updates::follow_server_update();
+    crate::screens::update_follow::follow_server_update();
+    crate::screens::update_follow::follow_client_updates();
     let show_diags = RwSignal::new(false);
     let reconnecting = move || match s.conn.get() {
         Conn::Reconnecting { attempt } => {

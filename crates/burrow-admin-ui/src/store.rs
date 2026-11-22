@@ -88,6 +88,9 @@ pub struct Store {
     pub server_addr: RwSignal<String>,
     pub error: RwSignal<Option<String>>,
     pub server_updating: RwSignal<OwnJob>,
+    pub clients_updating: RwSignal<std::collections::BTreeMap<String, OwnJob>>,
+    /// Settings → Raw config in full screen: the page header and the Settings tabs are hidden.
+    pub raw_full: RwSignal<bool>,
     pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,
     pub text: crate::edit::TextEdit,
@@ -179,6 +182,8 @@ impl Store {
             query_seen: RwSignal::new(0),
             error: RwSignal::new(None),
             server_updating: RwSignal::new(OwnJob::Idle),
+            clients_updating: RwSignal::new(std::collections::BTreeMap::new()),
+            raw_full: RwSignal::new(false),
             retry: RwSignal::new(None),
             edit,
             text,

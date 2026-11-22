@@ -237,6 +237,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
     });
     let settings = EditorSettings {
         theme: EditorTheme::ViraInspired,
+        colors: super::theme::colors(),
         show_footer: true,
         styled: true,
         ..EditorSettings::default()
@@ -279,7 +280,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
     });
     follow(active, spot, tabs);
     Ok(view! {
-        <div class="min-w-0 w-full" data-testid="file-editor" on:input=move |_| keep_soon() on:paste=move |_| keep_soon()>
+        <div class="min-w-0 w-full" data-testid="file-editor" data-fill-part="" on:input=move |_| keep_soon() on:paste=move |_| keep_soon()>
             <ConfigDocuments
                 documents=list
                 initial_active=main

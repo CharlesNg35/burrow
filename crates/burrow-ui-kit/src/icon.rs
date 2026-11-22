@@ -49,6 +49,8 @@ pub fn path(name: &str) -> &'static str {
         "chevron-down" => "M6 9l6 6 6-6",
         "chevron-right" => "M9 6l6 6-6 6",
         "chevron-left" => "M15 6l-6 6 6 6",
+        "maximize" => "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
+        "minimize" => "M9 4v5H4M15 4v5h5M15 20v-5h5M9 20v-5H4",
         "wand" => {
             "M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M15 9h.01M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"
         }

@@ -9,12 +9,13 @@ mod goto;
 mod goto_list;
 mod new_file;
 mod problems;
+mod theme;
 
 use burrow_admin_logic::running::{difference_note, differences};
 use burrow_admin_proto::msg;
 use burrow_admin_proto::serde_json;
 use burrow_admin_proto::view::{ConfigView, Shown, ShownRequest};
-use burrow_ui_kit::{Callout, CodeBlock, Toggle, Tone};
+use burrow_ui_kit::{Callout, CodeBlock, Icon, Toggle, Tone};
 use leptos::prelude::*;
 
 use crate::api;
@@ -114,7 +115,7 @@ fn file_body(loaded: RwSignal<Loaded>) -> impl IntoView {
             view! { <p class="text-sm text-danger" data-testid="file-error">{e}</p> }.into_any()
         }
         Some(Ok(name)) => {
-            view! { <CodeBlock text=text file_name=name testid="file-text"/> }.into_any()
+            view! { <CodeBlock text=text file_name=name testid="file-text" fills=true/> }.into_any()
         }
     }
 }
@@ -184,8 +185,9 @@ pub fn ConfigFile() -> impl IntoView {
                 view! { <span data-testid="file-toggle">{toggle}</span>{edit_button} }.into_any();
             (subline(can_edit.get(), s.can_write()), right)
         };
-        burrow_ui_kit::card_head(
+        burrow_ui_kit::card_head_beside(
             "The config the server reads".into(),
+            full_button(s.raw_full),
             sub.map(str::to_string),
             right,
         )
@@ -217,7 +219,7 @@ pub fn ConfigFile() -> impl IntoView {
     let content = move || {
         if editing.get() {
             view! {
-                <div class="min-w-0 pt-3" data-testid="file-body">
+                <div class="min-w-0 pt-3" data-testid="file-body" data-fill-part="">
                     {edit_notes(note)}
                     {body}
                 </div>
@@ -225,7 +227,7 @@ pub fn ConfigFile() -> impl IntoView {
             .into_any()
         } else {
             view! {
-                <div class="min-w-0 px-4 py-3" data-testid="file-body">
+                <div class="min-w-0 px-4 py-3" data-testid="file-body" data-fill-part="">
                     {running_note(note)}
                     {body}
                 </div>
@@ -234,7 +236,7 @@ pub fn ConfigFile() -> impl IntoView {
         }
     };
     view! {
-        <section class=shell data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
+        <section class=shell data-fill-part="" data-card="file" data-testid="config-file" data-editing=move || editing.get().to_string() data-rev=move || loaded.with(|l| l.as_ref().and_then(|r| r.as_ref().ok()).map(|v| v.rev.clone()).unwrap_or_default()) data-state-rev=move || rev.get().unwrap_or_default()>
             <div class=head_box data-testid="file-head">{head}{move || editing.get().then(|| goto::panel(go, t))}</div>
             {content}
             {edit::cancel_dialog(s, asking)}
@@ -242,6 +244,33 @@ pub fn ConfigFile() -> impl IntoView {
             {new_file::close_dialog(s.text)}
         </section>
     }
+}
+
+/// Full screen: the page header and the Settings tabs make room for the config (Settings keeps the
+/// app's header). One button, whose name and icon follow the state, so focus stays on it.
+fn full_button(full: RwSignal<bool>) -> AnyView {
+    let label = move || {
+        if full.get() {
+            "Leave full screen"
+        } else {
+            "Full screen"
+        }
+    };
+    view! {
+        <button
+            type="button"
+            class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-surface-3 hover:text-text"
+            aria-label=label
+            title=label
+            aria-pressed=move || full.get().to_string()
+            data-testid="file-full"
+            on:click=move |_| full.update(|f| *f = !*f)
+        >
+            <span class=move || if full.get() { "hidden" } else { "contents" }><Icon name="maximize" small=true/></span>
+            <span class=move || if full.get() { "contents" } else { "hidden" }><Icon name="minimize" small=true/></span>
+        </button>
+    }
+    .into_any()
 }
 
 const VIEW_ONLY: &str = "View only";

@@ -70,13 +70,16 @@ pub fn CodeBlock(
     #[prop(into)] text: Signal<String>,
     #[prop(optional, into)] file_name: Option<String>,
     #[prop(optional)] testid: &'static str,
+    /// Takes the height its box gives (inside a `[data-fill]` page) instead of at most 80% of the window.
+    #[prop(optional)]
+    fills: bool,
 ) -> impl IntoView {
     let copied = RwSignal::new(false);
     let name = file_name.clone();
     let region = file_name.unwrap_or_else(|| "Code".to_string());
     let btn = "inline-flex h-[24px] cursor-pointer items-center gap-1.5 rounded-sm border border-white/15 bg-white/5 px-2 text-xs font-semibold text-code-text/85 hover:bg-white/10 hover:text-code-text";
     view! {
-        <div class="relative overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid)>
+        <div class="relative overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid) data-fill-part=fills.then_some("")>
             <div class="flex justify-end gap-1.5 px-2.5 pt-2.5 sm:absolute sm:top-2.5 sm:right-2.5 sm:p-0">
                 <button
                     type="button"
@@ -100,6 +103,7 @@ pub fn CodeBlock(
             </div>
             <pre
                 class=SCROLL
+                data-fill-scroll=fills.then_some("")
                 tabindex="0"
                 role="region"
                 aria-label=region
