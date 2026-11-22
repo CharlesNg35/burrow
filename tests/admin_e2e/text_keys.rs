@@ -1,0 +1,114 @@
+use super::edits::Flow;
+use super::text_edit::{EDITOR, MAIN, input, js, key, replace_in, show, start, tab};
+use super::world::{self, Options};
+use super::{Ctx, SECS, open, run};
+
+const APPS: &str = "server.d/apps.yaml";
+const TOOL: &str = "server.d/tool.yaml";
+const ROWS: &str = ".config-editor__completion";
+
+fn opts() -> Options {
+    Options {
+        drop_ins: vec![
+            (
+                "apps.yaml",
+                "services:\n  blog:\n    client: home\n    target: 22\n    visitors: [laptop]\n"
+                    .into(),
+                false,
+            ),
+            (
+                "tool.yaml",
+                format!("clients:\n  box:\n    secret: {}\n", world::secret()),
+                false,
+            ),
+        ],
+        ..Options::default()
+    }
+}
+
+async fn offered(c: &Ctx, name: &str) -> Vec<String> {
+    key(c, name, " ", "Space", "ctrlKey: true,").await;
+    let rows = format!("{EDITOR} {ROWS}");
+    c.ui.wait_for(&rows, SECS).await;
+    c.ui.eval(&format!(
+        "[...document.querySelectorAll({})].map(r => r.textContent.trim())",
+        js(&rows)
+    ))
+    .await
+}
+
+fn has(rows: &[String], name: &str, from: &str) -> bool {
+    rows.iter().any(|r| r.starts_with(name) && r.contains(from))
+}
+
+async fn names_across_files(c: &mut Ctx) {
+    start(c).await;
+    replace_in(c, MAIN, "  home:\n", "  fresh:\n    secret: x\n  home:\n").await;
+    show(c, APPS).await;
+    replace_in(c, APPS, "client: home", "client: ").await;
+    let rows = offered(c, APPS).await;
+    assert!(
+        has(&rows, "fresh", MAIN),
+        "a client typed in server.yaml, not saved, is offered at once: {rows:?}"
+    );
+    assert!(
+        has(&rows, "box", TOOL),
+        "a client of a file not open is offered, with its file: {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|r| r.starts_with("self")),
+        "and the word self: {rows:?}"
+    );
+    c.ui.view_shot("text-keys-offered").await;
+    key(c, APPS, "Escape", "Escape", "").await;
+    replace_in(c, APPS, "visitors: [laptop]", "visitors: [laptop, ]").await;
+    let at: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const i = document.querySelector({}); const at = i.value.indexOf('laptop, ') + 8; i.focus(); i.setSelectionRange(at, at); return true; }})()",
+            js(&input(APPS))
+        ))
+        .await;
+    assert!(at);
+    let rows = offered(c, APPS).await;
+    assert!(
+        rows.iter().any(|r| r.starts_with("ops")) && !rows.iter().any(|r| r.starts_with("laptop")),
+        "a list of visitors offers the visitors not in it yet: {rows:?}"
+    );
+    key(c, APPS, "Escape", "Escape", "").await;
+    replace_in(c, APPS, "visitors: [laptop, ]", "visitors: [laptop]").await;
+    replace_in(c, APPS, "client: \n", "client: box\n").await;
+    let on: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const i = document.querySelector({}); const at = i.value.indexOf('client: box') + 9; i.focus(); i.setSelectionRange(at, at); return true; }})()",
+            js(&input(APPS))
+        ))
+        .await;
+    assert!(on);
+    key(c, APPS, "F12", "F12", "").await;
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(TOOL)), SECS)
+        .await;
+    c.ui.wait_true(
+        &format!(
+            "(() => {{ const i = document.querySelector({}); return !!i && i.value.slice(0, i.selectionStart).endsWith('clients:\\n  '); }})()",
+            js(&input(TOOL))
+        ),
+        "F12 on a name another file defines opens that file at its key",
+        SECS,
+    )
+    .await;
+}
+
+fn text_keys(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        names_across_files(c).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_name_is_offered_from_every_file_unsaved_edits_included() {
+    run("text-keys", opts(), false, text_keys);
+}

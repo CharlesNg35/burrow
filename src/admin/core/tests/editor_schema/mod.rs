@@ -1,5 +1,5 @@
 //! Parity of the editor's JSON Schema with burrow's own check, through `jsonschema`, the editor's validator.
-//! `corpus` gathers the docs' configs, `generate` random ones, `docs` checks descriptions and examples; `Verdict` compares.
+//! `corpus` gathers the docs' configs, `generate` random ones, `docs` checks descriptions and examples, `keys` names; `Verdict` compares.
 //! A schema problem is fine where burrow has an error at that field or a key inside it; `specific` picks
 //! the problems the editor shows (leptos-config-editor `specific_errors`). Without the web proxy, burrow's
 //! one `no-web-proxy` error stands for every `web:` key, and the editor refuses such a key whole.
@@ -9,6 +9,7 @@
 mod corpus;
 mod docs;
 mod generate;
+mod keys;
 
 use std::collections::BTreeMap;
 

@@ -5,6 +5,8 @@
 - **Raw config fills the window:** the config, read or edited, takes the height under its card head and scrolls inside its box, so the page no longer scrolls to show the whole editor (from 640 px wide; a phone's page still scrolls past it).
 - **Full screen for Raw config:** a button after the card's title hides the page header and the Settings tabs; the same button leaves it.
 - **The editor has the read-only view's colors:** the same dark background, key, value and comment colors, and matching tabs, toolbar and footer, so Edit looks like the view it opens from.
+- **Names from every file in the editor:** a service's `client`, `clients` and `visitors`, a site's `forward_auth` and a login service's `service` suggest the clients, visitors, services and login services defined in every file, unsaved edits in other tabs included, with the file each is in. F12 (or Ctrl+click) goes to where a name is defined, in its own file.
+- **leptos-config-editor 0.2.0:** less memory per open file, and the editor's own fix for the cut-off slant of a read-only tab's italic name (burrow's workaround is gone).
 - **A finished update leaves no line:** "updated 0.2.3 → 0.2.5" no longer comes back on every reload for an hour. The admin who asked gets a message once ("Server updated to 0.2.5", or "home updated to 0.2.5" for a client), and the new version shows where the version does. A failed or rolled back update still shows for a day.
 
 ## [0.2.5]

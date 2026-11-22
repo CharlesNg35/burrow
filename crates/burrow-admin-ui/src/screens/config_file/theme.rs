@@ -10,6 +10,7 @@ const MUTED: &str = "color-mix(in srgb, var(--color-code-text) 62%, transparent)
 const PANEL: &str = "color-mix(in srgb, var(--color-code) 94%, white)";
 const RAISED: &str = "color-mix(in srgb, var(--color-code) 88%, white)";
 const LINE: &str = "rgb(255 255 255 / 10%)";
+const HOVER: &str = "rgb(255 255 255 / 6%)";
 
 pub fn colors() -> ThemeColors {
     [
@@ -45,7 +46,7 @@ pub fn colors() -> ThemeColors {
         (C::RaisedBorder, "rgb(255 255 255 / 14%)"),
         (C::RaisedText, TEXT),
         (C::RaisedMuted, MUTED),
-        (C::RaisedHover, "rgb(255 255 255 / 6%)"),
+        (C::RaisedHover, HOVER),
         (C::CompletionActive, "rgb(125 189 245 / 18%)"),
         (C::TabBar, PANEL),
         (C::TabBackground, PANEL),
@@ -54,6 +55,9 @@ pub fn colors() -> ThemeColors {
         (C::TabActiveText, TEXT),
         (C::TabBorder, LINE),
         (C::TabActiveBorder, ACCENT),
+        (C::TabAddHoverBackground, HOVER),
+        (C::TabAddHoverText, TEXT),
+        (C::TabCloseHoverBackground, HOVER),
     ]
     .into_iter()
     .fold(ThemeColors::new(), |c, (k, v)| c.set(k, v))

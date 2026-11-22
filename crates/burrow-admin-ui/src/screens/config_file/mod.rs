@@ -1,5 +1,6 @@
 //! The Raw config tab: the server's config as text, and the raw text editor for write admins.
-//! `ConfigFile` is the entry; edit.rs holds the edit-mode chrome, editor.rs the editor itself (behind one function, loaded lazily).
+//! `ConfigFile` is the entry; edit.rs holds the edit-mode chrome, editor.rs the editor itself (behind one function, loaded lazily),
+//! key_names the names of the files not open in a tab, for fields naming a client, visitor, service or login.
 
 mod edit;
 mod edit_as;
@@ -7,6 +8,7 @@ mod editor;
 mod follow;
 mod goto;
 mod goto_list;
+mod key_names;
 mod new_file;
 mod problems;
 mod theme;

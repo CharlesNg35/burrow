@@ -1,14 +1,16 @@
 //! The editor's JSON Schema: the config model's schemars schema, inlined and marked from the admin schema tree.
 //! Start at `editor_schema`; `groups` adds the admin's one-of groups as options, `choices` each enum value's label and help,
-//! `env` lets `${VAR}` stand for any value.
+//! `env` lets `${VAR}` stand for any value, `keys` marks a field naming a client, visitor, service or login with the map it names.
 //! It may only say less than burrow's own check: every config burrow accepts validates against it,
 //! and in a build without the web proxy it refuses the web keys as burrow does (a service's `web` may be null).
 
 mod choices;
 mod env;
 mod groups;
+mod keys;
 
 use burrow_admin_proto::schema::{Editable, Node, Schema, SemType};
+use burrow_admin_proto::text_edit::{DROP_IN_SCHEMA_ID, SCHEMA_ID};
 use burrow_syntax::secret_fmt::{CREDENTIAL_HEADER_ENDINGS, CREDENTIAL_HEADERS};
 use serde_json::{Map, Value, json};
 
@@ -21,6 +23,7 @@ pub fn editor_schema(json: Value, admin: &Schema) -> Value {
     let mut root = inline(&json, &defs, 0);
     if let Some(m) = root.as_object_mut() {
         m.remove("$defs");
+        m.insert("$id".into(), json!(SCHEMA_ID));
     }
     structure(&mut root, &admin.root, 0);
     env::references(&mut root);
@@ -42,6 +45,7 @@ pub fn drop_in_schema(full: &Value) -> Value {
             .collect();
         m.insert("properties".into(), Value::Object(props));
         m.insert("additionalProperties".into(), json!(false));
+        m.insert("$id".into(), json!(DROP_IN_SCHEMA_ID));
         m.insert(
             "description".into(),
             json!("A drop-in file holds only services, clients and visitors"),
@@ -182,6 +186,9 @@ fn within(js: &mut Value, node: &Node, key: &str, depth: usize) {
         SemType::Enum(e) => choices::add(js, e),
         SemType::Map(m) => entries(js, &m.value, key, depth),
         SemType::RefMap(m) => entries(js, &m.value, key, depth),
+        SemType::Ref(r) => keys::one(js, &r.entity, &r.reserved),
+        SemType::RefList(r) => keys::items(js, &r.entity, &r.reserved),
+        SemType::RefEntries(r) => keys::items(js, &r.entity, &r.reserved),
         SemType::List(l) => {
             if let Some(items) = js.get_mut("items") {
                 annotate(items, &l.item, key, false, depth + 1);
@@ -189,6 +196,9 @@ fn within(js: &mut Value, node: &Node, key: &str, depth: usize) {
         }
         SemType::Union(u) => {
             for b in &u.branches {
+                if let SemType::Ref(r) = &b.sem {
+                    keys::one(js, &r.entity, &r.reserved);
+                }
                 if let Some(target) = object_branch(js, b) {
                     within(target, b, key, depth + 1);
                 }

@@ -70,8 +70,6 @@
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 }
 
-:not(#\#):not(#\#):not(#\#) .config-editor-documents__tab-readonly :is(.config-editor-documents__name-start, .config-editor-documents__name-end) { padding-inline-end: 0.15em; }
-
 /* A page that fills the window under the header (Settings → Raw config): the page is a column as
    tall as the window, and each [data-fill-part] box down to the text takes the height left, so the
    text scrolls inside its box and the page does not. Everything else in a box keeps its height.

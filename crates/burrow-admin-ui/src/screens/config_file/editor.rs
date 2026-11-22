@@ -279,6 +279,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
         let _ = edit.ask.try_set_value(None);
     });
     follow(active, spot, tabs);
+    let key_names = super::key_names::host_names(text, values, open);
     Ok(view! {
         <div class="min-w-0 w-full" data-testid="file-editor" data-fill-part="" on:input=move |_| keep_soon() on:paste=move |_| keep_soon()>
             <ConfigDocuments
@@ -287,6 +288,8 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                 handle=tabs
                 label="Config files"
                 settings=Signal::stored(settings)
+                key_names=key_names
+                on_go_to_definition=super::key_names::go_to(edit)
                 on_select=Callback::new(move |id: String| {
                     edit.used(&id);
                     active.set(id);
