@@ -101,11 +101,12 @@ async fn names_across_files(c: &mut Ctx) {
     let on: bool = c
         .ui
         .eval(&format!(
-            "(() => {{ const i = document.querySelector({}); const at = i.value.indexOf('client: box') + 9; i.focus(); i.setSelectionRange(at, at); return true; }})()",
+            "(() => {{ const i = document.querySelector({}); const at = i.value.indexOf('client: box') + 9; i.focus(); i.setSelectionRange(at, at); i.dispatchEvent(new Event('select', {{ bubbles: true }})); i.dispatchEvent(new KeyboardEvent('keyup', {{ key: 'ArrowRight', bubbles: true }})); return true; }})()",
             js(&input(APPS))
         ))
         .await;
     assert!(on);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     key(c, APPS, "F12", "F12", "").await;
     c.ui.wait_for(&format!("{}[aria-selected=true]", tab(TOOL)), SECS)
         .await;
