@@ -22,10 +22,12 @@ fn opts() -> Options {
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct Fit {
+pub(super) struct Fit {
     bottom: f64,
     page: f64,
     window: f64,
+    /// The room main keeps under the page for toasts.
+    room: f64,
     head: bool,
     /// From the box up to the page: each element's test id or tag, height and display, for a failure.
     chain: Vec<String>,
@@ -33,13 +35,13 @@ struct Fit {
 
 async fn fit(c: &Ctx, sel: &str) -> Fit {
     c.ui.eval(&format!(
-        "(() => {{ const b = document.querySelector('{sel}').getBoundingClientRect(); const h = document.querySelector('{HEAD}'); return {{ bottom: b.bottom + scrollY, page: document.documentElement.scrollHeight, window: innerHeight, head: !!(h && h.offsetParent), chain: (() => {{ const out = []; for (let e = document.querySelector('{sel}'); e && e !== document.body; e = e.parentElement) {{ const s = getComputedStyle(e); [...e.children].forEach(k => {{ const r = k.getBoundingClientRect(); if (r.height > 40 && !k.contains(document.querySelector('{sel}'))) out.push('  sibling ' + (k.dataset.testid || k.tagName) + ' ' + Math.round(r.height)); }}); out.push((e.dataset.testid || e.tagName + '.' + e.className.toString().slice(0, 40)) + ' h=' + Math.round(e.getBoundingClientRect().height) + ' ' + s.display + ' flex=' + s.flex); }} return out; }})() }}; }})()"
+        "(() => {{ const b = document.querySelector('{sel}').getBoundingClientRect(); const h = document.querySelector('{HEAD}'); return {{ bottom: b.bottom + scrollY, page: document.documentElement.scrollHeight, window: innerHeight, room: parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom) || 0, head: !!(h && h.offsetParent), chain: (() => {{ const out = []; for (let e = document.querySelector('{sel}'); e && e !== document.body; e = e.parentElement) {{ const s = getComputedStyle(e); [...e.children].forEach(k => {{ const r = k.getBoundingClientRect(); if (r.height > 40 && !k.contains(document.querySelector('{sel}'))) out.push('  sibling ' + (k.dataset.testid || k.tagName) + ' ' + Math.round(r.height)); }}); out.push((e.dataset.testid || e.tagName + '.' + e.className.toString().slice(0, 40)) + ' h=' + Math.round(e.getBoundingClientRect().height) + ' ' + s.display + ' flex=' + s.flex); }} return out; }})() }}; }})()"
     ))
     .await
 }
 
 /// The box ends a little above the window's bottom (the page's padding), and the page does not scroll.
-async fn fills(c: &Ctx, sel: &str, step: &str) -> Fit {
+pub(super) async fn fills(c: &Ctx, sel: &str, step: &str) -> Fit {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let f = fit(c, sel).await;
     assert!(
@@ -47,7 +49,7 @@ async fn fills(c: &Ctx, sel: &str, step: &str) -> Fit {
         "{step}: the page fits the window, only the text scrolls: {f:?}"
     );
     assert!(
-        f.bottom >= f.window - 48.0 && f.bottom <= f.window,
+        f.bottom >= f.window - f.room - 48.0 && f.bottom <= f.window - f.room,
         "{step}: the text's box takes the height left, down to the bottom: {f:?}"
     );
     f

@@ -334,6 +334,9 @@ pub(super) async fn shots(c: &mut Ctx, step: &str) {
             near(&band["above"]) && (band["below"].is_null() || near(&band["below"])),
             "{step} at {w}px: the notes sit in the band between the head and the editor: {band}"
         );
+        if w >= 640 {
+            super::text_fill::fills(c, EDITOR, &format!("{step} at {w}px")).await;
+        }
         c.ui.shot(&format!("{step}-{size}")).await;
     }
     c.ui.viewport(1440, 900).await;
