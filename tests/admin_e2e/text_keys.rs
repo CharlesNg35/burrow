@@ -45,6 +45,23 @@ fn named(rows: &[(String, String)], name: &str) -> bool {
     rows.iter().any(|(k, _)| k == name)
 }
 
+async fn reach_keys(c: &Ctx) {
+    show(c, MAIN).await;
+    let had = "    reach:\n      home: [127.0.0.1/32]\n";
+    replace_in(c, MAIN, had, &format!("{had}      ")).await;
+    let rows = offered(c, MAIN).await;
+    assert!(
+        has(&rows, "fresh", "this document") && has(&rows, "box", TOOL) && named(&rows, "self"),
+        "a new key of a visitor's reach is offered the client names: {rows:?}"
+    );
+    assert!(
+        !named(&rows, "home"),
+        "but not the clients reach has already: {rows:?}"
+    );
+    key(c, MAIN, "Escape", "Escape", "").await;
+    replace_in(c, MAIN, &format!("{had}      "), had).await;
+}
+
 async fn names_across_files(c: &mut Ctx) {
     start(c).await;
     replace_in(c, MAIN, "  home:\n", "  fresh:\n    secret: x\n  home:\n").await;
@@ -78,6 +95,8 @@ async fn names_across_files(c: &mut Ctx) {
     );
     key(c, APPS, "Escape", "Escape", "").await;
     replace_in(c, APPS, "visitors: [laptop, ]", "visitors: [laptop]").await;
+    reach_keys(c).await;
+    show(c, APPS).await;
     replace_in(c, APPS, "client: \n", "client: box\n").await;
     let on: bool = c
         .ui

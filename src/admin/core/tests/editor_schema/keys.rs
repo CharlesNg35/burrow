@@ -30,6 +30,9 @@ fn named(js: &Value, at: &str, out: &mut BTreeSet<(String, String)>) {
     {
         named(v, &format!("{at}/{k}"), out);
     }
+    if let Some(v) = m.get("propertyNames") {
+        named(v, &format!("{at}/<key>"), out);
+    }
     if let Some(v) = m.get("additionalProperties") {
         named(v, &format!("{at}/*"), out);
     }
@@ -56,6 +59,7 @@ fn examples_at<'a>(js: &'a Value, path: &[&str], out: &mut Vec<&'a Value>) {
     let next = match *first {
         "*" => js.get("additionalProperties"),
         "[]" => js.get("items"),
+        "<key>" => js.get("propertyNames"),
         k => js.get("properties").and_then(|p| p.get(k)),
     };
     if let Some(n) = next {
@@ -82,6 +86,7 @@ fn a_field_naming_a_client_visitor_service_or_login_offers_the_names_defined() {
         want("/services/*/clients/[]", "/clients"),
         want("/services/*/clients/[]/name", "/clients"),
         want("/services/*/visitors/[]", "/visitors"),
+        want("/visitors/*/reach/<key>", "/clients"),
     ]
     .into();
     if crate::base::build::WEB_PROXY {
@@ -95,6 +100,9 @@ fn a_field_naming_a_client_visitor_service_or_login_offers_the_names_defined() {
         self_.iter().any(|e| *e == "self"),
         "self is offered as a word, not a name: {self_:?}"
     );
+    let mut reach = Vec::new();
+    examples_at(c.schema(), &["visitors", "*", "reach", "<key>"], &mut reach);
+    assert!(reach.iter().any(|e| *e == "self"), "reach: {reach:?}");
     let w = world();
     let core = core_running(&w.text, &w.text);
     let t = edit_text(&core, &session(&w, AdminLevel::Read));

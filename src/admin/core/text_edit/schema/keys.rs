@@ -64,3 +64,16 @@ pub(super) fn items(js: &mut Value, entity: &Entity, reserved: &[String]) {
         each_text(items, &keys, reserved);
     }
 }
+
+pub(super) fn map_keys(js: &mut Value, entity: &Entity, reserved: &[String]) {
+    let Some(keys) = names_of(entity) else {
+        return;
+    };
+    let Some(m) = js.as_object_mut() else {
+        return;
+    };
+    let names = m.entry("propertyNames").or_insert_with(|| json!({}));
+    if names.is_object() {
+        put(names, &keys, reserved);
+    }
+}

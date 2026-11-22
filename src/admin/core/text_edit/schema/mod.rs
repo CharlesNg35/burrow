@@ -185,7 +185,10 @@ fn within(js: &mut Value, node: &Node, key: &str, depth: usize) {
         }
         SemType::Enum(e) => choices::add(js, e),
         SemType::Map(m) => entries(js, &m.value, key, depth),
-        SemType::RefMap(m) => entries(js, &m.value, key, depth),
+        SemType::RefMap(m) => {
+            keys::map_keys(js, &m.entity, &m.reserved);
+            entries(js, &m.value, key, depth);
+        }
         SemType::Ref(r) => keys::one(js, &r.entity, &r.reserved),
         SemType::RefList(r) => keys::items(js, &r.entity, &r.reserved),
         SemType::RefEntries(r) => keys::items(js, &r.entity, &r.reserved),
