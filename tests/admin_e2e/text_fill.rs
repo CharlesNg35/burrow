@@ -10,7 +10,7 @@ const VIEW: &str = "[data-testid=file-text]";
 fn opts() -> Options {
     Options {
         extra_services: (1..=60)
-            .map(|i| format!("  app{i:02}:\n    client: home\n    target: {}\n", 9000 + i))
+            .map(|i| format!("  app{i:02}:\n    client: home\n    target: {}\n    visitors: [laptop]\n", 9000 + i))
             .collect(),
         ..Options::default()
     }
