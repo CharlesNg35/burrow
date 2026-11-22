@@ -10,7 +10,12 @@ const VIEW: &str = "[data-testid=file-text]";
 fn opts() -> Options {
     Options {
         extra_services: (1..=60)
-            .map(|i| format!("  app{i:02}:\n    client: home\n    target: {}\n    visitors: [laptop]\n", 9000 + i))
+            .map(|i| {
+                format!(
+                    "  app{i:02}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
+                    9000 + i
+                )
+            })
             .collect(),
         ..Options::default()
     }
@@ -49,15 +54,17 @@ async fn fills(c: &Ctx, sel: &str, step: &str) -> Fit {
 async fn full(c: &Ctx, on: bool) {
     c.ui.click(FULL).await;
     c.ui.wait_true(
-        &format!(
-            "document.querySelector('{FULL}').getAttribute('aria-pressed') === '{on}'"
-        ),
+        &format!("document.querySelector('{FULL}').getAttribute('aria-pressed') === '{on}'"),
         "the button says whether full screen is on",
         SECS,
     )
     .await;
     let label = c.ui.attr_of(FULL, "aria-label").await;
-    let want = if on { "Leave full screen" } else { "Full screen" };
+    let want = if on {
+        "Leave full screen"
+    } else {
+        "Full screen"
+    };
     assert_eq!(label, want, "the button names what it does");
 }
 
@@ -66,10 +73,16 @@ async fn read_view(c: &mut Ctx) {
     c.ui.nav("/settings?tab=file").await;
     c.ui.wait_text(VIEW, "app60", SECS).await;
     let normal = fills(c, VIEW, "read at 1440").await;
-    assert!(normal.head, "the page header and the Settings tabs are shown");
+    assert!(
+        normal.head,
+        "the page header and the Settings tabs are shown"
+    );
     full(c, true).await;
     let f = fills(c, VIEW, "read in full screen").await;
-    assert!(!f.head, "full screen hides the page header and the Settings tabs: {f:?}");
+    assert!(
+        !f.head,
+        "full screen hides the page header and the Settings tabs: {f:?}"
+    );
     assert_eq!(
         c.ui.count("[data-testid=header]").await,
         1,
@@ -81,7 +94,10 @@ async fn read_view(c: &mut Ctx) {
     c.ui.view_shot("text-fill-read-full-phone").await;
     c.ui.viewport(1440, 900).await;
     full(c, false).await;
-    assert!(fit(c, VIEW).await.head, "leaving full screen shows them again");
+    assert!(
+        fit(c, VIEW).await.head,
+        "leaving full screen shows them again"
+    );
 }
 
 async fn editor(c: &mut Ctx) {

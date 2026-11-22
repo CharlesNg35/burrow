@@ -89,12 +89,12 @@ mod table_shots;
 mod tables;
 #[path = "admin_e2e/text_edit.rs"]
 mod text_edit;
+#[path = "admin_e2e/text_fill.rs"]
+mod text_fill;
 #[path = "admin_e2e/text_goto.rs"]
 mod text_goto;
 #[path = "admin_e2e/text_sticky.rs"]
 mod text_sticky;
-#[path = "admin_e2e/text_fill.rs"]
-mod text_fill;
 #[path = "admin_e2e/text_tabs.rs"]
 mod text_tabs;
 #[path = "admin_e2e/ui.rs"]
