@@ -26,19 +26,23 @@ fn opts() -> Options {
     }
 }
 
-async fn offered(c: &Ctx, name: &str) -> Vec<String> {
+async fn offered(c: &Ctx, name: &str) -> Vec<(String, String)> {
     key(c, name, " ", "Space", "ctrlKey: true,").await;
     let rows = format!("{EDITOR} {ROWS}");
     c.ui.wait_for(&rows, SECS).await;
     c.ui.eval(&format!(
-        "[...document.querySelectorAll({})].map(r => r.textContent.trim())",
+        "[...document.querySelectorAll({})].map(r => [r.querySelector('.config-editor__completion-key')?.textContent.trim() ?? '', r.querySelector('.config-editor__completion-detail')?.textContent.trim() ?? ''])",
         js(&rows)
     ))
     .await
 }
 
-fn has(rows: &[String], name: &str, from: &str) -> bool {
-    rows.iter().any(|r| r.starts_with(name) && r.contains(from))
+fn has(rows: &[(String, String)], name: &str, from: &str) -> bool {
+    rows.iter().any(|(k, d)| k == name && d.contains(from))
+}
+
+fn named(rows: &[(String, String)], name: &str) -> bool {
+    rows.iter().any(|(k, _)| k == name)
 }
 
 async fn names_across_files(c: &mut Ctx) {
@@ -56,7 +60,7 @@ async fn names_across_files(c: &mut Ctx) {
         "a client of a file not open is offered, with its file: {rows:?}"
     );
     assert!(
-        rows.iter().any(|r| r.starts_with("self")),
+        named(&rows, "self"),
         "and the word self: {rows:?}"
     );
     c.ui.view_shot("text-keys-offered").await;
@@ -72,7 +76,7 @@ async fn names_across_files(c: &mut Ctx) {
     assert!(at);
     let rows = offered(c, APPS).await;
     assert!(
-        rows.iter().any(|r| r.starts_with("ops")) && !rows.iter().any(|r| r.starts_with("laptop")),
+        named(&rows, "ops") && !named(&rows, "laptop"),
         "a list of visitors offers the visitors not in it yet: {rows:?}"
     );
     key(c, APPS, "Escape", "Escape", "").await;
