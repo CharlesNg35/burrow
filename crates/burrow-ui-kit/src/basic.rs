@@ -188,7 +188,6 @@ pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView 
     card_head_beside(title, ().into_any(), sub, right)
 }
 
-/// A card head with a small control right after its title (`beside`), which stays on the title's line.
 pub fn card_head_beside(
     title: String,
     beside: AnyView,

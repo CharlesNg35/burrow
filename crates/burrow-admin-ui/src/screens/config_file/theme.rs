@@ -1,6 +1,3 @@
-//! The editor's colors: the read-only view's (`burrow_ui_kit::CodeBlock`), so Edit looks the same.
-//! The code surface is dark in both of burrow admin's themes, so the editor's chrome is too.
-
 use leptos_config_editor::{ThemeColor as C, ThemeColors};
 
 const KEY: &str = "#8cc4f5";

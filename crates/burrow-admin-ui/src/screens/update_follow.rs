@@ -1,13 +1,9 @@
-//! Tells the admin who asked for an update how it ended, once, as a toast. A finished update leaves
-//! no line on the page; only a failure stays, for a day, where the update is offered.
-
 use burrow_admin_proto::updates::{UpdateState, UpdateStatus};
 use burrow_ui_kit::Tone;
 use leptos::prelude::*;
 
 use crate::store::{OwnJob, store};
 
-/// The job after this status, and the toast when it just ended.
 fn step(
     job: OwnJob,
     last: &UpdateStatus,
@@ -61,7 +57,6 @@ pub fn follow_server_update() {
     });
 }
 
-/// Clients asked one by one (not with Update all, whose progress has its own line).
 pub fn follow_client_updates() {
     let s = store();
     Effect::new(move |_| {
@@ -73,12 +68,10 @@ pub fn follow_client_updates() {
         let mut toasts = Vec::new();
         s.status.with(|st| {
             for (name, job) in &jobs {
-                let last = st
-                    .as_deref()
-                    .and_then(|st| st.clients.iter().find(|c| &c.name == name))
-                    .and_then(|c| c.update.as_ref());
+                let last =
+                    burrow_admin_logic::presence::of(st.as_deref(), name).and_then(|c| c.update);
                 let Some(last) = last else { continue };
-                let (job, toast) = step(*job, last, Some(name));
+                let (job, toast) = step(*job, &last, Some(name));
                 if job.busy() {
                     next.insert(name.clone(), job);
                 } else {

@@ -26,10 +26,8 @@ pub(super) struct Fit {
     bottom: f64,
     page: f64,
     window: f64,
-    /// The room main keeps under the page for toasts.
     room: f64,
     head: bool,
-    /// From the box up to the page: each element's test id or tag, height and display, for a failure.
     chain: Vec<String>,
 }
 
@@ -41,7 +39,6 @@ async fn fit(c: &Ctx, sel: &str) -> Fit {
     .await
 }
 
-/// The box ends a little above the window's bottom (the page's padding), and the page does not scroll.
 pub(super) async fn fills(c: &Ctx, sel: &str, step: &str) -> Fit {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let f = fit(c, sel).await;
@@ -105,7 +102,6 @@ async fn read_view(c: &mut Ctx) {
     );
 }
 
-/// The editor's own text area takes the editor's height (less its tabs and footer), not a line.
 async fn text_area_fills(c: &Ctx, step: &str) {
     let area = input(MAIN);
     let f = fit(c, &area).await;

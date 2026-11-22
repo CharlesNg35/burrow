@@ -89,7 +89,6 @@ pub struct Store {
     pub error: RwSignal<Option<String>>,
     pub server_updating: RwSignal<OwnJob>,
     pub clients_updating: RwSignal<std::collections::BTreeMap<String, OwnJob>>,
-    /// Settings → Raw config in full screen: the page header and the Settings tabs are hidden.
     pub raw_full: RwSignal<bool>,
     pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,

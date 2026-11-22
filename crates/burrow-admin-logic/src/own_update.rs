@@ -25,8 +25,6 @@ impl ServerFigure {
     }
 }
 
-/// A finished update that is still worth a line: a failure for a day. A success has no line; the
-/// admin who asked gets a toast, and the new version shows where the version does.
 pub fn recent_failure(state: UpdateState, secs_ago: u64) -> bool {
     state.failed() && secs_ago < RESULT_SHOWN_SECS
 }

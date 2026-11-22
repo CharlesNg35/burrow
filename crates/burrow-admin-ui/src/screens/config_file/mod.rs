@@ -246,8 +246,6 @@ pub fn ConfigFile() -> impl IntoView {
     }
 }
 
-/// Full screen: the page header and the Settings tabs make room for the config (Settings keeps the
-/// app's header). One button, whose name and icon follow the state, so focus stays on it.
 fn full_button(full: RwSignal<bool>) -> AnyView {
     let label = move || {
         if full.get() {

@@ -70,9 +70,7 @@ pub fn CodeBlock(
     #[prop(into)] text: Signal<String>,
     #[prop(optional, into)] file_name: Option<String>,
     #[prop(optional)] testid: &'static str,
-    /// Takes the height its box gives (inside a `[data-fill]` page) instead of at most 80% of the window.
-    #[prop(optional)]
-    fills: bool,
+    #[prop(optional)] fills: bool,
 ) -> impl IntoView {
     let copied = RwSignal::new(false);
     let name = file_name.clone();
