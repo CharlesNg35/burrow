@@ -1,5 +1,5 @@
 use super::edits::Flow;
-use super::text_edit::{EDITOR, start};
+use super::text_edit::{EDITOR, MAIN, input, start};
 use super::world::Options;
 use super::{Ctx, SECS, open, run};
 
@@ -34,8 +34,9 @@ pub(super) struct Fit {
 }
 
 async fn fit(c: &Ctx, sel: &str) -> Fit {
+    let q = super::text_edit::js(sel);
     c.ui.eval(&format!(
-        "(() => {{ const b = document.querySelector('{sel}').getBoundingClientRect(); const h = document.querySelector('{HEAD}'); return {{ bottom: b.bottom + scrollY, page: document.documentElement.scrollHeight, window: innerHeight, room: parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom) || 0, head: !!(h && h.offsetParent), chain: (() => {{ const out = []; for (let e = document.querySelector('{sel}'); e && e !== document.body; e = e.parentElement) {{ const s = getComputedStyle(e); [...e.children].forEach(k => {{ const r = k.getBoundingClientRect(); if (r.height > 40 && !k.contains(document.querySelector('{sel}'))) out.push('  sibling ' + (k.dataset.testid || k.tagName) + ' ' + Math.round(r.height)); }}); out.push((e.dataset.testid || e.tagName + '.' + e.className.toString().slice(0, 40)) + ' h=' + Math.round(e.getBoundingClientRect().height) + ' ' + s.display + ' flex=' + s.flex); }} return out; }})() }}; }})()"
+        "(() => {{ const b = document.querySelector({q}).getBoundingClientRect(); const h = document.querySelector('{HEAD}'); return {{ bottom: b.bottom + scrollY, page: document.documentElement.scrollHeight, window: innerHeight, room: parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom) || 0, head: !!(h && h.offsetParent), chain: (() => {{ const out = []; for (let e = document.querySelector({q}); e && e !== document.body; e = e.parentElement) {{ const s = getComputedStyle(e); [...e.children].forEach(k => {{ const r = k.getBoundingClientRect(); if (r.height > 40 && !k.contains(document.querySelector({q}))) out.push('  sibling ' + (k.dataset.testid || k.tagName) + ' ' + Math.round(r.height)); }}); out.push((e.dataset.testid || e.tagName + '.' + e.className.toString().slice(0, 40)) + ' h=' + Math.round(e.getBoundingClientRect().height) + ' ' + s.display + ' flex=' + s.flex); }} return out; }})() }}; }})()"
     ))
     .await
 }
@@ -104,9 +105,28 @@ async fn read_view(c: &mut Ctx) {
     );
 }
 
+/// The editor's own text area takes the editor's height (less its tabs and footer), not a line.
+async fn text_area_fills(c: &Ctx, step: &str) {
+    let area = input(MAIN);
+    let f = fit(c, &area).await;
+    let tall: f64 =
+        c.ui.eval(&format!(
+            "document.querySelector({}).clientHeight",
+            super::text_edit::js(&area)
+        ))
+        .await;
+    assert!(
+        tall > f.window * 0.4,
+        "{step}: the text area is {tall} px tall in a {} px window: {:#?}",
+        f.window,
+        f.chain
+    );
+}
+
 async fn editor(c: &mut Ctx) {
     start(c).await;
     fills(c, EDITOR, "edit at 1440").await;
+    text_area_fills(c, "edit at 1440").await;
     c.ui.view_shot("text-fill-edit").await;
     full(c, true).await;
     fills(c, EDITOR, "edit in full screen").await;
