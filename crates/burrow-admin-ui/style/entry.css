@@ -80,12 +80,14 @@
 @media (min-width: 40rem) {
   [data-fill="desk"] { height: max(calc(100dvh - var(--hdr-h, 64px)), 560px); }
   :is([data-fill="desk"], [data-fill="desk"] [data-fill-part]) { display: flex; flex-direction: column; min-height: 0; }
-  [data-fill="desk"] { padding-bottom: 1.25rem; }
+  [data-fill="desk"] { padding-bottom: 2rem; }
+  [data-fill="desk"] [data-fill-part] { margin-bottom: 0; }
   :is([data-fill="desk"], [data-fill="desk"] [data-fill-part]) > * { flex-shrink: 0; }
   [data-fill="desk"] :is([data-fill-part], [data-fill-scroll]) { flex: 1 1 0; min-height: 0; }
   [data-fill="desk"] [data-fill-scroll] { max-height: none; }
 }
-[data-fill="all"] { height: calc(100dvh - var(--hdr-h, 64px)); padding-bottom: 1.25rem; }
+[data-fill="all"] { height: calc(100dvh - var(--hdr-h, 64px)); padding-bottom: 2rem; }
+[data-fill="all"] [data-fill-part] { margin-bottom: 0; }
 :is([data-fill="all"], [data-fill="all"] [data-fill-part]) { display: flex; flex-direction: column; min-height: 0; }
 :is([data-fill="all"], [data-fill="all"] [data-fill-part]) > * { flex-shrink: 0; }
 [data-fill="all"] :is([data-fill-part], [data-fill-scroll]) { flex: 1 1 0; min-height: 0; }
