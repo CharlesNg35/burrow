@@ -27,11 +27,13 @@ struct Fit {
     page: f64,
     window: f64,
     head: bool,
+    /// From the box up to the page: each element's test id or tag, height and display, for a failure.
+    chain: Vec<String>,
 }
 
 async fn fit(c: &Ctx, sel: &str) -> Fit {
     c.ui.eval(&format!(
-        "(() => {{ const b = document.querySelector('{sel}').getBoundingClientRect(); const h = document.querySelector('{HEAD}'); return {{ bottom: b.bottom + scrollY, page: document.documentElement.scrollHeight, window: innerHeight, head: !!(h && h.offsetParent) }}; }})()"
+        "(() => {{ const b = document.querySelector('{sel}').getBoundingClientRect(); const h = document.querySelector('{HEAD}'); return {{ bottom: b.bottom + scrollY, page: document.documentElement.scrollHeight, window: innerHeight, head: !!(h && h.offsetParent), chain: (() => {{ const out = []; for (let e = document.querySelector('{sel}'); e && e !== document.body; e = e.parentElement) {{ const s = getComputedStyle(e); [...e.children].forEach(k => {{ const r = k.getBoundingClientRect(); if (r.height > 40 && !k.contains(document.querySelector('{sel}'))) out.push('  sibling ' + (k.dataset.testid || k.tagName) + ' ' + Math.round(r.height)); }}); out.push((e.dataset.testid || e.tagName + '.' + e.className.toString().slice(0, 40)) + ' h=' + Math.round(e.getBoundingClientRect().height) + ' ' + s.display + ' flex=' + s.flex); }} return out; }})() }}; }})()"
     ))
     .await
 }
