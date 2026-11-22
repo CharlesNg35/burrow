@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.5]
+
+An editor fix for burrow admin's Raw config editing.
+
+- **The text editor is [leptos-config-editor](https://crates.io/crates/leptos-config-editor) 0.1.2.** An edit far from a secret's placeholder that turned the list or map holding it into one string (`=` typed into a YAML item's `- `, or ` |` typed after its parent's key) could send the placeholder glued to the other text, which overwrote the real secret on Apply. The editor now refuses such an edit, or holds the text with Review waiting.
+
 ## [0.2.4]
 
 Drop-in config files: a server can keep services, clients and visitors in `server.d/*.yaml` next to `server.yaml` (see docs/configuration.md). burrow admin edits the config as text (server.yaml and every drop-in, with schema checks and secrets kept on the server), sets up Let's Encrypt and DNS providers and locks far fewer settings, `burrow mcp` can change the config by default for a write admin, and `burrow init --yes` asks nothing.
