@@ -700,7 +700,11 @@ async fn kept_scroll(c: &Ctx, was: f64, step: &str) -> f64 {
     now
 }
 
+/// On a phone, where the page scrolls past the editor (from 640 px the editor fills the window and the
+/// page does not scroll).
 async fn focus_leaves_the_page_where_it_is(c: &mut Ctx) {
+    c.ui.viewport(390, 900).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     show(c, APPS).await;
     show(c, MAIN).await;
     let _: bool =
@@ -718,6 +722,7 @@ async fn focus_leaves_the_page_where_it_is(c: &mut Ctx) {
         .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     kept_scroll(c, at, "a switch back").await;
+    c.ui.viewport(1440, 900).await;
 }
 
 fn number_after(text: &str, key: &str) -> String {
