@@ -473,7 +473,7 @@ async fn a_moved_placeholder_is_refused(c: &mut Ctx, tool_before: &str) {
 async fn cancel_asks_when_edited(c: &mut Ctx) {
     let before = c.world.config();
     for _ in 0..8 {
-        let at: String = c.ui.eval("location.pathname + location.search + ' | ' + (document.querySelector('[data-tab][aria-selected=true]')?.dataset.tab ?? '-') + ' | editing=' + (document.querySelector('[data-testid=config-file]')?.dataset.editing ?? '-')").await;
+        let at: String = c.ui.eval("location.pathname + location.search + ' | ' + (document.querySelector('[data-tab][aria-selected=true]')?.dataset.tab ?? '-') + ' | editing=' + (document.querySelector('[data-testid=config-file]')?.dataset.editing ?? '-') + ' | cards=' + document.querySelectorAll('[data-testid=config-file]').length + ' | head=' + (document.querySelector('[data-testid=file-head]')?.innerText ?? '-').replace(/\\s+/g, ' ').slice(0, 200) + ' | full=' + (document.querySelector('[data-testid=file-full]')?.getAttribute('aria-pressed') ?? '-')").await;
         println!("DEBUG before cancel: {at}");
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
