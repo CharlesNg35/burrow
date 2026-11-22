@@ -455,7 +455,7 @@ pub fn Settings() -> impl IntoView {
             <div class:hidden=move || full.get() data-testid="settings-head">
             <burrow_ui_kit::PageHeader
                 kicker="Settings"
-                sub="Everything in server.yaml except clients, visitors and services."
+                sub_beside=Signal::derive(move || header_line(tab.get(), s.files_on()).to_string())
                 actions={view! {
                     {move || (!editing.get() && tab.get().holds_fields()).then(|| view! {
                         <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, None) } on_click=start/>
@@ -484,6 +484,15 @@ pub fn Settings() -> impl IntoView {
         </Provider>
         </Provider>
         </Provider>
+    }
+}
+
+fn header_line(tab: Tab, files: bool) -> &'static str {
+    match (tab, files) {
+        (Tab::File, true) => "server.yaml and its drop-in files, as the server reads them.",
+        (Tab::File, false) => "server.yaml as the server reads it.",
+        (Tab::Files, _) => "server.yaml and its drop-in files.",
+        _ => "Everything in server.yaml except clients, visitors and services.",
     }
 }
 
@@ -570,6 +579,14 @@ fn discard_settings(e: Edit) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_header_line_says_what_each_tab_holds() {
+        assert!(header_line(Tab::File, true).contains("drop-in files"));
+        assert!(!header_line(Tab::File, false).contains("drop-in"));
+        assert!(header_line(Tab::Files, true).contains("drop-in files"));
+        assert!(header_line(Tab::ALL[0], true).contains("except clients"));
+    }
 
     #[test]
     fn a_search_never_moves_the_view_off_the_config_file_or_files_tab() {

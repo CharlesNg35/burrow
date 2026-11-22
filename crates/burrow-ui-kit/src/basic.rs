@@ -237,6 +237,7 @@ pub fn Card(
 pub fn PageHeader(
     #[prop(optional, into)] kicker: Option<String>,
     #[prop(optional, into)] sub: Option<String>,
+    #[prop(optional, into)] sub_beside: Option<Signal<String>>,
     #[prop(optional, into)] hidden: Signal<bool>,
     #[prop(optional, into)] phone_hidden: Signal<bool>,
     #[prop(optional)] actions: Option<AnyView>,
@@ -247,7 +248,15 @@ pub fn PageHeader(
         <header class=format!("mb-[22px] flex flex-wrap items-start gap-3.5 {class}") class:hidden=move || hidden.get() class:max-sm:hidden=move || phone_hidden.get()>
             <div class="min-w-0 flex-1">
                 {kicker.map(|k| view! { <p class="mb-1.5 text-[12.5px] font-semibold">{k}</p> })}
-                <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
+                {match sub_beside {
+                    None => view! { <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1> }.into_any(),
+                    Some(line) => view! {
+                        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
+                            <p class="text-sm text-text-muted" data-header-line="">{move || line.get()}</p>
+                        </div>
+                    }.into_any(),
+                }}
                 {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted" data-header-line="">{s}</p> })}
             </div>
             {actions.map(|a| view! { <div class="flex items-center gap-2">{a}</div> })}
