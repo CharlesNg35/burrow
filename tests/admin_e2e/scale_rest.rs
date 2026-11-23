@@ -170,7 +170,10 @@ async fn history(c: &Ctx, out: &mut Vec<String>) {
     admin_change(c, "23", out).await;
     c.world
         .hand_edit(|t| t.replace("    target: 10", "    target: 30"));
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    c.ui.nav("/services/svc0000").await;
+    c.ui.wait_text("[data-testid=path-diagram]", "30000", LONG)
+        .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     admin_change(c, "24", out).await;
     c.ui.nav("/activity").await;
     c.ui.wait_true(
