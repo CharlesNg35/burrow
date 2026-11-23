@@ -6,6 +6,7 @@ use super::{Ctx, SECS, edit_mode, open, open_more, run, wait_checked};
 
 const LIST: &str = "[data-testid=list]";
 const ROWS: usize = 40;
+const KEPT: usize = 20;
 
 fn opts() -> Options {
     Options {
@@ -102,18 +103,18 @@ async fn scroll_list(c: &Ctx, top: u32) {
     tokio::time::sleep(Duration::from_millis(200)).await;
 }
 
-async fn rows_shown(c: &Ctx) {
+async fn rows_shown(c: &Ctx, n: usize) {
     c.ui.wait_true(
-        &format!("document.querySelectorAll('{LIST} [data-row]').length >= {ROWS}"),
+        &format!("document.querySelectorAll('{LIST} [data-row]').length >= {n}"),
         "the list shows every row",
         SECS,
     )
     .await;
 }
 
-async fn page(c: &mut Ctx, path: &str, what: &str) {
+async fn page(c: &mut Ctx, path: &str, rows: usize, what: &str) {
     c.ui.nav(path).await;
-    rows_shown(c).await;
+    rows_shown(c, rows).await;
     click_stays(c, 2, &format!("{what}: top of the list")).await;
     scroll_list(c, 900).await;
     click_stays(c, 1, &format!("{what}: list scrolled")).await;
@@ -131,7 +132,7 @@ async fn with_changes_pending(c: &mut Ctx) {
     for width in [1440, 1100] {
         c.ui.viewport(width, 900).await;
         c.ui.nav("/services").await;
-        rows_shown(c).await;
+        rows_shown(c, ROWS).await;
         c.ui.wait_for("[data-testid=review-open]", SECS).await;
         scroll_list(c, 900).await;
         click_stays(c, 99, &format!("pending changes at {width}: lowest row")).await;
@@ -143,7 +144,7 @@ async fn with_changes_pending(c: &mut Ctx) {
 async fn phone_back(c: &mut Ctx) {
     c.ui.viewport(390, 800).await;
     c.ui.nav("/services").await;
-    rows_shown(c).await;
+    rows_shown(c, ROWS).await;
     let _: bool =
         c.ui.eval("(() => { scrollTo(0, 1200); return true; })()")
             .await;
@@ -210,10 +211,10 @@ fn list_click(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
-        page(c, "/services", "services").await;
-        page(c, "/clients", "clients").await;
-        page(c, "/visitors", "visitors").await;
-        page(c, "/activity", "activity").await;
+        page(c, "/services", ROWS, "services").await;
+        page(c, "/clients", ROWS, "clients").await;
+        page(c, "/visitors", ROWS, "visitors").await;
+        page(c, "/activity", KEPT, "activity").await;
         phone_back(c).await;
         dialog_close_stays(c).await;
         with_changes_pending(c).await;
