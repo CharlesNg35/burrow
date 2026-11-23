@@ -92,16 +92,30 @@ pub fn of(status: Option<&Status>, name: &str) -> Option<ClientInfo> {
 }
 
 pub fn presence(status: Option<&Status>, reserved: &[String], name: &str) -> Presence {
+    presence_with(
+        status.is_some(),
+        reserved,
+        name,
+        status.and_then(|s| client(s, name)),
+    )
+}
+
+pub fn presence_with(
+    known: bool,
+    reserved: &[String],
+    name: &str,
+    found: Option<&ClientStatus>,
+) -> Presence {
     if reserved.iter().any(|r| r == name) {
         return Presence::Here;
     }
-    match status {
-        None => Presence::Unknown,
-        Some(s) => match client(s, name) {
-            Some(c) if c.local => Presence::Here,
-            Some(c) if c.connected => Presence::Online,
-            _ => Presence::Offline,
-        },
+    if !known {
+        return Presence::Unknown;
+    }
+    match found {
+        Some(c) if c.local => Presence::Here,
+        Some(c) if c.connected => Presence::Online,
+        _ => Presence::Offline,
     }
 }
 

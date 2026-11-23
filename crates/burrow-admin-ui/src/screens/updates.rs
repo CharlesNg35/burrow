@@ -326,7 +326,7 @@ impl ServerUpdate {
                 <a href="#server-update" class="whitespace-nowrap font-semibold text-accent-ink" data-testid="server-update-details" on:click=move |e| {
                     e.prevent_default();
                     if let Some(el) = document().get_element_by_id("server-update") {
-                        el.scroll_into_view();
+                        burrow_ui_kit::bring_near(&el);
                     }
                 }>"Details"</a>
             });

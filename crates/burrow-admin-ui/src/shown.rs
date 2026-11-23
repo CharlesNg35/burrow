@@ -39,7 +39,7 @@ pub fn popover(open: RwSignal<bool>, trigger: &'static str, panel: &'static str)
                             .active_element()
                             .is_some_and(|a| el.contains(Some(a.unchecked_ref())));
                         if !inside {
-                            let _ = el.focus();
+                            burrow_ui_kit::focus_still(&el);
                         }
                     }
                 },
@@ -52,7 +52,7 @@ pub fn popover(open: RwSignal<bool>, trigger: &'static str, panel: &'static str)
         if e.key() == "Escape" && open.get_untracked() {
             open.set(false);
             if let Some(t) = html_by_id(trigger) {
-                let _ = t.focus();
+                burrow_ui_kit::focus_still(&t);
             }
         }
     });

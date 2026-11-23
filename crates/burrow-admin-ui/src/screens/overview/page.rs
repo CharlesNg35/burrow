@@ -3,7 +3,9 @@ use std::collections::VecDeque;
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::{Icon, Kbd, Kpi, LineChart, Segmented, Select, button_class};
+use burrow_ui_kit::{
+    ComboOption, ComboSize, Combobox, Icon, Kbd, Kpi, LineChart, Segmented, button_class,
+};
 use leptos::prelude::*;
 
 use crate::format;
@@ -13,6 +15,8 @@ use crate::store::{Store, store};
 use super::attention::Attention;
 use super::tabs::tab_box;
 use super::{Problem, chart, healthy_detail, names, service_problems};
+
+const ALL: &str = "All services";
 
 #[component]
 fn Traffic() -> impl IntoView {
@@ -33,15 +37,27 @@ fn Traffic() -> impl IntoView {
         })
     });
     let data = Signal::derive(move || series.with(|(a, b)| chart(a, b, window.get())));
-    let options = Signal::derive(move || {
-        let mut o = vec![(String::new(), "All services".to_string())];
+    let shown = Memo::new(move |_| {
         s.status.with(|st| {
-            if let Some(st) = st {
-                o.extend(st.services.iter().map(|x| (x.name.clone(), x.name.clone())));
-            }
-        });
-        o
+            st.iter()
+                .flat_map(|st| st.services.iter().map(|x| x.name.clone()))
+                .collect::<Vec<_>>()
+        })
     });
+    let options = Memo::new(move |_| {
+        let all = ComboOption {
+            label: ALL.to_string(),
+            ..ComboOption::default()
+        };
+        std::iter::once(all)
+            .chain(shown.get().into_iter().map(|n| ComboOption {
+                value: n.clone(),
+                label: n,
+                ..ComboOption::default()
+            }))
+            .collect::<Vec<_>>()
+    });
+    let picked = Signal::derive(move || vec![service.get()]);
     let now = move |out: bool| {
         let svc = service.get();
         let r = s.rates.get();
@@ -67,7 +83,7 @@ fn Traffic() -> impl IntoView {
                 <span class="text-xs text-text-muted">"live"</span>
                 <span class="ml-auto"></span>
                 <div class="w-36">
-                    <Select id="traffic-service" small=true label="Service" options=options value=service on_change=Callback::new(move |v: String| service.set(v))/>
+                    <Combobox id="traffic-service" size=ComboSize::Small label="Service" header="Services" placeholder=ALL options=options selected=picked on_change=Callback::new(move |v: Vec<String>| service.set(v.into_iter().next().unwrap_or_default()))/>
                 </div>
                 <Segmented
                     name="traffic-window"

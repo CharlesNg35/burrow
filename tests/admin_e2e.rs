@@ -31,6 +31,8 @@ mod entries;
 mod file_groups;
 #[path = "admin_e2e/files.rs"]
 mod files;
+#[path = "admin_e2e/flow_scale.rs"]
+mod flow_scale;
 #[path = "admin_e2e/free_port.rs"]
 mod free_port;
 #[path = "admin_e2e/guards.rs"]
@@ -59,6 +61,8 @@ mod more;
 mod older;
 #[path = "admin_e2e/passwords.rs"]
 mod passwords;
+#[path = "admin_e2e/picker_scale.rs"]
+mod picker_scale;
 #[path = "common/ports.rs"]
 mod ports;
 #[path = "admin_e2e/reach.rs"]
@@ -368,6 +372,14 @@ pub async fn both_widths(c: &mut Ctx, step: &str) {
     c.ui.viewport(420, 900).await;
     c.ui.shot(&format!("{step}-phone")).await;
     c.ui.viewport(1440, 900).await;
+}
+
+pub async fn pick_in(c: &Ctx, id: &str, value: &str) {
+    c.ui.click(&format!("#{id}")).await;
+    let option = format!("#{id}-list [data-option=\"{value}\"]");
+    c.ui.wait_for(&option, SECS).await;
+    c.ui.click(&option).await;
+    c.ui.wait_gone(&format!("#{id}-list"), SECS).await;
 }
 
 pub async fn overview_tab(c: &Ctx, tab: &str) {

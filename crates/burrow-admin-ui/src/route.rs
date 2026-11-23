@@ -208,16 +208,56 @@ fn go_guarded(s: crate::store::Store, route: Route, query: Option<(&str, &str)>,
 
 fn go_now(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
     s.text.capture();
+    keep_scroll();
+    let to = href_with(&route, query);
     if let Ok(h) = window().history() {
-        let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&href_with(&route, query)));
+        let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&to));
     }
     let was = s.route.get_untracked();
+    let up = crate::screens::screen_of(&was) == route && was != route;
     if was != Route::Review {
         s.prev.set(was);
     }
     s.route.set(route);
     s.query_seen.update(|n| *n += 1);
-    window().scroll_to_with_x_and_y(0.0, 0.0);
+    match up.then(|| kept_scroll(&to)).flatten() {
+        Some(y) => scroll_soon(y),
+        None => window().scroll_to_with_x_and_y(0.0, 0.0),
+    }
+}
+
+thread_local! {
+    static KEPT: std::cell::RefCell<std::collections::HashMap<String, f64>> = Default::default();
+}
+
+fn keep_scroll() {
+    let y = window().scroll_y().unwrap_or(0.0);
+    KEPT.with(|k| k.borrow_mut().insert(here(), y));
+    if let Ok(h) = window().history() {
+        let _ = h.replace_state(&JsValue::from_f64(y), "");
+    }
+}
+
+fn kept_scroll(href: &str) -> Option<f64> {
+    KEPT.with(|k| k.borrow().get(href).copied())
+}
+
+fn scroll_soon(y: f64) {
+    request_animation_frame(move || window().scroll_to_with_x_and_y(0.0, y));
+}
+
+pub fn manual_scroll() {
+    if let Ok(h) = window().history() {
+        let _ = h.set_scroll_restoration(web_sys::ScrollRestoration::Manual);
+    }
+}
+
+pub fn popped(s: crate::store::Store) {
+    s.text.capture();
+    s.route.set(current());
+    s.query_seen.update(|n| *n += 1);
+    let y = window().history().ok().and_then(|h| h.state().ok());
+    scroll_soon(y.and_then(|y| y.as_f64()).unwrap_or(0.0));
 }
 
 pub fn here() -> String {

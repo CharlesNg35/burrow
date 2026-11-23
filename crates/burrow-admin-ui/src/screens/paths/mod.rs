@@ -4,7 +4,7 @@ mod service;
 
 use burrow_admin_logic::wording::PICK_VISITORS;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
+use burrow_admin_proto::status::{ServiceStatus, Status};
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 
@@ -23,21 +23,21 @@ pub fn health_count(
     reserved: &[String],
 ) -> burrow_admin_logic::health::Count {
     let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
-    health_of(st, svc, |c| {
+    health_with(st, svc, |c| {
         burrow_admin_logic::presence::online(status, reserved, c)
     })
 }
 
-pub fn health_of(
-    st: Option<&burrow_admin_proto::status::ServiceStatus>,
+pub fn health_with(
+    st: Option<&ServiceStatus>,
     svc: &Value,
     online: impl Fn(&str) -> bool,
 ) -> burrow_admin_logic::health::Count {
-    health_with(st, clients_of(svc), online)
+    health_of_clients(st, clients_of(svc), online)
 }
 
-pub fn health_with(
-    st: Option<&burrow_admin_proto::status::ServiceStatus>,
+pub fn health_of_clients(
+    st: Option<&ServiceStatus>,
     clients: Vec<String>,
     online: impl Fn(&str) -> bool,
 ) -> burrow_admin_logic::health::Count {

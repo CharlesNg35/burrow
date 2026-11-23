@@ -152,12 +152,8 @@ pub fn ListPane(
 ) -> impl IntoView {
     let q = query
         .unwrap_or_else(|| RwSignal::new(route::query(route::SEARCH_QUERY).unwrap_or_default()));
-    let asked = route::query(route::FILTER_QUERY);
-    let first = filters
-        .iter()
-        .map(|(k, _)| *k)
-        .find(|k| asked.as_deref() == Some(*k));
-    let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
+    let filter = RwSignal::new(asked_filter(&filters, default_filter));
+    follow_url(q, filter, filters.iter().map(|(k, _)| *k).collect());
     let hay = Memo::new(move |_| rows.with(|r| r.iter().map(Row::haystack).collect::<Vec<_>>()));
     let files = Memo::new(move |_| {
         crate::store::store()
@@ -215,7 +211,8 @@ pub fn ListPane(
     let nothing = Signal::derive(move || rows.with(|r| r.iter().all(Row::is_placeholder)));
     let chips = filter_chips(filters, filter, rows, no_counts, nothing);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
-    keep_selected_in_view(list_ref, selected, visible);
+    let lens = Memo::new(move |_| (q.get(), filter.get()));
+    keep_selected_in_view(list_ref, selected, visible, lens);
     let look = Look { no_counts, compact };
     let body = super::list_rows::list_body(
         Shown {
@@ -243,7 +240,7 @@ pub fn ListPane(
                     {new_button}
                 </div>
                 <div class="mb-2.5 flex items-center gap-2">
-                    <div class="min-w-0 flex-1">{search_box(q, search_label, nothing)}</div>
+                    <div class="min-w-0 flex-1">{search_box(LIST_SEARCH, q, search_label, nothing)}</div>
                     {by_file.map(file_groups::control)}
                 </div>
                 {chips}
@@ -289,7 +286,7 @@ pub fn ListPane(
                         if let Some(el) = document().get_element_by_id("detail")
                             && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
                         {
-                            let _ = el.focus();
+                            burrow_ui_kit::focus_still(&el);
                         }
                     }
                     _ => {}
@@ -404,7 +401,10 @@ fn new_button(
 
 const NOTHING_YET: &str = "Nothing to search yet";
 
+pub(crate) const LIST_SEARCH: &str = "list-search";
+
 pub(crate) fn search_box(
+    id: &'static str,
     q: RwSignal<String>,
     label: String,
     nothing: Signal<bool>,
@@ -413,7 +413,7 @@ pub(crate) fn search_box(
         <div class="relative">
             <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-faint"><Icon name="search" small=true/></span>
             <input
-                id="list-search"
+                id=id
                 type="text"
                 class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:cursor-not-allowed disabled:opacity-55"
                 disabled=move || nothing.get()
@@ -466,16 +466,51 @@ pub(crate) fn filter_chips(
     view! { <ScrollRow active=active class="w-0 min-w-full gap-1.5" testid="filter-chips">{chips}</ScrollRow> }
 }
 
+fn asked_filter(filters: &[(&'static str, String)], default: Option<&'static str>) -> &'static str {
+    let asked = route::query(route::FILTER_QUERY);
+    filters
+        .iter()
+        .map(|(k, _)| *k)
+        .find(|k| asked.as_deref() == Some(*k))
+        .or(default)
+        .unwrap_or("all")
+}
+
+fn follow_url(q: RwSignal<String>, filter: RwSignal<&'static str>, keys: Vec<&'static str>) {
+    let s = crate::store::store();
+    Effect::new(move |was: Option<u64>| {
+        let now = s.query_seen.get();
+        if was.is_some_and(|w| w != now) {
+            if let Some(text) = route::query(route::SEARCH_QUERY) {
+                q.set(text);
+            }
+            if let Some(k) = route::query(route::FILTER_QUERY)
+                .and_then(|a| keys.iter().copied().find(|k| *k == a))
+            {
+                filter.set(k);
+            }
+        }
+        now
+    });
+}
+
 fn keep_selected_in_view(
     list_ref: NodeRef<leptos::html::Div>,
     selected: Signal<Option<String>>,
     visible: Memo<Vec<Row>>,
+    lens: Memo<(String, &'static str)>,
 ) {
-    let keys =
-        Memo::new(move |_| visible.with(|v| v.iter().map(|r| r.key.clone()).collect::<Vec<_>>()));
+    let shown = Memo::new(move |_| {
+        let key = selected.get()?;
+        visible
+            .with(|v| v.iter().any(|r| r.key == key))
+            .then_some(key)
+    });
     Effect::new(move |_| {
-        selected.track();
-        keys.track();
+        lens.track();
+        if shown.get().is_none() {
+            return;
+        }
         request_animation_frame(move || {
             use wasm_bindgen::JsCast;
             let Some(list) = list_ref.try_get_untracked().flatten() else {

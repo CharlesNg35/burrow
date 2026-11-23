@@ -41,6 +41,7 @@ pub struct Options {
     pub server_bin: Option<PathBuf>,
     pub admin_bin: Option<PathBuf>,
     pub drop_ins: Vec<(&'static str, String, bool)>,
+    pub files: Vec<(String, String)>,
 }
 
 pub fn wait_until(what: &str, timeout: Duration, mut ok: impl FnMut() -> bool) {
@@ -101,6 +102,12 @@ impl World {
                 .replace("HTTP_PORT", &p["http"].to_string()),
         );
         w.write("server.yaml", &yaml);
+        for (name, text) in &opts.files {
+            if let Some(dir) = w.file(name).parent() {
+                fs::create_dir_all(dir).expect("a folder for a test file");
+            }
+            w.write(name, &text.replace("CONFIG", &yaml));
+        }
         for (name, text, read_only) in &opts.drop_ins {
             fs::create_dir_all(w.file("server.d")).expect("the drop-in folder");
             let name = format!("server.d/{name}");

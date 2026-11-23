@@ -1,9 +1,8 @@
 use leptos::prelude::*;
-use wasm_bindgen::JsCast;
 
 use crate::icon::Icon;
 
-use super::toggle;
+use super::{focus_by_id, toggle};
 
 #[derive(Clone, Copy)]
 pub(super) struct Create {
@@ -30,13 +29,7 @@ pub(super) fn create_section(
     let name_id = format!("{id}-new-name");
     let refocus = {
         let combo_id = combo_id.clone();
-        move || {
-            if let Some(el) = document().get_element_by_id(&combo_id)
-                && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
-            {
-                let _ = el.focus();
-            }
-        }
+        move || focus_by_id(&combo_id)
     };
     let create = {
         let refocus = refocus.clone();
@@ -111,13 +104,7 @@ pub(super) fn create_section(
                             refocus();
                             creating.set(true);
                             let name_id = name_id.clone();
-                            request_animation_frame(move || {
-                                if let Some(el) = document().get_element_by_id(&name_id)
-                                    && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
-                                {
-                                    let _ = el.focus();
-                                }
-                            });
+                            request_animation_frame(move || focus_by_id(&name_id));
                         }
                     >
                         <Icon name="plus" small=true/>

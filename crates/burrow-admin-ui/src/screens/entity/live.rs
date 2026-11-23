@@ -47,7 +47,9 @@ fn host_of(c: Option<&ClientStatus>) -> String {
 
 fn service_class(name: &str, clients: &[String], ix: &Index) -> Class {
     let count = ix.status.map(|_| {
-        crate::screens::paths::health_with(ix.service(name), clients.to_vec(), |c| ix.connected(c))
+        crate::screens::paths::health_of_clients(ix.service(name), clients.to_vec(), |c| {
+            ix.connected(c)
+        })
     });
     let problem = count.is_some_and(|c| c.level() != Level::Up);
     let up = clients.iter().filter(|c| ix.presence(c).up()).count();
