@@ -6,6 +6,7 @@ use burrow_config::ForwardAuthConfig;
 use burrow_ui_kit::{Button, ChipInput, Dialog, Select, TextInput, Tone, field_message};
 use leptos::prelude::*;
 
+use crate::addr::RefPicker;
 use crate::rename::{name_input, problem_of};
 use crate::store::store;
 
@@ -104,17 +105,6 @@ fn header_ok(h: String) -> Option<String> {
         .then(|| "a header name has no spaces or colons, like Remote-User".to_string())
 }
 
-fn services() -> Vec<(String, String)> {
-    let doc = store().edit.doc();
-    let mut out = vec![(String::new(), "Pick the login portal's service".to_string())];
-    out.extend(
-        burrow_admin_logic::choices::service_choices(&doc, None)
-            .into_iter()
-            .map(|c| (c.name.clone(), c.name)),
-    );
-    out
-}
-
 fn labelled(id: &'static str, label: &'static str, body: AnyView) -> impl IntoView {
     view! {
         <div>
@@ -177,7 +167,10 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
         shown.set(false);
     };
     let on_kind = Callback::new(move |k: String| d.pick(&k, adding.get_untracked()));
-    let on_service = Callback::new(move |s: String| d.service.set(s));
+    let on_service = Callback::new(move |s: Vec<String>| {
+        d.service.set(s.into_iter().next().unwrap_or_default());
+    });
+    let service = Signal::derive(move || vec![d.service.get()]);
     let on_path = Callback::new(move |t: String| d.path.set(t));
     let on_headers = Callback::new(move |h: Vec<String>| d.headers.set(h));
     let path_bad = Signal::derive(move || path_problem.get().is_some());
@@ -188,7 +181,7 @@ pub(super) fn login_dialog(open: RwSignal<Open>) -> impl IntoView {
                     {labelled("login-kind", "Kind", view! { <Select id="login-kind" options=kind_options.clone() value=d.kind on_change=on_kind/> }.into_any())}
                     {note}
                 </div>
-                {labelled("login-service", "Service", view! { <Select id="login-service" options=Signal::derive(services) value=d.service on_change=on_service/> }.into_any())}
+                {labelled("login-service", "Service", view! { <RefPicker id="login-service" entity=Entity::Service field=Vec::new() reserved=Vec::new() selected=service on_change=on_service header="Services" placeholder="Pick the login portal's service" label="Service"/> }.into_any())}
                 {move || adding.get().then(|| name_input("login-name", "Name", d.name, name_problem, true, burrow_admin_logic::entity::info(&Entity::Login).name_example))}
                 <div class="md:col-span-2">
                     {labelled("login-path", "Path", view! { <TextInput id="login-path" value=d.path on_input=on_path invalid=path_bad mono=true placeholder="/api/authz/forward-auth"/> }.into_any())}

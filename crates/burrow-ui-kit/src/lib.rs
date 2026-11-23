@@ -12,6 +12,7 @@ mod deferred;
 mod disclosure;
 mod feedback;
 mod field;
+mod focus;
 mod icon;
 mod inline;
 mod input;
@@ -38,11 +39,12 @@ pub use button::{
     button_class, menu_class,
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
-pub use combo::{ComboOption, Combobox, filter_options};
+pub use combo::{ComboOption, ComboSize, Combobox, filter_options};
 pub use deferred::{Deferred, LoadFailed};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
+pub use focus::focus_still;
 pub use icon::{ICON_LINE, Icon, path as icon_path};
 pub use inline::{Inline, inline};
 pub use input::{

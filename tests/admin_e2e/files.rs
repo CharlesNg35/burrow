@@ -3,8 +3,8 @@ use std::time::Duration;
 use super::edits::Flow;
 use super::world::{self, Options};
 use super::{
-    Ctx, SECS, added_toasts, applied, both_widths, edit_mode, open, open_review, review_now, run,
-    wait_checked,
+    Ctx, SECS, added_toasts, applied, both_widths, edit_mode, open, open_review, pick_in,
+    review_now, run, wait_checked,
 };
 
 const MENU: &str = "[data-testid=more]";
@@ -407,7 +407,7 @@ async fn a_new_client_saved_in_its_own_file_counts_once(c: &mut Ctx) {
     c.ui.nav("/clients").await;
     c.ui.click("[data-testid=new]").await;
     c.ui.fill("#new-name", "rack").await;
-    c.ui.select("#new-save-in", "*own").await;
+    pick_in(c, "new-save-in", "*own").await;
     c.ui.click("[data-testid=create]:not([disabled])").await;
     c.ui.wait_for("[data-testid=detail][data-name=rack]", SECS)
         .await;
@@ -436,7 +436,7 @@ async fn a_new_client_in_a_file_of_its_own(c: &mut Ctx) {
     c.ui.nav("/clients").await;
     c.ui.click("[data-testid=new]").await;
     c.ui.fill("#new-name", "lab").await;
-    c.ui.select("#new-save-in", "*own").await;
+    pick_in(c, "new-save-in", "*own").await;
     both_widths(c, "files-save-in").await;
     c.ui.click("[data-testid=create-apply]").await;
     c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
