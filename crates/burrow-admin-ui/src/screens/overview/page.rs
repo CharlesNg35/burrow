@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
 use burrow_admin_logic::rates::human_bits;
-use burrow_admin_proto::serde_json::Value;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{
     ComboOption, ComboSize, Combobox, Icon, Kbd, Kpi, LineChart, Segmented, button_class,
