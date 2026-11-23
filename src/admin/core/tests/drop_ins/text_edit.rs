@@ -128,7 +128,10 @@ fn a_read_only_file_is_marked_and_a_change_to_it_is_refused() {
     let t = edit_text(&set.core, &s);
     assert!(t.files[1].read_only.is_some());
     let e = set
-        .plan(&s, &replace(&t, |x| x.replace("target: 3001", "target: 3002")))
+        .plan(
+            &s,
+            &replace(&t, |x| x.replace("target: 3001", "target: 3002")),
+        )
         .err()
         .unwrap();
     assert_eq!(e.code, ErrorCode::NotWritable, "{}", e.message);
