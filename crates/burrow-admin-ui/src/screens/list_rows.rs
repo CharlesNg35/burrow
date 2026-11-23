@@ -51,8 +51,13 @@ pub(super) fn full_card(r: Row, c: Cards) -> AnyView {
     if c.compact {
         return view! { <TocRow row=r selected=on/> }.into_any();
     }
-    let live = c.live;
-    let mine = Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()));
+    let mine = match use_context::<crate::screens::entity::LiveText>() {
+        Some(crate::screens::entity::LiveText(text)) => Memo::new(move |_| text.run(key.clone())),
+        None => {
+            let live = c.live;
+            Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()))
+        }
+    };
     view! { <ListCard row=r selected=on live=mine/> }.into_any()
 }
 

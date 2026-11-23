@@ -12,22 +12,20 @@ use crate::store::store;
 
 use super::file::Files;
 use super::index::Index;
-use super::row_cache;
+use super::live::{self, Classes};
+use super::rows::{client_row, service_row, visitor_row};
 use super::{Detail, plural};
 
-struct Live {
-    status: Option<std::sync::Arc<burrow_admin_proto::status::Status>>,
-    me: Option<String>,
+#[derive(Clone, PartialEq, Default)]
+pub(super) struct Base {
+    rows: Vec<Row>,
+    names: Vec<(String, Vec<String>)>,
 }
 
-fn live() -> Live {
-    let s = store();
-    Live {
-        status: s.status.get(),
-        me: s
-            .welcome
-            .with(|w| w.as_ref().map(|w| w.you.visitor.clone())),
-    }
+fn me() -> Option<String> {
+    store()
+        .welcome
+        .with(|w| w.as_ref().map(|w| w.you.visitor.clone()))
 }
 
 fn one_row(
@@ -35,7 +33,6 @@ fn one_row(
     name: &str,
     v: &Value,
     base_items: Option<&burrow_admin_proto::serde_json::Map<String, Value>>,
-    live: &Live,
     ix: &Index,
 ) -> Row {
     let s = store();
@@ -60,14 +57,12 @@ fn one_row(
     } else {
         None
     };
-    let ask = row_cache::Ask {
-        section,
-        name,
-        v,
-        me: live.me.as_deref(),
-        pending,
+    let to = Route::Detail(section.to_string(), name.to_string());
+    let mut row = match entity_of_section(section) {
+        Some(Entity::Client) => client_row(name, ix, pending, to),
+        Some(Entity::Visitor) => visitor_row(name, v, ix, pending, to),
+        _ => service_row(name, (v, ix.https_on), pending, to),
     };
-    let mut row = row_cache::row(&ask, ix);
     if let Some(m) = mark {
         row.tags.insert(0, m);
     }
@@ -75,8 +70,7 @@ fn one_row(
         .files
         .item_file(&entity_path, was.as_ref())
         .unwrap_or_default();
-    row.problems = super::problems::problems_of(section, &entity_path).len()
-        + usize::from(matches!(row.dot, Some(Tone::Danger | Tone::Warning)));
+    row.problems = super::problems::problems_of(section, &entity_path).len();
     if let Some((file, locked)) = ix.files.label(&entity_path, was.as_ref()) {
         row.terms.push('\n');
         row.terms.push_str(&file);
@@ -91,30 +85,48 @@ fn one_row(
     row
 }
 
-pub fn row_for(section: &str, name: &str) -> Option<Row> {
-    let live = live();
-    store().edit.draft.with(|d| {
-        let draft = d.draft();
-        let v = draft.get(section)?.get(name)?;
-        let base_items = d.base().get(section).and_then(Value::as_object);
-        let ix = Index::new(section, live.status.as_deref(), draft, Files::now());
-        Some(one_row(section, name, v, base_items, &live, &ix))
+fn clients_for(section: &str, v: &Value) -> Vec<String> {
+    match entity_of_section(section) {
+        Some(Entity::Client | Entity::Visitor) => Vec::new(),
+        _ => crate::screens::paths::clients_of(v),
+    }
+}
+
+fn classes_now(section: &str, names: &[(String, Vec<String>)]) -> Classes {
+    let me = me();
+    store().status.with(|st| {
+        let ix = Index::new(section, st.as_deref(), &Value::Null, Files::default());
+        live::classes(section, names, &ix, me.as_deref())
     })
 }
 
-pub fn rows_for(section: &str) -> Vec<Row> {
-    let live = live();
+pub fn row_for(section: &str, name: &str) -> Option<Row> {
+    let (row, names) = store().edit.draft.with(|d| {
+        let draft = d.draft();
+        let v = draft.get(section)?.get(name)?;
+        let base_items = d.base().get(section).and_then(Value::as_object);
+        let ix = Index::new(section, None, draft, Files::now());
+        Some((
+            one_row(section, name, v, base_items, &ix),
+            vec![(name.to_string(), clients_for(section, v))],
+        ))
+    })?;
+    let classes = classes_now(section, &names);
+    Some(live::apply(row, classes.get(name)))
+}
+
+pub(super) fn base_for(section: &str) -> Base {
     store().edit.draft.with(|d| {
         let draft = d.draft();
         let base_items = d.base().get(section).and_then(Value::as_object);
         let items = draft.get(section).and_then(Value::as_object);
-        let ix = Index::new(section, live.status.as_deref(), draft, Files::now());
-        row_cache::keep_only(section, &|n| items.is_some_and(|i| i.contains_key(n)));
-        let mut out: Vec<Row> = items
-            .into_iter()
-            .flatten()
-            .map(|(name, v)| one_row(section, name, v, base_items, &live, &ix))
-            .collect();
+        let ix = Index::new(section, None, draft, Files::now());
+        let mut rows: Vec<Row> = Vec::new();
+        let mut names = Vec::new();
+        for (name, v) in items.into_iter().flatten() {
+            rows.push(one_row(section, name, v, base_items, &ix));
+            names.push((name.clone(), clients_for(section, v)));
+        }
         let gone = base_items.into_iter().flatten().filter(|(k, _)| {
             !items.is_some_and(|i| i.contains_key(*k))
                 && !items.is_some_and(|i| {
@@ -123,14 +135,14 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 })
         });
         for (name, _) in gone {
-            out.push(Row {
+            rows.push(Row {
                 key: name.clone(),
                 to: Route::Detail(section.to_string(), name.clone()),
                 icon: "trash",
                 dot: None,
                 title: name.clone(),
                 meta: String::new(),
-                line2: "removed in your changes".into(),
+                line2: live::REMOVED.into(),
                 tags: vec![("removed".into(), Tone::Danger)],
                 group: String::new(),
                 pending: None,
@@ -139,7 +151,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 ..Row::default()
             });
         }
-        out
+        Base { rows, names }
     })
 }
 
@@ -214,7 +226,20 @@ fn filters_for(section: &str) -> Filters {
 pub fn Entities(section: String) -> impl IntoView {
     let s = store();
     let sec = section.clone();
-    let rows = Memo::new(move |_| rows_for(&sec));
+    let base = Memo::new(move |_| base_for(&sec));
+    let sec = section.clone();
+    let classes = Memo::new(move |_| base.with(|b| classes_now(&sec, &b.names)));
+    let rows = Memo::new(move |_| {
+        base.with(|b| {
+            classes.with(|c| {
+                b.rows
+                    .iter()
+                    .map(|r| live::apply(r.clone(), c.get(&r.key)))
+                    .collect::<Vec<_>>()
+            })
+        })
+    });
+    live::provide_live_text(section.clone());
     let sec = section.clone();
     let selected = Memo::new(move |_| match s.route.get() {
         Route::Detail(x, name) if x == sec => Some(name),
