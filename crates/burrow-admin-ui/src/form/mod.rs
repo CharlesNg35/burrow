@@ -88,7 +88,7 @@ fn ctx_now() -> Option<Ctx> {
     let s = store();
     s.schema.get_untracked()?;
     Some(Ctx {
-        doc: s.edit.doc(),
+        doc: s.edit.shared_doc(),
         path: Vec::new(),
     })
 }

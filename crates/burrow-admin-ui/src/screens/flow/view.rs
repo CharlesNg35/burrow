@@ -26,10 +26,9 @@ fn measure(wrap: NodeRef<html::Div>, dr: Drawn) {
     let scale = r.width() / WIDTH;
     let top = (w.top() - r.top()) / scale;
     let seen = w.height() / scale;
-    let next = (
-        ((top - seen) / STEP).floor() * STEP,
-        ((top + 2.0 * seen) / STEP).ceil() * STEP,
-    );
+    let band =
+        burrow_ui_kit::Viewport { top, height: seen }.band(seen, burrow_ui_kit::Snap::Step(STEP));
+    let next = (band.from, band.to);
     if dr.window.get_untracked() != next {
         dr.window.set(next);
     }

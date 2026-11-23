@@ -15,8 +15,9 @@ use crate::format;
 use crate::route::{Link, Route};
 use crate::screens::paths::clients_of;
 use crate::store::store;
+use burrow_admin_logic::top::ROWS;
+use burrow_ui_kit::{LINKS, ShowAll, kept};
 
-use super::list::rows_for;
 use super::{CLIENTS, VISITORS};
 
 fn pool_range(doc: &Value) -> String {
@@ -120,18 +121,19 @@ fn client_stats(name: String) -> impl IntoView {
         })
     });
     let max = move || {
-        let doc = s.edit.doc();
-        key.with_value(|name| {
-            ClientEntry::MAX_CONNECTIONS
-                .at(&doc, name)
-                .and_then(Value::as_u64)
-                .or_else(|| {
-                    ServerConfig::LIMITS
-                        .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
-                        .get(&doc)
-                        .and_then(Value::as_u64)
-                })
-                .unwrap_or(u64::from(Limits::default().max_connections_per_client))
+        s.edit.with_doc(|doc| {
+            key.with_value(|name| {
+                ClientEntry::MAX_CONNECTIONS
+                    .at(doc, name)
+                    .and_then(Value::as_u64)
+                    .or_else(|| {
+                        ServerConfig::LIMITS
+                            .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+                            .get(doc)
+                            .and_then(Value::as_u64)
+                    })
+                    .unwrap_or(u64::from(Limits::default().max_connections_per_client))
+            })
         })
     };
     let connected = move || c.with(|c| c.as_ref().and_then(|c| c.connected_secs));
@@ -189,7 +191,7 @@ fn client_stats(name: String) -> impl IntoView {
     view! {
         <Stats testid="live">
             <Stat label="Open" value=Signal::derive(open) detail=Signal::derive(open_detail)/>
-            <Stat label=ready_label value=Signal::derive(ready) detail=Signal::derive(move || pool_range(&s.edit.doc()))/>
+            <Stat label=ready_label value=Signal::derive(ready) detail=Signal::derive(move || s.edit.with_doc(pool_range))/>
             <Stat label="Connected" value=shown detail=since title=title/>
             {update.stat()}
         </Stats>
@@ -208,10 +210,10 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> AnyView {
 fn entry_overview(name: &str, stats: bool) -> impl IntoView {
     let s = store();
     let name = name.to_string();
+    let open = RwSignal::new(false);
     move || {
         let name = name.clone();
         let st = s.status.get();
-        let doc = s.edit.doc();
         let x = st
             .as_ref()
             .and_then(|x| x.services.iter().find(|c| c.name == name))
@@ -220,15 +222,15 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
             let r = s.rates.get().service(&name);
             let (i, iu) = human_bits(r.bytes_in);
             let (o, ou) = human_bits(r.bytes_out);
-            let limit = ServiceEntry::BANDWIDTH.at(&doc, &name).map(|b| {
-                let text = plain(b);
-                match burrow_syntax::rate::parse_rate(&text) {
-                    Ok(bps) => {
-                        let (v, u) = human_bits(bps as f64);
-                        format!("limit {v} {u}")
-                    }
-                    Err(_) => format!("limit {text}"),
+            let bandwidth = s
+                .edit
+                .with_doc(|doc| ServiceEntry::BANDWIDTH.at(doc, &name).map(plain));
+            let limit = bandwidth.map(|text| match burrow_syntax::rate::parse_rate(&text) {
+                Ok(bps) => {
+                    let (v, u) = human_bits(bps as f64);
+                    format!("limit {v} {u}")
                 }
+                Err(_) => format!("limit {text}"),
             });
             return view! {
                 <Stats testid="live">
@@ -244,14 +246,17 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
             }
             .into_any();
         }
-        let svc = ServiceEntry::entry(&doc, &name)
-            .cloned()
+        let svc = s
+            .edit
+            .with_doc(|doc| ServiceEntry::entry(doc, &name).cloned())
             .unwrap_or(Value::Null);
         let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
         let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
         let reserved = crate::domain::reserved_clients();
         let skipped = !aside.is_empty();
         let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
+        let total = listed.len();
+        let listed = kept(listed, open.get(), ROWS);
         let default_target = ServiceEntry::TARGET
             .get(&svc)
             .map(burrow_admin_logic::web::target_value_shown)
@@ -298,6 +303,7 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
             <div class="mb-4">
                 <Card title="Health per client" sub=mode flush=true testid="health">
                     <Table head=if skipped { vec!["Client and target", "Open", "~Connected from", "Health", "~Skipped"] } else { vec!["Client and target", "Open", "~Connected from", "Health"] }>{rows}</Table>
+                    <ShowAll open=open total=total limit=ROWS/>
                 </Card>
             </div>
         }
@@ -327,38 +333,59 @@ pub fn health_tag(c: Option<burrow_admin_logic::health::Count>) -> AnyView {
     }
 }
 
+fn may_chip(n: String, up: Option<bool>, udp: bool) -> impl IntoView {
+    let (dot, state) = match up {
+        Some(true) => (Tone::Success, "a client is online"),
+        Some(false) => (Tone::Neutral, "no client online"),
+        None => (Tone::Neutral, "status not known yet"),
+    };
+    view! {
+        <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset hover:ring-border-strong">
+            <burrow_ui_kit::Dot tone=dot/>
+            {n.clone()}
+            {udp.then(|| view! { <span class=tag_class(Tone::Violet)>"UDP"</span> })}
+            <span class="sr-only">{format!(", {state}")}</span>
+        </Link>
+    }
+}
+
 pub(super) fn visitor_overview(name: &str) -> impl IntoView {
     let s = store();
     let name = name.to_string();
+    let open = RwSignal::new(false);
     move || {
-        let doc = s.edit.doc();
         let st = s.status.get();
-        let may: Vec<(String, Option<bool>, bool)> = ServiceEntry::entries(&doc)
-            .map(|m| {
-                m.iter()
-                    .filter(|(_, x)| {
-                        ServiceEntry::VISITORS
-                            .get(x)
-                            .and_then(Value::as_array)
-                            .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))
-                    })
-                    .map(|(n, x)| {
-                        let up = st.as_ref().map(|st| {
-                            clients_of(x)
-                                .iter()
-                                .any(|c| format::presence_of(Some(st), c).up())
-                        });
-                        (n.clone(), up, crate::screens::paths::udp(x))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let admin_only = may.is_empty()
-            && VisitorEntry::ADMIN.at(&doc, &name).is_some()
-            && VisitorEntry::REACH
-                .at(&doc, &name)
-                .and_then(Value::as_object)
-                .is_none_or(|m| m.is_empty());
+        let (may, admin_only) = s.edit.with_doc(|doc| {
+            let may: Vec<(String, Option<bool>, bool)> = ServiceEntry::entries(doc)
+                .map(|m| {
+                    m.iter()
+                        .filter(|(_, x)| {
+                            ServiceEntry::VISITORS
+                                .get(x)
+                                .and_then(Value::as_array)
+                                .is_some_and(|a| {
+                                    a.iter().any(|y| y.as_str() == Some(name.as_str()))
+                                })
+                        })
+                        .map(|(n, x)| {
+                            let up = st.as_ref().map(|st| {
+                                clients_of(x)
+                                    .iter()
+                                    .any(|c| format::presence_of(Some(st), c).up())
+                            });
+                            (n.clone(), up, crate::screens::paths::udp(x))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let admin_only = may.is_empty()
+                && VisitorEntry::ADMIN.at(doc, &name).is_some()
+                && VisitorEntry::REACH
+                    .at(doc, &name)
+                    .and_then(Value::as_object)
+                    .is_none_or(|m| m.is_empty());
+            (may, admin_only)
+        });
         let chips = if admin_only {
             view! { <p class="px-4 py-3 text-sm text-text-muted">"None: this visitor runs burrow admin, not burrow visit."</p> }.into_any()
         } else if may.is_empty() {
@@ -366,21 +393,13 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
         } else {
             view! {
                 <div class="flex flex-wrap gap-2 px-4 py-3">
-                    {may.into_iter().map(|(n, up, udp)| {
-                        let (dot, state) = match up {
-                            Some(true) => (Tone::Success, "a client is online"),
-                            Some(false) => (Tone::Neutral, "no client online"),
-                            None => (Tone::Neutral, "status not known yet"),
-                        };
+                    {move || {
+                        let hidden = may.len().saturating_sub(LINKS);
                         view! {
-                            <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset hover:ring-border-strong">
-                                <burrow_ui_kit::Dot tone=dot/>
-                                {n.clone()}
-                                {udp.then(|| view! { <span class=tag_class(Tone::Violet)>"UDP"</span> })}
-                                <span class="sr-only">{format!(", {state}")}</span>
-                            </Link>
+                            {kept(may.clone(), open.get(), LINKS).into_iter().map(|(n, up, udp)| may_chip(n, up, udp)).collect_view()}
+                            {(hidden > 0).then(|| view! { <burrow_ui_kit::MoreChip open=open hidden=hidden/> })}
                         }
-                    }).collect_view()}
+                    }}
                 </div>
                 <p class="border-t border-rowline px-4 py-2.5 text-[12.5px] text-text-muted">"Set on each service: its Visitors field lists who may use it."</p>
             }
@@ -427,57 +446,56 @@ pub(super) fn served(name: &str) -> impl IntoView {
 fn served_services(name: &str) -> impl IntoView + use<> {
     let s = store();
     let name = name.to_string();
+    let open = RwSignal::new(false);
+    let served = Memo::new(move |_| {
+        s.edit.with_doc(|doc| {
+            ServiceEntry::entries(doc)
+                .map(|m| {
+                    m.iter()
+                        .filter(|(_, v)| clients_of(v).contains(&name))
+                        .map(|(n, v)| (n.clone(), v.clone()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+    });
+    let total = Signal::derive(move || served.with(Vec::len));
+    let boxed: NodeRef<leptos::html::Div> = NodeRef::new();
+    let narrow = crate::narrow::narrow(boxed);
+    let empty = Memo::new(move |_| total.get() == 0);
     move || {
-        let doc = s.edit.doc();
-        let rows = ServiceEntry::entries(&doc)
-            .map(|m| {
-                m.iter()
-                    .filter(|(_, v)| clients_of(v).contains(&name))
-                    .map(|(n, v)| (n.clone(), v.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if rows.is_empty() {
+        if empty.get() {
             return view! { <div class="mb-4"><EmptyState title="Serves no services" message="Pick this client in a service to publish one of its ports."/></div> }.into_any();
         }
-        let names: Vec<String> = rows.iter().map(|(n, _)| n.clone()).collect();
-        let targets: std::collections::BTreeMap<String, String> = rows
-            .iter()
-            .map(|(n, v)| {
-                (
-                    n.clone(),
-                    ServiceEntry::TARGET
-                        .get(v)
-                        .map(burrow_admin_logic::web::target_value_shown)
-                        .unwrap_or_default(),
-                )
-            })
-            .collect();
-        let cards = untrack(|| rows_for(ServiceEntry::section()))
-            .into_iter()
-            .filter(|r| names.contains(&r.key))
-            .map(|r| {
-                let t = targets.get(&r.key).cloned().unwrap_or_default();
-                let key = r.key.clone();
-                let live = Memo::new(move |_| {
-                    super::list::row_for(ServiceEntry::section(), &key)
-                        .map(|r| (r.meta, r.line2))
-                        .unwrap_or_default()
-                });
-                view! { <div data-target=t><crate::screens::ListCard row=r selected=false live=live/></div> }
-            })
-            .collect_view();
+        let body = move || {
+            let shown = kept(served.get(), open.get(), ROWS);
+            if narrow.get() {
+                let cards = shown
+                    .iter()
+                    .filter_map(|(n, v)| {
+                        let t = ServiceEntry::TARGET
+                            .get(v)
+                            .map(burrow_admin_logic::web::target_value_shown)
+                            .unwrap_or_default();
+                        super::live_card(ServiceEntry::section(), n)
+                            .map(|c| view! { <div data-target=t>{c}</div> })
+                    })
+                    .collect_view();
+                view! { <div class="pt-2 pb-1" data-testid="served-cards">{cards}</div> }.into_any()
+            } else {
+                view! {
+                    <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
+                        {shown.iter().map(|(n, v)| super::service_tr(n, v, false)).collect_view()}
+                    </Table>
+                }
+                .into_any()
+            }
+        };
         view! {
             <div class="mb-4">
                 <Card title="Services it serves" flush=true testid="served">
-                    <div class="@container">
-                    <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid="served-cards">{cards}</div>
-                    <div class=burrow_ui_kit::TABLE_VIEW>
-                    <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
-                        {rows.iter().map(|(n, v)| super::service_tr(n, v, false)).collect_view()}
-                    </Table>
-                    </div>
-                    </div>
+                    <div class="@container" node_ref=boxed>{body}</div>
+                    <ShowAll open=open total=total limit=ROWS/>
                 </Card>
             </div>
         }

@@ -41,13 +41,13 @@ pub fn NewEntity(
     }
     let sec = section.clone();
     let sec2 = sec.clone();
-    let name_issue = Signal::derive(move || {
+    let name_issue = Memo::new(move |_| {
         let n = name.get();
         (!n.is_empty())
             .then(|| name_problem(&n, &sec, None))
             .flatten()
     });
-    let problem = Signal::derive(move || {
+    let problem = Memo::new(move |_| {
         name_issue
             .get()
             .or_else(|| fields_problem(&sec2, at.get_value()))
@@ -89,7 +89,7 @@ pub fn NewEntity(
     });
     let intro = burrow_admin_logic::entity::of_section(&section).intro;
     let sec5 = section.clone();
-    let options = Signal::derive(move || services_for(&sec5));
+    let options = Memo::new(move |_| services_for(&sec5));
     let sec6 = section.clone();
     let crumb = Route::List(section.clone());
     let plural_s = crate::screens::plural(&section);
@@ -100,11 +100,11 @@ pub fn NewEntity(
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
                 <burrow_ui_kit::SectionHead title="Identity" sub={if what == ServiceEntry::ENTITY { "A short name you'll see in lists and commands." } else { "The name goes into the config on that machine." }}/>
-                {crate::rename::name_input("new-name", "Name", name, name_issue, true, burrow_admin_logic::entity::of_section(&section).name_example)}
+                {crate::rename::name_input("new-name", "Name", name, name_issue.into(), true, burrow_admin_logic::entity::of_section(&section).name_example)}
                 {(what != ServiceEntry::ENTITY).then(|| secret_field(secret))}
                 {super::save_in::save_in_field(name, save_in)}
             </section>
-            {(what != ServiceEntry::ENTITY).then(move || limits_section(&sec6, what, name, options, links))}
+            {(what != ServiceEntry::ENTITY).then(move || limits_section(&sec6, what, name, options.into(), links))}
             <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
             <burrow_ui_kit::StickyBar>
                 {burrow_ui_kit::bar_status(Signal::derive(move || {
@@ -184,7 +184,7 @@ fn fields_problem(section: &str, at: Path) -> Option<String> {
         let scratch = e.value(&at).unwrap_or_default();
         s.schema.with(|sc| {
             sc.as_ref()
-                .and_then(|sc| entry_problem(&sc.root, section, &scratch, &e.doc()))
+                .and_then(|sc| e.with_doc(|doc| entry_problem(&sc.root, section, &scratch, doc)))
         })
     })
 }

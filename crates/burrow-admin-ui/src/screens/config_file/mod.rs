@@ -98,7 +98,7 @@ fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
 }
 
 fn file_body(loaded: RwSignal<Loaded>) -> impl IntoView {
-    let text = Signal::derive(move || {
+    let text = Memo::new(move |_| {
         loaded.with(|l| match l {
             Some(Ok(v)) => v.text(),
             _ => String::new(),

@@ -158,6 +158,7 @@ pub(super) fn dress(g: &Group, port: &mut Node, target: &mut Node, lines: &mut [
     port.sub = line(g);
     port.right = "unfold".into();
     port.act = fold(g, false);
+    port.problem |= g.down > 0;
     port.tip.clone_from(&tip);
     target.key = format!("targets:{}", g.client);
     target.act = fold(g, false);
@@ -178,13 +179,38 @@ pub(super) fn header(i: usize, g: &Group) -> Node {
         sub: line(g),
         act: fold(g, true),
         tip: format!("Fold the services of {} into one row", label(&g.client)),
+        problem: g.down > 0,
         ..Node::default()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::thousands;
+    use super::{Group, Line, Node, dress, header, thousands};
+
+    fn group(down: usize) -> Group {
+        Group {
+            client: "home".into(),
+            count: 300,
+            down,
+        }
+    }
+
+    #[test]
+    fn a_folded_client_with_a_down_service_is_not_dimmed_among_problems() {
+        let (mut port, mut target) = (Node::default(), Node::default());
+        let mut lines: [Line; 0] = [];
+        dress(&group(1), &mut port, &mut target, &mut lines);
+        assert!(
+            port.problem,
+            "its row says 1 down, so Problems keeps it bright"
+        );
+        assert!(!target.problem);
+        assert!(header(0, &group(2)).problem);
+        let mut calm = Node::default();
+        dress(&group(0), &mut calm, &mut Node::default(), &mut lines);
+        assert!(!calm.problem && !header(0, &group(0)).problem);
+    }
 
     #[test]
     fn counts_read_with_thousands_separators() {

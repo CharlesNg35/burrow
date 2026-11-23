@@ -19,7 +19,8 @@ pub(crate) use website::NewWebsite;
 fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
     let s = store();
     let status = s.status.get();
-    burrow_admin_logic::choices::service_choices(&s.edit.doc(), status.as_deref())
+    s.edit
+        .with_doc(|doc| burrow_admin_logic::choices::service_choices(doc, status.as_deref()))
         .into_iter()
         .filter(|c| section == ClientEntry::section() || c.private)
         .map(crate::addr::service_option)

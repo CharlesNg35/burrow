@@ -22,7 +22,7 @@ pub fn health_count(
     status: Option<&Status>,
     reserved: &[String],
 ) -> burrow_admin_logic::health::Count {
-    let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
+    let st = status.and_then(|s| crate::status_index::service(s, name));
     health_with(st, svc, |c| {
         burrow_admin_logic::presence::online(status, reserved, c)
     })
@@ -33,10 +33,18 @@ pub fn health_with(
     svc: &Value,
     online: impl Fn(&str) -> bool,
 ) -> burrow_admin_logic::health::Count {
+    health_of_clients(st, clients_of(svc), online)
+}
+
+pub fn health_of_clients(
+    st: Option<&ServiceStatus>,
+    clients: Vec<String>,
+    online: impl Fn(&str) -> bool,
+) -> burrow_admin_logic::health::Count {
     use burrow_admin_logic::health;
     let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
     let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
-    health::count(&health::entries(listed, clients_of(svc)), checks, online)
+    health::count(&health::entries(listed, clients), checks, online)
 }
 
 pub struct Problems {
@@ -157,7 +165,7 @@ pub fn visitor(
     status: Option<&Status>,
     me: Option<(&str, &str)>,
 ) -> PathData {
-    let v = status.and_then(|s| s.visitors.iter().find(|v| v.name == name));
+    let v = status.and_then(|s| crate::status_index::visitor(s, name));
     let open = v.map(|v| v.open).unwrap_or(0);
     let entry = VisitorEntry::entry(doc, name);
     let services: Vec<(String, bool, bool)> = ServiceEntry::entries(doc)

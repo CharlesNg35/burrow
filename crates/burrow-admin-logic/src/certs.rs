@@ -149,20 +149,21 @@ pub fn count(status: &Status, now: u64) -> String {
     out
 }
 
-fn service_of(status: &Status, name: &str) -> Option<String> {
-    let web = status.web.as_ref()?;
-    web.hosts
-        .iter()
-        .find(|h| h.name == name)
-        .and_then(|h| h.first_service().map(str::to_string))
+fn sites_of(status: &Status) -> std::collections::HashMap<&str, Option<&str>> {
+    let mut out = std::collections::HashMap::new();
+    for h in status.web.iter().flat_map(|w| w.hosts.iter()) {
+        out.entry(h.name.as_str()).or_insert(h.first_service());
+    }
+    out
 }
 
 pub fn site_badge(status: &Status, now: u64, service: &str) -> Option<(String, Level)> {
+    let sites = sites_of(status);
     status
         .certificates
         .iter()
         .filter(burrows)
-        .filter(|c| service_of(status, &c.name).as_deref() == Some(service))
+        .filter(|c| sites.get(c.name.as_str()).copied().flatten() == Some(service))
         .find_map(|c| match (&c.state, c.expires) {
             (CertStateStatus::Failing { .. }, _) => {
                 Some(("certificate failing".into(), Level::Bad))
@@ -213,6 +214,7 @@ fn field_of(c: &CertStatus, service: Option<&str>) -> Option<Vec<String>> {
 }
 
 pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
+    let sites = sites_of(status);
     let mut out: Vec<Notice> = Vec::new();
     let mut names: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for c in status.certificates.iter().filter(burrows) {
@@ -226,7 +228,11 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
             *n += 1;
             continue;
         }
-        let service = service_of(status, &c.name);
+        let service = sites
+            .get(c.name.as_str())
+            .copied()
+            .flatten()
+            .map(str::to_string);
         let field = field_of(c, service.as_deref());
         let notice = |level, title: String, detail: String| Notice {
             key: key.clone(),

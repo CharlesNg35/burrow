@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use burrow_admin_logic::wording;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::diag::Diag;
@@ -11,68 +13,50 @@ use crate::screens::paths::Problems;
 use crate::screens::placement;
 use crate::store::store;
 
+fn under(m: &BTreeMap<Path, String>, prefix: &Path) -> Vec<(Path, String)> {
+    m.range(prefix.clone()..)
+        .take_while(|(p, _)| p.starts_with(prefix))
+        .map(|(p, m)| (p.clone(), m.clone()))
+        .collect()
+}
+
 pub(super) fn problems_for(path: &Path) -> Problems {
     let e = store().edit;
-    let errs: Vec<(Path, String)> = e
-        .related
-        .with(|r| {
-            r.iter()
-                .map(|(p, m)| (p.clone(), m.clone()))
-                .collect::<Vec<_>>()
-        })
-        .into_iter()
-        .chain(e.local.with(|l| {
-            l.iter()
-                .map(|(p, m)| (p.clone(), m.clone()))
-                .collect::<Vec<_>>()
-        }))
-        .chain(e.plan.with(|p| {
-            p.as_ref()
-                .map(|p| {
-                    p.diags
-                        .iter()
-                        .filter(|d| d.is_error())
-                        .filter_map(|d| {
-                            d.path
-                                .clone()
-                                .map(|x| (x, burrow_admin_logic::wording::diag_text(d)))
-                        })
-                        .collect::<Vec<_>>()
+    let mine = |p: &Path| p.starts_with(path);
+    let mut errs: Vec<(Path, String)> = e.related.with(|r| under(r, path));
+    errs.extend(e.local.with(|l| under(l, path)));
+    e.plan.with(|p| {
+        errs.extend(p.iter().flat_map(|p| {
+            p.diags
+                .iter()
+                .filter(|d| d.is_error() && d.path.as_ref().is_some_and(mine))
+                .filter_map(|d| {
+                    d.path
+                        .clone()
+                        .map(|x| (x, burrow_admin_logic::wording::diag_text(d)))
                 })
-                .unwrap_or_default()
-        }))
-        .filter(|(p, _)| p.starts_with(path))
-        .collect();
+        }));
+    });
     let at = |k: &str| {
         errs.iter()
             .find(|(p, _)| p.get(2).map(String::as_str) == Some(k))
             .map(|(_, m)| m.clone())
     };
-    let doc = e.doc();
     let ports = at(ServiceEntry::TARGET.key()).map(|_| {
         let count = |v: Option<&Value>, f: fn(&Value) -> Option<u16>| v.and_then(f).unwrap_or(1);
-        let b = count(
-            get(
-                &doc,
-                &[
-                    path[0].clone(),
-                    path[1].clone(),
-                    ServiceEntry::BIND.key().into(),
-                ],
-            ),
-            burrow_admin_logic::relations::bind_ports,
-        );
-        let t = count(
-            get(
-                &doc,
-                &[
-                    path[0].clone(),
-                    path[1].clone(),
-                    ServiceEntry::TARGET.key().into(),
-                ],
-            ),
-            burrow_admin_logic::relations::target_ports,
-        );
+        let key = |k: &str| [path[0].clone(), path[1].clone(), k.to_string()];
+        let (b, t) = e.with_doc(|doc| {
+            (
+                count(
+                    get(doc, &key(ServiceEntry::BIND.key())),
+                    burrow_admin_logic::relations::bind_ports,
+                ),
+                count(
+                    get(doc, &key(ServiceEntry::TARGET.key())),
+                    burrow_admin_logic::relations::target_ports,
+                ),
+            )
+        });
         format!("{t} vs {b} ports")
     });
     Problems {
@@ -173,18 +157,8 @@ pub(super) fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
             .or_else(|| path.last().cloned())
             .unwrap_or_default()
     };
-    let mut own: Vec<(Path, String)> = e.related.with(|r| {
-        r.iter()
-            .filter(|(p, _)| p.starts_with(entity))
-            .map(|(p, m)| (p.clone(), m.clone()))
-            .collect()
-    });
-    own.extend(e.local.with(|l| {
-        l.iter()
-            .filter(|(p, _)| p.starts_with(entity))
-            .map(|(p, m)| (p.clone(), m.clone()))
-            .collect::<Vec<_>>()
-    }));
+    let mut own: Vec<(Path, String)> = e.related.with(|r| under(r, entity));
+    own.extend(e.local.with(|l| under(l, entity)));
     let server = e.plan.with(|p| {
         p.as_ref()
             .map(|p| {
@@ -309,6 +283,23 @@ mod tests {
 
     fn p(x: &[&str]) -> Path {
         x.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn only_the_paths_under_an_entity_are_taken() {
+        let m: BTreeMap<Path, String> = [
+            (p(&["services", "web"]), "a".to_string()),
+            (p(&["services", "web", "target"]), "b".to_string()),
+            (p(&["services", "web2", "target"]), "c".to_string()),
+            (p(&["services", "wa"]), "d".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let got: Vec<String> = under(&m, &p(&["services", "web"]))
+            .into_iter()
+            .map(|(_, m)| m)
+            .collect();
+        assert_eq!(got, ["a", "b"]);
     }
 
     #[test]

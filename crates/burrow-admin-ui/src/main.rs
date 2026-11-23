@@ -15,6 +15,7 @@ mod field;
 mod form;
 mod format;
 mod logins;
+mod narrow;
 mod passwords;
 mod rename;
 mod review;
@@ -23,6 +24,7 @@ mod row_menu;
 mod screens;
 mod secrets;
 mod shown;
+mod status_index;
 mod store;
 mod uploads;
 

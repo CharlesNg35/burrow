@@ -47,6 +47,8 @@ mod le_places;
 mod letsencrypt;
 #[path = "admin_e2e/list_click.rs"]
 mod list_click;
+#[path = "admin_e2e/list_scale.rs"]
+mod list_scale;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
 #[path = "admin_e2e/long_names.rs"]
@@ -73,6 +75,10 @@ mod releases;
 mod reverts;
 #[path = "admin_e2e/review_paths.rs"]
 mod review_paths;
+#[path = "admin_e2e/scale.rs"]
+mod scale;
+#[path = "admin_e2e/scale_rest.rs"]
+mod scale_rest;
 #[path = "admin_e2e/screens.rs"]
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
@@ -109,6 +115,8 @@ mod text_tabs;
 mod ui;
 #[path = "admin_e2e/updates.rs"]
 mod updates;
+#[path = "admin_e2e/visitor_scale.rs"]
+mod visitor_scale;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
 #[path = "admin_e2e/wizards.rs"]
