@@ -606,7 +606,7 @@ mod tests {
             }
         });
         let st = status(&["a"], &["b", "c", "d"]);
-        let items = attention(&v, None, Some(&st), 0);
+        let items = attention(&v, None, Some(&st.clone().into()), 0);
         let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
         assert_eq!(titles, ["Service zz-down is down", "Service both is down"]);
         assert_eq!(
@@ -615,7 +615,7 @@ mod tests {
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
-        let a = away(&v, Some(&st));
+        let a = away(&v, Some(&st.clone().into()));
         assert_eq!(
             a.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
             ["b", "c", "d"],
@@ -636,7 +636,7 @@ mod tests {
             }
         });
         let st = status(&["a"], &["b"]);
-        let p = service_problems(&v, Some(&st));
+        let p = service_problems(&v, Some(&st.clone().into()));
         assert_eq!(
             p,
             [
@@ -654,7 +654,7 @@ mod tests {
             not_listening: Some("cannot bind".into()),
             ..Default::default()
         });
-        let p = service_problems(&v, Some(&st));
+        let p = service_problems(&v, Some(&st.clone().into()));
         assert_eq!(p, [("web".to_string(), Problem::NotListening)]);
         assert_eq!(healthy_detail(&p), "web is not listening");
     }
@@ -703,7 +703,7 @@ mod tests {
             ),
             ..Default::default()
         });
-        let items = attention(&json!({}), None, Some(&st), 0);
+        let items = attention(&json!({}), None, Some(&st.clone().into()), 0);
         let i = items
             .iter()
             .find(|i| i.key == "not-listening:echo")
@@ -738,7 +738,7 @@ mod tests {
             retry_secs: 30,
             hint: "ports below 1024 need root".into(),
         });
-        let items = attention(&json!({}), None, Some(&st), 0);
+        let items = attention(&json!({}), None, Some(&st.clone().into()), 0);
         let w = items
             .iter()
             .find(|i| i.key == "web-wait:web.https")
@@ -763,7 +763,7 @@ mod tests {
             diags: vec![d],
             ..State::default()
         };
-        let items = attention(&json!({}), Some(&st), None, 0);
+        let items = attention(&json!({}), Some(&st.clone().into()), None, 0);
         let w = items
             .iter()
             .find(|i| i.key.starts_with("diag:"))

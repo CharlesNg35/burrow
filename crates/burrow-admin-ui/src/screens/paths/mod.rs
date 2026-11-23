@@ -343,7 +343,7 @@ mod tests {
             ports: None,
             site: None,
         };
-        let p = service("web", &svc, Some(&st), &none, false, &[]);
+        let p = service("web", &svc, Some(&st.clone().into()), &none, false, &[]);
         assert_eq!(p.hops[2].unit, "0 of 2 up");
         assert_ne!(p.hops[2].dot, Some(Tone::Success));
     }
@@ -357,12 +357,12 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            visitor("v", &doc, Some(&st.clone().into()), None).hops[0].dot,
             Some(Tone::Neutral)
         );
         st.visitors[0].open = 1;
         assert_eq!(
-            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            visitor("v", &doc, Some(&st.clone().into()), None).hops[0].dot,
             Some(Tone::Success)
         );
     }
