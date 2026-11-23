@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 
 use burrow_admin_proto::status::{ClientStatus, OFFLINE, ONLINE, Status, away};
@@ -60,6 +61,14 @@ pub struct ClientInfo {
 
 pub fn client<'a>(status: &'a Status, name: &str) -> Option<&'a ClientStatus> {
     status.clients.iter().find(|c| c.name == name)
+}
+
+pub fn clients_by_name(status: Option<&Status>) -> HashMap<&str, &ClientStatus> {
+    let mut out = HashMap::new();
+    for c in status.iter().flat_map(|s| s.clients.iter()) {
+        out.entry(c.name.as_str()).or_insert(c);
+    }
+    out
 }
 
 pub fn info(c: &ClientStatus) -> ClientInfo {
@@ -134,10 +143,21 @@ pub fn from_ip(from: &str) -> String {
 }
 
 pub fn detail(status: Option<&Status>, reserved: &[String], name: &str) -> String {
-    match (
-        presence(status, reserved, name),
+    detail_with(
+        status.is_some(),
+        reserved,
+        name,
         status.and_then(|s| client(s, name)),
-    ) {
+    )
+}
+
+pub fn detail_with(
+    known: bool,
+    reserved: &[String],
+    name: &str,
+    found: Option<&ClientStatus>,
+) -> String {
+    match (presence_with(known, reserved, name, found), found) {
         (Presence::Online, Some(c)) => c.from.as_deref().map_or_else(
             || ONLINE.to_string(),
             |f| format!("{ONLINE} · {}", from_ip(f)),

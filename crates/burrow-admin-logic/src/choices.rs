@@ -54,12 +54,17 @@ pub fn client_choices(
         presence: Presence::Here,
         blocked,
     });
-    let remote = ClientEntry::names(doc).into_iter().map(|n| ClientChoice {
-        label: n.clone(),
-        detail: presence::detail(status, &[], &n),
-        presence: presence::presence(status, &[], &n),
-        name: n,
-        blocked: None,
+    let by = presence::clients_by_name(status);
+    let known = status.is_some();
+    let remote = ClientEntry::names(doc).into_iter().map(|n| {
+        let found = by.get(n.as_str()).copied();
+        ClientChoice {
+            label: n.clone(),
+            detail: presence::detail_with(known, &[], &n, found),
+            presence: presence::presence_with(known, &[], &n, found),
+            name: n,
+            blocked: None,
+        }
     });
     local.chain(remote).collect()
 }
@@ -73,7 +78,10 @@ pub struct ServiceChoice {
 }
 
 pub fn service_choices(doc: &Value, status: Option<&Status>) -> Vec<ServiceChoice> {
-    let online = |c: &String| presence::online(status, &[], c);
+    let by = presence::clients_by_name(status);
+    let online = |c: &String| {
+        presence::presence_with(status.is_some(), &[], c, by.get(c.as_str()).copied()).up()
+    };
     ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
