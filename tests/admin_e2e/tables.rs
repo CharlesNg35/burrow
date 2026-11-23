@@ -181,13 +181,16 @@ fn live(c: &mut Ctx) -> Flow<'_> {
             (kept - bottom).abs() < 1.0,
             "a status tick leaves the list where the user scrolled it: {kept} vs {bottom}"
         );
-        let _: bool = c
+        let focused: String = c
             .ui
-            .eval("(document.querySelector('[data-testid=list] [data-row=z10] [data-testid=list-row]').focus(), true)")
+            .eval("(() => { const rows = document.querySelectorAll('[data-testid=list] [data-row]'); const r = rows[rows.length - 1]; r.querySelector('[data-testid=list-row]').focus(); return r.dataset.row; })()")
             .await;
         ticks(c, "[data-testid=list] [data-row=home]").await;
         let row: String = c.ui.eval(ROW_OF_FOCUS).await;
-        assert_eq!(row, "z10", "focus stays on the sidebar row through a tick");
+        assert_eq!(
+            row, focused,
+            "focus stays on the sidebar row through a tick"
+        );
         c.ui.nav("/").await;
         overview_tab(c, "services").await;
         c.ui.wait_for("[data-testid=overview-services] tbody tr", SECS)
