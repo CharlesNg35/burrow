@@ -1,12 +1,13 @@
 //! The flow chart of the admin UI: sources, public ports, the server, clients and targets in columns, colored by health and shown in `FlowModal`.
 
+mod bundle;
 mod draw;
 mod layout;
 mod links;
 mod live;
 mod view;
 
-pub(crate) use layout::{Chart, Node, layout};
+pub(crate) use layout::{Act, Chart, Focus, Node, layout};
 pub(crate) use view::FlowModal;
 
 pub(crate) const SEARCH: &str = "flow-search-box";
@@ -70,6 +71,13 @@ fn fit(text: &str, room: usize) -> String {
 mod tests {
     use super::layout::weight;
     use super::*;
+
+    fn q(text: &str) -> Focus {
+        Focus {
+            query: text.into(),
+            ..Focus::default()
+        }
+    }
     use burrow_admin_logic::rates::Rates;
     use burrow_admin_proto::status::Status;
 
@@ -132,13 +140,13 @@ mod tests {
             "clients": {},
             "services": {"own": {"client": "self", "bind": "0.0.0.0:8080", "target": "127.0.0.1:3000"}}
         });
-        let c = layout(&doc, Some(&st), &Rates::default(), None, "");
+        let c = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
         assert_eq!(c.problems, 0);
         let target = c.nodes.iter().find(|n| n.key == "target:own").unwrap();
         assert_eq!(target.health, Health::Healthy);
         assert!(c.nodes.iter().all(|n| n.key != "client:self"));
         assert_eq!(c.lines.len(), 3, "source, port to server, server to target");
-        let direct = &c.lines[2].d;
+        let direct = &c.lines[2].path.d;
         assert!(
             direct.contains(&format!(" {:.1},", COLS[4].0)),
             "the line ends at the target column: {direct}"
@@ -160,7 +168,13 @@ mod tests {
         st.visitors.push(
             burrow_admin_proto::serde_json::from_value(json!({"name": "v", "open": 0})).unwrap(),
         );
-        let c = layout(&doc, Some(&st), &Rates::default(), Some("v"), "");
+        let c = layout(
+            &doc,
+            Some(&st),
+            &Rates::default(),
+            Some("v"),
+            &Focus::default(),
+        );
         for n in c.nodes.iter().filter(|n| n.col == 0) {
             let room = ((COLS[0].1 - 18.0) / 5.4) as usize;
             for line in n.sub.lines() {
@@ -184,7 +198,13 @@ mod tests {
                 "lo": {"client": "a", "bind": "127.0.0.1:3000", "target": "z:3000"}
             }
         });
-        let c = layout(&doc, Some(&status()), &Rates::default(), None, "");
+        let c = layout(
+            &doc,
+            Some(&status()),
+            &Rates::default(),
+            None,
+            &Focus::default(),
+        );
         assert_eq!(c.services, 3);
         assert_eq!(c.problems, 2, "db is down and b is away");
         let order: Vec<&str> = c
@@ -211,7 +231,7 @@ mod tests {
         assert!(web.right.is_empty(), "the bind sits on line 2");
         assert!(web.sub.starts_with(":443 · "), "{}", web.sub);
         assert_eq!(c.height, TOP + 3.0 * PITCH);
-        assert!(c.lines.iter().all(|l| l.d.starts_with('M')));
+        assert!(c.lines.iter().all(|l| l.path.d.starts_with('M')));
     }
 
     #[test]
@@ -232,42 +252,101 @@ mod tests {
                 .map(|n| n.title.clone())
                 .collect()
         };
-        let all = layout(&doc, Some(&st), &Rates::default(), None, "");
+        let all = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
         assert_eq!((all.services, all.total), (3, 3));
         assert_eq!(titles(&all, 3), ["a", "b", "c"]);
-        let db = layout(&doc, Some(&st), &Rates::default(), None, " DB ");
+        let db = layout(&doc, Some(&st), &Rates::default(), None, &q(" DB "));
         assert_eq!((db.services, db.total), (1, 3));
         assert_eq!(titles(&db, 1), ["db"]);
         assert_eq!(titles(&db, 3), ["b"], "only the clients of what is drawn");
-        let by_client = layout(&doc, Some(&st), &Rates::default(), None, "a");
+        let by_client = layout(&doc, Some(&st), &Rates::default(), None, &q("a"));
         assert_eq!(titles(&by_client, 1), ["lo", "web"]);
         assert_eq!(titles(&by_client, 3), ["a"]);
-        let by_target = layout(&doc, Some(&st), &Rates::default(), None, "5432");
+        let by_target = layout(&doc, Some(&st), &Rates::default(), None, &q("5432"));
         assert_eq!(titles(&by_target, 1), ["db"]);
-        let none = layout(&doc, Some(&st), &Rates::default(), None, "nothing");
+        let none = layout(&doc, Some(&st), &Rates::default(), None, &q("nothing"));
         assert_eq!(none.services, 0);
         assert!(none.nodes.iter().any(|n| n.server));
     }
 
-    #[test]
-    fn every_node_and_line_keeps_its_own_key() {
+    fn many(n: usize) -> burrow_admin_proto::serde_json::Value {
         let mut services = burrow_admin_proto::serde_json::Map::new();
-        for i in 0..300 {
+        for i in 0..n {
             services.insert(
-                format!("s{i:03}"),
-                json!({"clients": ["a", "b"], "target": format!("x:{i}"), "bind": format!("0.0.0.0:{}", 9000 + i)}),
+                format!("s{i:04}"),
+                json!({"client": "a", "target": format!("x:{i}"), "bind": format!("0.0.0.0:{}", 9000 + i)}),
             );
         }
-        let doc = json!({"clients": {"a": {}, "b": {}}, "services": services});
-        let c = layout(&doc, Some(&status()), &Rates::default(), None, "");
+        services.insert("down".into(), json!({"client": "b", "target": "y:1"}));
+        services.insert(
+            "half".into(),
+            json!({"clients": ["a", "b"], "target": "y:2"}),
+        );
+        json!({"clients": {"a": {}, "b": {}}, "services": services})
+    }
+
+    fn keys_are_unique(c: &Chart) {
         let nodes: std::collections::HashSet<&str> =
             c.nodes.iter().map(|n| n.key.as_str()).collect();
         let lines: std::collections::HashSet<&str> =
             c.lines.iter().map(|l| l.key.as_str()).collect();
         assert_eq!(nodes.len(), c.nodes.len());
         assert_eq!(lines.len(), c.lines.len());
-        assert_eq!(c.nodes.iter().filter(|n| n.col == 1).count(), 300);
-        let again = layout(&doc, Some(&status()), &Rates::default(), None, "");
+    }
+
+    #[test]
+    fn a_small_chart_draws_every_service() {
+        let c = layout(
+            &many(150),
+            Some(&status()),
+            &Rates::default(),
+            None,
+            &Focus::default(),
+        );
+        keys_are_unique(&c);
+        assert_eq!(c.nodes.iter().filter(|n| n.col == 1).count(), 152);
+        assert!(c.nodes.iter().all(|n| !n.key.starts_with("bundle:")));
+    }
+
+    #[test]
+    fn a_large_chart_folds_each_client_but_keeps_the_problems_apart() {
+        let doc = many(5000);
+        let st = status();
+        let c = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
+        keys_are_unique(&c);
+        assert_eq!(c.services, 5002);
+        let ports: Vec<&str> = c
+            .nodes
+            .iter()
+            .filter(|n| n.col == 1)
+            .map(|n| n.key.as_str())
+            .collect();
+        assert_eq!(ports, ["bundle:a", "port:down", "port:half"]);
+        let bundle = c.nodes.iter().find(|n| n.key == "bundle:a").unwrap();
+        assert_eq!(bundle.sub, "5,000 services · 1 down");
+        assert_eq!(
+            bundle.act,
+            Some(Act::Fold {
+                client: "a".into(),
+                open: false
+            })
+        );
+        assert!(c.nodes.iter().any(|n| n.key == "targets:a"));
+        assert!(c.lines.iter().any(|l| l.key == "bundle:a/in:a"));
+        let open = Focus {
+            open: ["a".to_string()].into(),
+            ..Focus::default()
+        };
+        let wide = layout(&doc, Some(&st), &Rates::default(), None, &open);
+        keys_are_unique(&wide);
+        assert_eq!(wide.nodes.iter().filter(|n| n.col == 1).count(), 5003);
+        let head = wide.nodes.iter().find(|n| n.key == "bundle:a").unwrap();
+        assert_eq!(head.right, "▾");
+        assert!(wide.nodes.iter().all(|n| n.key != "targets:a"));
+        let found = layout(&doc, Some(&st), &Rates::default(), None, &q("s004"));
+        assert_eq!(found.services, 10);
+        assert!(found.nodes.iter().any(|n| n.key == "port:s0049"));
+        let again = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
         assert_eq!(c, again);
     }
 
@@ -282,7 +361,7 @@ mod tests {
     fn without_status_nothing_is_called_a_problem() {
         let doc =
             json!({"clients": {"a": {}}, "services": {"web": {"client": "a", "target": "x:80"}}});
-        let c = layout(&doc, None, &Rates::default(), None, "");
+        let c = layout(&doc, None, &Rates::default(), None, &Focus::default());
         assert_eq!(c.problems, 0);
         assert!(c.nodes.iter().all(|n| !n.problem));
     }

@@ -6,13 +6,42 @@ use crate::screens::search_box;
 use crate::store::{Store, store};
 
 use super::draw::{Drawn, Hover, flow_links, flow_svg};
-use super::{Chart, SEARCH, layout};
+use super::{Chart, Focus, SEARCH, WIDTH, layout};
+
+const STEP: f64 = 400.0;
+const FIRST: (f64, f64) = (0.0, 2400.0);
+
+fn measure(wrap: NodeRef<html::Div>, window: RwSignal<(f64, f64)>) {
+    let Some(el) = wrap.get_untracked() else {
+        return;
+    };
+    let Ok(Some(svg)) = el.query_selector("[data-testid=flow-svg]") else {
+        return;
+    };
+    let r = svg.get_bounding_client_rect();
+    let w = el.get_bounding_client_rect();
+    if r.width() <= 0.0 {
+        return;
+    }
+    let scale = r.width() / WIDTH;
+    let top = (w.top() - r.top()) / scale;
+    let seen = w.height() / scale;
+    let next = (
+        ((top - seen) / STEP).floor() * STEP,
+        ((top + 2.0 * seen) / STEP).ceil() * STEP,
+    );
+    if window.get_untracked() != next {
+        window.set(next);
+    }
+}
 
 #[component]
 pub fn FlowModal() -> impl IntoView {
     let s = store();
     let only_problems = RwSignal::new(false);
     let query = RwSignal::new(String::new());
+    let folds = RwSignal::new(std::collections::HashSet::new());
+    let window = RwSignal::new(FIRST);
     let chart = Memo::new(move |_| {
         if !s.flow_open.get() {
             return Chart::default();
@@ -20,13 +49,22 @@ pub fn FlowModal() -> impl IntoView {
         let doc = s.running();
         let status = s.status.get();
         let rates = s.rates.get();
-        query.with(|q| layout(&doc, status.as_deref(), &rates, s.me().as_deref(), q))
+        let focus = Focus {
+            query: query.get(),
+            open: folds.get(),
+        };
+        layout(&doc, status.as_deref(), &rates, s.me().as_deref(), &focus)
     });
-    let dr = Drawn::new(chart);
+    let dr = Drawn::new(chart, folds, window);
     let panel: NodeRef<html::Div> = NodeRef::new();
     let wrap: NodeRef<html::Div> = NodeRef::new();
     let hover: Hover = RwSignal::new(None);
-    restore_focus(s, chart, only_problems, query, hover);
+    restore_focus(s, chart, only_problems, query, dr, hover);
+    let _ = window_event_listener(leptos::ev::resize, move |_| {
+        if s.flow_open.get_untracked() {
+            measure(wrap, window);
+        }
+    });
     forget_hover(dr, hover);
     let tip = Memo::new(move |_| {
         hover
@@ -78,7 +116,7 @@ pub fn FlowModal() -> impl IntoView {
                         <Icon name="x"/>
                     </button>
                 </div>
-                <div node_ref=wrap class="relative min-h-0 flex-1 overflow-auto overscroll-contain px-[22px] pt-4 pb-1.5">
+                <div node_ref=wrap class="relative min-h-0 flex-1 overflow-auto overscroll-contain px-[22px] pt-4 pb-1.5" on:scroll=move |_| measure(wrap, window)>
                     {move || (searching() && chart.with(|c| c.services == 0)).then(|| view! {
                         <p class="pb-2 text-sm text-text-muted" data-testid="flow-none">{format!("No service or client matches \u{201c}{}\u{201d}.", query.get().trim())}</p>
                     })}
@@ -98,12 +136,15 @@ fn restore_focus(
     chart: Memo<Chart>,
     only_problems: RwSignal<bool>,
     query: RwSignal<String>,
+    dr: Drawn,
     hover: Hover,
 ) {
     Effect::new(move |was: Option<bool>| {
         let open = s.flow_open.get();
         if open && was != Some(true) {
             query.set(String::new());
+            dr.folds.set(std::collections::HashSet::new());
+            dr.window.set(FIRST);
             let c = chart.get_untracked();
             only_problems.set(c.services > 12 && c.problems > 0);
         } else if !open && was == Some(true) {
@@ -115,7 +156,7 @@ fn restore_focus(
 
 fn forget_hover(dr: Drawn, hover: Hover) {
     Effect::new(move |seen: Option<()>| {
-        dr.node_keys.track();
+        dr.shown_nodes.track();
         if seen.is_some() {
             hover.set(None);
         }

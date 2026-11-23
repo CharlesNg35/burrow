@@ -4,38 +4,66 @@ use super::edits::Flow;
 use super::world::Options;
 use super::{Ctx, SECS, open, run};
 
-const EXTRA: usize = 320;
-const SERVICES: usize = EXTRA + 2;
-const CLIENTS: usize = 50;
+const FLOW: &str = "[data-testid=flow]";
 const PORTS: &str = "[data-testid=flow] [data-node^='port:']";
-const CLIENT_NODES: &str = "[data-testid=flow] [data-node^='client:']";
 const TIP: &str = "[data-testid=flow] [data-testid=tooltip]";
 const SEARCH: &str = "#flow-search-box";
 
-fn opts() -> Options {
+fn opts(n: usize) -> Options {
+    let mut extra: String = (1..=n)
+        .map(|i| {
+            let client = if i % 2 == 0 { "home" } else { "office" };
+            format!(
+                "  app{i:04}:\n    client: {client}\n    target: {}\n    visitors: [laptop]\n",
+                20000 + i % 30000
+            )
+        })
+        .collect();
+    extra.push_str("  zz-down:\n    client: home\n    target: 127.0.0.1:1\n    visitors: [laptop]\n    health_check: { interval_secs: 1, timeout_secs: 1, failures: 1 }\n");
     Options {
-        extra_services: (1..=EXTRA)
-            .map(|i| {
-                let client = if i % 5 == 0 {
-                    "home".to_string()
-                } else {
-                    format!("box{:02}", i % (CLIENTS - 2) + 1)
-                };
-                format!(
-                    "  app{i:03}:\n    client: {client}\n    target: {}\n    visitors: [laptop]\n",
-                    20000 + i
-                )
-            })
-            .collect(),
-        extra_clients: (1..=CLIENTS - 2)
-            .map(|i| format!("  box{i:02}:\n    secret: {}\n", super::world::secret()))
-            .collect(),
+        clients: Some(vec!["home", "office"]),
+        extra_services: extra,
         ..Options::default()
     }
 }
 
 fn node(key: &str) -> String {
     format!("document.querySelector(\"[data-testid=flow] [data-node='{key}']\")")
+}
+
+fn sel(key: &str) -> String {
+    format!("[data-testid=flow] [data-node='{key}']")
+}
+
+async fn open_timed(c: &Ctx, n: usize) -> f64 {
+    let ms: f64 = c
+        .ui
+        .eval(&format!(
+            "(async () => {{ const t0 = performance.now(); document.querySelector('[data-testid=flow-open]').click(); while (!document.querySelector(\"{}\")) await new Promise(r => requestAnimationFrame(r)); await new Promise(r => requestAnimationFrame(r)); return performance.now() - t0; }})()",
+            sel("bundle:home")
+        ))
+        .await;
+    println!("flow-scale: {n} services: open click to drawn chart in {ms:.0} ms");
+    ms
+}
+
+async fn nodes_stay(c: &Ctx, keys: &[&str]) {
+    let all = keys.iter().map(|k| node(k)).collect::<Vec<_>>();
+    let mark = all
+        .iter()
+        .map(|n| format!("{n}.__kept = 1;"))
+        .collect::<String>();
+    let _: bool =
+        c.ui.eval(&format!("(() => {{ {mark} return true; }})()"))
+            .await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let check = all
+        .iter()
+        .map(|n| format!("({n} && {n}.__kept === 1)"))
+        .collect::<Vec<_>>()
+        .join(" && ");
+    let kept: bool = c.ui.eval(&check).await;
+    assert!(kept, "{keys:?} keep their elements across the live ticks");
 }
 
 async fn hover(c: &Ctx, key: &str) {
@@ -46,108 +74,143 @@ async fn hover(c: &Ctx, key: &str) {
     c.ui.wait_for(TIP, SECS).await;
 }
 
-async fn nodes_stay(c: &Ctx) {
-    let _: bool = c
-        .ui
-        .eval(&format!(
-            "(() => {{ {n}.__kept = 1; {s}.__kept = 1; document.querySelector(\"[data-testid=flow] [data-line='in:app001']\").__kept = 1; return true; }})()",
-            n = node("port:app001"),
-            s = node("server"),
-        ))
-        .await;
-    let before: String = c.ui.eval(&format!("{}.textContent", node("server"))).await;
-    tokio::time::sleep(Duration::from_millis(2500)).await;
-    let kept: bool = c
-        .ui
-        .eval(&format!(
-            "{n}.__kept === 1 && {s}.__kept === 1 && document.querySelector(\"[data-testid=flow] [data-line='in:app001']\").__kept === 1",
-            n = node("port:app001"),
-            s = node("server"),
-        ))
-        .await;
-    assert!(
-        kept,
-        "the nodes and lines of the chart survive the live ticks (server text was {before:?})"
-    );
-    assert_eq!(
-        c.ui.count(PORTS).await,
-        SERVICES,
-        "no node is added by a tick"
-    );
-}
-
-async fn narrow(c: &mut Ctx) {
-    c.ui.fill(SEARCH, "app01").await;
+async fn ports_are(c: &Ctx, n: usize, what: &str) {
     c.ui.wait_true(
-        &format!("document.querySelectorAll(\"{PORTS}\").length === 10"),
-        "the search keeps app010 to app019",
+        &format!("document.querySelectorAll(\"{PORTS}\").length === {n}"),
+        what,
         SECS,
     )
     .await;
-    c.ui.wait_gone(TIP, SECS).await;
-    let count = c.ui.text("[data-testid=flow-count]").await;
-    assert_eq!(count.trim(), format!("10 of {SERVICES}"));
-    let clients = c.ui.count(CLIENT_NODES).await;
-    assert!(
-        (1..CLIENTS).contains(&clients),
-        "only the clients of the services found are drawn: {clients}"
-    );
-    c.ui.view_shot("flow-scale-search").await;
+}
+
+async fn phone_shot(c: &mut Ctx, step: &str) {
     c.ui.viewport(390, 844).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    c.ui.view_shot("flow-scale-search-phone").await;
-    c.ui.fill(SEARCH, "nothing-like-this").await;
-    c.ui.wait_for("[data-testid=flow-none]", SECS).await;
-    c.ui.view_shot("flow-scale-no-match-phone").await;
+    c.ui.view_shot(step).await;
     c.ui.viewport(1440, 900).await;
-    c.ui.fill(SEARCH, "").await;
-    c.ui.wait_true(
-        &format!("document.querySelectorAll(\"{PORTS}\").length === {SERVICES}"),
-        "clearing the search draws every service again",
-        SECS,
-    )
-    .await;
-    assert_eq!(
-        c.ui.count(TIP).await,
-        0,
-        "the old tooltip does not come back"
+}
+
+async fn down_stays_apart(c: &Ctx) {
+    c.ui.wait_for(&sel("port:zz-down"), Duration::from_secs(40))
+        .await;
+    let folded: String = c.ui.attr_of(&sel("bundle:home"), "aria-expanded").await;
+    assert_eq!(folded, "false", "home is folded while zz-down shows");
+    assert!(
+        c.ui.text(&sel("bundle:home")).await.contains("1 down"),
+        "the folded row counts the down service"
     );
 }
 
-fn flow_scale(c: &mut Ctx) -> Flow<'_> {
+async fn search(c: &mut Ctx, total: usize) {
+    c.ui.fill(SEARCH, "app001").await;
+    ports_are(c, 10, "the search draws app0010 to app0019 one by one").await;
+    c.ui.wait_gone(TIP, SECS).await;
+    let count = c.ui.text("[data-testid=flow-count]").await;
+    assert_eq!(count.trim(), format!("10 of {total}"));
+    assert_eq!(
+        c.ui.count("[data-testid=flow] [data-node^='bundle:']")
+            .await,
+        0
+    );
+}
+
+fn small(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
-        c.ui.click("[data-testid=flow-open]").await;
-        c.ui.wait_for(&format!("{PORTS}[data-node='port:app{EXTRA:03}']"), SECS)
-            .await;
-        assert_eq!(
-            c.ui.count(PORTS).await,
-            SERVICES,
-            "one port node per service"
+        let total = 500 + 3;
+        open_timed(c, total).await;
+        assert!(c.ui.count(&sel("bundle:office")).await == 1);
+        let drawn: String = c.ui.attr_of("[data-testid=flow-svg]", "data-nodes").await;
+        let drawn: usize = drawn.parse().expect("data-nodes");
+        assert!(
+            drawn < 40,
+            "500 services fold into a few rows: {drawn} nodes"
         );
+        nodes_stay(c, &["bundle:home", "targets:office", "server"]).await;
+        c.ui.view_shot("flow-scale-500").await;
+        hover(c, "bundle:office").await;
+        search(c, total).await;
+        c.ui.view_shot("flow-scale-500-search").await;
+        phone_shot(c, "flow-scale-500-search-phone").await;
+        c.ui.fill(SEARCH, "nothing-like-this").await;
+        c.ui.wait_for("[data-testid=flow-none]", SECS).await;
+        c.ui.fill(SEARCH, "").await;
+        c.ui.wait_for(&sel("bundle:home"), SECS).await;
         assert_eq!(
-            c.ui.count("[data-testid=flow] [data-node^='target:']")
-                .await,
-            SERVICES,
-            "one target node per service"
+            c.ui.count(TIP).await,
+            0,
+            "the old tooltip does not come back"
         );
-        assert_eq!(
-            c.ui.count(CLIENT_NODES).await,
-            CLIENTS,
-            "one node per client"
-        );
-        nodes_stay(c).await;
-        c.ui.view_shot("flow-scale").await;
-        hover(c, "port:app001").await;
-        narrow(c).await;
-        c.ui.press("[data-testid=flow]", "Escape").await;
-        c.ui.wait_gone("[data-testid=flow]", SECS).await;
+        c.ui.press(FLOW, "Escape").await;
+        c.ui.wait_gone(FLOW, SECS).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+async fn unfold(c: &mut Ctx) {
+    let before: String = c.ui.attr_of("[data-testid=flow-svg]", "data-nodes").await;
+    c.ui.click(&sel("bundle:office")).await;
+    c.ui.wait_for(
+        &format!("{}[aria-expanded=true]", sel("bundle:office")),
+        SECS,
+    )
+    .await;
+    let after: String = c.ui.attr_of("[data-testid=flow-svg]", "data-nodes").await;
+    let (before, after): (usize, usize) = (before.parse().unwrap(), after.parse().unwrap());
+    assert!(
+        after > before + 2000,
+        "office unfolds its services: {before} -> {after}"
+    );
+    let drawn = c.ui.count("[data-testid=flow] [data-node]").await;
+    assert!(
+        drawn < 400,
+        "only the rows in view are in the page: {drawn}"
+    );
+    c.ui.view_shot("flow-scale-5000-unfolded").await;
+    c.ui.click(&sel("bundle:office")).await;
+    c.ui.wait_for(
+        &format!("{}[aria-expanded=false]", sel("bundle:office")),
+        SECS,
+    )
+    .await;
+    c.ui.press(&sel("bundle:home"), "Enter").await;
+    c.ui.wait_for(&format!("{}[aria-expanded=true]", sel("bundle:home")), SECS)
+        .await;
+    c.ui.press(&sel("bundle:home"), "Enter").await;
+    c.ui.wait_for(
+        &format!("{}[aria-expanded=false]", sel("bundle:home")),
+        SECS,
+    )
+    .await;
+}
+
+fn large(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(1440, 900).await;
+        let total = 5000 + 3;
+        open_timed(c, total).await;
+        assert!(c.ui.count(&sel("bundle:office")).await == 1);
+        down_stays_apart(c).await;
+        nodes_stay(c, &["bundle:home", "port:zz-down", "server"]).await;
+        c.ui.view_shot("flow-scale-5000").await;
+        phone_shot(c, "flow-scale-5000-phone").await;
+        unfold(c).await;
+        c.ui.fill(SEARCH, "app0042").await;
+        c.ui.wait_for(&sel("port:app0042"), SECS).await;
+        c.ui.press(FLOW, "Escape").await;
+        c.ui.wait_gone(FLOW, SECS).await;
         c.ui.assert_no_errors();
     })
 }
 
 #[test]
-fn the_flow_chart_stays_live_and_searchable_with_many_services() {
-    run("flow-scale", opts(), false, flow_scale);
+fn the_flow_chart_folds_500_services_and_stays_live() {
+    run("flow-scale-500", opts(500), false, small);
+}
+
+#[test]
+fn the_flow_chart_stays_quick_with_5000_services() {
+    run("flow-scale-5000", opts(5000), false, large);
 }

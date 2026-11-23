@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use leptos::html;
 use leptos::prelude::*;
@@ -8,16 +8,20 @@ use crate::route;
 use crate::store::{Store, store};
 
 use super::layout::Line;
-use super::{COLS, Chart, Health, LABELS, Node, WIDTH, fit};
+use super::{Act, COLS, Chart, Health, LABELS, Node, WIDTH, fit};
+
+const SLACK: f64 = 4.0;
 
 pub(super) type Hover = RwSignal<Option<(String, f64, f64)>>;
 
 #[derive(Clone, Copy)]
 pub(super) struct Drawn {
     pub(super) chart: Memo<Chart>,
-    pub(super) node_keys: Memo<Vec<String>>,
+    pub(super) folds: RwSignal<HashSet<String>>,
+    pub(super) window: RwSignal<(f64, f64)>,
+    pub(super) shown_nodes: Memo<Vec<String>>,
     node_at: Memo<HashMap<String, usize>>,
-    line_keys: Memo<Vec<String>>,
+    shown_lines: Memo<Vec<String>>,
     line_at: Memo<HashMap<String, usize>>,
 }
 
@@ -29,18 +33,54 @@ fn index(keys: &[String]) -> HashMap<String, usize> {
 }
 
 impl Drawn {
-    pub(super) fn new(chart: Memo<Chart>) -> Self {
-        let node_keys =
-            Memo::new(move |_| chart.with(|c| c.nodes.iter().map(|n| n.key.clone()).collect()));
-        let line_keys =
-            Memo::new(move |_| chart.with(|c| c.lines.iter().map(|l| l.key.clone()).collect()));
+    pub(super) fn new(
+        chart: Memo<Chart>,
+        folds: RwSignal<HashSet<String>>,
+        window: RwSignal<(f64, f64)>,
+    ) -> Self {
+        let node_keys = Memo::new(move |_| {
+            chart.with(|c| c.nodes.iter().map(|n| n.key.clone()).collect::<Vec<_>>())
+        });
+        let line_keys = Memo::new(move |_| {
+            chart.with(|c| c.lines.iter().map(|l| l.key.clone()).collect::<Vec<_>>())
+        });
+        let shown_nodes = Memo::new(move |_| {
+            let (a, b) = window.get();
+            chart.with(|c| {
+                c.nodes
+                    .iter()
+                    .filter(|n| n.y < b && n.y + n.h > a)
+                    .map(|n| n.key.clone())
+                    .collect()
+            })
+        });
+        let shown_lines = Memo::new(move |_| {
+            let (a, b) = window.get();
+            chart.with(|c| {
+                c.lines
+                    .iter()
+                    .filter(|l| l.path.top - SLACK < b && l.path.bottom + SLACK > a)
+                    .map(|l| l.key.clone())
+                    .collect()
+            })
+        });
         Drawn {
             chart,
-            node_keys,
+            folds,
+            window,
+            shown_nodes,
             node_at: Memo::new(move |_| node_keys.with(|k| index(k))),
-            line_keys,
+            shown_lines,
             line_at: Memo::new(move |_| line_keys.with(|k| index(k))),
         }
+    }
+
+    fn fold(self, client: &str) {
+        self.folds.update(|f| {
+            if !f.remove(client) {
+                f.insert(client.to_string());
+            }
+        });
     }
 
     fn node(self, key: String) -> Memo<Node> {
@@ -127,10 +167,21 @@ impl Node {
     }
 }
 
-fn open_node(s: Store, n: Memo<Node>) {
-    if let Some(r) = n.with_untracked(|n| n.to.clone()) {
-        s.flow_open.set(false);
-        route::go(r);
+fn act(s: Store, dr: Drawn, n: Memo<Node>) {
+    match n.with_untracked(|n| n.act.clone()) {
+        Some(Act::Open(r)) => {
+            s.flow_open.set(false);
+            route::go(r);
+        }
+        Some(Act::Fold { client, .. }) => dr.fold(&client),
+        None => {}
+    }
+}
+
+fn folded(n: &Node) -> Option<&'static str> {
+    match n.act {
+        Some(Act::Fold { open, .. }) => Some(if open { "true" } else { "false" }),
+        _ => None,
     }
 }
 
@@ -173,10 +224,20 @@ fn node_view(
     };
     view! {
         <g
-            class=move || n.with(|n| if n.to.is_some() { "group cursor-pointer" } else { "" })
+            class=move || n.with(|n| if n.act.is_some() { "group cursor-pointer outline-none [&:focus-visible>rect]:stroke-accent [&:focus-visible>rect]:stroke-[2.5]" } else { "" })
             opacity=opacity
             data-node=key
-            on:click=move |_| open_node(s, n)
+            tabindex=move || n.with(|n| folded(n).map(|_| "0"))
+            role=move || n.with(|n| folded(n).map(|_| "button"))
+            aria-expanded=move || n.with(folded)
+            aria-label=move || n.with(|n| folded(n).map(|_| n.tip.clone()))
+            on:click=move |_| act(s, dr, n)
+            on:keydown=move |e: web_sys::KeyboardEvent| {
+                if n.with_untracked(|n| folded(n).is_some()) && (e.key() == "Enter" || e.key() == " ") {
+                    e.prevent_default();
+                    act(s, dr, n);
+                }
+            }
             on:mousemove=move |e| {
                 if n.with_untracked(|n| !n.tip.is_empty()) {
                     hover_at(&e, &hover_key, hover, wrap);
@@ -217,7 +278,7 @@ fn line_view(key: String, dr: Drawn, only_problems: Signal<bool>) -> impl IntoVi
     let l = dr.line(key.clone());
     view! {
         <path
-            d=move || l.with(|l| l.d.clone())
+            d=move || l.with(|l| l.path.d.clone())
             fill="none"
             class=move || l.with(|l| l.stroke)
             stroke-width=move || l.with(|l| format!("{:.2}", l.width))
@@ -245,39 +306,46 @@ pub(super) fn flow_svg(
             viewBox=move || dr.chart.with(|c| format!("0 0 {WIDTH} {}", c.height))
             width="100%"
             class="block min-w-[1000px]"
-            role="img"
+            role="group"
             aria-label=move || dr.chart.with(|c| c.alt.clone())
             data-testid="flow-svg"
+            data-nodes=move || dr.chart.with(|c| c.nodes.len().to_string())
         >
             {labels}
             <g>
-                <For each=move || dr.line_keys.get() key=String::clone children=move |k| line_view(k, dr, only_problems)/>
+                <For each=move || dr.shown_lines.get() key=String::clone children=move |k| line_view(k, dr, only_problems)/>
             </g>
-            <For each=move || dr.node_keys.get() key=String::clone children=move |k| node_view(k, dr, only_problems, hover, wrap)/>
+            <For each=move || dr.shown_nodes.get() key=String::clone children=move |k| node_view(k, dr, only_problems, hover, wrap)/>
         </svg>
     }
 }
 
 pub(super) fn flow_links(s: Store, dr: Drawn) -> impl IntoView {
-    let keys = Memo::new(move |_| {
+    let links = Memo::new(move |_| {
         dr.chart.with(|c| {
             c.nodes
                 .iter()
-                .filter(|n| n.to.is_some())
-                .map(|n| n.key.clone())
+                .filter_map(|n| {
+                    let r = n.act.as_ref()?.route()?;
+                    Some((
+                        n.key.clone(),
+                        n.tip.trim_end_matches(" →").to_string(),
+                        r.clone(),
+                    ))
+                })
                 .collect::<Vec<_>>()
         })
     });
-    let link = move |k: String| {
-        let n = dr.node(k);
+    let link = move |(_, label, to): (String, String, crate::route::Route)| {
         view! {
             <li>
-                <a href=move || n.with(|n| n.to.as_ref().map(route::href)) on:click=move |e| {
+                <a href=route::href(&to) on:click=move |e| {
                     e.prevent_default();
-                    open_node(s, n);
-                }>{move || n.with(|n| n.tip.trim_end_matches(" →").to_string())}</a>
+                    s.flow_open.set(false);
+                    route::go(to.clone());
+                }>{label}</a>
             </li>
         }
     };
-    view! { <For each=move || keys.get() key=String::clone children=link/> }
+    view! { <For each=move || links.get() key=|(k, label, _)| (k.clone(), label.clone()) children=link/> }
 }

@@ -11,6 +11,7 @@ use crate::route::Route;
 use crate::screens::paths::{clients_of, health_with};
 use burrow_admin_logic::health::Level;
 
+use super::bundle::{Kind, Row, dress, header, plan};
 use super::links::{client_lines, service_nodes};
 use super::live::Live;
 use super::{Health, PITCH, TOP};
@@ -29,14 +30,36 @@ pub struct Node {
     pub dashed: bool,
     pub server: bool,
     pub problem: bool,
-    pub to: Option<Route>,
+    pub act: Option<Act>,
     pub tip: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Act {
+    Open(Route),
+    Fold { client: String, open: bool },
+}
+
+impl Act {
+    pub fn route(&self) -> Option<&Route> {
+        match self {
+            Act::Open(r) => Some(r),
+            Act::Fold { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Path {
+    pub d: String,
+    pub top: f64,
+    pub bottom: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Line {
     pub key: String,
-    pub d: String,
+    pub path: Path,
     pub width: f64,
     pub stroke: &'static str,
     pub dashed: bool,
@@ -52,6 +75,12 @@ pub struct Chart {
     pub services: usize,
     pub total: usize,
     pub alt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Focus {
+    pub query: String,
+    pub open: HashSet<String>,
 }
 
 pub(super) struct Clients {
@@ -111,48 +140,81 @@ pub fn layout(
     status: Option<&Status>,
     rates: &Rates,
     me: Option<&str>,
-    query: &str,
+    focus: &Focus,
 ) -> Chart {
-    let live = Live::new(status);
-    let q = query.trim().to_lowercase();
-    let all = services(doc, &live, rates);
+    let live = Live::new(status, rates);
+    let q = focus.query.trim().to_lowercase();
+    let all = services(doc, &live);
     let total = all.len();
     let svcs: Vec<Svc> = all.into_iter().filter(|s| s.matches(&q)).collect();
+    let shown = svcs.len();
     let client_names = shown_clients(ClientEntry::names(doc), &svcs, &q);
-    let rows = svcs.len().max(client_names.len()).max(2);
-    let height = TOP + rows as f64 * PITCH;
-    let src = sources(&svcs, status, me);
-    let mut lines = Vec::new();
     let offline = client_names
         .iter()
         .filter(|c| live.known() && !live.up(c))
         .count();
-    let server = server_node(&svcs, status, rates, rows);
-    let clients = client_nodes(&client_names, &svcs, &live, rows);
-    let mut nodes = Vec::with_capacity(src.len() + 1 + svcs.len() * 2 + client_names.len());
-    for (i, s) in svcs.iter().enumerate() {
-        let (port, target) = service_nodes(i, s, &src, &clients, &live, &mut lines);
-        nodes.push(port);
-        nodes.push(target);
+    let problems = svcs.iter().filter(|s| problem_svc(s)).count() + offline;
+    let reach = Reach::of(&svcs);
+    let total_open: u64 = svcs.iter().map(|s| s.open).sum();
+    let involved: HashSet<String> = svcs
+        .iter()
+        .filter(|s| problem_svc(s))
+        .flat_map(|s| s.clients.iter().cloned())
+        .collect();
+    let rows = plan(svcs, &focus.open);
+    let height_rows = rows.len().max(client_names.len()).max(2);
+    let src = sources(&rows, &reach, status, me);
+    let server = server_node(total_open, status, rates, height_rows);
+    let clients = client_nodes(&client_names, &involved, &live, height_rows);
+    let mut lines = Vec::new();
+    let mut nodes = Vec::with_capacity(src.len() + 1 + rows.len() * 2 + client_names.len());
+    nodes.extend(src.iter().cloned());
+    nodes.push(server);
+    for (i, r) in rows.iter().enumerate() {
+        match &r.kind {
+            Kind::Header(g) => nodes.push(header(i, g)),
+            kind => {
+                let from = lines.len();
+                let (mut port, mut target) =
+                    service_nodes(i, &r.svc, &src, &clients, &live, &mut lines);
+                if let Kind::Bundle(g) = kind {
+                    dress(g, &mut port, &mut target, &mut lines[from..]);
+                }
+                nodes.push(port);
+                nodes.push(target);
+            }
+        }
     }
     client_lines(&clients.nodes, &live, &mut lines);
-    let problems = svcs.iter().filter(|s| problem_svc(s)).count() + offline;
-    nodes.splice(0..0, src.into_iter().chain(std::iter::once(server)));
     nodes.extend(clients.nodes);
     let alt = format!(
-        "Flow of {} services through the server to {} clients; {} problems",
-        svcs.len(),
+        "Flow of {shown} services through the server to {} clients; {problems} problems",
         client_names.len(),
-        problems
     );
     Chart {
         nodes,
         lines,
-        height,
+        height: TOP + height_rows as f64 * PITCH,
         problems,
-        services: svcs.len(),
+        services: shown,
         total,
         alt,
+    }
+}
+
+struct Reach {
+    public: usize,
+    local: usize,
+}
+
+impl Reach {
+    fn of(svcs: &[Svc]) -> Self {
+        let public = svcs.iter().filter(|s| s.bind.is_some()).count();
+        let local = svcs
+            .iter()
+            .filter(|s| s.bind.as_deref().is_some_and(loopback))
+            .count();
+        Reach { public, local }
     }
 }
 
@@ -184,7 +246,7 @@ pub(super) fn problem_svc(s: &Svc) -> bool {
     matches!(s.health, Health::Down | Health::Degraded)
 }
 
-fn services(doc: &Value, live: &Live, rates: &Rates) -> Vec<Svc> {
+fn services(doc: &Value, live: &Live) -> Vec<Svc> {
     let mut svcs: Vec<Svc> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
@@ -219,7 +281,7 @@ fn services(doc: &Value, live: &Live, rates: &Rates) -> Vec<Svc> {
                             .unwrap_or_else(|| Protocol::default().wire().into()),
                         clients,
                         open: st.map(|x| x.open).unwrap_or(0),
-                        rate: rates.service(name).bytes_in,
+                        rate: live.rate_in(name),
                         health,
                         badge,
                         reached: burrow_admin_logic::web::reached(v),
@@ -237,19 +299,20 @@ fn services(doc: &Value, live: &Live, rates: &Rates) -> Vec<Svc> {
     svcs
 }
 
-fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node> {
+fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str>) -> Vec<Node> {
     let mut nodes = Vec::new();
-    let public: Vec<usize> = (0..svcs.len())
-        .filter(|i| svcs[*i].bind.is_some())
-        .collect();
-    let private: Vec<usize> = (0..svcs.len())
-        .filter(|i| svcs[*i].bind.is_none())
-        .collect();
+    let drawn = |public: bool| -> Vec<usize> {
+        (0..rows.len())
+            .filter(|i| {
+                !matches!(rows[*i].kind, Kind::Header(_)) && rows[*i].svc.bind.is_some() == public
+            })
+            .collect()
+    };
+    let public = drawn(true);
+    let private = drawn(false);
+    let problem = |idx: &[usize]| idx.iter().any(|i| problem_svc(&rows[*i].svc));
     if !public.is_empty() {
-        let lo = public
-            .iter()
-            .filter(|i| svcs[**i].bind.as_deref().is_some_and(loopback))
-            .count();
+        let lo = reach.local;
         let (y, h) = span(&public);
         nodes.push(Node {
             key: "internet".into(),
@@ -264,7 +327,7 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             },
             sub: format!(
                 "{} public · {} refused",
-                public.len() - lo,
+                reach.public - lo,
                 status
                     .map(|s| s.services.iter().map(|x| x.refused).sum::<u64>())
                     .unwrap_or(0)
@@ -273,8 +336,8 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             health: Health::Unknown,
             dashed: false,
             server: false,
-            problem: public.iter().any(|i| problem_svc(&svcs[*i])),
-            to: None,
+            problem: problem(&public),
+            act: None,
             tip: String::new(),
         });
     }
@@ -300,16 +363,15 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             health: Health::Unknown,
             dashed: false,
             server: false,
-            problem: private.iter().any(|i| problem_svc(&svcs[*i])),
-            to: Some(Route::List(VisitorEntry::section().into())),
+            problem: problem(&private),
+            act: Some(Act::Open(Route::List(VisitorEntry::section().into()))),
             tip: "Open visitors →".into(),
         });
     }
     nodes
 }
 
-fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize) -> Node {
-    let total_open: u64 = svcs.iter().map(|s| s.open).sum();
+fn server_node(total_open: u64, status: Option<&Status>, rates: &Rates, rows: usize) -> Node {
     let (rate, unit) = human_bits(rates.total.bytes_in);
     Node {
         key: "server".into(),
@@ -336,17 +398,17 @@ fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize
         dashed: false,
         server: true,
         problem: false,
-        to: None,
+        act: None,
         tip: String::new(),
     }
 }
 
-fn client_nodes(client_names: &[String], svcs: &[Svc], live: &Live, rows: usize) -> Clients {
-    let involved: HashSet<&str> = svcs
-        .iter()
-        .filter(|s| problem_svc(s))
-        .flat_map(|s| s.clients.iter().map(String::as_str))
-        .collect();
+fn client_nodes(
+    client_names: &[String],
+    involved: &HashSet<String>,
+    live: &Live,
+    rows: usize,
+) -> Clients {
     let known = live.known();
     let nodes: Vec<Node> = client_names
         .iter()
@@ -356,7 +418,7 @@ fn client_nodes(client_names: &[String], svcs: &[Svc], live: &Live, rows: usize)
             let on = live.up(c);
             let slot = (rows as f64 * PITCH) / client_names.len().max(1) as f64;
             let y = TOP + (j as f64 + 0.5) * slot - 21.0;
-            let involved = involved.contains(c.as_str());
+            let involved = involved.contains(c);
             Node {
                 key: format!("client:{c}"),
                 col: 3,
@@ -384,7 +446,10 @@ fn client_nodes(client_names: &[String], svcs: &[Svc], live: &Live, rows: usize)
                 dashed: known && !on,
                 server: false,
                 problem: involved || (known && !on),
-                to: Some(Route::Detail(ClientEntry::section().into(), c.clone())),
+                act: Some(Act::Open(Route::Detail(
+                    ClientEntry::section().into(),
+                    c.clone(),
+                ))),
                 tip: format!("Open client {c} →"),
             }
         })
