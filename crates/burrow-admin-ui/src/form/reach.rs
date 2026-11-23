@@ -169,7 +169,7 @@ fn website_row(sw: &Switch) -> impl IntoView + use<> {
         if let Ok(Some(el)) =
             document().query_selector(&format!("[data-group={}]", ServiceEntry::GROUP_WEBSITE))
         {
-            el.scroll_into_view();
+            burrow_ui_kit::bring_near(&el);
         }
     };
     move || {

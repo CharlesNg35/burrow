@@ -266,7 +266,7 @@ pub fn goto_list(g: GoTo, t: TextEdit) -> Result<AnyView, burrow_ui_kit::LoadFai
         if let Some(el) = document().get_element_by_id("file-goto-input")
             && let Ok(el) = wasm_bindgen::JsCast::dyn_into::<web_sys::HtmlElement>(el)
         {
-            let _ = el.focus();
+            burrow_ui_kit::focus_in_view(&el);
         }
     });
     let on_key = keys(g, t, list);

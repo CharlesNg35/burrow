@@ -54,7 +54,7 @@ pub(super) fn focus_soon(id: String) {
             .get_element_by_id(&id)
             .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
         {
-            let _ = el.focus();
+            burrow_ui_kit::focus_in_view(&el);
         }
     });
 }

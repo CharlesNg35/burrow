@@ -18,7 +18,7 @@ fn show_card(key: &str) {
     if let Ok(Some(el)) =
         document().query_selector(&format!("[data-testid=settings] [data-card=\"{key}\"]"))
     {
-        el.scroll_into_view();
+        burrow_ui_kit::bring_near(&el);
     }
 }
 

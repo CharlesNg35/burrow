@@ -223,6 +223,6 @@ fn scroll_and_focus(el: web_sys::Element) {
         let _ = target.set_attribute("tabindex", "-1");
     }
     if let Ok(h) = target.dyn_into::<web_sys::HtmlElement>() {
-        let _ = h.focus();
+        burrow_ui_kit::focus_still(&h);
     }
 }

@@ -12,6 +12,7 @@ mod deferred;
 mod disclosure;
 mod feedback;
 mod field;
+mod focus;
 mod icon;
 mod inline;
 mod input;
@@ -43,6 +44,7 @@ pub use deferred::{Deferred, LoadFailed};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
+pub use focus::{bring_near, focus_in_view, focus_still};
 pub use icon::{ICON_LINE, Icon, path as icon_path};
 pub use inline::{Inline, inline};
 pub use input::{

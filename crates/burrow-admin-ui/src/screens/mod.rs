@@ -200,16 +200,9 @@ pub fn clear_of_bar() {
     let _ = root
         .style()
         .set_property("scroll-padding-bottom", &format!("{room}px"));
-    let Some(active) = doc.active_element() else {
+    let Some(active) = doc.active_element().filter(moves_with_page) else {
         return;
     };
-    let fixed = matches!(
-        active.closest("[data-sticky-bar],[data-toast-stack]"),
-        Ok(Some(_))
-    );
-    if fixed || active.tag_name() == "BODY" {
-        return;
-    }
     let row = active
         .closest("[data-schema]")
         .ok()
@@ -224,6 +217,31 @@ pub fn clear_of_bar() {
         let by = (r.bottom() - limit + 12.0).min(r.top() - 80.0).max(0.0);
         window().scroll_by_with_x_and_y(0.0, by);
     }
+}
+
+const EDITABLE: &str = "textarea, select, [contenteditable]:not([contenteditable=false]), input:not([type=button]):not([type=submit]):not([type=reset]):not([type=hidden]):not([type=image])";
+
+fn moves_with_page(el: &web_sys::Element) -> bool {
+    if !el.matches(EDITABLE).unwrap_or(false) {
+        return false;
+    }
+    let mut at = Some(el.clone());
+    while let Some(e) = at {
+        if matches!(e.tag_name().as_str(), "BODY" | "HTML") {
+            return true;
+        }
+        if let Ok(Some(css)) = window().get_computed_style(&e) {
+            let pos = css.get_property_value("position").unwrap_or_default();
+            let flow = css.get_property_value("overflow-y").unwrap_or_default();
+            let scrolls = matches!(flow.as_str(), "auto" | "scroll" | "overlay")
+                && e.scroll_height() > e.client_height() + 1;
+            if pos == "sticky" || pos == "fixed" || scrolls {
+                return false;
+            }
+        }
+        at = e.parent_element();
+    }
+    true
 }
 
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
