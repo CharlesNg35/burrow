@@ -97,6 +97,14 @@ const MEASURE: &str = r#"(() => { window.__scale = null; (async () => {
   };
 })().then(r => { window.__scale = r; }); return true; })()"#;
 
+const IDLE: &str = r#"new Promise(r => { const long = []; const gaps = []; const o = new PerformanceObserver(l => l.getEntries().forEach(e => long.push(e.duration))); o.observe({ type: 'longtask' }); let was = performance.now(); const end = was + 5000; const step = now => { gaps.push(now - was); was = now; if (now < end) { requestAnimationFrame(step); } else { o.disconnect(); r(`long max ${Math.max(0, ...long)} ms, frame max ${Math.round(Math.max(...gaps))} ms`); } }; requestAnimationFrame(step); })"#;
+
+async fn idle_on(c: &Ctx, page: &str) -> String {
+    c.ui.nav(page).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    c.ui.eval(IDLE).await
+}
+
 async fn measure(c: &mut Ctx, n: usize) -> Numbers {
     open(c, "ops").await;
     c.ui.viewport(1440, 900).await;
@@ -109,7 +117,11 @@ async fn measure(c: &mut Ctx, n: usize) -> Numbers {
     )
     .await;
     let got: Numbers = c.ui.eval("window.__scale").await;
-    let note = format!("list-scale {n} services: {got:?}\n");
+    let mut note = format!("list-scale {n} services: {got:?}");
+    for page in ["/", "/clients", "/visitors", "/about"] {
+        note.push_str(&format!(" | {page} idle {}", idle_on(c, page).await));
+    }
+    note.push('\n');
     let file = super::sheet::shots_dir().join("list-scale.txt");
     let old = std::fs::read_to_string(&file).unwrap_or_default();
     std::fs::write(&file, old + &note).expect("write the list numbers");
