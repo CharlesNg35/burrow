@@ -79,6 +79,17 @@ fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
         .collect()
 }
 
+pub fn plain_options(items: impl IntoIterator<Item = (String, String)>) -> Vec<ComboOption> {
+    items
+        .into_iter()
+        .map(|(value, label)| ComboOption {
+            value,
+            label,
+            ..ComboOption::default()
+        })
+        .collect()
+}
+
 pub fn service_option(c: ServiceChoice) -> ComboOption {
     ComboOption {
         dot: c.up.map(|u| if u { Tone::Success } else { Tone::Neutral }),

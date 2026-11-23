@@ -214,7 +214,7 @@ fn go_now(s: crate::store::Store, route: Route, query: Option<(&str, &str)>) {
         let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&to));
     }
     let was = s.route.get_untracked();
-    let up = crate::screens::screen_of(&was) == route && was != route;
+    let up = screen_of(&was) == route && was != route;
     if was != Route::Review {
         s.prev.set(was);
     }
@@ -258,6 +258,14 @@ pub fn popped(s: crate::store::Store) {
     s.query_seen.update(|n| *n += 1);
     let y = window().history().ok().and_then(|h| h.state().ok());
     scroll_soon(y.and_then(|y| y.as_f64()).unwrap_or(0.0));
+}
+
+pub fn screen_of(route: &Route) -> Route {
+    match route {
+        Route::Detail(section, _) => Route::List(section.clone()),
+        Route::Activity(_) => Route::Activity(None),
+        other => other.clone(),
+    }
 }
 
 pub fn here() -> String {

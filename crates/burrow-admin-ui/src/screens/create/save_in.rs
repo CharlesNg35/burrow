@@ -1,5 +1,5 @@
 use burrow_admin_logic::files::{main_name, save_in_file, save_in_options};
-use burrow_ui_kit::{ComboOption, Combobox};
+use burrow_ui_kit::Combobox;
 use leptos::prelude::*;
 
 use crate::store::store;
@@ -9,15 +9,10 @@ pub(crate) fn save_in_field(name: RwSignal<String>, choice: RwSignal<String>) ->
     s.files_on().then(|| {
         let options = Memo::new(move |_| {
             let n = name.get();
-            s.with_files(|i| save_in_options(i, if n.is_empty() { "new" } else { &n }))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(value, label)| ComboOption {
-                    value,
-                    label,
-                    ..ComboOption::default()
-                })
-                .collect::<Vec<_>>()
+            crate::addr::plain_options(
+                s.with_files(|i| save_in_options(i, if n.is_empty() { "new" } else { &n }))
+                    .unwrap_or_default(),
+            )
         });
         let value = Signal::derive(move || {
             let c = choice.get();

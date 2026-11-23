@@ -2,9 +2,7 @@ use std::collections::VecDeque;
 
 use burrow_admin_logic::rates::human_bits;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::{
-    ComboOption, ComboSize, Combobox, Icon, Kbd, Kpi, LineChart, Segmented, button_class,
-};
+use burrow_ui_kit::{ComboSize, Combobox, Icon, Kbd, Kpi, LineChart, Segmented, button_class};
 use leptos::prelude::*;
 
 use crate::format;
@@ -44,17 +42,10 @@ fn Traffic() -> impl IntoView {
         })
     });
     let options = Memo::new(move |_| {
-        let all = ComboOption {
-            label: ALL.to_string(),
-            ..ComboOption::default()
-        };
-        std::iter::once(all)
-            .chain(shown.get().into_iter().map(|n| ComboOption {
-                value: n.clone(),
-                label: n,
-                ..ComboOption::default()
-            }))
-            .collect::<Vec<_>>()
+        crate::addr::plain_options(
+            std::iter::once((String::new(), ALL.to_string()))
+                .chain(shown.get().into_iter().map(|n| (n.clone(), n))),
+        )
     });
     let picked = Signal::derive(move || vec![service.get()]);
     let now = move |out: bool| {

@@ -121,6 +121,7 @@ pub const UI_UNITS: &[(&str, Layer)] = &[
     ("addr", Layer::Controls),
     ("field", Layer::Controls),
     ("passwords", Layer::Controls),
+    ("narrow", Layer::Controls),
     ("row_menu", Layer::Controls),
     ("secrets", Layer::Controls),
     ("shown", Layer::Controls),

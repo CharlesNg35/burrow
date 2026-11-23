@@ -1,5 +1,3 @@
-//! Focus and scroll-into-view helpers that move the page only as far as needed: never on focus, the least distance on a reveal.
-
 pub fn focus_still(el: &web_sys::HtmlElement) {
     let opts = web_sys::FocusOptions::new();
     opts.set_prevent_scroll(true);

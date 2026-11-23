@@ -60,14 +60,6 @@ pub fn entity_icon(section: &str) -> &'static str {
     burrow_admin_logic::entity::of_section(section).icon
 }
 
-pub fn screen_of(route: &Route) -> Route {
-    match route {
-        Route::Detail(section, _) => Route::List(section.clone()),
-        Route::Activity(_) => Route::Activity(None),
-        other => other.clone(),
-    }
-}
-
 pub fn screen(route: Route) -> AnyView {
     let _ = store();
     match route {
