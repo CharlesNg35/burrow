@@ -141,10 +141,16 @@ async fn admin_change(c: &Ctx, port: &str, out: &mut Vec<String>) {
     c.ui.nav("/services/ssh").await;
     super::edit_mode(c).await;
     c.ui.fill("#f-services-ssh-target", port).await;
-    c.ui.wait_for("[data-testid=check-state]", LONG).await;
-    c.ui.wait_for("[data-testid=check-state]:not([data-state=checking])", LONG)
+    c.ui.wait_for(
+        "[data-testid=save-bar] [data-testid=save]:not([disabled])",
+        LONG,
+    )
+    .await;
+    c.ui.click("[data-testid=save-bar] [data-testid=save]")
         .await;
-    super::review_now(c).await;
+    c.ui.wait_gone("[data-testid=save-bar]", LONG).await;
+    c.ui.wait_for("[data-testid=review-open]", LONG).await;
+    c.ui.click("[data-testid=review-open]").await;
     c.ui.wait_true(
         "!!document.querySelector('[data-testid=review] [data-testid=apply], [data-testid=conflict]')",
         "the review or the conflict dialog opens",
