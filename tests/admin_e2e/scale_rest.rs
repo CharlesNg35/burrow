@@ -149,7 +149,24 @@ async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
     c.ui.wait_for("[data-testid=check-state]:not([data-state=checking])", LONG)
         .await;
     super::review_now(c).await;
-    c.ui.wait_for("[data-testid=review]", LONG).await;
+    c.ui.wait_true(
+        "!!document.querySelector('[data-testid=review] [data-testid=apply], [data-testid=conflict]')",
+        "the review or the conflict dialog opens",
+        LONG,
+    )
+    .await;
+    if c.ui.count("[data-testid=conflict]").await > 0 {
+        let listed = c.ui.count("[data-testid=conflict-theirs] li").await;
+        save(
+            out,
+            format!(
+                "conflict dialog after a hand edit of {CHANGED} services lists {listed} of their changes"
+            ),
+        );
+        c.ui.click("[data-testid=conflict-recheck]").await;
+        c.ui.wait_for("[data-testid=review] [data-testid=apply]", LONG)
+            .await;
+    }
     super::apply_now(c, "Applied").await;
     c.ui.nav("/activity").await;
     c.ui.wait_true(
