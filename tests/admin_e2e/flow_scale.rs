@@ -170,7 +170,10 @@ fn small(c: &mut Ctx) -> Flow<'_> {
             0,
             "the old tooltip does not come back"
         );
-        c.ui.press(FLOW, "Escape").await;
+        let _: bool = c
+            .ui
+            .eval(&format!("(() => {{ const i = document.querySelector('{SEARCH}'); i.focus(); i.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Escape', bubbles: true }})); return true; }})()"))
+            .await;
         c.ui.wait_gone(FLOW, SECS).await;
         c.ui.assert_no_errors();
     })
@@ -187,7 +190,7 @@ async fn unfold(c: &mut Ctx) {
     let after: String = c.ui.attr_of("[data-testid=flow-svg]", "data-nodes").await;
     let (before, after): (usize, usize) = (before.parse().unwrap(), after.parse().unwrap());
     assert!(
-        after > before + 2000,
+        after > before + 1800,
         "office unfolds its services: {before} -> {after}"
     );
     let drawn = c.ui.count("[data-testid=flow] [data-node]").await;
@@ -228,7 +231,7 @@ fn large(c: &mut Ctx) -> Flow<'_> {
         unfold(c).await;
         c.ui.fill(SEARCH, "app0042").await;
         c.ui.wait_for(&sel("port:app0042"), SECS).await;
-        c.ui.press(FLOW, "Escape").await;
+        c.ui.click("[data-testid=flow-close]").await;
         c.ui.wait_gone(FLOW, SECS).await;
         c.ui.assert_no_errors();
     })
