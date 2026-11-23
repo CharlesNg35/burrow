@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use burrow_ui_kit::{EmptyState, LABEL};
+use burrow_ui_kit::EmptyState;
 use leptos::prelude::*;
 
 use crate::store::Grouping;
@@ -44,7 +44,7 @@ pub(super) fn card(r: Row, c: Cards) -> AnyView {
     view! { {move || mounted.get().then(|| full_card(row.get_value(), c))} }.into_any()
 }
 
-fn full_card(r: Row, c: Cards) -> AnyView {
+pub(super) fn full_card(r: Row, c: Cards) -> AnyView {
     let key = r.key.clone();
     let sel = key.clone();
     let on = Signal::derive(move || c.selected.with(|s| s.as_deref() == Some(sel.as_str())));
@@ -142,37 +142,10 @@ fn flat(
     cards: Cards,
 ) -> AnyView {
     let names = Memo::new(move |_| all.with(|a| group_names(&groups, a)));
-    let counts: Memo<HashMap<String, usize>> = Memo::new(move |_| {
-        let mut m = HashMap::new();
-        visible.with(|v| {
-            for r in v {
-                *m.entry(r.group.clone()).or_insert(0) += 1;
-            }
-        });
-        m
+    let items = Memo::new(move |_| {
+        names.with(|g| visible.with(|v| super::list_window::items(g, v, !look.no_counts)))
     });
-    let several = Memo::new(move |_| counts.with(|c| c.values().filter(|n| **n > 0).count() > 1));
-    view! {
-        <For each=move || names.get() key=|g| g.clone() let:g>
-            {
-                let name = g.clone();
-                let n = Memo::new(move |_| counts.with(|c| c.get(&name).copied().unwrap_or(0)));
-                let label = g.clone();
-                let mine = g.clone();
-                let rows = move || all.with(|a| a.iter().filter(|r| r.group == mine).cloned().collect::<Vec<_>>());
-                view! {
-                    {(!g.is_empty()).then(|| view! {
-                        <div class=format!("flex justify-between px-4 pt-3.5 pb-1.5 {LABEL}") hidden=move || n.get() == 0>
-                            <span>{label.clone()}</span>
-                            {move || (several.get() && !look.no_counts).then(|| view! { <span>{n.get()}</span> })}
-                        </div>
-                    })}
-                    <For each=rows key=print children=move |r| card(r, cards)/>
-                }
-            }
-        </For>
-    }
-    .into_any()
+    super::list_window::windowed(items, look, cards)
 }
 
 pub(super) fn list_body(
