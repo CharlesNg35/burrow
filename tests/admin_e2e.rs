@@ -69,6 +69,8 @@ mod releases;
 mod reverts;
 #[path = "admin_e2e/review_paths.rs"]
 mod review_paths;
+#[path = "admin_e2e/scale_rest.rs"]
+mod scale_rest;
 #[path = "admin_e2e/screens.rs"]
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
