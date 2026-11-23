@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.7]
+
+burrow admin at thousands of services: fast lists, forms and flow chart, searchable pickers, live status as changes only, and no scroll jumps.
 
 - **burrow admin stays fast with thousands of services** (measured at 5,000 services, 500 clients and 1,000 visitors):
   - **lists:** the services, clients and visitors lists draw only the rows in view. The first rows show in 0.24 s instead of 7 s, the page holds about 16 rows instead of 5,000, and the memory drops from 325 MB to about 55 MB. A live update no longer stalls scrolling;
