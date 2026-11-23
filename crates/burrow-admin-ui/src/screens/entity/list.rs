@@ -407,7 +407,7 @@ pub fn Entities(section: String) -> impl IntoView {
     let shown_rows = {
         let what = what.to_string();
         let section_new = section.clone();
-        Signal::derive(move || {
+        Memo::new(move |_| {
             let mut r = rows.get();
             if adding.get() {
                 let n = draft_name.get();
