@@ -309,9 +309,15 @@ fn measure_bytes_and_time_per_tick_at_5000_services() {
     }
     let full_ms = t.elapsed().as_secs_f64() * 1000.0 / f64::from(runs);
     let t = std::time::Instant::now();
+    for _ in 0..runs {
+        full = crate::msg::event_bytes("status", &n);
+    }
+    let direct_ms = t.elapsed().as_secs_f64() * 1000.0 / f64::from(runs);
+    let next = tick(&s, 1);
+    let t = std::time::Instant::now();
     let mut quiet = Vec::new();
     for _ in 0..runs {
-        quiet = serde_json::to_vec(&diff(&s, &tick(&s, 1))).unwrap();
+        quiet = serde_json::to_vec(&diff(&s, &next)).unwrap();
     }
     let quiet_ms = t.elapsed().as_secs_f64() * 1000.0 / f64::from(runs);
     let t = std::time::Instant::now();
@@ -328,7 +334,7 @@ fn measure_bytes_and_time_per_tick_at_5000_services() {
     }
     let apply_ms = t.elapsed().as_secs_f64() * 1000.0 / f64::from(runs);
     println!(
-        "full: {} B {full_ms:.2} ms; unchanged delta: {} B {quiet_ms:.2} ms; 500 busy services: {} B {busy_ms:.2} ms; parse+clone+apply busy: {apply_ms:.2} ms",
+        "full: {} B {full_ms:.2} ms as a Value, {direct_ms:.2} ms direct; unchanged delta: {} B {quiet_ms:.2} ms; 500 busy services: {} B {busy_ms:.2} ms; parse+clone+apply busy: {apply_ms:.2} ms",
         full.len(),
         quiet.len(),
         busy.len()
