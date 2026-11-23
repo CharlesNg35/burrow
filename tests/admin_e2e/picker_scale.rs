@@ -61,15 +61,15 @@ async fn open_picker(c: &Ctx) {
 
 async fn arrows_stay_put(c: &Ctx, step: &str) {
     let before = scroll(c).await;
-    assert_eq!(before.lit, "app0001", "{step}: the first service is lit");
+    assert_eq!(before.lit, "web", "{step}: the first service is lit");
     for _ in 0..30 {
         c.ui.press(FIELD, "ArrowDown").await;
     }
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let now = scroll(c).await;
     assert_eq!(
-        now.lit, "app0031",
-        "{step}: 30 arrows light the 31st service"
+        now.lit, "app0029",
+        "{step}: 30 arrows light the 31st service (web and ssh come first)"
     );
     assert!(
         now.in_view,
@@ -88,7 +88,7 @@ async fn arrows_stay_put(c: &Ctx, step: &str) {
     }
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let back = scroll(c).await;
-    assert_eq!(back.lit, "app0001", "{step}: arrows go back up");
+    assert_eq!(back.lit, "web", "{step}: arrows go back up");
     assert!(
         back.in_view && back.list < 0.5,
         "{step}: the list scrolls back: {back:?}"
