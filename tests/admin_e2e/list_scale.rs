@@ -46,6 +46,28 @@ struct Numbers {
     heap_mb: f64,
 }
 
+impl Numbers {
+    fn line(&self) -> String {
+        format!(
+            "first {:.0} ms, last {:.0} ms; load long tasks max {:.0} / total {:.0} ms; idle long max {:.0} / total {:.0} ms, frame max {:.0} ms, frames over 20 ms {}; scroll long max {:.0} / total {:.0} ms, frame max {:.0} ms, frames over 50 ms {}; {} rows in the page; heap {:.0} MB",
+            self.first,
+            self.last,
+            self.load_long_max,
+            self.load_long_total,
+            self.idle_long_max,
+            self.idle_long_total,
+            self.idle_frame_max,
+            self.idle_frames_over_20,
+            self.scroll_long_max,
+            self.scroll_long_total,
+            self.scroll_frame_max,
+            self.scroll_frames_over_50,
+            self.rows_in_dom,
+            self.heap_mb
+        )
+    }
+}
+
 const MEASURE: &str = r#"(() => { window.__scale = null; (async () => {
   const long = [];
   const seen = new PerformanceObserver(l => l.getEntries().forEach(e => long.push(e.duration)));
@@ -117,7 +139,7 @@ async fn measure(c: &mut Ctx, n: usize) -> Numbers {
     )
     .await;
     let got: Numbers = c.ui.eval("window.__scale").await;
-    let mut note = format!("list-scale {n} services: {got:?}");
+    let mut note = format!("list-scale {n} services: {}", got.line());
     for page in ["/", "/clients", "/visitors", "/about"] {
         note.push_str(&format!(" | {page} idle {}", idle_on(c, page).await));
     }
@@ -137,6 +159,14 @@ fn check(n: usize, got: &Numbers) {
     assert!(
         got.scroll_long_max < 100.0 && got.scroll_frames_over_50 <= 3,
         "{n}: scrolling the list stays smooth: {got:?}"
+    );
+    assert!(
+        got.rows_in_dom <= 80,
+        "{n}: only the rows in and near view are in the page: {got:?}"
+    );
+    assert!(
+        got.idle_long_max < 200.0 && got.heap_mb < 200.0,
+        "{n}: an idle list costs little time and memory: {got:?}"
     );
 }
 
