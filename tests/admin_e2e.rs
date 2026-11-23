@@ -109,6 +109,8 @@ mod text_tabs;
 mod ui;
 #[path = "admin_e2e/updates.rs"]
 mod updates;
+#[path = "admin_e2e/visitor_scale.rs"]
+mod visitor_scale;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
 #[path = "admin_e2e/wizards.rs"]
