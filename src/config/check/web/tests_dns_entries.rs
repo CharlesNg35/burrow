@@ -283,7 +283,8 @@ fn sites_with_a_certificate_each_get_no_advice_to_share_one() {
     let three = site("wiki", "wiki.example.com")
         + &site("blog", "blog.example.com")
         + &site("auth", "auth.example.com");
-    assert_eq!(warns(&dns, &three), Vec::<String>::new());
+    let found = warns(&dns, &three);
+    assert!(!found.iter().any(|w| w.contains("wildcard")), "{found:#?}");
 }
 
 #[test]

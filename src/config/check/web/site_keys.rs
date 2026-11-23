@@ -114,7 +114,7 @@ pub(super) fn check_site_keys(
         paths(site, &at, out);
         redirects(&site.redirects, &at, out);
         redirect_from(site, &at, out);
-        target_tls(name, site, &svc.target, &at, base_dir, out);
+        target_tls(site, &svc.target, &at, base_dir, out);
         shared(
             &Shared {
                 max_body_size: site.max_body_size.as_deref(),
@@ -325,46 +325,46 @@ fn redirect_from(site: &WebSite, at: &At<'_>, out: &mut Vec<Diagnostic>) {
 }
 
 fn target_tls(
-    name: &str,
     site: &WebSite,
     target: &Target,
     at: &At<'_>,
     base_dir: &Path,
     out: &mut Vec<Diagnostic>,
 ) {
-    match &site.target_tls {
-        Some(TargetTls::Ca(c)) => {
-            let ca = c.ca.as_deref().unwrap_or_default().trim();
-            let field = at.name(&["target_tls", "ca"]);
-            let problem = match std::fs::read(base_dir.join(ca)) {
-                _ if ca.is_empty() => None,
-                Err(e) => Some(Diagnostic::error(
-                    burrow_admin_proto::codes::TLS_UNREADABLE,
-                    format!("{field}: cannot read {ca}: {}", file_reason(&e)),
-                )),
-                Ok(pem) => not_a_ca(&pem)
-                    .map(|e| Diagnostic::error("target-ca", format!("{field}: {ca} {e}"))),
-            };
-            if let Some(d) = problem {
-                out.push(
-                    d
-                        .at(at.value(&["target_tls", "ca"]))
-                        .help("give the PEM file of the CA that signed the app's certificate; paths are relative to the config file"),
-                );
-            }
-            let hp = target.host_port();
-            if target.host().is_some_and(|h| is_ip(&h)) {
-                out.push(
-                    Diagnostic::warning(
-                        "target-ip",
-                        format!("target \"{hp}\" is an IP address; the app's certificate must name that IP"),
-                    )
-                    .at(at.value(&["target_tls"]))
-                    .help("or give the target by the name its certificate holds"),
-                );
-            }
+    let Some(TargetTls::Ca(c)) = &site.target_tls else {
+        return;
+    };
+    let ca = c.ca.as_deref().unwrap_or_default().trim();
+    let field = at.name(&["target_tls", "ca"]);
+    let problem = match std::fs::read(base_dir.join(ca)) {
+        _ if ca.is_empty() => None,
+        Err(e) => Some(Diagnostic::error(
+            burrow_admin_proto::codes::TLS_UNREADABLE,
+            format!("{field}: cannot read {ca}: {}", file_reason(&e)),
+        )),
+        Ok(pem) => {
+            not_a_ca(&pem).map(|e| Diagnostic::error("target-ca", format!("{field}: {ca} {e}")))
         }
-        _ => {}
+    };
+    if let Some(d) = problem {
+        out.push(
+            d
+                .at(at.value(&["target_tls", "ca"]))
+                .help("give the PEM file of the CA that signed the app's certificate; paths are relative to the config file"),
+        );
+    }
+    let hp = target.host_port();
+    if target.host().is_some_and(|h| is_ip(&h)) {
+        out.push(
+            Diagnostic::warning(
+                "target-ip",
+                format!(
+                    "target \"{hp}\" is an IP address; the app's certificate must name that IP"
+                ),
+            )
+            .at(at.value(&["target_tls"]))
+            .help("or give the target by the name its certificate holds"),
+        );
     }
 }
 
