@@ -212,7 +212,10 @@ impl Edit {
             texts,
             files,
             local: RwSignal::new(BTreeMap::new()),
-            related: Memo::new(move |_| related_errors(draft)),
+            related: {
+                let seen = StoredValue::new(None);
+                Memo::new(move |prev| related_errors(draft, prev, seen))
+            },
             draft_dirty: Memo::new(move |_| draft.with(Changeset::dirty)),
             pending_count: pending::pending_count(draft, editing, texts, files),
             shared: Memo::new_with_compare(
