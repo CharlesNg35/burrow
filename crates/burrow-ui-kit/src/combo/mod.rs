@@ -105,6 +105,16 @@ pub fn start_at(visible: &[ComboOption], selected: &[String]) -> usize {
         .unwrap_or(0)
 }
 
+pub fn next_index(at: usize, len: usize, down: bool) -> usize {
+    let a = at.min(len.saturating_sub(1));
+    match (down, a) {
+        (_, _) if len == 0 => 0,
+        (true, _) => (a + 1) % len,
+        (false, 0) => len - 1,
+        (false, _) => a - 1,
+    }
+}
+
 const POPOVER_ROOM: f64 = 240.0;
 const POPOVER_MAX: f64 = 520.0;
 const EDGE: f64 = 16.0;
@@ -204,9 +214,16 @@ pub fn Combobox(
         base,
     };
     let lid = list_id.clone();
+    let list_label = [label.as_str(), header.as_str()]
+        .into_iter()
+        .find(|l| !l.is_empty())
+        .map(str::to_string);
     let act_id = {
         let id = id.clone();
-        move || open.get().then(|| format!("{id}-opt-{}", active.get()))
+        move || {
+            let n = visible.with(|v| shown_len(v));
+            (open.get() && n > 0).then(|| format!("{id}-opt-{}", active.get().min(n - 1)))
+        }
     };
     view! {
         <div
@@ -243,7 +260,7 @@ pub fn Combobox(
                     spellcheck="false"
                     class=format!("{} {} flex-1 bg-transparent px-1.5 outline-none placeholder:text-text-faint", size.input(), if multi { "min-w-24" } else { "w-6 min-w-6" })
                     placeholder=move || if multi || selected.with(|s| s.iter().all(String::is_empty)) { placeholder.clone() } else { String::new() }
-                    aria-label=(!label.is_empty()).then_some(label)
+                    aria-label=(!label.is_empty()).then_some(label.clone())
                     aria-expanded=move || open.get().to_string()
                     aria-controls=lid.clone()
                     aria-autocomplete="list"
@@ -264,7 +281,7 @@ pub fn Combobox(
             <Show when=move || open.get()>
                 <div class=move || format!("absolute left-0 z-30 w-full sm:w-max sm:min-w-64 sm:max-w-[var(--pop-room,100%)] rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
                     {(!header.is_empty()).then(|| view! { <div class="px-2.5 pt-1.5 pb-1 text-2xs font-bold tracking-[0.08em] text-text-faint uppercase">{header.clone()}</div> })}
-                    <ul id=list_id.clone() role="listbox" aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
+                    <ul id=list_id.clone() role="listbox" aria-label=list_label.clone() aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
                         {rows.clone()}
                     </ul>
                     {on_create.map(|cb| create_section(cb, create_label.clone(), &id, c, selected, on_change, multi))}
@@ -291,12 +308,7 @@ impl Nav {
         if len == 0 {
             return;
         }
-        let a = self.active.get_untracked().min(len - 1);
-        let next = if down {
-            (a + 1).min(len - 1)
-        } else {
-            a.saturating_sub(1)
-        };
+        let next = next_index(self.active.get_untracked(), len, down);
         self.active.set(next);
         self.base.with_value(|id| keep_in_view(id, next));
     }
@@ -459,6 +471,15 @@ mod tests {
         assert_eq!(start_at(&list, &["office".into()]), 2);
         assert_eq!(start_at(&list, &[]), 0);
         assert_eq!(start_at(&list, &["gone".into()]), 0);
+    }
+
+    #[test]
+    fn arrows_wrap_around_like_the_apg_combobox() {
+        assert_eq!(next_index(0, 5, true), 1);
+        assert_eq!(next_index(4, 5, true), 0);
+        assert_eq!(next_index(0, 5, false), 4);
+        assert_eq!(next_index(9, 5, false), 3);
+        assert_eq!(next_index(0, 0, true), 0);
     }
 
     #[test]

@@ -6,12 +6,22 @@ const FIELD: &str = "#login-service";
 const LIST: &str = "#login-service-list";
 const DIALOG: &str = "[data-testid=login-dialog]";
 const TRAFFIC: &str = "#traffic-service";
+const MANY: usize = 5000;
+const ALL: usize = MANY + 2;
 
 fn opts() -> Options {
     Options {
         extra_top: "web:\n  http: 127.0.0.1:HTTP_PORT\n".into(),
-        extra_services: (1..=500)
-            .map(|i| format!("  app{i:03}:\n    client: home\n    target: {}\n", 9000 + i))
+        extra_services: (1..=MANY)
+            .map(|i| {
+                format!(
+                    "  app{i:04}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
+                    10000 + i
+                )
+            })
+            .collect(),
+        extra_clients: (1..=500)
+            .map(|i| format!("  box{i:03}:\n    secret: {}\n", super::world::secret()))
             .collect(),
         ..Options::default()
     }
@@ -49,14 +59,14 @@ async fn open_picker(c: &Ctx) {
 
 async fn arrows_stay_put(c: &Ctx, step: &str) {
     let before = scroll(c).await;
-    assert_eq!(before.lit, "app001", "{step}: the first service is lit");
+    assert_eq!(before.lit, "app0001", "{step}: the first service is lit");
     for _ in 0..30 {
         c.ui.press(FIELD, "ArrowDown").await;
     }
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let now = scroll(c).await;
     assert_eq!(
-        now.lit, "app031",
+        now.lit, "app0031",
         "{step}: 30 arrows light the 31st service"
     );
     assert!(
@@ -76,7 +86,7 @@ async fn arrows_stay_put(c: &Ctx, step: &str) {
     }
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let back = scroll(c).await;
-    assert_eq!(back.lit, "app001", "{step}: arrows go back up");
+    assert_eq!(back.lit, "app0001", "{step}: arrows go back up");
     assert!(
         back.in_view && back.list < 0.5,
         "{step}: the list scrolls back: {back:?}"
@@ -98,10 +108,10 @@ async fn long_list_is_capped(c: &Ctx) {
 }
 
 async fn type_and_pick(c: &Ctx) {
-    type_in(c, FIELD, "app42").await;
+    type_in(c, FIELD, "app421").await;
     c.ui.wait_true(
         &format!("document.querySelectorAll('{LIST} [role=option]').length === 10 && !document.querySelector('{LIST} [data-more]')"),
-        "typing narrows the list to app420 to app429",
+        "typing narrows the list to app4210 to app4219",
         SECS,
     )
     .await;
@@ -109,8 +119,84 @@ async fn type_and_pick(c: &Ctx) {
     c.ui.press(FIELD, "ArrowDown").await;
     c.ui.press(FIELD, "Enter").await;
     c.ui.wait_gone(LIST, SECS).await;
-    c.ui.wait_for(&format!("{DIALOG} [data-chip=app422]"), SECS)
+    c.ui.wait_for(&format!("{DIALOG} [data-chip=app4212]"), SECS)
         .await;
+}
+
+fn shown(total: usize) -> String {
+    let more = if total > 100 {
+        format!(
+            "m && m.textContent === '{} more, type to narrow'",
+            total - 100
+        )
+    } else {
+        "!m".to_string()
+    };
+    format!(
+        "(() => {{ const m = document.querySelector('{LIST} [data-more]'); return document.querySelectorAll('{LIST} [role=option]').length === {} && {more}; }})()",
+        total.min(100)
+    )
+}
+
+async fn timed(c: &Ctx, act: &str, done: &str) -> f64 {
+    let ms: f64 = c
+        .ui
+        .eval(&format!(
+            "(async () => {{ const t0 = performance.now(); {act}; for (let i = 0; i < 20000 && !({done}); i++) await new Promise(r => setTimeout(r, 0)); if (!({done})) return -1; return performance.now() - t0; }})()"
+        ))
+        .await;
+    assert!(ms >= 0.0, "timed out waiting for {done}");
+    ms
+}
+
+fn key(k: &str) -> String {
+    format!(
+        "document.querySelector('{FIELD}').dispatchEvent(new KeyboardEvent('keydown', {{ key: '{k}', bubbles: true, cancelable: true }}))"
+    )
+}
+
+fn typed(text: &str) -> String {
+    format!(
+        "(() => {{ const e = document.querySelector('{FIELD}'); e.value = '{text}'; e.dispatchEvent(new Event('input', {{ bubbles: true }})); }})()"
+    )
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+struct Timings {
+    open_ms: f64,
+    keystroke_ms: Vec<(String, f64)>,
+    arrow_ms: Vec<f64>,
+}
+
+async fn measure_keys(c: &Ctx, t: &mut Timings) {
+    for (text, total) in [
+        ("a", MANY),
+        ("app4", 1000),
+        ("app42", 100),
+        ("app421", 10),
+        ("", ALL),
+    ] {
+        let ms = timed(c, &typed(text), &shown(total)).await;
+        t.keystroke_ms.push((text.to_string(), ms));
+    }
+    for i in 1..=10 {
+        let ms = timed(
+            c,
+            &key("ArrowDown"),
+            &format!("document.getElementById('login-service-opt-{i}').classList.contains('bg-surface-3')"),
+        )
+        .await;
+        t.arrow_ms.push(ms);
+    }
+    for _ in 0..10 {
+        c.ui.press(FIELD, "ArrowUp").await;
+    }
+}
+
+fn save_timings(c: &Ctx, t: &Timings) {
+    let text = serde_json::to_string_pretty(t).expect("timings as JSON");
+    std::fs::write(c.ui.flow.dir.join("timings.json"), &text).expect("write the timings");
+    println!("picker timings with {ALL} services: {text}");
 }
 
 async fn login_picker(c: &mut Ctx) {
@@ -118,8 +204,18 @@ async fn login_picker(c: &mut Ctx) {
     edit_mode(c).await;
     c.ui.click("[data-testid=login-add]").await;
     c.ui.wait_for(&format!("{DIALOG} {FIELD}"), SECS).await;
-    open_picker(c).await;
+    let mut t = Timings {
+        open_ms: timed(
+            c,
+            &format!("document.querySelector('{FIELD}').focus()"),
+            &shown(ALL),
+        )
+        .await,
+        ..Timings::default()
+    };
     long_list_is_capped(c).await;
+    measure_keys(c, &mut t).await;
+    save_timings(c, &t);
     arrows_stay_put(c, "desktop").await;
     c.ui.view_shot("picker-scale-login").await;
     type_and_pick(c).await;
@@ -127,7 +223,7 @@ async fn login_picker(c: &mut Ctx) {
     type_in(c, FIELD, "").await;
     open_picker(c).await;
     c.ui.wait_true(
-        &format!("!!document.querySelector('{LIST} [data-option=app422][aria-selected=true]')"),
+        &format!("!!document.querySelector('{LIST} [data-option=app4212][aria-selected=true]')"),
         "the pick is marked in the list",
         SECS,
     )
@@ -145,7 +241,7 @@ async fn login_picker(c: &mut Ctx) {
 async fn traffic_picker(c: &mut Ctx) {
     c.ui.nav("/").await;
     c.ui.click(TRAFFIC).await;
-    c.ui.wait_for("#traffic-service-list [data-option=app001]", SECS)
+    c.ui.wait_for("#traffic-service-list [data-option=app0001]", SECS)
         .await;
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
     assert_eq!(
@@ -153,7 +249,7 @@ async fn traffic_picker(c: &mut Ctx) {
         1,
         "the open list survives the live status ticks"
     );
-    type_in(c, TRAFFIC, "app007").await;
+    type_in(c, TRAFFIC, "app0007").await;
     c.ui.wait_true(
         "document.querySelectorAll('#traffic-service-list [role=option]').length === 1",
         "typing narrows the services",
@@ -161,7 +257,7 @@ async fn traffic_picker(c: &mut Ctx) {
     )
     .await;
     c.ui.press(TRAFFIC, "Enter").await;
-    c.ui.wait_for("[data-testid=traffic] [data-chip=app007]", SECS)
+    c.ui.wait_for("[data-testid=traffic] [data-chip=app0007]", SECS)
         .await;
 }
 
@@ -176,6 +272,6 @@ fn picker_scale(c: &mut Ctx) -> Flow<'_> {
 }
 
 #[test]
-fn a_picker_over_500_services_filters_scrolls_only_its_list_and_picks_by_keyboard() {
+fn a_picker_over_5000_services_filters_scrolls_only_its_list_and_picks_by_keyboard() {
     run("picker-scale", opts(), false, picker_scale);
 }

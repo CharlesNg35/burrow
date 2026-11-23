@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use burrow_admin_logic::choices::{ServiceChoice, client_choices, service_choices};
 use burrow_admin_logic::presence::Presence;
@@ -126,7 +126,7 @@ pub fn RefPicker(
     #[prop(default = None)] on_create: OnCreate,
 ) -> impl IntoView {
     let options = Memo::new(move |_| {
-        let skip = hidden.get();
+        let skip: HashSet<String> = hidden.get().into_iter().collect();
         let mut all = options_for(&entity, &field, &reserved);
         all.retain(|o| !skip.contains(&o.value));
         all
