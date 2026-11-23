@@ -5,6 +5,66 @@ use leptos::prelude::*;
 
 use crate::store::store;
 
+#[derive(Default)]
+pub(crate) struct Files {
+    on: bool,
+    several: bool,
+    pub main: String,
+    by_item: std::collections::HashMap<Path, (String, bool)>,
+}
+
+impl Files {
+    pub fn now() -> Files {
+        let s = store();
+        let mut by_item = std::collections::HashMap::new();
+        let main = s
+            .with_files(|i| {
+                for f in &i.files {
+                    for item in &f.items {
+                        by_item
+                            .entry(item.clone())
+                            .or_insert_with(|| (f.name.clone(), f.read_only.is_some()));
+                    }
+                }
+                files::main_name(i)
+            })
+            .unwrap_or_default();
+        Files {
+            on: s.files_on(),
+            several: several(),
+            main,
+            by_item,
+        }
+    }
+
+    pub fn item_file(&self, item: &[String], was: Option<&Path>) -> Option<String> {
+        if !self.on {
+            return None;
+        }
+        let placed = store()
+            .edit
+            .files
+            .with(|f| item.get(..2).and_then(|i| f.placed(i)).map(str::to_string));
+        placed.or_else(|| match was {
+            Some(w) => Some(
+                self.by_item
+                    .get(w)
+                    .map_or_else(|| self.main.clone(), |f| f.0.clone()),
+            ),
+            None => Some(self.main.clone()),
+        })
+    }
+
+    pub fn label(&self, item: &[String], was: Option<&Path>) -> Option<(String, bool)> {
+        if !self.several {
+            return None;
+        }
+        let name = self.item_file(item, was)?;
+        let locked = was.is_some_and(|w| self.by_item.get(w).is_some_and(|f| f.1));
+        Some((name, locked))
+    }
+}
+
 fn several() -> bool {
     let s = store();
     s.files_on()

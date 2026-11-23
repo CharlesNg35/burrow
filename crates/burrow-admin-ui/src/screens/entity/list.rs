@@ -10,6 +10,7 @@ use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
 
+use super::file::Files;
 use super::index::Index;
 use super::rows::{client_row, service_row, visitor_row};
 use super::{Detail, plural};
@@ -46,11 +47,12 @@ fn one_row(
         .and_then(|w| WebConfig::HTTPS.get(w))
         .is_some_and(|h| !h.is_null());
     let in_base = base_items.and_then(|b| b.get(name));
-    let pending = s
+    let was = s
         .edit
         .draft
-        .with(|d| d.base_name(section, name).is_none())
-        .then_some("new");
+        .with(|d| d.base_name(section, name))
+        .map(|w| vec![section.to_string(), w]);
+    let pending = was.is_none().then_some("new");
     let entity_path = vec![section.to_string(), name.to_string()];
     let mark = if s.edit.unsaved(&entity_path) {
         Some((
@@ -75,14 +77,16 @@ fn one_row(
     if let Some(m) = mark {
         row.tags.insert(0, m);
     }
-    row.file = s.item_file(&entity_path).unwrap_or_default();
+    row.file = ix
+        .files
+        .item_file(&entity_path, was.as_ref())
+        .unwrap_or_default();
     row.problems = super::problems::problems_of(section, &entity_path).len()
         + usize::from(matches!(row.dot, Some(Tone::Danger | Tone::Warning)));
-    if let Some((file, locked)) = super::file::file_label(&entity_path) {
+    if let Some((file, locked)) = ix.files.label(&entity_path, was.as_ref()) {
         row.terms.push('\n');
         row.terms.push_str(&file);
-        let main = s.with_files(burrow_admin_logic::files::main_name);
-        if locked || main.as_deref() != Some(file.as_str()) {
+        if locked || ix.files.main != file {
             row.kept = Some(if locked {
                 crate::screens::Kept::ReadOnly(file)
             } else {
@@ -99,7 +103,7 @@ pub fn row_for(section: &str, name: &str) -> Option<Row> {
         let draft = d.draft();
         let v = draft.get(section)?.get(name)?;
         let base_items = d.base().get(section).and_then(Value::as_object);
-        let ix = Index::new(live.status.as_deref(), draft);
+        let ix = Index::new(live.status.as_deref(), draft, Files::now());
         Some(one_row(section, name, v, (draft, base_items), &live, &ix))
     })
 }
@@ -110,7 +114,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         let draft = d.draft();
         let base_items = d.base().get(section).and_then(Value::as_object);
         let items = draft.get(section).and_then(Value::as_object);
-        let ix = Index::new(live.status.as_deref(), draft);
+        let ix = Index::new(live.status.as_deref(), draft, Files::now());
         let mut out: Vec<Row> = items
             .into_iter()
             .flatten()

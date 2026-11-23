@@ -102,23 +102,18 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
     }
 }
 
-pub(super) fn client_row(
-    name: &String,
-    ix: &Index,
-    pending: Option<&'static str>,
-    to: Route,
-) -> Row {
+pub(super) fn client_row(name: &str, ix: &Index, pending: Option<&'static str>, to: Route) -> Row {
     let c = ix.client(name);
     let presence = ix.presence(name);
     let on = presence.up();
     let served = ix.served(name);
     let left = c.and_then(|c| c.left_secs_ago);
     Row {
-        key: name.clone(),
+        key: name.to_string(),
         to,
         icon: burrow_admin_logic::entity::CLIENT_ICON,
         dot: format::tone_of(presence).or(Some(Tone::Neutral)),
-        title: name.clone(),
+        title: name.to_string(),
         meta: match (c, on) {
             (Some(c), true) => format!("{} open", c.open),
             (Some(_), false) => left
@@ -167,7 +162,7 @@ pub(super) fn client_row(
 }
 
 pub(super) fn visitor_row(
-    name: &String,
+    name: &str,
     v: &Value,
     ix: &Index,
     me: Option<&str>,
@@ -178,7 +173,7 @@ pub(super) fn visitor_row(
     let st = ix.visitor(name);
     let open = st.map(|x| x.open).unwrap_or(0);
     let seen = st.and_then(|x| x.last_seen_secs);
-    let in_use = open > 0 || me == Some(name.as_str());
+    let in_use = open > 0 || me == Some(name);
     let admin = VisitorEntry::ADMIN.get(v).map(plain);
     let mut filters = vec![];
     if admin.is_some() {
@@ -194,11 +189,11 @@ pub(super) fn visitor_row(
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
     Row {
-        key: name.clone(),
+        key: name.to_string(),
         to,
         icon: if admin.is_some() { "shield" } else { "person" },
         dot: Some(if in_use { Tone::Success } else { Tone::Neutral }),
-        title: name.clone(),
+        title: name.to_string(),
         title_tag: admin.map(|a| {
             (
                 a.clone(),
@@ -209,7 +204,7 @@ pub(super) fn visitor_row(
                 },
             )
         }),
-        meta: if me == Some(name.as_str()) && open == 0 {
+        meta: if me == Some(name) && open == 0 {
             "you".into()
         } else if status.is_some() {
             format::visitor_use_short(open, seen)
@@ -236,7 +231,7 @@ pub(super) fn visitor_row(
 }
 
 pub(super) fn service_row(
-    name: &String,
+    name: &str,
     (v, https_on): (&Value, bool),
     ix: &Index,
     pending: Option<&'static str>,
@@ -273,7 +268,7 @@ pub(super) fn service_row(
         tags.push((burrow_admin_logic::web::NO_WAY_IN.into(), Tone::Warning));
     }
     Row {
-        key: name.clone(),
+        key: name.to_string(),
         to,
         icon: if public { "globe" } else { "lock" },
         health: count
@@ -286,7 +281,7 @@ pub(super) fn service_row(
         } else {
             Tone::Warning
         }),
-        title: name.clone(),
+        title: name.to_string(),
         meta: st.map(|x| format!("{} open", x.open)).unwrap_or_default(),
         line2: format!(
             "{} → {}",

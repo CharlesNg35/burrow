@@ -17,7 +17,7 @@ const GUESS_COMPACT: f64 = 40.0;
 #[derive(Clone, PartialEq)]
 pub(super) enum Item {
     Head { label: String, n: Option<usize> },
-    Card(Row),
+    Card(Box<Row>),
 }
 
 impl Item {
@@ -56,7 +56,7 @@ pub(super) fn items(groups: &[String], visible: &[Row], counts: bool) -> Vec<Ite
                 n: (several && counts).then_some(rows.len()),
             });
         }
-        out.extend(rows.iter().map(|r| Item::Card(still(r))));
+        out.extend(rows.iter().map(|r| Item::Card(Box::new(still(r)))));
     }
     out
 }
@@ -273,7 +273,7 @@ pub(super) fn windowed(items: Memo<Vec<Item>>, look: Look, cards: Cards) -> AnyV
                     let k = item.key();
                     let body = match item {
                         Item::Head { label, n } => head_view(label, n),
-                        Item::Card(r) => full_card(r, cards),
+                        Item::Card(r) => full_card(*r, cards),
                     };
                     view! { <div class="flow-root" data-vkey=k>{body}</div> }
                 }

@@ -5,10 +5,12 @@ use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::{ClientStatus, ServiceStatus, Status, VisitorStatus};
 use burrow_config::{Entry, ServiceEntry};
 
+use super::file::Files;
 use crate::screens::paths::clients_of;
 
 pub(crate) struct Index<'a> {
     pub status: Option<&'a Status>,
+    pub files: Files,
     reserved: Vec<String>,
     services: HashMap<&'a str, &'a ServiceStatus>,
     clients: HashMap<&'a str, &'a ClientStatus>,
@@ -25,7 +27,7 @@ fn push_once(map: &mut HashMap<String, Vec<String>>, key: String, name: &str) {
 }
 
 impl<'a> Index<'a> {
-    pub fn new(status: Option<&'a Status>, draft: &Value) -> Index<'a> {
+    pub fn new(status: Option<&'a Status>, draft: &Value, files: Files) -> Index<'a> {
         let mut served = HashMap::new();
         let mut may = HashMap::new();
         for (n, svc) in ServiceEntry::entries(draft).into_iter().flatten() {
@@ -39,6 +41,7 @@ impl<'a> Index<'a> {
         }
         Index {
             status,
+            files,
             reserved: crate::format::reserved_clients(),
             services: status
                 .iter()
@@ -105,7 +108,7 @@ mod tests {
             "a": {"clients": ["home", {"name": "home", "target": "127.0.0.1:9"}], "target": 1, "visitors": ["laptop"]},
             "b": {"client": "home", "target": 2, "visitors": ["laptop", "phone"]},
         }});
-        let i = Index::new(None, &draft);
+        let i = Index::new(None, &draft, Files::default());
         assert_eq!(i.served("home"), ["a", "b"]);
         assert_eq!(i.may_use("laptop"), ["a", "b"]);
         assert_eq!(i.may_use("phone"), ["b"]);
