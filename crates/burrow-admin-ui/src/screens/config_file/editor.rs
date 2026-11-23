@@ -86,6 +86,13 @@ impl Schemas {
         }
     }
 
+    fn compiled(&self) -> [Option<Schema>; 2] {
+        [&self.main, &self.drop_in].map(|s| match s {
+            Some(SchemaSource::Compiled(s)) => Some(s.clone()),
+            _ => None,
+        })
+    }
+
     fn for_file(&self, main: bool) -> Option<&SchemaSource> {
         if main {
             self.main.as_ref()
@@ -207,6 +214,7 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
     let secrets = SecretOptions::default()
         .with_placeholder(pattern)
         .with_hint(SECRET_HINT);
+    let find_uses = super::key_names::find_uses(text, values, open, schemas.compiled());
     let main = first_shown(&open.get_untracked(), &active.get_untracked());
     active.set(main.clone());
     let held = edit.held;
@@ -290,6 +298,8 @@ pub fn text_editor(p: EditorProps) -> Result<AnyView, burrow_ui_kit::LoadFailed>
                 settings=Signal::stored(settings)
                 key_names=key_names
                 on_go_to_definition=super::key_names::go_to(edit)
+                on_find_uses=find_uses
+                on_go_to_use=super::key_names::go_to_use(edit)
                 on_select=Callback::new(move |id: String| {
                     edit.used(&id);
                     active.set(id);

@@ -5,6 +5,7 @@ use super::{Ctx, SECS, open, run};
 
 const APPS: &str = "server.d/apps.yaml";
 const TOOL: &str = "server.d/tool.yaml";
+const MORE: &str = "server.d/more.yaml";
 const ROWS: &str = ".config-editor__completion";
 
 fn opts() -> Options {
@@ -19,6 +20,11 @@ fn opts() -> Options {
             (
                 "tool.yaml",
                 format!("clients:\n  box:\n    secret: {}\n", world::secret()),
+                false,
+            ),
+            (
+                "more.yaml",
+                "services:\n  shell:\n    client: box\n    target: 22\n".into(),
                 false,
             ),
         ],
@@ -119,6 +125,24 @@ async fn names_across_files(c: &mut Ctx) {
         SECS,
     )
     .await;
+    uses_across_files(c).await;
+}
+
+async fn uses_across_files(c: &Ctx) {
+    key(c, TOOL, "F12", "F12", "shiftKey: true,").await;
+    let group = |file: &str| {
+        format!(
+            "{EDITOR} .config-editor__uses-group[aria-label={}]",
+            js(file)
+        )
+    };
+    c.ui.wait_for(&group(APPS), SECS).await;
+    c.ui.wait_for(&group(MORE), SECS).await;
+    c.ui.view_shot("text-keys-uses").await;
+    c.ui.click(&format!("{} .config-editor__use", group(MORE)))
+        .await;
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(MORE)), SECS)
+        .await;
 }
 
 fn text_keys(c: &mut Ctx) -> Flow<'_> {

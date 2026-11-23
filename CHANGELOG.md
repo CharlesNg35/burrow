@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- burrow admin's Raw config: **Shift+F12** on a client, visitor, service or login service name (or the key defining it) lists every place using it, in every file, unsaved edits included; Enter or a click opens it. The hover card on a name ends with Definition · Uses links, and shows only once the pointer rests on it.
+- leptos-config-editor 0.2.2.
+
 ## [0.2.6]
 
 burrow admin's Raw config: names from every file, a window-filling editor and full screen.

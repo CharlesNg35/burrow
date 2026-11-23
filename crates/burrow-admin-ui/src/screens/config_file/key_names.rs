@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use burrow_admin_proto::text_edit::{DROP_IN_SCHEMA_ID, EditText, SCHEMA_ID, pointer};
 use leptos::prelude::*;
-use leptos_config_editor::{GoToDefinition, KeyName, KeyNames, Language, tools::keys_at};
+use leptos_config_editor::{
+    FindUses, GoToDefinition, GoToUse, KeyName, KeyNames, Language, Schema, Use,
+    tools::{keys_at, uses_at},
+};
 
 use crate::edit::{Spot, TextEdit};
 
@@ -75,6 +78,63 @@ pub fn go_to(edit: TextEdit) -> Callback<GoToDefinition> {
             edit.open_at(&file, Spot::Pointer(at));
         }
     })
+}
+
+struct Asked<'a> {
+    schema: Option<&'a str>,
+    pointer: &'a str,
+    name: &'a str,
+}
+
+fn uses(
+    main: &str,
+    files: &[(String, String)],
+    schemas: &[Option<Schema>; 2],
+    a: &Asked,
+) -> Vec<Use> {
+    files
+        .iter()
+        .filter_map(|(file, text)| {
+            let language = Language::from_path(file).unwrap_or(Language::YAML);
+            let [m, d] = schemas;
+            let schema = if file == main {
+                m.as_ref()
+            } else {
+                d.as_ref().or(m.as_ref())
+            }?;
+            let found = uses_at(text, language, schema, a.pointer, a.name, a.schema)?;
+            Some(found.into_iter().map(move |u| u.into_use(file)))
+        })
+        .flatten()
+        .collect()
+}
+
+pub fn find_uses(
+    text: Signal<Option<std::sync::Arc<EditText>>>,
+    values: Signal<BTreeMap<String, String>>,
+    open: Signal<Vec<String>>,
+    schemas: [Option<Schema>; 2],
+) -> Callback<FindUses> {
+    let schemas = std::sync::Arc::new(schemas);
+    Callback::new(move |r: FindUses| {
+        let asked = Asked {
+            schema: r.schema.as_deref(),
+            pointer: &r.pointer,
+            name: &r.name,
+        };
+        let found = text.with_untracked(|t| {
+            t.as_ref().map_or_else(Vec::new, |t| {
+                let main = t.files.first().map(|f| f.name.as_str()).unwrap_or_default();
+                let files = values.with_untracked(|v| open.with_untracked(|o| closed(t, v, o)));
+                uses(main, &files, &schemas, &asked)
+            })
+        });
+        r.reply(found);
+    })
+}
+
+pub fn go_to_use(edit: TextEdit) -> Callback<GoToUse> {
+    Callback::new(move |g: GoToUse| edit.open_at(&g.source, Spot::Pointer(g.path.to_pointer())))
 }
 
 #[cfg(test)]
@@ -160,6 +220,44 @@ mod tests {
         assert!(
             broken.is_empty(),
             "a file that does not parse gives no names"
+        );
+    }
+
+    #[test]
+    fn the_files_not_open_give_their_uses_of_a_name() {
+        let main = Schema::compile(&format!(
+            r#"{{"$id": "{SCHEMA_ID}", "properties": {{
+                "clients": {{"type": "object"}},
+                "services": {{"additionalProperties": {{"properties": {{
+                    "client": {{"type": "string", "x-config-editor-keys": "/clients"}}
+                }}}}}}
+            }}}}"#
+        ))
+        .unwrap();
+        let files = [
+            (
+                "server.yaml".to_string(),
+                "services:\n  a:\n    client: home\n".to_string(),
+            ),
+            (
+                "server.d/b.yaml".to_string(),
+                "services:\n  b:\n    client: nas\n".to_string(),
+            ),
+            ("server.d/c.yaml".to_string(), "services: [\n".to_string()),
+        ];
+        let asked = Asked {
+            schema: Some(SCHEMA_ID),
+            pointer: "/clients",
+            name: "home",
+        };
+        let found = uses("server.yaml", &files, &[Some(main), None], &asked);
+        let got: Vec<_> = found
+            .iter()
+            .map(|u| (u.source.as_str(), u.path.to_pointer(), u.line))
+            .collect();
+        assert_eq!(
+            got,
+            [("server.yaml", "/services/a/client".to_string(), Some(3))]
         );
     }
 }
