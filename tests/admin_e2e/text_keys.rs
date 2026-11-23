@@ -128,7 +128,7 @@ async fn names_across_files(c: &mut Ctx) {
     uses_across_files(c).await;
 }
 
-async fn uses_across_files(c: &Ctx) {
+async fn uses_across_files(c: &mut Ctx) {
     key(c, TOOL, "F12", "F12", "shiftKey: true,").await;
     let group = |file: &str| {
         format!(
