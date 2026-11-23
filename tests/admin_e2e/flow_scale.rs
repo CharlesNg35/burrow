@@ -95,9 +95,12 @@ async fn down_stays_apart(c: &Ctx) {
         .await;
     let folded: String = c.ui.attr_of(&sel("bundle:home"), "aria-expanded").await;
     assert_eq!(folded, "false", "home is folded while zz-down shows");
+    let text: String =
+        c.ui.eval(&format!("{}.textContent", node("bundle:home")))
+            .await;
     assert!(
-        c.ui.text(&sel("bundle:home")).await.contains("1 down"),
-        "the folded row counts the down service"
+        text.contains("1 down"),
+        "the folded row counts the down service: {text:?}"
     );
 }
 
