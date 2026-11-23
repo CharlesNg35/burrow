@@ -4,7 +4,7 @@ mod service;
 
 use burrow_admin_logic::wording::PICK_VISITORS;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
+use burrow_admin_proto::status::{ServiceStatus, Status};
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 
@@ -22,13 +22,21 @@ pub fn health_count(
     status: Option<&Status>,
     reserved: &[String],
 ) -> burrow_admin_logic::health::Count {
-    use burrow_admin_logic::health;
     let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
-    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
-    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
-    health::count(&health::entries(listed, clients_of(svc)), checks, |c| {
+    health_with(st, svc, |c| {
         burrow_admin_logic::presence::online(status, reserved, c)
     })
+}
+
+pub fn health_with(
+    st: Option<&ServiceStatus>,
+    svc: &Value,
+    online: impl Fn(&str) -> bool,
+) -> burrow_admin_logic::health::Count {
+    use burrow_admin_logic::health;
+    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
+    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
+    health::count(&health::entries(listed, clients_of(svc)), checks, online)
 }
 
 pub struct Problems {

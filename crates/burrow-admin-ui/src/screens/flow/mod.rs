@@ -1,11 +1,15 @@
 //! The flow chart of the admin UI: sources, public ports, the server, clients and targets in columns, colored by health and shown in `FlowModal`.
 
+mod draw;
 mod layout;
 mod links;
+mod live;
 mod view;
 
 pub(crate) use layout::{Chart, Node, layout};
 pub(crate) use view::FlowModal;
+
+pub(crate) const SEARCH: &str = "flow-search-box";
 
 pub const PITCH: f64 = 54.0;
 pub const TOP: f64 = 26.0;
@@ -19,12 +23,13 @@ const COLS: [(f64, f64); 5] = [
 ];
 const LABELS: [&str; 5] = ["Sources", "Public ports", "Server", "Clients", "Targets"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Health {
     Healthy,
     Degraded,
     Down,
     Offline,
+    #[default]
     Unknown,
 }
 
@@ -127,7 +132,7 @@ mod tests {
             "clients": {},
             "services": {"own": {"client": "self", "bind": "0.0.0.0:8080", "target": "127.0.0.1:3000"}}
         });
-        let c = layout(&doc, Some(&st), &Rates::default(), None);
+        let c = layout(&doc, Some(&st), &Rates::default(), None, "");
         assert_eq!(c.problems, 0);
         let target = c.nodes.iter().find(|n| n.key == "target:own").unwrap();
         assert_eq!(target.health, Health::Healthy);
@@ -155,7 +160,7 @@ mod tests {
         st.visitors.push(
             burrow_admin_proto::serde_json::from_value(json!({"name": "v", "open": 0})).unwrap(),
         );
-        let c = layout(&doc, Some(&st), &Rates::default(), Some("v"));
+        let c = layout(&doc, Some(&st), &Rates::default(), Some("v"), "");
         for n in c.nodes.iter().filter(|n| n.col == 0) {
             let room = ((COLS[0].1 - 18.0) / 5.4) as usize;
             for line in n.sub.lines() {
@@ -179,7 +184,7 @@ mod tests {
                 "lo": {"client": "a", "bind": "127.0.0.1:3000", "target": "z:3000"}
             }
         });
-        let c = layout(&doc, Some(&status()), &Rates::default(), None);
+        let c = layout(&doc, Some(&status()), &Rates::default(), None, "");
         assert_eq!(c.services, 3);
         assert_eq!(c.problems, 2, "db is down and b is away");
         let order: Vec<&str> = c
@@ -210,6 +215,63 @@ mod tests {
     }
 
     #[test]
+    fn a_search_narrows_the_services_and_the_clients_drawn() {
+        let doc = json!({
+            "clients": {"a": {}, "b": {}, "c": {}},
+            "services": {
+                "web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"},
+                "db": {"client": "b", "target": "y:5432"},
+                "lo": {"client": "a", "bind": "127.0.0.1:3000", "target": "z:3000"}
+            }
+        });
+        let st = status();
+        let titles = |c: &Chart, col: usize| -> Vec<String> {
+            c.nodes
+                .iter()
+                .filter(|n| n.col == col)
+                .map(|n| n.title.clone())
+                .collect()
+        };
+        let all = layout(&doc, Some(&st), &Rates::default(), None, "");
+        assert_eq!((all.services, all.total), (3, 3));
+        assert_eq!(titles(&all, 3), ["a", "b", "c"]);
+        let db = layout(&doc, Some(&st), &Rates::default(), None, " DB ");
+        assert_eq!((db.services, db.total), (1, 3));
+        assert_eq!(titles(&db, 1), ["db"]);
+        assert_eq!(titles(&db, 3), ["b"], "only the clients of what is drawn");
+        let by_client = layout(&doc, Some(&st), &Rates::default(), None, "a");
+        assert_eq!(titles(&by_client, 1), ["lo", "web"]);
+        assert_eq!(titles(&by_client, 3), ["a"]);
+        let by_target = layout(&doc, Some(&st), &Rates::default(), None, "5432");
+        assert_eq!(titles(&by_target, 1), ["db"]);
+        let none = layout(&doc, Some(&st), &Rates::default(), None, "nothing");
+        assert_eq!(none.services, 0);
+        assert!(none.nodes.iter().any(|n| n.server));
+    }
+
+    #[test]
+    fn every_node_and_line_keeps_its_own_key() {
+        let mut services = burrow_admin_proto::serde_json::Map::new();
+        for i in 0..300 {
+            services.insert(
+                format!("s{i:03}"),
+                json!({"clients": ["a", "b"], "target": format!("x:{i}"), "bind": format!("0.0.0.0:{}", 9000 + i)}),
+            );
+        }
+        let doc = json!({"clients": {"a": {}, "b": {}}, "services": services});
+        let c = layout(&doc, Some(&status()), &Rates::default(), None, "");
+        let nodes: std::collections::HashSet<&str> =
+            c.nodes.iter().map(|n| n.key.as_str()).collect();
+        let lines: std::collections::HashSet<&str> =
+            c.lines.iter().map(|l| l.key.as_str()).collect();
+        assert_eq!(nodes.len(), c.nodes.len());
+        assert_eq!(lines.len(), c.lines.len());
+        assert_eq!(c.nodes.iter().filter(|n| n.col == 1).count(), 300);
+        let again = layout(&doc, Some(&status()), &Rates::default(), None, "");
+        assert_eq!(c, again);
+    }
+
+    #[test]
     fn line_weight_grows_with_open_connections_and_stops_at_fifty() {
         assert_eq!(weight(0), 1.4);
         assert!((weight(10) - 2.8).abs() < 1e-9);
@@ -220,7 +282,7 @@ mod tests {
     fn without_status_nothing_is_called_a_problem() {
         let doc =
             json!({"clients": {"a": {}}, "services": {"web": {"client": "a", "target": "x:80"}}});
-        let c = layout(&doc, None, &Rates::default(), None);
+        let c = layout(&doc, None, &Rates::default(), None, "");
         assert_eq!(c.problems, 0);
         assert!(c.nodes.iter().all(|n| !n.problem));
     }
