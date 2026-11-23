@@ -321,12 +321,15 @@ async fn profiled(c: &Ctx, act: &str) -> String {
         }
     }
     let mut total: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut own: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for (s, dt) in p
         .samples
         .unwrap_or_default()
         .iter()
         .zip(p.time_deltas.unwrap_or_default())
     {
+        *own.entry(name.get(s).cloned().unwrap_or_default())
+            .or_default() += dt as f64 / 1000.0;
         let mut seen = std::collections::HashSet::new();
         let mut at = Some(*s);
         while let Some(id) = at {
@@ -337,11 +340,19 @@ async fn profiled(c: &Ctx, act: &str) -> String {
             at = parent.get(&id).copied();
         }
     }
-    let mut top: Vec<(String, f64)> = total.into_iter().collect();
+    format!(
+        "{}\nself time (ms):\n{}",
+        ranked(total, 150),
+        ranked(own, 40)
+    )
+}
+
+fn ranked(all: std::collections::HashMap<String, f64>, n: usize) -> String {
+    let mut top: Vec<(String, f64)> = all.into_iter().collect();
     top.sort_by(|a, b| b.1.total_cmp(&a.1));
     top.iter()
-        .take(60)
-        .map(|(f, ms)| format!("{ms:8.1}  {}", f.chars().take(160).collect::<String>()))
+        .take(n)
+        .map(|(f, ms)| format!("{ms:8.1}  {}", f.chars().take(200).collect::<String>()))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -377,6 +388,16 @@ fn scale_form(c: &mut Ctx) -> Flow<'_> {
             &format!("const i = document.querySelector('{field}'); i.value = '20043'; i.dispatchEvent(new Event('input', {{ bubbles: true }}))"),
         )
         .await;
+        assert_eq!(
+            c.ui.count("[data-testid=review-open]").await,
+            0,
+            "keys typed in an open edit are not counted as changes yet"
+        );
+        c.ui.click("[data-testid=save-bar] [data-testid=save]")
+            .await;
+        c.ui.wait_gone("[data-testid=save-bar]", LONG).await;
+        c.ui.wait_text("[data-testid=review-count]", "1", SECS)
+            .await;
         c.ui.nav("/settings").await;
         super::edit_mode(c).await;
         c.ui.wait_for("#f-listen", SECS).await;
@@ -391,8 +412,18 @@ fn scale_form(c: &mut Ctx) -> Flow<'_> {
                 .round(),
             );
         }
+        assert_eq!(
+            c.ui.text("[data-testid=review-count]").await,
+            "1",
+            "keys typed in open Settings leave the count of added changes alone"
+        );
+        let in_settings = profiled(
+            c,
+            "const i = document.querySelector('#f-listen'); i.value = '127.0.0.1:123'; i.dispatchEvent(new Event('input', { bubbles: true }))",
+        )
+        .await;
         let text = format!(
-            "service page among {SERVICES} services: shown in {shown} ms; typing in its target {typed:?} ms; typing in Settings (no list on screen) {settings:?} ms\nwhere one keystroke spends its time (inclusive ms):\n{top}\n"
+            "service page among {SERVICES} services: shown in {shown} ms; typing in its target {typed:?} ms; typing in Settings (no list on screen) {settings:?} ms\nwhere one keystroke spends its time (inclusive ms):\n{top}\n\none keystroke in Settings (inclusive ms):\n{in_settings}\n"
         );
         println!("{text}");
         let dir = super::sheet::shots_dir().join("scale-form");

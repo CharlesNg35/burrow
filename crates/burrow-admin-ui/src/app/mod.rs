@@ -264,7 +264,7 @@ fn Body() -> impl IntoView {
             _ => None,
         }
     });
-    let route = Memo::new(move |_| screens::screen_of(&s.route.get()));
+    let route = Memo::new(move |_| route::screen_of(&s.route.get()));
     let schema = Memo::new(move |_| s.schema.with(|x| x.as_ref().map(|x| x.hash.clone())));
     let dim = Memo::new(move |_| {
         matches!(

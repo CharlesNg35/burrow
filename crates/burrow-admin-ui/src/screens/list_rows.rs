@@ -16,6 +16,7 @@ pub(super) struct Cards {
     pub shown: RwSignal<HashSet<String>>,
     pub selected: Signal<Option<String>>,
     pub live: Memo<LiveMap>,
+    pub live_section: Option<&'static str>,
     pub compact: bool,
 }
 
@@ -33,7 +34,7 @@ pub(super) fn still(r: &Row) -> Row {
 
 pub(super) fn print(r: &Row) -> (String, u64) {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    format!("{r:?}").hash(&mut h);
+    r.hash(&mut h);
     (r.key.clone(), h.finish())
 }
 
@@ -51,10 +52,8 @@ pub(super) fn full_card(r: Row, c: Cards) -> AnyView {
     if c.compact {
         return view! { <TocRow row=r selected=on/> }.into_any();
     }
-    let mine = match use_context::<crate::screens::entity::LiveText>() {
-        Some(crate::screens::entity::LiveText(section)) => {
-            Memo::new(move |_| crate::screens::entity::live_text(&section, &key))
-        }
+    let mine = match c.live_section {
+        Some(section) => Memo::new(move |_| crate::screens::entity::live_text(section, &key)),
         None => {
             let live = c.live;
             Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()))
@@ -167,6 +166,7 @@ pub(super) fn list_body(
         rows,
         selected,
         by_file,
+        live_section,
         searching,
     } = shown_in;
     let all = Memo::new(move |_| rows.with(|r| r.iter().map(still).collect::<Vec<_>>()));
@@ -181,6 +181,7 @@ pub(super) fn list_body(
         shown,
         selected,
         live,
+        live_section,
         compact: look.compact,
     };
     let nothing = Memo::new(move |_| visible.with(Vec::is_empty));

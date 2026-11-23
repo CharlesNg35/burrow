@@ -82,8 +82,7 @@ fn card(name: String, ctl: Controls) -> impl IntoView {
     let path = child(&base(), &name);
     let n = name.clone();
     let body = move || {
-        let doc = e.doc();
-        let sites = used_by(&doc, &n);
+        let sites = e.with_doc(|doc| used_by(doc, &n));
         let (sum, pass) = e
             .value(&path)
             .and_then(|v| config(&v))
@@ -131,7 +130,7 @@ fn remove_dialog(removing: RwSignal<Option<String>>) -> impl IntoView {
     });
     let warn = move || {
         let name = removing.get()?;
-        let sites = used_by(&e.doc(), &name);
+        let sites = e.with_doc(|doc| used_by(doc, &name));
         Some(if sites.is_empty() {
             view! { <p class="mb-3 text-sm text-text-muted">"No website uses it."</p> }.into_any()
         } else {
@@ -175,7 +174,7 @@ pub(crate) fn login_services(label: String, help: String, path: Path, spath: Pat
         renaming: RwSignal::new(None),
         removing: RwSignal::new(None),
     };
-    let names = Memo::new(move |_| logins(&e.doc()).keys().cloned().collect::<Vec<_>>());
+    let names = Memo::new(move |_| e.with_doc(|d| logins(d).keys().cloned().collect::<Vec<_>>()));
     let list = move || {
         ctl.editing.track();
         let n = names.get();

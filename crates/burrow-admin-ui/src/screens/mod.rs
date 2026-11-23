@@ -60,14 +60,6 @@ pub fn entity_icon(section: &str) -> &'static str {
     burrow_admin_logic::entity::of_section(section).icon
 }
 
-pub fn screen_of(route: &Route) -> Route {
-    match route {
-        Route::Detail(section, _) => Route::List(section.clone()),
-        Route::Activity(_) => Route::Activity(None),
-        other => other.clone(),
-    }
-}
-
 pub fn screen(route: Route) -> AnyView {
     let _ = store();
     match route {
@@ -97,7 +89,7 @@ pub fn wide() -> bool {
         >= 1024.0
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
 pub struct Row {
     pub key: String,
     pub to: Route,
@@ -122,7 +114,7 @@ pub struct Row {
     pub moment: Option<crate::format::Moment>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Kept {
     File(String),
     ReadOnly(String),

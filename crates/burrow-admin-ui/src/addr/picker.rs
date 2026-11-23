@@ -21,7 +21,9 @@ pub(super) fn options_for(
     }
     if *entity == Entity::Service {
         let status = store().status.get();
-        return service_choices(&store().edit.doc(), status.as_deref())
+        return store()
+            .edit
+            .with_doc(|doc| service_choices(doc, status.as_deref()))
             .into_iter()
             .map(service_option)
             .collect();
@@ -59,8 +61,9 @@ fn visitor_options() -> Vec<ComboOption> {
 
 fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
     let status = store().status.get();
-    let doc = store().edit.doc();
-    client_choices(&doc, status.as_deref(), reserved, field)
+    store()
+        .edit
+        .with_doc(|doc| client_choices(doc, status.as_deref(), reserved, field))
         .into_iter()
         .map(|c| ComboOption {
             dot: match c.blocked {
@@ -72,6 +75,17 @@ fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
             facet: c.detail,
             blocked: c.blocked.map(str::to_string),
             group: u8::from(c.presence != Presence::Here),
+        })
+        .collect()
+}
+
+pub fn plain_options(items: impl IntoIterator<Item = (String, String)>) -> Vec<ComboOption> {
+    items
+        .into_iter()
+        .map(|(value, label)| ComboOption {
+            value,
+            label,
+            ..ComboOption::default()
         })
         .collect()
 }

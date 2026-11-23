@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
-use crate::icon::Icon;
 use crate::cap::shown_of;
+use crate::icon::Icon;
 
 pub const INPUT_H: &str = "h-[38px]";
 

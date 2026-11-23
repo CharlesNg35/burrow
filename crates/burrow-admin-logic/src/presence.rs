@@ -135,10 +135,21 @@ pub fn from_ip(from: &str) -> String {
 }
 
 pub fn detail(status: Option<&Live>, reserved: &[String], name: &str) -> String {
-    match (
-        presence(status, reserved, name),
+    detail_with(
+        status.is_some(),
+        reserved,
+        name,
         status.and_then(|s| client(s, name)),
-    ) {
+    )
+}
+
+pub fn detail_with(
+    known: bool,
+    reserved: &[String],
+    name: &str,
+    found: Option<&ClientStatus>,
+) -> String {
+    match (presence_with(known, reserved, name, found), found) {
         (Presence::Online, Some(c)) => c.from.as_deref().map_or_else(
             || ONLINE.to_string(),
             |f| format!("{ONLINE} · {}", from_ip(f)),

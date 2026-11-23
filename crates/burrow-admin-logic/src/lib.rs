@@ -12,6 +12,7 @@ pub mod check;
 pub mod choices;
 mod diag_words;
 pub mod entity;
+pub mod entity_errors;
 pub mod entries;
 pub mod fallback;
 pub mod files;

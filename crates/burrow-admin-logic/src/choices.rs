@@ -54,12 +54,16 @@ pub fn client_choices(
         presence: Presence::Here,
         blocked,
     });
-    let remote = ClientEntry::names(doc).into_iter().map(|n| ClientChoice {
-        label: n.clone(),
-        detail: presence::detail(status, &[], &n),
-        presence: presence::presence(status, &[], &n),
-        name: n,
-        blocked: None,
+    let known = status.is_some();
+    let remote = ClientEntry::names(doc).into_iter().map(|n| {
+        let found = status.and_then(|s| s.client(&n));
+        ClientChoice {
+            label: n.clone(),
+            detail: presence::detail_with(known, &[], &n, found),
+            presence: presence::presence_with(known, &[], &n, found),
+            name: n,
+            blocked: None,
+        }
     });
     local.chain(remote).collect()
 }

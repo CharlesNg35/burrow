@@ -97,7 +97,7 @@ pub(super) fn diagrams(mut paths: Vec<(String, PathData)>) -> AnyView {
                 key=|i| *i
                 children=move |i| paths.with_value(|p| p.get(i).cloned()).map(|(name, p)| path_line(name, p))
             />
-            <ShowMore shown=shown total=total step=PATHS_STEP noun="services" class="px-0" testid="review-paths-more"/>
+            <ShowMore shown=shown total=total step=PATHS_STEP noun={ <burrow_config::ServiceEntry as burrow_config::Entry>::section() } class="px-0" testid="review-paths-more"/>
         </div>
     }
     .into_any()
