@@ -4,6 +4,8 @@
 
 - burrow admin's Raw config: **Shift+F12** on a client, visitor, service or login service name (or the key defining it) lists every place using it, in every file, unsaved edits included; Enter or a click opens it. The hover card on a name ends with Definition · Uses links, and shows only once the pointer rests on it.
 - leptos-config-editor 0.2.2.
+- burrow admin's Settings keeps its tab, and Raw config its full screen, while you visit other pages; a reload keeps the tab in the address.
+- Raw config no longer shows the Settings form's save bar (Close, Add to changes) while the form is in edit mode on another tab.
 - **Fewer, sharper warnings.** A warning now means something is likely wrong, never a choice written on purpose:
   - removed: a visitor's `reach: any` (the client's `allow` list is the limit), an admin visitor that also reaches services, a metrics endpoint on a network address, `target_tls: { insecure_skip_verify: true }`, a DNS wildcard listed before its sites, the advice to share one wildcard certificate, a health-check path on a gRPC site, and `insecure_plaintext` on a WebSocket client (it must match the server);
   - `tls: off` on a site says plain HTTP is meant: only a site that is plain because `web.https` is missing is warned (passwords and login cookies over plain HTTP still warn);

@@ -133,17 +133,31 @@ async fn editor(c: &mut Ctx) {
     c.ui.viewport(1440, 900).await;
 }
 
-async fn leaving_ends_full_screen(c: &mut Ctx) {
+async fn coming_back_keeps_the_tab_and_full_screen(c: &mut Ctx) {
     c.ui.click("[data-testid=file-cancel]").await;
     c.ui.nav("/").await;
-    c.ui.nav("/settings?tab=file").await;
+    c.ui.nav("/settings").await;
     c.ui.wait_text(VIEW, "app60", SECS).await;
     assert_eq!(
         c.ui.attr_of(FULL, "aria-pressed").await,
-        "false",
-        "coming back to Settings shows the whole page"
+        "true",
+        "Settings comes back on Raw config, still in full screen"
     );
+    full(c, false).await;
     assert!(fit(c, VIEW).await.head);
+}
+
+async fn the_form_bar_stays_off_raw_config(c: &mut Ctx) {
+    c.ui.click("[data-testid=settings-tabs] [data-tab=server]")
+        .await;
+    c.ui.click("[data-testid=edit]").await;
+    c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+    c.ui.click("[data-testid=settings-tabs] [data-tab=file]")
+        .await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+    c.ui.click("[data-testid=settings-tabs] [data-tab=server]")
+        .await;
+    c.ui.wait_for("[data-testid=save-bar]", SECS).await;
 }
 
 fn text_fill(c: &mut Ctx) -> Flow<'_> {
@@ -151,7 +165,8 @@ fn text_fill(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         read_view(c).await;
         editor(c).await;
-        leaving_ends_full_screen(c).await;
+        coming_back_keeps_the_tab_and_full_screen(c).await;
+        the_form_bar_stays_off_raw_config(c).await;
         c.ui.assert_no_errors();
     })
 }

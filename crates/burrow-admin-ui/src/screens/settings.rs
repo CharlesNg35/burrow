@@ -142,6 +142,11 @@ fn asked_tab() -> Tab {
     crate::route::query(TAB_QUERY)
         .and_then(|t| Tab::parse(&t))
         .or_else(|| crate::route::query(crate::route::CARD_QUERY).map(|f| tab_of(&f)))
+        .or_else(|| {
+            let last = store().settings_tab.get_untracked()?;
+            crate::route::set_query(TAB_QUERY, last.key());
+            Some(last)
+        })
         .unwrap_or(Tab::Server)
 }
 
@@ -387,6 +392,7 @@ pub fn Settings() -> impl IntoView {
         filter: RwSignal::new("all"),
     };
     let tab = RwSignal::new(asked_tab());
+    Effect::new(move |_| s.settings_tab.set(Some(tab.get())));
     let rows = Memo::new(move |_| {
         let schema = s.schema.get();
         let restart = s
@@ -425,9 +431,6 @@ pub fn Settings() -> impl IntoView {
         if tab.get() != Tab::File && full.get_untracked() {
             full.set(false);
         }
-    });
-    on_cleanup(move || {
-        let _ = full.try_set(false);
     });
     let fill = move || match (tab.get() == Tab::File, full.get()) {
         (true, true) => Some("all"),
@@ -470,7 +473,7 @@ pub fn Settings() -> impl IntoView {
                 {filter_chips(filters, look.filter, plain_rows, true, Signal::stored(false))}
             </div>
             <div data-testid="settings" data-fill-part="">{tab_cards(tab, look, rows)}</div>
-            {move || editing.get().then(|| {
+            {move || (editing.get() && tab.get().holds_fields()).then(|| {
                 crate::screens::bar::save_bar(crate::screens::bar::SaveBar {
                     count: problems.get(),
                     problems: Vec::new(),
