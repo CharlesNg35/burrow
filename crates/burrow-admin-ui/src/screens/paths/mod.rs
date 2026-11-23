@@ -323,6 +323,7 @@ pub fn add_blocker(svc: &Value) -> Option<&'static str> {
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+    use burrow_admin_proto::status::Status;
 
     #[test]
     fn clients_whose_health_check_fails_are_not_drawn_up() {

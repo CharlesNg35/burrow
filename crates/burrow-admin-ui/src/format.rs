@@ -280,11 +280,11 @@ mod tests {
             ..ClientStatus::default()
         });
         assert_eq!(
-            limit_tag(Some(&st), "home").map(|t| t.0),
+            limit_tag(Some(&st.clone().into()), "home").map(|t| t.0),
             Some("At its limit")
         );
-        assert_eq!(limit_tag(Some(&st), "office"), None);
-        assert_eq!(limit_tag(Some(&st), "lab"), None);
+        assert_eq!(limit_tag(Some(&st.clone().into()), "office"), None);
+        assert_eq!(limit_tag(Some(&st.clone().into()), "lab"), None);
         assert_eq!(limit_tag(None, "home"), None);
     }
 }

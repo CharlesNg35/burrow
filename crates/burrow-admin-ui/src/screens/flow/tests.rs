@@ -69,7 +69,13 @@ fn a_service_on_this_server_goes_from_the_server_straight_to_its_target() {
         "clients": {},
         "services": {"own": {"client": "self", "bind": "0.0.0.0:8080", "target": "127.0.0.1:3000"}}
     });
-    let c = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
+    let c = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &Focus::default(),
+    );
     assert_eq!(c.problems, 0);
     let target = c.nodes.iter().find(|n| n.key == "target:own").unwrap();
     assert_eq!(target.health, Health::Healthy);
@@ -98,7 +104,7 @@ fn the_source_nodes_say_their_counts_without_cutting_them() {
         .push(burrow_admin_proto::serde_json::from_value(json!({"name": "v", "open": 0})).unwrap());
     let c = layout(
         &doc,
-        Some(&st),
+        Some(&st.clone().into()),
         &Rates::default(),
         Some("v"),
         &Focus::default(),
@@ -128,7 +134,7 @@ fn the_flow_marks_down_services_and_away_clients_as_problems() {
     });
     let c = layout(
         &doc,
-        Some(&status()),
+        Some(&status().into()),
         &Rates::default(),
         None,
         &Focus::default(),
@@ -180,19 +186,49 @@ fn a_search_narrows_the_services_and_the_clients_drawn() {
             .map(|n| n.title.clone())
             .collect()
     };
-    let all = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
+    let all = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &Focus::default(),
+    );
     assert_eq!((all.services, all.total), (3, 3));
     assert_eq!(titles(&all, 3), ["a", "b", "c"]);
-    let db = layout(&doc, Some(&st), &Rates::default(), None, &q(" DB "));
+    let db = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &q(" DB "),
+    );
     assert_eq!((db.services, db.total), (1, 3));
     assert_eq!(titles(&db, 1), ["db"]);
     assert_eq!(titles(&db, 3), ["b"], "only the clients of what is drawn");
-    let by_client = layout(&doc, Some(&st), &Rates::default(), None, &q("a"));
+    let by_client = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &q("a"),
+    );
     assert_eq!(titles(&by_client, 1), ["lo", "web"]);
     assert_eq!(titles(&by_client, 3), ["a"]);
-    let by_target = layout(&doc, Some(&st), &Rates::default(), None, &q("5432"));
+    let by_target = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &q("5432"),
+    );
     assert_eq!(titles(&by_target, 1), ["db"]);
-    let none = layout(&doc, Some(&st), &Rates::default(), None, &q("nothing"));
+    let none = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &q("nothing"),
+    );
     assert_eq!(none.services, 0);
     assert!(none.nodes.iter().any(|n| n.server));
 }
@@ -224,7 +260,7 @@ fn keys_are_unique(c: &Chart) {
 fn a_small_chart_draws_every_service() {
     let c = layout(
         &many(150),
-        Some(&status()),
+        Some(&status().into()),
         &Rates::default(),
         None,
         &Focus::default(),
@@ -238,7 +274,13 @@ fn a_small_chart_draws_every_service() {
 fn a_large_chart_folds_each_client_but_keeps_the_problems_apart() {
     let doc = many(5000);
     let st = status();
-    let c = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
+    let c = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &Focus::default(),
+    );
     keys_are_unique(&c);
     assert_eq!(c.services, 5002);
     let ports: Vec<&str> = c
@@ -263,7 +305,13 @@ fn a_large_chart_folds_each_client_but_keeps_the_problems_apart() {
         open: ["a".to_string()].into(),
         ..Focus::default()
     };
-    let wide = layout(&doc, Some(&st), &Rates::default(), None, &open);
+    let wide = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &open,
+    );
     keys_are_unique(&wide);
     assert_eq!(wide.nodes.iter().filter(|n| n.col == 1).count(), 5003);
     let head = wide.nodes.iter().find(|n| n.key == "bundle:a").unwrap();
@@ -294,10 +342,22 @@ fn a_large_chart_folds_each_client_but_keeps_the_problems_apart() {
             .all(|n| n.stick.is_none()),
         "a folded chart keeps its clients spread as before"
     );
-    let found = layout(&doc, Some(&st), &Rates::default(), None, &q("s004"));
+    let found = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &q("s004"),
+    );
     assert_eq!(found.services, 10);
     assert!(found.nodes.iter().any(|n| n.key == "port:s0049"));
-    let again = layout(&doc, Some(&st), &Rates::default(), None, &Focus::default());
+    let again = layout(
+        &doc,
+        Some(&st.clone().into()),
+        &Rates::default(),
+        None,
+        &Focus::default(),
+    );
     assert_eq!(c, again);
 }
 

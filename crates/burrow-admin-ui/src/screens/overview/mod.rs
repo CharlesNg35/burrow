@@ -548,6 +548,7 @@ mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
     use burrow_admin_proto::status::ClientStatus;
+    use burrow_admin_proto::status::Status;
 
     fn status(online: &[&str], offline: &[&str]) -> Status {
         let mut st: Status = burrow_admin_proto::serde_json::from_value(json!({
