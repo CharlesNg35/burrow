@@ -24,6 +24,8 @@ use crate::store::Retry;
 
 pub(crate) use page::Overview;
 
+pub(super) type Values = leptos::prelude::Memo<std::sync::Arc<Value>>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
     pub key: String,
@@ -201,6 +203,19 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
     }
 }
 
+fn clients_by_name(status: &Status) -> HashMap<&str, &burrow_admin_proto::status::ClientStatus> {
+    status
+        .clients
+        .iter()
+        .rev()
+        .map(|c| (c.name.as_str(), c))
+        .collect()
+}
+
+fn up_in(clients: &HashMap<&str, &burrow_admin_proto::status::ClientStatus>, c: &str) -> bool {
+    clients.get(c).is_some_and(|c| c.local || c.connected)
+}
+
 fn by_name(status: &Status) -> HashMap<&str, &ServiceStatus> {
     status
         .services
@@ -213,7 +228,8 @@ fn service_items(
     values: &Value,
     status: &Status,
 ) -> (std::collections::BTreeMap<String, Hits>, Vec<Item>) {
-    let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
+    let clients = clients_by_name(status);
+    let online = |c: &str| up_in(&clients, c);
     let live = by_name(status);
     let mut by_client: std::collections::BTreeMap<String, Hits> = std::collections::BTreeMap::new();
     let mut own = Vec::new();
@@ -379,7 +395,8 @@ pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String,
     let Some(status) = status else {
         return Vec::new();
     };
-    let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
+    let clients = clients_by_name(status);
+    let online = |c: &str| up_in(&clients, c);
     let live = by_name(status);
     let mut out: Vec<(String, Problem)> = ServiceEntry::entries(values)
         .map(|m| {
@@ -432,6 +449,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     let Some(status) = status else {
         return Vec::new();
     };
+    let clients = clients_by_name(status);
     let mut served: HashMap<String, Vec<String>> = HashMap::new();
     for (n, v) in ServiceEntry::entries(values).into_iter().flatten() {
         for c in clients_of(v) {
@@ -444,8 +462,8 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     names(values, ClientEntry::section())
         .into_iter()
         .filter_map(|c| {
-            let st = burrow_admin_logic::presence::client(status, &c);
-            if burrow_admin_logic::presence::online(Some(status), &[], &c) {
+            let st = clients.get(c.as_str()).copied();
+            if up_in(&clients, &c) {
                 return None;
             }
             let serves = served.get(&c).cloned().unwrap_or_default();

@@ -136,17 +136,26 @@ struct Refused(f64, u64);
 pub fn Overview() -> impl IntoView {
     let s = store();
     let refused_log = refused_log(s);
-    let values = Memo::new(move |_| s.running());
-    let online = move |name: &str| {
-        s.status
-            .with(|st| format::presence_of(st.as_deref(), name).up())
-    };
-    let clients_now = Signal::derive(move || {
+    let values: super::Values = Memo::new(move |_| std::sync::Arc::new(s.running()));
+    let clients_now = Memo::new(move |_| {
         let n = names(&values.get(), ClientEntry::section());
-        let up = n.iter().filter(|c| online(c)).count();
+        let reserved = crate::format::reserved_clients();
+        let up = s.status.with(|st| {
+            let on: std::collections::HashMap<&str, bool> = st
+                .iter()
+                .flat_map(|st| st.clients.iter().rev())
+                .map(|c| (c.name.as_str(), c.local || c.connected))
+                .collect();
+            n.iter()
+                .filter(|c| {
+                    reserved.contains(c)
+                        || st.is_some() && on.get(c.as_str()).copied().unwrap_or(false)
+                })
+                .count()
+        });
         (up, n.len())
     });
-    let counts = Signal::derive(move || {
+    let counts = Memo::new(move |_| {
         let v = values.get();
         let (up, n) = clients_now.get();
         let vis = names(&v, VisitorEntry::section()).len();
@@ -161,7 +170,7 @@ pub fn Overview() -> impl IntoView {
             format!("{active}/{vis}"),
         ]
     });
-    let down = Signal::derive(move || {
+    let down = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
         (
@@ -202,12 +211,12 @@ pub fn Overview() -> impl IntoView {
                 </button>
             </header>
             <div class="grid grid-cols-2 gap-4 md:grid-cols-6 xl:grid-cols-12">
-                {kpis(values, clients_now, down, refused_log)}
+                {kpis(values, clients_now.into(), down.into(), refused_log)}
                 <div class="col-span-2 grid gap-4 md:col-span-6 xl:col-span-12 min-[1200px]:grid-cols-12" data-testid="overview-row3">
                     <Traffic/>
                     <Attention/>
                 </div>
-                {tab_box(values, counts)}
+                {tab_box(values, counts.into())}
             </div>
         </div>
     }
@@ -233,7 +242,7 @@ fn refused_log(s: Store) -> RwSignal<VecDeque<Refused>> {
 }
 
 fn kpis(
-    values: Memo<Value>,
+    values: super::Values,
     clients_now: Signal<(usize, usize)>,
     down: Signal<(usize, Vec<(String, Problem)>)>,
     refused_log: RwSignal<VecDeque<Refused>>,

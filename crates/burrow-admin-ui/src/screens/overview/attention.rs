@@ -212,11 +212,10 @@ fn Section(
 pub(super) fn Attention() -> impl IntoView {
     let s = store();
     let items = Memo::new(move |_| {
-        let v = s.running();
         let st = s.state.get();
         let status = s.status.get();
         let now = (s.now.get() / 1000.0) as u64;
-        let mut items = attention(&v, st.as_deref(), status.as_deref(), now);
+        let mut items = s.with_running(|v| attention(v, st.as_deref(), status.as_deref(), now));
         items.extend(s.welcome.with(|w| {
             w.as_ref()
                 .and_then(|w| old_server_item(&w.server.version, env!("CARGO_PKG_VERSION")))
@@ -224,8 +223,8 @@ pub(super) fn Attention() -> impl IntoView {
         items
     });
     let away_items = Memo::new(move |_| {
-        let v = s.running();
-        away(&v, s.status.get().as_deref())
+        let status = s.status.get();
+        s.with_running(|v| away(v, status.as_deref()))
     });
     let seen: StoredValue<Vec<String>> = StoredValue::new(Vec::new());
     let announce = RwSignal::new(String::new());
@@ -268,7 +267,7 @@ pub(super) fn Attention() -> impl IntoView {
             })
         })
     });
-    let n_clients = move || names(&s.running(), ClientEntry::section()).len();
+    let n_clients = move || s.with_running(|v| names(v, ClientEntry::section()).len());
     let away_title: &'static str = burrow_admin_logic::wording::CLIENTS_OFFLINE;
     let away_grow = Signal::derive(move || {
         if away_items.with(Vec::len) >= 2 {

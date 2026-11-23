@@ -50,7 +50,7 @@ fn open_link(tab: &'static str) -> (Route, Query, String) {
     }
 }
 
-pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl IntoView {
+pub(super) fn tab_box(values: super::Values, counts: Signal<Vec<String>>) -> impl IntoView {
     let s = store();
     let web = Memo::new(move |_| has_web(&values.get()));
     let tab = RwSignal::new(asked_tab());
