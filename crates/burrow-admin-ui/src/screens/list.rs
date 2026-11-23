@@ -152,12 +152,7 @@ pub fn ListPane(
 ) -> impl IntoView {
     let q = query
         .unwrap_or_else(|| RwSignal::new(route::query(route::SEARCH_QUERY).unwrap_or_default()));
-    let asked = route::query(route::FILTER_QUERY);
-    let first = filters
-        .iter()
-        .map(|(k, _)| *k)
-        .find(|k| asked.as_deref() == Some(*k));
-    let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
+    let filter = RwSignal::new(asked_filter(&filters, default_filter));
     follow_url(q, filter, filters.iter().map(|(k, _)| *k).collect());
     let hay = Memo::new(move |_| rows.with(|r| r.iter().map(Row::haystack).collect::<Vec<_>>()));
     let files = Memo::new(move |_| {
@@ -466,6 +461,16 @@ pub(crate) fn filter_chips(
         })
         .collect_view();
     view! { <ScrollRow active=active class="w-0 min-w-full gap-1.5" testid="filter-chips">{chips}</ScrollRow> }
+}
+
+fn asked_filter(filters: &[(&'static str, String)], default: Option<&'static str>) -> &'static str {
+    let asked = route::query(route::FILTER_QUERY);
+    filters
+        .iter()
+        .map(|(k, _)| *k)
+        .find(|k| asked.as_deref() == Some(*k))
+        .or(default)
+        .unwrap_or("all")
 }
 
 fn follow_url(q: RwSignal<String>, filter: RwSignal<&'static str>, keys: Vec<&'static str>) {
