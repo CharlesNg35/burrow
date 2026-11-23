@@ -98,7 +98,7 @@ pub(super) fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -121,9 +121,9 @@ fn summary(g: &Group, members: &[Svc]) -> Svc {
         web: Vec::new(),
         target: format!("{} targets", thousands(g.count)),
         protocol: String::new(),
-        clients: (!g.client.is_empty())
-            .then(|| vec![g.client.clone()])
-            .unwrap_or_default(),
+        clients: std::iter::once(g.client.clone())
+            .filter(|c| !c.is_empty())
+            .collect(),
         open: members.iter().map(|m| m.open).sum(),
         rate: members.iter().map(|m| m.rate).sum(),
         health: members.first().map(|m| m.health).unwrap_or_default(),
