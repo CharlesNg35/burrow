@@ -187,7 +187,7 @@ fn nav_links(s: Store) -> impl IntoView + use<> {
 }
 
 fn check_state(s: Store) -> Signal<String> {
-    Signal::derive(move || {
+    Signal::from(Memo::new(move |_| {
         let e = s.edit;
         let errors = e.local.with(|l| l.len())
             + e.related.with(|r| r.len())
@@ -205,7 +205,7 @@ fn check_state(s: Store) -> Signal<String> {
         } else {
             "ok".to_string()
         }
-    })
+    }))
 }
 
 pub(super) fn read_only_reason(s: Store) -> (String, String) {

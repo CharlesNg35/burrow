@@ -93,6 +93,7 @@ pub struct Edit {
     pub files: RwSignal<FileMoves>,
     pub local: RwSignal<BTreeMap<Path, String>>,
     pub related: Memo<BTreeMap<Path, String>>,
+    draft_dirty: Memo<bool>,
     pub plan: RwSignal<Option<Arc<Plan>>>,
     pub checking: RwSignal<bool>,
     pub check_error: RwSignal<Option<ErrorBody>>,
@@ -203,6 +204,7 @@ impl Edit {
             files: RwSignal::new(FileMoves::default()),
             local: RwSignal::new(BTreeMap::new()),
             related: Memo::new(move |_| related_errors(draft)),
+            draft_dirty: Memo::new(move |_| draft.with(Changeset::dirty)),
             plan: RwSignal::new(None),
             checking: RwSignal::new(false),
             check_error: RwSignal::new(None),
@@ -225,7 +227,7 @@ impl Edit {
     }
 
     pub fn dirty(&self) -> bool {
-        self.draft.with(Changeset::dirty)
+        self.draft_dirty.get()
             || self.texts.with(|t| !t.is_empty())
             || self.files.with(|f| !f.is_empty())
     }
