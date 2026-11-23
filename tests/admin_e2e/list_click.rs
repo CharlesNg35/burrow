@@ -30,23 +30,25 @@ fn opts() -> Options {
             ),
             false,
         )],
+        files: kept_versions(),
         ..Options::default()
     }
 }
 
-fn seed_history(c: &Ctx) {
-    let dir = c.world.file(".server.yaml.history");
-    std::fs::create_dir_all(&dir).expect("the history folder");
-    let text = std::fs::read_to_string(c.world.file("server.yaml")).expect("the config");
+fn kept_versions() -> Vec<(String, String)> {
     let start: u128 = 1_700_000_000_000_000_000;
-    for i in 0..ROWS as u128 {
-        let name = format!(
-            "{}-{:016x}.yaml",
-            start + i * 60_000_000_000,
-            0xabc0_0000 + i
-        );
-        std::fs::write(dir.join(name), &text).expect("a kept version");
-    }
+    (0..ROWS as u128)
+        .map(|i| {
+            (
+                format!(
+                    ".server.yaml.history/{}-{:016x}.yaml",
+                    start + i * 60_000_000_000,
+                    0xabc0_0000 + i
+                ),
+                "CONFIG".to_string(),
+            )
+        })
+        .collect()
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -206,7 +208,6 @@ async fn dialog_close_stays(c: &mut Ctx) {
 
 fn list_click(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
-        seed_history(c);
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
         page(c, "/services", "services").await;
