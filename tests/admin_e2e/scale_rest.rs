@@ -64,13 +64,63 @@ async fn search(c: &Ctx, out: &mut Vec<String>) {
     out.push(format!(
         "search over {SERVICES} services, {CLIENTS} clients, {VISITORS} visitors: typing {typed:?} ms; {options} options for svc0042; first: {first}"
     ));
+    assert!(
+        first.starts_with("svc0042"),
+        "the exact name comes first: {first}"
+    );
+    assert!(options <= 40, "the results stay short: {options}");
+    assert!(
+        typed.iter().all(|ms| *ms < 500.0),
+        "each keystroke answers quickly: {typed:?}"
+    );
+    keys(c).await;
     let wide = timed(c, &TYPE.replace("TEXT", "e")).await.round();
     let wide_options = c.ui.count("[data-testid=search] [role=option]").await;
     out.push(format!(
         "search for 'e' (matches most names): {wide} ms, {wide_options} options"
     ));
-    c.ui.press("[data-testid=search]", "Escape").await;
+    show_all(c).await;
+}
+
+async fn keys(c: &Ctx) {
+    let input = "[data-testid=search] input";
+    assert_eq!(
+        c.ui.attr_of(input, "aria-activedescendant").await,
+        "search-opt-0"
+    );
+    assert_eq!(c.ui.attr_of(input, "aria-controls").await, "search-list");
+    c.ui.press(input, "ArrowDown").await;
+    c.ui.wait_true(
+        "document.querySelector('[data-testid=search] input').getAttribute('aria-activedescendant') === 'search-opt-1' && document.getElementById('search-opt-1').getAttribute('aria-selected') === 'true'",
+        "ArrowDown moves the active option and the input points at it",
+        SECS,
+    )
+    .await;
+}
+
+async fn show_all(c: &Ctx) {
+    timed(c, &TYPE.replace("TEXT", "svc00")).await;
+    let all: Vec<String> = c
+        .ui
+        .eval("[...document.querySelectorAll('[data-testid=search] [role=option]')].map(o => o.textContent)")
+        .await;
+    let i = all
+        .iter()
+        .position(|t| t.starts_with("Show all 100 services"))
+        .unwrap_or_else(|| panic!("a row leads to every match: {all:?}"));
+    assert_eq!(
+        all.iter().filter(|t| t.starts_with("svc00")).count(),
+        5,
+        "a few services are shown: {all:?}"
+    );
+    c.ui.click(&format!("#search-opt-{i} button")).await;
     c.ui.wait_gone("[data-testid=search]", SECS).await;
+    c.ui.wait_true(
+        "location.pathname.endsWith('/services') && location.search === '?q=svc00'",
+        "Show all opens the list with the search",
+        SECS,
+    )
+    .await;
 }
 
 async fn first_row(c: &Ctx) -> String {
@@ -113,6 +163,15 @@ async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
     out.push(format!(
         "version diff of {CHANGED} changed services: shown in {ms} ms; {rows} rows and {nodes} elements in the DOM"
     ));
+    assert_eq!(rows, 400, "a large diff shows its first lines");
+    c.ui.click("[data-testid=activity-diff] ~ [data-testid=diff-more] [data-testid=show-more], [data-testid=activity-diff] [data-testid=diff-more] [data-testid=show-more]")
+        .await;
+    c.ui.wait_true(
+        "document.querySelectorAll('[data-testid=activity-diff] [role=row]').length === 800",
+        "Show more adds the next lines",
+        SECS,
+    )
+    .await;
 }
 
 async fn revert_review(c: &Ctx, out: &mut Vec<String>) {
@@ -132,6 +191,19 @@ async fn revert_review(c: &Ctx, out: &mut Vec<String>) {
     out.push(format!(
         "review of reverting {CHANGED} services: shown in {ms} ms; {paths} service lines, {svgs} svg elements in the service paths, {rows} diff rows, {nodes} elements on the page"
     ));
+    assert_eq!(paths, 20, "the first services of a large change are listed");
+    assert_eq!(
+        c.ui.count("[data-testid=review-paths] [role=group]").await,
+        0,
+        "a folded service draws no diagram"
+    );
+    assert_eq!(c.ui.count("[data-testid=review-paths-more]").await, 1);
+    c.ui.click("[data-testid=review-path-line]").await;
+    c.ui.wait_for(
+        "[data-testid=review-paths] details[open] [role=group]",
+        SECS,
+    )
+    .await;
 }
 
 fn scale_rest(c: &mut Ctx) -> Flow<'_> {
