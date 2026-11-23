@@ -256,7 +256,7 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Signal<PathData>
     let s = store();
     let e = s.edit;
     let (sec, nm) = (section.to_string(), name.to_string());
-    Signal::derive(move || {
+    let data = Memo::new(move |_| {
         let status = s.status.get();
         match sec.as_str() {
             CLIENTS => {
@@ -291,7 +291,8 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Signal<PathData>
                 })
             }
         }
-    })
+    });
+    data.into()
 }
 
 fn protocol_tag(section: &str, name: &str) -> impl Fn() -> AnyView + Clone + use<> {

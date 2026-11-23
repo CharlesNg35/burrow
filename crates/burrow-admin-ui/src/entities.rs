@@ -39,9 +39,11 @@ pub fn name_problem(name: &str, section: &str, except: Option<&str>) -> Option<S
 fn template(section: &str) -> Value {
     let mut v = json!({});
     if section == ServiceEntry::section() {
-        let doc = store().edit.doc();
         let reserved = crate::format::reserved_clients();
-        if let Some(c) = burrow_admin_logic::choices::default_client(&doc, &reserved) {
+        let client = store()
+            .edit
+            .with_doc(|doc| burrow_admin_logic::choices::default_client(doc, &reserved));
+        if let Some(c) = client {
             ServiceEntry::CLIENT.set(&mut v, Value::String(c));
         }
         ServiceEntry::TARGET.set(&mut v, Value::from(8080));

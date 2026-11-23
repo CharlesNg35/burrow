@@ -121,18 +121,19 @@ fn client_stats(name: String) -> impl IntoView {
         })
     });
     let max = move || {
-        let doc = s.edit.doc();
-        key.with_value(|name| {
-            ClientEntry::MAX_CONNECTIONS
-                .at(&doc, name)
-                .and_then(Value::as_u64)
-                .or_else(|| {
-                    ServerConfig::LIMITS
-                        .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
-                        .get(&doc)
-                        .and_then(Value::as_u64)
-                })
-                .unwrap_or(u64::from(Limits::default().max_connections_per_client))
+        s.edit.with_doc(|doc| {
+            key.with_value(|name| {
+                ClientEntry::MAX_CONNECTIONS
+                    .at(doc, name)
+                    .and_then(Value::as_u64)
+                    .or_else(|| {
+                        ServerConfig::LIMITS
+                            .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+                            .get(doc)
+                            .and_then(Value::as_u64)
+                    })
+                    .unwrap_or(u64::from(Limits::default().max_connections_per_client))
+            })
         })
     };
     let connected = move || c.with(|c| c.as_ref().and_then(|c| c.connected_secs));
@@ -190,7 +191,7 @@ fn client_stats(name: String) -> impl IntoView {
     view! {
         <Stats testid="live">
             <Stat label="Open" value=Signal::derive(open) detail=Signal::derive(open_detail)/>
-            <Stat label=ready_label value=Signal::derive(ready) detail=Signal::derive(move || pool_range(&s.edit.doc()))/>
+            <Stat label=ready_label value=Signal::derive(ready) detail=Signal::derive(move || s.edit.with_doc(pool_range))/>
             <Stat label="Connected" value=shown detail=since title=title/>
             {update.stat()}
         </Stats>
@@ -213,7 +214,6 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
     move || {
         let name = name.clone();
         let st = s.status.get();
-        let doc = s.edit.doc();
         let x = st
             .as_ref()
             .and_then(|x| x.services.iter().find(|c| c.name == name))
@@ -222,15 +222,15 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
             let r = s.rates.get().service(&name);
             let (i, iu) = human_bits(r.bytes_in);
             let (o, ou) = human_bits(r.bytes_out);
-            let limit = ServiceEntry::BANDWIDTH.at(&doc, &name).map(|b| {
-                let text = plain(b);
-                match burrow_syntax::rate::parse_rate(&text) {
-                    Ok(bps) => {
-                        let (v, u) = human_bits(bps as f64);
-                        format!("limit {v} {u}")
-                    }
-                    Err(_) => format!("limit {text}"),
+            let bandwidth = s
+                .edit
+                .with_doc(|doc| ServiceEntry::BANDWIDTH.at(doc, &name).map(plain));
+            let limit = bandwidth.map(|text| match burrow_syntax::rate::parse_rate(&text) {
+                Ok(bps) => {
+                    let (v, u) = human_bits(bps as f64);
+                    format!("limit {v} {u}")
                 }
+                Err(_) => format!("limit {text}"),
             });
             return view! {
                 <Stats testid="live">
@@ -246,8 +246,9 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
             }
             .into_any();
         }
-        let svc = ServiceEntry::entry(&doc, &name)
-            .cloned()
+        let svc = s
+            .edit
+            .with_doc(|doc| ServiceEntry::entry(doc, &name).cloned())
             .unwrap_or(Value::Null);
         let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
         let aside = x.as_ref().map(|x| x.set_aside.clone()).unwrap_or_default();
@@ -353,34 +354,38 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
     let name = name.to_string();
     let open = RwSignal::new(false);
     move || {
-        let doc = s.edit.doc();
         let st = s.status.get();
-        let may: Vec<(String, Option<bool>, bool)> = ServiceEntry::entries(&doc)
-            .map(|m| {
-                m.iter()
-                    .filter(|(_, x)| {
-                        ServiceEntry::VISITORS
-                            .get(x)
-                            .and_then(Value::as_array)
-                            .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))
-                    })
-                    .map(|(n, x)| {
-                        let up = st.as_ref().map(|st| {
-                            clients_of(x)
-                                .iter()
-                                .any(|c| format::presence_of(Some(st), c).up())
-                        });
-                        (n.clone(), up, crate::screens::paths::udp(x))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let admin_only = may.is_empty()
-            && VisitorEntry::ADMIN.at(&doc, &name).is_some()
-            && VisitorEntry::REACH
-                .at(&doc, &name)
-                .and_then(Value::as_object)
-                .is_none_or(|m| m.is_empty());
+        let (may, admin_only) = s.edit.with_doc(|doc| {
+            let may: Vec<(String, Option<bool>, bool)> = ServiceEntry::entries(doc)
+                .map(|m| {
+                    m.iter()
+                        .filter(|(_, x)| {
+                            ServiceEntry::VISITORS
+                                .get(x)
+                                .and_then(Value::as_array)
+                                .is_some_and(|a| {
+                                    a.iter().any(|y| y.as_str() == Some(name.as_str()))
+                                })
+                        })
+                        .map(|(n, x)| {
+                            let up = st.as_ref().map(|st| {
+                                clients_of(x)
+                                    .iter()
+                                    .any(|c| format::presence_of(Some(st), c).up())
+                            });
+                            (n.clone(), up, crate::screens::paths::udp(x))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let admin_only = may.is_empty()
+                && VisitorEntry::ADMIN.at(doc, &name).is_some()
+                && VisitorEntry::REACH
+                    .at(doc, &name)
+                    .and_then(Value::as_object)
+                    .is_none_or(|m| m.is_empty());
+            (may, admin_only)
+        });
         let chips = if admin_only {
             view! { <p class="px-4 py-3 text-sm text-text-muted">"None: this visitor runs burrow admin, not burrow visit."</p> }.into_any()
         } else if may.is_empty() {
@@ -443,15 +448,16 @@ fn served_services(name: &str) -> impl IntoView + use<> {
     let name = name.to_string();
     let open = RwSignal::new(false);
     let served = Memo::new(move |_| {
-        let doc = s.edit.doc();
-        ServiceEntry::entries(&doc)
-            .map(|m| {
-                m.iter()
-                    .filter(|(_, v)| clients_of(v).contains(&name))
-                    .map(|(n, v)| (n.clone(), v.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
+        s.edit.with_doc(|doc| {
+            ServiceEntry::entries(doc)
+                .map(|m| {
+                    m.iter()
+                        .filter(|(_, v)| clients_of(v).contains(&name))
+                        .map(|(n, v)| (n.clone(), v.clone()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
     });
     let total = Signal::derive(move || served.with(Vec::len));
     let boxed: NodeRef<leptos::html::Div> = NodeRef::new();
