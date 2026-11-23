@@ -39,16 +39,21 @@ pub(super) fn print(r: &Row) -> (String, u64) {
 
 pub(super) fn card(r: Row, c: Cards) -> AnyView {
     let key = r.key.clone();
+    let mounted = Memo::new(move |_| c.shown.with(|s| s.contains(&key)));
+    let row = StoredValue::new(r);
+    view! { {move || mounted.get().then(|| full_card(row.get_value(), c))} }.into_any()
+}
+
+fn full_card(r: Row, c: Cards) -> AnyView {
+    let key = r.key.clone();
     let sel = key.clone();
     let on = Signal::derive(move || c.selected.with(|s| s.as_deref() == Some(sel.as_str())));
-    let shown = key.clone();
-    let hidden = Signal::derive(move || !c.shown.with(|s| s.contains(&shown)));
     if c.compact {
-        return view! { <TocRow row=r selected=on hidden=hidden/> }.into_any();
+        return view! { <TocRow row=r selected=on/> }.into_any();
     }
     let live = c.live;
     let mine = Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()));
-    view! { <ListCard row=r selected=on live=mine hidden=hidden/> }.into_any()
+    view! { <ListCard row=r selected=on live=mine/> }.into_any()
 }
 
 pub(super) const CHUNK: usize = 120;

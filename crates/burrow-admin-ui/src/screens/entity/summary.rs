@@ -16,7 +16,7 @@ use crate::route::{Link, Route};
 use crate::screens::paths::clients_of;
 use crate::show_all::{ShowAll, kept};
 use crate::store::store;
-use burrow_admin_logic::top::ROWS;
+use burrow_admin_logic::top::{LINKS, ROWS};
 
 use super::{CLIENTS, VISITORS};
 
@@ -332,9 +332,26 @@ pub fn health_tag(c: Option<burrow_admin_logic::health::Count>) -> AnyView {
     }
 }
 
+fn may_chip(n: String, up: Option<bool>, udp: bool) -> impl IntoView {
+    let (dot, state) = match up {
+        Some(true) => (Tone::Success, "a client is online"),
+        Some(false) => (Tone::Neutral, "no client online"),
+        None => (Tone::Neutral, "status not known yet"),
+    };
+    view! {
+        <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset hover:ring-border-strong">
+            <burrow_ui_kit::Dot tone=dot/>
+            {n.clone()}
+            {udp.then(|| view! { <span class=tag_class(Tone::Violet)>"UDP"</span> })}
+            <span class="sr-only">{format!(", {state}")}</span>
+        </Link>
+    }
+}
+
 pub(super) fn visitor_overview(name: &str) -> impl IntoView {
     let s = store();
     let name = name.to_string();
+    let open = RwSignal::new(false);
     move || {
         let doc = s.edit.doc();
         let st = s.status.get();
@@ -371,21 +388,13 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
         } else {
             view! {
                 <div class="flex flex-wrap gap-2 px-4 py-3">
-                    {may.into_iter().map(|(n, up, udp)| {
-                        let (dot, state) = match up {
-                            Some(true) => (Tone::Success, "a client is online"),
-                            Some(false) => (Tone::Neutral, "no client online"),
-                            None => (Tone::Neutral, "status not known yet"),
-                        };
+                    {move || {
+                        let hidden = may.len().saturating_sub(LINKS);
                         view! {
-                            <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset hover:ring-border-strong">
-                                <burrow_ui_kit::Dot tone=dot/>
-                                {n.clone()}
-                                {udp.then(|| view! { <span class=tag_class(Tone::Violet)>"UDP"</span> })}
-                                <span class="sr-only">{format!(", {state}")}</span>
-                            </Link>
+                            {kept(may.clone(), open.get(), LINKS).into_iter().map(|(n, up, udp)| may_chip(n, up, udp)).collect_view()}
+                            {(hidden > 0).then(|| crate::show_all::more_chip(open, hidden))}
                         }
-                    }).collect_view()}
+                    }}
                 </div>
                 <p class="border-t border-rowline px-4 py-2.5 text-[12.5px] text-text-muted">"Set on each service: its Visitors field lists who may use it."</p>
             }

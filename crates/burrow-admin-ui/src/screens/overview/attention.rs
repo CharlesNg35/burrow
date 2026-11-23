@@ -36,7 +36,7 @@ fn update_row(i: Item, x: super::Extra) -> AnyView {
         crate::screens::update_dialog::release_link(v, crate::screens::update_dialog::long_link)
     });
     view! {
-        <li class="border-b border-rowline last:border-b-0" data-item=i.key.clone() id=i.key.clone() data-tone=i.tone.name()>
+        <li class="border-b border-rowline [contain-intrinsic-size:auto_64px] [content-visibility:auto] last:border-b-0" data-item=i.key.clone() id=i.key.clone() data-tone=i.tone.name()>
             <div class="flex gap-2.5 px-4 py-[11px]">
                 <span class=format!("mt-0.5 shrink-0 {}", i.tone.text())><Icon name="alert"/></span>
                 <span class="min-w-0 flex-1">
@@ -75,7 +75,7 @@ fn row_view(i: Item, icon: bool) -> AnyView {
         </span>
     };
     let class = "flex gap-2.5 px-4 py-[11px] text-text no-underline hover:bg-surface-2 dark:hover:bg-surface-3/50";
-    let li = "border-b border-rowline last:border-b-0";
+    let li = "border-b border-rowline [contain-intrinsic-size:auto_64px] [content-visibility:auto] last:border-b-0";
     view! {
         <li class=li data-item=i.key.clone() data-tone=tone.name()>
             {match (i.to, i.field) {
