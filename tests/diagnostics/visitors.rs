@@ -15,16 +15,7 @@ fn private_services_and_visitors() {
         "  laptop:\n    secret: ${HOME_SECRET}\n    reach:\n      home: any\n",
         "  web: { client: home, bind: 7840, target: 3000, visitors: [laptop] }\n  db: { client: home, target: 5432, visitors: [laptop] }\n",
     );
-    insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
-    warning: visitor "laptop" may reach any target that client "home" allows, over TCP or UDP
-      --> server.yaml:9:7
-       |
-     9 |       home: any
-       |       ^^^^ limited only by the client's allow list
-       = help: keep "allow" on client "home" narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs
-
-    server.yaml: valid server config (1 client, 1 visitor, 2 services), 1 warning
-    "#);
+    insta::assert_snapshot!(render("server.yaml", &src, None), @"server.yaml: valid server config (1 client, 1 visitor, 2 services)");
     let o = load_str("server.yaml", &src, Format::Yaml, None, &env);
     let Some(Loaded::Server(s, _)) = o.loaded else {
         panic!("not a server")

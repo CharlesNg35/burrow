@@ -70,7 +70,7 @@ fn a_grpc_site_and_a_wildcard_only_site_get_notes_for_their_check() {
         )),
     );
     let w = warnings(&o);
-    assert!(w.contains(&"services.grpc.health_check.path: gRPC apps usually do not answer a plain GET; use health_check: true (the TCP check)".to_string()), "{w:#?}");
+    assert!(!w.iter().any(|m| m.starts_with("services.grpc.")), "{w:#?}");
     assert!(w.contains(&"services.apps.health_check.path: the check asks for apps.example.com, the base name of \"*.apps.example.com\"; the app must answer that name, or list a plain name in hosts for service \"apps\"".to_string()), "{w:#?}");
 }
 

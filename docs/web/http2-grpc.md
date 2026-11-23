@@ -34,7 +34,7 @@ services:
 
 - gRPC clients reach `grpc.example.com:443` over TLS with HTTP/2; `web.http2` must stay on, and the site must not be `tls: off` (validate notes both).
 - `target_http2` speaks HTTP/2 to the app: h2c on a plain connection, or h2 inside `target_tls`, where the app must offer h2 in its TLS handshake. Trailers and `te: trailers` pass through, as gRPC needs.
-- A health check with `path` suits websites, not gRPC apps; use `health_check: true` for them (validate notes it).
+- A health check with `path` suits websites, not gRPC apps; use `health_check: true` for them.
 
 ### gRPC streams
 

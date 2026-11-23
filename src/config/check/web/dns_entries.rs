@@ -19,7 +19,7 @@ pub(super) fn check_dns_entries(
     for (i, e) in le.dns.iter().enumerate() {
         entry(i, e, base_dir, spans, &mut domains, out);
     }
-    wildcards(cfg, &le.dns, spans, out);
+    wildcards(&le.dns, spans, out);
 }
 
 fn at(i: usize, rest: &[&str]) -> Vec<String> {
@@ -291,7 +291,7 @@ fn command(i: usize, c: &str, base_dir: &Path, spans: &Spans, out: &mut Vec<Diag
     }
 }
 
-fn wildcards(cfg: &ServerConfig, list: &[DnsEntry], spans: &Spans, out: &mut Vec<Diagnostic>) {
+fn wildcards(list: &[DnsEntry], spans: &Spans, out: &mut Vec<Diagnostic>) {
     let entries = || {
         list.iter()
             .enumerate()
@@ -323,13 +323,6 @@ fn wildcards(cfg: &ServerConfig, list: &[DnsEntry], spans: &Spans, out: &mut Vec
                             first + 1
                         )),
                         None => {
-                            if !used(cfg, &w) {
-                                out.push(
-                                    Diagnostic::warning("dns-wildcard", format!("wildcard {w} is used by nothing yet"))
-                                        .at(here)
-                                        .help("it is still ordered and renewed, ready for sites added later"),
-                                );
-                            }
                             seen.push((w, i));
                             None
                         }
@@ -344,116 +337,5 @@ fn wildcards(cfg: &ServerConfig, list: &[DnsEntry], spans: &Spans, out: &mut Vec
                 );
             }
         }
-    }
-}
-
-fn used(cfg: &ServerConfig, wildcard: &str) -> bool {
-    let parent = &wildcard[2..];
-    cfg.services
-        .values()
-        .filter_map(|s| s.web.as_ref())
-        .any(|w| {
-            w.hosts()
-                .iter()
-                .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
-                .any(|h| h == wildcard || h == parent || burrow_syntax::web::covers(wildcard, &h))
-        })
-}
-
-pub(super) fn wildcard_hint(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {
-    use std::collections::BTreeMap;
-    let Some(web) = cfg.web.as_ref() else {
-        return;
-    };
-    let Some(le) = web.letsencrypt.as_ref().filter(|l| !l.dns.is_empty()) else {
-        return;
-    };
-    let files: Vec<&[String]> = web
-        .certificates
-        .iter()
-        .map(|c| c.hosts.as_slice())
-        .collect();
-    let listed: Vec<String> = le
-        .dns
-        .iter()
-        .flat_map(|e| e.wildcards.iter())
-        .chain(
-            cfg.services
-                .values()
-                .filter_map(|s| s.web.as_ref())
-                .flat_map(|w| w.hosts().iter()),
-        )
-        .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
-        .filter(|h| is_wildcard(h))
-        .collect();
-    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for svc in cfg.services.values() {
-        let Some(w) = svc.web.as_ref() else {
-            continue;
-        };
-        if !matches!(
-            w.tls(),
-            None | Some(burrow_config::SiteTls::Mode(burrow_config::TlsMode::Auto))
-        ) {
-            continue;
-        }
-        for h in w
-            .hosts()
-            .iter()
-            .filter_map(|h| host_name(h, SingleLabel::Refused).ok())
-        {
-            let Some((first, parent)) = h.split_once('.') else {
-                continue;
-            };
-            let covered = listed.iter().any(|w| burrow_syntax::web::covers(w, &h))
-                || !matches!(
-                    burrow_syntax::web::entry_for(files.iter().copied().enumerate(), &h),
-                    Ok(None)
-                );
-            if is_wildcard(&h) || burrow_syntax::web::is_ip(&h) || covered || !parent.contains('.')
-            {
-                continue;
-            }
-            let entries = le
-                .dns
-                .iter()
-                .enumerate()
-                .map(|(i, e)| (i, e.domains.as_slice()));
-            if dns_entry_for(entries, parent).is_some() {
-                let g = groups.entry(parent.to_string()).or_default();
-                if !g.iter().any(|x| x == first) {
-                    g.push(first.to_string());
-                }
-            }
-        }
-    }
-    for (parent, labels) in groups.into_iter().filter(|(_, l)| l.len() >= 3) {
-        let entries = le
-            .dns
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (i, e.domains.as_slice()));
-        let Some(i) = dns_entry_for(entries, &parent) else {
-            continue;
-        };
-        let domain = le.dns[i]
-            .domains
-            .iter()
-            .filter_map(|d| host_name(d, SingleLabel::Allowed).ok())
-            .filter(|d| parent == *d || parent.ends_with(&format!(".{d}")))
-            .max_by_key(String::len)
-            .unwrap_or_default();
-        let (last, rest) = labels.split_last().expect("three or more");
-        out.push(
-            Diagnostic::warning(
-                "wildcard-hint",
-                format!(
-                    "{} and {last}.{parent} each get their own certificate; one wildcard would cover them: add \"*.{parent}\" to wildcards in the letsencrypt.dns entry for {domain}",
-                    rest.join(", ")
-                ),
-            )
-            .at(spans.value(&["web", "letsencrypt", "dns", &i.to_string()]))
-            .help("one shared certificate means one order and one renewal instead of one per site"),
-        );
     }
 }

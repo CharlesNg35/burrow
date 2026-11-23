@@ -364,16 +364,6 @@ fn target_tls(
                 );
             }
         }
-        Some(TargetTls::Unchecked(u)) if u.insecure_skip_verify => out.push(
-            Diagnostic::warning(
-                "target-unchecked",
-                format!(
-                    "services.{name}: the app's certificate is not checked (insecure_skip_verify); use ca: for apps with a real certificate"
-                ),
-            )
-            .at(at.value(&["target_tls"]))
-            .help("fine for an app with a self-made certificate on a network you trust"),
-        ),
         _ => {}
     }
 }

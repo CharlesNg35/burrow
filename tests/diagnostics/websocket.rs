@@ -56,16 +56,7 @@ fn server_without_any_listener() {
       --> server.yaml
        = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)
 
-    warning: no services are defined, so nothing is exposed
-      --> server.yaml:4:1
-       |
-     4 | services: {}
-       | ^^^^^^^^
-       = help: add a service, for example:
-             services:
-               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
-
-    server.yaml: 1 error, 1 warning
+    server.yaml: 1 error, 0 warnings
     "#);
 }
 
@@ -119,13 +110,6 @@ fn websocket_client_warnings() {
         "server: wss://tunnel.example.com/burrow\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\ninsecure_plaintext: true\nreconnect:\n  on_rejected: exitt\n"
     );
     insta::assert_snapshot!(render("client.yaml", &ws, None), @r#"
-    warning: insecure_plaintext does not apply over WebSocket: forwarded data stays encrypted
-      --> client.yaml:5:21
-       |
-     5 | insecure_plaintext: true
-       |                     ^^^^
-       = help: it must still match the server setting; remove it on both sides to silence this
-
     error: unknown on_rejected "exitt" in "reconnect"
       --> client.yaml:7:16
        |
@@ -133,7 +117,7 @@ fn websocket_client_warnings() {
        |                ^^^^^ not a valid on_rejected
        = help: did you mean "exit"? valid values: retry, exit
 
-    client.yaml: 1 error, 1 warning
+    client.yaml: 1 error, 0 warnings
     "#);
 }
 
@@ -188,16 +172,7 @@ fn bad_listen_types_are_explained() {
        |         ^^^ expected a whole number or a string
        = help: use a single value, not a list
 
-    warning: no services are defined, so nothing is exposed
-      --> server.yaml:5:1
-       |
-     5 | services: {}
-       | ^^^^^^^^
-       = help: add a service, for example:
-             services:
-               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
-
-    server.yaml: 1 error, 1 warning
+    server.yaml: 1 error, 0 warnings
     "#);
 }
 

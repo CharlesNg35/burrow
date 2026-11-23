@@ -53,12 +53,7 @@ pub(in crate::config::check) fn check_choices(
             ));
             continue;
         }
-        let plain = match web.tls() {
-            Some(SiteTls::Mode(TlsMode::Off)) => true,
-            None => !written,
-            _ => false,
-        };
-        if plain && http.is_some() {
+        if web.tls().is_none() && !written && http.is_some() {
             out.push(
                 Diagnostic::warning(
                     PLAIN_HTTP,
@@ -68,11 +63,7 @@ pub(in crate::config::check) fn check_choices(
                 )
                 .about(name.as_str())
                 .at(spans.value(&["services", name, "web"]))
-                .help(if written {
-                    "for a site reached over the internet, remove tls: off so burrow serves it over HTTPS"
-                } else {
-                    "for a site reached over the internet, use HTTPS: add https: 443 under web"
-                }),
+                .help("for a site reached over the internet, use HTTPS: add https: 443 under web; write tls: off on a site meant to stay plain HTTP"),
             );
         }
         if http.is_none() && web.tls() == Some(&SiteTls::Mode(TlsMode::Off)) {

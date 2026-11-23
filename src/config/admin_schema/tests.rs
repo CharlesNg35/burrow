@@ -309,10 +309,10 @@ fn admin_rights_are_checked() {
     );
     let found = diag_paths(&shared);
     assert!(
-        found
+        !found
             .iter()
-            .any(|(c, p)| c == "admin-shared" && p.last().is_some_and(|k| k == "admin")),
-        "{found:?}"
+            .any(|(_, p)| p.last().is_some_and(|k| k == "admin")),
+        "admin access shared with reach is the owner's choice, not a problem: {found:?}"
     );
     let lone = base(svc).replace(
         "    reach: { home: any }\n",
@@ -322,7 +322,7 @@ fn admin_rights_are_checked() {
     assert!(
         !found
             .iter()
-            .any(|(c, _)| c == burrow_admin_proto::codes::UNUSED_VISITOR || c == "admin-shared"),
+            .any(|(c, _)| c == burrow_admin_proto::codes::UNUSED_VISITOR),
         "{found:?}"
     );
     let bad = lone.replace("10.0.0.0/8", "10.0.0.1/8");

@@ -360,7 +360,6 @@ pub(super) fn check_sites(
     #[cfg(feature = "web")]
     dns_entries::check_dns_entries(cfg, base_dir, spans, out);
     #[cfg(feature = "web")]
-    dns_entries::wildcard_hint(cfg, spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
     low::check_swapped((https, http), spans, out);
     sites

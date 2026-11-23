@@ -32,7 +32,7 @@ visitors:
 
 - `admin: read` shows everything and changes nothing; `admin: write` may also change the config.
 - `admin_from` limits admin access to these source IPs or CIDRs. Without it, admin works from any address the visitor can connect from.
-- Use a dedicated visitor for admin, so one leaked secret never gives both admin and services. `validate` warns when an admin visitor also reaches services or has `reach`.
+- Use a dedicated visitor for admin, so one leaked secret never gives both admin and services.
 
 Then, on the server, print the config for that visitor, and copy it to your machine:
 

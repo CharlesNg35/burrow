@@ -246,7 +246,7 @@ fn a_server_with_only_web_http_serves_every_site_as_plain_http() {
 }
 
 #[test]
-fn a_plain_http_site_is_warned_that_its_traffic_is_open() {
+fn a_site_plain_without_asking_is_warned_and_tls_off_is_heard() {
     let site = |ports: &str, web: &str| {
         load(&format!(
             "listen: 7835\nweb: {{ {ports} }}\nservices:\n  wiki:\n    client: home\n    target: 3000\n    web: {web}\n"
@@ -255,50 +255,35 @@ fn a_plain_http_site_is_warned_that_its_traffic_is_open() {
     let warned = [
         "Warning: services.wiki: served as plain HTTP; anyone on the path can read and change its traffic",
     ];
+    let plain = site("http: 80", "wiki.lan.example.com");
+    assert_eq!(coded(&plain, "plain-http"), warned);
+    let help = plain
+        .report
+        .diagnostics
+        .into_iter()
+        .find(|d| d.code == "plain-http")
+        .and_then(|d| d.help)
+        .unwrap();
     assert_eq!(
-        coded(&site("http: 80", "wiki.lan.example.com"), "plain-http"),
-        warned
+        help,
+        "for a site reached over the internet, use HTTPS: add https: 443 under web; write tls: off on a site meant to stay plain HTTP"
     );
-    let help = |ports: &str, web: &str| {
-        site(ports, web)
-            .report
-            .diagnostics
-            .into_iter()
-            .find(|d| d.code == "plain-http")
-            .and_then(|d| d.help)
-            .unwrap()
-    };
-    assert_eq!(
-        help("http: 80", "wiki.lan.example.com"),
-        "for a site reached over the internet, use HTTPS: add https: 443 under web"
-    );
-    assert_eq!(
-        help(
+    for (ports, web) in [
+        ("http: 80", "{ hosts: [wiki.lan.example.com], tls: off }"),
+        (
             "https: 443, http: 80",
-            "{ hosts: [wiki.example.com], tls: off }"
+            "{ hosts: [wiki.example.com], tls: off }",
         ),
-        "for a site reached over the internet, remove tls: off so burrow serves it over HTTPS"
-    );
-    assert_eq!(
-        coded(
-            &site(
-                "https: 443, http: 80",
-                "{ hosts: [wiki.example.com], tls: off }"
-            ),
-            "plain-http"
+        (
+            "https: 443, http: 80",
+            "{ hosts: [wiki.example.com], tls: { cert: w.pem, key: w.key } }",
         ),
-        warned
-    );
-    assert!(
-        coded(
-            &site(
-                "https: 443, http: 80",
-                "{ hosts: [wiki.example.com], tls: { cert: w.pem, key: w.key } }"
-            ),
-            "plain-http"
-        )
-        .is_empty()
-    );
+    ] {
+        assert!(
+            coded(&site(ports, web), "plain-http").is_empty(),
+            "tls: off says plain HTTP is meant: {web}"
+        );
+    }
 }
 
 #[test]

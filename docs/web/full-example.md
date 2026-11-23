@@ -273,7 +273,7 @@ services:
     target: 8095
     web:
       hosts: [dash.lan.example.com]
-      tls: off # plain http only; burrow warns it is not encrypted
+      tls: off # plain http only, on purpose
 
   # A secure site that also answers on http://, for old devices
   updates:
@@ -398,7 +398,6 @@ Where each name gets its certificate:
 | a shared wildcard on the wrong entry | `web.letsencrypt.dns[0].wildcards: "*.apps.example.com" belongs to apps.example.com, which DNS provider 2 manages; list it there` |
 | a DNS secret from an empty file or variable | `web.letsencrypt.dns[0].cloudflare.token: cf.token is empty` |
 | a DNS hook that cannot run | `web.letsencrypt.dns[3].command: /usr/local/bin/burrow-dns does not exist or is not executable` |
-| note: three sites that one wildcard would cover | `wiki, blog and auth.example.com each get their own certificate; one wildcard would cover them: add "*.example.com" to wildcards in the letsencrypt.dns entry for example.com` |
 | a certificate file that cannot be used | `web.certificates[0]: cannot read cert "certs/home.pem": file not found`, or `... certs/home.key does not fit certs/home.pem` |
 | a file that does not cover a name | `services.portal.web.tls: certs/portal.pem does not cover "www.portal.example.com"; add the name to the certificate, move the name to another service, or list it in web.certificates` |
 | warning: a shared file covers names its `hosts` does not list | `web.certificates[0]: certs/corp.pem also covers "*.example.com", which its hosts does not list; it is used only for the listed names` |
@@ -426,7 +425,7 @@ Where each name gets its certificate:
 | the tunnel's name without a shared port | `websocket.host is only used when websocket.listen is the same port as web.https or web.http; ...` |
 | the tunnel's name has no certificate | `websocket.host "tunnel.example.com" has no certificate; add web.letsencrypt, websocket.tls, or an entry in web.certificates whose hosts lists it` |
 | a UDP service with `web` | `service "dns" is udp, but web only works for tcp services; remove web:, or set protocol: tcp` |
-| warning: a plain-HTTP site | `services.wiki: served as plain HTTP; anyone on the path can read and change its traffic` |
+| warning: a site served as plain HTTP because there is no `web.https`, without `tls: off` | `services.wiki: served as plain HTTP; anyone on the path can read and change its traffic` |
 | warning: no `web.http` | `web.http is not set: http:// addresses get no answer` |
 | warning: a low port burrow may not open | `web.https: port 443 needs root or CAP_NET_BIND_SERVICE`, with how to grant it |
 | warning: the two web ports swapped | `web.https: port 80 is where browsers send http:// addresses, so visitors who type a name do not reach these websites` |

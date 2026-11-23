@@ -187,16 +187,7 @@ fn weak_and_duplicate_secrets() {
       --> server.yaml:12:13
        = help: generate one with: burrow gensecret
 
-    warning: no services are defined, so nothing is exposed
-      --> server.yaml:13:1
-       |
-    13 | services: {}
-       | ^^^^^^^^
-       = help: add a service, for example:
-             services:
-               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
-
-    server.yaml: 4 errors, 1 warning
+    server.yaml: 4 errors, 0 warnings
     "#);
 }
 
@@ -296,15 +287,6 @@ fn insecure_and_empty() {
        |                     ^^^^ traffic can be read and modified on the network
        = help: remove this line unless the network between client and server is trusted
 
-    warning: no services are defined, so nothing is exposed
-      --> server.yaml:6:1
-       |
-     6 | services: {}
-       | ^^^^^^^^
-       = help: add a service, for example:
-             services:
-               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
-
-    server.yaml: valid server config (1 client, 0 services), 2 warnings
+    server.yaml: valid server config (1 client, 0 services), 1 warning
     ");
 }

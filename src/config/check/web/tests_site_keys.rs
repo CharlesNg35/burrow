@@ -373,7 +373,13 @@ fn target_tls_reads_its_ca_and_says_what_is_not_checked() {
         ),
     );
     assert!(errors(&o).is_empty(), "{:#?}", errors(&o));
-    assert!(warnings(&o).contains(&"services.pve: the app's certificate is not checked (insecure_skip_verify); use ca: for apps with a real certificate".to_string()), "{:#?}", warnings(&o));
+    assert!(
+        !warnings(&o)
+            .iter()
+            .any(|w| w.contains("insecure_skip_verify")),
+        "skipping the check is asked for: {:#?}",
+        warnings(&o)
+    );
 }
 
 #[test]

@@ -20,7 +20,7 @@ fn reach_takes_any_or_rules_and_warns_only_for_any() {
             .collect();
         (found, o.loaded.is_some())
     };
-    assert_eq!(codes("{ home: any }"), (vec![("reach-any", false)], true));
+    assert_eq!(codes("{ home: any }"), (vec![], true));
     assert_eq!(codes("{ home: 192.168.150.0/25 }"), (vec![], true));
     assert_eq!(
         codes("{ home: [10.0.0.0/8:22, 192.168.1.0/24:8000-8100, unix:/run/app.sock] }"),

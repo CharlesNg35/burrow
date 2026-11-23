@@ -84,14 +84,6 @@ pub(super) fn check_reach(
     );
 }
 
-pub(super) fn allow_place(client: &str) -> String {
-    if client == SELF {
-        "\"self.allow\"".to_string()
-    } else {
-        format!("\"allow\" on client \"{client}\"")
-    }
-}
-
 pub(super) fn check_services(
     services: &BTreeMap<String, Service>,
     allow: Option<&AllowList>,

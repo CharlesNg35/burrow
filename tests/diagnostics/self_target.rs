@@ -203,7 +203,7 @@ fn reach_to_self_needs_self_allow() {
 }
 
 #[test]
-fn reach_any_to_self_is_warned_like_any_client() {
+fn reach_any_to_self_is_heard_like_any_client() {
     let text = render(
         "server.yaml",
         &self_server(
@@ -213,16 +213,7 @@ fn reach_any_to_self_is_warned_like_any_client() {
         ),
         None,
     );
-    insta::assert_snapshot!(text, @r#"
-    warning: visitor "laptop" may reach any target that client "self" allows, over TCP or UDP
-      --> server.yaml:12:14
-       |
-    12 |     reach: { self: any }
-       |              ^^^^ limited only by the client's allow list
-       = help: keep "self.allow" narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs
-
-    server.yaml: valid server config (1 client, 1 visitor, 1 service), 1 warning
-    "#);
+    insta::assert_snapshot!(text, @"server.yaml: valid server config (1 client, 1 visitor, 1 service)");
 }
 
 #[test]
@@ -367,6 +358,12 @@ fn a_server_whose_services_all_run_on_self_needs_no_clients() {
         format!("{only_self}  nas: {{ clients: [self, home], bind: 8082, target: 10.0.0.2:80 }}\n");
     let text = render("server.yaml", &some, None);
     assert!(text.contains("no clients are defined"), "{text}");
+    let written = format!("{none}clients: {{}}\n");
+    let text = render("server.yaml", &written, None);
+    assert!(
+        !text.contains("no clients are defined"),
+        "clients: {{}} says none on purpose: {text}"
+    );
 }
 
 #[test]

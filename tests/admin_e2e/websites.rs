@@ -189,8 +189,7 @@ async fn plain_with_the_http_port(c: &mut Ctx) {
     row_clean(c, SITE_TLS).await;
     add_name(c, "f-services-nas-web-hosts", "nas").await;
     wait_checked(c).await;
-    let warn = row_error(c, SITE).await;
-    assert!(warn.contains("served as plain HTTP"), "{warn}");
+    row_clean(c, SITE).await;
     both_widths(c, "nas-plain-http").await;
     open_review(c, "nas-plain-review").await;
     applied(c, "nas-plain-applied").await;
