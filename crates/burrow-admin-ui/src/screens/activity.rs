@@ -286,7 +286,7 @@ pub fn Activity() -> impl IntoView {
             filters=vec![("all", "All".into()), ("admins", "Admins".into()), ("hand", "Hand edits".into())]
             groups=Vec::new()
             rows=rows
-            selected=Signal::from(selected)
+            selected=Signal::derive(move || selected.get())
             empty=(String::new(), String::new())
             on_action=on_action
             no_counts=true
