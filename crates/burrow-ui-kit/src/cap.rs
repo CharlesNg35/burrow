@@ -1,8 +1,24 @@
-use burrow_admin_logic::top::{SHOW_FEWER, more, show_all};
-use burrow_ui_kit::{LINK, Tone, chip_class};
 use leptos::prelude::*;
 
-pub(crate) use burrow_admin_logic::top::kept;
+use crate::basic::{LINK, Tone, chip_class};
+
+pub const LINKS: usize = 12;
+pub const SHOW_FEWER: &str = "Show fewer";
+
+pub fn show_all(total: usize) -> String {
+    format!("Show all {total}")
+}
+
+pub fn more(n: usize) -> String {
+    format!("+{n} more")
+}
+
+pub fn kept<T>(mut all: Vec<T>, open: bool, n: usize) -> Vec<T> {
+    if !open {
+        all.truncate(n);
+    }
+    all
+}
 
 fn toggle(
     open: RwSignal<bool>,
@@ -23,7 +39,7 @@ fn toggle(
 }
 
 #[component]
-pub(crate) fn ShowAll(
+pub fn ShowAll(
     open: RwSignal<bool>,
     #[prop(into)] total: Signal<usize>,
     limit: usize,
@@ -39,11 +55,27 @@ pub(crate) fn ShowAll(
     }
 }
 
-pub(crate) fn more_chip(open: RwSignal<bool>, hidden: usize) -> impl IntoView {
+#[component]
+pub fn MoreChip(open: RwSignal<bool>, hidden: usize) -> impl IntoView {
     toggle(
         open,
         move || more(hidden),
         chip_class(Tone::Neutral, false),
         "links-more",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_closed_list_keeps_the_first_rows_and_an_open_one_keeps_all() {
+        let all: Vec<u32> = (0..20).collect();
+        assert_eq!(kept(all.clone(), false, 8), (0..8).collect::<Vec<_>>());
+        assert_eq!(kept(all.clone(), true, 8), all);
+        assert_eq!(kept(vec![1, 2], false, 8), [1, 2]);
+        assert_eq!(show_all(300), "Show all 300");
+        assert_eq!(more(188), "+188 more");
+    }
 }

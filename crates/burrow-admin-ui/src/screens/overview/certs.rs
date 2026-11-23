@@ -6,7 +6,7 @@ use burrow_ui_kit::{Table, Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
-use crate::show_all::{ShowAll, kept};
+use burrow_ui_kit::{ShowAll, kept};
 
 use super::Item;
 use super::tables::view_all_link;

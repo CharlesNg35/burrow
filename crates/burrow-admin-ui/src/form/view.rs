@@ -1,11 +1,11 @@
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::input::time_unit;
-use burrow_admin_logic::top::LINKS;
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::schema::{ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
 use burrow_syntax::duration::exact;
+use burrow_ui_kit::LINKS;
 use burrow_ui_kit::{Chip, Tag, Tone};
 use leptos::prelude::*;
 
@@ -238,7 +238,7 @@ fn ref_list_view(c: &RefListC, v: &Value, ctx: &Ctx) -> AnyView {
         let hidden = rest.len();
         view! {
             {move || open.get().then(|| rest.iter().map(&link).collect_view())}
-            {crate::show_all::more_chip(open, hidden)}
+            <burrow_ui_kit::MoreChip open=open hidden=hidden/>
         }
     });
     view! {

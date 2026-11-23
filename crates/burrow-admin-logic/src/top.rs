@@ -2,8 +2,6 @@ use std::cmp::Reverse;
 
 pub const ROWS: usize = 8;
 pub const NAMES: usize = 3;
-pub const LINKS: usize = 12;
-pub const SHOW_FEWER: &str = "Show fewer";
 
 pub fn top<T>(mut rows: Vec<T>, rank: impl Fn(&T) -> (bool, u64)) -> (Vec<T>, usize) {
     let total = rows.len();
@@ -19,21 +17,6 @@ pub fn view_all(shown: usize, total: usize) -> Option<String> {
     (total > shown).then(|| format!("View all {total} →"))
 }
 
-pub fn show_all(total: usize) -> String {
-    format!("Show all {total}")
-}
-
-pub fn more(n: usize) -> String {
-    format!("+{n} more")
-}
-
-pub fn kept<T>(mut all: Vec<T>, open: bool, n: usize) -> Vec<T> {
-    if !open {
-        all.truncate(n);
-    }
-    all
-}
-
 pub fn some_names(all: &[String]) -> (String, Option<String>) {
     let shown = all
         .iter()
@@ -42,7 +25,7 @@ pub fn some_names(all: &[String]) -> (String, Option<String>) {
         .collect::<Vec<_>>()
         .join(", ");
     let more = all.len().saturating_sub(NAMES);
-    (shown, (more > 0).then(|| self::more(more)))
+    (shown, (more > 0).then(|| format!("+{more} more")))
 }
 
 #[cfg(test)]
@@ -68,16 +51,6 @@ mod tests {
         assert_eq!(view_all(8, 50).as_deref(), Some("View all 50 →"));
         assert_eq!(view_all(8, 8), None);
         assert_eq!(view_all(3, 3), None);
-    }
-
-    #[test]
-    fn a_closed_list_keeps_the_first_rows_and_an_open_one_keeps_all() {
-        let all: Vec<u32> = (0..20).collect();
-        assert_eq!(kept(all.clone(), false, ROWS), (0..8).collect::<Vec<_>>());
-        assert_eq!(kept(all.clone(), true, ROWS), all);
-        assert_eq!(kept(vec![1, 2], false, ROWS), [1, 2]);
-        assert_eq!(show_all(300), "Show all 300");
-        assert_eq!(more(188), "+188 more");
     }
 
     #[test]

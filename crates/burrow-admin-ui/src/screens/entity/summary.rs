@@ -14,9 +14,9 @@ use crate::form::plain;
 use crate::format;
 use crate::route::{Link, Route};
 use crate::screens::paths::clients_of;
-use crate::show_all::{ShowAll, kept};
 use crate::store::store;
-use burrow_admin_logic::top::{LINKS, ROWS};
+use burrow_admin_logic::top::ROWS;
+use burrow_ui_kit::{LINKS, ShowAll, kept};
 
 use super::{CLIENTS, VISITORS};
 
@@ -392,7 +392,7 @@ pub(super) fn visitor_overview(name: &str) -> impl IntoView {
                         let hidden = may.len().saturating_sub(LINKS);
                         view! {
                             {kept(may.clone(), open.get(), LINKS).into_iter().map(|(n, up, udp)| may_chip(n, up, udp)).collect_view()}
-                            {(hidden > 0).then(|| crate::show_all::more_chip(open, hidden))}
+                            {(hidden > 0).then(|| view! { <burrow_ui_kit::MoreChip open=open hidden=hidden/> })}
                         }
                     }}
                 </div>

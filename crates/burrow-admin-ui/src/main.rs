@@ -23,7 +23,6 @@ mod route;
 mod row_menu;
 mod screens;
 mod secrets;
-mod show_all;
 mod shown;
 mod store;
 mod uploads;
