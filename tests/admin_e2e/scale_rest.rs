@@ -166,7 +166,7 @@ async fn admin_change(c: &Ctx, port: &str, out: &mut Vec<String>) {
     super::apply_now(c, "Applied").await;
 }
 
-async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
+async fn history(c: &Ctx, out: &mut Vec<String>) {
     admin_change(c, "23", out).await;
     c.world
         .hand_edit(|t| t.replace("    target: 10", "    target: 30"));
@@ -175,41 +175,61 @@ async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
     admin_change(c, "24", out).await;
     c.ui.nav("/activity").await;
     c.ui.wait_true(
+        "document.querySelectorAll('[data-testid=activity] [data-row]').length >= 2",
+        "both admin changes show in Activity",
+        LONG,
+    )
+    .await;
+    let first =
+        c.ui.all_attrs("[data-testid=activity] [data-row]", "data-row")
+            .await
+            .get(1)
+            .cloned()
+            .expect("the first admin change");
+    c.ui.click(&format!("[data-row='{first}'] [data-testid=list-row]"))
+        .await;
+}
+
+async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
+    super::apply_now(c, "Applied").await;
+    c.ui.nav("/activity").await;
+    c.ui.wait_true(
         "document.querySelectorAll('[data-testid=activity] [data-row]').length >= 3",
-        "the hand edit shows in Activity with the next change",
+        "the revert shows in Activity",
         LONG,
     )
     .await;
     let rev =
         c.ui.all_attrs("[data-testid=activity] [data-row]", "data-row")
             .await
-            .get(1)
+            .first()
             .cloned()
-            .expect("the hand edit");
+            .expect("the revert");
     c.ui.nav("/overview").await;
     c.ui.wait_gone("[data-testid=activity]", SECS).await;
     let ms = until(
         c,
         &format!("const run = (location.pathname.match(/^\\/r-[0-9a-f]+/) || [''])[0]; history.pushState(null, '', run + '/activity/{rev}'); dispatchEvent(new PopStateEvent('popstate'))"),
-        "[data-testid=activity-diff] [role=row]",
+        "[data-testid=activity-files] [role=row], [data-testid=activity-diff] [role=row]",
     )
     .await
     .round();
-    let rows = c.ui.count("[data-testid=activity-diff] [role=row]").await;
-    let nodes: usize =
-        c.ui.eval("document.querySelectorAll('[data-testid=activity-diff] *').length")
-            .await;
+    let rows = c
+        .ui
+        .count("[data-testid=activity-files] [role=row], [data-testid=activity-diff] [role=row]")
+        .await;
+    let nodes: usize = c.ui.eval("document.querySelectorAll('*').length").await;
     save(
         out,
         format!(
-            "version diff of {CHANGED} changed services: shown in {ms} ms; {rows} rows and {nodes} elements in the DOM"
+            "version diff of the revert of {CHANGED} services: shown in {ms} ms; {rows} diff rows; {nodes} elements on the page"
         ),
     );
     assert_eq!(rows, 400, "a large diff shows its first lines");
-    c.ui.click("[data-testid=activity-diff] ~ [data-testid=diff-more] [data-testid=show-more], [data-testid=activity-diff] [data-testid=diff-more] [data-testid=show-more]")
+    c.ui.click("[data-testid=diff-more] [data-testid=show-more]")
         .await;
     c.ui.wait_true(
-        "document.querySelectorAll('[data-testid=activity-diff] [role=row]').length === 800",
+        "document.querySelectorAll('[data-testid=activity-files] [role=row], [data-testid=activity-diff] [role=row]').length === 800",
         "Show more adds the next lines",
         SECS,
     )
@@ -258,8 +278,9 @@ fn scale_rest(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=search-open]", SECS).await;
         let mut out = Vec::new();
         search(c, &mut out).await;
-        version_diff(c, &mut out).await;
+        history(c, &mut out).await;
         revert_review(c, &mut out).await;
+        version_diff(c, &mut out).await;
         c.ui.assert_no_errors();
     })
 }
