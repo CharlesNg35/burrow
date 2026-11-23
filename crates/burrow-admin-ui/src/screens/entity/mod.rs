@@ -7,6 +7,7 @@ mod file;
 mod index;
 mod list;
 mod problems;
+mod row_cache;
 mod rows;
 mod summary;
 

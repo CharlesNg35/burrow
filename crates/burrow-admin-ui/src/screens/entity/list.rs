@@ -12,7 +12,7 @@ use crate::store::store;
 
 use super::file::Files;
 use super::index::Index;
-use super::rows::{client_row, service_row, visitor_row};
+use super::row_cache;
 use super::{Detail, plural};
 
 struct Live {
@@ -67,13 +67,15 @@ fn one_row(
     } else {
         None
     };
-    let to = Route::Detail(section.to_string(), name.to_string());
-    let owned = name.to_string();
-    let mut row = match entity_of_section(section) {
-        Some(Entity::Client) => client_row(&owned, ix, pending, to),
-        Some(Entity::Visitor) => visitor_row(&owned, v, ix, live.me.as_deref(), pending, to),
-        _ => service_row(&owned, (v, https_on), ix, pending, to),
+    let ask = row_cache::Ask {
+        section,
+        name,
+        v,
+        https_on,
+        me: live.me.as_deref(),
+        pending,
     };
+    let mut row = row_cache::row(&ask, ix);
     if let Some(m) = mark {
         row.tags.insert(0, m);
     }
@@ -115,6 +117,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         let base_items = d.base().get(section).and_then(Value::as_object);
         let items = draft.get(section).and_then(Value::as_object);
         let ix = Index::new(live.status.as_deref(), draft, Files::now());
+        row_cache::keep_only(section, &|n| items.is_some_and(|i| i.contains_key(n)));
         let mut out: Vec<Row> = items
             .into_iter()
             .flatten()
