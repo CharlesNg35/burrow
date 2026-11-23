@@ -322,9 +322,10 @@ pub fn recheck(s: Store) {
             if let Ok(Ok(state)) =
                 r.map(burrow_admin_proto::serde_json::from_value::<burrow_admin_proto::msg::State>)
             {
+                let rev = state.rev.clone();
                 s.state.set(Some(std::sync::Arc::new(state)));
                 match revert.clone() {
-                    Some(to) => s.edit.open_revert(s, to),
+                    Some(to) => s.edit.revert_at(to, rev),
                     None => {
                         s.edit.rebase(s);
                         s.edit.open_review();
