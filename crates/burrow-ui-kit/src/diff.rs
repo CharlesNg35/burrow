@@ -14,7 +14,6 @@ pub struct DiffLine {
 
 const CHUNK: usize = 100;
 const STEP: usize = 4 * CHUNK;
-const ROW_PX: f64 = 22.5;
 
 fn row_class(kind: char) -> &'static str {
     match kind {
@@ -157,8 +156,7 @@ fn DiffRows(rows: Arc<Rows>, gutter: String) -> impl IntoView {
                 key=|i| *i
                 children=move |i| {
                     let (from, to) = (i * CHUNK, total.min((i + 1) * CHUNK));
-                    let style = format!("content-visibility:auto;contain-intrinsic-height:auto {}px;min-width:100%;width:max-content", (to - from) as f64 * ROW_PX);
-                    view! { <div style=style data-diff-chunk="">{rows.view(from, to, &gutter)}</div> }
+                    view! { <div data-diff-chunk="">{rows.view(from, to, &gutter)}</div> }
                 }
             />
         </div>

@@ -63,37 +63,6 @@ fn code_line(line: &str) -> AnyView {
     view! { <span>{line.to_string()}</span> }.into_any()
 }
 
-const CHUNK_LINES: usize = 200;
-const LINE_PX: f64 = 21.25;
-
-fn code_chunks(text: &str) -> AnyView {
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.len() <= CHUNK_LINES {
-        return chunk_lines(&lines);
-    }
-    lines
-        .chunks(CHUNK_LINES)
-        .map(|part| {
-            let style = format!(
-                "display:block;content-visibility:auto;contain-intrinsic-height:auto {}px;min-width:100%;width:max-content",
-                part.len() as f64 * LINE_PX
-            );
-            view! { <span style=style data-code-chunk="">{chunk_lines(part)}</span> }
-        })
-        .collect_view()
-        .into_any()
-}
-
-fn chunk_lines(lines: &[&str]) -> AnyView {
-    let n = lines.len();
-    lines
-        .iter()
-        .enumerate()
-        .map(|(i, l)| view! { {code_line(l)}{(i + 1 < n).then_some("\n")} })
-        .collect_view()
-        .into_any()
-}
-
 const SCROLL: &str = "overflow-auto max-h-[max(80vh,min(240px,100vh))] supports-[height:1dvh]:max-h-[max(80dvh,min(240px,100dvh))] px-4 py-3.5 font-mono max-sm:pt-2 sm:pr-44 text-[12.5px] leading-[1.7] whitespace-pre focus-visible:outline-offset-[-2px]";
 
 #[component]
@@ -137,7 +106,14 @@ pub fn CodeBlock(
                 role="region"
                 aria-label=region
             >
-                {move || text.with(|t| code_chunks(t))}
+                {move || {
+                    let t = text.get();
+                    let n = t.lines().count();
+                    t.lines()
+                        .enumerate()
+                        .map(|(i, l)| view! { {code_line(l)}{(i + 1 < n).then_some("\n")} })
+                        .collect_view()
+                }}
             </pre>
         </div>
     }
