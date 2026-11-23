@@ -18,7 +18,6 @@ pub enum Scroller {
 pub struct Tracked {
     pub view: ReadSignal<Viewport>,
     pub ready: ReadSignal<bool>,
-    set: WriteSignal<Viewport>,
     el: StoredValue<Option<web_sys::HtmlElement>, LocalStorage>,
 }
 
@@ -140,10 +139,5 @@ pub fn track(scroller: Scroller) -> Tracked {
         watch.set_value(Some((list, on, size)));
     });
     on_cleanup(move || stop(watch));
-    Tracked {
-        view,
-        ready,
-        set,
-        el,
-    }
+    Tracked { view, ready, el }
 }
