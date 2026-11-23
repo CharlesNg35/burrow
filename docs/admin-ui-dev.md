@@ -91,6 +91,7 @@ cargo xtask e2e --update-baselines    # records the visual baselines, in their o
 - `cargo xtask e2e` starts two flows, then one more every 3 seconds, up to 6 at a time. It adds one only while the one-minute load stays below 60 % of the cores, and the available memory stays above 6 GB plus 1.5 GB per running flow.
 - It prints each decision, then the peak and the total time. Each flow's output is in `logs/` beside the contact sheet.
 - `--jobs N` or `E2E_JOBS=N` (`make e2e E2E_JOBS=N`) sets the cap. `--jobs 1` runs one flow at a time, and so does `--update-baselines`, always.
+- `--shard K/N` runs every Nth flow, starting at the Kth, so N machines split one run: `--shard 1/2` on one and `--shard 2/2` on the other run each flow exactly once.
 - Where the load and memory cannot be read (outside Linux), it runs one flow at a time unless `--jobs` says otherwise.
 
 **The pinned Chrome.** The flows use Chrome for Testing at the exact version in `tests/admin_e2e/baselines/chrome-version.txt`. `cargo xtask tools` downloads it into `.tools/` and checks it against the sha256 pinned in `xtask/src/tools.rs` (x86_64 Linux), so no setting is needed.
