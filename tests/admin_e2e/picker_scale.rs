@@ -230,6 +230,11 @@ async fn login_picker(c: &mut Ctx) {
         SECS,
     )
     .await;
+    assert_eq!(
+        scroll(c).await.lit,
+        "app4212",
+        "the list opens at the pick, moved to the top as it is past the first 100 rows"
+    );
     c.ui.view_shot("picker-scale-login-phone").await;
     c.ui.press(FIELD, "Escape").await;
     c.ui.wait_gone(LIST, SECS).await;

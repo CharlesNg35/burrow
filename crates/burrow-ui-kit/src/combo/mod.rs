@@ -224,6 +224,7 @@ pub fn Combobox(
         lit,
         pick,
         multi,
+        pointer: StoredValue::new((0, 0)),
     }
     .view();
     let input_id = id.clone();

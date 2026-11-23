@@ -47,6 +47,7 @@ pub(super) struct Rows<P> {
     pub(super) lit: Selector<usize>,
     pub(super) pick: P,
     pub(super) multi: bool,
+    pub(super) pointer: StoredValue<(i32, i32)>,
 }
 
 impl<P: Fn(String) + Copy + Send + Sync + 'static> Rows<P> {
@@ -69,7 +70,13 @@ impl<P: Fn(String) + Copy + Send + Sync + 'static> Rows<P> {
     }
 
     fn row(&self, i: usize, o: &ComboOption, split: bool) -> impl IntoView + use<P> {
-        let (selected, active, pick, multi) = (self.selected, self.active, self.pick, self.multi);
+        let (selected, active, pick, multi, pointer) = (
+            self.selected,
+            self.active,
+            self.pick,
+            self.multi,
+            self.pointer,
+        );
         let lit = self.lit.clone();
         let on = {
             let v = o.value.clone();
@@ -100,7 +107,13 @@ impl<P: Fn(String) + Copy + Send + Sync + 'static> Rows<P> {
                 class:bg-surface-3=move || lit.selected(&i)
                 data-option=o.value.clone()
                 on:mousedown=move |e| e.prevent_default()
-                on:mouseenter=move |_| active.set(i)
+                on:mousemove=move |e| {
+                    let at = (e.client_x(), e.client_y());
+                    if pointer.get_value() != at {
+                        pointer.set_value(at);
+                        active.set(i);
+                    }
+                }
                 on:click=move |e| {
                     let on_input = e
                         .target()
