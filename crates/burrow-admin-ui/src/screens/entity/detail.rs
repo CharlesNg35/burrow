@@ -262,7 +262,7 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Memo<PathData> {
     let s = store();
     let e = s.edit;
     let (sec, nm) = (section.to_string(), name.to_string());
-    let data = Memo::new(move |_| {
+    Memo::new(move |_| {
         let status = s.status.get();
         match sec.as_str() {
             CLIENTS => {
@@ -297,8 +297,7 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Memo<PathData> {
                 })
             }
         }
-    });
-    data
+    })
 }
 
 fn protocol_tag(section: &str, name: &str) -> impl Fn() -> AnyView + Clone + use<> {
