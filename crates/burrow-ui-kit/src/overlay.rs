@@ -4,6 +4,7 @@ use wasm_bindgen::JsCast;
 
 use crate::basic::Tone;
 use crate::button::{ButtonLook, ButtonSize, button_class};
+use crate::focus::focus_still;
 use crate::icon::Icon;
 
 pub fn focus_first(root: &web_sys::HtmlElement) {
@@ -11,7 +12,7 @@ pub fn focus_first(root: &web_sys::HtmlElement) {
         "input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href]",
     ) && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
     {
-        let _ = el.focus();
+        focus_still(&el);
     }
 }
 
@@ -98,7 +99,7 @@ pub fn Modal(
             }
         } else if !now && was == Some(true) {
             if let Some(b) = back.get_value() {
-                let _ = b.focus();
+                focus_still(&b);
             }
             back.set_value(None);
         }

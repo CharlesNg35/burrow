@@ -215,7 +215,8 @@ pub fn ListPane(
     let nothing = Signal::derive(move || rows.with(|r| r.iter().all(Row::is_placeholder)));
     let chips = filter_chips(filters, filter, rows, no_counts, nothing);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
-    keep_selected_in_view(list_ref, selected, visible);
+    let lens = Memo::new(move |_| (q.get(), filter.get()));
+    keep_selected_in_view(list_ref, selected, visible, lens);
     let look = Look { no_counts, compact };
     let body = super::list_rows::list_body(
         Shown {
@@ -289,7 +290,7 @@ pub fn ListPane(
                         if let Some(el) = document().get_element_by_id("detail")
                             && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
                         {
-                            let _ = el.focus();
+                            burrow_ui_kit::focus_still(&el);
                         }
                     }
                     _ => {}
@@ -470,12 +471,19 @@ fn keep_selected_in_view(
     list_ref: NodeRef<leptos::html::Div>,
     selected: Signal<Option<String>>,
     visible: Memo<Vec<Row>>,
+    lens: Memo<(String, &'static str)>,
 ) {
-    let keys =
-        Memo::new(move |_| visible.with(|v| v.iter().map(|r| r.key.clone()).collect::<Vec<_>>()));
+    let shown = Memo::new(move |_| {
+        let key = selected.get()?;
+        visible
+            .with(|v| v.iter().any(|r| r.key == key))
+            .then_some(key)
+    });
     Effect::new(move |_| {
-        selected.track();
-        keys.track();
+        lens.track();
+        if shown.get().is_none() {
+            return;
+        }
         request_animation_frame(move || {
             use wasm_bindgen::JsCast;
             let Some(list) = list_ref.try_get_untracked().flatten() else {
