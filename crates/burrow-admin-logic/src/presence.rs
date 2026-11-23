@@ -147,7 +147,7 @@ pub fn detail(status: Option<&Live>, reserved: &[String], name: &str) -> String 
     }
 }
 
-pub fn away_text(status: &Status, name: &str, added_secs_ago: Option<u64>) -> String {
+pub fn away_text(status: &Live, name: &str, added_secs_ago: Option<u64>) -> String {
     let left = client(status, name).and_then(|c| c.left_secs_ago);
     away(
         left,
@@ -290,7 +290,7 @@ pub fn ready_names(status: &Status) -> Vec<String> {
         .collect()
 }
 
-pub fn rollout_line(st: &Status) -> Option<(String, Mood)> {
+pub fn rollout_line(st: &Live) -> Option<(String, Mood)> {
     let r = st.rollout.as_ref()?;
     let busy = usize::from(r.current.is_some());
     let left = r.clients.len().saturating_sub(r.done.len() + busy);
@@ -328,6 +328,10 @@ pub fn rollout_line(st: &Status) -> Option<(String, Mood)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn live(s: &Status) -> Live {
+        Live::from(s.clone())
+    }
     use burrow_admin_proto::updates::{ClientBuild, RolloutStatus, RunMode};
 
     fn status() -> Status {
@@ -381,7 +385,7 @@ mod tests {
     #[test]
     fn a_client_reads_as_its_version_system_and_what_it_can_take() {
         let st = status();
-        let nas = of(Some(&st), "nas").unwrap();
+        let nas = of(Some(&live(&st)), "nas").unwrap();
         assert_eq!(nas.version, "0.2.1");
         assert_eq!(
             nas.summary(),
@@ -389,10 +393,10 @@ mod tests {
         );
         assert_eq!(nas.tag(), Some(("0.2.2 available".into(), Mood::Offer)));
         assert!(nas.ready());
-        let pi = of(Some(&st), "pi").unwrap();
+        let pi = of(Some(&live(&st)), "pi").unwrap();
         assert!(!pi.ready());
         assert_eq!(pi.tag(), Some(("0.2.2 available".into(), Mood::Quiet)));
-        let old = of(Some(&st), "old").unwrap();
+        let old = of(Some(&live(&st)), "old").unwrap();
         assert!(old.older && old.summary().is_empty());
         assert!(old.older_note().unwrap().contains("sudo burrow update"));
         assert_eq!(of(None, "nas"), None);
@@ -402,10 +406,10 @@ mod tests {
     #[test]
     fn a_table_row_reads_short_and_marks_updates_off_only_when_one_is_waiting() {
         let st = status();
-        let nas = of(Some(&st), "nas").unwrap();
+        let nas = of(Some(&live(&st)), "nas").unwrap();
         assert_eq!(nas.system_short(), "linux/arm64 · service");
         assert!(!nas.refuses());
-        let boxed = of(Some(&st), "box").unwrap();
+        let boxed = of(Some(&live(&st)), "box").unwrap();
         assert_eq!(boxed.system_short(), "linux/arm64 · started by hand");
         assert_eq!(
             boxed.summary(),
@@ -415,7 +419,7 @@ mod tests {
         let mut quiet = st.clone();
         quiet.clients[2].available = None;
         assert!(!of(Some(&quiet), "box").unwrap().refuses());
-        assert_eq!(of(Some(&st), "old").unwrap().system_short(), "");
+        assert_eq!(of(Some(&live(&st)), "old").unwrap().system_short(), "");
     }
 
     #[test]
@@ -447,7 +451,7 @@ mod tests {
             by: "ops (203.0.113.7)".into(),
             secs_ago: 2,
         });
-        let nas = of(Some(&st), "nas").unwrap();
+        let nas = of(Some(&live(&st)), "nas").unwrap();
         assert_eq!(nas.tag().unwrap().1, Mood::Busy);
         assert_eq!(
             nas.last_update().unwrap().0,
@@ -461,14 +465,18 @@ mod tests {
             finished: true,
             ..RolloutStatus::default()
         });
-        let (line, mood) = rollout_line(&st).unwrap();
+        let (line, mood) = rollout_line(&live(&st)).unwrap();
         assert_eq!(
             line,
             "Stopped updating to 0.2.2 at nas (rolled back: x); 0 updated"
         );
         assert_eq!(mood, Mood::Bad);
         assert_eq!(
-            of(Some(&st), "nas").unwrap().last_update().unwrap().1,
+            of(Some(&live(&st)), "nas")
+                .unwrap()
+                .last_update()
+                .unwrap()
+                .1,
             Mood::Bad
         );
     }
@@ -503,14 +511,26 @@ mod tests {
     fn this_server_is_always_up_and_a_client_is_up_while_connected() {
         let st = seen();
         let reserved = vec!["self".to_string()];
-        assert_eq!(presence(Some(&st), &reserved, "self"), Presence::Here);
+        assert_eq!(
+            presence(Some(&live(&st)), &reserved, "self"),
+            Presence::Here
+        );
         assert_eq!(presence(None, &reserved, "self"), Presence::Here);
-        assert_eq!(presence(Some(&st), &[], "self"), Presence::Here);
-        assert_eq!(presence(Some(&st), &reserved, "home"), Presence::Online);
-        assert_eq!(presence(Some(&st), &reserved, "office"), Presence::Offline);
-        assert_eq!(presence(Some(&st), &reserved, "gone"), Presence::Offline);
+        assert_eq!(presence(Some(&live(&st)), &[], "self"), Presence::Here);
+        assert_eq!(
+            presence(Some(&live(&st)), &reserved, "home"),
+            Presence::Online
+        );
+        assert_eq!(
+            presence(Some(&live(&st)), &reserved, "office"),
+            Presence::Offline
+        );
+        assert_eq!(
+            presence(Some(&live(&st)), &reserved, "gone"),
+            Presence::Offline
+        );
         assert_eq!(presence(None, &reserved, "home"), Presence::Unknown);
-        assert!(online(Some(&st), &reserved, "self") && !online(None, &[], "home"));
+        assert!(online(Some(&live(&st)), &reserved, "self") && !online(None, &[], "home"));
     }
 
     #[test]
@@ -528,12 +548,15 @@ mod tests {
     fn a_detail_says_where_from_or_since_when() {
         let st = seen();
         let reserved = vec!["self".to_string()];
-        assert_eq!(detail(Some(&st), &reserved, "home"), "online · 2001:db8::1");
-        assert_eq!(detail(Some(&st), &reserved, "office"), "offline");
-        assert_eq!(away_text(&st, "office", None), "left 2m ago");
-        assert_eq!(detail(Some(&st), &reserved, "self"), "This server");
+        assert_eq!(
+            detail(Some(&live(&st)), &reserved, "home"),
+            "online · 2001:db8::1"
+        );
+        assert_eq!(detail(Some(&live(&st)), &reserved, "office"), "offline");
+        assert_eq!(away_text(&live(&st), "office", None), "left 2m ago");
+        assert_eq!(detail(Some(&live(&st)), &reserved, "self"), "This server");
         assert_eq!(detail(None, &reserved, "home"), "");
-        let home = of(Some(&st), "home").unwrap();
+        let home = of(Some(&live(&st)), "home").unwrap();
         assert!(home.online && !home.local);
         assert_eq!(home.from.as_deref(), Some("2001:db8::1"));
     }

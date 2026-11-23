@@ -1,6 +1,5 @@
 use crate::live::Live;
 use burrow_admin_proto::msg::State;
-use burrow_admin_proto::status::Status;
 
 pub fn differences(state: &State, status: Option<&Live>) -> usize {
     let file = usize::from(!state.running.ok)
@@ -29,6 +28,11 @@ pub fn difference_note(n: usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burrow_admin_proto::status::Status;
+
+    fn live(s: &Status) -> Live {
+        Live::from(s.clone())
+    }
     use burrow_admin_proto::msg::NotOpen;
     use burrow_admin_proto::status::{PortWait, ServiceStatus};
 
