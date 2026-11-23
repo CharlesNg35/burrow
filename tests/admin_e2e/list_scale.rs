@@ -5,7 +5,7 @@ use super::{Ctx, SECS, edit_mode, open, run};
 const CLIENTS: usize = 500;
 const VISITORS: usize = 1000;
 
-fn opts(n: usize) -> Options {
+pub(super) fn opts(n: usize) -> Options {
     let visitors: String = (1..=VISITORS)
         .map(|i| format!("  v{i:04}:\n    secret: {}\n", world::secret()))
         .collect();
