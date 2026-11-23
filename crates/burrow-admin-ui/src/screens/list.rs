@@ -149,6 +149,7 @@ pub fn ListPane(
     #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
     #[prop(optional)] phone: PhoneList,
     #[prop(default = None)] by_file: Option<&'static str>,
+    #[prop(default = None)] live_section: Option<&'static str>,
 ) -> impl IntoView {
     let q = query
         .unwrap_or_else(|| RwSignal::new(route::query(route::SEARCH_QUERY).unwrap_or_default()));
@@ -220,6 +221,7 @@ pub fn ListPane(
             rows,
             selected,
             by_file,
+            live_section,
             searching,
         },
         empty,
@@ -304,6 +306,7 @@ pub(super) struct Shown {
     pub rows: Signal<Vec<Row>>,
     pub selected: Signal<Option<String>>,
     pub by_file: Option<&'static str>,
+    pub live_section: Option<&'static str>,
     pub searching: Signal<bool>,
 }
 

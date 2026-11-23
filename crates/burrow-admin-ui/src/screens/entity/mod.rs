@@ -20,7 +20,7 @@ use burrow_ui_kit::{Tone, tag_class};
 
 use detail::Detail;
 pub(crate) use list::{Entities, row_for};
-pub(crate) use live::{LiveText, live_text};
+pub(crate) use live::live_text;
 use problems::{apply_notes, problem_list, problems_for, problems_of};
 pub(crate) use rows::{live_card, protocol_view, service_tr};
 pub(crate) use summary::{HealthMark, health_mark, health_tag, mark_view};

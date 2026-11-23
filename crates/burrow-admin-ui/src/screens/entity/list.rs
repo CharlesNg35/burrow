@@ -331,7 +331,6 @@ fn filters_for(section: &str) -> Filters {
 }
 
 fn list_rows(section: String) -> Memo<Vec<Row>> {
-    live::provide_live_text(section.clone());
     let sec = section.clone();
     let around: StoredValue<Option<Around>> = StoredValue::new(None);
     let base = Memo::new(move |prev: Option<&Base>| base_for(&sec, prev, around));
@@ -466,6 +465,7 @@ pub fn Entities(section: String) -> impl IntoView {
             empty=(format!("No {} yet", section), format!("Add the first {what} with the + button."))
             testid="entity-list"
             by_file=kind
+            live_section=kind
         />
     }
     .into_any();

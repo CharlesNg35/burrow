@@ -36,9 +36,6 @@ pub(super) type Classes = HashMap<String, Class>;
 
 pub(super) const REMOVED: &str = "removed in your changes";
 
-#[derive(Clone)]
-pub(crate) struct LiveText(pub std::sync::Arc<str>);
-
 fn host_of(c: Option<&ClientStatus>) -> String {
     c.and_then(|c| c.from.as_deref())
         .map(burrow_admin_logic::presence::from_ip)
@@ -300,8 +297,4 @@ fn text(section: &str, name: &str, status: Option<&Status>) -> (String, String) 
 
 pub(crate) fn live_text(section: &str, name: &str) -> (String, String) {
     store().status.with(|st| text(section, name, st.as_deref()))
-}
-
-pub(crate) fn provide_live_text(section: String) {
-    provide_context(LiveText(section.into()));
 }
