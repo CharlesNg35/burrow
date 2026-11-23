@@ -1,3 +1,4 @@
+use burrow_admin_logic::changeset::Mark;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Entry, Protocol, ServiceEntry, entity_of_section};
@@ -10,7 +11,7 @@ use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
 use burrow_admin_proto::status::Status;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use super::file::Files;
@@ -21,9 +22,24 @@ use super::{Detail, plural};
 
 #[derive(Clone, PartialEq, Default)]
 pub(super) struct Base {
+    mark: Option<Mark>,
     rows: Vec<Row>,
     names: Vec<(String, Vec<String>)>,
-    inputs: HashMap<String, (Value, Option<Value>)>,
+}
+
+fn touched<'a>(section: &str, changed: &'a [Vec<String>]) -> Option<HashSet<&'a str>> {
+    let mut out = HashSet::new();
+    for p in changed {
+        match p.as_slice() {
+            [] => return None,
+            [s] if s == section => return None,
+            [s, name, ..] if s == section => {
+                out.insert(name.as_str());
+            }
+            _ => {}
+        }
+    }
+    Some(out)
 }
 
 type Kept<T> = Option<Arc<T>>;
@@ -193,40 +209,40 @@ pub(super) fn base_for(
     let same = seen.with_value(|w| w.as_ref() == Some(&now))
         && entity_of_section(section).is_none_or(|k| k == Entity::Service);
     seen.set_value(Some(now));
-    let kept: HashMap<&str, &Row> = prev
-        .filter(|_| same)
-        .map(|p| p.rows.iter().map(|r| (r.key.as_str(), r)).collect())
-        .unwrap_or_default();
     let linked: HashMap<&str, &Vec<String>> = prev
         .map(|p| p.names.iter().map(|(n, c)| (n.as_str(), c)).collect())
         .unwrap_or_default();
     store().edit.draft.with(|d| {
+        let fresh = prev
+            .filter(|_| same)
+            .and_then(|p| d.changed_since(p.mark?))
+            .and_then(|changed| touched(section, changed));
+        let kept: HashMap<&str, &Row> = prev
+            .filter(|_| fresh.is_some())
+            .map(|p| p.rows.iter().map(|r| (r.key.as_str(), r)).collect())
+            .unwrap_or_default();
         let draft = d.draft();
         let base_items = d.base().get(section).and_then(Value::as_object);
         let items = draft.get(section).and_then(Value::as_object);
         let ix = Index::new(section, None, draft, Files::now());
         let mut rows: Vec<Row> = Vec::new();
         let mut names = Vec::new();
-        let mut inputs = HashMap::new();
         for (name, v) in items.into_iter().flatten() {
-            let was = base_items.and_then(|b| b.get(name));
-            let old = prev.and_then(|p| p.inputs.get(name));
-            let reuse = old
-                .filter(|(ov, ob)| ov == v && ob.as_ref() == was)
+            let reuse = fresh
+                .as_ref()
+                .filter(|f| !f.contains(name.as_str()))
                 .and_then(|_| kept.get(name.as_str()));
-            match (reuse, old) {
-                (Some(row), Some(input)) => {
+            match reuse {
+                Some(row) => {
                     rows.push((*row).clone());
-                    inputs.insert(name.clone(), input.clone());
                     let clients = linked.get(name.as_str()).map(|c| (*c).clone());
                     names.push((
                         name.clone(),
                         clients.unwrap_or_else(|| clients_for(section, v)),
                     ));
                 }
-                _ => {
+                None => {
                     rows.push(one_row(section, name, v, base_items, &ix));
-                    inputs.insert(name.clone(), (v.clone(), was.cloned()));
                     names.push((name.clone(), clients_for(section, v)));
                 }
             }
@@ -256,9 +272,9 @@ pub(super) fn base_for(
             });
         }
         Base {
+            mark: Some(d.mark()),
             rows,
             names,
-            inputs,
         }
     })
 }
