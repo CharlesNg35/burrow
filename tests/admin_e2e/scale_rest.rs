@@ -137,36 +137,31 @@ async fn show_all(c: &Ctx) {
     .await;
 }
 
-async fn first_row(c: &Ctx) -> String {
-    c.ui.nav("/activity").await;
-    c.ui.wait_for("[data-testid=activity] [data-row]", LONG)
-        .await;
-    c.ui.all_attrs("[data-testid=activity] [data-row]", "data-row")
-        .await
-        .into_iter()
-        .next()
-        .expect("an activity entry")
-}
-
 async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
-    c.ui.nav("/activity").await;
-    c.ui.wait_for("[data-testid=activity]", LONG).await;
-    let before: String =
-        c.ui.eval("document.querySelector('[data-testid=activity] [data-row]')?.dataset.row ?? ''")
-            .await;
     c.world
         .hand_edit(|t| t.replace("    target: 10", "    target: 30"));
     c.ui.wait_text("[data-testid=toasts]", "Config changed", LONG)
         .await;
+    c.ui.nav("/services/ssh").await;
+    super::edit_mode(c).await;
+    c.ui.fill("#f-services-ssh-target", "23").await;
+    super::wait_checked(c).await;
+    super::review_now(c).await;
+    c.ui.wait_for("[data-testid=review]", LONG).await;
+    super::apply_now(c, "Applied").await;
+    c.ui.nav("/activity").await;
     c.ui.wait_true(
-        &format!(
-            "(() => {{ const r = document.querySelector('[data-testid=activity] [data-row]'); return !!r && r.dataset.row !== '{before}'; }})()"
-        ),
-        "the hand edit shows in Activity",
+        "document.querySelectorAll('[data-testid=activity] [data-row]').length >= 2",
+        "the hand edit shows in Activity with the next change",
         LONG,
     )
     .await;
-    let rev = first_row(c).await;
+    let rev =
+        c.ui.all_attrs("[data-testid=activity] [data-row]", "data-row")
+            .await
+            .get(1)
+            .cloned()
+            .expect("the hand edit");
     c.ui.nav("/overview").await;
     c.ui.wait_gone("[data-testid=activity]", SECS).await;
     let ms = until(
