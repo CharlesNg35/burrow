@@ -1,17 +1,29 @@
 use super::edits::Flow;
-use super::world::Options;
+use super::world::{self, Options};
 use super::{Ctx, open, run};
 
+const CLIENTS: usize = 500;
+const VISITORS: usize = 1000;
+
 fn opts(n: usize) -> Options {
+    let visitors: String = (1..=VISITORS)
+        .map(|i| format!("  v{i:04}:\n    secret: {}\n", world::secret()))
+        .collect();
     Options {
         extra_services: (1..=n)
             .map(|i| {
                 format!(
-                    "  s{i:04}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
-                    10000 + i
+                    "  s{i:04}:\n    client: c{:03}\n    target: {}\n    visitors: [laptop, v{:04}]\n",
+                    i % CLIENTS + 1,
+                    10000 + i,
+                    i % VISITORS + 1
                 )
             })
             .collect(),
+        extra_clients: (1..=CLIENTS)
+            .map(|i| format!("  c{i:03}:\n    secret: {}\n", world::secret()))
+            .collect(),
+        drop_ins: vec![("visitors.yaml", format!("visitors:\n{visitors}"), false)],
         ..Options::default()
     }
 }
@@ -82,7 +94,10 @@ async fn measure(c: &mut Ctx, n: usize) -> Numbers {
     )
     .await;
     let got: Numbers = c.ui.eval("window.__scale").await;
-    println!("list-scale {n} services: {got:?}");
+    let note = format!("list-scale {n} services: {got:?}\n");
+    let file = super::sheet::shots_dir().join("list-scale.txt");
+    let old = std::fs::read_to_string(&file).unwrap_or_default();
+    std::fs::write(&file, old + &note).expect("write the list numbers");
     c.ui.view_shot(&format!("list-{n}")).await;
     got
 }
