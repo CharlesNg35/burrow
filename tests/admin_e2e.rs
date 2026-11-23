@@ -45,6 +45,8 @@ mod le_places;
 mod letsencrypt;
 #[path = "admin_e2e/list_click.rs"]
 mod list_click;
+#[path = "admin_e2e/list_scale.rs"]
+mod list_scale;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
 #[path = "admin_e2e/long_names.rs"]
