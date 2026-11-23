@@ -228,3 +228,45 @@ fn scale_rest(c: &mut Ctx) -> Flow<'_> {
 fn search_review_and_diffs_stay_fast_at_scale() {
     run("scale-rest", opts(), false, scale_rest);
 }
+
+fn scale_form(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(1440, 900).await;
+        c.ui.nav("/overview").await;
+        let shown = until(
+            c,
+            "const run = (location.pathname.match(/^\\/r-[0-9a-f]+/) || [''])[0]; history.pushState(null, '', run + '/services/svc0042'); dispatchEvent(new PopStateEvent('popstate'))",
+            "[data-testid=path-diagram]",
+        )
+        .await
+        .round();
+        super::edit_mode(c).await;
+        let field = "#f-services-svc0042-target";
+        c.ui.wait_for(field, SECS).await;
+        let mut typed = Vec::new();
+        for text in ["2", "20", "200", "2004", "20042", "10042"] {
+            typed.push(
+                timed(
+                    c,
+                    &format!("const i = document.querySelector('{field}'); i.value = '{text}'; i.dispatchEvent(new Event('input', {{ bubbles: true }}))"),
+                )
+                .await
+                .round(),
+            );
+        }
+        let text = format!(
+            "service page among {SERVICES} services: shown in {shown} ms; typing in its target {typed:?} ms\n"
+        );
+        println!("{text}");
+        let dir = super::sheet::shots_dir().join("scale-form");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("timings.txt"), text);
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_service_form_stays_fast_at_scale() {
+    run("scale-form", opts(), false, scale_form);
+}
