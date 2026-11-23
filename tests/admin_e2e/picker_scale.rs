@@ -8,6 +8,7 @@ const DIALOG: &str = "[data-testid=login-dialog]";
 const TRAFFIC: &str = "#traffic-service";
 const MANY: usize = 5000;
 const ALL: usize = MANY + 2;
+const CLIENTS: usize = 500;
 
 fn opts() -> Options {
     Options {
@@ -15,12 +16,13 @@ fn opts() -> Options {
         extra_services: (1..=MANY)
             .map(|i| {
                 format!(
-                    "  app{i:04}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
+                    "  app{i:04}:\n    client: box{:03}\n    target: {}\n    visitors: [laptop]\n",
+                    i % CLIENTS + 1,
                     10000 + i
                 )
             })
             .collect(),
-        extra_clients: (1..=500)
+        extra_clients: (1..=CLIENTS)
             .map(|i| format!("  box{i:03}:\n    secret: {}\n", super::world::secret()))
             .collect(),
         ..Options::default()
