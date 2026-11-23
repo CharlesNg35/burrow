@@ -336,6 +336,13 @@ impl Ui {
         el.click().await.expect("click");
     }
 
+    pub async fn click_at(&self, x: f64, y: f64) {
+        self.page
+            .click(chromiumoxide::layout::Point { x, y })
+            .await
+            .expect("click");
+    }
+
     pub async fn fill(&self, css: &str, text: &str) {
         self.wait_for(css, Duration::from_secs(10)).await;
         let _: bool = self
