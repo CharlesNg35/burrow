@@ -135,13 +135,13 @@ fn group_names(groups: &[&'static str], all: &[Row]) -> Vec<String> {
 }
 
 fn flat(
-    all: Memo<Vec<Row>>,
+    rows: Signal<Vec<Row>>,
     visible: Memo<Vec<Row>>,
     groups: Vec<&'static str>,
     look: Look,
     cards: Cards,
 ) -> AnyView {
-    let names = Memo::new(move |_| all.with(|a| group_names(&groups, a)));
+    let names = Memo::new(move |_| rows.with(|a| group_names(&groups, a)));
     let items = Memo::new(move |_| {
         names.with(|g| visible.with(|v| super::list_window::items(g, v, !look.no_counts)))
     });
@@ -163,7 +163,6 @@ pub(super) fn list_body(
         searching,
     } = shown_in;
     let all = Memo::new(move |_| rows.with(|r| r.iter().map(still).collect::<Vec<_>>()));
-    let shown = revealed(visible, selected);
     let live: Memo<LiveMap> = Memo::new(move |_| {
         rows.with(|v| {
             v.iter()
@@ -171,7 +170,7 @@ pub(super) fn list_body(
                 .collect()
         })
     });
-    let cards = Cards {
+    let cards = move |shown| Cards {
         shown,
         selected,
         live,
@@ -191,8 +190,20 @@ pub(super) fn list_body(
         }
     };
     let body = move || match grouped.get() {
-        Some(kind) => file_groups::render(kind, all, visible, searching, cards),
-        None => flat(all, visible, groups.clone(), look, cards),
+        Some(kind) => file_groups::render(
+            kind,
+            all,
+            visible,
+            searching,
+            cards(revealed(visible, selected)),
+        ),
+        None => flat(
+            rows,
+            visible,
+            groups.clone(),
+            look,
+            cards(RwSignal::new(HashSet::new())),
+        ),
     };
     view! { {empty_view} {body} }.into_any()
 }
