@@ -7,8 +7,13 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};
 use burrow_admin_proto::value::{self, as_secret};
-use burrow_config::Entry;
 use burrow_config::renames::{Origin, arrivals, base_name, origins, within};
+
+mod entities;
+mod log;
+
+use log::ChangeLog;
+pub use log::Mark;
 
 pub const NEW_SECRET: &str = "$new_secret";
 
@@ -288,6 +293,7 @@ pub struct Changeset {
     draft: Value,
     renames: Vec<(Path, String)>,
     fresh: Vec<(String, String)>,
+    log: ChangeLog,
 }
 
 impl Changeset {
@@ -297,7 +303,16 @@ impl Changeset {
             base,
             renames: Vec::new(),
             fresh: Vec::new(),
+            log: ChangeLog::fresh(),
         }
+    }
+
+    pub fn mark(&self) -> Mark {
+        self.log.mark()
+    }
+
+    pub fn changed_since(&self, m: Mark) -> Option<&[Path]> {
+        self.log.since(m)
     }
 
     pub fn base(&self) -> &Value {
@@ -316,8 +331,10 @@ impl Changeset {
                 .map(|(p, to)| (p.as_slice(), to.as_str()));
             for at in arrivals(pairs, path) {
                 self.renames.remove(at);
+                self.log.everything();
             }
         }
+        self.log.note(path);
         value::put(&mut self.draft, path, (!value.is_null()).then_some(value));
     }
 
@@ -333,6 +350,7 @@ impl Changeset {
             if !empty || value::get(&self.base, at).is_some() {
                 break;
             }
+            self.log.note(at);
             value::put(&mut self.draft, at, None);
         }
     }
@@ -352,6 +370,7 @@ impl Changeset {
         if entity.is_none() || !rename_key(&mut self.draft, path, to) {
             return false;
         }
+        self.log.everything();
         burrow_config::refs::rename_refs(&mut self.draft, path, to);
         if new_item {
             return true;
@@ -427,8 +446,23 @@ impl Changeset {
     }
 
     pub fn ops(&self) -> Vec<Op> {
-        let mut renamed = self.base.clone();
         let mut out = Vec::new();
+        let renamed;
+        let from = if self.renames.is_empty() {
+            &self.base
+        } else {
+            renamed = self.renamed(&mut out);
+            &renamed
+        };
+        let (mut main, mut tail) = (Vec::new(), Vec::new());
+        diff(from, &self.draft, &[], &mut main, &mut tail);
+        out.extend(main);
+        out.extend(tail);
+        out
+    }
+
+    fn renamed(&self, out: &mut Vec<Op>) -> Value {
+        let mut renamed = self.base.clone();
         for (path, to) in &self.renames {
             let taken = path
                 .split_last()
@@ -449,11 +483,7 @@ impl Changeset {
                 });
             }
         }
-        let (mut main, mut tail) = (Vec::new(), Vec::new());
-        diff(&renamed, &self.draft, &[], &mut main, &mut tail);
-        out.extend(main);
-        out.extend(tail);
-        out
+        renamed
     }
 
     pub fn dirty(&self) -> bool {
@@ -476,6 +506,7 @@ impl Changeset {
         }
         self.base = base;
         self.draft = draft;
+        self.log.everything();
         self.renames.clear();
         for op in ops {
             if let Op::Rename { path, to, .. } = op {
@@ -521,55 +552,6 @@ impl Changeset {
 
     pub fn fresh(&self) -> &[(String, String)] {
         &self.fresh
-    }
-
-    pub fn changed_entities(&self) -> usize {
-        let ops = self.ops();
-        let sections = [
-            burrow_config::ClientEntry::section(),
-            burrow_config::VisitorEntry::section(),
-            burrow_config::ServiceEntry::section(),
-        ];
-        let mut seen: Vec<(Path, bool)> = Vec::new();
-        for (i, op) in ops.iter().enumerate() {
-            let Some(p) = op.path() else {
-                continue;
-            };
-            let p: Path = p.iter().take(2).cloned().collect();
-            let [section, name] = p.as_slice() else {
-                if burrow_config::refs::part_of(&self.base, &self.draft, &p, &self.renames)
-                    .is_none()
-                {
-                    seen.push((Vec::new(), true));
-                }
-                continue;
-            };
-            let earlier = ops[..i].iter().filter_map(|o| match o {
-                Op::Rename { path, to, .. } => Some((path.as_slice(), to.as_str())),
-                _ => None,
-            });
-            let base = self.base.get(section).and_then(Value::as_object);
-            let names = origins(
-                base.into_iter().flat_map(|m| m.keys().map(String::as_str)),
-                within(section, earlier),
-            );
-            let (id, known) = match names.get(name) {
-                Some(o) if o.base => (vec![section.clone(), o.name.clone()], true),
-                _ => (p.clone(), false),
-            };
-            if burrow_config::refs::part_of(&self.base, &self.draft, &id, &self.renames).is_some() {
-                continue;
-            }
-            let entity = sections.contains(&section.as_str());
-            seen.push(if entity {
-                (id, known)
-            } else {
-                (Vec::new(), true)
-            });
-        }
-        seen.sort();
-        seen.dedup();
-        seen.len()
     }
 }
 
