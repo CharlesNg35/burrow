@@ -14,7 +14,8 @@ fn opts() -> Options {
     let services = (0..SERVICES)
         .map(|i| {
             format!(
-                "  svc{i:04}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
+                "  svc{i:04}:\n    client: box{:03}\n    target: {}\n    visitors: [laptop]\n",
+                i % CLIENTS,
                 10000 + i
             )
         })
