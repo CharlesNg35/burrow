@@ -330,8 +330,22 @@ fn scale_form(c: &mut Ctx) -> Flow<'_> {
             &format!("const i = document.querySelector('{field}'); i.value = '20043'; i.dispatchEvent(new Event('input', {{ bubbles: true }}))"),
         )
         .await;
+        c.ui.nav("/settings").await;
+        super::edit_mode(c).await;
+        c.ui.wait_for("#f-listen", SECS).await;
+        let mut settings = Vec::new();
+        for text in ["127.0.0.1:1", "127.0.0.1:12"] {
+            settings.push(
+                timed(
+                    c,
+                    &format!("const i = document.querySelector('#f-listen'); i.value = '{text}'; i.dispatchEvent(new Event('input', {{ bubbles: true }}))"),
+                )
+                .await
+                .round(),
+            );
+        }
         let text = format!(
-            "service page among {SERVICES} services: shown in {shown} ms; typing in its target {typed:?} ms\nwhere one keystroke spends its time (inclusive ms):\n{top}\n"
+            "service page among {SERVICES} services: shown in {shown} ms; typing in its target {typed:?} ms; typing in Settings (no list on screen) {settings:?} ms\nwhere one keystroke spends its time (inclusive ms):\n{top}\n"
         );
         println!("{text}");
         let dir = super::sheet::shots_dir().join("scale-form");
