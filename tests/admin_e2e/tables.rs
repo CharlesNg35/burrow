@@ -92,8 +92,12 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
         c.ui.viewport(1440, 900).await;
         c.ui.click("[data-testid=overview-tabs] [data-testid=view-all]")
             .await;
-        c.ui.wait_for("[data-testid=entity-list] [data-row=z50]", SECS)
-            .await;
+        c.ui.wait_true(
+            "Number(document.querySelector('[data-testid=entity-list] [data-testid=list-window]')?.dataset.count) >= 50",
+            "the full list of 50 clients",
+            SECS,
+        )
+        .await;
         let home = c.ui.text("[data-testid=entity-list] [data-row=home]").await;
         assert!(
             !home.contains("s01"),
@@ -104,8 +108,9 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
             "the sidebar shows the IP: {home}"
         );
         c.ui.fill("#list-search", "s17").await;
-        c.ui.wait_gone(
-            "[data-testid=entity-list] [data-row=z50]:not([hidden])",
+        c.ui.wait_true(
+            "Number(document.querySelector('[data-testid=entity-list] [data-testid=list-window]')?.dataset.count) < 50",
+            "the search narrows the list",
             SECS,
         )
         .await;
