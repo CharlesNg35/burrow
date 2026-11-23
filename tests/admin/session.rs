@@ -57,6 +57,63 @@ async fn an_admin_gets_welcome_schema_state_and_live_status() {
 }
 
 #[tokio::test]
+async fn an_admin_that_understands_deltas_gets_a_snapshot_then_changes() {
+    use burrow_admin_proto::delta::{Follow, Follower, StatusUpdate};
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let welcome = a
+        .call("welcome", json!({"understands": ["status.delta"]}))
+        .await
+        .unwrap();
+    assert!(
+        welcome["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("status.delta"))
+    );
+    a.call("subscribe", json!({"status_ms": 500}))
+        .await
+        .unwrap();
+    let mut follower = Follower::default();
+    let mut shown = None;
+    let mut seqs = Vec::new();
+    for _ in 0..3 {
+        let u: StatusUpdate = serde_json::from_value(a.event("status.sync").await).unwrap();
+        seqs.push(u.seq());
+        match follower.take(shown.as_ref(), u) {
+            Follow::Show(s) => shown = Some(*s),
+            other => panic!("each update follows: {other:?}"),
+        }
+    }
+    assert_eq!(seqs, [1, 2, 3]);
+    let s = shown.expect("a status");
+    assert_eq!(s.clients[0].name, "home");
+    assert!(s.uptime_secs > 0 && !s.version.is_empty());
+    a.call("subscribe", json!({"status_ms": 500}))
+        .await
+        .unwrap();
+    let mut fresh = Follower::default();
+    loop {
+        let u: StatusUpdate = serde_json::from_value(a.event("status.sync").await).unwrap();
+        if let Follow::Show(s) = fresh.take(None, u) {
+            assert_eq!(s.clients[0].name, "home");
+            break;
+        }
+    }
+    let mut b = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    b.call("welcome", json!({})).await.unwrap();
+    b.call("subscribe", json!({"status_ms": 500}))
+        .await
+        .unwrap();
+    assert_eq!(b.event("status").await["clients"][0]["name"], "home");
+    assert!(
+        !b.events.iter().any(|(e, _)| e == "status.sync"),
+        "a caller that does not list status.delta gets full status events"
+    );
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
 async fn only_admin_visitors_get_in_and_sessions_are_capped() {
     let w = world().await;
     let refused = connect(&w, "plain", &w.plain, 1, 1).await.err().unwrap();

@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- **burrow admin's live status sends only what changed:** after one full status, each second carries only the added, changed and removed services, clients and visitors, and a busy service only its counters, so thousands of services no longer cost the browser a full status every second. An older burrow admin keeps getting the full status, and a new one works with an older server as before.
 - burrow admin's Raw config: **Shift+F12** on a client, visitor, service or login service name (or the key defining it) lists every place using it, in every file, unsaved edits included; Enter or a click opens it. The hover card on a name ends with Definition · Uses links, and shows only once the pointer rests on it.
 - leptos-config-editor 0.2.2.
 - burrow admin's Settings keeps its tab, and Raw config its full screen, while you visit other pages; a reload keeps the tab in the address.
