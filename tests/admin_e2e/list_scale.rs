@@ -1,6 +1,6 @@
 use super::edits::Flow;
 use super::world::{self, Options};
-use super::{Ctx, open, run};
+use super::{Ctx, SECS, open, run};
 
 const CLIENTS: usize = 500;
 const VISITORS: usize = 1000;
@@ -126,10 +126,42 @@ fn at_500(c: &mut Ctx) -> Flow<'_> {
     })
 }
 
+async fn in_view(c: &Ctx, key: &str) -> bool {
+    c.ui.eval(&format!(
+        "(() => {{ const l = document.querySelector('[data-testid=list]').getBoundingClientRect(); const r = document.querySelector('[data-row={key}]').getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; }})()"
+    ))
+    .await
+}
+
+async fn far_rows(c: &mut Ctx) {
+    c.ui.nav("/services/s4000").await;
+    c.ui.wait_for("[data-row=s4000][data-selected=true]", SECS).await;
+    c.ui.wait_true(
+        "(() => { const l = document.querySelector('[data-testid=list]').getBoundingClientRect(); const r = document.querySelector('[data-row=s4000]').getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; })()",
+        "a row far down the list is scrolled into view when opened",
+        SECS,
+    )
+    .await;
+    c.ui.press("[data-testid=list]", "ArrowDown").await;
+    c.ui.wait_for("[data-row=s4001][data-selected=true]", SECS).await;
+    assert!(in_view(c, "s4001").await, "the arrow keys keep the next row in view");
+    c.ui.view_shot("list-5000-far-row").await;
+    c.ui.fill("#list-search", "s4999").await;
+    c.ui.wait_for("[data-row=s4999]", SECS).await;
+    assert_eq!(
+        c.ui.count("[data-testid=list] [data-row]").await,
+        1,
+        "search shows only the match"
+    );
+    c.ui.fill("#list-search", "").await;
+    c.ui.wait_for("[data-row=s4001][data-selected=true]", SECS).await;
+}
+
 fn at_5000(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         let got = measure(c, 5000).await;
         check(5000, &got);
+        far_rows(c).await;
         c.ui.assert_no_errors();
     })
 }
