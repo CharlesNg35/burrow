@@ -135,7 +135,11 @@ async fn first_row(c: &Ctx) -> String {
 }
 
 async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
-    let before = first_row(c).await;
+    c.ui.nav("/activity").await;
+    c.ui.wait_for("[data-testid=activity]", LONG).await;
+    let before: String =
+        c.ui.eval("document.querySelector('[data-testid=activity] [data-row]')?.dataset.row ?? ''")
+            .await;
     c.world
         .hand_edit(|t| t.replace("    target: 10", "    target: 30"));
     c.ui.wait_true(
