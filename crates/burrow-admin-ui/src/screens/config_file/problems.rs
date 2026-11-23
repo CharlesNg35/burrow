@@ -4,7 +4,7 @@ use leptos_config_editor::{FieldPath, HostDiagnostic, TextPosition, TextRange};
 
 pub const SOURCE: &str = "burrow";
 
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Place {
     Path(Vec<String>),
     At(u32, u32, Option<(u32, u32)>),
@@ -84,16 +84,16 @@ fn host(m: Merged) -> HostDiagnostic {
 
 pub fn host_problems(diags: &[Diag], file: &str, main: &str) -> Vec<HostDiagnostic> {
     let mut out: Vec<Merged> = Vec::new();
+    let mut at: std::collections::BTreeMap<(Place, Severity), usize> =
+        std::collections::BTreeMap::new();
     for d in diags
         .iter()
         .filter(|d| d.file.as_deref().unwrap_or(main) == file)
     {
         let place = place_of(d);
         let message = message_of(d);
-        match out
-            .iter_mut()
-            .find(|m| m.place == place && m.severity == d.severity)
-        {
+        let key = (place.clone(), d.severity);
+        match at.get(&key).and_then(|i| out.get_mut(*i)) {
             Some(m) => {
                 if !m.messages.contains(&message) {
                     m.messages.push(message);
@@ -102,12 +102,15 @@ pub fn host_problems(diags: &[Diag], file: &str, main: &str) -> Vec<HostDiagnost
                     m.code.clear();
                 }
             }
-            None => out.push(Merged {
-                place,
-                severity: d.severity,
-                code: d.code.clone(),
-                messages: vec![message],
-            }),
+            None => {
+                at.insert(key, out.len());
+                out.push(Merged {
+                    place,
+                    severity: d.severity,
+                    code: d.code.clone(),
+                    messages: vec![message],
+                });
+            }
         }
     }
     out.into_iter().map(host).collect()

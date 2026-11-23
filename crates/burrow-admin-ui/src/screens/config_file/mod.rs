@@ -98,7 +98,7 @@ fn edit_notes(note: Memo<Option<String>>) -> impl IntoView {
 }
 
 fn file_body(loaded: RwSignal<Loaded>) -> impl IntoView {
-    let text = Signal::derive(move || {
+    let text = Memo::new(move |_| {
         loaded.with(|l| match l {
             Some(Ok(v)) => v.text(),
             _ => String::new(),
@@ -111,14 +111,16 @@ fn file_body(loaded: RwSignal<Loaded>) -> impl IntoView {
             Some(Err(e)) => Some(Err(e.clone())),
         })
     });
-    move || match shape.get() {
+    move || {
+        match shape.get() {
         None => view! { <p class="text-sm text-text-muted">"Loading…"</p> }.into_any(),
         Some(Err(e)) => {
             view! { <p class="text-sm text-danger" data-testid="file-error">{e}</p> }.into_any()
         }
         Some(Ok(name)) => {
-            view! { <CodeBlock text=text file_name=name testid="file-text" fills=true/> }.into_any()
+            view! { <CodeBlock text=Signal::from(text) file_name=name testid="file-text" fills=true/> }.into_any()
         }
+    }
     }
 }
 

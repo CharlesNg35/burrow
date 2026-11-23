@@ -32,16 +32,25 @@ pub fn name_problem(name: &str, section: &str, except: Option<&str>) -> Option<S
             "{name} is reserved for this server; give the client another name"
         ));
     }
-    (taken(section).iter().any(|t| t == name) && except != Some(name))
+    let exists = store().edit.draft.with(|d| {
+        d.draft()
+            .get(section)
+            .and_then(Value::as_object)
+            .is_some_and(|m| m.contains_key(name))
+    });
+    (exists && except != Some(name))
         .then(|| format!("a {} named {name} already exists", singular(section)))
 }
 
 fn template(section: &str) -> Value {
     let mut v = json!({});
     if section == ServiceEntry::section() {
-        let doc = store().edit.doc();
         let reserved = crate::format::reserved_clients();
-        if let Some(c) = burrow_admin_logic::choices::default_client(&doc, &reserved) {
+        if let Some(c) = untrack(|| {
+            store()
+                .edit
+                .with_doc(|doc| burrow_admin_logic::choices::default_client(doc, &reserved))
+        }) {
             ServiceEntry::CLIENT.set(&mut v, Value::String(c));
         }
         ServiceEntry::TARGET.set(&mut v, Value::from(8080));
