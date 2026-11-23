@@ -359,7 +359,6 @@ pub(super) fn check_sites(
     dns_secrets::check_dns_secrets(cfg, base_dir, spans, out);
     #[cfg(feature = "web")]
     dns_entries::check_dns_entries(cfg, base_dir, spans, out);
-    #[cfg(feature = "web")]
     choices::check_choices(cfg, (https, http), spans, out);
     low::check_swapped((https, http), spans, out);
     sites
