@@ -96,12 +96,13 @@ fn website_summary(v: Option<&Value>, https_on: bool) -> String {
     }
 }
 
-fn view_line(way: Way, svc: Path) -> impl IntoView {
+fn view_line(way: Way, svc: Path, spath: &Path) -> impl IntoView {
     let e = store().edit;
     let p = child(&svc, way.key());
+    let schema = super::join(&child(spath, way.key()));
     let text = Signal::derive(move || shown(way, e.value(&p).as_ref()));
     view! {
-        <li class="border-b border-rowline py-3 first:pt-0 last:border-b-0" data-way=way.key()>
+        <li class="border-b border-rowline py-3 first:pt-0 last:border-b-0" data-way=way.key() data-schema=schema>
             <div class="mb-1.5 flex flex-wrap items-baseline gap-x-2">
                 <span class="text-sm font-semibold">{way.label()}</span>
                 <span class="text-xs text-text-muted">{way.who()}</span>
@@ -278,7 +279,7 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
         } else {
             let lines = Way::ALL
                 .into_iter()
-                .map(|w| view_line(w, svc.clone()))
+                .map(|w| view_line(w, svc.clone(), &spath))
                 .collect_view();
             view! { <div><ul data-testid="reached-by-view">{lines}</ul></div> }.into_any()
         }
