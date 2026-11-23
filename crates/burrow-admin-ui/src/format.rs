@@ -8,16 +8,38 @@ pub use burrow_syntax::size::bytes;
 use burrow_ui_kit::Tone;
 use leptos::prelude::*;
 
-pub fn reserved_clients() -> Vec<String> {
-    crate::store::try_store()
-        .and_then(|s| {
-            s.schema.with(|s| {
-                s.as_ref()
-                    .and_then(|s| s.root.at(&ServiceEntry::CLIENT.schema()))
-                    .map(|n| n.sem.reserved().to_vec())
-            })
-        })
+type Reserved = Option<(
+    std::sync::Arc<burrow_admin_proto::schema::Schema>,
+    Vec<String>,
+)>;
+
+thread_local! {
+    static RESERVED: std::cell::RefCell<Reserved> = const { std::cell::RefCell::new(None) };
+}
+
+fn reserved_in(schema: &burrow_admin_proto::schema::Schema) -> Vec<String> {
+    schema
+        .root
+        .at(&ServiceEntry::CLIENT.schema())
+        .map(|n| n.sem.reserved().to_vec())
         .unwrap_or_default()
+}
+
+pub fn reserved_clients() -> Vec<String> {
+    let Some(schema) = crate::store::try_store().and_then(|s| s.schema.get()) else {
+        return Vec::new();
+    };
+    RESERVED.with(|c| {
+        let mut c = c.borrow_mut();
+        match c.as_ref() {
+            Some((at, names)) if std::sync::Arc::ptr_eq(at, &schema) => names.clone(),
+            _ => {
+                let names = reserved_in(&schema);
+                *c = Some((schema, names.clone()));
+                names
+            }
+        }
+    })
 }
 
 pub fn presence_of(status: Option<&Status>, name: &str) -> Presence {

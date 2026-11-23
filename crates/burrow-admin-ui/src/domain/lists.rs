@@ -21,7 +21,7 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     }
     let e = store().edit;
     let path = fc.path.clone();
-    let items = Signal::derive(move || match e.value(&path) {
+    let items = Memo::new(move |_| match e.value(&path) {
         Some(Value::Array(a)) => a.iter().map(|x| to_text(Some(x))).collect(),
         Some(Value::String(s)) if s != ANY => vec![s],
         _ => Vec::<String>::new(),
@@ -67,6 +67,8 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     .into_any()
 }
 
+const MAP_STEP: usize = 50;
+
 pub(super) fn map_editor(
     fc: FieldCtx,
     entity: Option<Entity>,
@@ -89,10 +91,12 @@ pub(super) fn map_editor(
         SemType::List(_) => Value::Array(Vec::new()),
         _ => Value::Object(Default::default()),
     };
+    let shown = RwSignal::new(MAP_STEP);
     let add = move |k: String| {
         if k.is_empty() {
             return;
         }
+        shown.set(usize::MAX);
         let mut p = p_add.clone();
         p.push(k);
         e.set(&p, Some(add_default.clone()));
@@ -106,44 +110,40 @@ pub(super) fn map_editor(
         .filter(|e| burrow_config::entity_path(e) == fc.path);
     let add_label = burrow_admin_logic::wording::add_label(&fc.node.label, &value_node.label);
     let shown_as = reserved.clone();
-    let rows = move || {
-        keys.get()
-            .into_iter()
-            .map(|k| {
-                let p = child(&fc2.path, &k);
-                let sp = child(&fc2.spath, "*");
-                let sub = FieldCtx {
-                    node: value_node.clone(),
-                    path: p.clone(),
-                    spath: sp,
-                    entity: fc2.entity.clone(),
-                    id: format!(
-                        "{}-{}",
-                        fc2.id,
-                        k.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
-                    ),
-                    msg_id: fc2.msg_id.clone(),
-                    touched: fc2.touched,
-                    inherited: None,
-                };
-                let label = burrow_admin_logic::choices::label_of(&k, &shown_as);
-                let rename = renames.clone().map(|entity| rename_button(entity, &k));
-                view! {
-                    <div class="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-start gap-2 py-1 max-sm:grid-cols-1 max-sm:gap-1" data-key=k.clone()>
-                        <div class="flex min-w-0 items-center gap-0.5 pt-1.5">
-                            <span class="truncate font-mono text-sm">{label}</span>
-                            <burrow_ui_kit::IconButton icon="x" label=format!("Remove {k}") testid="remove-key" on_click=move |_| e.remove_pruned(&p)/>
-                            {rename}
-                        </div>
-                        <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::hidden::hidden_or(sub, super::keyed::string_editor) } else { editor(sub) }}</div>
-                    </div>
-                }
-            })
-            .collect_view()
+    let row = move |k: String| {
+        let p = child(&fc2.path, &k);
+        let sp = child(&fc2.spath, "*");
+        let sub = FieldCtx {
+            node: value_node.clone(),
+            path: p.clone(),
+            spath: sp,
+            entity: fc2.entity.clone(),
+            id: format!(
+                "{}-{}",
+                fc2.id,
+                k.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+            ),
+            msg_id: fc2.msg_id.clone(),
+            touched: fc2.touched,
+            inherited: None,
+        };
+        let label = burrow_admin_logic::choices::label_of(&k, &shown_as);
+        let rename = renames.clone().map(|entity| rename_button(entity, &k));
+        view! {
+            <div class="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] items-start gap-2 py-1 max-sm:grid-cols-1 max-sm:gap-1" data-key=k.clone()>
+                <div class="flex min-w-0 items-center gap-0.5 pt-1.5">
+                    <span class="truncate font-mono text-sm">{label}</span>
+                    <burrow_ui_kit::IconButton icon="x" label=format!("Remove {k}") testid="remove-key" on_click=move |_| e.remove_pruned(&p)/>
+                    {rename}
+                </div>
+                <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::hidden::hidden_or(sub, super::keyed::string_editor) } else { editor(sub) }}</div>
+            </div>
+        }
     };
     view! {
         <div class="space-y-1" id=fc.id.clone()>
-            {rows}
+            <For each=move || keys.with(|k| k.iter().take(shown.get()).cloned().collect::<Vec<_>>()) key=String::clone children=row/>
+            <burrow_ui_kit::ShowMore shown=shown total=Signal::derive(move || keys.with(Vec::len)) step=MAP_STEP noun="entries" class="px-0" testid="map-more"/>
             {key.filter(|_| entity.is_none()).map(|key| super::keyed::key_adder(fc.id.clone(), fc.node.label.clone(), key, keys, add.clone()))}
             {entity.clone().map(|ent| view! {
                 <div class="max-w-60" data-add-key="">

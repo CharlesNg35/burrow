@@ -24,8 +24,9 @@ pub struct FieldCtx {
 }
 
 pub fn names_of(entity: &Entity) -> Vec<String> {
-    let doc = store().edit.doc();
-    names(&doc, &burrow_config::entity_path(entity))
+    store()
+        .edit
+        .with_doc(|doc| names(doc, &burrow_config::entity_path(entity)))
 }
 
 pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
@@ -35,9 +36,9 @@ pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
             Some(burrow_admin_logic::wording::required(&node.label))
         }
         None => None,
-        Some(x) => check_in(node, x, &e.doc())
+        Some(x) => untrack(|| e.with_doc(|doc| check_in(node, x, doc)))
             .err()
-            .or_else(|| refs_exist(node, x, &ref_names(node)).err()),
+            .or_else(|| refs_exist(node, x, &untrack(|| ref_names(node))).err()),
     };
     e.local_error(&fc.path, problem);
     e.set(&fc.path, v);
@@ -54,7 +55,7 @@ fn ref_names(node: &Node) -> Vec<String> {
 
 #[derive(Clone)]
 pub struct Ctx {
-    pub doc: Value,
+    pub doc: std::sync::Arc<Value>,
     pub path: Vec<String>,
 }
 

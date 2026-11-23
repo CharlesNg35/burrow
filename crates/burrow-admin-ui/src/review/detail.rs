@@ -122,7 +122,7 @@ pub(super) fn detail(plan: std::sync::Arc<Plan>, source: Source) -> AnyView {
             {impact_section(&plan, &restart, impacts, label)}
             {(!new_diags.is_empty()).then(|| view! {
                 <h3 class=label>"Errors and warnings from this change"</h3>
-                <ul class="mb-6 space-y-1" data-testid="review-diags">{diags}</ul>
+                {diags}
             })}
             {(old_problems > 0).then(|| view! {
                 <p class="-mt-3 mb-6 text-[12.5px] text-text-muted" data-testid="old-problems">
@@ -207,28 +207,43 @@ fn confirms_view(plan: &Plan) -> impl IntoView + use<> {
         .collect_view()
 }
 
-fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
-    new_diags
-        .iter()
-        .map(|d| {
-            let where_ = d
-                .path
-                .as_ref()
-                .map(|p| {
-                    store()
-                        .schema
-                        .with_untracked(|sc| sc.as_ref().map(|sc| place_of(&sc.root, p)))
-                        .unwrap_or_else(|| p.join("."))
-                })
-                .unwrap_or_default();
-            view! {
-                <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
-                    <strong>{where_}</strong>" "{burrow_admin_logic::wording::diag_text(d)}
-                    {burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref()).map(|h| view! { <p class="mt-1 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="diag-hint">{h}</p> })}
-                </li>
-            }
+const DIAGS_STEP: usize = 50;
+
+fn diag_item(d: &Diag) -> impl IntoView + use<> {
+    let where_ = d
+        .path
+        .as_ref()
+        .map(|p| {
+            store()
+                .schema
+                .with_untracked(|sc| sc.as_ref().map(|sc| place_of(&sc.root, p)))
+                .unwrap_or_else(|| p.join("."))
         })
-        .collect_view()
+        .unwrap_or_default();
+    view! {
+        <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
+            <strong>{where_}</strong>" "{burrow_admin_logic::wording::diag_text(d)}
+            {burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref()).map(|h| view! { <p class="mt-1 text-xs text-text-muted [overflow-wrap:anywhere]" data-testid="diag-hint">{h}</p> })}
+        </li>
+    }
+}
+
+fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
+    let total = new_diags.len();
+    let all = StoredValue::new(new_diags.to_vec());
+    let shown = RwSignal::new(DIAGS_STEP);
+    view! {
+        <div class="mb-6">
+        <ul class="space-y-1" data-testid="review-diags">
+            <For
+                each=move || 0..burrow_ui_kit::shown_of(total, shown.get())
+                key=|i| *i
+                children=move |i| all.with_value(|d| d.get(i).map(diag_item))
+            />
+        </ul>
+        <burrow_ui_kit::ShowMore shown=shown total=total step=DIAGS_STEP noun="errors and warnings" class="px-0" testid="diags-more"/>
+        </div>
+    }
 }
 
 const CHECKED: &str = "Checked with the same rules as burrow validate";

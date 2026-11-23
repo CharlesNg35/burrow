@@ -14,6 +14,7 @@ use crate::store::{Store, store};
 use super::detail::{detail, outcome_view};
 
 const SEE_CHANGES: &str = "See what changed";
+const CONFLICT_STEP: usize = 50;
 use super::{change_groups, group_line, kind_look};
 
 #[component]
@@ -145,9 +146,9 @@ fn review_rows(
     s: Store,
     plan: Memo<Option<std::sync::Arc<Plan>>>,
     standalone: Memo<bool>,
-) -> Signal<Vec<Row>> {
+) -> Memo<Vec<Row>> {
     let e = s.edit;
-    Signal::derive(move || {
+    Memo::new(move |_| {
         let Some(p) = plan.get() else {
             return Vec::new();
         };
@@ -361,12 +362,18 @@ pub fn ConflictDialog() -> impl IntoView {
                 .unwrap_or_default()
         })
     };
+    let (theirs_shown, mine_shown) = (RwSignal::new(CONFLICT_STEP), RwSignal::new(CONFLICT_STEP));
+    let theirs_total = Signal::derive(move || {
+        e.conflict
+            .with(|c| c.as_ref().map_or(0, |c| c.theirs.len()))
+    });
     let theirs = move || {
         let tag = by();
         e.conflict.with(|c| {
             c.as_ref().map(|c| {
                 c.theirs
                     .iter()
+                    .take(theirs_shown.get())
                     .map(|ch| {
                         view! {
                             <li class="flex items-center gap-2.5 border-b border-rowline py-2.5 last:border-b-0">
@@ -386,6 +393,7 @@ pub fn ConflictDialog() -> impl IntoView {
                 .map(|p| {
                     p.changes
                         .iter()
+                        .take(mine_shown.get())
                         .map(|ch| {
                             let overlap = theirs.iter().any(|t| t.starts_with(&ch.path) || ch.path.starts_with(t));
                             view! {
@@ -418,10 +426,12 @@ pub fn ConflictDialog() -> impl IntoView {
         <Dialog open=open title="The config changed on the server" sub=sub icon="refresh" tone=Tone::Warning wide=true testid="conflict">
             {move || e.conflict.with(|c| c.as_ref().is_some_and(|c| !c.theirs.is_empty())).then(|| view! {
                 <h3 class=label>{move || format!("Changed on the server · {}", current())}</h3>
-                <ul class="mb-4 text-sm" data-testid="conflict-theirs">{theirs}</ul>
+                <ul class="text-sm" data-testid="conflict-theirs">{theirs}</ul>
+                <div class="mb-4"><burrow_ui_kit::ShowMore shown=theirs_shown total=theirs_total step=CONFLICT_STEP noun="changes" class="px-0"/></div>
             })}
             {move || (n_mine() > 0).then(|| view! { <h3 class=label>{format!("{} · {}", burrow_admin_logic::wording::capital(burrow_admin_logic::wording::YOUR_CHANGES), n_mine())}</h3> })}
-            <ul class="mb-5 text-sm" data-testid="conflict-mine">{mine}</ul>
+            <ul class="text-sm" data-testid="conflict-mine">{mine}</ul>
+            <div class="mb-5"><burrow_ui_kit::ShowMore shown=mine_shown total=Signal::derive(n_mine) step=CONFLICT_STEP noun="changes" class="px-0"/></div>
             <div class="flex flex-wrap items-center gap-2">
                 <Button label="Discard my changes" variant=burrow_ui_kit::ButtonLook::GhostDanger testid="conflict-discard" on_click=move |_| {
                     e.conflict_revert.set(None);

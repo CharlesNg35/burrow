@@ -23,6 +23,7 @@ mod row_menu;
 mod screens;
 mod secrets;
 mod shown;
+mod status_index;
 mod store;
 mod uploads;
 

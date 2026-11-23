@@ -35,6 +35,11 @@ async fn several_services_are_one_line_each(c: &mut Ctx) {
     open_review(c, "review-paths-two").await;
     assert_eq!(c.ui.count(LINE).await, 2, "one line per changed service");
     assert_eq!(opened(c).await, [false, false], "the lines start folded");
+    assert_eq!(
+        c.ui.count("[data-review-path] [role=group]").await,
+        0,
+        "a folded line draws its diagram only when opened"
+    );
     let lines: Vec<String> = c
         .ui
         .eval("[...document.querySelectorAll('[data-testid=review-path-line]')].map(l => l.innerText.replace(/\\s+/g, ' ').trim())")

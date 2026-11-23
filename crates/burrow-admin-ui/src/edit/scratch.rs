@@ -25,6 +25,14 @@ fn put(base: Value, at: &[String], v: Option<Value>) -> Value {
     c.draft().clone()
 }
 
+pub fn placed_or_same(doc: &Value, all: &[Scratch]) -> Value {
+    if all.is_empty() {
+        doc.clone()
+    } else {
+        placed(doc, all)
+    }
+}
+
 pub fn placed(doc: &Value, all: &[Scratch]) -> Value {
     all.iter()
         .fold(doc.clone(), |d, s| put(d, &s.at, Some(s.value.clone())))

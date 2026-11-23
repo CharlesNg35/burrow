@@ -38,13 +38,16 @@ fn fact(label: &'static str, value: String, testid: &'static str) -> impl IntoVi
     }
 }
 
+const SITES_SHOWN: usize = 12;
+
 pub fn local_ca_card() -> impl IntoView {
     let s = store();
     let ca = Memo::new(move |_| {
         s.status
             .with(|st| st.as_ref().and_then(|st| st.local_ca.clone()))
     });
-    let sites = Memo::new(move |_| internal_sites(&s.edit.doc()));
+    let sites = Memo::new(move |_| s.edit.with_doc(internal_sites));
+    let shown = RwSignal::new(SITES_SHOWN);
     move || {
         let ca = ca.get();
         let sites = sites.get();
@@ -61,15 +64,21 @@ pub fn local_ca_card() -> impl IntoView {
             view! { "No site uses it yet." }.into_any()
         } else {
             let n = sites.len();
+            let rest = n.saturating_sub(shown.get());
             let links = sites
                 .into_iter()
+                .take(shown.get())
                 .enumerate()
                 .map(|(i, s)| view! {
                     {(i > 0).then_some(", ")}
                     <crate::route::Link to=crate::route::Route::Detail(ServiceEntry::section().into(), s.clone()) class="font-semibold text-accent-ink no-underline hover:underline">{s}</crate::route::Link>
                 })
                 .collect_view();
-            view! { {burrow_admin_logic::wording::used_by_sites(n)}{links} }.into_any()
+            let more = (rest > 0).then(|| view! {
+                " and "
+                <button type="button" class="cursor-pointer font-semibold text-accent-ink hover:underline" data-testid="local-ca-more" on:click=move |_| shown.set(usize::MAX)>{format!("{rest} more")}</button>
+            });
+            view! { {burrow_admin_logic::wording::used_by_sites(n)}{links}{more} }.into_any()
         };
         let pending = ca.is_none().then(|| view! {
             <p class="text-[13px] text-text-muted" data-testid="local-ca-pending">"No local CA exists yet. burrow makes one when the first site with HTTPS: Local CA is applied."</p>

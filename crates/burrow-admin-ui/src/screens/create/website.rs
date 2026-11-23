@@ -203,8 +203,9 @@ fn start_scratch(e: crate::edit::Edit) -> (StoredValue<Path>, StoredValue<Path>)
         crate::edit::NEW.to_string(),
     ];
     let mut start = json!({});
+    let reserved = crate::format::reserved_clients();
     if let Some(c) =
-        burrow_admin_logic::choices::default_client(&e.doc(), &crate::format::reserved_clients())
+        untrack(|| e.with_doc(|doc| burrow_admin_logic::choices::default_client(doc, &reserved)))
     {
         ServiceEntry::CLIENT.set(&mut start, json!(c));
     }
@@ -263,7 +264,7 @@ fn problem_of(f: Fields) -> (Memo<Option<String>>, Memo<bool>) {
         };
         s.schema.with(|sc| {
             sc.as_ref()
-                .and_then(|sc| website_problem(&i, &sc.root, &e.doc()))
+                .and_then(|sc| e.with_doc(|doc| website_problem(&i, &sc.root, doc)))
         })
     });
     let at_field = Memo::new(move |_| {
