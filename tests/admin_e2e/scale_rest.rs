@@ -86,7 +86,6 @@ async fn search(c: &Ctx, out: &mut Vec<String>) {
         sorted[sorted.len() / 2] < 200.0 && sorted.iter().all(|ms| *ms < 2000.0),
         "each keystroke answers quickly: {typed:?}"
     );
-    keys(c).await;
     let wide = timed(c, &TYPE.replace("TEXT", "e")).await.round();
     let wide_options = c.ui.count("[data-testid=search] [role=option]").await;
     save(
@@ -114,6 +113,7 @@ async fn keys(c: &Ctx) {
 
 async fn show_all(c: &Ctx) {
     timed(c, &TYPE.replace("TEXT", "svc00")).await;
+    keys(c).await;
     let all: Vec<String> = c
         .ui
         .eval("[...document.querySelectorAll('[data-testid=search] [role=option]')].map(o => o.textContent)")
@@ -250,6 +250,60 @@ fn search_review_and_diffs_stay_fast_at_scale() {
     run("scale-rest", opts(), false, scale_rest);
 }
 
+async fn profiled(c: &Ctx, act: &str) -> String {
+    use chromiumoxide::cdp::js_protocol::profiler::{
+        EnableParams, SetSamplingIntervalParams, StartParams, StopParams,
+    };
+    let page = &c.ui.page;
+    page.execute(EnableParams::default())
+        .await
+        .expect("profiler");
+    page.execute(SetSamplingIntervalParams::new(100))
+        .await
+        .expect("interval");
+    page.execute(StartParams::default()).await.expect("start");
+    timed(c, act).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let p = page
+        .execute(StopParams::default())
+        .await
+        .expect("stop")
+        .result
+        .profile;
+    let mut parent = std::collections::HashMap::new();
+    let mut name = std::collections::HashMap::new();
+    for n in &p.nodes {
+        name.insert(n.id, n.call_frame.function_name.clone());
+        for ch in n.children.iter().flatten() {
+            parent.insert(*ch, n.id);
+        }
+    }
+    let mut total: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    for (s, dt) in p
+        .samples
+        .unwrap_or_default()
+        .iter()
+        .zip(p.time_deltas.unwrap_or_default())
+    {
+        let mut seen = std::collections::HashSet::new();
+        let mut at = Some(*s);
+        while let Some(id) = at {
+            let f = name.get(&id).cloned().unwrap_or_default();
+            if seen.insert(f.clone()) {
+                *total.entry(f).or_default() += dt as f64 / 1000.0;
+            }
+            at = parent.get(&id).copied();
+        }
+    }
+    let mut top: Vec<(String, f64)> = total.into_iter().collect();
+    top.sort_by(|a, b| b.1.total_cmp(&a.1));
+    top.iter()
+        .take(60)
+        .map(|(f, ms)| format!("{ms:8.1}  {}", f.chars().take(160).collect::<String>()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn scale_form(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -276,8 +330,13 @@ fn scale_form(c: &mut Ctx) -> Flow<'_> {
                 .round(),
             );
         }
+        let top = profiled(
+            c,
+            &format!("const i = document.querySelector('{field}'); i.value = '20043'; i.dispatchEvent(new Event('input', {{ bubbles: true }}))"),
+        )
+        .await;
         let text = format!(
-            "service page among {SERVICES} services: shown in {shown} ms; typing in its target {typed:?} ms\n"
+            "service page among {SERVICES} services: shown in {shown} ms; typing in its target {typed:?} ms\nwhere one keystroke spends its time (inclusive ms):\n{top}\n"
         );
         println!("{text}");
         let dir = super::sheet::shots_dir().join("scale-form");
