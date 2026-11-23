@@ -31,6 +31,8 @@ mod entries;
 mod file_groups;
 #[path = "admin_e2e/files.rs"]
 mod files;
+#[path = "admin_e2e/flow_scale.rs"]
+mod flow_scale;
 #[path = "admin_e2e/free_port.rs"]
 mod free_port;
 #[path = "admin_e2e/guards.rs"]
@@ -43,6 +45,10 @@ mod hidden;
 mod le_places;
 #[path = "admin_e2e/letsencrypt.rs"]
 mod letsencrypt;
+#[path = "admin_e2e/list_click.rs"]
+mod list_click;
+#[path = "admin_e2e/list_scale.rs"]
+mod list_scale;
 #[path = "admin_e2e/logins.rs"]
 mod logins;
 #[path = "admin_e2e/long_names.rs"]
@@ -55,6 +61,8 @@ mod more;
 mod older;
 #[path = "admin_e2e/passwords.rs"]
 mod passwords;
+#[path = "admin_e2e/picker_scale.rs"]
+mod picker_scale;
 #[path = "common/ports.rs"]
 mod ports;
 #[path = "admin_e2e/reach.rs"]
@@ -67,6 +75,10 @@ mod releases;
 mod reverts;
 #[path = "admin_e2e/review_paths.rs"]
 mod review_paths;
+#[path = "admin_e2e/scale.rs"]
+mod scale;
+#[path = "admin_e2e/scale_rest.rs"]
+mod scale_rest;
 #[path = "admin_e2e/screens.rs"]
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
@@ -83,6 +95,8 @@ mod settings;
 mod sheet;
 #[path = "admin_e2e/site_keys.rs"]
 mod site_keys;
+#[path = "admin_e2e/status_scale.rs"]
+mod status_scale;
 #[path = "admin_e2e/table_shots.rs"]
 mod table_shots;
 #[path = "admin_e2e/tables.rs"]
@@ -103,6 +117,8 @@ mod text_tabs;
 mod ui;
 #[path = "admin_e2e/updates.rs"]
 mod updates;
+#[path = "admin_e2e/visitor_scale.rs"]
+mod visitor_scale;
 #[path = "admin_e2e/websites.rs"]
 mod websites;
 #[path = "admin_e2e/wizards.rs"]
@@ -362,6 +378,14 @@ pub async fn both_widths(c: &mut Ctx, step: &str) {
     c.ui.viewport(420, 900).await;
     c.ui.shot(&format!("{step}-phone")).await;
     c.ui.viewport(1440, 900).await;
+}
+
+pub async fn pick_in(c: &Ctx, id: &str, value: &str) {
+    c.ui.click(&format!("#{id}")).await;
+    let option = format!("#{id}-list [data-option=\"{value}\"]");
+    c.ui.wait_for(&option, SECS).await;
+    c.ui.click(&option).await;
+    c.ui.wait_gone(&format!("#{id}-list"), SECS).await;
 }
 
 pub async fn overview_tab(c: &Ctx, tab: &str) {

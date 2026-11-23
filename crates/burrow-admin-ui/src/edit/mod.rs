@@ -7,6 +7,7 @@ mod gone;
 mod groups;
 mod held;
 mod new_file;
+mod pending;
 mod scratch;
 mod screen;
 mod session;
@@ -93,6 +94,9 @@ pub struct Edit {
     pub files: RwSignal<FileMoves>,
     pub local: RwSignal<BTreeMap<Path, String>>,
     pub related: Memo<BTreeMap<Path, String>>,
+    draft_dirty: Memo<bool>,
+    pending_count: Memo<usize>,
+    shared: Memo<Arc<Value>>,
     pub plan: RwSignal<Option<Arc<Plan>>>,
     pub checking: RwSignal<bool>,
     pub check_error: RwSignal<Option<ErrorBody>>,
@@ -196,13 +200,32 @@ impl Edit {
 
     pub fn held_by(text_held: Signal<bool>) -> Edit {
         let draft = RwSignal::new(Changeset::new(Value::Null));
+        let scratch = RwSignal::new(Vec::new());
+        let (texts, files, editing) = (
+            RwSignal::new(BTreeMap::new()),
+            RwSignal::new(FileMoves::default()),
+            RwSignal::new(BTreeMap::new()),
+        );
         Edit {
             draft,
             base_rev: RwSignal::new(String::new()),
-            texts: RwSignal::new(BTreeMap::new()),
-            files: RwSignal::new(FileMoves::default()),
+            texts,
+            files,
             local: RwSignal::new(BTreeMap::new()),
-            related: Memo::new(move |_| related_errors(draft)),
+            related: {
+                let seen = StoredValue::new(None);
+                Memo::new(move |prev| related_errors(draft, prev, seen))
+            },
+            draft_dirty: Memo::new(move |_| draft.with(Changeset::dirty)),
+            pending_count: pending::pending_count(draft, editing, texts, files),
+            shared: Memo::new_with_compare(
+                move |_| {
+                    scratch.with(|all: &Vec<Scratch>| {
+                        draft.with(|d| Arc::new(scratch::placed_or_same(d.draft(), all)))
+                    })
+                },
+                |_, _| true,
+            ),
             plan: RwSignal::new(None),
             checking: RwSignal::new(false),
             check_error: RwSignal::new(None),
@@ -215,17 +238,21 @@ impl Edit {
             outcome: RwSignal::new(None),
             reset_on_load: RwSignal::new(false),
             auto_apply: RwSignal::new(false),
-            editing: RwSignal::new(BTreeMap::new()),
+            editing,
             after_apply: RwSignal::new(None),
-            scratch: RwSignal::new(Vec::new()),
+            scratch,
             seq: StoredValue::new(0),
             carry: StoredValue::new(Vec::new()),
             text_held,
         }
     }
 
+    pub fn shared_doc(&self) -> Arc<Value> {
+        self.shared.get()
+    }
+
     pub fn dirty(&self) -> bool {
-        self.draft.with(Changeset::dirty)
+        self.draft_dirty.get()
             || self.texts.with(|t| !t.is_empty())
             || self.files.with(|f| !f.is_empty())
     }
@@ -300,17 +327,7 @@ impl Edit {
     }
 
     pub fn pending(&self) -> usize {
-        let open = self.open_edits();
-        let saved = self.draft.with(|d| {
-            if open.is_empty() {
-                d.changed_entities()
-            } else {
-                Self::saved_of(d, &open).changed_entities()
-            }
-        });
-        saved
-            + self.texts.with(BTreeMap::len)
-            + self.files.with(|f| self.draft.with(|d| f.counted(d)))
+        self.pending_count.get()
     }
 
     pub fn with_saved<T>(&self, f: impl FnOnce(&Changeset) -> T) -> T {

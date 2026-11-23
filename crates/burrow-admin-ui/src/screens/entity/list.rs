@@ -1,6 +1,8 @@
+use burrow_admin_logic::changeset::Mark;
+use burrow_admin_logic::live::Live;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{Entry, Protocol, ServerConfig, ServiceEntry, WebConfig, entity_of_section};
+use burrow_config::{Entry, Protocol, ServiceEntry, entity_of_section};
 use burrow_ui_kit::{EmptyState, Tone};
 use leptos::prelude::*;
 
@@ -9,46 +11,105 @@ use crate::route::{self, Route};
 use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
+use super::file::Files;
+use super::index::Index;
+use super::live::{self, Classes};
 use super::rows::{client_row, service_row, visitor_row};
 use super::{Detail, plural};
 
-struct Live {
-    status: Option<std::sync::Arc<burrow_admin_proto::status::Status>>,
-    me: Option<String>,
+#[derive(Clone, PartialEq, Default)]
+pub(super) struct Base {
+    mark: Option<Mark>,
+    rows: Vec<Row>,
+    names: Vec<(String, Vec<String>)>,
 }
 
-fn live() -> Live {
-    let s = store();
-    Live {
-        status: s.status.get(),
-        me: s
-            .welcome
-            .with(|w| w.as_ref().map(|w| w.you.visitor.clone())),
+fn touched<'a>(section: &str, changed: &'a [Vec<String>]) -> Option<HashSet<&'a str>> {
+    let mut out = HashSet::new();
+    for p in changed {
+        match p.as_slice() {
+            [] => return None,
+            [s] if s == section => return None,
+            [s, name, ..] if s == section => {
+                out.insert(name.as_str());
+            }
+            _ => {}
+        }
     }
+    Some(out)
+}
+
+type Kept<T> = Option<Arc<T>>;
+
+#[derive(Clone)]
+pub(super) struct Around {
+    editing: BTreeMap<Vec<String>, Option<Value>>,
+    related: BTreeMap<Vec<String>, String>,
+    local: BTreeMap<Vec<String>, String>,
+    files: burrow_admin_logic::files::FileMoves,
+    plan: Kept<burrow_admin_proto::plan::Plan>,
+    state: Kept<burrow_admin_proto::msg::State>,
+    schema: Kept<burrow_admin_proto::schema::Schema>,
+}
+
+fn same_arc<T>(a: &Kept<T>, b: &Kept<T>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+impl PartialEq for Around {
+    fn eq(&self, o: &Self) -> bool {
+        self.editing == o.editing
+            && self.related == o.related
+            && self.local == o.local
+            && self.files == o.files
+            && same_arc(&self.plan, &o.plan)
+            && same_arc(&self.state, &o.state)
+            && same_arc(&self.schema, &o.schema)
+    }
+}
+
+fn around() -> Around {
+    let s = store();
+    let e = s.edit;
+    Around {
+        editing: e.editing.get(),
+        related: e.related.get(),
+        local: e.local.get(),
+        files: e.files.get(),
+        plan: e.plan.get(),
+        state: s.state.get(),
+        schema: s.schema.get(),
+    }
+}
+
+fn me() -> Option<String> {
+    store()
+        .welcome
+        .with(|w| w.as_ref().map(|w| w.you.visitor.clone()))
 }
 
 fn one_row(
     section: &str,
     name: &str,
     v: &Value,
-    (draft, base_items): (
-        &Value,
-        Option<&burrow_admin_proto::serde_json::Map<String, Value>>,
-    ),
-    live: &Live,
+    base_items: Option<&burrow_admin_proto::serde_json::Map<String, Value>>,
+    ix: &Index,
 ) -> Row {
     let s = store();
-    let https_on = ServerConfig::WEB
-        .get(draft)
-        .and_then(|w| WebConfig::HTTPS.get(w))
-        .is_some_and(|h| !h.is_null());
     let in_base = base_items.and_then(|b| b.get(name));
-    let pending = s
+    let was = s
         .edit
         .draft
-        .with(|d| d.base_name(section, name).is_none())
-        .then_some("new");
+        .with(|d| d.base_name(section, name))
+        .map(|w| vec![section.to_string(), w]);
+    let pending = was.is_none().then_some("new");
     let entity_path = vec![section.to_string(), name.to_string()];
     let mark = if s.edit.unsaved(&entity_path) {
         Some((
@@ -64,26 +125,23 @@ fn one_row(
         None
     };
     let to = Route::Detail(section.to_string(), name.to_string());
-    let owned = name.to_string();
-    let status = live.status.as_deref();
     let mut row = match entity_of_section(section) {
-        Some(Entity::Client) => client_row(&owned, draft, status, pending, to),
-        Some(Entity::Visitor) => {
-            visitor_row(&owned, v, draft, status, live.me.as_deref(), pending, to)
-        }
-        _ => service_row(&owned, (v, https_on), status, pending, to),
+        Some(Entity::Client) => client_row(name, ix, pending, to),
+        Some(Entity::Visitor) => visitor_row(name, v, ix, pending, to),
+        _ => service_row(name, (v, ix.https_on), pending, to),
     };
     if let Some(m) = mark {
         row.tags.insert(0, m);
     }
-    row.file = s.item_file(&entity_path).unwrap_or_default();
-    row.problems = super::problems::problems_of(section, &entity_path).len()
-        + usize::from(matches!(row.dot, Some(Tone::Danger | Tone::Warning)));
-    if let Some((file, locked)) = super::file::file_label(&entity_path) {
+    row.file = ix
+        .files
+        .item_file(&entity_path, was.as_ref())
+        .unwrap_or_default();
+    row.problems = super::problems::problems_of(section, &entity_path).len();
+    if let Some((file, locked)) = ix.files.label(&entity_path, was.as_ref()) {
         row.terms.push('\n');
         row.terms.push_str(&file);
-        let main = s.with_files(burrow_admin_logic::files::main_name);
-        if locked || main.as_deref() != Some(file.as_str()) {
+        if locked || ix.files.main != file {
             row.kept = Some(if locked {
                 crate::screens::Kept::ReadOnly(file)
             } else {
@@ -94,27 +152,101 @@ fn one_row(
     row
 }
 
+fn clients_for(section: &str, v: &Value) -> Vec<String> {
+    match entity_of_section(section) {
+        Some(Entity::Client | Entity::Visitor) => Vec::new(),
+        _ => crate::screens::paths::clients_of(v),
+    }
+}
+
+type Seen = Option<(Option<Arc<Live>>, Option<String>, (usize, usize))>;
+
+fn classes_now(
+    section: &str,
+    names: &[(String, Vec<String>)],
+    prev: Option<&Classes>,
+    seen: Option<StoredValue<Seen>>,
+) -> Classes {
+    let me = me();
+    let st = store().status.get();
+    let at = (names.as_ptr() as usize, names.len());
+    let was = seen.and_then(|s| s.get_value());
+    let changed = was.as_ref().and_then(|(old, was_me, was_at)| {
+        (*was_me == me && *was_at == at)
+            .then(|| live::changed(section, old.as_deref(), st.as_deref()))
+            .flatten()
+    });
+    let reuse = live::Reuse { prev, changed };
+    let ix = Index::new(section, st.as_deref(), &Value::Null, Files::default());
+    let out = live::classes(section, names, &ix, me.as_deref(), &reuse);
+    if let Some(seen) = seen {
+        seen.set_value(Some((st, me, at)));
+    }
+    out
+}
+
 pub fn row_for(section: &str, name: &str) -> Option<Row> {
-    let live = live();
-    store().edit.draft.with(|d| {
+    let (row, names) = store().edit.draft.with(|d| {
         let draft = d.draft();
         let v = draft.get(section)?.get(name)?;
         let base_items = d.base().get(section).and_then(Value::as_object);
-        Some(one_row(section, name, v, (draft, base_items), &live))
-    })
+        let ix = Index::new(section, None, draft, Files::now());
+        Some((
+            one_row(section, name, v, base_items, &ix),
+            vec![(name.to_string(), clients_for(section, v))],
+        ))
+    })?;
+    let classes = classes_now(section, &names, None, None);
+    Some(live::apply(row, classes.get(name)))
 }
 
-pub fn rows_for(section: &str) -> Vec<Row> {
-    let live = live();
+pub(super) fn base_for(
+    section: &str,
+    prev: Option<&Base>,
+    seen: StoredValue<Option<Around>>,
+) -> Base {
+    let now = around();
+    let same = seen.with_value(|w| w.as_ref() == Some(&now))
+        && entity_of_section(section).is_none_or(|k| k == Entity::Service);
+    seen.set_value(Some(now));
+    let linked: HashMap<&str, &Vec<String>> = prev
+        .map(|p| p.names.iter().map(|(n, c)| (n.as_str(), c)).collect())
+        .unwrap_or_default();
     store().edit.draft.with(|d| {
+        let fresh = prev
+            .filter(|_| same)
+            .and_then(|p| d.changed_since(p.mark?))
+            .and_then(|changed| touched(section, changed));
+        let kept: HashMap<&str, &Row> = prev
+            .filter(|_| fresh.is_some())
+            .map(|p| p.rows.iter().map(|r| (r.key.as_str(), r)).collect())
+            .unwrap_or_default();
         let draft = d.draft();
         let base_items = d.base().get(section).and_then(Value::as_object);
         let items = draft.get(section).and_then(Value::as_object);
-        let mut out: Vec<Row> = items
-            .into_iter()
-            .flatten()
-            .map(|(name, v)| one_row(section, name, v, (draft, base_items), &live))
-            .collect();
+        let ix = Index::new(section, None, draft, Files::now());
+        let mut rows: Vec<Row> = Vec::new();
+        let mut names = Vec::new();
+        for (name, v) in items.into_iter().flatten() {
+            let reuse = fresh
+                .as_ref()
+                .filter(|f| !f.contains(name.as_str()))
+                .and_then(|_| kept.get(name.as_str()));
+            match reuse {
+                Some(row) => {
+                    rows.push((*row).clone());
+                    let clients = linked.get(name.as_str()).map(|c| (*c).clone());
+                    names.push((
+                        name.clone(),
+                        clients.unwrap_or_else(|| clients_for(section, v)),
+                    ));
+                }
+                None => {
+                    rows.push(one_row(section, name, v, base_items, &ix));
+                    names.push((name.clone(), clients_for(section, v)));
+                }
+            }
+        }
         let gone = base_items.into_iter().flatten().filter(|(k, _)| {
             !items.is_some_and(|i| i.contains_key(*k))
                 && !items.is_some_and(|i| {
@@ -123,14 +255,14 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 })
         });
         for (name, _) in gone {
-            out.push(Row {
+            rows.push(Row {
                 key: name.clone(),
                 to: Route::Detail(section.to_string(), name.clone()),
                 icon: "trash",
                 dot: None,
                 title: name.clone(),
                 meta: String::new(),
-                line2: "removed in your changes".into(),
+                line2: live::REMOVED.into(),
                 tags: vec![("removed".into(), Tone::Danger)],
                 group: String::new(),
                 pending: None,
@@ -139,7 +271,11 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 ..Row::default()
             });
         }
-        out
+        Base {
+            mark: Some(d.mark()),
+            rows,
+            names,
+        }
     })
 }
 
@@ -210,24 +346,63 @@ fn filters_for(section: &str) -> Filters {
     (filters, groups)
 }
 
+fn list_rows(section: String) -> Memo<Vec<Row>> {
+    let sec = section.clone();
+    let around: StoredValue<Option<Around>> = StoredValue::new(None);
+    let base = Memo::new(move |prev: Option<&Base>| base_for(&sec, prev, around));
+    let seen: StoredValue<Seen> = StoredValue::new(None);
+    let classes = Memo::new(move |prev: Option<&Classes>| {
+        base.with(|b| classes_now(&section, &b.names, prev, Some(seen)))
+    });
+    Memo::new(move |_| {
+        base.with(|b| {
+            classes.with(|c| {
+                b.rows
+                    .iter()
+                    .map(|r| live::apply(r.clone(), c.get(&r.key)))
+                    .collect::<Vec<_>>()
+            })
+        })
+    })
+}
+
 #[component]
-pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
+pub fn Entities(section: String) -> impl IntoView {
     let s = store();
     let sec = section.clone();
-    let rows = Memo::new(move |_| rows_for(&sec));
-    if selected.is_none()
-        && wide()
-        && let Some(first) = {
-            let asked = route::query(route::FILTER_QUERY);
-            rows.get_untracked().into_iter().find(|r| {
-                r.icon != "trash" && asked.as_deref().is_none_or(|a| r.filters.contains(&a))
-            })
+    let rows = list_rows(sec);
+    let sec = section.clone();
+    let selected = Memo::new(move |_| match s.route.get() {
+        Route::Detail(x, name) if x == sec => Some(name),
+        _ => None,
+    });
+    let sec = section.clone();
+    let on_list = Memo::new(move |_| s.route.with(|r| matches!(r, Route::List(x) if *x == sec)));
+    Effect::new(move |_| {
+        if !on_list.get() || !wide() {
+            return;
         }
-    {
-        route::replace(first.to);
-    }
+        let asked = route::query(route::FILTER_QUERY);
+        let first = rows.with_untracked(|r| {
+            r.iter()
+                .find(|r| {
+                    r.icon != "trash" && asked.as_deref().is_none_or(|a| r.filters.contains(&a))
+                })
+                .map(|r| r.to.clone())
+        });
+        if let Some(to) = first {
+            route::replace(to);
+        }
+    });
     let adding = RwSignal::new(false);
     let site = RwSignal::new(false);
+    Effect::new(move |was: Option<Option<String>>| {
+        let now = selected.get();
+        if was.is_some_and(|w| w != now) {
+            adding.set(false);
+        }
+        now
+    });
     {
         let sec = section.clone();
         Effect::new(move |_| {
@@ -247,7 +422,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
     let shown_rows = {
         let what = what.to_string();
         let section_new = section.clone();
-        Signal::derive(move || {
+        Memo::new(move |_| {
             let mut r = rows.get();
             if adding.get() {
                 let n = draft_name.get();
@@ -274,12 +449,11 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             r
         })
     };
-    let sel = selected.clone();
     let selected_sig = Signal::derive(move || {
         if adding.get() {
             Some(crate::screens::NEW_ROW.to_string())
         } else {
-            sel.clone()
+            selected.get()
         }
     });
     let can = s.can_write_now();
@@ -307,12 +481,12 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             empty=(format!("No {} yet", section), format!("Add the first {what} with the + button."))
             testid="entity-list"
             by_file=kind
+            live_section=kind
         />
     }
     .into_any();
     let pick = format!("Pick one of the {} on the left", section);
     let sec_new = section.clone();
-    let sel_name = selected.clone();
     let detail = view! {
         {move || {
             let (sec, pick) = (sec_new.clone(), pick.clone());
@@ -322,7 +496,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             if adding.get() {
                 return view! { <DetailPane><NewEntity section=sec open=adding draft_name=draft_name/></DetailPane> }.into_any();
             }
-            match sel_name.clone() {
+            match selected.get() {
                 Some(name) => view! { <Detail section=sec name=name/> }.into_any(),
                 None => view! {
                     <div class="max-lg:hidden">

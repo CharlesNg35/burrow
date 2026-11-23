@@ -347,7 +347,7 @@ fn large(c: &mut Ctx) -> Flow<'_> {
         let full: f64 = c
             .ui
             .eval(&format!(
-                "(async () => {{ const t = performance.now(); {}; while (document.querySelectorAll('[data-testid=entity-list] [data-row]:not([hidden])').length < 1002) await new Promise(r => requestAnimationFrame(r)); return performance.now() - t; }})()",
+                "(async () => {{ const t = performance.now(); {}; while (Number((document.querySelector('[data-testid=entity-list] [data-testid=list-window]') || {{ dataset: {{}} }}).dataset.count || 0) < 1002) await new Promise(r => requestAnimationFrame(r)); return performance.now() - t; }})()",
                 search.replace("TEXT", "")
             ))
             .await;

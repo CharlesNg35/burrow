@@ -2,9 +2,10 @@
 
 mod service;
 
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::wording::PICK_VISITORS;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
+use burrow_admin_proto::status::ServiceStatus;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 
@@ -19,16 +20,32 @@ pub fn clients_of(svc: &Value) -> Vec<String> {
 pub fn health_count(
     name: &str,
     svc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     reserved: &[String],
 ) -> burrow_admin_logic::health::Count {
-    use burrow_admin_logic::health;
-    let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
-    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
-    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
-    health::count(&health::entries(listed, clients_of(svc)), checks, |c| {
+    let st = status.and_then(|s| s.service(name));
+    health_with(st, svc, |c| {
         burrow_admin_logic::presence::online(status, reserved, c)
     })
+}
+
+pub fn health_with(
+    st: Option<&ServiceStatus>,
+    svc: &Value,
+    online: impl Fn(&str) -> bool,
+) -> burrow_admin_logic::health::Count {
+    health_of_clients(st, clients_of(svc), online)
+}
+
+pub fn health_of_clients(
+    st: Option<&ServiceStatus>,
+    clients: Vec<String>,
+    online: impl Fn(&str) -> bool,
+) -> burrow_admin_logic::health::Count {
+    use burrow_admin_logic::health;
+    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
+    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
+    health::count(&health::entries(listed, clients), checks, online)
 }
 
 pub struct Problems {
@@ -38,7 +55,7 @@ pub struct Problems {
     pub site: Option<(String, burrow_ui_kit::Tone)>,
 }
 
-pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) -> PathData {
+pub fn client(name: &str, doc: &Value, status: Option<&Live>, listen: &str) -> PathData {
     let c = burrow_admin_logic::presence::of(status, name);
     let on = crate::format::presence_of(status, name).up();
     let served: Vec<(String, String)> = ServiceEntry::entries(doc)
@@ -146,10 +163,10 @@ fn count_of(n: usize, what: &str) -> String {
 pub fn visitor(
     name: &str,
     doc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     me: Option<(&str, &str)>,
 ) -> PathData {
-    let v = status.and_then(|s| s.visitors.iter().find(|v| v.name == name));
+    let v = status.and_then(|s| s.visitor(name));
     let open = v.map(|v| v.open).unwrap_or(0);
     let entry = VisitorEntry::entry(doc, name);
     let services: Vec<(String, bool, bool)> = ServiceEntry::entries(doc)
@@ -306,6 +323,7 @@ pub fn add_blocker(svc: &Value) -> Option<&'static str> {
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+    use burrow_admin_proto::status::Status;
 
     #[test]
     fn clients_whose_health_check_fails_are_not_drawn_up() {
@@ -325,7 +343,7 @@ mod tests {
             ports: None,
             site: None,
         };
-        let p = service("web", &svc, Some(&st), &none, false, &[]);
+        let p = service("web", &svc, Some(&st.clone().into()), &none, false, &[]);
         assert_eq!(p.hops[2].unit, "0 of 2 up");
         assert_ne!(p.hops[2].dot, Some(Tone::Success));
     }
@@ -339,12 +357,12 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            visitor("v", &doc, Some(&st.clone().into()), None).hops[0].dot,
             Some(Tone::Neutral)
         );
         st.visitors[0].open = 1;
         assert_eq!(
-            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            visitor("v", &doc, Some(&st.clone().into()), None).hops[0].dot,
             Some(Tone::Success)
         );
     }

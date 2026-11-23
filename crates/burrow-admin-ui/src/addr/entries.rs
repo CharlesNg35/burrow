@@ -293,9 +293,9 @@ fn row_view(place: Place, c: RefEntriesC, i: usize, look: Look) -> AnyView {
     let options = {
         let (entity, field, reserved) =
             (c.entity.clone(), place.fc.spath.clone(), c.reserved.clone());
-        Signal::derive(move || super::picker::options_for(&entity, &field, &reserved))
+        Memo::new(move |_| super::picker::options_for(&entity, &field, &reserved))
     };
-    let head = summary(&place, i, options, balance, expanded, phone_menu);
+    let head = summary(&place, i, options.into(), balance, expanded, phone_menu);
     let body = move || {
         if expanded.get() == Some(i) {
             "order-2 flex flex-wrap items-center gap-x-3 gap-y-2 @max-[560px]:pb-2"

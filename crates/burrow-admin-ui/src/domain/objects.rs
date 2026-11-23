@@ -20,32 +20,28 @@ pub(super) fn object_list(fc: FieldCtx, item: Node) -> AnyView {
     });
     let node = inner(&item).clone();
     let item_label = item.label.clone();
-    let rows = {
+    let row = {
         let fc = fc.clone();
-        move || {
-            (0..count.get())
-                .map(|i| {
-                    let p = child(&fc.path, &i.to_string());
-                    let sp = child(&fc.spath, "*");
-                    let remove = {
-                        let list = fc.path.clone();
-                        move |_| {
-                            if let Some(Value::Array(mut a)) = e.value(&list) {
-                                a.remove(i);
-                                e.set(&list, (!a.is_empty()).then_some(Value::Array(a)));
-                            }
-                        }
-                    };
-                    view! {
-                        <div class="rounded-input border border-border px-3 py-2" data-item=i.to_string()>
-                            {object_view(&node, p, sp, fc.entity.clone())}
-                            <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) aria-label=format!("Remove {} {}", fc.node.label, i + 1) on:click=remove>
-                                "Remove"
-                            </button>
-                        </div>
+        move |i: usize| {
+            let p = child(&fc.path, &i.to_string());
+            let sp = child(&fc.spath, "*");
+            let remove = {
+                let list = fc.path.clone();
+                move |_| {
+                    if let Some(Value::Array(mut a)) = e.value(&list) {
+                        a.remove(i);
+                        e.set(&list, (!a.is_empty()).then_some(Value::Array(a)));
                     }
-                })
-                .collect_view()
+                }
+            };
+            view! {
+                <div class="rounded-input border border-border px-3 py-2" data-item=i.to_string()>
+                    {object_view(&node, p, sp, fc.entity.clone())}
+                    <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) aria-label=format!("Remove {} {}", fc.node.label, i + 1) on:click=remove>
+                        "Remove"
+                    </button>
+                </div>
+            }
         }
     };
     let add = {
@@ -61,7 +57,7 @@ pub(super) fn object_list(fc: FieldCtx, item: Node) -> AnyView {
     };
     view! {
         <div class="space-y-2" id=fc.id.clone()>
-            {rows}
+            <For each=move || 0..count.get() key=|i| *i children=row/>
             <button type="button" id=format!("{}-add-button", fc.id) class=button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Small) on:click=add>
                 {burrow_admin_logic::wording::add_label(&fc.node.label, &item_label)}
             </button>
@@ -88,38 +84,34 @@ pub(crate) fn object_list_card(node: Node, item: Node, path: Path) -> AnyView {
     let item_label = item.label.clone();
     let list_label = node.label.clone();
     let id = crate::form::field_id(&path);
-    let rows = {
+    let writing = Memo::new(move |_| can && editing.try_get().unwrap_or(false));
+    let row = {
         let path = path.clone();
         let item_label = item_label.clone();
-        move || {
-            let writing = can && editing.try_get().unwrap_or(false);
-            (0..count.get())
-                .map(|i| {
-                    let p = child(&path, &i.to_string());
-                    let sp = child(&path, "*");
-                    let list = path.clone();
-                    let remove = move |_| {
-                        if let Some(Value::Array(mut a)) = e.value(&list) {
-                            a.remove(i);
-                            e.set(&list, (!a.is_empty()).then_some(Value::Array(a)));
-                        }
-                    };
-                    let title = format!("{} {}", item_label, i + 1);
-                    view! {
-                        <div class="mt-3 rounded-[10px] border border-border px-3.5 dark:bg-surface-2" data-item=i.to_string()>
-                            <div class="flex items-center justify-between gap-2 border-b border-rowline py-2">
-                                <span class="text-[13px] font-semibold">{title.clone()}</span>
-                                {writing.then(|| view! {
-                                    <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) aria-label=format!("Remove {title}") data-testid="remove-item" on:click=remove>
-                                        "Remove"
-                                    </button>
-                                })}
-                            </div>
-                            {object_view(&entry, p, sp, Vec::new())}
-                        </div>
-                    }
-                })
-                .collect_view()
+        move |i: usize| {
+            let p = child(&path, &i.to_string());
+            let sp = child(&path, "*");
+            let list = path.clone();
+            let remove = move |_| {
+                if let Some(Value::Array(mut a)) = e.value(&list) {
+                    a.remove(i);
+                    e.set(&list, (!a.is_empty()).then_some(Value::Array(a)));
+                }
+            };
+            let title = format!("{} {}", item_label, i + 1);
+            view! {
+                <div class="mt-3 rounded-[10px] border border-border px-3.5 dark:bg-surface-2" data-item=i.to_string()>
+                    <div class="flex items-center justify-between gap-2 border-b border-rowline py-2">
+                        <span class="text-[13px] font-semibold">{title.clone()}</span>
+                        {move || writing.get().then(|| view! {
+                            <button type="button" class=button_class(burrow_ui_kit::ButtonLook::Ghost, burrow_ui_kit::ButtonSize::Small) aria-label=format!("Remove {title}") data-testid="remove-item" on:click=remove.clone()>
+                                "Remove"
+                            </button>
+                        })}
+                    </div>
+                    {object_view(&entry, p, sp, Vec::new())}
+                </div>
+            }
         }
     };
     let add = {
@@ -138,7 +130,7 @@ pub(crate) fn object_list_card(node: Node, item: Node, path: Path) -> AnyView {
     view! {
         <div id=id.clone() data-list-card="">
             {move || (count.get() == 0).then(|| view! { <p class="py-2 text-sm text-text-muted" data-testid="list-empty">{empty.clone()}</p> })}
-            {rows}
+            <For each=move || 0..count.get() key=|i| *i children=row/>
             {move || (can && editing.try_get().unwrap_or(false)).then(|| view! {
                 <button type="button" id=add_id.clone() class=format!("mt-3 {}", button_class(burrow_ui_kit::ButtonLook::Secondary, burrow_ui_kit::ButtonSize::Small)) on:click=add.clone()>
                     {burrow_admin_logic::wording::add_label(&list_label, &item_label)}

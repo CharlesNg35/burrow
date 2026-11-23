@@ -37,10 +37,12 @@ pub struct Options {
     pub clients: Option<Vec<&'static str>>,
     pub extra_services: String,
     pub extra_clients: String,
+    pub extra_visitors: String,
     pub extra_top: String,
     pub server_bin: Option<PathBuf>,
     pub admin_bin: Option<PathBuf>,
     pub drop_ins: Vec<(&'static str, String, bool)>,
+    pub files: Vec<(String, String)>,
 }
 
 pub fn wait_until(what: &str, timeout: Duration, mut ok: impl FnMut() -> bool) {
@@ -81,7 +83,7 @@ impl World {
              # comments here must survive every change made through the admin UI\n\
              listen: 127.0.0.1:{listen}\npublic_address: 127.0.0.1:{listen}\n{extra_top}\n\
              clients:\n  # the home box\n  home:\n    secret: {home}\n  office:\n    secret: {office}\n    max_connections: 100\n{extra_clients}\n\
-             visitors:\n  ops:\n    secret: {ops} # the admin\n    admin: write\n    admin_from: [127.0.0.1/32]\n  viewer:\n    secret: {viewer}\n    admin: read\n  laptop:\n    secret: {laptop}\n    reach:\n      home: [127.0.0.1/32]\n  plain:\n    secret: {plain}\n  boss:\n    secret: {boss}\n    admin: write\n\n\
+             visitors:\n  ops:\n    secret: {ops} # the admin\n    admin: write\n    admin_from: [127.0.0.1/32]\n  viewer:\n    secret: {viewer}\n    admin: read\n  laptop:\n    secret: {laptop}\n    reach:\n      home: [127.0.0.1/32]\n  plain:\n    secret: {plain}\n  boss:\n    secret: {boss}\n    admin: write\n{extra_visitors}\n\
              services:\n  web: {{ client: home, bind: 127.0.0.1:{web}, target: {echo} }} # keep this comment\n  ssh:\n    client: home\n    target: 22\n    visitors: [laptop]\n{extra}",
             listen = p["listen"],
             web = p["web"],
@@ -95,12 +97,19 @@ impl World {
             boss = s["boss"],
             extra = opts.extra_services,
             extra_clients = opts.extra_clients,
+            extra_visitors = opts.extra_visitors,
             extra_top = opts
                 .extra_top
                 .replace("HTTPS_PORT", &p["https"].to_string())
                 .replace("HTTP_PORT", &p["http"].to_string()),
         );
         w.write("server.yaml", &yaml);
+        for (name, text) in &opts.files {
+            if let Some(dir) = w.file(name).parent() {
+                fs::create_dir_all(dir).expect("a folder for a test file");
+            }
+            w.write(name, &text.replace("CONFIG", &yaml));
+        }
         for (name, text, read_only) in &opts.drop_ins {
             fs::create_dir_all(w.file("server.d")).expect("the drop-in folder");
             let name = format!("server.d/{name}");

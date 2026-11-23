@@ -53,6 +53,7 @@ pub mod suggest {
 
 pub mod ev {
     pub const STATUS: &str = "status";
+    pub const STATUS_SYNC: &str = "status.sync";
     pub const CONFIG: &str = "config";
     pub const REVOKED: &str = "revoked";
     pub const BYE: &str = "bye";

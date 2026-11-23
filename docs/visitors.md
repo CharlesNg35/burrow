@@ -273,7 +273,6 @@ See [service.md](service.md). Like the server and the client, a visitor applies 
 
 ## Good to know
 
-- `burrow validate` on the server warns about `reach: any`, as a reminder to keep the client's `allow` list narrow.
 - Removing a visitor, its secret, or its access from server.yaml and saving closes its open connections at once.
 - A service's `allow_from` and `deny_from` also apply to visitors, with the visitor's source address.
 - `visitors.<name>.max_connections` limits the open connections of one visitor.

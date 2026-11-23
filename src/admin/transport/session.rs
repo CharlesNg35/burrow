@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use burrow_admin_proto::delta::Leader;
+use burrow_admin_proto::features;
 use burrow_admin_proto::frame::{self, Assembler, Frame};
 use burrow_admin_proto::msg::{self, ConfigEvent, ErrorCode, Request, Revoked, Subscribe};
 use serde_json::Value;
@@ -276,6 +278,7 @@ pub async fn run(
     let mut assembler = Assembler::new();
     let mut jobs: JoinSet<Vec<u8>> = JoinSet::new();
     let mut status_every: Option<tokio::time::Interval> = None;
+    let mut leader: Option<Leader> = None;
     let mut config_events = false;
     let mut last_rev = blocking({
         let hub = hub.clone();
@@ -324,6 +327,7 @@ pub async fn run(
                 if req.t == msg::req::SUBSCRIBE {
                     let sub: Subscribe = core::parse(&req.body).unwrap_or_default();
                     status_every = status_interval(&sub);
+                    leader = cx.session.understands(features::STATUS_DELTA).then(Leader::default);
                     config_events = sub.config;
                     if !send(reply(req.id, Ok(serde_json::json!({}))), heard + silence).await {
                         break "closed";
@@ -352,9 +356,7 @@ pub async fn run(
                     None => std::future::pending::<()>().await,
                 }
             } => {
-                let status = crate::admin::hooks::status(cx.hub.core.status());
-                let ev = msg::event(msg::ev::STATUS, serde_json::to_value(status).unwrap_or_default());
-                let _ = tx.try_send(encode(ev));
+                push_status(&cx, &tx, leader.as_mut());
             }
             changed = reloads.changed() => {
                 if changed.is_err() {
@@ -401,6 +403,18 @@ pub async fn run(
     jobs.abort_all();
     drop(tx);
     stop_writer(writer).await;
+}
+
+fn push_status(cx: &Ctx, tx: &mpsc::Sender<Vec<u8>>, leader: Option<&mut Leader>) {
+    let status = crate::admin::hooks::status(cx.hub.core.status());
+    let Some(leader) = leader else {
+        let _ = tx.try_send(msg::event_bytes(msg::ev::STATUS, &status));
+        return;
+    };
+    let bytes = msg::event_bytes(msg::ev::STATUS_SYNC, &leader.update(&status));
+    if bytes.len() <= frame::MAX_MESSAGE && tx.try_send(bytes).is_ok() {
+        leader.sent(status);
+    }
 }
 
 fn status_interval(sub: &Subscribe) -> Option<tokio::time::Interval> {

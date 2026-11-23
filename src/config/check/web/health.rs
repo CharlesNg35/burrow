@@ -57,18 +57,6 @@ fn notes(
     at: crate::config::tree::Span,
     out: &mut Vec<Diagnostic>,
 ) {
-    if matches!(web, ServiceWeb::Site(s) if s.target_http2) {
-        out.push(
-            Diagnostic::warning(
-                "health-path-grpc",
-                format!(
-                    "{field}: gRPC apps usually do not answer a plain GET; use health_check: true (the TCP check)"
-                ),
-            )
-            .at(at)
-            .help("target_http2 is set on this site, the usual sign of a gRPC app"),
-        );
-    }
     let hosts: Vec<String> = web
         .hosts()
         .iter()

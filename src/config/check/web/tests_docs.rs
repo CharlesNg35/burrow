@@ -347,10 +347,7 @@ fn the_full_example_of_the_web_docs_is_pinned_at_what_p3_and_p6_build() {
             "proxy-tls-check: a proxy is in front (web.trusted_proxies is set); if it does the HTTPS, like Cloudflare's proxy, Let's Encrypt's TLS check cannot reach burrow: set challenge: http (with http: 80) or challenge: dns on these sites: kiosk",
             "access-log: web.access_log: the folder of logs/access.log does not exist yet",
             "dns-rfc2136: web.letsencrypt.dns[1].rfc2136.secret is 6 bytes; RFC 8945 asks for at least 32 for hmac-sha256",
-            "target-unchecked: services.pve: the app's certificate is not checked (insecure_skip_verify); use ca: for apps with a real certificate",
-            "plain-http: services.docs: served as plain HTTP; anyone on the path can read and change its traffic",
             "redirect-by-proxy: services.docs: http:// visitors are sent to https:// by the X-Forwarded-Proto of the trusted proxies; if they do not send it, every request redirects",
-            "plain-http: services.dashboard: served as plain HTTP; anyone on the path can read and change its traffic",
         ],
         "the machine's low-port warnings and the notes for the test files aside, the notes the example's comments promise (the test's short TSIG secret aside)"
     );

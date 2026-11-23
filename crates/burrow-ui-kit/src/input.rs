@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::basic::Tone;
+use crate::cap::shown_of;
 use crate::icon::Icon;
 
 pub const INPUT_H: &str = "h-[38px]";
@@ -256,6 +256,63 @@ pub fn split_entries(text: &str) -> Vec<String> {
         .collect()
 }
 
+const CHIPS_SHOWN: usize = 60;
+
+fn merged(list: &mut Vec<String>, new: Vec<String>) -> bool {
+    let mut seen: std::collections::HashSet<String> = list.iter().cloned().collect();
+    let before = list.len();
+    for e in new {
+        if seen.insert(e.clone()) {
+            list.push(e);
+        }
+    }
+    list.len() > before
+}
+
+fn chip(
+    item: String,
+    check: Callback<String, Option<String>>,
+    meta: Option<Callback<String, String>>,
+    items: Signal<Vec<String>>,
+    on_change: Callback<Vec<String>>,
+) -> impl IntoView {
+    let problem = check.run(item.clone());
+    let title = problem.clone().unwrap_or_default();
+    let label = format!("Remove {item}");
+    let note = meta.map(|m| m.run(item.clone())).filter(|m| !m.is_empty());
+    let look = if problem.is_some() {
+        "bg-danger-weak text-danger ring-1 ring-danger/40"
+    } else {
+        "bg-surface-3 text-text ring-1 ring-border"
+    };
+    let gone = item.clone();
+    view! {
+        <span
+            class=format!("inline-flex h-[26px] max-w-full min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 font-mono text-xs font-semibold {look}")
+            title=title
+            data-chip=item.clone()
+            data-invalid=problem.is_some().then_some("true")
+        >
+            <span class="min-w-0 truncate">{item.clone()}</span>
+            {note.map(|n| view! { <span class="font-sans text-[11px] font-normal text-text-muted">{n}</span> })}
+            <button
+                type="button"
+                class="relative flex size-[18px] cursor-pointer items-center justify-center rounded text-text-faint after:absolute after:-inset-[3px] hover:text-danger"
+                aria-label=label
+                on:click=move |_| {
+                    let mut l = items.get_untracked();
+                    if let Some(i) = l.iter().position(|x| *x == gone) {
+                        l.remove(i);
+                        on_change.run(l);
+                    }
+                }
+            >
+                <Icon name="x" small=true/>
+            </button>
+        </span>
+    }
+}
+
 #[component]
 pub fn ChipInput(
     #[prop(into)] id: String,
@@ -268,18 +325,16 @@ pub fn ChipInput(
     #[prop(optional, into)] invalid: Signal<bool>,
 ) -> impl IntoView {
     let typing = RwSignal::new(String::new());
+    let shown = RwSignal::new(CHIPS_SHOWN);
     let commit = move || {
         let text = typing.get_untracked();
         let mut list = items.get_untracked();
-        let mut added = false;
-        for e in split_entries(&text) {
-            if !list.contains(&e) {
-                list.push(e);
-                added = true;
-            }
-        }
+        let added = merged(&mut list, split_entries(&text));
         typing.set(String::new());
         if added {
+            if list.len() > shown.get_untracked() {
+                shown.set(list.len());
+            }
             on_change.run(list);
         }
     };
@@ -291,49 +346,21 @@ pub fn ChipInput(
             )
             data-chips=""
         >
-            {move || {
-                items
-                    .get()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, item)| {
-                        let problem = check.run(item.clone());
-                        let tone = if problem.is_some() { Tone::Danger } else { Tone::Neutral };
-                        let title = problem.clone().unwrap_or_default();
-                        let label = format!("Remove {item}");
-                        let note = meta.map(|m| m.run(item.clone())).filter(|m| !m.is_empty());
-                        let chip = match tone {
-                            Tone::Danger => "bg-danger-weak text-danger ring-1 ring-danger/40",
-                            _ => "bg-surface-3 text-text ring-1 ring-border",
-                        };
-                        view! {
-                            <span
-                                class=format!("inline-flex h-[26px] max-w-full min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 font-mono text-xs font-semibold {chip}")
-                                title=title
-                                data-chip=item.clone()
-                                data-invalid=problem.is_some().then_some("true")
-                            >
-                                <span class="min-w-0 truncate">{item.clone()}</span>
-                                {note.map(|n| view! { <span class="font-sans text-[11px] font-normal text-text-muted">{n}</span> })}
-                                <button
-                                    type="button"
-                                    class="relative flex size-[18px] cursor-pointer items-center justify-center rounded text-text-faint after:absolute after:-inset-[3px] hover:text-danger"
-                                    aria-label=label
-                                    on:click=move |_| {
-                                        let mut l = items.get_untracked();
-                                        if i < l.len() {
-                                            l.remove(i);
-                                            on_change.run(l);
-                                        }
-                                    }
-                                >
-                                    <Icon name="x" small=true/>
-                                </button>
-                            </span>
-                        }
-                    })
-                    .collect_view()
-            }}
+            <For
+                each=move || items.with(|l| l.iter().take(shown_of(l.len(), shown.get())).cloned().collect::<Vec<_>>())
+                key=String::clone
+                children=move |item: String| chip(item, check, meta, items, on_change)
+            />
+            {move || (items.with(Vec::len) > shown.get()).then(|| view! {
+                <button
+                    type="button"
+                    class="h-[26px] cursor-pointer rounded-sm px-2 text-xs font-semibold text-accent-ink hover:underline"
+                    data-testid="chips-more"
+                    on:click=move |_| shown.set(usize::MAX)
+                >
+                    {move || format!("Show all {}", items.with(Vec::len))}
+                </button>
+            })}
             <input
                 id=id
                 type="text"
@@ -407,6 +434,14 @@ pub fn ConfirmInput(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pasted_list_adds_only_new_entries() {
+        let mut list = vec!["a".to_string()];
+        assert!(merged(&mut list, vec!["a".into(), "b".into(), "b".into()]));
+        assert_eq!(list, ["a", "b"]);
+        assert!(!merged(&mut list, vec!["b".into()]));
+    }
 
     #[test]
     fn pasted_lists_split_into_entries() {

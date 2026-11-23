@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
 
 use burrow_admin_logic::rates::human_bits;
-use burrow_admin_proto::serde_json::Value;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::{Icon, Kbd, Kpi, LineChart, Segmented, Select, button_class};
+use burrow_ui_kit::{ComboSize, Combobox, Icon, Kbd, Kpi, LineChart, Segmented, button_class};
 use leptos::prelude::*;
 
 use crate::format;
@@ -13,6 +12,8 @@ use crate::store::{Store, store};
 use super::attention::Attention;
 use super::tabs::tab_box;
 use super::{Problem, chart, healthy_detail, names, service_problems};
+
+const ALL: &str = "All services";
 
 #[component]
 fn Traffic() -> impl IntoView {
@@ -33,15 +34,20 @@ fn Traffic() -> impl IntoView {
         })
     });
     let data = Signal::derive(move || series.with(|(a, b)| chart(a, b, window.get())));
-    let options = Signal::derive(move || {
-        let mut o = vec![(String::new(), "All services".to_string())];
+    let shown = Memo::new(move |_| {
         s.status.with(|st| {
-            if let Some(st) = st {
-                o.extend(st.services.iter().map(|x| (x.name.clone(), x.name.clone())));
-            }
-        });
-        o
+            st.iter()
+                .flat_map(|st| st.services.iter().map(|x| x.name.clone()))
+                .collect::<Vec<_>>()
+        })
     });
+    let options = Memo::new(move |_| {
+        crate::addr::plain_options(
+            std::iter::once((String::new(), ALL.to_string()))
+                .chain(shown.get().into_iter().map(|n| (n.clone(), n))),
+        )
+    });
+    let picked = Signal::derive(move || vec![service.get()]);
     let now = move |out: bool| {
         let svc = service.get();
         let r = s.rates.get();
@@ -67,7 +73,7 @@ fn Traffic() -> impl IntoView {
                 <span class="text-xs text-text-muted">"live"</span>
                 <span class="ml-auto"></span>
                 <div class="w-36">
-                    <Select id="traffic-service" small=true label="Service" options=options value=service on_change=Callback::new(move |v: String| service.set(v))/>
+                    <Combobox id="traffic-service" size=ComboSize::Small label="Service" header="Services" placeholder=ALL options=options selected=picked on_change=Callback::new(move |v: Vec<String>| service.set(v.into_iter().next().unwrap_or_default()))/>
                 </div>
                 <Segmented
                     name="traffic-window"
@@ -104,16 +110,7 @@ fn Traffic() -> impl IntoView {
 pub(super) fn mobile_cards(section: &'static str, kept: &[String]) -> impl IntoView {
     let cards = kept
         .iter()
-        .filter_map(|k| {
-            let row = untrack(|| crate::screens::entity::row_for(section, k))?;
-            let key = k.clone();
-            let live = Memo::new(move |_| {
-                crate::screens::entity::row_for(section, &key)
-                    .map(|r| (r.meta, r.line2))
-                    .unwrap_or_default()
-            });
-            Some(view! { <crate::screens::ListCard row=row selected=false live=live/> })
-        })
+        .filter_map(|k| crate::screens::entity::live_card(section, k))
         .collect_view();
     view! {
         <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid=format!("mobile-{section}")>
@@ -129,17 +126,26 @@ struct Refused(f64, u64);
 pub fn Overview() -> impl IntoView {
     let s = store();
     let refused_log = refused_log(s);
-    let values = Memo::new(move |_| s.running());
-    let online = move |name: &str| {
-        s.status
-            .with(|st| format::presence_of(st.as_deref(), name).up())
-    };
-    let clients_now = Signal::derive(move || {
+    let values: super::Values = Memo::new(move |_| std::sync::Arc::new(s.running()));
+    let clients_now = Memo::new(move |_| {
         let n = names(&values.get(), ClientEntry::section());
-        let up = n.iter().filter(|c| online(c)).count();
+        let reserved = crate::format::reserved_clients();
+        let up = s.status.with(|st| {
+            let on: std::collections::HashMap<&str, bool> = st
+                .iter()
+                .flat_map(|st| st.clients.iter().rev())
+                .map(|c| (c.name.as_str(), c.local || c.connected))
+                .collect();
+            n.iter()
+                .filter(|c| {
+                    reserved.contains(c)
+                        || st.is_some() && on.get(c.as_str()).copied().unwrap_or(false)
+                })
+                .count()
+        });
         (up, n.len())
     });
-    let counts = Signal::derive(move || {
+    let counts = Memo::new(move |_| {
         let v = values.get();
         let (up, n) = clients_now.get();
         let vis = names(&v, VisitorEntry::section()).len();
@@ -154,7 +160,7 @@ pub fn Overview() -> impl IntoView {
             format!("{active}/{vis}"),
         ]
     });
-    let down = Signal::derive(move || {
+    let down = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
         (
@@ -195,12 +201,12 @@ pub fn Overview() -> impl IntoView {
                 </button>
             </header>
             <div class="grid grid-cols-2 gap-4 md:grid-cols-6 xl:grid-cols-12">
-                {kpis(values, clients_now, down, refused_log)}
+                {kpis(values, clients_now.into(), down.into(), refused_log)}
                 <div class="col-span-2 grid gap-4 md:col-span-6 xl:col-span-12 min-[1200px]:grid-cols-12" data-testid="overview-row3">
                     <Traffic/>
                     <Attention/>
                 </div>
-                {tab_box(values, counts)}
+                {tab_box(values, counts.into())}
             </div>
         </div>
     }
@@ -226,7 +232,7 @@ fn refused_log(s: Store) -> RwSignal<VecDeque<Refused>> {
 }
 
 fn kpis(
-    values: Memo<Value>,
+    values: super::Values,
     clients_now: Signal<(usize, usize)>,
     down: Signal<(usize, Vec<(String, Problem)>)>,
     refused_log: RwSignal<VecDeque<Refused>>,

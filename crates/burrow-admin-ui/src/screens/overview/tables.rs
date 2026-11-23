@@ -5,6 +5,7 @@ use burrow_admin_proto::status::ClientStatus;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{EmptyState, StatusDot, Table, Tone, tag_class};
 use leptos::prelude::*;
+use std::collections::{HashMap, HashSet};
 
 use crate::form::plain;
 use crate::format;
@@ -61,34 +62,53 @@ pub(super) struct Layouts {
     pub visitors: Layout,
 }
 
-pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
+pub(super) fn layouts(s: Store, values: super::Values) -> Layouts {
     let services = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
-        let m = ServiceEntry::entries(&v).cloned().unwrap_or_default();
+        let m: Vec<&String> = ServiceEntry::entries(&v)
+            .map(|m| m.keys().collect())
+            .unwrap_or_default();
         let bad: Vec<String> = service_problems(&v, st.as_deref())
             .into_iter()
             .map(|(n, _)| n)
             .collect();
-        let open = |n: &str| {
-            st.as_ref()
-                .and_then(|st| st.services.iter().find(|x| x.name == n))
-                .map_or(0, |x| x.open)
-        };
-        let (kept, total) = top(m.keys().collect(), |n| (bad.contains(*n), open(n)));
+        let bad: HashSet<&str> = bad.iter().map(String::as_str).collect();
+        let open: HashMap<&str, u64> = st
+            .iter()
+            .flat_map(|st| st.services.iter().map(|x| (x.name.as_str(), x.open)))
+            .collect();
+        let (kept, total) = top(m, |n| {
+            (
+                bad.contains(n.as_str()),
+                open.get(n.as_str()).copied().unwrap_or(0),
+            )
+        });
         (kept.into_iter().cloned().collect::<Vec<_>>(), total)
+    });
+    let serving = Memo::new(move |_| {
+        values.with(|v| {
+            ServiceEntry::entries(v)
+                .into_iter()
+                .flat_map(|m| m.values().flat_map(clients_of))
+                .collect::<HashSet<String>>()
+        })
     });
     let clients = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
-        let of = |name: &str| st.as_ref().and_then(|st| presence::client(st, name));
-        let serving = |name: &str| {
-            ServiceEntry::entries(&v)
-                .is_some_and(|m| m.values().any(|x| clients_of(x).iter().any(|c| c == name)))
-        };
+        let reserved = format::reserved_clients();
+        let by: HashMap<&str, &ClientStatus> = st
+            .iter()
+            .flat_map(|st| st.clients.iter().rev())
+            .map(|c| (c.name.as_str(), c))
+            .collect();
+        let of = |name: &str| by.get(name).copied();
         top(names(&v, ClientEntry::section()), |name| {
             let c = of(name);
-            let away = !format::presence_of(st.as_deref(), name).up() && serving(name);
+            let up = reserved.contains(name)
+                || st.is_some() && c.is_some_and(|c| c.local || c.connected);
+            let away = !up && serving.with(|s| s.contains(name));
             (
                 away || c.is_some_and(|c| c.at_limit),
                 c.map_or(0, |c| c.open),
@@ -98,11 +118,13 @@ pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
     let visitors = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
+        let seen: HashMap<&str, u64> = st
+            .iter()
+            .flat_map(|st| st.visitors.iter())
+            .map(|x| (x.name.as_str(), x.open * 2 + u64::from(s.in_use(x))))
+            .collect();
         top(names(&v, VisitorEntry::section()), |name| {
-            let x = st
-                .as_ref()
-                .and_then(|st| st.visitors.iter().find(|c| &c.name == name));
-            (false, x.map_or(0, |x| x.open * 2 + u64::from(s.in_use(x))))
+            (false, seen.get(name.as_str()).copied().unwrap_or(0))
         })
     });
     Layouts {
@@ -112,12 +134,11 @@ pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
     }
 }
 
-pub(super) fn services_table(values: Memo<Value>, layout: Layout) -> AnyView {
+pub(super) fn services_table(values: super::Values, layout: Layout) -> AnyView {
     let v = values.get();
-    let m = ServiceEntry::entries(&v).cloned().unwrap_or_default();
-    if m.is_empty() {
+    let Some(m) = ServiceEntry::entries(&v).filter(|m| !m.is_empty()) else {
         return view! { <EmptyState title="No services yet" message="Services publish a port of a client on this server." testid="services-empty"/> }.into_any();
-    }
+    };
     let (kept, total) = layout.get();
     let rows = kept
         .iter()
@@ -140,7 +161,7 @@ fn client_cells(s: Store, name: String) -> impl Fn() -> Option<ClientStatus> + C
     }
 }
 
-pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {
+pub(super) fn clients_table(s: Store, values: super::Values, layout: Layout) -> AnyView {
     let v = values.get();
     if names(&v, ClientEntry::section()).is_empty() {
         return view! { <EmptyState title="No clients yet" message="A client is a machine that connects out to this server." testid="clients-empty"/> }.into_any();
@@ -180,7 +201,7 @@ pub(super) fn clients_table(s: Store, values: Memo<Value>, layout: Layout) -> An
     view! { <div class=burrow_ui_kit::TABLE_VIEW><Table head=vec!["Client", "From", ">Open", "Since", "Version", "~System", "Services"] testid="overview-clients">{rows}</Table></div> {footer(ClientEntry::section(), &kept, total)} }.into_any()
 }
 
-pub(super) fn visitors_table(s: Store, values: Memo<Value>, layout: Layout) -> AnyView {
+pub(super) fn visitors_table(s: Store, values: super::Values, layout: Layout) -> AnyView {
     let v = values.get();
     if names(&v, VisitorEntry::section()).is_empty() {
         return view! { <EmptyState title="No visitors yet" message="A visitor reaches services with burrow visit." testid="visitors-empty"/> }.into_any();

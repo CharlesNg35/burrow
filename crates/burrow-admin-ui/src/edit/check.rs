@@ -18,6 +18,19 @@ fn answers(rv: &Review, source: &Source, ops: &[Op], base: &str) -> bool {
     rv.source == *source && rv.ops == ops && rv.base == base
 }
 
+fn revert_review(to: &str, base: String) -> Review {
+    Review {
+        title: format!("Revert to version {to}"),
+        ops: vec![Op::ReplaceDocument {
+            from_history: to.to_string(),
+        }],
+        base,
+        plan: None,
+        source: Source::Revert(to.to_string()),
+        own: true,
+    }
+}
+
 fn carries(source: &Source) -> bool {
     !matches!(source, Source::Revert(_))
 }
@@ -182,20 +195,30 @@ impl Edit {
     }
 
     pub fn open_revert(&self, store: Store, to: String) {
-        let base = store
+        let me = *self;
+        let shown = store
             .state
             .with_untracked(|s| s.as_ref().map(|s| s.rev.clone()))
             .unwrap_or_default();
-        let asked = self.open_own(Review {
-            title: format!("Revert to version {to}"),
-            ops: vec![Op::ReplaceDocument {
-                from_history: to.clone(),
-            }],
-            base: base.clone(),
-            plan: None,
-            source: Source::Revert(to.clone()),
-            own: true,
+        let asked = self.open_own(revert_review(&to, shown.clone()));
+        api::request(msg::req::STATE, serde_json::json!({}), move |r| {
+            let still = me.review.with_untracked(|rv| {
+                rv.as_ref()
+                    .is_some_and(|rv| answers(rv, &asked.source, &asked.ops, &asked.base))
+            });
+            if !still {
+                return;
+            }
+            let base = r
+                .ok()
+                .and_then(|v| v.get("rev").and_then(Value::as_str).map(str::to_string))
+                .unwrap_or(shown);
+            me.revert_at(to, base);
         });
+    }
+
+    pub fn revert_at(&self, to: String, base: String) {
+        let asked = self.open_own(revert_review(&to, base.clone()));
         let me = *self;
         let body = api::body(&msg::Revert {
             to: to.clone(),

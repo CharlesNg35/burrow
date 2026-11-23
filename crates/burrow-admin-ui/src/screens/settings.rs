@@ -9,7 +9,7 @@ use burrow_ui_kit::{PillTabs, TabMark};
 
 use crate::form::{PageSearch, ShowKeys, card_fields, settings_card, settings_cards};
 use crate::route::Route;
-use crate::screens::{Row, filter_chips, search_box};
+use crate::screens::{LIST_SEARCH, Row, filter_chips, search_box};
 
 use crate::route::TAB_QUERY;
 use crate::store::store;
@@ -18,7 +18,7 @@ fn show_card(key: &str) {
     if let Ok(Some(el)) =
         document().query_selector(&format!("[data-testid=settings] [data-card=\"{key}\"]"))
     {
-        el.scroll_into_view();
+        burrow_ui_kit::bring_near(&el);
     }
 }
 
@@ -142,6 +142,11 @@ fn asked_tab() -> Tab {
     crate::route::query(TAB_QUERY)
         .and_then(|t| Tab::parse(&t))
         .or_else(|| crate::route::query(crate::route::CARD_QUERY).map(|f| tab_of(&f)))
+        .or_else(|| {
+            let last = store().settings_tab.get_untracked()?;
+            crate::route::set_query(TAB_QUERY, last.key());
+            Some(last)
+        })
         .unwrap_or(Tab::Server)
 }
 
@@ -387,6 +392,7 @@ pub fn Settings() -> impl IntoView {
         filter: RwSignal::new("all"),
     };
     let tab = RwSignal::new(asked_tab());
+    Effect::new(move |_| s.settings_tab.set(Some(tab.get())));
     let rows = Memo::new(move |_| {
         let schema = s.schema.get();
         let restart = s
@@ -426,9 +432,6 @@ pub fn Settings() -> impl IntoView {
             full.set(false);
         }
     });
-    on_cleanup(move || {
-        let _ = full.try_set(false);
-    });
     let fill = move || match (tab.get() == Tab::File, full.get()) {
         (true, true) => Some("all"),
         (true, false) => Some("desk"),
@@ -464,13 +467,13 @@ pub fn Settings() -> impl IntoView {
             >
                 "Server settings"
             </burrow_ui_kit::PageHeader>
-            {tab_bar(rows, tab, look, search_box(look.query, "Search settings".into(), Signal::stored(false)).into_any())}
+            {tab_bar(rows, tab, look, search_box(LIST_SEARCH, look.query, "Search settings".into(), Signal::stored(false)).into_any())}
             </div>
             <div class="mb-4" class:hidden=move || !tab.get().holds_fields() data-testid="settings-search">
                 {filter_chips(filters, look.filter, plain_rows, true, Signal::stored(false))}
             </div>
             <div data-testid="settings" data-fill-part="">{tab_cards(tab, look, rows)}</div>
-            {move || editing.get().then(|| {
+            {move || (editing.get() && tab.get().holds_fields()).then(|| {
                 crate::screens::bar::save_bar(crate::screens::bar::SaveBar {
                     count: problems.get(),
                     problems: Vec::new(),
@@ -511,18 +514,17 @@ fn settings_of(
 }
 
 fn changed_fields(e: Edit) -> Signal<usize> {
-    Signal::derive(move || {
-        let now = settings_of(&e.doc());
+    Memo::new(move |_| {
+        let now = e.with_doc(settings_of);
         e.editing.with(|m| {
             let snap = m
                 .get(&Vec::<String>::new())
-                .cloned()
-                .flatten()
-                .map(|d| settings_of(&d))
-                .unwrap_or_else(|| now.clone());
-            burrow_admin_logic::changeset::ops_between(&snap, &now).len()
+                .and_then(Option::as_ref)
+                .map(settings_of);
+            burrow_admin_logic::changeset::ops_between(snap.as_ref().unwrap_or(&now), &now).len()
         })
     })
+    .into()
 }
 
 fn problem_count(e: Edit) -> Signal<usize> {

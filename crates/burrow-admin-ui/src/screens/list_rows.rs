@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use burrow_ui_kit::{EmptyState, LABEL};
+use burrow_ui_kit::EmptyState;
 use leptos::prelude::*;
 
 use crate::store::Grouping;
@@ -16,6 +16,7 @@ pub(super) struct Cards {
     pub shown: RwSignal<HashSet<String>>,
     pub selected: Signal<Option<String>>,
     pub live: Memo<LiveMap>,
+    pub live_section: Option<&'static str>,
     pub compact: bool,
 }
 
@@ -33,22 +34,32 @@ pub(super) fn still(r: &Row) -> Row {
 
 pub(super) fn print(r: &Row) -> (String, u64) {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    format!("{r:?}").hash(&mut h);
+    r.hash(&mut h);
     (r.key.clone(), h.finish())
 }
 
 pub(super) fn card(r: Row, c: Cards) -> AnyView {
     let key = r.key.clone();
+    let mounted = Memo::new(move |_| c.shown.with(|s| s.contains(&key)));
+    let row = StoredValue::new(r);
+    view! { {move || mounted.get().then(|| full_card(row.get_value(), c))} }.into_any()
+}
+
+pub(super) fn full_card(r: Row, c: Cards) -> AnyView {
+    let key = r.key.clone();
     let sel = key.clone();
     let on = Signal::derive(move || c.selected.with(|s| s.as_deref() == Some(sel.as_str())));
-    let shown = key.clone();
-    let hidden = Signal::derive(move || !c.shown.with(|s| s.contains(&shown)));
     if c.compact {
-        return view! { <TocRow row=r selected=on hidden=hidden/> }.into_any();
+        return view! { <TocRow row=r selected=on/> }.into_any();
     }
-    let live = c.live;
-    let mine = Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()));
-    view! { <ListCard row=r selected=on live=mine hidden=hidden/> }.into_any()
+    let mine = match c.live_section {
+        Some(section) => Memo::new(move |_| crate::screens::entity::live_text(section, &key)),
+        None => {
+            let live = c.live;
+            Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()))
+        }
+    };
+    view! { <ListCard row=r selected=on live=mine/> }.into_any()
 }
 
 pub(super) const CHUNK: usize = 120;
@@ -130,44 +141,17 @@ fn group_names(groups: &[&'static str], all: &[Row]) -> Vec<String> {
 }
 
 fn flat(
-    all: Memo<Vec<Row>>,
+    rows: Signal<Vec<Row>>,
     visible: Memo<Vec<Row>>,
     groups: Vec<&'static str>,
     look: Look,
     cards: Cards,
 ) -> AnyView {
-    let names = Memo::new(move |_| all.with(|a| group_names(&groups, a)));
-    let counts: Memo<HashMap<String, usize>> = Memo::new(move |_| {
-        let mut m = HashMap::new();
-        visible.with(|v| {
-            for r in v {
-                *m.entry(r.group.clone()).or_insert(0) += 1;
-            }
-        });
-        m
+    let names = Memo::new(move |_| rows.with(|a| group_names(&groups, a)));
+    let items = Memo::new(move |_| {
+        names.with(|g| visible.with(|v| super::list_window::items(g, v, !look.no_counts)))
     });
-    let several = Memo::new(move |_| counts.with(|c| c.values().filter(|n| **n > 0).count() > 1));
-    view! {
-        <For each=move || names.get() key=|g| g.clone() let:g>
-            {
-                let name = g.clone();
-                let n = Memo::new(move |_| counts.with(|c| c.get(&name).copied().unwrap_or(0)));
-                let label = g.clone();
-                let mine = g.clone();
-                let rows = move || all.with(|a| a.iter().filter(|r| r.group == mine).cloned().collect::<Vec<_>>());
-                view! {
-                    {(!g.is_empty()).then(|| view! {
-                        <div class=format!("flex justify-between px-4 pt-3.5 pb-1.5 {LABEL}") hidden=move || n.get() == 0>
-                            <span>{label.clone()}</span>
-                            {move || (several.get() && !look.no_counts).then(|| view! { <span>{n.get()}</span> })}
-                        </div>
-                    })}
-                    <For each=rows key=print children=move |r| card(r, cards)/>
-                }
-            }
-        </For>
-    }
-    .into_any()
+    super::list_window::windowed(items, look, cards)
 }
 
 pub(super) fn list_body(
@@ -182,10 +166,10 @@ pub(super) fn list_body(
         rows,
         selected,
         by_file,
+        live_section,
         searching,
     } = shown_in;
     let all = Memo::new(move |_| rows.with(|r| r.iter().map(still).collect::<Vec<_>>()));
-    let shown = revealed(visible, selected);
     let live: Memo<LiveMap> = Memo::new(move |_| {
         rows.with(|v| {
             v.iter()
@@ -193,10 +177,11 @@ pub(super) fn list_body(
                 .collect()
         })
     });
-    let cards = Cards {
+    let cards = move |shown| Cards {
         shown,
         selected,
         live,
+        live_section,
         compact: look.compact,
     };
     let nothing = Memo::new(move |_| visible.with(Vec::is_empty));
@@ -213,8 +198,20 @@ pub(super) fn list_body(
         }
     };
     let body = move || match grouped.get() {
-        Some(kind) => file_groups::render(kind, all, visible, searching, cards),
-        None => flat(all, visible, groups.clone(), look, cards),
+        Some(kind) => file_groups::render(
+            kind,
+            all,
+            visible,
+            searching,
+            cards(revealed(visible, selected)),
+        ),
+        None => flat(
+            rows,
+            visible,
+            groups.clone(),
+            look,
+            cards(RwSignal::new(HashSet::new())),
+        ),
     };
     view! { {empty_view} {body} }.into_any()
 }

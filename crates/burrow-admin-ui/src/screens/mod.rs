@@ -11,6 +11,7 @@ pub mod files;
 pub mod flow;
 mod list;
 mod list_rows;
+mod list_window;
 mod local_ca;
 mod overview;
 pub mod paths;
@@ -26,7 +27,9 @@ use leptos::prelude::*;
 use crate::route::{Link, Route};
 use crate::store::store;
 
-pub(crate) use list::{ListCard, ListPane, NewChoice, PhoneList, filter_chips, search_box};
+pub(crate) use list::{
+    LIST_SEARCH, ListCard, ListPane, NewChoice, PhoneList, filter_chips, search_box,
+};
 
 pub fn crumbs(
     to: Route,
@@ -61,10 +64,9 @@ pub fn screen(route: Route) -> AnyView {
     let _ = store();
     match route {
         Route::Overview => overview::Overview().into_any(),
-        Route::List(section) => view! { <entity::Entities section=section selected=None/> }.into_any(),
-        Route::Detail(section, name) => view! { <entity::Entities section=section selected=Some(name)/> }.into_any(),
+        Route::List(section) | Route::Detail(section, _) => view! { <entity::Entities section=section/> }.into_any(),
         Route::Settings => settings::Settings().into_any(),
-        Route::Activity(rev) => view! { <activity::Activity selected=rev/> }.into_any(),
+        Route::Activity(_) => activity::Activity().into_any(),
         Route::Review => crate::review::ReviewPage().into_any(),
         Route::About => about::About().into_any(),
         Route::NotFound(path) => view! {
@@ -87,7 +89,7 @@ pub fn wide() -> bool {
         >= 1024.0
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
 pub struct Row {
     pub key: String,
     pub to: Route,
@@ -112,7 +114,7 @@ pub struct Row {
     pub moment: Option<crate::format::Moment>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Kept {
     File(String),
     ReadOnly(String),
@@ -193,16 +195,9 @@ pub fn clear_of_bar() {
     let _ = root
         .style()
         .set_property("scroll-padding-bottom", &format!("{room}px"));
-    let Some(active) = doc.active_element() else {
+    let Some(active) = doc.active_element().filter(moves_with_page) else {
         return;
     };
-    let fixed = matches!(
-        active.closest("[data-sticky-bar],[data-toast-stack]"),
-        Ok(Some(_))
-    );
-    if fixed || active.tag_name() == "BODY" {
-        return;
-    }
     let row = active
         .closest("[data-schema]")
         .ok()
@@ -217,6 +212,31 @@ pub fn clear_of_bar() {
         let by = (r.bottom() - limit + 12.0).min(r.top() - 80.0).max(0.0);
         window().scroll_by_with_x_and_y(0.0, by);
     }
+}
+
+const EDITABLE: &str = "textarea, select, [contenteditable]:not([contenteditable=false]), input:not([type=button]):not([type=submit]):not([type=reset]):not([type=hidden]):not([type=image])";
+
+fn moves_with_page(el: &web_sys::Element) -> bool {
+    if !el.matches(EDITABLE).unwrap_or(false) {
+        return false;
+    }
+    let mut at = Some(el.clone());
+    while let Some(e) = at {
+        if matches!(e.tag_name().as_str(), "BODY" | "HTML") {
+            return true;
+        }
+        if let Ok(Some(css)) = window().get_computed_style(&e) {
+            let pos = css.get_property_value("position").unwrap_or_default();
+            let flow = css.get_property_value("overflow-y").unwrap_or_default();
+            let scrolls = matches!(flow.as_str(), "auto" | "scroll" | "overlay")
+                && e.scroll_height() > e.client_height() + 1;
+            if pos == "sticky" || pos == "fixed" || scrolls {
+                return false;
+            }
+        }
+        at = e.parent_element();
+    }
+    true
 }
 
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {

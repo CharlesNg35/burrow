@@ -486,16 +486,7 @@ fn metrics_endpoint() {
         )
     };
     insta::assert_snapshot!(render("server.yaml", &with("9100"), None), @"server.yaml: valid server config (2 clients, 1 service)");
-    insta::assert_snapshot!(render("server.yaml", &with("0.0.0.0:9100"), None), @"
-    warning: the metrics endpoint listens on 0.0.0.0:9100, not only on this machine
-      --> server.yaml:13:11
-       |
-    13 |   listen: 0.0.0.0:9100
-       |           ^^^^^^^^^^^^ reachable from the network
-       = help: anyone who reaches it sees client, service and visitor names and traffic; use 127.0.0.1 unless a firewall limits who can connect
-
-    server.yaml: valid server config (2 clients, 1 service), 1 warning
-    ");
+    insta::assert_snapshot!(render("server.yaml", &with("0.0.0.0:9100"), None), @"server.yaml: valid server config (2 clients, 1 service)");
     insta::assert_snapshot!(render("server.yaml", &with("4000"), None), @r#"
     error: metrics.listen 127.0.0.1:4000 is already used by service "web"
       --> server.yaml:13:11

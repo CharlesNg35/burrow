@@ -218,7 +218,7 @@ fn a_plan_tells_new_problems_from_old_ones_and_groups_references_under_their_ent
     let text = w.text.replace(
         "\nservices:",
         &format!(
-            "  lap:\n    secret: {}\n    reach:\n      home: any\n\nservices:\n  db: {{ client: home, bind: 7841, target: 5432 }}",
+            "  lap:\n    secret: {}\n    reach:\n      home: any\n\nservices:\n  db: {{ client: home, bind: \"0.0.0.0:5432\", target: 5432 }}",
             lap.encode()
         ),
     );
@@ -245,6 +245,10 @@ fn a_plan_tells_new_problems_from_old_ones_and_groups_references_under_their_ent
             path: p(&["visitors", "lap", "reach", "office"]),
             value: json!("any"),
         },
+        Op::Add {
+            path: p(&["services", "pg"]),
+            value: json!({"client": "office", "bind": "0.0.0.0:3306", "target": 3306}),
+        },
     ];
     let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
     assert!(c.plan.valid, "{:?}", c.plan.diags);
@@ -262,8 +266,8 @@ fn a_plan_tells_new_problems_from_old_ones_and_groups_references_under_their_ent
         .filter(|d| !d.before)
         .map(|d| d.path.as_ref().map(|p| p.join(".")).unwrap_or_default())
         .collect();
-    assert_eq!(old, ["visitors.lap.reach.home"], "{:?}", c.plan.diags);
-    assert_eq!(new, ["visitors.lap.reach.office"], "{:?}", c.plan.diags);
+    assert_eq!(old, ["services.db.bind"], "{:?}", c.plan.diags);
+    assert_eq!(new, ["services.pg.bind"], "{:?}", c.plan.diags);
     let group = |path: &[&str]| {
         c.plan
             .changes

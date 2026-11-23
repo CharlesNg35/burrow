@@ -1,18 +1,23 @@
+use burrow_admin_logic::live::Live as LiveStatus;
+use std::collections::{HashMap, HashSet};
+
 use burrow_admin_logic::rates::{Rates, human_bits};
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
 
 use crate::form::plain;
 use crate::format;
 use crate::route::Route;
-use crate::screens::paths::{clients_of, health_count};
+use crate::screens::paths::{clients_of, health_with};
 use burrow_admin_logic::health::Level;
 
+use super::bundle::{Kind, Row, dress, header, plan};
 use super::links::{client_lines, service_nodes};
+use super::live::Live;
+use super::place::{Spot, Stick, spots};
 use super::{Health, PITCH, TOP};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Node {
     pub key: String,
     pub col: usize,
@@ -26,13 +31,38 @@ pub struct Node {
     pub dashed: bool,
     pub server: bool,
     pub problem: bool,
-    pub to: Option<Route>,
+    pub act: Option<Act>,
     pub tip: String,
+    pub stick: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Line {
+pub enum Act {
+    Open(Route),
+    Fold { client: String, open: bool },
+}
+
+impl Act {
+    pub fn route(&self) -> Option<&Route> {
+        match self {
+            Act::Open(r) => Some(r),
+            Act::Fold { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Path {
     pub d: String,
+    pub top: f64,
+    pub bottom: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Line {
+    pub key: String,
+    pub path: Path,
+    pub stick: Option<Stick>,
     pub width: f64,
     pub stroke: &'static str,
     pub dashed: bool,
@@ -46,7 +76,25 @@ pub struct Chart {
     pub height: f64,
     pub problems: usize,
     pub services: usize,
+    pub total: usize,
     pub alt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Focus {
+    pub query: String,
+    pub open: HashSet<String>,
+}
+
+pub(super) struct Clients {
+    pub(super) nodes: Vec<Node>,
+    at: HashMap<String, usize>,
+}
+
+impl Clients {
+    pub(super) fn get(&self, name: &str) -> Option<&Node> {
+        self.at.get(name).and_then(|i| self.nodes.get(*i))
+    }
 }
 
 pub(super) fn weight(open: u64) -> f64 {
@@ -81,65 +129,145 @@ pub(super) struct Svc {
     pub(super) reached: String,
 }
 
-pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&str>) -> Chart {
-    let svcs = services(doc, status, rates);
-    let client_names: Vec<String> = ClientEntry::names(doc);
-    let rows = svcs.len().max(client_names.len()).max(2);
-    let height = TOP + rows as f64 * PITCH;
-    let mut nodes = sources(&svcs, status, me);
-    let mut lines = Vec::new();
-    let offline: Vec<&String> = client_names
-        .iter()
-        .filter(|c| status.is_some() && !format::presence_of(status, c).up())
-        .collect();
-    nodes.push(server_node(&svcs, status, rates, rows));
-    let client_nodes = client_nodes(&client_names, &svcs, status, rows);
-    for (i, s) in svcs.iter().enumerate() {
-        let (port, target) = service_nodes(i, s, &nodes, &client_nodes, status, &mut lines);
-        nodes.push(port);
-        nodes.push(target);
+impl Svc {
+    fn matches(&self, q: &str) -> bool {
+        q.is_empty()
+            || self.name.to_lowercase().contains(q)
+            || self.target.to_lowercase().contains(q)
+            || self.clients.iter().any(|c| c.to_lowercase().contains(q))
     }
-    client_lines(&client_nodes, status, &mut lines);
-    let problems = svcs.iter().filter(|s| problem_svc(s)).count() + offline.len();
-    nodes.extend(client_nodes);
+}
+
+pub fn layout(
+    doc: &Value,
+    status: Option<&LiveStatus>,
+    rates: &Rates,
+    me: Option<&str>,
+    focus: &Focus,
+) -> Chart {
+    let live = Live::new(status, rates);
+    let q = focus.query.trim().to_lowercase();
+    let all = services(doc, &live);
+    let total = all.len();
+    let svcs: Vec<Svc> = all.into_iter().filter(|s| s.matches(&q)).collect();
+    let shown = svcs.len();
+    let client_names = shown_clients(ClientEntry::names(doc), &svcs, &q);
+    let offline = client_names
+        .iter()
+        .filter(|c| live.known() && !live.up(c))
+        .count();
+    let problems = svcs.iter().filter(|s| problem_svc(s)).count() + offline;
+    let reach = Reach::of(&svcs);
+    let total_open: u64 = svcs.iter().map(|s| s.open).sum();
+    let involved: HashSet<String> = svcs
+        .iter()
+        .filter(|s| problem_svc(s))
+        .flat_map(|s| s.clients.iter().cloned())
+        .collect();
+    let rows = plan(svcs, &focus.open);
+    let height_rows = rows.len().max(client_names.len()).max(2);
+    let src = sources(&rows, &reach, status, me);
+    let server = server_node(total_open, status, rates, height_rows);
+    let spots = spots(&client_names, &rows, height_rows, 42.0);
+    let clients = client_nodes(&client_names, &involved, &live, &spots);
+    let mut lines = Vec::new();
+    let mut nodes = Vec::with_capacity(src.len() + 1 + rows.len() * 2 + client_names.len());
+    nodes.extend(src.iter().cloned());
+    nodes.push(server);
+    for (i, r) in rows.iter().enumerate() {
+        match &r.kind {
+            Kind::Header(g) => nodes.push(header(i, g)),
+            kind => {
+                let from = lines.len();
+                let (mut port, mut target) =
+                    service_nodes(i, &r.svc, &src, &clients, &live, &mut lines);
+                if let Kind::Bundle(g) = kind {
+                    dress(g, &mut port, &mut target, &mut lines[from..]);
+                }
+                nodes.push(port);
+                nodes.push(target);
+            }
+        }
+    }
+    client_lines(&clients.nodes, &live, &mut lines);
+    nodes.extend(clients.nodes);
     let alt = format!(
-        "Flow of {} services through the server to {} clients; {} problems",
-        svcs.len(),
+        "Flow of {shown} services through the server to {} clients; {problems} problems",
         client_names.len(),
-        problems
     );
     Chart {
         nodes,
         lines,
-        height,
+        height: TOP + height_rows as f64 * PITCH,
         problems,
-        services: svcs.len(),
+        services: shown,
+        total,
         alt,
     }
+}
+
+struct Reach {
+    public: usize,
+    local: usize,
+}
+
+impl Reach {
+    fn of(svcs: &[Svc]) -> Self {
+        let public = svcs.iter().filter(|s| s.bind.is_some()).count();
+        let local = svcs
+            .iter()
+            .filter(|s| s.bind.as_deref().is_some_and(loopback))
+            .count();
+        Reach { public, local }
+    }
+}
+
+fn shown_clients(names: Vec<String>, svcs: &[Svc], q: &str) -> Vec<String> {
+    if q.is_empty() {
+        return names;
+    }
+    let used: HashSet<&str> = svcs
+        .iter()
+        .flat_map(|s| s.clients.iter().map(String::as_str))
+        .collect();
+    names
+        .into_iter()
+        .filter(|c| used.contains(c.as_str()) || c.to_lowercase().contains(q))
+        .collect()
 }
 
 pub(super) fn row_y(i: usize) -> f64 {
     TOP + i as f64 * PITCH + 6.0
 }
 
-fn span(idx: &[usize]) -> (f64, f64) {
-    let a = row_y(*idx.first().unwrap_or(&0));
-    let b = row_y(*idx.last().unwrap_or(&0)) + 42.0;
-    (a, (b - a).max(42.0))
+const STICK_FROM: usize = 40;
+
+fn span(idx: &[usize]) -> (f64, f64, Option<f64>) {
+    let (first, last) = (*idx.first().unwrap_or(&0), *idx.last().unwrap_or(&0));
+    let a = row_y(first);
+    let b = (row_y(last) + 42.0).max(a + 42.0);
+    if last - first >= STICK_FROM {
+        (a, 42.0, Some(b))
+    } else {
+        (a, b - a, None)
+    }
 }
 
 pub(super) fn problem_svc(s: &Svc) -> bool {
     matches!(s.health, Health::Down | Health::Degraded)
 }
 
-fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
+fn services(doc: &Value, live: &Live) -> Vec<Svc> {
     let mut svcs: Vec<Svc> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
                 .map(|(name, v)| {
-                    let st = status.and_then(|s| s.services.iter().find(|x| &x.name == name));
+                    let st = live.service(name);
                     let clients = clients_of(v);
-                    let (health, badge) = match status.map(|_| health_count(name, v, status, &[])) {
+                    let count = live
+                        .known()
+                        .then(|| health_with(st, v, |c| live.connected(c)));
+                    let (health, badge) = match count {
                         None => (Health::Unknown, None),
                         Some(c) => match c.level() {
                             Level::Down => (Health::Down, Some(c.label().to_lowercase())),
@@ -164,7 +292,7 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
                             .unwrap_or_else(|| Protocol::default().wire().into()),
                         clients,
                         open: st.map(|x| x.open).unwrap_or(0),
-                        rate: rates.service(name).bytes_in,
+                        rate: live.rate_in(name),
                         health,
                         badge,
                         reached: burrow_admin_logic::web::reached(v),
@@ -182,20 +310,26 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
     svcs
 }
 
-fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node> {
+fn sources(
+    rows: &[Row],
+    reach: &Reach,
+    status: Option<&LiveStatus>,
+    me: Option<&str>,
+) -> Vec<Node> {
     let mut nodes = Vec::new();
-    let public: Vec<usize> = (0..svcs.len())
-        .filter(|i| svcs[*i].bind.is_some())
-        .collect();
-    let private: Vec<usize> = (0..svcs.len())
-        .filter(|i| svcs[*i].bind.is_none())
-        .collect();
+    let drawn = |public: bool| -> Vec<usize> {
+        (0..rows.len())
+            .filter(|i| {
+                !matches!(rows[*i].kind, Kind::Header(_)) && rows[*i].svc.bind.is_some() == public
+            })
+            .collect()
+    };
+    let public = drawn(true);
+    let private = drawn(false);
+    let problem = |idx: &[usize]| idx.iter().any(|i| problem_svc(&rows[*i].svc));
     if !public.is_empty() {
-        let lo = public
-            .iter()
-            .filter(|i| svcs[**i].bind.as_deref().is_some_and(loopback))
-            .count();
-        let (y, h) = span(&public);
+        let lo = reach.local;
+        let (y, h, stick) = span(&public);
         nodes.push(Node {
             key: "internet".into(),
             col: 0,
@@ -209,7 +343,7 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             },
             sub: format!(
                 "{} public · {} refused",
-                public.len() - lo,
+                reach.public - lo,
                 status
                     .map(|s| s.services.iter().map(|x| x.refused).sum::<u64>())
                     .unwrap_or(0)
@@ -218,13 +352,14 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             health: Health::Unknown,
             dashed: false,
             server: false,
-            problem: public.iter().any(|i| problem_svc(&svcs[*i])),
-            to: None,
+            problem: problem(&public),
+            act: None,
             tip: String::new(),
+            stick,
         });
     }
     if !private.is_empty() {
-        let (y, h) = span(&private);
+        let (y, h, stick) = span(&private);
         let active = status
             .map(|s| {
                 s.visitors
@@ -245,16 +380,16 @@ fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node>
             health: Health::Unknown,
             dashed: false,
             server: false,
-            problem: private.iter().any(|i| problem_svc(&svcs[*i])),
-            to: Some(Route::List(VisitorEntry::section().into())),
+            problem: problem(&private),
+            act: Some(Act::Open(Route::List(VisitorEntry::section().into()))),
             tip: "Open visitors →".into(),
+            stick,
         });
     }
     nodes
 }
 
-fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize) -> Node {
-    let total_open: u64 = svcs.iter().map(|s| s.open).sum();
+fn server_node(total_open: u64, status: Option<&LiveStatus>, rates: &Rates, rows: usize) -> Node {
     let (rate, unit) = human_bits(rates.total.bytes_in);
     Node {
         key: "server".into(),
@@ -281,31 +416,33 @@ fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize
         dashed: false,
         server: true,
         problem: false,
-        to: None,
+        act: None,
         tip: String::new(),
+        stick: None,
     }
 }
 
 fn client_nodes(
     client_names: &[String],
-    svcs: &[Svc],
-    status: Option<&Status>,
-    rows: usize,
-) -> Vec<Node> {
-    client_names
+    involved: &HashSet<String>,
+    live: &Live,
+    spots: &[Spot],
+) -> Clients {
+    let known = live.known();
+    let nodes: Vec<Node> = client_names
         .iter()
         .enumerate()
         .map(|(j, c)| {
-            let cs = status.and_then(|s| burrow_admin_logic::presence::client(s, c));
-            let on = format::presence_of(status, c).up();
-            let slot = (rows as f64 * PITCH) / client_names.len().max(1) as f64;
-            let y = TOP + (j as f64 + 0.5) * slot - 21.0;
-            let involved = svcs.iter().any(|s| problem_svc(s) && s.clients.contains(c));
+            let cs = live.client(c);
+            let on = live.up(c);
+            let spot = spots[j];
+            let involved = involved.contains(c);
             Node {
                 key: format!("client:{c}"),
                 col: 3,
-                y,
+                y: spot.y,
                 h: 42.0,
+                stick: spot.stick,
                 title: c.clone(),
                 right: String::new(),
                 sub: match cs {
@@ -316,21 +453,30 @@ fn client_nodes(
                     },
                     None => "not seen since start".into(),
                 },
-                badge: (status.is_some() && !on)
+                badge: (known && !on)
                     .then(|| format::away_badge(cs.and_then(|x| x.left_secs_ago)).to_string()),
-                health: if status.is_none() {
+                health: if !known {
                     Health::Unknown
                 } else if on {
                     Health::Healthy
                 } else {
                     Health::Offline
                 },
-                dashed: status.is_some() && !on,
+                dashed: known && !on,
                 server: false,
-                problem: involved || (status.is_some() && !on),
-                to: Some(Route::Detail(ClientEntry::section().into(), c.clone())),
+                problem: involved || (known && !on),
+                act: Some(Act::Open(Route::Detail(
+                    ClientEntry::section().into(),
+                    c.clone(),
+                ))),
                 tip: format!("Open client {c} →"),
             }
         })
-        .collect()
+        .collect();
+    let at = client_names
+        .iter()
+        .enumerate()
+        .map(|(j, c)| (c.clone(), j))
+        .collect();
+    Clients { nodes, at }
 }

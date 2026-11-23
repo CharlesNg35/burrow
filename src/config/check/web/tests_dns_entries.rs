@@ -237,14 +237,10 @@ fn a_shared_wildcard_sits_on_the_entry_that_manages_its_name() {
             "web.letsencrypt.dns[0].wildcards: \"*.apps.example.com\" belongs to apps.example.com, which DNS provider 2 manages; list it there"
         ]
     );
+    let found = warns(&one("*.example.com"), "");
     assert!(
-        warns(&one("*.example.com"), "")
-            .contains(&"wildcard *.example.com is used by nothing yet".to_string())
-    );
-    assert!(
-        !warns(&one("*.example.com"), &site("wiki", "wiki.example.com"))
-            .iter()
-            .any(|w| w.contains("used by nothing"))
+        !found.iter().any(|w| w.contains("wildcard")),
+        "a wildcard listed ahead of its sites is a plan, not a problem: {found:#?}"
     );
 }
 
@@ -283,33 +279,13 @@ fn a_dns_check_takes_the_entry_of_the_names_domain_or_says_which_domain_to_add()
 }
 
 #[test]
-fn three_sites_under_one_dns_domain_get_the_wildcard_hint_once() {
+fn sites_with_a_certificate_each_get_no_advice_to_share_one() {
     let dns = entry("[example.com]", CF);
     let three = site("wiki", "wiki.example.com")
         + &site("blog", "blog.example.com")
         + &site("auth", "auth.example.com");
-    let found: Vec<String> = warns(&dns, &three)
-        .into_iter()
-        .filter(|w| w.contains("one wildcard"))
-        .collect();
-    assert_eq!(found.len(), 1, "{found:#?}");
-    assert_eq!(
-        found,
-        [
-            "auth, blog and wiki.example.com each get their own certificate; one wildcard would cover them: add \"*.example.com\" to wildcards in the letsencrypt.dns entry for example.com"
-        ]
-    );
-    let covered = entry(
-        "[example.com]",
-        &format!("{CF}\n        wildcards: [\"*.example.com\"]"),
-    );
-    assert!(
-        !warns(&covered, &three)
-            .iter()
-            .any(|w| w.contains("one wildcard"))
-    );
-    let two = site("wiki", "wiki.example.com") + &site("blog", "blog.example.com");
-    assert!(!warns(&dns, &two).iter().any(|w| w.contains("one wildcard")));
+    let found = warns(&dns, &three);
+    assert!(!found.iter().any(|w| w.contains("wildcard")), "{found:#?}");
 }
 
 #[test]

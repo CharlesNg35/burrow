@@ -37,17 +37,18 @@ pub enum Incoming {
 
 impl Incoming {
     pub fn parse(text: &str) -> Option<Incoming> {
-        let v: Value = serde_json::from_str(text).ok()?;
+        let mut v: Value = serde_json::from_str(text).ok()?;
+        let body = v.get_mut("body").map(Value::take).unwrap_or(Value::Null);
         if let Some(ev) = v.get("ev").and_then(Value::as_str) {
             return Some(Incoming::Event {
                 ev: ev.to_string(),
-                body: v.get("body").cloned().unwrap_or(Value::Null),
+                body,
             });
         }
         let re = u32::try_from(v.get("re")?.as_u64()?).ok()?;
         let ok = v.get("ok").and_then(Value::as_bool).unwrap_or(false);
         let result = if ok {
-            Ok(v.get("body").cloned().unwrap_or(Value::Null))
+            Ok(body)
         } else {
             Err(v
                 .get("err")
@@ -72,6 +73,16 @@ pub fn reply_err(re: u32, err: &ErrorBody) -> Value {
 
 pub fn event(ev: &str, body: Value) -> Value {
     serde_json::json!({ "ev": ev, "body": body })
+}
+
+#[derive(Serialize)]
+struct EventOut<'a, T> {
+    ev: &'a str,
+    body: &'a T,
+}
+
+pub fn event_bytes<T: Serialize>(ev: &str, body: &T) -> Vec<u8> {
+    serde_json::to_vec(&EventOut { ev, body }).unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

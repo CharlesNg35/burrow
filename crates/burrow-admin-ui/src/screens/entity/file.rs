@@ -5,6 +5,84 @@ use leptos::prelude::*;
 
 use crate::store::store;
 
+type ByItem = std::rc::Rc<std::collections::HashMap<Path, (String, bool)>>;
+type Seen = std::sync::Arc<burrow_admin_proto::msg::State>;
+
+thread_local! {
+    static BY_ITEM: std::cell::RefCell<(Option<Seen>, ByItem)> = std::cell::RefCell::default();
+}
+
+#[derive(Default)]
+pub(crate) struct Files {
+    on: bool,
+    several: bool,
+    pub main: String,
+    by_item: ByItem,
+}
+
+fn by_item(info: &burrow_admin_proto::msg::FileInfo, at: Option<Seen>) -> ByItem {
+    if let Some(kept) = BY_ITEM.with(|k| {
+        let k = k.borrow();
+        let same = matches!((&k.0, &at), (Some(a), Some(b)) if std::sync::Arc::ptr_eq(a, b));
+        same.then(|| k.1.clone())
+    }) {
+        return kept;
+    }
+    let mut map = std::collections::HashMap::new();
+    for f in &info.files {
+        for item in &f.items {
+            map.entry(item.clone())
+                .or_insert_with(|| (f.name.clone(), f.read_only.is_some()));
+        }
+    }
+    let map = std::rc::Rc::new(map);
+    BY_ITEM.with(|k| *k.borrow_mut() = (at, map.clone()));
+    map
+}
+
+impl Files {
+    pub fn now() -> Files {
+        let s = store();
+        let at = s.state.get();
+        let (main, by_item) = s
+            .with_files(|i| (files::main_name(i), by_item(i, at)))
+            .unwrap_or_default();
+        Files {
+            on: s.files_on(),
+            several: several(),
+            main,
+            by_item,
+        }
+    }
+
+    pub fn item_file(&self, item: &[String], was: Option<&Path>) -> Option<String> {
+        if !self.on {
+            return None;
+        }
+        let placed = store()
+            .edit
+            .files
+            .with(|f| item.get(..2).and_then(|i| f.placed(i)).map(str::to_string));
+        placed.or_else(|| match was {
+            Some(w) => Some(
+                self.by_item
+                    .get(w)
+                    .map_or_else(|| self.main.clone(), |f| f.0.clone()),
+            ),
+            None => Some(self.main.clone()),
+        })
+    }
+
+    pub fn label(&self, item: &[String], was: Option<&Path>) -> Option<(String, bool)> {
+        if !self.several {
+            return None;
+        }
+        let name = self.item_file(item, was)?;
+        let locked = was.is_some_and(|w| self.by_item.get(w).is_some_and(|f| f.1));
+        Some((name, locked))
+    }
+}
+
 fn several() -> bool {
     let s = store();
     s.files_on()

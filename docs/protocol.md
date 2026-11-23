@@ -342,6 +342,7 @@ Requests:
 Events:
 
 - `status`: the same snapshot as `burrow status --json`, at the subscribed interval, skipped rather than queued when the caller is slow.
+- `status.sync` (feature `status.delta`, only to a caller that lists `status.delta` in `understands` of its `welcome` request; any other caller keeps getting `status`): the same status as numbered changes. Each body is `{"full": {seq, status}}` or `{"delta": {seq, up, head?, web?, services?, clients?, visitors?, certificates?}}`, and `seq` counts up by one per message. A delta holds only what changed since the message before it: `up` is the uptime, `head` all other top-level fields but `web` when any of them changed, `web` as `{summary}` when it changed, and per list, keyed by `name`, `gone` (names removed), `add` (`[index, row]` in the new list, ascending), `set` (whole rows that changed), `counts` (`[name, [...]]` with only the counters of a row whose other fields stayed: a service's `[open, total, refused, bytes_in, bytes_out, http responses or null, [open of each entry]]`, a client's `[connected_secs, left_secs_ago, open, idle_channels, busy_total]`, a visitor's `[open, total, last_seen_secs]`) and `all` (the whole list, when it was reordered). Before a delta is applied, every `connected_secs`, `left_secs_ago` and `last_seen_secs` grows by the change in `up`. A quiet tick is just `{"delta": {"seq": 9, "up": 1001}}`. A caller that sees a gap in `seq`, a delta before any `full`, or a delta that does not fit sends `subscribe` again; the server answers with a `full` and continues from it. The counters' arrays are fixed for this feature: a server that changes them names a new feature.
 - `config`: the file changed: by an admin, by hand, or a reload was rejected.
 - `revoked`: the caller lost its admin right, its secret, its visitor or its source, or its admin level changed; end-of-stream follows.
 - `bye`: the server stops.
@@ -371,6 +372,7 @@ Every optional capability is behind a feature string; a caller uses it only when
 | `config.check-text` | the `check_text` request |
 | `config.text` | the `config_text` request and the `replace_text` operation: whole file texts back from the editor, and a text under a new name makes that drop-in, checked as `place` checks a new file (an empty one makes none). It is the only operation of its change, besides `drop_file` for drop-ins its text leaves without services, clients and visitors (the same rule as `drop_file` everywhere); each placeholder must stand where the file had it (in any file; one from a comment only in its own file), else the change is refused as `invalid` with one diagnostic per placeholder. Diagnostics may carry `end_line` and `end_col` |
 | `config.search-text` | the `search_text` request |
+| `status.delta` | the `status.sync` event instead of `status`, for a caller that lists `status.delta` in `understands` |
 
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 

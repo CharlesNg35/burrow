@@ -13,11 +13,11 @@ pub(crate) fn site_editor(fc: FieldCtx) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
     let site = path[..path.len() - 1].to_vec();
-    let names = Memo::new(move |_| logins(&e.doc()).keys().cloned().collect::<Vec<_>>());
+    let names = Memo::new(move |_| e.with_doc(|d| logins(d).keys().cloned().collect::<Vec<_>>()));
     let value = {
         let site = site.clone();
         Signal::derive(move || {
-            let all = logins(&e.doc());
+            let all = e.with_doc(logins);
             e.value(&site)
                 .and_then(|w| chosen(&w, &all))
                 .unwrap_or_default()
@@ -34,7 +34,7 @@ pub(crate) fn site_editor(fc: FieldCtx) -> AnyView {
     };
     let line = move || {
         let n = value.get();
-        let c = logins(&e.doc()).get(&n).and_then(config)?;
+        let c = e.with_doc(|d| logins(d).get(&n).and_then(config))?;
         Some(
             view! { <p class="mt-1.5 text-xs text-text-muted" data-testid="login-note">{note(&n, &c)}</p> },
         )

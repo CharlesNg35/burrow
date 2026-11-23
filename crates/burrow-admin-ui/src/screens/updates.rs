@@ -195,7 +195,7 @@ pub fn update_all_bar() -> impl IntoView {
     let open = RwSignal::new(false);
     let ready = move || {
         s.status
-            .with(|st| st.as_deref().map(ready_names).unwrap_or_default())
+            .with(|st| st.as_deref().map(|x| ready_names(x)).unwrap_or_default())
     };
     let to = move || {
         s.status
@@ -221,7 +221,7 @@ pub fn update_all_bar() -> impl IntoView {
         let names = ready();
         let skipped = s
             .status
-            .with(|st| st.as_deref().map(skipped).unwrap_or_default());
+            .with(|st| st.as_deref().map(|x| skipped(x)).unwrap_or_default());
         let one =
             burrow_admin_logic::entity::info(&burrow_admin_proto::schema::Entity::Client).singular;
         let count = burrow_admin_logic::wording::count_of(names.len(), one);
@@ -308,7 +308,7 @@ impl ServerUpdate {
             }
         });
         ServerUpdate {
-            fig: Memo::new(move |_| s.status.with(|st| st.as_deref().and_then(figure))),
+            fig: Memo::new(move |_| s.status.with(|st| st.as_deref().and_then(|x| figure(x)))),
             open,
         }
     }
@@ -326,7 +326,7 @@ impl ServerUpdate {
                 <a href="#server-update" class="whitespace-nowrap font-semibold text-accent-ink" data-testid="server-update-details" on:click=move |e| {
                     e.prevent_default();
                     if let Some(el) = document().get_element_by_id("server-update") {
-                        el.scroll_into_view();
+                        burrow_ui_kit::bring_near(&el);
                     }
                 }>"Details"</a>
             });

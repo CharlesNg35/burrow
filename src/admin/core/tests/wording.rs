@@ -32,10 +32,13 @@ fn the_ui_names_the_subject_validate_reports() {
         |name: &str, web: &str| format!("  {name}: {{ client: home, target: 3000, web: {web} }}\n");
     let d = diags(
         "web:\n  https: 8443\n  http: 8080\n",
-        &(site("blog", "blog.example.com")
-            + &site("wiki", "{ hosts: [wiki.example.com], tls: \"off\" }")),
+        &site("blog", "blog.example.com"),
     );
     assert!(one(&d, NO_CERTIFICATE).starts_with("blog.example.com has no certificate"));
+    let d = diags(
+        "web:\n  http: 8080\n",
+        &site("wiki", "wiki.lan.example.com"),
+    );
     assert!(one(&d, PLAIN_HTTP).starts_with("wiki is served as plain HTTP"));
     let d = diags(
         "web:\n  https: 8443\n  letsencrypt: { email: ops@example.com }\n",

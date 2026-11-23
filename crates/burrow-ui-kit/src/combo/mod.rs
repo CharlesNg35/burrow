@@ -1,7 +1,10 @@
 //! The `Combobox` component: a searchable single or multi pick list with chips, keyboard navigation and a popover that opens where it fits.
-//! `create` adds making a new value from the typed text.
+//! `create` adds making a new value from the typed text; `rows` renders the option list, at most `SHOWN` rows with a line for the rest.
 
 mod create;
+mod rows;
+
+use std::collections::HashMap;
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -10,6 +13,45 @@ use crate::basic::{Dot, Tone};
 use crate::icon::Icon;
 
 use create::{Create, create_section};
+use rows::{Rows, SHOWN, keep_in_view, shown_len};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ComboSize {
+    #[default]
+    Normal,
+    Small,
+}
+
+impl ComboSize {
+    fn field(self) -> &'static str {
+        match self {
+            ComboSize::Normal => "min-h-10 p-1 text-sm",
+            ComboSize::Small => "min-h-7 p-px text-xs",
+        }
+    }
+
+    fn input(self) -> &'static str {
+        match self {
+            ComboSize::Normal => "h-[26px]",
+            ComboSize::Small => "h-6",
+        }
+    }
+
+    fn chip(self) -> &'static str {
+        match self {
+            ComboSize::Normal => "h-[26px] text-sm",
+            ComboSize::Small => "h-6 text-xs",
+        }
+    }
+}
+
+fn focus_by_id(id: &str) {
+    if let Some(el) = document().get_element_by_id(id)
+        && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
+    {
+        crate::focus::focus_still(&el);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComboOption {
@@ -41,6 +83,43 @@ pub fn filter_options(options: &[ComboOption], query: &str) -> Vec<ComboOption> 
         .collect()
 }
 
+pub fn search_index(options: &[ComboOption]) -> Vec<String> {
+    options
+        .iter()
+        .map(|o| format!("{}\u{0}{}", o.label.to_lowercase(), o.value.to_lowercase()))
+        .collect()
+}
+
+pub fn filter_indexed(options: &[ComboOption], index: &[String], query: &str) -> Vec<ComboOption> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return options.to_vec();
+    }
+    options
+        .iter()
+        .zip(index)
+        .filter(|(_, k)| k.contains(&q))
+        .map(|(o, _)| o.clone())
+        .collect()
+}
+
+fn visible_of(
+    options: Signal<Vec<ComboOption>>,
+    query: RwSignal<String>,
+    selected: Signal<Vec<String>>,
+    multi: bool,
+) -> Memo<Vec<ComboOption>> {
+    let index = Memo::new(move |_| options.with(|o| search_index(o)));
+    Memo::new(move |_| {
+        let found = options.with(|o| index.with(|i| query.with(|q| filter_indexed(o, i, q))));
+        if multi {
+            found
+        } else {
+            selected.with(|s| lift_selected(found, s))
+        }
+    })
+}
+
 pub fn toggle(selected: &[String], value: &str, multi: bool) -> Vec<String> {
     if !multi {
         return vec![value.to_string()];
@@ -55,11 +134,32 @@ pub fn toggle(selected: &[String], value: &str, multi: bool) -> Vec<String> {
     out
 }
 
+pub fn lift_selected(mut list: Vec<ComboOption>, selected: &[String]) -> Vec<ComboOption> {
+    if let Some(at) = list.iter().position(|o| selected.contains(&o.value))
+        && at >= SHOWN
+    {
+        let o = list.remove(at);
+        list.insert(0, o);
+    }
+    list
+}
+
 pub fn start_at(visible: &[ComboOption], selected: &[String]) -> usize {
     visible
         .iter()
+        .take(SHOWN)
         .position(|o| selected.contains(&o.value))
         .unwrap_or(0)
+}
+
+pub fn next_index(at: usize, len: usize, down: bool) -> usize {
+    let a = at.min(len.saturating_sub(1));
+    match (down, a) {
+        (_, _) if len == 0 => 0,
+        (true, _) => (a + 1) % len,
+        (false, 0) => len - 1,
+        (false, _) => a - 1,
+    }
 }
 
 const POPOVER_ROOM: f64 = 240.0;
@@ -89,6 +189,7 @@ pub fn Combobox(
     #[prop(optional, into)] described_by: String,
     #[prop(optional, into)] create_label: String,
     #[prop(default = None)] on_create: Option<Callback<String, Option<String>>>,
+    #[prop(optional)] size: ComboSize,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
     let creating = RwSignal::new(false);
@@ -97,7 +198,7 @@ pub fn Combobox(
     let query = RwSignal::new(String::new());
     let active = RwSignal::new(0usize);
     let list_id = format!("{id}-list");
-    let visible = Memo::new(move |_| options.with(|o| filter_options(o, &query.get())));
+    let visible = visible_of(options, query, selected, multi);
     let pick = move |value: String| {
         if !options.with_untracked(|o| pickable(o, &value)) {
             return;
@@ -110,33 +211,34 @@ pub fn Combobox(
         }
     };
     let remove = move |value: String| remove_value(selected, on_change, value);
-    let chips = chips(options, selected, multi, clearable, remove);
-    let rows = option_rows(id.clone(), selected, visible, active, pick, multi);
+    let chips = chips(options, selected, (multi, clearable, size), remove);
+    let lit = Selector::new(move || {
+        let n = visible.with(|v| shown_len(v));
+        active.get().min(n.saturating_sub(1))
+    });
+    let rows = Rows {
+        id: id.clone(),
+        selected,
+        visible,
+        active,
+        lit,
+        pick,
+        multi,
+        pointer: StoredValue::new((0, 0)),
+    }
+    .view();
     let input_id = id.clone();
     let up = RwSignal::new(false);
     place_popover(id.clone(), open, up);
+    let base = StoredValue::new(id.clone());
     Effect::new(move |was: Option<bool>| {
         let now = open.get();
         if now && was != Some(true) {
             let at = visible.with_untracked(|v| selected.with_untracked(|s| start_at(v, s)));
             active.set(at);
+            request_animation_frame(move || base.with_value(|id| keep_in_view(id, at)));
         }
         now
-    });
-    let opt_prefix = format!("{id}-opt-");
-    Effect::new(move |_| {
-        let a = active.get();
-        if !open.get() {
-            return;
-        }
-        let prefix = opt_prefix.clone();
-        request_animation_frame(move || {
-            if let Some(el) = document().get_element_by_id(&format!("{prefix}{a}")) {
-                let opts = web_sys::ScrollIntoViewOptions::new();
-                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
-                el.scroll_into_view_with_scroll_into_view_options(&opts);
-            }
-        });
     });
     Effect::new(move |_| {
         if !open.get() && creating.get_untracked() {
@@ -157,11 +259,19 @@ pub fn Combobox(
         visible,
         selected,
         multi,
+        base,
     };
     let lid = list_id.clone();
+    let list_label = [label.as_str(), header.as_str()]
+        .into_iter()
+        .find(|l| !l.is_empty())
+        .map(str::to_string);
     let act_id = {
         let id = id.clone();
-        move || open.get().then(|| format!("{id}-opt-{}", active.get()))
+        move || {
+            let n = visible.with(|v| shown_len(v));
+            (open.get() && n > 0).then(|| format!("{id}-opt-{}", active.get().min(n - 1)))
+        }
     };
     view! {
         <div
@@ -179,16 +289,13 @@ pub fn Combobox(
         >
             <div
                 class=move || format!(
-                    "flex min-h-10 items-center gap-[5px] rounded-input border bg-input p-1 {} {}",
+                    "flex items-center gap-[5px] rounded-input border bg-input {} {} {}",
+                    size.field(),
                     if multi { "flex-wrap" } else { "flex-nowrap" },
                     if invalid.get() { "border-danger ring-3 ring-danger-weak" } else { "border-border-strong focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-weak" }
                 )
                 on:click=move |_| {
-                    if let Some(el) = document().get_element_by_id(&input_id)
-                        && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
-                    {
-                        let _ = el.focus();
-                    }
+                    focus_by_id(&input_id);
                     open.set(true);
                 }
             >
@@ -199,9 +306,9 @@ pub fn Combobox(
                     role="combobox"
                     autocomplete="off"
                     spellcheck="false"
-                    class=if multi { "h-[26px] min-w-24 flex-1 bg-transparent px-1.5 text-sm outline-none placeholder:text-text-faint" } else { "h-[26px] w-6 min-w-6 flex-1 bg-transparent px-1.5 text-sm outline-none placeholder:text-text-faint" }
+                    class=format!("{} {} flex-1 bg-transparent px-1.5 outline-none placeholder:text-text-faint", size.input(), if multi { "min-w-24" } else { "w-6 min-w-6" })
                     placeholder=move || if multi || selected.with(|s| s.iter().all(String::is_empty)) { placeholder.clone() } else { String::new() }
-                    aria-label=(!label.is_empty()).then_some(label)
+                    aria-label=(!label.is_empty()).then_some(label.clone())
                     aria-expanded=move || open.get().to_string()
                     aria-controls=lid.clone()
                     aria-autocomplete="list"
@@ -222,7 +329,7 @@ pub fn Combobox(
             <Show when=move || open.get()>
                 <div class=move || format!("absolute left-0 z-30 w-full sm:w-max sm:min-w-64 sm:max-w-[var(--pop-room,100%)] rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
                     {(!header.is_empty()).then(|| view! { <div class="px-2.5 pt-1.5 pb-1 text-2xs font-bold tracking-[0.08em] text-text-faint uppercase">{header.clone()}</div> })}
-                    <ul id=list_id.clone() role="listbox" aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
+                    <ul id=list_id.clone() role="listbox" aria-label=list_label.clone() aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
                         {rows.clone()}
                     </ul>
                     {on_create.map(|cb| create_section(cb, create_label.clone(), &id, c, selected, on_change, multi))}
@@ -240,6 +347,19 @@ struct Nav {
     visible: Memo<Vec<ComboOption>>,
     selected: Signal<Vec<String>>,
     multi: bool,
+    base: StoredValue<String>,
+}
+
+impl Nav {
+    fn step(self, down: bool) {
+        let len = self.visible.with(|v| shown_len(v));
+        if len == 0 {
+            return;
+        }
+        let next = next_index(self.active.get_untracked(), len, down);
+        self.active.set(next);
+        self.base.with_value(|id| keep_in_view(id, next));
+    }
 }
 
 fn on_key(e: &web_sys::KeyboardEvent, n: Nav, pick: &dyn Fn(String), remove: &dyn Fn(String)) {
@@ -247,14 +367,11 @@ fn on_key(e: &web_sys::KeyboardEvent, n: Nav, pick: &dyn Fn(String), remove: &dy
         "ArrowDown" => {
             e.prevent_default();
             n.open.set(true);
-            let len = n.visible.with(Vec::len);
-            if len > 0 {
-                n.active.update(|a| *a = (*a + 1).min(len - 1));
-            }
+            n.step(true);
         }
         "ArrowUp" => {
             e.prevent_default();
-            n.active.update(|a| *a = a.saturating_sub(1));
+            n.step(false);
         }
         "Enter" => {
             e.prevent_default();
@@ -289,17 +406,17 @@ fn remove_value(selected: Signal<Vec<String>>, on_change: Callback<Vec<String>>,
 fn chips(
     options: Signal<Vec<ComboOption>>,
     selected: Signal<Vec<String>>,
-    multi: bool,
-    clearable: bool,
+    (multi, clearable, size): (bool, bool, ComboSize),
     remove: impl Fn(String) + Copy + Send + Sync + 'static,
 ) -> impl Fn() -> AnyView + Send + Sync + 'static {
-    let label_of = move |v: &str| {
+    let labels = Memo::new(move |_| {
         options.with(|o| {
             o.iter()
-                .find(|x| x.value == v)
-                .map(|x| (x.label.clone(), x.dot))
+                .map(|x| (x.value.clone(), (x.label.clone(), x.dot)))
+                .collect::<HashMap<_, _>>()
         })
-    };
+    });
+    let label_of = move |v: &str| labels.with(|m| m.get(v).cloned());
     move || {
         selected
         .get()
@@ -318,7 +435,7 @@ fn chips(
                 (false, false) => "",
             };
             view! {
-                <span class=format!("inline-flex h-[26px] max-w-full min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {look}") data-chip=v.clone() title=text.clone()>
+                <span class=format!("inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-sm pr-1 pl-2 font-semibold {} {look}", size.chip()) data-chip=v.clone() title=text.clone()>
                     <Dot tone=dot.unwrap_or(Tone::Neutral)/>
                     <span class="truncate">{text.clone()}</span>
                     {removable.then(|| view! {
@@ -337,81 +454,6 @@ fn chips(
             }
         })
         .collect_view()
-            .into_any()
-    }
-}
-
-fn option_rows(
-    id: String,
-    selected: Signal<Vec<String>>,
-    visible: Memo<Vec<ComboOption>>,
-    active: RwSignal<usize>,
-    pick: impl Fn(String) + Copy + Send + Sync + 'static,
-    multi: bool,
-) -> impl Fn() -> AnyView + Clone + Send + Sync + 'static {
-    move || {
-        let sel = selected.get();
-        let list = visible.get();
-        if list.is_empty() {
-            return view! { <li class="px-2.5 py-2 text-sm text-text-muted" role="presentation">"Nothing matches"</li> }.into_any();
-        }
-        let act = active.get().min(list.len() - 1);
-        let groups: Vec<u8> = list.iter().map(|o| o.group).collect();
-        list.into_iter()
-            .enumerate()
-            .map(|(i, o)| {
-                let split = i > 0 && groups[i - 1] != o.group;
-                let on = sel.contains(&o.value);
-                let value = o.value.clone();
-                let off = o.blocked.is_some();
-                let tip = o.blocked.clone().unwrap_or_else(|| o.facet.clone());
-                view! {
-                    {split.then(|| view! { <li role="separator" class="mx-2.5 my-1 h-px bg-border"></li> })}
-                    <li
-                        id=format!("{id}-opt-{i}")
-                        role="option"
-                        aria-selected=on.to_string()
-                        aria-disabled=off.then_some("true")
-                        title=(!tip.is_empty()).then_some(tip)
-                        class="flex min-h-[34px] flex-wrap items-center gap-x-2.5 rounded-input px-2.5 py-1.5 text-sm whitespace-nowrap sm:flex-nowrap sm:py-0"
-                        class:cursor-pointer=!off
-                        class:text-text-muted=off
-                        class:cursor-not-allowed=off
-                        class:bg-surface-3=i == act
-                        data-option=o.value.clone()
-                        on:mousedown=move |e| e.prevent_default()
-                        on:mouseenter=move |_| active.set(i)
-                        on:click=move |e| {
-                            let on_input = e
-                                .target()
-                                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-                                .is_some();
-                            if !on_input {
-                                pick(value.clone());
-                            }
-                        }
-                    >
-                        {multi.then(|| {
-                            let value = o.value.clone();
-                            view! {
-                                <input
-                                    type="checkbox"
-                                    tabindex="-1"
-                                    class="size-[15px] accent-accent"
-                                    aria-hidden="true"
-                                    prop:checked=on
-                                    on:change=move |_| pick(value.clone())
-                                />
-                            }
-                        })}
-                        <Dot tone=o.dot.unwrap_or(Tone::Neutral)/>
-                        <span class="max-w-[calc(100%-18px)] shrink-0 truncate font-semibold">{o.label.clone()}</span>
-                        <span data-facet="" class="order-last basis-full truncate pl-[18px] text-[11.5px] text-text-muted sm:order-none sm:ml-auto sm:min-w-0 sm:basis-auto sm:pl-3">{o.facet.clone()}</span>
-                        {(!multi && on).then(|| view! { <span class="ml-auto text-accent-ink sm:ml-0"><Icon name="check" small=true/></span> })}
-                    </li>
-                }
-            })
-            .collect_view()
             .into_any()
     }
 }
@@ -465,6 +507,12 @@ mod tests {
         let all = vec![opt("lab-k8s-1"), opt("lab-k8s-2"), opt("office-gw")];
         assert_eq!(filter_options(&all, "K8S").len(), 2);
         assert_eq!(filter_options(&all, " ").len(), 3);
+        let index = search_index(&all);
+        assert_eq!(
+            filter_indexed(&all, &index, "K8S"),
+            filter_options(&all, "K8S")
+        );
+        assert_eq!(filter_indexed(&all, &index, " ").len(), 3);
         let s = toggle(&["a".into()], "b", true);
         assert_eq!(s, ["a", "b"]);
         assert_eq!(toggle(&s, "a", true), ["b"]);
@@ -477,6 +525,37 @@ mod tests {
         assert_eq!(start_at(&list, &["office".into()]), 2);
         assert_eq!(start_at(&list, &[]), 0);
         assert_eq!(start_at(&list, &["gone".into()]), 0);
+    }
+
+    #[test]
+    fn arrows_wrap_around_like_the_apg_combobox() {
+        assert_eq!(next_index(0, 5, true), 1);
+        assert_eq!(next_index(4, 5, true), 0);
+        assert_eq!(next_index(0, 5, false), 4);
+        assert_eq!(next_index(9, 5, false), 3);
+        assert_eq!(next_index(0, 0, true), 0);
+    }
+
+    #[test]
+    fn a_long_list_shows_the_first_rows_and_counts_the_rest() {
+        let many: Vec<ComboOption> = (0..500).map(|i| opt(&format!("app{i:03}"))).collect();
+        assert_eq!(shown_len(&many), SHOWN);
+        assert_eq!(
+            rows::more_text(many.len()).as_deref(),
+            Some("400 more, type to narrow")
+        );
+        assert_eq!(rows::more_text(SHOWN), None);
+        assert_eq!(start_at(&many, &["app450".into()]), 0);
+        assert_eq!(start_at(&many, &["app042".into()]), 42);
+        assert_eq!(shown_len(&filter_options(&many, "app04")), 10);
+        let lifted = lift_selected(many.clone(), &["app450".into()]);
+        assert_eq!(lifted[0].value, "app450");
+        assert_eq!(lifted.len(), 500);
+        assert_eq!(start_at(&lifted, &["app450".into()]), 0);
+        assert_eq!(
+            lift_selected(many.clone(), &["app042".into()])[0].value,
+            "app000"
+        );
     }
 
     #[test]

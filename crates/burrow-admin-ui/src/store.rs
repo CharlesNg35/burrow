@@ -1,6 +1,7 @@
 use burrow_config::ServerConfig;
 use std::sync::Arc;
 
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::rates::{Rates, Recorder, rates};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{AuditEntry, ConfigEvent, State, Welcome};
@@ -60,7 +61,7 @@ pub struct Store {
     pub welcome: RwSignal<Option<Arc<Welcome>>>,
     pub schema: RwSignal<Option<Arc<Schema>>>,
     pub state: RwSignal<Option<Arc<State>>>,
-    pub status: RwSignal<Option<Arc<Status>>>,
+    pub status: RwSignal<Option<Arc<Live>>>,
     pub status_at: RwSignal<f64>,
     pub rates: RwSignal<Rates>,
     pub recorder: RwSignal<Recorder>,
@@ -90,6 +91,7 @@ pub struct Store {
     pub server_updating: RwSignal<OwnJob>,
     pub clients_updating: RwSignal<std::collections::BTreeMap<String, OwnJob>>,
     pub raw_full: RwSignal<bool>,
+    pub settings_tab: RwSignal<Option<burrow_admin_logic::settings_tabs::Tab>>,
     pub retry: RwSignal<Option<Retry>>,
     pub edit: Edit,
     pub text: crate::edit::TextEdit,
@@ -183,6 +185,7 @@ impl Store {
             server_updating: RwSignal::new(OwnJob::Idle),
             clients_updating: RwSignal::new(std::collections::BTreeMap::new()),
             raw_full: RwSignal::new(false),
+            settings_tab: RwSignal::new(None),
             retry: RwSignal::new(None),
             edit,
             text,
@@ -194,9 +197,9 @@ impl Store {
     pub fn take_status(&self, next: Status, now_ms: f64) {
         let prev = self.status.get_untracked();
         let prev_at = self.status_at.get_untracked();
-        if let Some(prev) = prev {
+        if let Some(prev) = prev.as_deref() {
             let secs = ((now_ms - prev_at) / 1000.0).max(0.001);
-            let r = rates(&prev, &next, secs);
+            let r = rates(prev, &next, secs);
             let missed = ((now_ms - prev_at) / 1000.0).round() as i64 - 1;
             self.recorder.update(|h| {
                 for _ in 0..missed.clamp(0, burrow_admin_logic::rates::RECORD_SECONDS as i64) {
@@ -210,6 +213,7 @@ impl Store {
             self.rates.set(r);
         }
         self.values_at.set(now_ms);
+        let next = Live::new(next, prev.as_deref());
         self.status.set(Some(Arc::new(next)));
         self.status_at.set(now_ms);
     }
@@ -320,6 +324,16 @@ impl Store {
             return;
         }
         let _ = self.toasts.try_update(|t| t.retain(|x| x.id != id));
+    }
+
+    pub fn with_running<T>(
+        &self,
+        f: impl FnOnce(&burrow_admin_proto::serde_json::Value) -> T,
+    ) -> T {
+        self.state.with(|s| match s.as_ref() {
+            Some(s) => f(&s.values),
+            None => f(&burrow_admin_proto::serde_json::Value::Null),
+        })
     }
 
     pub fn running(&self) -> burrow_admin_proto::serde_json::Value {

@@ -140,6 +140,8 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
         .collect()
 }
 
+const NEWER_STEP: usize = 20;
+
 #[component]
 fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     let s = store();
@@ -182,19 +184,19 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         "Revert to before this change"
     };
     let title = title_of(&entry, &|r| store().version(r));
-    let newer_list = newer
-        .into_iter()
-        .map(|n| {
-            let rev = format::stamp(n.at as f64 * 1000.0);
-            view! {
-                <li data-table-row="" class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-start gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
-                    <Link to=Route::Activity(Some(n.id.to_string())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
-                    <span class="truncate">{title_of(&n, &|r| store().version(r))}</span>
-                    <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
-                </li>
-            }
-        })
-        .collect::<Vec<_>>();
+    let newer_total = newer.len();
+    let newer_shown = RwSignal::new(NEWER_STEP);
+    let newer_row = move |n: AuditEntry| {
+        let rev = format::stamp(n.at as f64 * 1000.0);
+        view! {
+            <li data-table-row="" class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-start gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
+                <Link to=Route::Activity(Some(n.id.to_string())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
+                <span class="truncate">{title_of(&n, &|r| store().version(r))}</span>
+                <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
+            </li>
+        }
+    };
+    let newer = StoredValue::new(newer);
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
         {crate::screens::crumbs(Route::Activity(None), "Activity".into(), store().version(&entry.rev), Signal::stored(false), None)}
@@ -226,16 +228,27 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                 Some(Err(e)) => view! { <p class="px-4 py-3 text-text-muted">{e}</p> }.into_any(),
             }}
         </div>
-        {(!newer_list.is_empty()).then(|| view! {
+        {(newer_total > 0).then(|| view! {
             <h3 class=label>"Changes since then"</h3>
-            <ul data-testid="since">{newer_list}</ul>
+            <ul data-testid="since">
+                <For
+                    each=move || newer.with_value(|l| l.iter().take(newer_shown.get()).cloned().collect::<Vec<_>>())
+                    key=|n| n.id.to_string()
+                    children=newer_row
+                />
+            </ul>
+            <burrow_ui_kit::ShowMore shown=newer_shown total=newer_total step=NEWER_STEP noun="changes" class="px-0" testid="since-more"/>
         })}
     }
 }
 
 #[component]
-pub fn Activity(selected: Option<String>) -> impl IntoView {
+pub fn Activity() -> impl IntoView {
     let s = store();
+    let selected = Memo::new(move |_| match s.route.get() {
+        Route::Activity(rev) => rev,
+        _ => None,
+    });
     let rows = Memo::new(move |_| {
         s.history
             .get()
@@ -249,12 +262,14 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             })
             .unwrap_or_default()
     });
-    if selected.is_none()
-        && wide()
-        && let Some(first) = rows.get_untracked().first()
-    {
-        route::replace(first.to.clone());
-    }
+    Effect::new(move |_| {
+        if s.route.get() != Route::Activity(None) || !wide() {
+            return;
+        }
+        if let Some(to) = rows.with(|r| r.first().map(|f| f.to.clone())) {
+            route::replace(to);
+        }
+    });
     let count = Signal::derive(move || {
         let n = rows.with(Vec::len);
         burrow_admin_logic::wording::count_of(n, "version")
@@ -272,7 +287,6 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             _ => route::go(Route::Activity(Some(id))),
         }
     });
-    let sel = selected.clone();
     let list = view! {
         <ListPane
             title="Activity"
@@ -281,7 +295,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             filters=vec![("all", "All".into()), ("admins", "Admins".into()), ("hand", "Hand edits".into())]
             groups=Vec::new()
             rows=rows
-            selected=Signal::stored(sel)
+            selected=Signal::derive(move || selected.get())
             empty=(String::new(), String::new())
             on_action=on_action
             no_counts=true
@@ -289,7 +303,6 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         />
     }
     .into_any();
-    let back = selected.is_some().then_some(Route::Activity(None));
     let body = move || {
         match s.history.get() {
         None => view! { <Skeleton lines=4/> }.into_any(),
@@ -298,7 +311,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         }
         .into_any(),
         Some(h) => {
-            let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.id.to_string() == r));
+            let at = selected.get().and_then(|r| h.iter().position(|e| e.id.to_string() == r));
             match at {
                 Some(i) => view! { <Version entry=h[i].clone() newer=h[..i].to_vec()/> }.into_any(),
                 None => view! { <div class="max-lg:hidden"><EmptyState icon="history" title="Pick a version on the left" message="Each one shows what changed and can be reverted."/></div> }.into_any(),
@@ -306,7 +319,11 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         }
     }
     };
-    let detail = view! { <DetailPane back=back>{body}</DetailPane> }.into_any();
+    let detail = move || {
+        let back = selected.get().is_some().then_some(Route::Activity(None));
+        view! { <DetailPane back=back>{body}</DetailPane> }
+    };
+    let detail = detail.into_any();
     master_detail(list, detail)
 }
 

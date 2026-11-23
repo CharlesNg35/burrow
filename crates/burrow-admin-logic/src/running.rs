@@ -1,7 +1,7 @@
+use crate::live::Live;
 use burrow_admin_proto::msg::State;
-use burrow_admin_proto::status::Status;
 
-pub fn differences(state: &State, status: Option<&Status>) -> usize {
+pub fn differences(state: &State, status: Option<&Live>) -> usize {
     let file = usize::from(!state.running.ok)
         + state.runtime.restart_pending.len()
         + state.runtime.not_open.len();
@@ -28,6 +28,11 @@ pub fn difference_note(n: usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burrow_admin_proto::status::Status;
+
+    fn live(s: &Status) -> Live {
+        Live::from(s.clone())
+    }
     use burrow_admin_proto::msg::NotOpen;
     use burrow_admin_proto::status::{PortWait, ServiceStatus};
 
@@ -46,7 +51,7 @@ mod tests {
             }],
             ..Status::default()
         };
-        assert_eq!(differences(&healthy(), Some(&status)), 0);
+        assert_eq!(differences(&healthy(), Some(&live(&status))), 0);
         assert_eq!(differences(&healthy(), None), 0);
         assert_eq!(difference_note(0), None);
     }
@@ -71,7 +76,7 @@ mod tests {
             web_waiting: Some(PortWait::default()),
             ..Status::default()
         };
-        assert_eq!(differences(&healthy(), Some(&status)), 2);
+        assert_eq!(differences(&healthy(), Some(&live(&status))), 2);
         assert_eq!(
             difference_note(1).as_deref(),
             Some("The running server differs from this file in 1 place.")

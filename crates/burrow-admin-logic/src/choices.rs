@@ -1,5 +1,5 @@
+use crate::live::Live;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, SelfEntry, ServerConfig, ServiceEntry, VisitorEntry};
 
 use crate::presence::{self, Presence};
@@ -41,7 +41,7 @@ pub fn default_client(doc: &Value, reserved: &[String]) -> Option<String> {
 
 pub fn client_choices(
     doc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     reserved: &[String],
     field: &[String],
 ) -> Vec<ClientChoice> {
@@ -54,12 +54,16 @@ pub fn client_choices(
         presence: Presence::Here,
         blocked,
     });
-    let remote = ClientEntry::names(doc).into_iter().map(|n| ClientChoice {
-        label: n.clone(),
-        detail: presence::detail(status, &[], &n),
-        presence: presence::presence(status, &[], &n),
-        name: n,
-        blocked: None,
+    let known = status.is_some();
+    let remote = ClientEntry::names(doc).into_iter().map(|n| {
+        let found = status.and_then(|s| s.client(&n));
+        ClientChoice {
+            label: n.clone(),
+            detail: presence::detail_with(known, &[], &n, found),
+            presence: presence::presence_with(known, &[], &n, found),
+            name: n,
+            blocked: None,
+        }
     });
     local.chain(remote).collect()
 }
@@ -72,7 +76,7 @@ pub struct ServiceChoice {
     pub up: Option<bool>,
 }
 
-pub fn service_choices(doc: &Value, status: Option<&Status>) -> Vec<ServiceChoice> {
+pub fn service_choices(doc: &Value, status: Option<&Live>) -> Vec<ServiceChoice> {
     let online = |c: &String| presence::online(status, &[], c);
     ServiceEntry::entries(doc)
         .map(|m| {
@@ -91,6 +95,11 @@ pub fn service_choices(doc: &Value, status: Option<&Status>) -> Vec<ServiceChoic
 #[cfg(test)]
 mod tests {
     use super::*;
+    use burrow_admin_proto::status::Status;
+
+    fn live(s: &Status) -> Live {
+        Live::from(s.clone())
+    }
     use burrow_admin_proto::serde_json::json;
     use burrow_admin_proto::status::ClientStatus;
 
@@ -178,7 +187,7 @@ mod tests {
         let st = status();
         let c = client_choices(
             &doc(),
-            Some(&st),
+            Some(&live(&st)),
             &reserved(),
             &path(&["services", "*", "client"]),
         );
@@ -229,7 +238,7 @@ mod tests {
             "web": {"clients": ["home", "office"], "bind": 8080, "target": 3000}
         }});
         let st = status();
-        let s = service_choices(&doc, Some(&st));
+        let s = service_choices(&doc, Some(&live(&st)));
         assert_eq!(
             s.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
             ["db", "web"]

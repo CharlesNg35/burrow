@@ -6,12 +6,15 @@
 mod bar;
 mod basic;
 mod button;
+mod cap;
 mod code;
 mod combo;
 mod deferred;
+mod diff;
 mod disclosure;
 mod feedback;
 mod field;
+mod focus;
 mod icon;
 mod inline;
 mod input;
@@ -26,6 +29,7 @@ mod spark;
 mod stepper;
 mod toast;
 mod version;
+mod windowing;
 
 pub use bar::{StickyBar, bar_status, bar_top, view_height};
 pub use basic::{
@@ -37,12 +41,15 @@ pub use button::{
     Button, ButtonLook, ButtonSize, IconButton, LinkButton, MENU_ITEM, MenuItem, SpinDot,
     button_class, menu_class,
 };
-pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
-pub use combo::{ComboOption, Combobox, filter_options};
+pub use cap::{LINKS, MoreChip, ShowAll, ShowMore, kept, next_step, shown_of};
+pub use code::{CodeBlock, copy_text, download, download_text};
+pub use combo::{ComboOption, ComboSize, Combobox, filter_options};
 pub use deferred::{Deferred, LoadFailed};
+pub use diff::{DiffLine, DiffView, side_by_side};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
+pub use focus::{bring_near, focus_in_view, focus_still};
 pub use icon::{ICON_LINE, Icon, path as icon_path};
 pub use inline::{Inline, inline};
 pub use input::{
@@ -62,3 +69,6 @@ pub use spark::{ChartData, LineChart, segments, spark_max, spark_path};
 pub use stepper::{Stepper, stepped};
 pub use toast::{MAX_TOASTS, Toast, ToastHost, push_toast};
 pub use version::VersionTag;
+pub use windowing::{
+    Band, Scroller, Snap, Span, Tracked, Viewport, VirtualList, offset, span, track,
+};

@@ -221,7 +221,7 @@ fn check_clients(
     seen: &mut secrets::Seen,
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, ClientAuth> {
-    if cfg.clients.is_empty() && !only_self(cfg) {
+    if cfg.clients.is_empty() && !only_self(cfg) && !spans.has_at(&[], ServerConfig::CLIENTS) {
         out.push(
             Diagnostic::warning(
                 burrow_admin_proto::codes::NO_CLIENTS,
@@ -274,31 +274,8 @@ fn check_visitors(
                 reach.insert(client.clone(), rules);
             }
         }
-        for client in reach
-            .iter()
-            .filter(|(c, r)| {
-                (cfg.clients.contains_key(*c) || (*c == SELF && self_allow.is_some()))
-                    && **r == AllowList::All
-            })
-            .map(|(c, _)| c)
-        {
-            out.push(
-                Diagnostic::warning(
-                    "reach-any",
-                    format!(
-                        "visitor \"{name}\" may reach any target that client \"{client}\" allows, over TCP or UDP"
-                    ),
-                )
-                .at(spans.key(&[VisitorEntry::SECTION, name, VisitorEntry::REACH.key(), client]))
-                .label("limited only by the client's allow list")
-                .help(format!(
-                    "keep {} narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs",
-                    super::local::allow_place(client)
-                )),
-            );
-        }
         let listed = cfg.services.values().any(|s| s.visitors.contains(name));
-        let admin_from = check_admin(name, entry, listed, spans, out);
+        let admin_from = check_admin(name, entry, spans, out);
         if !listed
             && entry.admin.is_none()
             && entry.reach.is_empty()
@@ -341,7 +318,10 @@ fn check_all_services<'a>(
     BTreeMap<String, crate::config::settings::Service>,
     Taken<'a>,
 ) {
-    if cfg.services.is_empty() && cfg.visitors.values().all(|v| v.reach.is_empty()) {
+    if cfg.services.is_empty()
+        && cfg.visitors.values().all(|v| v.reach.is_empty())
+        && !spans.has_at(&[], ServerConfig::SERVICES)
+    {
         out.push(
             Diagnostic::warning(burrow_admin_proto::codes::NO_SERVICES, "no services are defined, so nothing is exposed")
                 .at(spans.key_at(&[], ServerConfig::SERVICES))
@@ -437,7 +417,6 @@ fn check_service_lists(
 fn check_admin(
     name: &str,
     entry: &burrow_config::VisitorEntry,
-    listed: bool,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Vec<crate::policy::allowlist::Cidr> {
@@ -459,19 +438,6 @@ fn check_admin(
             )
             .at(spans.key_at(&[VisitorEntry::SECTION, name], VisitorEntry::ADMIN_FROM))
             .help("add \"admin: read\" or \"admin: write\", or remove admin_from"),
-        );
-    }
-    if entry.admin.is_some() && (listed || !entry.reach.is_empty()) {
-        out.push(
-            Diagnostic::warning(
-                "admin-shared",
-                format!(
-                    "visitor \"{name}\" has admin access and also reaches services or clients, so one leaked secret gives both"
-                ),
-            )
-            .at(spans.key_at(&[VisitorEntry::SECTION, name], VisitorEntry::ADMIN))
-            .label("admin access here")
-            .help("use a dedicated visitor for burrow admin, and another one for burrow visit"),
         );
     }
     nets
@@ -539,17 +505,6 @@ fn check_metrics(
                 .help("pick another port for the metrics endpoint"),
         );
         return None;
-    }
-    if !addr.ip().is_loopback() {
-        out.push(
-            Diagnostic::warning(
-                "public-metrics",
-                format!("the metrics endpoint listens on {addr}, not only on this machine"),
-            )
-            .at(at)
-            .label("reachable from the network")
-            .help("anyone who reaches it sees client, service and visitor names and traffic; use 127.0.0.1 unless a firewall limits who can connect"),
-        );
     }
     Some(addr)
 }

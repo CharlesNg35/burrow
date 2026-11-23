@@ -172,10 +172,23 @@ struct Running {
     since: Instant,
 }
 
-const USAGE: &str = "usage: cargo xtask e2e [flow-filter] [--jobs N] [--update-baselines]";
+const USAGE: &str =
+    "usage: cargo xtask e2e [flow-filter] [--jobs N] [--shard K/N] [--update-baselines]";
+
+struct Args<'a> {
+    update: bool,
+    filter: Option<&'a str>,
+    jobs: Option<usize>,
+    shard: Option<(usize, usize)>,
+}
 
 pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
-    let (update, filter, asked) = parse_args(args)?;
+    let Args {
+        update,
+        filter,
+        jobs: asked,
+        shard,
+    } = parse_args(args)?;
     let cap = match (update, asked) {
         (true, _) => 1,
         (false, Some(n)) => n,
@@ -194,8 +207,11 @@ pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
         .arg("--list")
         .output()
         .map_err(|e| format!("{}: {e}", exe.display()))?;
-    let mut pending: VecDeque<String> =
-        flows_in(&String::from_utf8_lossy(&listed.stdout), filter).into();
+    let mut pending: VecDeque<String> = in_shard(
+        flows_in(&String::from_utf8_lossy(&listed.stdout), filter),
+        shard,
+    )
+    .into();
     if pending.is_empty() {
         return Err(format!("no flow matches {}", filter.unwrap_or("")));
     }
@@ -273,10 +289,33 @@ pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<(bool, Option<&str>, Option<usize>), String> {
+pub fn in_shard(flows: Vec<String>, shard: Option<(usize, usize)>) -> Vec<String> {
+    match shard {
+        Some((k, n)) => flows
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| i % n == k - 1)
+            .map(|(_, f)| f)
+            .collect(),
+        None => flows,
+    }
+}
+
+fn parse_shard(text: &str) -> Result<(usize, usize), String> {
+    let bad = || format!("--shard takes K/N with 1 <= K <= N, like 2/3, not {text:?}");
+    let (k, n) = text.split_once('/').ok_or_else(bad)?;
+    let (k, n): (usize, usize) = (k.parse().map_err(|_| bad())?, n.parse().map_err(|_| bad())?);
+    if k == 0 || k > n {
+        return Err(bad());
+    }
+    Ok((k, n))
+}
+
+fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
     let mut update = false;
     let mut filter = None;
     let mut asked = None;
+    let mut shard = None;
     let mut rest = args.iter();
     while let Some(a) = rest.next() {
         match a.as_str() {
@@ -287,6 +326,13 @@ fn parse_args(args: &[String]) -> Result<(bool, Option<&str>, Option<usize>), St
             }
             other if other.starts_with("--jobs=") => {
                 asked = Some(parse_jobs(&other["--jobs=".len()..])?);
+            }
+            "--shard" => {
+                let k = rest.next().ok_or_else(|| USAGE.to_string())?;
+                shard = Some(parse_shard(k)?);
+            }
+            other if other.starts_with("--shard=") => {
+                shard = Some(parse_shard(&other["--shard=".len()..])?);
             }
             other if other.starts_with("--") => {
                 return Err(format!("unknown option {other}; {USAGE}"));
@@ -300,7 +346,12 @@ fn parse_args(args: &[String]) -> Result<(bool, Option<&str>, Option<usize>), St
     {
         asked = Some(parse_jobs(n.trim())?);
     }
-    Ok((update, filter, asked))
+    Ok(Args {
+        update,
+        filter,
+        jobs: asked,
+        shard,
+    })
 }
 
 fn stop(child: &mut Child) {
@@ -433,5 +484,19 @@ mod tests {
         assert_eq!(parse_jobs("2"), Ok(2));
         assert!(parse_jobs("0").is_err());
         assert!(parse_jobs("x").is_err());
+    }
+
+    #[test]
+    fn shards_split_the_flows_evenly_and_each_flow_runs_once() {
+        let all: Vec<String> = (0..7).map(|i| format!("f{i}")).collect();
+        let a = in_shard(all.clone(), Some((1, 2)));
+        let b = in_shard(all.clone(), Some((2, 2)));
+        assert_eq!(a, ["f0", "f2", "f4", "f6"]);
+        assert_eq!(b, ["f1", "f3", "f5"]);
+        assert_eq!(in_shard(all.clone(), None), all);
+        assert_eq!(parse_shard("2/3"), Ok((2, 3)));
+        assert!(parse_shard("0/3").is_err());
+        assert!(parse_shard("4/3").is_err());
+        assert!(parse_shard("x").is_err());
     }
 }

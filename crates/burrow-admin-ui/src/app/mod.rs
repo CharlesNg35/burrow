@@ -106,11 +106,8 @@ fn watch_header() {
 }
 
 fn listen_pops(s: Store) {
-    let on_pop = Closure::<dyn FnMut()>::new(move || {
-        s.text.capture();
-        s.route.set(route::current());
-        s.query_seen.update(|n| *n += 1);
-    });
+    route::manual_scroll();
+    let on_pop = Closure::<dyn FnMut()>::new(move || route::popped(s));
     window().set_onpopstate(Some(on_pop.as_ref().unchecked_ref()));
     on_pop.forget();
 }
@@ -162,10 +159,15 @@ pub fn App() -> impl IntoView {
                 }
                 "/" => {
                     e.prevent_default();
-                    match document().get_element_by_id("list-search") {
+                    let box_id = if s.flow_open.get_untracked() {
+                        screens::flow::SEARCH
+                    } else {
+                        screens::LIST_SEARCH
+                    };
+                    match document().get_element_by_id(box_id) {
                         Some(el) => {
                             if let Ok(el) = el.dyn_into::<web_sys::HtmlElement>() {
-                                let _ = el.focus();
+                                burrow_ui_kit::focus_in_view(&el);
                             }
                         }
                         None => s.search_open.set(true),
@@ -262,7 +264,7 @@ fn Body() -> impl IntoView {
             _ => None,
         }
     });
-    let route = Memo::new(move |_| s.route.get());
+    let route = Memo::new(move |_| route::screen_of(&s.route.get()));
     let schema = Memo::new(move |_| s.schema.with(|x| x.as_ref().map(|x| x.hash.clone())));
     let dim = Memo::new(move |_| {
         matches!(

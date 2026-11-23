@@ -470,7 +470,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burrow"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "arbtest",
  "argon2",
@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-derive"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-logic"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "burrow-admin-proto",
  "burrow-config",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-proto"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "burrow-syntax",
  "schemars",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-ui"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
@@ -591,7 +591,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-config"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "burrow-admin-derive",
  "burrow-admin-proto",
@@ -602,7 +602,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-io"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "bytes",
  "http-body-util",
@@ -613,11 +613,11 @@ dependencies = [
 
 [[package]]
 name = "burrow-syntax"
-version = "0.2.6"
+version = "0.2.7"
 
 [[package]]
 name = "burrow-ui-kit"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "js-sys",
  "leptos",
@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-web"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "argon2",
  "async-compression",
@@ -2551,9 +2551,9 @@ dependencies = [
 
 [[package]]
 name = "leptos-config-editor"
-version = "0.2.1"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "519229ec32112b25a4b03eac606eaf67f360439be70b780b11b312e6fd9e6044"
+checksum = "b21d14c80112cf6b793746a5f7db074bdd21a014e0405232804583063f03eea2"
 dependencies = [
  "aho-corasick",
  "jsonschema",

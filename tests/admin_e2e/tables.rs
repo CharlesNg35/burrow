@@ -92,8 +92,12 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
         c.ui.viewport(1440, 900).await;
         c.ui.click("[data-testid=overview-tabs] [data-testid=view-all]")
             .await;
-        c.ui.wait_for("[data-testid=entity-list] [data-row=z50]", SECS)
-            .await;
+        c.ui.wait_true(
+            "Number(document.querySelector('[data-testid=entity-list] [data-testid=list-window]')?.dataset.count) >= 50",
+            "the full list of 50 clients",
+            SECS,
+        )
+        .await;
         let home = c.ui.text("[data-testid=entity-list] [data-row=home]").await;
         assert!(
             !home.contains("s01"),
@@ -104,8 +108,9 @@ fn tables(c: &mut Ctx) -> Flow<'_> {
             "the sidebar shows the IP: {home}"
         );
         c.ui.fill("#list-search", "s17").await;
-        c.ui.wait_gone(
-            "[data-testid=entity-list] [data-row=z50]:not([hidden])",
+        c.ui.wait_true(
+            "Number(document.querySelector('[data-testid=entity-list] [data-testid=list-window]')?.dataset.count) < 50",
+            "the search narrows the list",
             SECS,
         )
         .await;
@@ -156,6 +161,12 @@ pub(super) async fn ticks(c: &Ctx, css: &str) -> String {
     before
 }
 
+const AT_BOTTOM: &str = "(async () => { const l = document.querySelector('[data-testid=list]'); const frame = () => new Promise(r => requestAnimationFrame(r)); let was = -1; for (let i = 0; i < 60; i++) { l.scrollTop = l.scrollHeight; await frame(); await frame(); if (l.scrollTop === was) break; was = l.scrollTop; } return l.scrollTop; })()";
+
+async fn settle_at_bottom(c: &Ctx) -> f64 {
+    c.ui.eval(AT_BOTTOM).await
+}
+
 fn live(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -165,10 +176,7 @@ fn live(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
-        let bottom: f64 = c
-            .ui
-            .eval("(() => { const l = document.querySelector('[data-testid=list]'); l.scrollTop = l.scrollHeight; return l.scrollTop; })()")
-            .await;
+        let bottom = settle_at_bottom(c).await;
         assert!(bottom > 0.0, "the client list scrolls");
         ticks(c, "[data-testid=list] [data-row=home]").await;
         let kept: f64 =
@@ -178,13 +186,16 @@ fn live(c: &mut Ctx) -> Flow<'_> {
             (kept - bottom).abs() < 1.0,
             "a status tick leaves the list where the user scrolled it: {kept} vs {bottom}"
         );
-        let _: bool = c
+        let focused: String = c
             .ui
-            .eval("(document.querySelector('[data-testid=list] [data-row=z10] [data-testid=list-row]').focus(), true)")
+            .eval("(() => { const rows = document.querySelectorAll('[data-testid=list] [data-row]'); const r = rows[rows.length - 1]; r.querySelector('[data-testid=list-row]').focus(); return r.dataset.row; })()")
             .await;
         ticks(c, "[data-testid=list] [data-row=home]").await;
         let row: String = c.ui.eval(ROW_OF_FOCUS).await;
-        assert_eq!(row, "z10", "focus stays on the sidebar row through a tick");
+        assert_eq!(
+            row, focused,
+            "focus stays on the sidebar row through a tick"
+        );
         c.ui.nav("/").await;
         overview_tab(c, "services").await;
         c.ui.wait_for("[data-testid=overview-services] tbody tr", SECS)

@@ -219,7 +219,7 @@ Project tasks, written in Rust in `xtask/`, so they run the same on every system
 | `cargo xtask ui` | builds the admin UI into `crates/burrow-admin-ui/dist`; `--release` for the small build, `--watch` to rebuild on every save |
 | `cargo xtask size` | prints the gzipped size of the built admin UI; `--budget` fails above 2 MiB for the main WebAssembly module, 3.5 MiB for all WebAssembly with the lazy chunks, or 3.9 MiB for all assets (gzipped) |
 | `cargo xtask surface` | writes what burrow shows to its users and contributors to `target/surface.txt`: sizes, every `--help`, the schemas, the completions, the fuzz targets, the test names and the public items. `--out FILE` writes elsewhere, and `--check FILE` lists what changed against an earlier one, for example around a refactor |
-| `cargo xtask e2e` | runs the admin UI flows in the pinned Chrome; a name filters the flows, `--jobs N` caps how many run at once, `--update-baselines` records the screenshots it compares ([admin-ui-dev.md](admin-ui-dev.md)) |
+| `cargo xtask e2e` | runs the admin UI flows in the pinned Chrome; a name filters the flows, `--jobs N` caps how many run at once, `--shard K/N` runs one Nth of them to split a run across machines, `--update-baselines` records the screenshots it compares ([admin-ui-dev.md](admin-ui-dev.md)) |
 | `cargo xtask compat` | runs the tunnel, `burrow mcp` and admin UI tests against the released v0.1.2 binary |
 
 ## make

@@ -38,18 +38,6 @@ pub fn check_client(
         out,
     );
     let websocket = endpoint.as_ref().is_some_and(Endpoint::is_websocket);
-    if cfg.insecure_plaintext && websocket {
-        out.push(
-            Diagnostic::warning(
-                "unused-option",
-                "insecure_plaintext does not apply over WebSocket: forwarded data stays encrypted",
-            )
-            .at(spans.value(&["insecure_plaintext"]))
-            .help(
-                "it must still match the server setting; remove it on both sides to silence this",
-            ),
-        );
-    }
     if !valid_name(&cfg.name) {
         out.push(name_error("client", &cfg.name, spans.value(&["name"])));
     }

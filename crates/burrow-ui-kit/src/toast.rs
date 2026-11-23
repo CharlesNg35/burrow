@@ -82,36 +82,32 @@ pub fn ToastHost(
         <div
             class="pointer-events-none fixed right-4 bottom-4 z-50 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2"
             node_ref=host
+            role="status"
             aria-live="polite"
             data-testid="toasts"
             data-toast-stack=""
         >
-            {move || {
-                toasts
-                    .get()
-                    .into_iter()
-                    .rev()
-                    .take(MAX_TOASTS)
-                    .map(|t| {
-                        let id = t.id;
-                        view! {
-                            <div
-                                class="pointer-events-auto flex items-center gap-2.5 rounded-[10px] border border-border-strong bg-surface px-3.5 py-2.5 text-[13px] shadow-overlay dark:bg-surface-2"
-                                role="status"
-                                data-testid="toast"
-                                on:mouseenter=move |_| on_hover.run(true)
-                                on:mouseleave=move |_| on_hover.run(false)
-                            >
-                                <span class=format!("{ICON_LINE} {}", t.tone.text())><Icon name=t.tone.icon()/></span>
-                                <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{t.text.clone()}</span>
-                                {t.action.clone().map(|a| view! {
-                                    <button type="button" class="cursor-pointer text-sm font-semibold text-accent-ink hover:underline" on:click=move |_| on_action.run(id)>{a}</button>
-                                })}
-                            </div>
-                        }
-                    })
-                    .collect_view()
-            }}
+            <For
+                each=move || toasts.with(|t| t.iter().rev().take(MAX_TOASTS).cloned().collect::<Vec<_>>())
+                key=|t| t.id
+                children=move |t: Toast| {
+                    let id = t.id;
+                    view! {
+                        <div
+                            class="pointer-events-auto flex items-center gap-2.5 rounded-[10px] border border-border-strong bg-surface px-3.5 py-2.5 text-[13px] shadow-overlay dark:bg-surface-2"
+                            data-testid="toast"
+                            on:mouseenter=move |_| on_hover.run(true)
+                            on:mouseleave=move |_| on_hover.run(false)
+                        >
+                            <span class=format!("{ICON_LINE} {}", t.tone.text())><Icon name=t.tone.icon()/></span>
+                            <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{t.text.clone()}</span>
+                            {t.action.clone().map(|a| view! {
+                                <button type="button" class="cursor-pointer text-sm font-semibold text-accent-ink hover:underline" on:click=move |_| on_action.run(id)>{a}</button>
+                            })}
+                        </div>
+                    }
+                }
+            />
         </div>
     }
 }
