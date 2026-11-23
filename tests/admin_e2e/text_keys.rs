@@ -24,7 +24,8 @@ fn opts() -> Options {
             ),
             (
                 "more.yaml",
-                "services:\n  shell:\n    client: box\n    target: 22\n".into(),
+                "services:\n  shell:\n    client: box\n    target: 22\n    visitors: [laptop]\n"
+                    .into(),
                 false,
             ),
         ],
