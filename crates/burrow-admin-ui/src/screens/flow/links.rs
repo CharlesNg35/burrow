@@ -96,10 +96,13 @@ pub(super) fn service_nodes(
         VisitorEntry::section()
     };
     if let Some(src) = sources.iter().find(|n| n.key == from) {
+        let (x1, x2) = (COLS[0].0 + COLS[0].1, COLS[1].0);
+        let stick = Stick::of(src, x1, x2, Some(mid(&port)));
+        let path = curve(x1, mid(src), x2, mid(&port));
         lines.push(Line {
             key: format!("src:{}", s.name),
-            stick: None,
-            path: curve(COLS[0].0 + COLS[0].1, mid(src), COLS[1].0, mid(&port)),
+            path: stick.as_ref().map_or(path, Stick::reach),
+            stick,
             width: w,
             stroke,
             dashed: false,

@@ -204,6 +204,16 @@ async fn home_stays(c: &mut Ctx) {
         place, "in",
         "home stays in view while its unfolded rows scroll by"
     );
+    let visitors: String = c
+        .ui
+        .eval(&format!("(() => {{ const w = document.querySelector('[data-testid=flow-svg]').parentElement.getBoundingClientRect(); const n = {}; if (!n) return 'missing'; const r = n.getBoundingClientRect(); return r.top >= w.top && r.bottom <= w.bottom ? 'in' : `out ${{r.top}}..${{r.bottom}} vs ${{w.top}}..${{w.bottom}}`; }})()", node("visitors")))
+        .await;
+    assert_eq!(visitors, "in", "the Visitors source stays in view too");
+    let sources = c.ui.count("[data-testid=flow] [data-line^='src:']").await;
+    assert!(
+        sources < 120,
+        "only source lines to rows near the view are drawn: {sources}"
+    );
     assert_eq!(
         c.ui.count("[data-testid=flow] [data-line='ch:home']").await,
         1,

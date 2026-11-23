@@ -353,8 +353,20 @@ mod tests {
         let target = wide.nodes.iter().find(|n| n.key == "target:s0001").unwrap();
         assert!(to.stick.is_some());
         assert_eq!(to.path.top, target.y + 21.0, "kept by its target end");
+        let net = wide.nodes.iter().find(|n| n.key == "internet").unwrap();
+        assert_eq!(
+            net.h, 42.0,
+            "a tall source becomes a node that stays in view"
+        );
+        assert!(net.stick.unwrap() > net.y + 4000.0 * PITCH);
+        let src = wide.lines.iter().find(|l| l.key == "src:s0001").unwrap();
+        let port = wide.nodes.iter().find(|n| n.key == "port:s0001").unwrap();
+        assert_eq!(src.path.top, port.y + 21.0, "kept by its port end");
         assert!(
-            c.nodes.iter().all(|n| n.stick.is_none()),
+            c.nodes
+                .iter()
+                .filter(|n| n.col != 0)
+                .all(|n| n.stick.is_none()),
             "a folded chart keeps its clients spread as before"
         );
         let found = layout(&doc, Some(&st), &Rates::default(), None, &q("s004"));

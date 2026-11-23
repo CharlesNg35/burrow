@@ -240,10 +240,17 @@ pub(super) fn row_y(i: usize) -> f64 {
     TOP + i as f64 * PITCH + 6.0
 }
 
-fn span(idx: &[usize]) -> (f64, f64) {
-    let a = row_y(*idx.first().unwrap_or(&0));
-    let b = row_y(*idx.last().unwrap_or(&0)) + 42.0;
-    (a, (b - a).max(42.0))
+const STICK_FROM: usize = 40;
+
+fn span(idx: &[usize]) -> (f64, f64, Option<f64>) {
+    let (first, last) = (*idx.first().unwrap_or(&0), *idx.last().unwrap_or(&0));
+    let a = row_y(first);
+    let b = (row_y(last) + 42.0).max(a + 42.0);
+    if last - first >= STICK_FROM {
+        (a, 42.0, Some(b))
+    } else {
+        (a, b - a, None)
+    }
 }
 
 pub(super) fn problem_svc(s: &Svc) -> bool {
@@ -317,7 +324,7 @@ fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str
     let problem = |idx: &[usize]| idx.iter().any(|i| problem_svc(&rows[*i].svc));
     if !public.is_empty() {
         let lo = reach.local;
-        let (y, h) = span(&public);
+        let (y, h, stick) = span(&public);
         nodes.push(Node {
             key: "internet".into(),
             col: 0,
@@ -343,11 +350,11 @@ fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str
             problem: problem(&public),
             act: None,
             tip: String::new(),
-            stick: None,
+            stick,
         });
     }
     if !private.is_empty() {
-        let (y, h) = span(&private);
+        let (y, h, stick) = span(&private);
         let active = status
             .map(|s| {
                 s.visitors
@@ -371,7 +378,7 @@ fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str
             problem: problem(&private),
             act: Some(Act::Open(Route::List(VisitorEntry::section().into()))),
             tip: "Open visitors →".into(),
-            stick: None,
+            stick,
         });
     }
     nodes
