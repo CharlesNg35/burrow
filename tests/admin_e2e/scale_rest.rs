@@ -342,7 +342,7 @@ async fn profiled(c: &Ctx, act: &str) -> String {
     }
     format!(
         "{}\nself time (ms):\n{}",
-        ranked(total, 80),
+        ranked(total, 150),
         ranked(own, 40)
     )
 }
