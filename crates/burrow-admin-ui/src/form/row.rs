@@ -208,7 +208,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
     let site = matches!(&inner(&node).sem, SemType::Union(u) if u.branches.iter().any(|b| matches!(inner(b).sem, SemType::HostName(_))));
     let rows = matches!(&inner(&node).sem, SemType::RefEntries(_));
     let chooses = matches!(&inner(&node).sem, SemType::Union(u) if u.branches.iter().any(|b| matches!(&inner(b).sem, SemType::Object(o) if !o.one_of.is_empty())));
-    Signal::derive(move || {
+    Memo::new(move |_| {
         let s = st.get();
         let inner_choice = chooses && e.value(&path).is_some_and(|v| v.is_object());
         let picked = touched.get();
@@ -288,6 +288,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             modified: e.draft.with(|d| d.modified(&path)),
         }
     })
+    .into()
 }
 
 fn in_own_row(at: Option<&[String]>, site: &[String]) -> bool {

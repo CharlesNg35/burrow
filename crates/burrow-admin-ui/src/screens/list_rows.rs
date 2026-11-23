@@ -34,7 +34,7 @@ pub(super) fn still(r: &Row) -> Row {
 
 pub(super) fn print(r: &Row) -> (String, u64) {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    format!("{r:?}").hash(&mut h);
+    r.hash(&mut h);
     (r.key.clone(), h.finish())
 }
 

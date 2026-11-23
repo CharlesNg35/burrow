@@ -208,7 +208,7 @@ pub fn moment_text(label: &str, at_ms: f64) -> String {
     format!("{label} {}", stamp(at_ms))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Moment {
     Client,
     Visitor,

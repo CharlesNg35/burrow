@@ -97,7 +97,7 @@ pub fn wide() -> bool {
         >= 1024.0
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Hash, Default)]
 pub struct Row {
     pub key: String,
     pub to: Route,
@@ -122,7 +122,7 @@ pub struct Row {
     pub moment: Option<crate::format::Moment>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum Kept {
     File(String),
     ReadOnly(String),

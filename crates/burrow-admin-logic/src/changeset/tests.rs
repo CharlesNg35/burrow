@@ -481,3 +481,51 @@ fn a_rename_back_after_the_name_was_reused_and_moved_on_keeps_both_items() {
     assert_eq!(b.base_name("services", "web").as_deref(), Some("web"));
     assert_eq!(b.base_name("services", "z").as_deref(), Some("x"));
 }
+
+#[test]
+fn the_change_log_lists_each_edited_path_until_a_whole_document_change() {
+    let mut c = Changeset::new(base());
+    let start = c.mark();
+    c.set(&p(&["services", "web", "bind"]), json!(7841));
+    c.set(&p(&["services", "web", "target"]), json!(3001));
+    assert_eq!(
+        c.changed_since(start),
+        Some(
+            &[
+                p(&["services", "web", "bind"]),
+                p(&["services", "web", "target"])
+            ][..]
+        )
+    );
+    let after = c.mark();
+    assert_eq!(c.changed_since(after), Some(&[][..]));
+    assert!(
+        c.clone().changed_since(after).is_none(),
+        "a copy starts its own log"
+    );
+    c.set(&p(&["services", "new", "limits", "max"]), json!(1));
+    c.remove_pruned(&p(&["services", "new", "limits", "max"]));
+    assert!(
+        c.changed_since(after)
+            .is_some_and(|ps| ps.contains(&p(&["services", "new"]))),
+        "a pruned parent is listed too"
+    );
+    assert!(c.rename(&p(&["services", "web"]), "site"));
+    assert!(
+        c.changed_since(after).is_none(),
+        "a rename changes references anywhere"
+    );
+    let renamed = c.mark();
+    c.rebase(base());
+    assert!(c.changed_since(renamed).is_none());
+}
+
+#[test]
+fn ops_without_renames_match_ops_with_them_undone() {
+    let mut c = Changeset::new(base());
+    c.set(&p(&["services", "web", "target"]), json!(3001));
+    let plain = c.ops();
+    assert!(c.rename(&p(&["services", "web"]), "site"));
+    assert!(c.rename(&p(&["services", "site"]), "web"));
+    assert_eq!(c.ops(), plain);
+}
