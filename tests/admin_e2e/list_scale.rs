@@ -1,6 +1,6 @@
 use super::edits::Flow;
 use super::world::{self, Options};
-use super::{Ctx, SECS, open, run};
+use super::{Ctx, SECS, edit_mode, open, run};
 
 const CLIENTS: usize = 500;
 const VISITORS: usize = 1000;
@@ -188,11 +188,30 @@ async fn far_rows(c: &mut Ctx) {
         .await;
 }
 
+const TYPE: &str = r#"(async () => { const i = document.querySelector('#f-services-s0001-target'); const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); const out = []; for (const ch of '90901') { const t = performance.now(); i.value = i.value + ch; i.dispatchEvent(new Event('input', { bubbles: true })); await frame(); out.push(Math.round(performance.now() - t)); } return JSON.stringify(out); })()"#;
+
+async fn form_typing(c: &mut Ctx) {
+    c.ui.nav("/services/s0001?tab=settings").await;
+    edit_mode(c).await;
+    c.ui.wait_for("#f-services-s0001-target", SECS).await;
+    let ms: String = c.ui.eval(TYPE).await;
+    let file = super::sheet::shots_dir().join("list-scale.txt");
+    let old = std::fs::read_to_string(&file).unwrap_or_default();
+    std::fs::write(
+        &file,
+        old + &format!("form typing at 5000, ms per key: {ms}\n"),
+    )
+    .expect("write the typing numbers");
+    c.ui.click("[data-testid=discard-edit]").await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+}
+
 fn at_5000(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         let got = measure(c, 5000).await;
         check(5000, &got);
         far_rows(c).await;
+        form_typing(c).await;
         c.ui.assert_no_errors();
     })
 }
