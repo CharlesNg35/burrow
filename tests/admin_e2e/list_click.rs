@@ -50,8 +50,11 @@ async fn after(c: &Ctx, key: &str) -> Spot {
 
 async fn click_stays(c: &mut Ctx, nth: usize, step: &str) {
     let before = spot(c, nth).await;
+    let _: bool = c.ui.eval(&format!("(() => {{ const l = document.querySelector('{LIST}'); l.__mark = 1; window.__log = []; l.addEventListener('scroll', () => window.__log.push(l.scrollTop + ' ' + l.querySelectorAll('[data-row]').length)); return true; }})()")).await;
     c.ui.click_at(before.x, before.y).await;
     let now = after(c, &before.key).await;
+    let log: String = c.ui.eval(&format!("(() => {{ const l = document.querySelector('{LIST}'); return 'same=' + !!l.__mark + ' lists=' + document.querySelectorAll('{LIST}').length + ' log=' + window.__log.join('|'); }})()")).await;
+    println!("{step}: {log}");
     println!("{step}: before {before:?} after {now:?}");
     assert!(
         (now.y - before.y).abs() < 1.0 && (now.list - before.list).abs() < 1.0,
