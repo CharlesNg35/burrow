@@ -57,14 +57,21 @@ pub fn entity_icon(section: &str) -> &'static str {
     burrow_admin_logic::entity::of_section(section).icon
 }
 
+pub fn screen_of(route: &Route) -> Route {
+    match route {
+        Route::Detail(section, _) => Route::List(section.clone()),
+        Route::Activity(_) => Route::Activity(None),
+        other => other.clone(),
+    }
+}
+
 pub fn screen(route: Route) -> AnyView {
     let _ = store();
     match route {
         Route::Overview => overview::Overview().into_any(),
-        Route::List(section) => view! { <entity::Entities section=section selected=None/> }.into_any(),
-        Route::Detail(section, name) => view! { <entity::Entities section=section selected=Some(name)/> }.into_any(),
+        Route::List(section) | Route::Detail(section, _) => view! { <entity::Entities section=section/> }.into_any(),
         Route::Settings => settings::Settings().into_any(),
-        Route::Activity(rev) => view! { <activity::Activity selected=rev/> }.into_any(),
+        Route::Activity(_) => activity::Activity().into_any(),
         Route::Review => crate::review::ReviewPage().into_any(),
         Route::About => about::About().into_any(),
         Route::NotFound(path) => view! {

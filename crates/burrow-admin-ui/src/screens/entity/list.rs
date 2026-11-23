@@ -211,23 +211,42 @@ fn filters_for(section: &str) -> Filters {
 }
 
 #[component]
-pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
+pub fn Entities(section: String) -> impl IntoView {
     let s = store();
     let sec = section.clone();
     let rows = Memo::new(move |_| rows_for(&sec));
-    if selected.is_none()
-        && wide()
-        && let Some(first) = {
-            let asked = route::query(route::FILTER_QUERY);
-            rows.get_untracked().into_iter().find(|r| {
-                r.icon != "trash" && asked.as_deref().is_none_or(|a| r.filters.contains(&a))
-            })
+    let sec = section.clone();
+    let selected = Memo::new(move |_| match s.route.get() {
+        Route::Detail(x, name) if x == sec => Some(name),
+        _ => None,
+    });
+    let sec = section.clone();
+    let on_list = Memo::new(move |_| s.route.with(|r| matches!(r, Route::List(x) if *x == sec)));
+    Effect::new(move |_| {
+        if !on_list.get() || !wide() {
+            return;
         }
-    {
-        route::replace(first.to);
-    }
+        let asked = route::query(route::FILTER_QUERY);
+        let first = rows.with_untracked(|r| {
+            r.iter()
+                .find(|r| {
+                    r.icon != "trash" && asked.as_deref().is_none_or(|a| r.filters.contains(&a))
+                })
+                .map(|r| r.to.clone())
+        });
+        if let Some(to) = first {
+            route::replace(to);
+        }
+    });
     let adding = RwSignal::new(false);
     let site = RwSignal::new(false);
+    Effect::new(move |was: Option<Option<String>>| {
+        let now = selected.get();
+        if was.is_some_and(|w| w != now) {
+            adding.set(false);
+        }
+        now
+    });
     {
         let sec = section.clone();
         Effect::new(move |_| {
@@ -274,12 +293,11 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             r
         })
     };
-    let sel = selected.clone();
     let selected_sig = Signal::derive(move || {
         if adding.get() {
             Some(crate::screens::NEW_ROW.to_string())
         } else {
-            sel.clone()
+            selected.get()
         }
     });
     let can = s.can_write_now();
@@ -312,7 +330,6 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
     .into_any();
     let pick = format!("Pick one of the {} on the left", section);
     let sec_new = section.clone();
-    let sel_name = selected.clone();
     let detail = view! {
         {move || {
             let (sec, pick) = (sec_new.clone(), pick.clone());
@@ -322,7 +339,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             if adding.get() {
                 return view! { <DetailPane><NewEntity section=sec open=adding draft_name=draft_name/></DetailPane> }.into_any();
             }
-            match sel_name.clone() {
+            match selected.get() {
                 Some(name) => view! { <Detail section=sec name=name/> }.into_any(),
                 None => view! {
                     <div class="max-lg:hidden">

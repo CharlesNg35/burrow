@@ -14,6 +14,9 @@ fn opts() -> Options {
                 )
             })
             .collect(),
+        extra_clients: (1..=40)
+            .map(|i| format!("  box{i:02}:\n    secret: {}\n", super::world::secret()))
+            .collect(),
         ..Options::default()
     }
 }
@@ -41,7 +44,7 @@ async fn after(c: &Ctx, key: &str) -> Spot {
         SECS,
     )
     .await;
-    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
     c.ui.eval(&format!(
         "(() => {{ const l = document.querySelector('{LIST}'); const b = document.querySelector('[data-row=\"{key}\"]').getBoundingClientRect(); return {{ key: '{key}', x: b.left + 40, y: b.top + 20, list: l.scrollTop, page: scrollY }}; }})()"
     ))
@@ -50,32 +53,38 @@ async fn after(c: &Ctx, key: &str) -> Spot {
 
 async fn click_stays(c: &mut Ctx, nth: usize, step: &str) {
     let before = spot(c, nth).await;
-    let _: bool = c.ui.eval(&format!("(() => {{ const l = document.querySelector('{LIST}'); l.__mark = 1; window.__log = []; const t0 = performance.now(); const tick = () => {{ const n = document.querySelector('{LIST}'); window.__log.push(Math.round(performance.now()-t0) + ':' + (n === l ? 'old' : 'new') + ':' + n.scrollTop + ':' + n.scrollHeight + ':' + n.querySelectorAll('[data-row]').length); if (performance.now() - t0 < 500) requestAnimationFrame(tick); }}; addEventListener('pointerdown', () => requestAnimationFrame(tick), {{ once: true }}); return true; }})()")).await;
     c.ui.click_at(before.x, before.y).await;
     let now = after(c, &before.key).await;
-    let log: String = c.ui.eval(&format!("(() => {{ const l = document.querySelector('{LIST}'); return 'same=' + !!l.__mark + ' lists=' + document.querySelectorAll('{LIST}').length + ' log=' + window.__log.join('|'); }})()")).await;
-    println!("{step}: {log}");
-    println!("{step}: before {before:?} after {now:?}");
     assert!(
         (now.y - before.y).abs() < 1.0 && (now.list - before.list).abs() < 1.0,
         "{step}: a row in view stays under the pointer when clicked: {before:?} -> {now:?}"
     );
 }
 
+async fn scroll_list(c: &Ctx, top: u32) {
+    let _: bool =
+        c.ui.eval(&format!(
+            "(() => {{ document.querySelector('{LIST}').scrollTop = {top}; return true; }})()"
+        ))
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+}
+
+async fn page(c: &mut Ctx, path: &str, last: &str, what: &str) {
+    c.ui.nav(path).await;
+    c.ui.wait_for(&format!("[data-row={last}]"), SECS).await;
+    click_stays(c, 2, &format!("{what}: top of the list")).await;
+    scroll_list(c, 900).await;
+    click_stays(c, 1, &format!("{what}: list scrolled")).await;
+    click_stays(c, 99, &format!("{what}: last row in view")).await;
+}
+
 fn list_click(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
-        c.ui.nav("/services").await;
-        c.ui.wait_for("[data-row=app40]", SECS).await;
-        click_stays(c, 2, "top of the list").await;
-        let _: bool = c
-            .ui
-            .eval(&format!("(() => {{ document.querySelector('{LIST}').scrollTop = 900; return true; }})()"))
-            .await;
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        click_stays(c, 1, "list scrolled").await;
-        click_stays(c, 99, "last row in view").await;
+        page(c, "/services", "app40", "services").await;
+        page(c, "/clients", "box40", "clients").await;
         c.ui.assert_no_errors();
     })
 }

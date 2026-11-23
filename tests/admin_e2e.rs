@@ -43,10 +43,10 @@ mod hidden;
 mod le_places;
 #[path = "admin_e2e/letsencrypt.rs"]
 mod letsencrypt;
-#[path = "admin_e2e/logins.rs"]
-mod logins;
 #[path = "admin_e2e/list_click.rs"]
 mod list_click;
+#[path = "admin_e2e/logins.rs"]
+mod logins;
 #[path = "admin_e2e/long_names.rs"]
 mod long_names;
 #[path = "admin_e2e/modes.rs"]

@@ -234,8 +234,12 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
 }
 
 #[component]
-pub fn Activity(selected: Option<String>) -> impl IntoView {
+pub fn Activity() -> impl IntoView {
     let s = store();
+    let selected = Memo::new(move |_| match s.route.get() {
+        Route::Activity(rev) => rev,
+        _ => None,
+    });
     let rows = Memo::new(move |_| {
         s.history
             .get()
@@ -249,12 +253,14 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             })
             .unwrap_or_default()
     });
-    if selected.is_none()
-        && wide()
-        && let Some(first) = rows.get_untracked().first()
-    {
-        route::replace(first.to.clone());
-    }
+    Effect::new(move |_| {
+        if s.route.get() != Route::Activity(None) || !wide() {
+            return;
+        }
+        if let Some(to) = rows.with(|r| r.first().map(|f| f.to.clone())) {
+            route::replace(to);
+        }
+    });
     let count = Signal::derive(move || {
         let n = rows.with(Vec::len);
         burrow_admin_logic::wording::count_of(n, "version")
@@ -272,7 +278,6 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             _ => route::go(Route::Activity(Some(id))),
         }
     });
-    let sel = selected.clone();
     let list = view! {
         <ListPane
             title="Activity"
@@ -281,7 +286,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             filters=vec![("all", "All".into()), ("admins", "Admins".into()), ("hand", "Hand edits".into())]
             groups=Vec::new()
             rows=rows
-            selected=Signal::stored(sel)
+            selected=Signal::from(selected)
             empty=(String::new(), String::new())
             on_action=on_action
             no_counts=true
@@ -289,7 +294,6 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         />
     }
     .into_any();
-    let back = selected.is_some().then_some(Route::Activity(None));
     let body = move || {
         match s.history.get() {
         None => view! { <Skeleton lines=4/> }.into_any(),
@@ -298,7 +302,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         }
         .into_any(),
         Some(h) => {
-            let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.id.to_string() == r));
+            let at = selected.get().and_then(|r| h.iter().position(|e| e.id.to_string() == r));
             match at {
                 Some(i) => view! { <Version entry=h[i].clone() newer=h[..i].to_vec()/> }.into_any(),
                 None => view! { <div class="max-lg:hidden"><EmptyState icon="history" title="Pick a version on the left" message="Each one shows what changed and can be reverted."/></div> }.into_any(),
@@ -306,7 +310,11 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         }
     }
     };
-    let detail = view! { <DetailPane back=back>{body}</DetailPane> }.into_any();
+    let detail = move || {
+        let back = selected.get().is_some().then_some(Route::Activity(None));
+        view! { <DetailPane back=back>{body}</DetailPane> }
+    };
+    let detail = detail.into_any();
     master_detail(list, detail)
 }
 
