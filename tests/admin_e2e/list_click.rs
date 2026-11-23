@@ -105,7 +105,7 @@ async fn scroll_list(c: &Ctx, top: u32) {
 
 async fn rows_shown(c: &Ctx, n: usize) {
     c.ui.wait_true(
-        &format!("document.querySelectorAll('{LIST} [data-row]').length >= {n}"),
+        &format!("(() => {{ const w = document.querySelector('{LIST} [data-testid=list-window]'); return (w ? Number(w.dataset.count) : document.querySelectorAll('{LIST} [data-row]').length) >= {n}; }})()"),
         "the list shows every row",
         SECS,
     )

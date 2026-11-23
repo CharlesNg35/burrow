@@ -2,6 +2,13 @@ use super::edits::{Flow, click_js, row_clean, row_error};
 use super::world::{Options, free_range};
 use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
 
+async fn entry_menu(c: &Ctx, entry: usize, item: &str) {
+    click_js(c, &format!("[data-entry='{entry}'] [data-testid=row-more]")).await;
+    let at = format!("[data-entry='{entry}'] [data-testid={item}]");
+    c.ui.wait_for(&at, SECS).await;
+    click_js(c, &at).await;
+}
+
 async fn type_then(c: &Ctx, css: &str, text: &str, key: &str) {
     let _: bool = c
         .ui
@@ -256,9 +263,9 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-entry='0'] [data-testid=entry-change]").await;
         type_then(c, input0, "10.0.0.12:3000", "Enter").await;
         c.ui.wait_for(own0, SECS).await;
-        click_js(c, "[data-entry='0'] [data-testid=entry-main]").await;
+        entry_menu(c, 0, "entry-main").await;
         c.ui.wait_for(main, SECS).await;
-        click_js(c, "[data-entry='1'] [data-testid=entry-again]").await;
+        entry_menu(c, 1, "entry-again").await;
         let input2 = "#f-services-pool-clients-2-target";
         c.ui.wait_true(
             "document.activeElement && document.activeElement.id === 'f-services-pool-clients-2-target'",
@@ -269,7 +276,7 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         c.ui.fill(input2, "10.0.0.13:8080").await;
         c.ui.wait_for("[data-entry='2'] [data-own-text]", SECS)
             .await;
-        click_js(c, "[data-entry='2'] [data-testid=entry-up]").await;
+        entry_menu(c, 2, "entry-up").await;
         c.ui.wait_text("[data-entry='1'] [data-own-text]", "10.0.0.13:8080", SECS)
             .await;
         c.ui.wait_for("[data-entry='2'] [data-main-target]", SECS)

@@ -324,6 +324,16 @@ impl Store {
         let _ = self.toasts.try_update(|t| t.retain(|x| x.id != id));
     }
 
+    pub fn with_running<T>(
+        &self,
+        f: impl FnOnce(&burrow_admin_proto::serde_json::Value) -> T,
+    ) -> T {
+        self.state.with(|s| match s.as_ref() {
+            Some(s) => f(&s.values),
+            None => f(&burrow_admin_proto::serde_json::Value::Null),
+        })
+    }
+
     pub fn running(&self) -> burrow_admin_proto::serde_json::Value {
         self.state.with(|s| {
             s.as_ref()

@@ -6,6 +6,7 @@
 mod bar;
 mod basic;
 mod button;
+mod cap;
 mod code;
 mod combo;
 mod deferred;
@@ -17,7 +18,6 @@ mod focus;
 mod icon;
 mod inline;
 mod input;
-mod more;
 mod name;
 mod overlay;
 mod path;
@@ -29,6 +29,7 @@ mod spark;
 mod stepper;
 mod toast;
 mod version;
+mod windowing;
 
 pub use bar::{StickyBar, bar_status, bar_top, view_height};
 pub use basic::{
@@ -40,6 +41,7 @@ pub use button::{
     Button, ButtonLook, ButtonSize, IconButton, LinkButton, MENU_ITEM, MenuItem, SpinDot,
     button_class, menu_class,
 };
+pub use cap::{LINKS, MoreChip, ShowAll, ShowMore, kept, next_step, shown_of};
 pub use code::{CodeBlock, copy_text, download, download_text};
 pub use combo::{ComboOption, ComboSize, Combobox, filter_options};
 pub use deferred::{Deferred, LoadFailed};
@@ -54,7 +56,6 @@ pub use input::{
     ChipInput, ConfirmInput, INPUT_H, Segmented, Select, TextArea, TextInput, Toggle, field_class,
     split_entries,
 };
-pub use more::{ShowMore, next_step, shown_of};
 pub use name::{FILE_TAG_WIDTH, FileName, split_name};
 pub use overlay::{
     Dialog, Modal, Tooltip, active as active_element, auto_titles, focus_first, trap as trap_focus,
@@ -68,3 +69,6 @@ pub use spark::{ChartData, LineChart, segments, spark_max, spark_path};
 pub use stepper::{Stepper, stepped};
 pub use toast::{MAX_TOASTS, Toast, ToastHost, push_toast};
 pub use version::VersionTag;
+pub use windowing::{
+    Band, Scroller, Snap, Span, Tracked, Viewport, VirtualList, offset, span, track,
+};

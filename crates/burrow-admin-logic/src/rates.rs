@@ -34,8 +34,14 @@ fn per_sec(new: u64, old: u64, secs: f64) -> f64 {
 pub fn rates(old: &Status, new: &Status, secs: f64) -> Rates {
     let restarted = new.uptime_secs < old.uptime_secs;
     let mut out = Rates::default();
+    let before: std::collections::HashMap<&str, &burrow_admin_proto::status::ServiceStatus> = old
+        .services
+        .iter()
+        .map(|o| (o.name.as_str(), o))
+        .rev()
+        .collect();
     for s in &new.services {
-        let r = match old.services.iter().find(|o| o.name == s.name) {
+        let r = match before.get(s.name.as_str()) {
             Some(o) if !restarted => Rate {
                 bytes_in: per_sec(s.bytes_in, o.bytes_in, secs),
                 bytes_out: per_sec(s.bytes_out, o.bytes_out, secs),
@@ -53,57 +59,84 @@ pub fn rates(old: &Status, new: &Status, secs: f64) -> Rates {
 
 pub const RECORD_SECONDS: usize = 900;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct History {
     cap: usize,
-    points: std::collections::VecDeque<Option<f64>>,
+    lead: usize,
+    points: std::collections::VecDeque<f32>,
+}
+
+impl PartialEq for History {
+    fn eq(&self, other: &Self) -> bool {
+        self.cap == other.cap && self.points().eq(other.points())
+    }
 }
 
 impl History {
     pub fn new(cap: usize) -> Self {
         History {
             cap: cap.max(1),
-            points: std::collections::VecDeque::with_capacity(cap.max(1)),
+            lead: 0,
+            points: std::collections::VecDeque::new(),
         }
     }
 
-    fn put(&mut self, v: Option<f64>) {
-        if self.points.len() == self.cap {
-            self.points.pop_front();
+    fn put(&mut self, v: f32) {
+        if self.len() == self.cap {
+            if self.lead > 0 {
+                self.lead -= 1;
+            } else {
+                self.points.pop_front();
+            }
         }
-        self.points.push_back(v);
+        if v.is_nan() && self.points.is_empty() {
+            self.lead += 1;
+        } else {
+            self.points.push_back(v);
+        }
     }
 
     pub fn push(&mut self, v: f64) {
-        self.put(Some(if v.is_finite() { v.max(0.0) } else { 0.0 }));
+        self.put(if v.is_finite() {
+            v.max(0.0) as f32
+        } else {
+            0.0
+        });
     }
 
     pub fn gap(&mut self) {
-        self.put(None);
+        self.put(f32::NAN);
     }
 
     pub fn points(&self) -> impl Iterator<Item = Option<f64>> + '_ {
-        self.points.iter().copied()
+        std::iter::repeat_n(None, self.lead).chain(
+            self.points
+                .iter()
+                .map(|p| (!p.is_nan()).then_some(f64::from(*p))),
+        )
     }
 
     pub fn last(&self) -> Option<f64> {
-        self.points.back().copied().flatten()
+        self.points
+            .back()
+            .filter(|p| !p.is_nan())
+            .map(|p| f64::from(*p))
     }
 
     pub fn max(&self) -> f64 {
-        self.points.iter().flatten().copied().fold(0.0, f64::max)
+        self.points().flatten().fold(0.0, f64::max)
     }
 
     pub fn len(&self) -> usize {
-        self.points.len()
+        self.lead + self.points.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.points.is_empty()
+        self.len() == 0
     }
 
     pub fn samples(&self) -> usize {
-        self.points.iter().filter(|p| p.is_some()).count()
+        self.points.iter().filter(|p| !p.is_nan()).count()
     }
 }
 
@@ -127,8 +160,9 @@ impl Recorder {
         let len = self.total.0.len();
         self.total.0.push(r.total.bytes_in);
         self.total.1.push(r.total.bytes_out);
-        self.services
-            .retain(|name, _| r.services.iter().any(|(n, _)| n == name));
+        let now: std::collections::HashSet<&str> =
+            r.services.iter().map(|(n, _)| n.as_str()).collect();
+        self.services.retain(|name, _| now.contains(name.as_str()));
         for (name, rate) in &r.services {
             let ring = self.services.entry(name.clone()).or_insert_with(|| {
                 let mut a = History::new(RECORD_SECONDS);
@@ -258,6 +292,15 @@ mod tests {
             vec![Some(0.0), Some(4.0), Some(0.0)]
         );
         assert_eq!(h.max(), 4.0);
+        let mut quiet = History::new(900);
+        for _ in 0..1000 {
+            quiet.gap();
+        }
+        assert_eq!((quiet.len(), quiet.samples(), quiet.last()), (900, 0, None));
+        assert!(
+            quiet.points.is_empty(),
+            "gaps before the first sample take no memory"
+        );
     }
 
     #[test]

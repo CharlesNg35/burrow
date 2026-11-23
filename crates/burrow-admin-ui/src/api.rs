@@ -357,7 +357,25 @@ pub fn shows_file_editor(open: bool, route: &crate::route::Route, tab: Option<&s
         && tab == Some(burrow_admin_logic::settings_tabs::Tab::File.key())
 }
 
+#[derive(burrow_admin_proto::serde::Deserialize)]
+#[serde(crate = "burrow_admin_proto::serde")]
+struct StatusEvent {
+    body: Status,
+}
+
+fn status_event(text: &str) -> Option<Status> {
+    let head = format!(r#"{{"ev":"{}","body":"#, msg::ev::STATUS);
+    text.starts_with(&head)
+        .then(|| serde_json::from_str::<StatusEvent>(text).ok())
+        .flatten()
+        .map(|e| e.body)
+}
+
 fn incoming(store: Store, text: &str) {
+    if let Some(s) = status_event(text) {
+        store.take_status(s, now_ms());
+        return;
+    }
     match Incoming::parse(text) {
         Some(Incoming::Reply { re, result }) => {
             let f = CLIENT.with(|c| c.borrow_mut().as_mut().and_then(|c| c.pending.remove(&re)));
@@ -563,6 +581,27 @@ pub fn load_history(store: Store) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_status_event_is_read_straight_into_its_type() {
+        let st = Status {
+            uptime_secs: 7,
+            ..Status::default()
+        };
+        let text = msg::event(msg::ev::STATUS, serde_json::to_value(&st).unwrap()).to_string();
+        assert_eq!(status_event(&text).map(|s| s.uptime_secs), Some(7));
+        let other = msg::event("later", json!({})).to_string();
+        assert!(status_event(&other).is_none());
+        let reordered = format!(
+            r#"{{"body":{},"ev":"status"}}"#,
+            serde_json::to_string(&st).unwrap()
+        );
+        assert!(
+            status_event(&reordered).is_none(),
+            "other shapes take the general path"
+        );
+    }
+
     use super::*;
 
     #[test]

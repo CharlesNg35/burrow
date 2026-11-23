@@ -15,6 +15,7 @@ mod field;
 mod form;
 mod format;
 mod logins;
+mod narrow;
 mod passwords;
 mod rename;
 mod review;

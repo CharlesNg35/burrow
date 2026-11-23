@@ -33,10 +33,18 @@ pub fn health_with(
     svc: &Value,
     online: impl Fn(&str) -> bool,
 ) -> burrow_admin_logic::health::Count {
+    health_of_clients(st, clients_of(svc), online)
+}
+
+pub fn health_of_clients(
+    st: Option<&ServiceStatus>,
+    clients: Vec<String>,
+    online: impl Fn(&str) -> bool,
+) -> burrow_admin_logic::health::Count {
     use burrow_admin_logic::health;
     let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
     let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
-    health::count(&health::entries(listed, clients_of(svc)), checks, online)
+    health::count(&health::entries(listed, clients), checks, online)
 }
 
 pub struct Problems {

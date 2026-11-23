@@ -36,7 +36,7 @@ fn update_row(i: Item, x: super::Extra) -> AnyView {
         crate::screens::update_dialog::release_link(v, crate::screens::update_dialog::long_link)
     });
     view! {
-        <li class="border-b border-rowline last:border-b-0" data-item=i.key.clone() id=i.key.clone() data-tone=i.tone.name()>
+        <li class="border-b border-rowline [contain-intrinsic-size:auto_64px] [content-visibility:auto] last:border-b-0" data-item=i.key.clone() id=i.key.clone() data-tone=i.tone.name()>
             <div class="flex gap-2.5 px-4 py-[11px]">
                 <span class=format!("mt-0.5 shrink-0 {}", i.tone.text())><Icon name="alert"/></span>
                 <span class="min-w-0 flex-1">
@@ -75,7 +75,7 @@ fn row_view(i: Item, icon: bool) -> AnyView {
         </span>
     };
     let class = "flex gap-2.5 px-4 py-[11px] text-text no-underline hover:bg-surface-2 dark:hover:bg-surface-3/50";
-    let li = "border-b border-rowline last:border-b-0";
+    let li = "border-b border-rowline [contain-intrinsic-size:auto_64px] [content-visibility:auto] last:border-b-0";
     view! {
         <li class=li data-item=i.key.clone() data-tone=tone.name()>
             {match (i.to, i.field) {
@@ -109,8 +109,18 @@ fn row_view(i: Item, icon: bool) -> AnyView {
     .into_any()
 }
 
-fn numbered(items: Vec<Item>) -> Vec<(usize, Item)> {
-    items.into_iter().enumerate().collect()
+fn keyed(items: Vec<Item>) -> Vec<(String, Item)> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    items
+        .into_iter()
+        .map(|x| {
+            let base = format!("{}|{}|{}", x.key, x.title, x.detail);
+            let n = seen.entry(base.clone()).or_insert(0);
+            *n += 1;
+            let key = if *n == 1 { base } else { format!("{base}#{n}") };
+            (key, x)
+        })
+        .collect()
 }
 
 fn hidden_below(list: &web_sys::HtmlElement) -> usize {
@@ -187,8 +197,8 @@ fn Section(
                     on:scroll=move |_| measure()
                 >
                     <For
-                        each=move || numbered(items.get())
-                        key=|(i, x)| format!("{i}|{}|{}|{}", x.key, x.title, x.detail)
+                        each=move || keyed(items.get())
+                        key=|(k, _)| k.clone()
                         children=move |(_, x)| row_view(x, icon)
                     />
                 </ul>
@@ -202,11 +212,10 @@ fn Section(
 pub(super) fn Attention() -> impl IntoView {
     let s = store();
     let items = Memo::new(move |_| {
-        let v = s.running();
         let st = s.state.get();
         let status = s.status.get();
         let now = (s.now.get() / 1000.0) as u64;
-        let mut items = attention(&v, st.as_deref(), status.as_deref(), now);
+        let mut items = s.with_running(|v| attention(v, st.as_deref(), status.as_deref(), now));
         items.extend(s.welcome.with(|w| {
             w.as_ref()
                 .and_then(|w| old_server_item(&w.server.version, env!("CARGO_PKG_VERSION")))
@@ -214,8 +223,8 @@ pub(super) fn Attention() -> impl IntoView {
         items
     });
     let away_items = Memo::new(move |_| {
-        let v = s.running();
-        away(&v, s.status.get().as_deref())
+        let status = s.status.get();
+        s.with_running(|v| away(v, status.as_deref()))
     });
     let seen: StoredValue<Vec<String>> = StoredValue::new(Vec::new());
     let announce = RwSignal::new(String::new());
@@ -258,7 +267,7 @@ pub(super) fn Attention() -> impl IntoView {
             })
         })
     });
-    let n_clients = move || names(&s.running(), ClientEntry::section()).len();
+    let n_clients = move || s.with_running(|v| names(v, ClientEntry::section()).len());
     let away_title: &'static str = burrow_admin_logic::wording::CLIENTS_OFFLINE;
     let away_grow = Signal::derive(move || {
         if away_items.with(Vec::len) >= 2 {
@@ -307,5 +316,45 @@ pub(super) fn Attention() -> impl IntoView {
             </div>
             <p class="sr-only" aria-live="polite">{move || announce.get()}</p>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(key: &str, detail: &str) -> Item {
+        Item {
+            key: key.into(),
+            tone: Tone::Warning,
+            title: key.into(),
+            detail: detail.into(),
+            to: None,
+            field: None,
+            extra: None,
+        }
+    }
+
+    #[test]
+    fn a_new_item_keeps_the_keys_of_the_rows_already_there() {
+        let before: Vec<String> = keyed(vec![item("a", "x"), item("b", "y")])
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        let after: Vec<String> = keyed(vec![item("new", "z"), item("a", "x"), item("b", "y")])
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(&after[1..], &before[..]);
+        let twice: Vec<String> = keyed(vec![item("a", "x"), item("a", "x")])
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_ne!(twice[0], twice[1], "a repeated item still gets its own key");
+        assert_ne!(
+            keyed(vec![item("a", "x")])[0].0,
+            keyed(vec![item("a", "changed")])[0].0,
+            "a changed text redraws its row"
+        );
     }
 }
