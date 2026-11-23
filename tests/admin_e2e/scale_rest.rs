@@ -130,21 +130,17 @@ async fn show_all(c: &Ctx) {
     c.ui.click(&format!("#search-opt-{i} button")).await;
     c.ui.wait_gone("[data-testid=search]", SECS).await;
     c.ui.wait_true(
-        "location.pathname.endsWith('/services') && location.search === '?q=svc00'",
+        "location.pathname.includes('/services') && document.querySelector('#list-search')?.value === 'svc00'",
         "Show all opens the list with the search",
         SECS,
     )
     .await;
 }
 
-async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
-    c.world
-        .hand_edit(|t| t.replace("    target: 10", "    target: 30"));
-    c.ui.wait_text("[data-testid=toasts]", "Config changed", LONG)
-        .await;
+async fn admin_change(c: &Ctx, port: &str, out: &mut Vec<String>) {
     c.ui.nav("/services/ssh").await;
     super::edit_mode(c).await;
-    c.ui.fill("#f-services-ssh-target", "23").await;
+    c.ui.fill("#f-services-ssh-target", port).await;
     c.ui.wait_for("[data-testid=check-state]", LONG).await;
     c.ui.wait_for("[data-testid=check-state]:not([data-state=checking])", LONG)
         .await;
@@ -168,9 +164,18 @@ async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
             .await;
     }
     super::apply_now(c, "Applied").await;
+}
+
+async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
+    admin_change(c, "23", out).await;
+    c.world
+        .hand_edit(|t| t.replace("    target: 10", "    target: 30"));
+    c.ui.wait_text("[data-testid=toasts]", "Config changed", LONG)
+        .await;
+    admin_change(c, "24", out).await;
     c.ui.nav("/activity").await;
     c.ui.wait_true(
-        "document.querySelectorAll('[data-testid=activity] [data-row]').length >= 2",
+        "document.querySelectorAll('[data-testid=activity] [data-row]').length >= 3",
         "the hand edit shows in Activity with the next change",
         LONG,
     )
