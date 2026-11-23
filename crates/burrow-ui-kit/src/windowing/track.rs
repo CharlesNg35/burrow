@@ -22,16 +22,41 @@ pub struct Tracked {
     el: StoredValue<Option<web_sys::HtmlElement>, LocalStorage>,
 }
 
+fn scrolls(el: &web_sys::HtmlElement) -> bool {
+    el.scroll_height() > el.client_height() + 1
+}
+
+fn seen_part(el: &web_sys::HtmlElement, of: Option<&web_sys::HtmlElement>) -> Viewport {
+    let Some(of) = of else {
+        return Viewport {
+            top: f64::from(el.scroll_top()),
+            height: f64::from(el.client_height()),
+        };
+    };
+    let clip = el.get_bounding_client_rect();
+    let tall = window()
+        .inner_height()
+        .ok()
+        .and_then(|h| h.as_f64())
+        .unwrap_or(clip.bottom());
+    let (from, to) = (clip.top().max(0.0), clip.bottom().min(tall));
+    Viewport {
+        top: from - of.get_bounding_client_rect().top(),
+        height: (to - from).max(0.0),
+    }
+}
+
 impl Tracked {
     pub fn scroll_to(&self, top: f64) {
         let Some(el) = self.el.get_value() else {
             return;
         };
-        el.set_scroll_top(top.max(0.0) as i32);
-        self.set.set(Viewport {
-            top: f64::from(el.scroll_top()),
-            height: f64::from(el.client_height()),
-        });
+        let delta = top - self.view.get_untracked().top;
+        if scrolls(&el) {
+            el.set_scroll_top(el.scroll_top() + delta as i32);
+        } else {
+            window().scroll_by_with_x_and_y(0.0, delta);
+        }
     }
 
     pub fn element(&self) -> Option<web_sys::HtmlElement> {
@@ -45,15 +70,19 @@ type Watch = (
     Option<web_sys::ResizeObserver>,
 );
 
-fn find(scroller: Scroller) -> Option<web_sys::HtmlElement> {
+const SCROLL: &str = "scroll";
+
+fn find(scroller: Scroller) -> Option<(web_sys::HtmlElement, Option<web_sys::HtmlElement>)> {
     match scroller {
-        Scroller::Itself(me) => me.get().map(Into::into),
+        Scroller::Itself(me) => me.get().map(|e| (e.into(), None)),
         Scroller::Closest(me, selector) => {
             let me: web_sys::HtmlElement = me.get()?.into();
-            me.closest(selector)
+            let el = me
+                .closest(selector)
                 .ok()
                 .flatten()
-                .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+                .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())?;
+            Some((el, Some(me)))
         }
     }
 }
@@ -61,7 +90,9 @@ fn find(scroller: Scroller) -> Option<web_sys::HtmlElement> {
 fn stop(watch: StoredValue<Option<Watch>, LocalStorage>) {
     watch.try_with_value(|w| {
         if let Some((el, on, size)) = w {
-            let _ = el.remove_event_listener_with_callback("scroll", on.as_ref().unchecked_ref());
+            let _ = el.remove_event_listener_with_callback(SCROLL, on.as_ref().unchecked_ref());
+            let _ =
+                window().remove_event_listener_with_callback(SCROLL, on.as_ref().unchecked_ref());
             if let Some(o) = size {
                 o.disconnect();
             }
@@ -75,16 +106,13 @@ pub fn track(scroller: Scroller) -> Tracked {
     let el: StoredValue<Option<web_sys::HtmlElement>, LocalStorage> = StoredValue::new_local(None);
     let watch: StoredValue<Option<Watch>, LocalStorage> = StoredValue::new_local(None);
     Effect::new(move |_| {
-        let Some(list) = find(scroller) else {
+        let Some((list, of)) = find(scroller) else {
             return;
         };
         stop(watch);
         let seen = list.clone();
         let read = move || {
-            let now = Viewport {
-                top: f64::from(seen.scroll_top()),
-                height: f64::from(seen.client_height()),
-            };
+            let now = seen_part(&seen, of.as_ref());
             if view.try_get_untracked().is_some_and(|v| v != now) {
                 set.set(now);
             }
@@ -101,7 +129,8 @@ pub fn track(scroller: Scroller) -> Tracked {
                 read();
             });
         });
-        let _ = list.add_event_listener_with_callback("scroll", on.as_ref().unchecked_ref());
+        let _ = list.add_event_listener_with_callback(SCROLL, on.as_ref().unchecked_ref());
+        let _ = window().add_event_listener_with_callback(SCROLL, on.as_ref().unchecked_ref());
         let size = web_sys::ResizeObserver::new(on.as_ref().unchecked_ref()).ok();
         if let Some(o) = &size {
             o.observe(&list);

@@ -99,7 +99,7 @@ where
         })
     };
     view! {
-        <div node_ref=me data-testid=(!testid.is_empty()).then_some(testid)>
+        <div node_ref=me data-testid=(!testid.is_empty()).then_some(testid) data-count=move || items.with(Vec::len).to_string()>
             <div aria-hidden="true" style:height=move || format!("{}px", range.get().above)></div>
             <For
                 each=shown
