@@ -215,7 +215,8 @@ pub fn ListPane(
     let nothing = Signal::derive(move || rows.with(|r| r.iter().all(Row::is_placeholder)));
     let chips = filter_chips(filters, filter, rows, no_counts, nothing);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
-    keep_selected_in_view(list_ref, selected, visible);
+    keep_selected_in_view(list_ref, selected, visible, title.clone());
+    let scroll_key = title.clone();
     let look = Look { no_counts, compact };
     let body = super::list_rows::list_body(
         Shown {
@@ -253,6 +254,13 @@ pub fn ListPane(
                 class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pt-1 pb-4 outline-none [scrollbar-width:thin]"
                 node_ref=list_ref
                 data-testid="list"
+                on:scroll=move |e| {
+                    use wasm_bindgen::JsCast;
+                    if let Some(l) = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+                        let top = l.scroll_top();
+                        crate::store::store().list_scroll.update_value(|m| { m.insert(scroll_key.clone(), top); });
+                    }
+                }
                 on:click=move |e| {
                     use wasm_bindgen::JsCast;
                     let Some(cb) = on_action else { return };
@@ -470,18 +478,30 @@ fn keep_selected_in_view(
     list_ref: NodeRef<leptos::html::Div>,
     selected: Signal<Option<String>>,
     visible: Memo<Vec<Row>>,
+    key: String,
 ) {
+    let restored = StoredValue::new(false);
     let keys =
         Memo::new(move |_| visible.with(|v| v.iter().map(|r| r.key.clone()).collect::<Vec<_>>()));
     Effect::new(move |_| {
         selected.track();
         keys.track();
+        let key = key.clone();
         request_animation_frame(move || {
             use wasm_bindgen::JsCast;
             let Some(list) = list_ref.try_get_untracked().flatten() else {
                 return;
             };
             let list: web_sys::HtmlElement = list.into();
+            if restored.try_get_value() == Some(false) && keys.with_untracked(|k| !k.is_empty()) {
+                restored.set_value(true);
+                if let Some(top) = crate::store::store()
+                    .list_scroll
+                    .with_value(|m| m.get(&key).copied())
+                {
+                    list.set_scroll_top(top);
+                }
+            }
             let Some(el) = list
                 .query_selector("[data-selected=true]")
                 .ok()
