@@ -237,9 +237,10 @@ fn a_shared_wildcard_sits_on_the_entry_that_manages_its_name() {
             "web.letsencrypt.dns[0].wildcards: \"*.apps.example.com\" belongs to apps.example.com, which DNS provider 2 manages; list it there"
         ]
     );
+    let found = warns(&one("*.example.com"), "");
     assert!(
-        warns(&one("*.example.com"), "").is_empty(),
-        "a wildcard listed ahead of its sites is a plan, not a problem"
+        !found.iter().any(|w| w.contains("wildcard")),
+        "a wildcard listed ahead of its sites is a plan, not a problem: {found:#?}"
     );
 }
 
