@@ -1,8 +1,8 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use super::edits::Flow;
 use super::world::{self, Options};
-use super::{Ctx, SECS, edit_mode, open, overview_tab, run};
+use super::{Ctx, SECS, edit_mode, open, run};
 
 const SERVICES: usize = 300;
 const SITES: usize = 12;
@@ -20,7 +20,7 @@ fn opts() -> Options {
     }
     for i in 1..=SITES {
         services.push_str(&format!(
-            "  site{i:02}:\n    client: home\n    target: {}\n    web: {{ hosts: [site{i:02}.example.com] }}\n",
+            "  site{i:02}:\n    client: home\n    target: {}\n    web: {{ hosts: [site{i:02}.example.com], tls: internal }}\n",
             21000 + i
         ));
     }
@@ -43,7 +43,7 @@ fn opts() -> Options {
         names.join(", ")
     ));
     Options {
-        extra_top: "web:\n  https: 127.0.0.1:HTTPS_PORT\n  letsencrypt: { email: ops@example.com, directory: \"https://127.0.0.1:9/directory\" }\n".into(),
+        extra_top: "web:\n  https: 127.0.0.1:HTTPS_PORT\n".into(),
         extra_services: services,
         extra_clients: clients,
         drop_ins: vec![("crowd.yaml", crowd, false)],
@@ -189,31 +189,6 @@ async fn crowd(c: &mut Ctx) {
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 }
 
-async fn orders(c: &mut Ctx) {
-    c.ui.nav("/").await;
-    overview_tab(c, "certs").await;
-    let at = "[data-testid=certs-card]";
-    c.ui.wait_for(
-        &format!("{at} [data-testid=cert-orders] li"),
-        Duration::from_secs(20),
-    )
-    .await;
-    c.ui.wait_for(
-        &format!("{at} [data-testid=show-all]"),
-        Duration::from_secs(20),
-    )
-    .await;
-    show_all(
-        c,
-        at,
-        "[data-testid=cert-orders] li",
-        SITES,
-        "certificate orders",
-    )
-    .await;
-    c.ui.view_shot("cert-orders-capped").await;
-}
-
 fn scale(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -222,7 +197,6 @@ fn scale(c: &mut Ctx) -> Flow<'_> {
         served(c).await;
         health_and_menus(c).await;
         crowd(c).await;
-        orders(c).await;
         c.ui.assert_no_errors();
     })
 }

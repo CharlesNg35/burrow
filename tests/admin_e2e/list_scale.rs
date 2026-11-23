@@ -165,7 +165,10 @@ async fn far_rows(c: &mut Ctx) {
         SECS,
     )
     .await;
-    c.ui.press("[data-testid=list]", "ArrowDown").await;
+    let _: bool = c
+        .ui
+        .eval("(() => { const l = document.querySelector('[data-testid=list]'); l.focus(); l.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })); return true; })()")
+        .await;
     c.ui.wait_for("[data-row=s4001][data-selected=true]", SECS)
         .await;
     assert!(
