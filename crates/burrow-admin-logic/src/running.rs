@@ -1,7 +1,8 @@
+use crate::live::Live;
 use burrow_admin_proto::msg::State;
 use burrow_admin_proto::status::Status;
 
-pub fn differences(state: &State, status: Option<&Status>) -> usize {
+pub fn differences(state: &State, status: Option<&Live>) -> usize {
     let file = usize::from(!state.running.ok)
         + state.runtime.restart_pending.len()
         + state.runtime.not_open.len();

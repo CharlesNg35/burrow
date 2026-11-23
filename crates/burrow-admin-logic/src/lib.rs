@@ -20,6 +20,7 @@ pub mod goto;
 pub mod health;
 pub mod history;
 pub mod input;
+pub mod live;
 pub mod logins;
 pub mod more;
 pub mod off;

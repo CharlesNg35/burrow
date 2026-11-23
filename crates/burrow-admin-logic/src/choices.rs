@@ -1,3 +1,4 @@
+use crate::live::Live;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, SelfEntry, ServerConfig, ServiceEntry, VisitorEntry};
@@ -41,7 +42,7 @@ pub fn default_client(doc: &Value, reserved: &[String]) -> Option<String> {
 
 pub fn client_choices(
     doc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     reserved: &[String],
     field: &[String],
 ) -> Vec<ClientChoice> {
@@ -72,7 +73,7 @@ pub struct ServiceChoice {
     pub up: Option<bool>,
 }
 
-pub fn service_choices(doc: &Value, status: Option<&Status>) -> Vec<ServiceChoice> {
+pub fn service_choices(doc: &Value, status: Option<&Live>) -> Vec<ServiceChoice> {
     let online = |c: &String| presence::online(status, &[], c);
     ServiceEntry::entries(doc)
         .map(|m| {

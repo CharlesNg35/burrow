@@ -2,6 +2,7 @@
 
 mod service;
 
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::wording::PICK_VISITORS;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::{ServiceStatus, Status};
@@ -19,10 +20,10 @@ pub fn clients_of(svc: &Value) -> Vec<String> {
 pub fn health_count(
     name: &str,
     svc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     reserved: &[String],
 ) -> burrow_admin_logic::health::Count {
-    let st = status.and_then(|s| crate::status_index::service(s, name));
+    let st = status.and_then(|s| s.service(name));
     health_with(st, svc, |c| {
         burrow_admin_logic::presence::online(status, reserved, c)
     })
@@ -54,7 +55,7 @@ pub struct Problems {
     pub site: Option<(String, burrow_ui_kit::Tone)>,
 }
 
-pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) -> PathData {
+pub fn client(name: &str, doc: &Value, status: Option<&Live>, listen: &str) -> PathData {
     let c = burrow_admin_logic::presence::of(status, name);
     let on = crate::format::presence_of(status, name).up();
     let served: Vec<(String, String)> = ServiceEntry::entries(doc)
@@ -162,10 +163,10 @@ fn count_of(n: usize, what: &str) -> String {
 pub fn visitor(
     name: &str,
     doc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     me: Option<(&str, &str)>,
 ) -> PathData {
-    let v = status.and_then(|s| crate::status_index::visitor(s, name));
+    let v = status.and_then(|s| s.visitor(name));
     let open = v.map(|v| v.open).unwrap_or(0);
     let entry = VisitorEntry::entry(doc, name);
     let services: Vec<(String, bool, bool)> = ServiceEntry::entries(doc)

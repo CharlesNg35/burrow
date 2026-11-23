@@ -1,3 +1,4 @@
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::presence::{self, Presence};
 use burrow_admin_proto::status::Status;
 use burrow_config::ServiceEntry;
@@ -42,7 +43,7 @@ pub fn reserved_clients() -> Vec<String> {
     })
 }
 
-pub fn presence_of(status: Option<&Status>, name: &str) -> Presence {
+pub fn presence_of(status: Option<&Live>, name: &str) -> Presence {
     presence::presence(status, &reserved_clients(), name)
 }
 

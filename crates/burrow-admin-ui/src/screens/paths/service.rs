@@ -1,3 +1,4 @@
+use burrow_admin_logic::live::Live;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{HealthCheck, Protocol, ServiceEntry};
@@ -10,12 +11,12 @@ use super::{Problems, clients_of};
 pub fn service(
     name: &str,
     svc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     problems: &Problems,
     editing: bool,
     reserved: &[String],
 ) -> PathData {
-    let st = status.and_then(|s| crate::status_index::service(s, name));
+    let st = status.and_then(|s| s.service(name));
     let open = st.map(|x| x.open).unwrap_or(0);
     let public = burrow_admin_logic::web::is_public(svc);
     let source = source_hop(svc, public, problems);

@@ -1,3 +1,4 @@
+use crate::live::Live;
 use std::net::{IpAddr, SocketAddr};
 
 use burrow_admin_proto::status::{ClientStatus, OFFLINE, ONLINE, Status, away};
@@ -58,8 +59,8 @@ pub struct ClientInfo {
     pub failed_recently: bool,
 }
 
-pub fn client<'a>(status: &'a Status, name: &str) -> Option<&'a ClientStatus> {
-    status.clients.iter().find(|c| c.name == name)
+pub fn client<'a>(status: &'a Live, name: &str) -> Option<&'a ClientStatus> {
+    status.client(name)
 }
 
 pub fn info(c: &ClientStatus) -> ClientInfo {
@@ -87,11 +88,11 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
     }
 }
 
-pub fn of(status: Option<&Status>, name: &str) -> Option<ClientInfo> {
+pub fn of(status: Option<&Live>, name: &str) -> Option<ClientInfo> {
     status.and_then(|s| client(s, name)).map(info)
 }
 
-pub fn presence(status: Option<&Status>, reserved: &[String], name: &str) -> Presence {
+pub fn presence(status: Option<&Live>, reserved: &[String], name: &str) -> Presence {
     presence_with(
         status.is_some(),
         reserved,
@@ -119,7 +120,7 @@ pub fn presence_with(
     }
 }
 
-pub fn online(status: Option<&Status>, reserved: &[String], name: &str) -> bool {
+pub fn online(status: Option<&Live>, reserved: &[String], name: &str) -> bool {
     presence(status, reserved, name).up()
 }
 
@@ -133,7 +134,7 @@ pub fn from_ip(from: &str) -> String {
         .map_or_else(|_| from.to_string(), |ip| ip.to_canonical().to_string())
 }
 
-pub fn detail(status: Option<&Status>, reserved: &[String], name: &str) -> String {
+pub fn detail(status: Option<&Live>, reserved: &[String], name: &str) -> String {
     match (
         presence(status, reserved, name),
         status.and_then(|s| client(s, name)),

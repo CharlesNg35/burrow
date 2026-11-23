@@ -1,4 +1,5 @@
 use burrow_admin_logic::certs::{Level, notices, rows};
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::top::{ROWS, top};
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, ServerConfig, ServiceEntry};
@@ -89,7 +90,7 @@ fn table(status: &Status, now: u64) -> impl IntoView + use<> {
 }
 
 pub(super) fn certificates_panel(
-    status: Option<&Status>,
+    status: Option<&Live>,
     now: u64,
     open: RwSignal<bool>,
 ) -> impl IntoView + use<> {

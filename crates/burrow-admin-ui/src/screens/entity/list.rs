@@ -1,3 +1,4 @@
+use burrow_admin_logic::live::Live;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Entry, Protocol, ServiceEntry, entity_of_section};
@@ -143,7 +144,7 @@ fn clients_for(section: &str, v: &Value) -> Vec<String> {
     }
 }
 
-type Seen = Option<(Option<Arc<Status>>, Option<String>, (usize, usize))>;
+type Seen = Option<(Option<Arc<Live>>, Option<String>, (usize, usize))>;
 
 fn classes_now(
     section: &str,

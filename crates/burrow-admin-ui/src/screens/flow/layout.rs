@@ -1,3 +1,4 @@
+use burrow_admin_logic::live::Live;
 use std::collections::{HashMap, HashSet};
 
 use burrow_admin_logic::rates::{Rates, human_bits};
@@ -140,7 +141,7 @@ impl Svc {
 
 pub fn layout(
     doc: &Value,
-    status: Option<&Status>,
+    status: Option<&Live>,
     rates: &Rates,
     me: Option<&str>,
     focus: &Focus,
@@ -310,7 +311,7 @@ fn services(doc: &Value, live: &Live) -> Vec<Svc> {
     svcs
 }
 
-fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str>) -> Vec<Node> {
+fn sources(rows: &[Row], reach: &Reach, status: Option<&Live>, me: Option<&str>) -> Vec<Node> {
     let mut nodes = Vec::new();
     let drawn = |public: bool| -> Vec<usize> {
         (0..rows.len())
@@ -384,7 +385,7 @@ fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str
     nodes
 }
 
-fn server_node(total_open: u64, status: Option<&Status>, rates: &Rates, rows: usize) -> Node {
+fn server_node(total_open: u64, status: Option<&Live>, rates: &Rates, rows: usize) -> Node {
     let (rate, unit) = human_bits(rates.total.bytes_in);
     Node {
         key: "server".into(),

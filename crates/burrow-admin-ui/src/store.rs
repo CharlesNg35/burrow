@@ -1,6 +1,7 @@
 use burrow_config::ServerConfig;
 use std::sync::Arc;
 
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::rates::{Rates, Recorder, rates};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{AuditEntry, ConfigEvent, State, Welcome};
@@ -60,7 +61,7 @@ pub struct Store {
     pub welcome: RwSignal<Option<Arc<Welcome>>>,
     pub schema: RwSignal<Option<Arc<Schema>>>,
     pub state: RwSignal<Option<Arc<State>>>,
-    pub status: RwSignal<Option<Arc<Status>>>,
+    pub status: RwSignal<Option<Arc<Live>>>,
     pub status_at: RwSignal<f64>,
     pub rates: RwSignal<Rates>,
     pub recorder: RwSignal<Recorder>,
@@ -196,7 +197,7 @@ impl Store {
     pub fn take_status(&self, next: Status, now_ms: f64) {
         let prev = self.status.get_untracked();
         let prev_at = self.status_at.get_untracked();
-        if let Some(prev) = prev {
+        if let Some(prev) = prev.as_deref() {
             let secs = ((now_ms - prev_at) / 1000.0).max(0.001);
             let r = rates(&prev, &next, secs);
             let missed = ((now_ms - prev_at) / 1000.0).round() as i64 - 1;
@@ -212,6 +213,7 @@ impl Store {
             self.rates.set(r);
         }
         self.values_at.set(now_ms);
+        let next = Live::new(next, prev.as_deref());
         self.status.set(Some(Arc::new(next)));
         self.status_at.set(now_ms);
     }

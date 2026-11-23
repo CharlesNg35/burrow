@@ -8,6 +8,7 @@ mod tabs;
 mod update_items;
 mod web;
 
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::rates::{axis_max, mbit};
 use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::msg::State;
@@ -72,7 +73,7 @@ fn link_of(path: &[String]) -> Option<Route> {
 pub fn attention(
     values: &Value,
     state: Option<&State>,
-    status: Option<&Status>,
+    status: Option<&Live>,
     now: u64,
 ) -> Vec<Item> {
     let mut out = Vec::new();
@@ -203,34 +204,15 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
     }
 }
 
-fn clients_by_name(status: &Status) -> HashMap<&str, &burrow_admin_proto::status::ClientStatus> {
-    status
-        .clients
-        .iter()
-        .rev()
-        .map(|c| (c.name.as_str(), c))
-        .collect()
-}
-
-fn up_in(clients: &HashMap<&str, &burrow_admin_proto::status::ClientStatus>, c: &str) -> bool {
-    clients.get(c).is_some_and(|c| c.local || c.connected)
-}
-
-fn by_name(status: &Status) -> HashMap<&str, &ServiceStatus> {
-    status
-        .services
-        .iter()
-        .map(|x| (x.name.as_str(), x))
-        .collect()
+fn up_in(status: &Live, c: &str) -> bool {
+    status.client(c).is_some_and(|c| c.local || c.connected)
 }
 
 fn service_items(
     values: &Value,
-    status: &Status,
+    status: &Live,
 ) -> (std::collections::BTreeMap<String, Hits>, Vec<Item>) {
-    let clients = clients_by_name(status);
-    let online = |c: &str| up_in(&clients, c);
-    let live = by_name(status);
+    let online = |c: &str| up_in(status, c);
     let mut by_client: std::collections::BTreeMap<String, Hits> = std::collections::BTreeMap::new();
     let mut own = Vec::new();
     if let Some(services) = ServiceEntry::entries(values) {
@@ -238,7 +220,7 @@ fn service_items(
             let cs = clients_of(svc);
             let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
             let off: Vec<&String> = cs.iter().filter(|c| !online(c)).collect();
-            let st = live.get(name.as_str()).copied();
+            let st = status.service(name);
             let to = Some(Route::Detail(ServiceEntry::section().into(), name.clone()));
             if up.is_empty() {
                 if let [c] = off.as_slice() {
@@ -323,7 +305,7 @@ fn client_item(
     c: String,
     down: Vec<String>,
     partial: Vec<(String, usize, usize)>,
-    status: &Status,
+    status: &Live,
 ) -> Item {
     let mut parts = Vec::new();
     let mut shapes: Vec<(usize, usize)> = partial.iter().map(|(_, u, n)| (*u, *n)).collect();
@@ -391,20 +373,18 @@ pub enum Problem {
     Health,
 }
 
-pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String, Problem)> {
+pub fn service_problems(values: &Value, status: Option<&Live>) -> Vec<(String, Problem)> {
     let Some(status) = status else {
         return Vec::new();
     };
-    let clients = clients_by_name(status);
-    let online = |c: &str| up_in(&clients, c);
-    let live = by_name(status);
+    let online = |c: &str| up_in(status, c);
     let mut out: Vec<(String, Problem)> = ServiceEntry::entries(values)
         .map(|m| {
             m.iter()
                 .filter_map(|(name, svc)| {
                     let cs = clients_of(svc);
                     let up = cs.iter().filter(|c| online(c)).count();
-                    let st = live.get(name.as_str()).copied();
+                    let st = status.service(name);
                     let failing = st.is_some_and(|x| x.health.iter().any(|h| !h.up));
                     let p = if st.is_some_and(|x| x.not_listening.is_some()) {
                         Problem::NotListening
@@ -445,11 +425,10 @@ fn and_list(names: &[String]) -> String {
     }
 }
 
-pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
+pub fn away(values: &Value, status: Option<&Live>) -> Vec<Item> {
     let Some(status) = status else {
         return Vec::new();
     };
-    let clients = clients_by_name(status);
     let mut served: HashMap<String, Vec<String>> = HashMap::new();
     for (n, v) in ServiceEntry::entries(values).into_iter().flatten() {
         for c in clients_of(v) {
@@ -462,8 +441,8 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     names(values, ClientEntry::section())
         .into_iter()
         .filter_map(|c| {
-            let st = clients.get(c.as_str()).copied();
-            if up_in(&clients, &c) {
+            let st = status.client(&c);
+            if up_in(status, &c) {
                 return None;
             }
             let serves = served.get(&c).cloned().unwrap_or_default();
