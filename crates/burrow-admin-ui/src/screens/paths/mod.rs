@@ -5,7 +5,7 @@ mod service;
 use burrow_admin_logic::live::Live;
 use burrow_admin_logic::wording::PICK_VISITORS;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::{ServiceStatus, Status};
+use burrow_admin_proto::status::ServiceStatus;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 

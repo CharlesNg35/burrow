@@ -1,6 +1,5 @@
 use burrow_admin_logic::live::Live;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
 use burrow_config::{HealthCheck, Protocol, ServiceEntry};
 use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 

@@ -1,7 +1,6 @@
 use burrow_admin_logic::live::Live;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
 use burrow_ui_kit::{Icon, Kbd, Modal, PickHead, PickOption, marked, word_at};
 use leptos::prelude::*;

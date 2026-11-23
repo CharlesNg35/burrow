@@ -142,7 +142,7 @@ fn impact_icon(l: Level) -> (&'static str, Tone) {
 fn service_paths(
     base: &Value,
     draft: &Value,
-    status: Option<&burrow_admin_proto::status::Status>,
+    status: Option<&burrow_admin_logic::live::Live>,
     reserved: &[String],
 ) -> Vec<(String, PathData)> {
     let empty = serde_json_map();

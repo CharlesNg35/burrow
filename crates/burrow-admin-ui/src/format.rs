@@ -85,7 +85,7 @@ pub fn skip_label(aside: Option<bool>) -> &'static str {
 }
 
 pub fn limit_tag(
-    status: Option<&burrow_admin_proto::status::Status>,
+    status: Option<&burrow_admin_logic::live::Live>,
     client: &str,
 ) -> Option<(&'static str, &'static str)> {
     status?
@@ -217,7 +217,7 @@ pub enum Moment {
 }
 
 impl Moment {
-    fn of(self, st: &Status, name: &str) -> Option<(&'static str, u64)> {
+    fn of(self, st: &burrow_admin_logic::live::Live, name: &str) -> Option<(&'static str, u64)> {
         match self {
             Moment::Client => {
                 let c = presence::client(st, name)?;

@@ -11,7 +11,6 @@ use crate::route::{self, Route};
 use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
-use burrow_admin_proto::status::Status;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 

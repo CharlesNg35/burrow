@@ -13,7 +13,6 @@ use burrow_admin_logic::rates::{axis_max, mbit};
 use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::msg::State;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::{ServiceStatus, Status};
 use burrow_config::{ClientEntry, Entry, ServiceEntry};
 use burrow_ui_kit::{ChartData, Tone};
 use std::collections::HashMap;

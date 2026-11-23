@@ -92,7 +92,7 @@ fn since_date(at: f64) -> String {
 
 fn entry_rows(
     x: Option<&burrow_admin_proto::status::ServiceStatus>,
-    st: Option<&burrow_admin_proto::status::Status>,
+    st: Option<&burrow_admin_logic::live::Live>,
     svc: &Value,
 ) -> Vec<EntryStatus> {
     match x.map(|x| x.entries.clone()).filter(|e| !e.is_empty()) {
