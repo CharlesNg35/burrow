@@ -763,7 +763,7 @@ mod tests {
             diags: vec![d],
             ..State::default()
         };
-        let items = attention(&json!({}), Some(&st.clone().into()), None, 0);
+        let items = attention(&json!({}), Some(&st), None, 0);
         let w = items
             .iter()
             .find(|i| i.key.starts_with("diag:"))
