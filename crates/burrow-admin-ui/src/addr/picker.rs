@@ -21,7 +21,9 @@ pub(super) fn options_for(
     }
     if *entity == Entity::Service {
         let status = store().status.get();
-        return service_choices(&store().edit.doc(), status.as_deref())
+        return store()
+            .edit
+            .with_doc(|doc| service_choices(doc, status.as_deref()))
             .into_iter()
             .map(service_option)
             .collect();
@@ -59,8 +61,9 @@ fn visitor_options() -> Vec<ComboOption> {
 
 fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
     let status = store().status.get();
-    let doc = store().edit.doc();
-    client_choices(&doc, status.as_deref(), reserved, field)
+    store()
+        .edit
+        .with_doc(|doc| client_choices(doc, status.as_deref(), reserved, field))
         .into_iter()
         .map(|c| ComboOption {
             dot: match c.blocked {

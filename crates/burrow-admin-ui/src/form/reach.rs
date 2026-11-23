@@ -159,11 +159,13 @@ fn website_row(sw: &Switch) -> impl IntoView + use<> {
     let e = store().edit;
     let (on, blocked) = (sw.on, sw.blocked);
     let p = child(&sw.svc, WEB);
-    let https_on = Signal::derive(move || {
-        burrow_config::ServerConfig::WEB
-            .get(&e.doc())
-            .and_then(|w| burrow_config::WebConfig::HTTPS.get(w))
-            .is_some_and(|h| !h.is_null())
+    let https_on = Memo::new(move |_| {
+        e.with_doc(|doc| {
+            burrow_config::ServerConfig::WEB
+                .get(doc)
+                .and_then(|w| burrow_config::WebConfig::HTTPS.get(w))
+                .is_some_and(|h| !h.is_null())
+        })
     });
     let open = move |_| {
         if let Ok(Some(el)) =

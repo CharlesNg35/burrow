@@ -514,18 +514,17 @@ fn settings_of(
 }
 
 fn changed_fields(e: Edit) -> Signal<usize> {
-    Signal::derive(move || {
-        let now = settings_of(&e.doc());
+    Memo::new(move |_| {
+        let now = e.with_doc(settings_of);
         e.editing.with(|m| {
             let snap = m
                 .get(&Vec::<String>::new())
-                .cloned()
-                .flatten()
-                .map(|d| settings_of(&d))
-                .unwrap_or_else(|| now.clone());
-            burrow_admin_logic::changeset::ops_between(&snap, &now).len()
+                .and_then(Option::as_ref)
+                .map(settings_of);
+            burrow_admin_logic::changeset::ops_between(snap.as_ref().unwrap_or(&now), &now).len()
         })
     })
+    .into()
 }
 
 fn problem_count(e: Edit) -> Signal<usize> {
