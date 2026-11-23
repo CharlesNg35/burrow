@@ -9,7 +9,7 @@ use burrow_ui_kit::{PillTabs, TabMark};
 
 use crate::form::{PageSearch, ShowKeys, card_fields, settings_card, settings_cards};
 use crate::route::Route;
-use crate::screens::{Row, filter_chips, search_box};
+use crate::screens::{LIST_SEARCH, Row, filter_chips, search_box};
 
 use crate::route::TAB_QUERY;
 use crate::store::store;
@@ -467,7 +467,7 @@ pub fn Settings() -> impl IntoView {
             >
                 "Server settings"
             </burrow_ui_kit::PageHeader>
-            {tab_bar(rows, tab, look, search_box(look.query, "Search settings".into(), Signal::stored(false)).into_any())}
+            {tab_bar(rows, tab, look, search_box(LIST_SEARCH, look.query, "Search settings".into(), Signal::stored(false)).into_any())}
             </div>
             <div class="mb-4" class:hidden=move || !tab.get().holds_fields() data-testid="settings-search">
                 {filter_chips(filters, look.filter, plain_rows, true, Signal::stored(false))}

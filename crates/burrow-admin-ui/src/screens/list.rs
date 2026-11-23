@@ -240,7 +240,7 @@ pub fn ListPane(
                     {new_button}
                 </div>
                 <div class="mb-2.5 flex items-center gap-2">
-                    <div class="min-w-0 flex-1">{search_box(q, search_label, nothing)}</div>
+                    <div class="min-w-0 flex-1">{search_box(LIST_SEARCH, q, search_label, nothing)}</div>
                     {by_file.map(file_groups::control)}
                 </div>
                 {chips}
@@ -401,7 +401,10 @@ fn new_button(
 
 const NOTHING_YET: &str = "Nothing to search yet";
 
+pub(crate) const LIST_SEARCH: &str = "list-search";
+
 pub(crate) fn search_box(
+    id: &'static str,
     q: RwSignal<String>,
     label: String,
     nothing: Signal<bool>,
@@ -410,7 +413,7 @@ pub(crate) fn search_box(
         <div class="relative">
             <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-faint"><Icon name="search" small=true/></span>
             <input
-                id="list-search"
+                id=id
                 type="text"
                 class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak disabled:cursor-not-allowed disabled:opacity-55"
                 disabled=move || nothing.get()

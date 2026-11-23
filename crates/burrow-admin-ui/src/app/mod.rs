@@ -159,7 +159,12 @@ pub fn App() -> impl IntoView {
                 }
                 "/" => {
                     e.prevent_default();
-                    match document().get_element_by_id("list-search") {
+                    let box_id = if s.flow_open.get_untracked() {
+                        screens::flow::SEARCH
+                    } else {
+                        screens::LIST_SEARCH
+                    };
+                    match document().get_element_by_id(box_id) {
                         Some(el) => {
                             if let Ok(el) = el.dyn_into::<web_sys::HtmlElement>() {
                                 burrow_ui_kit::focus_in_view(&el);
