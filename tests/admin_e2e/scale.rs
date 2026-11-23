@@ -20,7 +20,7 @@ fn opts() -> Options {
     }
     for i in 1..=SITES {
         services.push_str(&format!(
-            "  site{i:02}:\n    client: home\n    target: {}\n    web: {{ hosts: [site{i:02}.example.com], tls: internal }}\n",
+            "  site{i:02}:\n    client: home\n    target: {}\n    web: {{ hosts: [site{i:02}.localhost], tls: internal }}\n",
             21000 + i
         ));
     }
