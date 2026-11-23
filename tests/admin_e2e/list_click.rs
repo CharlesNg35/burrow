@@ -207,10 +207,35 @@ async fn dialog_close_stays(c: &mut Ctx) {
     c.ui.viewport(1440, 900).await;
 }
 
+async fn whole_card_opens(c: &mut Ctx) {
+    c.ui.nav("/services").await;
+    rows_shown(c, ROWS).await;
+    for (part, css) in [
+        ("second line", "[data-item]"),
+        ("counter", ":scope > span:last-child"),
+    ] {
+        let at: Vec<f64> = c
+            .ui
+            .eval(&format!(
+                "(() => {{ const rows = [...document.querySelectorAll('{LIST} [data-row]')].filter(r => r.dataset.selected !== 'true' && r.querySelector('[data-item]')); const r = rows[1]; const b = r.querySelector('{css}').getBoundingClientRect(); const x = b.left + Math.min(b.width / 2, 30), y = b.top + b.height / 2; const hit = document.elementFromPoint(x, y); window.__card = r.dataset.row; return [x, y, hit && hit.closest('[data-testid=list-row]') ? 1 : 0, getComputedStyle(hit).cursor === 'pointer' ? 1 : 0]; }})()"
+            ))
+            .await;
+        assert!(
+            at[2] == 1.0 && at[3] == 1.0,
+            "the {part} of a card belongs to its link, with a pointer cursor: {at:?}"
+        );
+        let key: String = c.ui.eval("window.__card").await;
+        c.ui.click_at(at[0], at[1]).await;
+        c.ui.wait_for(&format!("[data-testid=detail][data-name={key}]"), SECS)
+            .await;
+    }
+}
+
 fn list_click(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
+        whole_card_opens(c).await;
         page(c, "/services", ROWS, "services").await;
         page(c, "/clients", ROWS, "clients").await;
         page(c, "/visitors", ROWS, "visitors").await;

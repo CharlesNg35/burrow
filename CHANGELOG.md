@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 
-- burrow admin offers a new release to the server and its clients within 30 minutes of its publication, instead of up to 6 hours.
+- burrow admin offers a new release to the server and its clients within 10 minutes of its publication, instead of up to 6 hours.
+- Clicking anywhere on a card in the services, clients or visitors list opens it, its second line too (such as `65045 → 192.168.50.142:22`), which showed a text cursor and ignored the click.
 
 ## [0.2.7]
 

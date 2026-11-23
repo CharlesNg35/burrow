@@ -78,7 +78,7 @@ The latest release:
 
 - comes from the official releases' `SHA256SUMS`;
 - is looked up by the server only while someone looks at the status (burrow admin, `burrow status`, `burrow clients`);
-- is remembered for 30 minutes, or 15 minutes after a failed check, so a new release shows within half an hour.
+- is remembered for 10 minutes, a failed check too, so a new release shows within 10 minutes.
 
 Clients are always updated to the latest release: there is no choice of version. A server that cannot reach GitHub shows versions but no "available" marks and offers no update.
 

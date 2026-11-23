@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 
 use burrow_admin_proto::updates::LatestRelease;
 
-const FRESH: Duration = Duration::from_secs(30 * 60);
-const RETRY: Duration = Duration::from_secs(15 * 60);
+const FRESH: Duration = Duration::from_secs(10 * 60);
 
 struct Known {
     at: Instant,
@@ -59,17 +58,7 @@ fn test_fresh() -> Option<Duration> {
 pub fn cached() -> LatestRelease {
     let known = KNOWN.lock().expect("latest lock");
     let fresh = test_fresh().unwrap_or(FRESH);
-    let stale = match &*known {
-        None => true,
-        Some(k) => {
-            k.at.elapsed()
-                > if k.found.is_ok() {
-                    fresh
-                } else {
-                    RETRY.min(fresh)
-                }
-        }
-    };
+    let stale = known.as_ref().is_none_or(|k| k.at.elapsed() > fresh);
     let shown = known.as_ref().map(|k| LatestRelease {
         version: k.found.as_ref().ok().cloned(),
         error: k.found.as_ref().err().cloned(),
