@@ -9,6 +9,8 @@ use crate::route::{self, Route};
 use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
+use burrow_admin_proto::status::Status;
+use std::sync::Arc;
 
 use super::file::Files;
 use super::index::Index;
@@ -92,12 +94,30 @@ fn clients_for(section: &str, v: &Value) -> Vec<String> {
     }
 }
 
-fn classes_now(section: &str, names: &[(String, Vec<String>)]) -> Classes {
+type Seen = Option<(Option<Arc<Status>>, Option<String>, (usize, usize))>;
+
+fn classes_now(
+    section: &str,
+    names: &[(String, Vec<String>)],
+    prev: Option<&Classes>,
+    seen: Option<StoredValue<Seen>>,
+) -> Classes {
     let me = me();
-    store().status.with(|st| {
-        let ix = Index::new(section, st.as_deref(), &Value::Null, Files::default());
-        live::classes(section, names, &ix, me.as_deref())
-    })
+    let st = store().status.get();
+    let at = (names.as_ptr() as usize, names.len());
+    let was = seen.and_then(|s| s.get_value());
+    let changed = was.as_ref().and_then(|(old, was_me, was_at)| {
+        (*was_me == me && *was_at == at)
+            .then(|| live::changed(section, old.as_deref(), st.as_deref()))
+            .flatten()
+    });
+    let reuse = live::Reuse { prev, changed };
+    let ix = Index::new(section, st.as_deref(), &Value::Null, Files::default());
+    let out = live::classes(section, names, &ix, me.as_deref(), &reuse);
+    if let Some(seen) = seen {
+        seen.set_value(Some((st, me, at)));
+    }
+    out
 }
 
 pub fn row_for(section: &str, name: &str) -> Option<Row> {
@@ -111,7 +131,7 @@ pub fn row_for(section: &str, name: &str) -> Option<Row> {
             vec![(name.to_string(), clients_for(section, v))],
         ))
     })?;
-    let classes = classes_now(section, &names);
+    let classes = classes_now(section, &names, None, None);
     Some(live::apply(row, classes.get(name)))
 }
 
@@ -226,7 +246,10 @@ fn list_rows(section: String) -> Memo<Vec<Row>> {
     live::provide_live_text(section.clone());
     let sec = section.clone();
     let base = Memo::new(move |_| base_for(&sec));
-    let classes = Memo::new(move |_| base.with(|b| classes_now(&section, &b.names)));
+    let seen: StoredValue<Seen> = StoredValue::new(None);
+    let classes = Memo::new(move |prev: Option<&Classes>| {
+        base.with(|b| classes_now(&section, &b.names, prev, Some(seen)))
+    });
     Memo::new(move |_| {
         base.with(|b| {
             classes.with(|c| {

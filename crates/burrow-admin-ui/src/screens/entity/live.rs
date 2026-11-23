@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use burrow_admin_logic::health::Level;
 use burrow_admin_logic::presence::Presence;
@@ -68,16 +68,88 @@ fn service_class(name: &str, clients: &[String], ix: &Index) -> Class {
     }
 }
 
+fn diff<'a, T, K: PartialEq>(
+    old: &'a [T],
+    new: &'a [T],
+    name: impl Fn(&'a T) -> &'a str,
+    key: impl Fn(&'a T) -> K,
+) -> Option<HashSet<&'a str>> {
+    if old.len() != new.len() {
+        return None;
+    }
+    let mut out = HashSet::new();
+    for (o, n) in old.iter().zip(new) {
+        if name(o) != name(n) {
+            return None;
+        }
+        if key(o) != key(n) {
+            out.insert(name(n));
+        }
+    }
+    Some(out)
+}
+
+pub(super) fn changed<'a>(
+    section: &str,
+    old: Option<&'a Status>,
+    new: Option<&'a Status>,
+) -> Option<HashSet<&'a str>> {
+    let (old, new) = (old?, new?);
+    let presence = |c: &ClientStatus| (c.connected, c.local);
+    match entity_of_section(section) {
+        Some(Entity::Client) => diff(
+            &old.clients,
+            &new.clients,
+            |c| c.name.as_str(),
+            |c| (presence(c), c.from.as_deref()),
+        ),
+        Some(Entity::Visitor) => diff(
+            &old.visitors,
+            &new.visitors,
+            |v| v.name.as_str(),
+            |v| v.open > 0,
+        ),
+        _ => {
+            let moved = diff(&old.clients, &new.clients, |c| c.name.as_str(), presence)?;
+            if !moved.is_empty() {
+                return None;
+            }
+            diff(
+                &old.services,
+                &new.services,
+                |x| x.name.as_str(),
+                |x| (&x.entries, &x.health, &x.not_listening),
+            )
+        }
+    }
+}
+
+pub(super) struct Reuse<'a> {
+    pub prev: Option<&'a Classes>,
+    pub changed: Option<HashSet<&'a str>>,
+}
+
+impl Reuse<'_> {
+    fn kept(&self, name: &str) -> Option<Class> {
+        let (prev, changed) = (self.prev?, self.changed.as_ref()?);
+        (!changed.contains(name)).then(|| prev.get(name).cloned())?
+    }
+}
+
 pub(super) fn classes(
     section: &str,
     names: &[(String, Vec<String>)],
     ix: &Index,
     me: Option<&str>,
+    reuse: &Reuse,
 ) -> Classes {
     let kind = entity_of_section(section);
     names
         .iter()
         .map(|(name, clients)| {
+            if let Some(kept) = reuse.kept(name) {
+                return (name.clone(), kept);
+            }
             let class = match kind {
                 Some(Entity::Client) => Class::Client {
                     presence: ix.presence(name),
