@@ -170,13 +170,21 @@ fn small(c: &mut Ctx) -> Flow<'_> {
             0,
             "the old tooltip does not come back"
         );
-        let _: bool = c
-            .ui
-            .eval(&format!("(() => {{ const i = document.querySelector('{SEARCH}'); i.focus(); i.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Escape', bubbles: true }})); return true; }})()"))
-            .await;
+        focus(c, SEARCH).await;
+        c.ui.press(SEARCH, "Escape").await;
         c.ui.wait_gone(FLOW, SECS).await;
         c.ui.assert_no_errors();
     })
+}
+
+async fn focus(c: &Ctx, css: &str) {
+    let focused: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.querySelector(\"{css}\"); e.focus(); return document.activeElement === e; }})()"
+        ))
+        .await;
+    assert!(focused, "{css} takes the keyboard focus");
 }
 
 async fn unfold(c: &mut Ctx) {
@@ -205,6 +213,7 @@ async fn unfold(c: &mut Ctx) {
         SECS,
     )
     .await;
+    focus(c, &sel("bundle:home")).await;
     c.ui.press(&sel("bundle:home"), "Enter").await;
     c.ui.wait_for(&format!("{}[aria-expanded=true]", sel("bundle:home")), SECS)
         .await;
