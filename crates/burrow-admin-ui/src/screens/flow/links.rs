@@ -6,9 +6,10 @@ use crate::route::Route;
 
 use super::layout::{Act, Clients, Line, Node, Path, Svc, problem_svc, row_y, short_bind, weight};
 use super::live::Live;
+use super::place::Stick;
 use super::{COLS, Health};
 
-fn curve(x1: f64, y1: f64, x2: f64, y2: f64) -> Path {
+pub(super) fn curve(x1: f64, y1: f64, x2: f64, y2: f64) -> Path {
     let mx = (x1 + x2) / 2.0;
     Path {
         d: format!("M{x1:.1},{y1:.1} C{mx:.1},{y1:.1} {mx:.1},{y2:.1} {x2:.1},{y2:.1}"),
@@ -60,6 +61,7 @@ pub(super) fn service_nodes(
             s.name.clone(),
         ))),
         tip: format!("Open service {} →", s.name),
+        stick: None,
     };
     let (r, u) = human_bits(s.rate);
     let target = Node {
@@ -84,6 +86,7 @@ pub(super) fn service_nodes(
             s.name.clone(),
         ))),
         tip: format!("{} · open service {} →", s.target, s.name),
+        stick: None,
     };
     let w = weight(s.open);
     let stroke = s.health.stroke();
@@ -95,6 +98,7 @@ pub(super) fn service_nodes(
     if let Some(src) = sources.iter().find(|n| n.key == from) {
         lines.push(Line {
             key: format!("src:{}", s.name),
+            stick: None,
             path: curve(COLS[0].0 + COLS[0].1, mid(src), COLS[1].0, mid(&port)),
             width: w,
             stroke,
@@ -104,6 +108,7 @@ pub(super) fn service_nodes(
     }
     lines.push(Line {
         key: format!("in:{}", s.name),
+        stick: None,
         path: curve(COLS[1].0 + COLS[1].1, mid(&port), server_left, mid(&port)),
         width: w,
         stroke,
@@ -115,6 +120,7 @@ pub(super) fn service_nodes(
         if live.presence(c) == Presence::Here {
             lines.push(Line {
                 key,
+                stick: None,
                 path: curve(server_right, mid(&port), COLS[4].0, mid(&target)),
                 width: w,
                 stroke,
@@ -125,9 +131,13 @@ pub(super) fn service_nodes(
         }
         if let Some(cn) = clients.get(c) {
             let off = cn.dashed;
+            let (x1, x2) = (COLS[3].0 + COLS[3].1, COLS[4].0);
+            let stick = Stick::of(cn, x1, x2, Some(mid(&target)));
+            let path = curve(x1, mid(cn), x2, mid(&target));
             lines.push(Line {
                 key,
-                path: curve(COLS[3].0 + COLS[3].1, mid(cn), COLS[4].0, mid(&target)),
+                path: stick.as_ref().map_or(path, Stick::reach),
+                stick,
                 width: 1.4,
                 stroke: if off { "stroke-text-faint" } else { stroke },
                 dashed: off,
@@ -142,9 +152,12 @@ pub(super) fn client_lines(client_nodes: &[Node], live: &Live, lines: &mut Vec<L
     let server_right = COLS[2].0 + COLS[2].1;
     for cn in client_nodes {
         let open = live.client(&cn.title).map(|x| x.open).unwrap_or(0);
+        let stick = Stick::of(cn, server_right, COLS[3].0, None);
+        let path = curve(server_right, mid(cn), COLS[3].0, mid(cn));
         lines.push(Line {
             key: format!("ch:{}", cn.title),
-            path: curve(server_right, mid(cn), COLS[3].0, mid(cn)),
+            path: stick.as_ref().map_or(path, Stick::reach),
+            stick,
             width: weight(open),
             stroke: if cn.dashed {
                 "stroke-text-faint"

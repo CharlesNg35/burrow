@@ -6,7 +6,7 @@ pub(super) const BUNDLE_AT: usize = 200;
 
 pub(super) struct Group {
     pub(super) client: String,
-    count: usize,
+    pub(super) count: usize,
     down: usize,
 }
 

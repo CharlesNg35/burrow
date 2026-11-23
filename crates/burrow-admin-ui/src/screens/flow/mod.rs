@@ -5,6 +5,7 @@ mod draw;
 mod layout;
 mod links;
 mod live;
+mod place;
 mod view;
 
 pub(crate) use layout::{Act, Chart, Focus, Node, layout};
@@ -343,6 +344,19 @@ mod tests {
         let head = wide.nodes.iter().find(|n| n.key == "bundle:a").unwrap();
         assert_eq!(head.right, "fold");
         assert!(wide.nodes.iter().all(|n| n.key != "targets:a"));
+        let a = wide.nodes.iter().find(|n| n.key == "client:a").unwrap();
+        assert_eq!(a.y, head.y, "the client starts at its unfolded block");
+        assert!(a.stick.unwrap() > a.y + 4000.0 * PITCH);
+        let b = wide.nodes.iter().find(|n| n.key == "client:b").unwrap();
+        assert!(b.stick.is_none() && b.y > a.stick.unwrap());
+        let to = wide.lines.iter().find(|l| l.key == "to:s0001:0").unwrap();
+        let target = wide.nodes.iter().find(|n| n.key == "target:s0001").unwrap();
+        assert!(to.stick.is_some());
+        assert_eq!(to.path.top, target.y + 21.0, "kept by its target end");
+        assert!(
+            c.nodes.iter().all(|n| n.stick.is_none()),
+            "a folded chart keeps its clients spread as before"
+        );
         let found = layout(&doc, Some(&st), &Rates::default(), None, &q("s004"));
         assert_eq!(found.services, 10);
         assert!(found.nodes.iter().any(|n| n.key == "port:s0049"));

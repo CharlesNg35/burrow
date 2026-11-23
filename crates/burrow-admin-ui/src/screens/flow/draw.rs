@@ -8,6 +8,7 @@ use crate::route;
 use crate::store::{Store, store};
 
 use super::layout::Line;
+use super::place::sticky_y;
 use super::{Act, COLS, Chart, Health, LABELS, Node, WIDTH, fit};
 
 const SLACK: f64 = 4.0;
@@ -19,6 +20,7 @@ pub(super) struct Drawn {
     pub(super) chart: Memo<Chart>,
     pub(super) folds: RwSignal<HashSet<String>>,
     pub(super) window: RwSignal<(f64, f64)>,
+    pub(super) view_top: RwSignal<f64>,
     pub(super) shown_nodes: Memo<Vec<String>>,
     node_at: Memo<HashMap<String, usize>>,
     shown_lines: Memo<Vec<String>>,
@@ -37,6 +39,7 @@ impl Drawn {
         chart: Memo<Chart>,
         folds: RwSignal<HashSet<String>>,
         window: RwSignal<(f64, f64)>,
+        view_top: RwSignal<f64>,
     ) -> Self {
         let node_keys = Memo::new(move |_| {
             chart.with(|c| c.nodes.iter().map(|n| n.key.clone()).collect::<Vec<_>>())
@@ -49,7 +52,7 @@ impl Drawn {
             chart.with(|c| {
                 c.nodes
                     .iter()
-                    .filter(|n| n.y < b && n.y + n.h > a)
+                    .filter(|n| n.y < b && n.stick.unwrap_or(n.y + n.h) > a)
                     .map(|n| n.key.clone())
                     .collect()
             })
@@ -68,6 +71,7 @@ impl Drawn {
             chart,
             folds,
             window,
+            view_top,
             shown_nodes,
             node_at: Memo::new(move |_| node_keys.with(|k| index(k))),
             shown_lines,
@@ -209,6 +213,13 @@ fn node_view(
     let s = store();
     let n = dr.node(key.clone());
     let at = move |f: fn(&Node) -> f64| move || n.with(f);
+    let top = Memo::new(move |_| {
+        n.with(|n| match n.stick {
+            Some(bottom) => sticky_y(n.y, bottom, n.h, dr.view_top.get()),
+            None => n.y,
+        })
+    });
+    let below = move |dy: f64| move || top.get() + dy;
     let opacity = move || {
         if only_problems.get() && !n.with(|n| n.problem) {
             "0.28"
@@ -219,7 +230,7 @@ fn node_view(
     let hover_key = key.clone();
     let sub = move |i: usize| {
         view! {
-            <text x=at(|n| n.left() + 10.0) y=move || n.with(|n| n.y + 31.0 + i as f64 * 14.0) class="fill-text-muted text-[11px]">{move || n.with(|n| n.sub_line(i))}</text>
+            <text x=at(|n| n.left() + 10.0) y=move || top.get() + 31.0 + i as f64 * 14.0 class="fill-text-muted text-[11px]">{move || n.with(|n| n.sub_line(i))}</text>
         }
     };
     view! {
@@ -247,7 +258,7 @@ fn node_view(
         >
             <rect
                 x=at(Node::left)
-                y=at(|n| n.y)
+                y=below(0.0)
                 width=at(Node::wide)
                 height=at(|n| n.h)
                 rx=move || n.with(|n| if n.server { "12" } else { "9" })
@@ -257,19 +268,19 @@ fn node_view(
             ></rect>
             <circle
                 cx=at(|n| n.left() + 12.0)
-                cy=at(|n| n.y + 15.0)
+                cy=below(15.0)
                 r="3.5"
                 class="fill-success"
                 display=move || n.with(|n| (!n.dot()).then_some("none"))
             ></circle>
             <text
                 x=at(Node::text_x)
-                y=at(|n| n.y + 17.0)
+                y=below(17.0)
                 class=move || n.with(|n| if n.col == 4 { "fill-text font-mono text-[11.5px] font-semibold" } else { "fill-text text-[12px] font-semibold" })
             >{move || n.with(Node::shown_title)}</text>
-            <text x=at(Node::end_x) y=at(|n| n.y + 17.0) text-anchor="end" class="fill-text-muted font-mono text-[11px]">{move || n.with(|n| n.right.clone())}</text>
+            <text x=at(Node::end_x) y=below(17.0) text-anchor="end" class="fill-text-muted font-mono text-[11px]">{move || n.with(|n| n.right.clone())}</text>
             <For each=move || 0..n.with(Node::sub_rows) key=|i| *i children=sub/>
-            <text x=at(Node::end_x) y=at(|n| n.y + 17.0) text-anchor="end" class=move || n.with(Node::badge_class)>{move || n.with(|n| n.badge.clone().unwrap_or_default())}</text>
+            <text x=at(Node::end_x) y=below(17.0) text-anchor="end" class=move || n.with(Node::badge_class)>{move || n.with(|n| n.badge.clone().unwrap_or_default())}</text>
         </g>
     }
 }
@@ -278,7 +289,10 @@ fn line_view(key: String, dr: Drawn, only_problems: Signal<bool>) -> impl IntoVi
     let l = dr.line(key.clone());
     view! {
         <path
-            d=move || l.with(|l| l.path.d.clone())
+            d=move || l.with(|l| match &l.stick {
+                Some(s) => s.d(dr.view_top.get()),
+                None => l.path.d.clone(),
+            })
             fill="none"
             class=move || l.with(|l| l.stroke)
             stroke-width=move || l.with(|l| format!("{:.2}", l.width))

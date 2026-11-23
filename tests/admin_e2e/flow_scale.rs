@@ -187,6 +187,35 @@ async fn focus(c: &Ctx, css: &str) {
     assert!(focused, "{css} takes the keyboard focus");
 }
 
+async fn home_stays(c: &mut Ctx) {
+    c.ui.click(&sel("bundle:home")).await;
+    c.ui.wait_for(&format!("{}[aria-expanded=true]", sel("bundle:home")), SECS)
+        .await;
+    let _: bool = c
+        .ui
+        .eval("(() => { const w = document.querySelector('[data-testid=flow-svg]').parentElement; w.scrollTop = (w.scrollHeight - w.clientHeight) / 2; return true; })()")
+        .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let place: String = c
+        .ui
+        .eval(&format!("(() => {{ const w = document.querySelector('[data-testid=flow-svg]').parentElement.getBoundingClientRect(); const n = {}; if (!n) return 'missing'; const r = n.getBoundingClientRect(); return r.top >= w.top && r.bottom <= w.bottom ? 'in' : `out ${{r.top}}..${{r.bottom}} vs ${{w.top}}..${{w.bottom}}`; }})()", node("client:home")))
+        .await;
+    assert_eq!(
+        place, "in",
+        "home stays in view while its unfolded rows scroll by"
+    );
+    assert_eq!(
+        c.ui.count("[data-testid=flow] [data-line='ch:home']").await,
+        1,
+        "the server to home channel is drawn"
+    );
+    c.ui.view_shot("flow-scale-5000-home-halfway").await;
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector('[data-testid=flow-svg]').parentElement.scrollTop = 0; return true; })()")
+        .await;
+}
+
 async fn unfold(c: &mut Ctx) {
     let before: String = c.ui.attr_of("[data-testid=flow-svg]", "data-nodes").await;
     c.ui.click(&sel("bundle:office")).await;
@@ -238,6 +267,7 @@ fn large(c: &mut Ctx) -> Flow<'_> {
         c.ui.view_shot("flow-scale-5000").await;
         phone_shot(c, "flow-scale-5000-phone").await;
         unfold(c).await;
+        home_stays(c).await;
         c.ui.fill(SEARCH, "app0042").await;
         c.ui.wait_for(&sel("port:app0042"), SECS).await;
         c.ui.click("[data-testid=flow-close]").await;

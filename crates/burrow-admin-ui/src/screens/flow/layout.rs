@@ -14,6 +14,7 @@ use burrow_admin_logic::health::Level;
 use super::bundle::{Kind, Row, dress, header, plan};
 use super::links::{client_lines, service_nodes};
 use super::live::Live;
+use super::place::{Spot, Stick, spots};
 use super::{Health, PITCH, TOP};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -32,6 +33,7 @@ pub struct Node {
     pub problem: bool,
     pub act: Option<Act>,
     pub tip: String,
+    pub stick: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +62,7 @@ pub struct Path {
 pub struct Line {
     pub key: String,
     pub path: Path,
+    pub stick: Option<Stick>,
     pub width: f64,
     pub stroke: &'static str,
     pub dashed: bool,
@@ -165,7 +168,8 @@ pub fn layout(
     let height_rows = rows.len().max(client_names.len()).max(2);
     let src = sources(&rows, &reach, status, me);
     let server = server_node(total_open, status, rates, height_rows);
-    let clients = client_nodes(&client_names, &involved, &live, height_rows);
+    let spots = spots(&client_names, &rows, height_rows, 42.0);
+    let clients = client_nodes(&client_names, &involved, &live, &spots);
     let mut lines = Vec::new();
     let mut nodes = Vec::with_capacity(src.len() + 1 + rows.len() * 2 + client_names.len());
     nodes.extend(src.iter().cloned());
@@ -339,6 +343,7 @@ fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str
             problem: problem(&public),
             act: None,
             tip: String::new(),
+            stick: None,
         });
     }
     if !private.is_empty() {
@@ -366,6 +371,7 @@ fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str
             problem: problem(&private),
             act: Some(Act::Open(Route::List(VisitorEntry::section().into()))),
             tip: "Open visitors →".into(),
+            stick: None,
         });
     }
     nodes
@@ -400,6 +406,7 @@ fn server_node(total_open: u64, status: Option<&Status>, rates: &Rates, rows: us
         problem: false,
         act: None,
         tip: String::new(),
+        stick: None,
     }
 }
 
@@ -407,7 +414,7 @@ fn client_nodes(
     client_names: &[String],
     involved: &HashSet<String>,
     live: &Live,
-    rows: usize,
+    spots: &[Spot],
 ) -> Clients {
     let known = live.known();
     let nodes: Vec<Node> = client_names
@@ -416,14 +423,14 @@ fn client_nodes(
         .map(|(j, c)| {
             let cs = live.client(c);
             let on = live.up(c);
-            let slot = (rows as f64 * PITCH) / client_names.len().max(1) as f64;
-            let y = TOP + (j as f64 + 0.5) * slot - 21.0;
+            let spot = spots[j];
             let involved = involved.contains(c);
             Node {
                 key: format!("client:{c}"),
                 col: 3,
-                y,
+                y: spot.y,
                 h: 42.0,
+                stick: spot.stick,
                 title: c.clone(),
                 right: String::new(),
                 sub: match cs {
