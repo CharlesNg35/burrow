@@ -15,7 +15,7 @@ pub fn service(
     editing: bool,
     reserved: &[String],
 ) -> PathData {
-    let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
+    let st = status.and_then(|s| crate::status_index::service(s, name));
     let open = st.map(|x| x.open).unwrap_or(0);
     let public = burrow_admin_logic::web::is_public(svc);
     let source = source_hop(svc, public, problems);

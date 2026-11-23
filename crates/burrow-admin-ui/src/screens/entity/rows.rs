@@ -52,7 +52,7 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
         move || {
             s.status.with(|st| {
                 st.as_ref()
-                    .and_then(|st| st.services.iter().find(|y| y.name == name))
+                    .and_then(|st| crate::status_index::service(st, &name))
                     .map(|x| format::count(x.open))
                     .unwrap_or_default()
             })
@@ -179,7 +179,7 @@ pub(super) fn visitor_row(
 ) -> Row {
     let st = status
         .as_ref()
-        .and_then(|st| st.visitors.iter().find(|c| &c.name == name))
+        .and_then(|st| crate::status_index::visitor(st, name))
         .cloned();
     let open = st.as_ref().map(|x| x.open).unwrap_or(0);
     let seen = st.as_ref().and_then(|x| x.last_seen_secs);
@@ -261,7 +261,7 @@ pub(super) fn service_row(
 ) -> Row {
     let st = status
         .as_ref()
-        .and_then(|st| st.services.iter().find(|c| &c.name == name))
+        .and_then(|st| crate::status_index::service(st, name))
         .cloned();
     let public = burrow_admin_logic::web::is_public(v);
     let ways = burrow_admin_logic::web::ways(v);

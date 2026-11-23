@@ -23,7 +23,7 @@ pub fn health_count(
     reserved: &[String],
 ) -> burrow_admin_logic::health::Count {
     use burrow_admin_logic::health;
-    let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
+    let st = status.and_then(|s| crate::status_index::service(s, name));
     let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
     let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
     health::count(&health::entries(listed, clients_of(svc)), checks, |c| {
@@ -149,7 +149,7 @@ pub fn visitor(
     status: Option<&Status>,
     me: Option<(&str, &str)>,
 ) -> PathData {
-    let v = status.and_then(|s| s.visitors.iter().find(|v| v.name == name));
+    let v = status.and_then(|s| crate::status_index::visitor(s, name));
     let open = v.map(|v| v.open).unwrap_or(0);
     let entry = VisitorEntry::entry(doc, name);
     let services: Vec<(String, bool, bool)> = ServiceEntry::entries(doc)
