@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::world::Options;
-use super::{Ctx, SECS, edit_mode, open, open_more, run, wait_checked};
+use super::{Ctx, SECS, applied, edit_mode, open, open_more, open_review, run, wait_checked};
 
 const LIST: &str = "[data-testid=list]";
 const ROWS: usize = 40;
@@ -256,7 +256,7 @@ async fn button_at(c: &Ctx, action: &str) -> (String, f64, f64) {
     let got: (String, f64, f64, bool) = c
         .ui
         .eval(&format!(
-            "(() => {{ const rows = [...document.querySelectorAll('{LIST} [data-row]')].filter(r => r.dataset.selected !== 'true' && r.querySelector('[data-action={action}]')); const r = rows[1]; const b = r.querySelector('[data-action={action}]').getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2; const hit = document.elementFromPoint(x, y); return [r.dataset.row, x, y, !!hit && !!hit.closest('[data-action={action}]')]; }})()"
+            "(() => {{ const rows = [...document.querySelectorAll('{LIST} [data-row]')].filter(r => r.dataset.selected !== 'true' && r.querySelector('[data-action={action}]')); const r = rows[0]; const b = r.querySelector('[data-action={action}]').getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2; const hit = document.elementFromPoint(x, y); return [r.dataset.row, x, y, !!hit && !!hit.closest('[data-action={action}]')]; }})()"
         ))
         .await;
     assert!(
@@ -270,6 +270,14 @@ fn revision_buttons(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
+        for (i, port) in ["4001", "4002"].into_iter().enumerate() {
+            c.ui.nav("/services/web").await;
+            edit_mode(c).await;
+            c.ui.fill("#f-services-web-target", port).await;
+            wait_checked(c).await;
+            open_review(c, &format!("revision-{i}")).await;
+            applied(c, &format!("revision-{i}-applied")).await;
+        }
         c.ui.nav("/activity").await;
         rows_shown(c, KEPT).await;
         let (key, x, y) = button_at(c, "view").await;
