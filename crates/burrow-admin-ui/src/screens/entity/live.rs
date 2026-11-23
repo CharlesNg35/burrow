@@ -36,8 +36,8 @@ pub(super) type Classes = HashMap<String, Class>;
 
 pub(super) const REMOVED: &str = "removed in your changes";
 
-#[derive(Clone, Copy)]
-pub(crate) struct LiveText(pub Callback<String, (String, String)>);
+#[derive(Clone)]
+pub(crate) struct LiveText(pub std::sync::Arc<str>);
 
 fn host_of(c: Option<&ClientStatus>) -> String {
     c.and_then(|c| c.from.as_deref())
@@ -303,7 +303,5 @@ pub(crate) fn live_text(section: &str, name: &str) -> (String, String) {
 }
 
 pub(crate) fn provide_live_text(section: String) {
-    provide_context(LiveText(Callback::new(move |k: String| {
-        live_text(&section, &k)
-    })));
+    provide_context(LiveText(section.into()));
 }

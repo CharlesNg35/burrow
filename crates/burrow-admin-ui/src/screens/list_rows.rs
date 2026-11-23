@@ -52,7 +52,9 @@ pub(super) fn full_card(r: Row, c: Cards) -> AnyView {
         return view! { <TocRow row=r selected=on/> }.into_any();
     }
     let mine = match use_context::<crate::screens::entity::LiveText>() {
-        Some(crate::screens::entity::LiveText(text)) => Memo::new(move |_| text.run(key.clone())),
+        Some(crate::screens::entity::LiveText(section)) => {
+            Memo::new(move |_| crate::screens::entity::live_text(&section, &key))
+        }
         None => {
             let live = c.live;
             Memo::new(move |_| live.with(|m| m.get(&key).cloned().unwrap_or_default()))
