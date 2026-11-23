@@ -1,10 +1,11 @@
+use burrow_admin_logic::live::Live;
 use std::collections::{HashMap, HashSet};
 
 use burrow_admin_logic::health::Level;
 use burrow_admin_logic::presence::Presence;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::{ClientStatus, Status};
+use burrow_admin_proto::status::ClientStatus;
 use burrow_config::{ServiceEntry, entity_of_section};
 use burrow_ui_kit::Tone;
 use leptos::prelude::*;
@@ -88,8 +89,8 @@ fn diff<'a, T, K: PartialEq>(
 
 pub(super) fn changed<'a>(
     section: &str,
-    old: Option<&'a Status>,
-    new: Option<&'a Status>,
+    old: Option<&'a Live>,
+    new: Option<&'a Live>,
 ) -> Option<HashSet<&'a str>> {
     let (old, new) = (old?, new?);
     let presence = |c: &ClientStatus| (c.connected, c.local);
@@ -254,7 +255,7 @@ pub(super) fn service_line(v: &Value) -> String {
     )
 }
 
-fn text(section: &str, name: &str, status: Option<&Status>) -> (String, String) {
+fn text(section: &str, name: &str, status: Option<&Live>) -> (String, String) {
     let s = store();
     let (v, pending) = s.edit.draft.with(|d| {
         (

@@ -75,6 +75,16 @@ pub fn event(ev: &str, body: Value) -> Value {
     serde_json::json!({ "ev": ev, "body": body })
 }
 
+#[derive(Serialize)]
+struct EventOut<'a, T> {
+    ev: &'a str,
+    body: &'a T,
+}
+
+pub fn event_bytes<T: Serialize>(ev: &str, body: &T) -> Vec<u8> {
+    serde_json::to_vec(&EventOut { ev, body }).unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ErrorCode {

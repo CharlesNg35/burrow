@@ -1,4 +1,5 @@
 use burrow_admin_logic::changeset::Mark;
+use burrow_admin_logic::live::Live;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Entry, Protocol, ServiceEntry, entity_of_section};
@@ -10,7 +11,6 @@ use crate::route::{self, Route};
 use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
-use burrow_admin_proto::status::Status;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -159,7 +159,7 @@ fn clients_for(section: &str, v: &Value) -> Vec<String> {
     }
 }
 
-type Seen = Option<(Option<Arc<Status>>, Option<String>, (usize, usize))>;
+type Seen = Option<(Option<Arc<Live>>, Option<String>, (usize, usize))>;
 
 fn classes_now(
     section: &str,

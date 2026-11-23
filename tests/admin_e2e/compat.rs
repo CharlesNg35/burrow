@@ -134,6 +134,62 @@ fn the_new_admin_on_an_older_server(c: &mut Ctx) -> Flow<'_> {
     })
 }
 
+async fn live_status(c: &mut Ctx, step: &str) {
+    open(c, "ops").await;
+    let kpi = "[data-testid=kpi-clients]";
+    c.ui.wait_for(kpi, SECS).await;
+    assert!(
+        !c.ui.text(kpi).await.contains("all connected"),
+        "office is not connected yet"
+    );
+    c.world.start_client("office");
+    c.ui.wait_text(kpi, "all connected", SECS).await;
+    no_banner(c, "the dashboard").await;
+    c.ui.shot(step).await;
+    c.world.stop("office");
+    c.ui.wait_not_text(kpi, "all connected", SECS).await;
+}
+
+fn an_older_admin_live(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(live_status(c, "older-admin-live-status"))
+}
+
+fn the_new_admin_live_on_an_older_server(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(live_status(c, "older-server-live-status"))
+}
+
+#[test]
+fn compat_an_older_admin_shows_live_status_from_the_new_server() {
+    let Some(opts) = older_admin(false) else {
+        return;
+    };
+    super::run_gated(
+        "compat-older-admin-live",
+        chrome_gate(false),
+        opts,
+        false,
+        an_older_admin_live,
+    );
+}
+
+#[test]
+fn compat_the_new_admin_shows_live_status_from_an_older_server() {
+    let Some(old): Option<PathBuf> = super::older::older() else {
+        return;
+    };
+    let opts = Options {
+        server_bin: Some(old),
+        ..Options::default()
+    };
+    super::run_gated(
+        "compat-older-server-live",
+        gate(),
+        opts,
+        false,
+        the_new_admin_live_on_an_older_server,
+    );
+}
+
 #[test]
 fn compat_an_older_admin_edits_a_config_it_knows_with_no_notice() {
     let Some(opts) = older_admin(false) else {

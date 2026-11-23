@@ -1,6 +1,6 @@
+use burrow_admin_logic::live::Live;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
 use burrow_ui_kit::{Icon, Kbd, Modal, PickHead, PickOption, marked, word_at};
 use leptos::prelude::*;
@@ -180,7 +180,7 @@ fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
     }
 }
 
-fn entity_hits(doc: &Value, status: Option<&Status>, needle: &str, out: &mut Vec<Hit>) {
+fn entity_hits(doc: &Value, status: Option<&Live>, needle: &str, out: &mut Vec<Hit>) {
     for sec in crate::route::SECTIONS {
         let (title, icon) = (
             crate::screens::plural(sec),
@@ -215,7 +215,7 @@ fn entity_hits(doc: &Value, status: Option<&Status>, needle: &str, out: &mut Vec
     }
 }
 
-fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> String {
+fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Live>) -> String {
     match entity_of_section(sec) {
         Some(Entity::Client) => {
             let c = burrow_admin_logic::presence::of(status, n);

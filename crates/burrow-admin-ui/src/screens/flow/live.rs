@@ -1,27 +1,20 @@
+use burrow_admin_logic::live::Live as LiveStatus;
 use std::collections::HashMap;
 
 use burrow_admin_logic::presence::{Presence, presence_with};
 use burrow_admin_logic::rates::{Rate, Rates};
-use burrow_admin_proto::status::{ClientStatus, ServiceStatus, Status};
+use burrow_admin_proto::status::{ClientStatus, ServiceStatus};
 
 pub(super) struct Live<'a> {
-    status: Option<&'a Status>,
-    clients: HashMap<&'a str, &'a ClientStatus>,
-    services: HashMap<&'a str, &'a ServiceStatus>,
+    status: Option<&'a LiveStatus>,
     reserved: Vec<String>,
     rates: HashMap<&'a str, Rate>,
 }
 
 impl<'a> Live<'a> {
-    pub(super) fn new(status: Option<&'a Status>, rates: &'a Rates) -> Self {
+    pub(super) fn new(status: Option<&'a LiveStatus>, rates: &'a Rates) -> Self {
         Live {
             status,
-            clients: status
-                .map(|s| s.clients.iter().map(|c| (c.name.as_str(), c)).collect())
-                .unwrap_or_default(),
-            services: status
-                .map(|s| s.services.iter().map(|x| (x.name.as_str(), x)).collect())
-                .unwrap_or_default(),
             reserved: crate::format::reserved_clients(),
             rates: rates
                 .services
@@ -36,11 +29,11 @@ impl<'a> Live<'a> {
     }
 
     pub(super) fn client(&self, name: &str) -> Option<&'a ClientStatus> {
-        self.clients.get(name).copied()
+        self.status.and_then(|s| s.client(name))
     }
 
     pub(super) fn service(&self, name: &str) -> Option<&'a ServiceStatus> {
-        self.services.get(name).copied()
+        self.status.and_then(|s| s.service(name))
     }
 
     pub(super) fn rate_in(&self, name: &str) -> f64 {

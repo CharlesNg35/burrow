@@ -1,22 +1,20 @@
+use burrow_admin_logic::live::Live;
 use std::collections::HashMap;
 
 use burrow_admin_logic::presence::Presence;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::{ClientStatus, ServiceStatus, Status, VisitorStatus};
+use burrow_admin_proto::status::{ClientStatus, ServiceStatus, VisitorStatus};
 use burrow_config::{Entry, ServerConfig, ServiceEntry, WebConfig};
 
 use super::file::Files;
 use crate::screens::paths::clients_of;
 
 pub(crate) struct Index<'a> {
-    pub status: Option<&'a Status>,
+    pub status: Option<&'a Live>,
     pub files: Files,
     pub https_on: bool,
     reserved: Vec<String>,
-    services: HashMap<&'a str, &'a ServiceStatus>,
-    clients: HashMap<&'a str, &'a ClientStatus>,
-    visitors: HashMap<&'a str, &'a VisitorStatus>,
     served: HashMap<String, Vec<String>>,
     may: HashMap<String, Vec<String>>,
 }
@@ -29,12 +27,7 @@ fn push_once(map: &mut HashMap<String, Vec<String>>, key: String, name: &str) {
 }
 
 impl<'a> Index<'a> {
-    pub fn new(
-        section: &str,
-        status: Option<&'a Status>,
-        draft: &Value,
-        files: Files,
-    ) -> Index<'a> {
+    pub fn new(section: &str, status: Option<&'a Live>, draft: &Value, files: Files) -> Index<'a> {
         let kind = burrow_config::entity_of_section(section);
         let (clients, visitors) = (
             matches!(kind, Some(Entity::Client)),
@@ -55,7 +48,6 @@ impl<'a> Index<'a> {
                 }
             }
         }
-        let services = !clients && !visitors;
         Index {
             status,
             files,
@@ -64,35 +56,21 @@ impl<'a> Index<'a> {
                 .and_then(|w| WebConfig::HTTPS.get(w))
                 .is_some_and(|h| !h.is_null()),
             reserved: crate::format::reserved_clients(),
-            services: status
-                .iter()
-                .filter(|_| services)
-                .flat_map(|s| s.services.iter().rev().map(|x| (x.name.as_str(), x)))
-                .collect(),
-            clients: status
-                .iter()
-                .flat_map(|s| s.clients.iter().rev().map(|x| (x.name.as_str(), x)))
-                .collect(),
-            visitors: status
-                .iter()
-                .filter(|_| visitors)
-                .flat_map(|s| s.visitors.iter().rev().map(|x| (x.name.as_str(), x)))
-                .collect(),
             served,
             may,
         }
     }
 
     pub fn service(&self, name: &str) -> Option<&'a ServiceStatus> {
-        self.services.get(name).copied()
+        self.status.and_then(|s| s.service(name))
     }
 
     pub fn client(&self, name: &str) -> Option<&'a ClientStatus> {
-        self.clients.get(name).copied()
+        self.status.and_then(|s| s.client(name))
     }
 
     pub fn visitor(&self, name: &str) -> Option<&'a VisitorStatus> {
-        self.visitors.get(name).copied()
+        self.status.and_then(|s| s.visitor(name))
     }
 
     pub fn presence(&self, name: &str) -> Presence {

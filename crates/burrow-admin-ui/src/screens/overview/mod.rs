@@ -8,11 +8,11 @@ mod tabs;
 mod update_items;
 mod web;
 
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::rates::{axis_max, mbit};
 use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::msg::State;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::{ServiceStatus, Status};
 use burrow_config::{ClientEntry, Entry, ServiceEntry};
 use burrow_ui_kit::{ChartData, Tone};
 use std::collections::HashMap;
@@ -72,7 +72,7 @@ fn link_of(path: &[String]) -> Option<Route> {
 pub fn attention(
     values: &Value,
     state: Option<&State>,
-    status: Option<&Status>,
+    status: Option<&Live>,
     now: u64,
 ) -> Vec<Item> {
     let mut out = Vec::new();
@@ -203,34 +203,15 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
     }
 }
 
-fn clients_by_name(status: &Status) -> HashMap<&str, &burrow_admin_proto::status::ClientStatus> {
-    status
-        .clients
-        .iter()
-        .rev()
-        .map(|c| (c.name.as_str(), c))
-        .collect()
-}
-
-fn up_in(clients: &HashMap<&str, &burrow_admin_proto::status::ClientStatus>, c: &str) -> bool {
-    clients.get(c).is_some_and(|c| c.local || c.connected)
-}
-
-fn by_name(status: &Status) -> HashMap<&str, &ServiceStatus> {
-    status
-        .services
-        .iter()
-        .map(|x| (x.name.as_str(), x))
-        .collect()
+fn up_in(status: &Live, c: &str) -> bool {
+    status.client(c).is_some_and(|c| c.local || c.connected)
 }
 
 fn service_items(
     values: &Value,
-    status: &Status,
+    status: &Live,
 ) -> (std::collections::BTreeMap<String, Hits>, Vec<Item>) {
-    let clients = clients_by_name(status);
-    let online = |c: &str| up_in(&clients, c);
-    let live = by_name(status);
+    let online = |c: &str| up_in(status, c);
     let mut by_client: std::collections::BTreeMap<String, Hits> = std::collections::BTreeMap::new();
     let mut own = Vec::new();
     if let Some(services) = ServiceEntry::entries(values) {
@@ -238,7 +219,7 @@ fn service_items(
             let cs = clients_of(svc);
             let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
             let off: Vec<&String> = cs.iter().filter(|c| !online(c)).collect();
-            let st = live.get(name.as_str()).copied();
+            let st = status.service(name);
             let to = Some(Route::Detail(ServiceEntry::section().into(), name.clone()));
             if up.is_empty() {
                 if let [c] = off.as_slice() {
@@ -323,7 +304,7 @@ fn client_item(
     c: String,
     down: Vec<String>,
     partial: Vec<(String, usize, usize)>,
-    status: &Status,
+    status: &Live,
 ) -> Item {
     let mut parts = Vec::new();
     let mut shapes: Vec<(usize, usize)> = partial.iter().map(|(_, u, n)| (*u, *n)).collect();
@@ -391,20 +372,18 @@ pub enum Problem {
     Health,
 }
 
-pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String, Problem)> {
+pub fn service_problems(values: &Value, status: Option<&Live>) -> Vec<(String, Problem)> {
     let Some(status) = status else {
         return Vec::new();
     };
-    let clients = clients_by_name(status);
-    let online = |c: &str| up_in(&clients, c);
-    let live = by_name(status);
+    let online = |c: &str| up_in(status, c);
     let mut out: Vec<(String, Problem)> = ServiceEntry::entries(values)
         .map(|m| {
             m.iter()
                 .filter_map(|(name, svc)| {
                     let cs = clients_of(svc);
                     let up = cs.iter().filter(|c| online(c)).count();
-                    let st = live.get(name.as_str()).copied();
+                    let st = status.service(name);
                     let failing = st.is_some_and(|x| x.health.iter().any(|h| !h.up));
                     let p = if st.is_some_and(|x| x.not_listening.is_some()) {
                         Problem::NotListening
@@ -445,11 +424,10 @@ fn and_list(names: &[String]) -> String {
     }
 }
 
-pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
+pub fn away(values: &Value, status: Option<&Live>) -> Vec<Item> {
     let Some(status) = status else {
         return Vec::new();
     };
-    let clients = clients_by_name(status);
     let mut served: HashMap<String, Vec<String>> = HashMap::new();
     for (n, v) in ServiceEntry::entries(values).into_iter().flatten() {
         for c in clients_of(v) {
@@ -462,8 +440,8 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     names(values, ClientEntry::section())
         .into_iter()
         .filter_map(|c| {
-            let st = clients.get(c.as_str()).copied();
-            if up_in(&clients, &c) {
+            let st = status.client(&c);
+            if up_in(status, &c) {
                 return None;
             }
             let serves = served.get(&c).cloned().unwrap_or_default();
@@ -570,6 +548,7 @@ mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
     use burrow_admin_proto::status::ClientStatus;
+    use burrow_admin_proto::status::Status;
 
     fn status(online: &[&str], offline: &[&str]) -> Status {
         let mut st: Status = burrow_admin_proto::serde_json::from_value(json!({
@@ -627,7 +606,7 @@ mod tests {
             }
         });
         let st = status(&["a"], &["b", "c", "d"]);
-        let items = attention(&v, None, Some(&st), 0);
+        let items = attention(&v, None, Some(&st.clone().into()), 0);
         let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
         assert_eq!(titles, ["Service zz-down is down", "Service both is down"]);
         assert_eq!(
@@ -636,7 +615,7 @@ mod tests {
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
-        let a = away(&v, Some(&st));
+        let a = away(&v, Some(&st.clone().into()));
         assert_eq!(
             a.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
             ["b", "c", "d"],
@@ -657,7 +636,7 @@ mod tests {
             }
         });
         let st = status(&["a"], &["b"]);
-        let p = service_problems(&v, Some(&st));
+        let p = service_problems(&v, Some(&st.clone().into()));
         assert_eq!(
             p,
             [
@@ -675,7 +654,7 @@ mod tests {
             not_listening: Some("cannot bind".into()),
             ..Default::default()
         });
-        let p = service_problems(&v, Some(&st));
+        let p = service_problems(&v, Some(&st.clone().into()));
         assert_eq!(p, [("web".to_string(), Problem::NotListening)]);
         assert_eq!(healthy_detail(&p), "web is not listening");
     }
@@ -724,7 +703,7 @@ mod tests {
             ),
             ..Default::default()
         });
-        let items = attention(&json!({}), None, Some(&st), 0);
+        let items = attention(&json!({}), None, Some(&st.clone().into()), 0);
         let i = items
             .iter()
             .find(|i| i.key == "not-listening:echo")
@@ -759,7 +738,7 @@ mod tests {
             retry_secs: 30,
             hint: "ports below 1024 need root".into(),
         });
-        let items = attention(&json!({}), None, Some(&st), 0);
+        let items = attention(&json!({}), None, Some(&st.clone().into()), 0);
         let w = items
             .iter()
             .find(|i| i.key == "web-wait:web.https")
@@ -784,7 +763,7 @@ mod tests {
             diags: vec![d],
             ..State::default()
         };
-        let items = attention(&json!({}), Some(&st), None, 0);
+        let items = attention(&json!({}), Some(&st.clone().into()), None, 0);
         let w = items
             .iter()
             .find(|i| i.key.starts_with("diag:"))

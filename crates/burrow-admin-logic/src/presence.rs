@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+//! Whether a client is here, online or offline, and how a client's version, system and updates read in the admin UI.
+
+use crate::live::Live;
 use std::net::{IpAddr, SocketAddr};
 
 use burrow_admin_proto::status::{ClientStatus, OFFLINE, ONLINE, Status, away};
@@ -59,16 +61,8 @@ pub struct ClientInfo {
     pub failed_recently: bool,
 }
 
-pub fn client<'a>(status: &'a Status, name: &str) -> Option<&'a ClientStatus> {
-    status.clients.iter().find(|c| c.name == name)
-}
-
-pub fn clients_by_name(status: Option<&Status>) -> HashMap<&str, &ClientStatus> {
-    let mut out = HashMap::new();
-    for c in status.iter().flat_map(|s| s.clients.iter()) {
-        out.entry(c.name.as_str()).or_insert(c);
-    }
-    out
+pub fn client<'a>(status: &'a Live, name: &str) -> Option<&'a ClientStatus> {
+    status.client(name)
 }
 
 pub fn info(c: &ClientStatus) -> ClientInfo {
@@ -96,11 +90,11 @@ pub fn info(c: &ClientStatus) -> ClientInfo {
     }
 }
 
-pub fn of(status: Option<&Status>, name: &str) -> Option<ClientInfo> {
+pub fn of(status: Option<&Live>, name: &str) -> Option<ClientInfo> {
     status.and_then(|s| client(s, name)).map(info)
 }
 
-pub fn presence(status: Option<&Status>, reserved: &[String], name: &str) -> Presence {
+pub fn presence(status: Option<&Live>, reserved: &[String], name: &str) -> Presence {
     presence_with(
         status.is_some(),
         reserved,
@@ -128,7 +122,7 @@ pub fn presence_with(
     }
 }
 
-pub fn online(status: Option<&Status>, reserved: &[String], name: &str) -> bool {
+pub fn online(status: Option<&Live>, reserved: &[String], name: &str) -> bool {
     presence(status, reserved, name).up()
 }
 
@@ -142,7 +136,7 @@ pub fn from_ip(from: &str) -> String {
         .map_or_else(|_| from.to_string(), |ip| ip.to_canonical().to_string())
 }
 
-pub fn detail(status: Option<&Status>, reserved: &[String], name: &str) -> String {
+pub fn detail(status: Option<&Live>, reserved: &[String], name: &str) -> String {
     detail_with(
         status.is_some(),
         reserved,
@@ -166,7 +160,7 @@ pub fn detail_with(
     }
 }
 
-pub fn away_text(status: &Status, name: &str, added_secs_ago: Option<u64>) -> String {
+pub fn away_text(status: &Live, name: &str, added_secs_ago: Option<u64>) -> String {
     let left = client(status, name).and_then(|c| c.left_secs_ago);
     away(
         left,
@@ -309,7 +303,7 @@ pub fn ready_names(status: &Status) -> Vec<String> {
         .collect()
 }
 
-pub fn rollout_line(st: &Status) -> Option<(String, Mood)> {
+pub fn rollout_line(st: &Live) -> Option<(String, Mood)> {
     let r = st.rollout.as_ref()?;
     let busy = usize::from(r.current.is_some());
     let left = r.clients.len().saturating_sub(r.done.len() + busy);
@@ -345,280 +339,4 @@ pub fn rollout_line(st: &Status) -> Option<(String, Mood)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use burrow_admin_proto::updates::{ClientBuild, RolloutStatus, RunMode};
-
-    fn status() -> Status {
-        let build = |v: &str| ClientBuild {
-            version: v.into(),
-            os: "linux".into(),
-            arch: "arm64".into(),
-            run: RunMode::Service,
-            remote: RemoteUpdates::On,
-            why_not: None,
-        };
-        Status {
-            clients: vec![
-                ClientStatus {
-                    name: "nas".into(),
-                    connected: true,
-                    build: Some(build("0.2.1")),
-                    available: Some("0.2.2".into()),
-                    ..ClientStatus::default()
-                },
-                ClientStatus {
-                    name: "pi".into(),
-                    connected: true,
-                    build: Some(build("0.2.1")),
-                    available: Some("0.2.2".into()),
-                    blocked: Some("remote updates are off".into()),
-                    ..ClientStatus::default()
-                },
-                ClientStatus {
-                    name: "box".into(),
-                    connected: true,
-                    build: Some(ClientBuild {
-                        run: RunMode::ByHand,
-                        remote: RemoteUpdates::Off,
-                        ..build("0.2.1")
-                    }),
-                    available: Some("0.2.2".into()),
-                    blocked: Some("remote updates are off in its config".into()),
-                    ..ClientStatus::default()
-                },
-                ClientStatus {
-                    name: "old".into(),
-                    connected: true,
-                    ..ClientStatus::default()
-                },
-            ],
-            ..Status::default()
-        }
-    }
-
-    #[test]
-    fn a_client_reads_as_its_version_system_and_what_it_can_take() {
-        let st = status();
-        let nas = of(Some(&st), "nas").unwrap();
-        assert_eq!(nas.version, "0.2.1");
-        assert_eq!(
-            nas.summary(),
-            "linux/arm64 · service · remote updates allowed"
-        );
-        assert_eq!(nas.tag(), Some(("0.2.2 available".into(), Mood::Offer)));
-        assert!(nas.ready());
-        let pi = of(Some(&st), "pi").unwrap();
-        assert!(!pi.ready());
-        assert_eq!(pi.tag(), Some(("0.2.2 available".into(), Mood::Quiet)));
-        let old = of(Some(&st), "old").unwrap();
-        assert!(old.older && old.summary().is_empty());
-        assert!(old.older_note().unwrap().contains("sudo burrow update"));
-        assert_eq!(of(None, "nas"), None);
-        assert_eq!(ready_names(&st), ["nas"]);
-    }
-
-    #[test]
-    fn a_table_row_reads_short_and_marks_updates_off_only_when_one_is_waiting() {
-        let st = status();
-        let nas = of(Some(&st), "nas").unwrap();
-        assert_eq!(nas.system_short(), "linux/arm64 · service");
-        assert!(!nas.refuses());
-        let boxed = of(Some(&st), "box").unwrap();
-        assert_eq!(boxed.system_short(), "linux/arm64 · started by hand");
-        assert_eq!(
-            boxed.summary(),
-            "linux/arm64 · started by hand · remote updates off in its config"
-        );
-        assert!(boxed.refuses());
-        let mut quiet = st.clone();
-        quiet.clients[2].available = None;
-        assert!(!of(Some(&quiet), "box").unwrap().refuses());
-        assert_eq!(of(Some(&st), "old").unwrap().system_short(), "");
-    }
-
-    #[test]
-    fn a_status_push_that_only_ages_an_update_leaves_the_client_view_unchanged() {
-        let job = |secs_ago| UpdateStatus {
-            id: 1,
-            from: "0.2.1".into(),
-            to: "0.2.2".into(),
-            state: UpdateState::Done,
-            secs_ago,
-            ..UpdateStatus::default()
-        };
-        let mut a = status();
-        a.clients[0].update = Some(job(3));
-        let mut b = status();
-        b.clients[0].update = Some(job(4));
-        assert_eq!(of(Some(&a), "nas"), of(Some(&b), "nas"));
-    }
-
-    #[test]
-    fn an_update_in_progress_and_its_end_read_plainly() {
-        let mut st = status();
-        st.clients[0].update = Some(UpdateStatus {
-            id: 1,
-            from: "0.2.1".into(),
-            to: "0.2.2".into(),
-            state: UpdateState::Downloading,
-            detail: "x".into(),
-            by: "ops (203.0.113.7)".into(),
-            secs_ago: 2,
-        });
-        let nas = of(Some(&st), "nas").unwrap();
-        assert_eq!(nas.tag().unwrap().1, Mood::Busy);
-        assert_eq!(
-            nas.last_update().unwrap().0,
-            "0.2.1 → 0.2.2: downloading and checking, asked by ops (203.0.113.7)"
-        );
-        st.clients[0].update.as_mut().unwrap().state = UpdateState::RolledBack;
-        st.rollout = Some(RolloutStatus {
-            to: "0.2.2".into(),
-            clients: vec!["nas".into(), "pi".into()],
-            stopped_at: Some("nas".into()),
-            finished: true,
-            ..RolloutStatus::default()
-        });
-        let (line, mood) = rollout_line(&st).unwrap();
-        assert_eq!(
-            line,
-            "Stopped updating to 0.2.2 at nas (rolled back: x); 0 updated"
-        );
-        assert_eq!(mood, Mood::Bad);
-        assert_eq!(
-            of(Some(&st), "nas").unwrap().last_update().unwrap().1,
-            Mood::Bad
-        );
-    }
-
-    fn seen() -> Status {
-        Status {
-            uptime_secs: 900,
-            clients: vec![
-                ClientStatus {
-                    name: "home".into(),
-                    connected: true,
-                    from: Some("[2001:db8::1]:51000".into()),
-                    ..ClientStatus::default()
-                },
-                ClientStatus {
-                    name: "office".into(),
-                    left_secs_ago: Some(120),
-                    ..ClientStatus::default()
-                },
-                ClientStatus {
-                    name: "self".into(),
-                    connected: true,
-                    local: true,
-                    ..ClientStatus::default()
-                },
-            ],
-            ..Status::default()
-        }
-    }
-
-    #[test]
-    fn this_server_is_always_up_and_a_client_is_up_while_connected() {
-        let st = seen();
-        let reserved = vec!["self".to_string()];
-        assert_eq!(presence(Some(&st), &reserved, "self"), Presence::Here);
-        assert_eq!(presence(None, &reserved, "self"), Presence::Here);
-        assert_eq!(presence(Some(&st), &[], "self"), Presence::Here);
-        assert_eq!(presence(Some(&st), &reserved, "home"), Presence::Online);
-        assert_eq!(presence(Some(&st), &reserved, "office"), Presence::Offline);
-        assert_eq!(presence(Some(&st), &reserved, "gone"), Presence::Offline);
-        assert_eq!(presence(None, &reserved, "home"), Presence::Unknown);
-        assert!(online(Some(&st), &reserved, "self") && !online(None, &[], "home"));
-    }
-
-    #[test]
-    fn an_address_reads_as_its_ip_the_same_for_ipv4_and_ipv6() {
-        assert_eq!(from_ip("203.0.113.7:51000"), "203.0.113.7");
-        assert_eq!(from_ip("[2001:db8::1]:443"), "2001:db8::1");
-        assert_eq!(from_ip("[2001:db8::1]"), "2001:db8::1");
-        assert_eq!(from_ip("2001:db8::1"), "2001:db8::1");
-        assert_eq!(from_ip("203.0.113.7"), "203.0.113.7");
-        assert_eq!(from_ip("[::ffff:203.0.113.7]:9"), "203.0.113.7");
-        assert_eq!(from_ip("unix socket"), "unix socket");
-    }
-
-    #[test]
-    fn a_detail_says_where_from_or_since_when() {
-        let st = seen();
-        let reserved = vec!["self".to_string()];
-        assert_eq!(detail(Some(&st), &reserved, "home"), "online · 2001:db8::1");
-        assert_eq!(detail(Some(&st), &reserved, "office"), "offline");
-        assert_eq!(away_text(&st, "office", None), "left 2m ago");
-        assert_eq!(detail(Some(&st), &reserved, "self"), "This server");
-        assert_eq!(detail(None, &reserved, "home"), "");
-        let home = of(Some(&st), "home").unwrap();
-        assert!(home.online && !home.local);
-        assert_eq!(home.from.as_deref(), Some("2001:db8::1"));
-    }
-
-    #[test]
-    fn a_clients_card_offers_a_button_only_when_the_update_is_possible() {
-        let mut c = ClientInfo {
-            name: "nas".into(),
-            version: "0.2.2".into(),
-            available: Some("0.2.3".into()),
-            ..ClientInfo::default()
-        };
-        let card = c.card(true);
-        assert!(card.can_ask);
-        assert_eq!(card.tag.unwrap().0, "0.2.3 available");
-        assert!(!c.card(false).can_ask, "a read admin gets no button");
-        c.blocked = Some("remote updates are off in its config".into());
-        let off = c.card(true);
-        assert!(!off.can_ask, "no disabled button");
-        let (t, m, why) = off.tag.unwrap();
-        assert_eq!((t.as_str(), m), ("0.2.3 available", Mood::Quiet));
-        assert!(
-            why.contains("off in its config"),
-            "the reason is the tooltip"
-        );
-        c.blocked = None;
-        c.failed_recently = true;
-        c.update = Some(UpdateStatus {
-            from: "0.2.2".into(),
-            to: "0.2.3".into(),
-            state: UpdateState::Downloading,
-            ..UpdateStatus::default()
-        });
-        let busy = c.card(true);
-        assert_eq!(busy.tag.unwrap().0, "updating…");
-        assert!(!busy.can_ask);
-        c.update.as_mut().unwrap().state = UpdateState::RolledBack;
-        c.update.as_mut().unwrap().detail = "did not connect".into();
-        let back = c.card(true);
-        let (t, m, why) = back.tag.unwrap();
-        assert_eq!((t.as_str(), m), ("rolled back", Mood::Offer));
-        assert!(
-            why.contains("didn't connect to the server within a minute, so nas went back to 0.2.2"),
-            "{why}"
-        );
-        assert!(!back.can_ask, "one message at a time: the result first");
-        c.update.as_mut().unwrap().state = UpdateState::Done;
-        c.available = None;
-        let done = c.card(true);
-        assert_eq!(done, Card::default(), "a success leaves no tag");
-        let quiet = ClientInfo {
-            version: "0.2.3".into(),
-            ..ClientInfo::default()
-        };
-        assert_eq!(quiet.card(true), Card::default(), "nothing to say");
-    }
-
-    #[test]
-    fn update_all_names_the_clients_it_skips_and_why() {
-        let st = status();
-        let names: Vec<String> = skipped(&st).into_iter().map(|(n, _)| n).collect();
-        for n in &names {
-            assert!(
-                !ready_names(&st).contains(n),
-                "{n} is both asked and skipped"
-            );
-        }
-    }
-}
+mod tests;

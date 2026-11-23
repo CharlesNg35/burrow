@@ -59,7 +59,7 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
         move || {
             s.status.with(|st| {
                 st.as_ref()
-                    .and_then(|st| crate::status_index::service(st, &name))
+                    .and_then(|st| st.service(&name))
                     .map(|x| format::count(x.open))
                     .unwrap_or_default()
             })

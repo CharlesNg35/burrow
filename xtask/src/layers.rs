@@ -117,6 +117,7 @@ pub const UI_UNITS: &[(&str, Layer)] = &[
     ("format", Layer::Model),
     ("grants", Layer::Model),
     ("route", Layer::Model),
+    ("status_feed", Layer::Model),
     ("store", Layer::Model),
     ("addr", Layer::Controls),
     ("field", Layer::Controls),

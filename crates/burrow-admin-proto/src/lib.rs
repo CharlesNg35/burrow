@@ -6,6 +6,7 @@
 pub mod check;
 pub mod codes;
 pub mod date;
+pub mod delta;
 pub mod diag;
 pub mod frame;
 pub mod local;
@@ -55,6 +56,7 @@ pub mod features {
     pub const CHECK_TEXT: &str = "config.check-text";
     pub const CONFIG_TEXT: &str = "config.text";
     pub const SEARCH_TEXT: &str = "config.search-text";
+    pub const STATUS_DELTA: &str = "status.delta";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -78,6 +80,7 @@ pub mod features {
         CHECK_TEXT,
         CONFIG_TEXT,
         SEARCH_TEXT,
+        STATUS_DELTA,
     ];
 }
 

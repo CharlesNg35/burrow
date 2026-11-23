@@ -1,5 +1,5 @@
+use burrow_admin_logic::live::Live;
 use burrow_admin_logic::presence::{self, Presence};
-use burrow_admin_proto::status::Status;
 use burrow_config::ServiceEntry;
 pub use burrow_syntax::duration::{
     Elapsed, JUST_NOW, UNDER_A_MINUTE, coarse, coarse_ago, coarse_length,
@@ -42,7 +42,7 @@ pub fn reserved_clients() -> Vec<String> {
     })
 }
 
-pub fn presence_of(status: Option<&Status>, name: &str) -> Presence {
+pub fn presence_of(status: Option<&Live>, name: &str) -> Presence {
     presence::presence(status, &reserved_clients(), name)
 }
 
@@ -84,7 +84,7 @@ pub fn skip_label(aside: Option<bool>) -> &'static str {
 }
 
 pub fn limit_tag(
-    status: Option<&burrow_admin_proto::status::Status>,
+    status: Option<&burrow_admin_logic::live::Live>,
     client: &str,
 ) -> Option<(&'static str, &'static str)> {
     status?
@@ -216,7 +216,7 @@ pub enum Moment {
 }
 
 impl Moment {
-    fn of(self, st: &Status, name: &str) -> Option<(&'static str, u64)> {
+    fn of(self, st: &burrow_admin_logic::live::Live, name: &str) -> Option<(&'static str, u64)> {
         match self {
             Moment::Client => {
                 let c = presence::client(st, name)?;
@@ -280,11 +280,11 @@ mod tests {
             ..ClientStatus::default()
         });
         assert_eq!(
-            limit_tag(Some(&st), "home").map(|t| t.0),
+            limit_tag(Some(&st.clone().into()), "home").map(|t| t.0),
             Some("At its limit")
         );
-        assert_eq!(limit_tag(Some(&st), "office"), None);
-        assert_eq!(limit_tag(Some(&st), "lab"), None);
+        assert_eq!(limit_tag(Some(&st.clone().into()), "office"), None);
+        assert_eq!(limit_tag(Some(&st.clone().into()), "lab"), None);
         assert_eq!(limit_tag(None, "home"), None);
     }
 }

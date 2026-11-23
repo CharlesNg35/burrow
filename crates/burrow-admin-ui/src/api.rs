@@ -7,7 +7,6 @@ use burrow_admin_proto::msg::{
     SchemaReply, State, Welcome,
 };
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_admin_proto::status::Status;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -357,23 +356,8 @@ pub fn shows_file_editor(open: bool, route: &crate::route::Route, tab: Option<&s
         && tab == Some(burrow_admin_logic::settings_tabs::Tab::File.key())
 }
 
-#[derive(burrow_admin_proto::serde::Deserialize)]
-#[serde(crate = "burrow_admin_proto::serde")]
-struct StatusEvent {
-    body: Status,
-}
-
-fn status_event(text: &str) -> Option<Status> {
-    let head = format!(r#"{{"ev":"{}","body":"#, msg::ev::STATUS);
-    text.starts_with(&head)
-        .then(|| serde_json::from_str::<StatusEvent>(text).ok())
-        .flatten()
-        .map(|e| e.body)
-}
-
 fn incoming(store: Store, text: &str) {
-    if let Some(s) = status_event(text) {
-        store.take_status(s, now_ms());
+    if crate::status_feed::text(store, text, now_ms()) {
         return;
     }
     match Incoming::parse(text) {
@@ -410,10 +394,8 @@ fn event(store: Store, ev: &str, body: Value) {
                 _ => lost(store),
             }
         }
-        msg::ev::STATUS => {
-            if let Ok(s) = serde_json::from_value::<Status>(body) {
-                store.take_status(s, now_ms());
-            }
+        msg::ev::STATUS | msg::ev::STATUS_SYNC => {
+            crate::status_feed::event(store, ev, body, now_ms());
         }
         msg::ev::CONFIG => {
             if let Ok(c) = serde_json::from_value::<ConfigEvent>(body) {
@@ -492,8 +474,12 @@ fn after_refusal(now: &Conn, reason: burrow_admin_proto::local::Reason, message:
 fn start(store: Store) {
     let hello = msg::WelcomeRequest {
         burrow: Some(env!("CARGO_PKG_VERSION").into()),
-        understands: vec![burrow_admin_proto::features::CONFIG_FILES.into()],
+        understands: vec![
+            burrow_admin_proto::features::CONFIG_FILES.into(),
+            burrow_admin_proto::features::STATUS_DELTA.into(),
+        ],
     };
+    crate::status_feed::restart();
     request(msg::req::WELCOME, body(&hello), move |r| match r {
         Ok(v) => match serde_json::from_value::<Welcome>(v) {
             Ok(w) => {
@@ -509,6 +495,17 @@ fn start(store: Store) {
         },
         Err(e) => store.error.set(Some(e.message)),
     });
+}
+
+pub(crate) fn subscribe() {
+    request(
+        msg::req::SUBSCRIBE,
+        body(&msg::Subscribe {
+            status_ms: STATUS_MS,
+            config: true,
+        }),
+        |_| {},
+    );
 }
 
 fn load_schema(store: Store, have: String) {
@@ -527,14 +524,7 @@ fn load_schema(store: Store, have: String) {
                     store.schema.set(Some(Arc::new(s)));
                 }
                 load_state(store);
-                request(
-                    msg::req::SUBSCRIBE,
-                    body(&msg::Subscribe {
-                        status_ms: STATUS_MS,
-                        config: true,
-                    }),
-                    |_| {},
-                );
+                subscribe();
                 load_history(store);
             }
             Ok(Err(e)) => store.error.set(Some(store.protocol_problem("schema", e))),
@@ -581,26 +571,6 @@ pub fn load_history(store: Store) {
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn a_status_event_is_read_straight_into_its_type() {
-        let st = Status {
-            uptime_secs: 7,
-            ..Status::default()
-        };
-        let text = msg::event(msg::ev::STATUS, serde_json::to_value(&st).unwrap()).to_string();
-        assert_eq!(status_event(&text).map(|s| s.uptime_secs), Some(7));
-        let other = msg::event("later", json!({})).to_string();
-        assert!(status_event(&other).is_none());
-        let reordered = format!(
-            r#"{{"body":{},"ev":"status"}}"#,
-            serde_json::to_string(&st).unwrap()
-        );
-        assert!(
-            status_event(&reordered).is_none(),
-            "other shapes take the general path"
-        );
-    }
 
     use super::*;
 

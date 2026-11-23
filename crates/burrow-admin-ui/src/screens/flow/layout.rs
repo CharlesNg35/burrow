@@ -1,8 +1,8 @@
+use burrow_admin_logic::live::Live as LiveStatus;
 use std::collections::{HashMap, HashSet};
 
 use burrow_admin_logic::rates::{Rates, human_bits};
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
 use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
 
 use crate::form::plain;
@@ -140,7 +140,7 @@ impl Svc {
 
 pub fn layout(
     doc: &Value,
-    status: Option<&Status>,
+    status: Option<&LiveStatus>,
     rates: &Rates,
     me: Option<&str>,
     focus: &Focus,
@@ -310,7 +310,12 @@ fn services(doc: &Value, live: &Live) -> Vec<Svc> {
     svcs
 }
 
-fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str>) -> Vec<Node> {
+fn sources(
+    rows: &[Row],
+    reach: &Reach,
+    status: Option<&LiveStatus>,
+    me: Option<&str>,
+) -> Vec<Node> {
     let mut nodes = Vec::new();
     let drawn = |public: bool| -> Vec<usize> {
         (0..rows.len())
@@ -384,7 +389,7 @@ fn sources(rows: &[Row], reach: &Reach, status: Option<&Status>, me: Option<&str
     nodes
 }
 
-fn server_node(total_open: u64, status: Option<&Status>, rates: &Rates, rows: usize) -> Node {
+fn server_node(total_open: u64, status: Option<&LiveStatus>, rates: &Rates, rows: usize) -> Node {
     let (rate, unit) = human_bits(rates.total.bytes_in);
     Node {
         key: "server".into(),
