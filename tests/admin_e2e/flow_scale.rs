@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::edits::Flow;
@@ -9,10 +10,17 @@ const PORTS: &str = "[data-testid=flow] [data-node^='port:']";
 const TIP: &str = "[data-testid=flow] [data-testid=tooltip]";
 const SEARCH: &str = "#flow-search-box";
 
-fn opts(n: usize) -> Options {
+const BOXES: [&str; 3] = ["box1", "box2", "box3"];
+
+fn box_secrets() -> &'static Vec<String> {
+    static SECRETS: OnceLock<Vec<String>> = OnceLock::new();
+    SECRETS.get_or_init(|| BOXES.iter().map(|_| super::world::secret()).collect())
+}
+
+fn opts(n: usize, clients: &[&'static str]) -> Options {
     let mut extra: String = (1..=n)
         .map(|i| {
-            let client = if i % 2 == 0 { "home" } else { "office" };
+            let client = clients[i % clients.len()];
             format!(
                 "  app{i:04}:\n    client: {client}\n    target: {}\n    visitors: [laptop]\n",
                 20000 + i % 30000
@@ -20,10 +28,27 @@ fn opts(n: usize) -> Options {
         })
         .collect();
     extra.push_str("  zz-down:\n    client: home\n    target: 127.0.0.1:1\n    visitors: [laptop]\n    health_check: { interval_secs: 1, timeout_secs: 1, failures: 1 }\n");
+    let extra_clients = BOXES
+        .iter()
+        .zip(box_secrets())
+        .filter(|(b, _)| clients.contains(b))
+        .map(|(b, s)| format!("  {b}:\n    secret: {s}\n"))
+        .collect();
     Options {
         clients: Some(vec!["home", "office"]),
         extra_services: extra,
+        extra_clients,
         ..Options::default()
+    }
+}
+
+fn start_boxes(c: &mut Ctx) {
+    for (b, s) in BOXES.iter().zip(box_secrets()) {
+        c.world.secrets.insert(*b, s.clone());
+        c.world.start_client(b);
+    }
+    for b in BOXES {
+        c.world.wait_client(b, true);
     }
 }
 
@@ -190,6 +215,7 @@ async fn unfold(c: &mut Ctx) {
 
 fn large(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
+        start_boxes(c);
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
         let total = 5000 + 3;
@@ -210,10 +236,16 @@ fn large(c: &mut Ctx) -> Flow<'_> {
 
 #[test]
 fn the_flow_chart_folds_500_services_and_stays_live() {
-    run("flow-scale-500", opts(500), false, small);
+    run(
+        "flow-scale-500",
+        opts(500, &["home", "office"]),
+        false,
+        small,
+    );
 }
 
 #[test]
 fn the_flow_chart_stays_quick_with_5000_services() {
-    run("flow-scale-5000", opts(5000), false, large);
+    let all = ["home", "office", BOXES[0], BOXES[1], BOXES[2]];
+    run("flow-scale-5000", opts(5000, &all), false, large);
 }

@@ -341,7 +341,7 @@ mod tests {
         keys_are_unique(&wide);
         assert_eq!(wide.nodes.iter().filter(|n| n.col == 1).count(), 5003);
         let head = wide.nodes.iter().find(|n| n.key == "bundle:a").unwrap();
-        assert_eq!(head.right, "▾");
+        assert_eq!(head.right, "fold");
         assert!(wide.nodes.iter().all(|n| n.key != "targets:a"));
         let found = layout(&doc, Some(&st), &Rates::default(), None, &q("s004"));
         assert_eq!(found.services, 10);

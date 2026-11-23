@@ -156,7 +156,7 @@ pub(super) fn dress(g: &Group, port: &mut Node, target: &mut Node, lines: &mut [
     );
     port.key = format!("bundle:{}", g.client);
     port.sub = line(g);
-    port.right = "▸".into();
+    port.right = "unfold".into();
     port.act = fold(g, false);
     port.tip.clone_from(&tip);
     target.key = format!("targets:{}", g.client);
@@ -174,7 +174,7 @@ pub(super) fn header(i: usize, g: &Group) -> Node {
         y: row_y(i),
         h: 42.0,
         title: label(&g.client),
-        right: "▾".into(),
+        right: "fold".into(),
         sub: line(g),
         act: fold(g, true),
         tip: format!("Fold the services of {} into one row", label(&g.client)),
