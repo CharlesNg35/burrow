@@ -10,6 +10,7 @@ use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
 use burrow_admin_proto::status::Status;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use super::file::Files;
@@ -22,6 +23,54 @@ use super::{Detail, plural};
 pub(super) struct Base {
     rows: Vec<Row>,
     names: Vec<(String, Vec<String>)>,
+    inputs: HashMap<String, (Value, Option<Value>)>,
+}
+
+type Kept<T> = Option<Arc<T>>;
+
+#[derive(Clone)]
+pub(super) struct Around {
+    editing: BTreeMap<Vec<String>, Option<Value>>,
+    related: BTreeMap<Vec<String>, String>,
+    local: BTreeMap<Vec<String>, String>,
+    files: burrow_admin_logic::files::FileMoves,
+    plan: Kept<burrow_admin_proto::plan::Plan>,
+    state: Kept<burrow_admin_proto::msg::State>,
+    schema: Kept<burrow_admin_proto::schema::Schema>,
+}
+
+fn same_arc<T>(a: &Kept<T>, b: &Kept<T>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+impl PartialEq for Around {
+    fn eq(&self, o: &Self) -> bool {
+        self.editing == o.editing
+            && self.related == o.related
+            && self.local == o.local
+            && self.files == o.files
+            && same_arc(&self.plan, &o.plan)
+            && same_arc(&self.state, &o.state)
+            && same_arc(&self.schema, &o.schema)
+    }
+}
+
+fn around() -> Around {
+    let s = store();
+    let e = s.edit;
+    Around {
+        editing: e.editing.get(),
+        related: e.related.get(),
+        local: e.local.get(),
+        files: e.files.get(),
+        plan: e.plan.get(),
+        state: s.state.get(),
+        schema: s.schema.get(),
+    }
 }
 
 fn me() -> Option<String> {
@@ -135,7 +184,22 @@ pub fn row_for(section: &str, name: &str) -> Option<Row> {
     Some(live::apply(row, classes.get(name)))
 }
 
-pub(super) fn base_for(section: &str) -> Base {
+pub(super) fn base_for(
+    section: &str,
+    prev: Option<&Base>,
+    seen: StoredValue<Option<Around>>,
+) -> Base {
+    let now = around();
+    let same = seen.with_value(|w| w.as_ref() == Some(&now))
+        && entity_of_section(section).is_none_or(|k| k == Entity::Service);
+    seen.set_value(Some(now));
+    let kept: HashMap<&str, &Row> = prev
+        .filter(|_| same)
+        .map(|p| p.rows.iter().map(|r| (r.key.as_str(), r)).collect())
+        .unwrap_or_default();
+    let linked: HashMap<&str, &Vec<String>> = prev
+        .map(|p| p.names.iter().map(|(n, c)| (n.as_str(), c)).collect())
+        .unwrap_or_default();
     store().edit.draft.with(|d| {
         let draft = d.draft();
         let base_items = d.base().get(section).and_then(Value::as_object);
@@ -143,9 +207,29 @@ pub(super) fn base_for(section: &str) -> Base {
         let ix = Index::new(section, None, draft, Files::now());
         let mut rows: Vec<Row> = Vec::new();
         let mut names = Vec::new();
+        let mut inputs = HashMap::new();
         for (name, v) in items.into_iter().flatten() {
-            rows.push(one_row(section, name, v, base_items, &ix));
-            names.push((name.clone(), clients_for(section, v)));
+            let was = base_items.and_then(|b| b.get(name));
+            let old = prev.and_then(|p| p.inputs.get(name));
+            let reuse = old
+                .filter(|(ov, ob)| ov == v && ob.as_ref() == was)
+                .and_then(|_| kept.get(name.as_str()));
+            match (reuse, old) {
+                (Some(row), Some(input)) => {
+                    rows.push((*row).clone());
+                    inputs.insert(name.clone(), input.clone());
+                    let clients = linked.get(name.as_str()).map(|c| (*c).clone());
+                    names.push((
+                        name.clone(),
+                        clients.unwrap_or_else(|| clients_for(section, v)),
+                    ));
+                }
+                _ => {
+                    rows.push(one_row(section, name, v, base_items, &ix));
+                    inputs.insert(name.clone(), (v.clone(), was.cloned()));
+                    names.push((name.clone(), clients_for(section, v)));
+                }
+            }
         }
         let gone = base_items.into_iter().flatten().filter(|(k, _)| {
             !items.is_some_and(|i| i.contains_key(*k))
@@ -171,7 +255,11 @@ pub(super) fn base_for(section: &str) -> Base {
                 ..Row::default()
             });
         }
-        Base { rows, names }
+        Base {
+            rows,
+            names,
+            inputs,
+        }
     })
 }
 
@@ -245,7 +333,8 @@ fn filters_for(section: &str) -> Filters {
 fn list_rows(section: String) -> Memo<Vec<Row>> {
     live::provide_live_text(section.clone());
     let sec = section.clone();
-    let base = Memo::new(move |_| base_for(&sec));
+    let around: StoredValue<Option<Around>> = StoredValue::new(None);
+    let base = Memo::new(move |prev: Option<&Base>| base_for(&sec, prev, around));
     let seen: StoredValue<Seen> = StoredValue::new(None);
     let classes = Memo::new(move |prev: Option<&Classes>| {
         base.with(|b| classes_now(&section, &b.names, prev, Some(seen)))
