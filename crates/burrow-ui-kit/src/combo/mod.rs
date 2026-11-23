@@ -83,6 +83,43 @@ pub fn filter_options(options: &[ComboOption], query: &str) -> Vec<ComboOption> 
         .collect()
 }
 
+pub fn search_index(options: &[ComboOption]) -> Vec<String> {
+    options
+        .iter()
+        .map(|o| format!("{}\u{0}{}", o.label.to_lowercase(), o.value.to_lowercase()))
+        .collect()
+}
+
+pub fn filter_indexed(options: &[ComboOption], index: &[String], query: &str) -> Vec<ComboOption> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return options.to_vec();
+    }
+    options
+        .iter()
+        .zip(index)
+        .filter(|(_, k)| k.contains(&q))
+        .map(|(o, _)| o.clone())
+        .collect()
+}
+
+fn visible_of(
+    options: Signal<Vec<ComboOption>>,
+    query: RwSignal<String>,
+    selected: Signal<Vec<String>>,
+    multi: bool,
+) -> Memo<Vec<ComboOption>> {
+    let index = Memo::new(move |_| options.with(|o| search_index(o)));
+    Memo::new(move |_| {
+        let found = options.with(|o| index.with(|i| query.with(|q| filter_indexed(o, i, q))));
+        if multi {
+            found
+        } else {
+            selected.with(|s| lift_selected(found, s))
+        }
+    })
+}
+
 pub fn toggle(selected: &[String], value: &str, multi: bool) -> Vec<String> {
     if !multi {
         return vec![value.to_string()];
@@ -161,14 +198,7 @@ pub fn Combobox(
     let query = RwSignal::new(String::new());
     let active = RwSignal::new(0usize);
     let list_id = format!("{id}-list");
-    let visible = Memo::new(move |_| {
-        let found = options.with(|o| filter_options(o, &query.get()));
-        if multi {
-            found
-        } else {
-            selected.with(|s| lift_selected(found, s))
-        }
-    });
+    let visible = visible_of(options, query, selected, multi);
     let pick = move |value: String| {
         if !options.with_untracked(|o| pickable(o, &value)) {
             return;
@@ -476,6 +506,12 @@ mod tests {
         let all = vec![opt("lab-k8s-1"), opt("lab-k8s-2"), opt("office-gw")];
         assert_eq!(filter_options(&all, "K8S").len(), 2);
         assert_eq!(filter_options(&all, " ").len(), 3);
+        let index = search_index(&all);
+        assert_eq!(
+            filter_indexed(&all, &index, "K8S"),
+            filter_options(&all, "K8S")
+        );
+        assert_eq!(filter_indexed(&all, &index, " ").len(), 3);
         let s = toggle(&["a".into()], "b", true);
         assert_eq!(s, ["a", "b"]);
         assert_eq!(toggle(&s, "a", true), ["b"]);
