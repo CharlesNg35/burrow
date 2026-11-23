@@ -199,7 +199,7 @@ impl Store {
         let prev_at = self.status_at.get_untracked();
         if let Some(prev) = prev.as_deref() {
             let secs = ((now_ms - prev_at) / 1000.0).max(0.001);
-            let r = rates(&prev, &next, secs);
+            let r = rates(prev, &next, secs);
             let missed = ((now_ms - prev_at) / 1000.0).round() as i64 - 1;
             self.recorder.update(|h| {
                 for _ in 0..missed.clamp(0, burrow_admin_logic::rates::RECORD_SECONDS as i64) {

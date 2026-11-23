@@ -1,6 +1,5 @@
 use burrow_admin_logic::live::Live;
 use burrow_admin_logic::presence::{self, Presence};
-use burrow_admin_proto::status::Status;
 use burrow_config::ServiceEntry;
 pub use burrow_syntax::duration::{
     Elapsed, JUST_NOW, UNDER_A_MINUTE, coarse, coarse_ago, coarse_length,
