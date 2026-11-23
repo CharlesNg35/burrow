@@ -280,9 +280,6 @@ fn revision_buttons(c: &mut Ctx) -> Flow<'_> {
         }
         c.ui.nav("/activity").await;
         rows_shown(c, KEPT).await;
-        let (key, x, y) = button_at(c, "view").await;
-        c.ui.click_at(x, y).await;
-        after(c, &key).await;
         let (key, x, y) = button_at(c, "revert").await;
         c.ui.click_at(x, y).await;
         c.ui.wait_true(
@@ -297,6 +294,11 @@ fn revision_buttons(c: &mut Ctx) -> Flow<'_> {
             path.ends_with("/review") && !path.contains(&key),
             "the card's link did not also fire: {path}"
         );
+        c.ui.nav("/activity").await;
+        rows_shown(c, KEPT).await;
+        let (key, x, y) = button_at(c, "view").await;
+        c.ui.click_at(x, y).await;
+        after(c, &key).await;
         c.ui.assert_no_errors();
     })
 }
