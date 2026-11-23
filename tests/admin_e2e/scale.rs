@@ -87,8 +87,15 @@ async fn show_all(c: &Ctx, at: &str, rows: &str, total: usize, what: &str) {
 async fn big_list(c: &Ctx) {
     let started = Instant::now();
     c.ui.nav("/services").await;
-    c.ui.wait_for(&format!("[data-row=s{SERVICES:03}]"), SECS)
-        .await;
+    c.ui.wait_true(
+        &format!(
+            "Number((document.querySelector('[data-testid=list-window]') || {{ dataset: {{}} }}).dataset.count || 0) >= {}",
+            SERVICES + SITES + 4
+        ),
+        "the windowed services list holds every row",
+        SECS,
+    )
+    .await;
     println!(
         "scale: the services list showed its last of {} rows after {:?}",
         SERVICES + SITES + 4,
