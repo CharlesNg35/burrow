@@ -2,7 +2,7 @@ use leptos::prelude::*;
 
 use crate::icon::{ICON_LINE, Icon};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Tone {
     #[default]
     Neutral,
