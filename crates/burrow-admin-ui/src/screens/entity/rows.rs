@@ -24,6 +24,17 @@ pub(crate) fn protocol_tag(svc: &Value) -> (String, Tone) {
     (p.to_uppercase(), tone)
 }
 
+pub(crate) fn live_card(section: &'static str, key: &str) -> Option<AnyView> {
+    let row = untrack(|| super::row_for(section, key))?;
+    let key = key.to_string();
+    let live = Memo::new(move |_| {
+        super::row_for(section, &key)
+            .map(|r| (r.meta, r.line2))
+            .unwrap_or_default()
+    });
+    Some(view! { <crate::screens::ListCard row=row selected=false live=live/> }.into_any())
+}
+
 pub(crate) fn protocol_view(svc: &Value) -> impl IntoView + use<> {
     let (text, tone) = protocol_tag(svc);
     view! { <span class=tag_class(tone)>{text}</span> }

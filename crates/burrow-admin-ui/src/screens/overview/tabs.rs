@@ -132,6 +132,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
         }
     };
     let layouts = layouts(s, values);
+    let orders_open = RwSignal::new(false);
     let panel = move || match (shown.get(), entity_of_section(shown.get())) {
         (WEBSITES, _) => websites_panel(
             s.status
@@ -141,7 +142,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
         (CERTIFICATES, _) => {
             let now = (s.now.get() / 1000.0) as u64;
             s.status
-                .with(|st| certificates_panel(st.as_deref(), now))
+                .with(|st| certificates_panel(st.as_deref(), now, orders_open))
                 .into_any()
         }
         (_, Some(Entity::Client)) => clients_table(s, values, layouts.clients).into_any(),

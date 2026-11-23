@@ -192,15 +192,19 @@ fn way_block(sw: Switch, field: Option<(Field, Path, Path, Path)>) -> impl IntoV
     let under = match way {
         Way::Website => website_row(&sw).into_any(),
         _ => {
-            let body = field.map(|(f, fp, fs, entity)| {
-                if way == Way::Visitors {
-                    view! { <leptos::context::Provider value=super::row::QuietLabel>{row(f, fp, fs, entity)}</leptos::context::Provider> }.into_any()
-                } else {
-                    row(f, fp, fs, entity)
-                }
-            });
-            let shown = move || on.get() && blocked.get().is_none();
-            view! { <div class="mt-3 border-l-2 border-rowline pl-4 sm:ml-[17px]" class:hidden=move || !shown()>{body}</div> }.into_any()
+            let shown = Memo::new(move |_| on.get() && blocked.get().is_none());
+            let body = move || {
+                shown.get().then(|| {
+                    field.clone().map(|(f, fp, fs, entity)| {
+                        if way == Way::Visitors {
+                            view! { <leptos::context::Provider value=super::row::QuietLabel>{row(f, fp, fs, entity)}</leptos::context::Provider> }.into_any()
+                        } else {
+                            row(f, fp, fs, entity)
+                        }
+                    })
+                })
+            };
+            view! { <div class="mt-3 border-l-2 border-rowline pl-4 sm:ml-[17px]" class:hidden=move || !shown.get()>{body}</div> }.into_any()
         }
     };
     view! {
@@ -214,10 +218,8 @@ fn way_block(sw: Switch, field: Option<(Field, Path, Path, Path)>) -> impl IntoV
     }
 }
 
-pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) -> AnyView {
+fn edit_blocks(svc: Path, spath: Path, entity: Path, mine: Vec<Field>) -> impl IntoView {
     let e = store().edit;
-    let editing = editing_now();
-    let can = store().can_write_now();
     let udp = {
         let p = child(&svc, PROTOCOL);
         Memo::new(move |_| {
@@ -225,10 +227,6 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
                 == Some(Protocol::Udp.wire().to_string())
         })
     };
-    let lines = Way::ALL
-        .into_iter()
-        .map(|w| view_line(w, svc.clone()))
-        .collect_view();
     let touched = RwSignal::new(false);
     let mut blocks = Vec::new();
     for way in Way::ALL {
@@ -238,7 +236,7 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
             Signal::derive(move || (way == Way::Website && udp.get()).then_some(WEBSITE_NEEDS_TCP));
         let field = mine.iter().find(|f| f.key == way.key()).map(|f| {
             (
-                (*f).clone(),
+                f.clone(),
                 child(&svc, &f.key),
                 child(&spath, &f.key),
                 entity.clone(),
@@ -254,9 +252,8 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
         };
         blocks.push(way_block(sw, field).into_any());
     }
-    let svc_now = svc.clone();
     let none = Memo::new(move |_| {
-        let w = burrow_admin_logic::web::ways(&e.value(&svc_now).unwrap_or_default());
+        let w = burrow_admin_logic::web::ways(&e.value(&svc).unwrap_or_default());
         !(w.public || w.website || w.visitors)
     });
     let no_way = move || {
@@ -265,13 +262,24 @@ pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) 
             view! { <div data-testid="no-way-in">{field_message(tone, burrow_admin_logic::wording::PICK_VISITORS.to_string())}</div> }
         })
     };
-    view! {
-        <div class="md:col-span-2" data-testid="reached-by">
-            <div class:hidden=move || can && editing.try_get().unwrap_or(false)>
-                <ul data-testid="reached-by-view">{lines}</ul>
-            </div>
-            <div class:hidden=move || !(can && editing.try_get().unwrap_or(false))>{blocks}{no_way}</div>
-        </div>
-    }
-    .into_any()
+    view! { <div>{blocks}{no_way}</div> }
+}
+
+pub(super) fn reached_by(svc: Path, spath: Path, entity: Path, mine: &[&Field]) -> AnyView {
+    let editing = editing_now();
+    let can = store().can_write_now();
+    let mine: Vec<Field> = mine.iter().map(|f| (*f).clone()).collect();
+    let edit = Memo::new(move |_| can && editing.try_get().unwrap_or(false));
+    let body = move || {
+        if edit.get() {
+            edit_blocks(svc.clone(), spath.clone(), entity.clone(), mine.clone()).into_any()
+        } else {
+            let lines = Way::ALL
+                .into_iter()
+                .map(|w| view_line(w, svc.clone()))
+                .collect_view();
+            view! { <div><ul data-testid="reached-by-view">{lines}</ul></div> }.into_any()
+        }
+    };
+    view! { <div class="md:col-span-2" data-testid="reached-by">{body}</div> }.into_any()
 }

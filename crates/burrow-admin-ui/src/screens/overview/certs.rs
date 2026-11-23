@@ -1,11 +1,12 @@
 use burrow_admin_logic::certs::{Level, notices, rows};
-use burrow_admin_logic::top::top;
+use burrow_admin_logic::top::{ROWS, top};
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, ServerConfig, ServiceEntry};
 use burrow_ui_kit::{Table, Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
+use crate::show_all::{ShowAll, kept};
 
 use super::Item;
 use super::tables::view_all_link;
@@ -87,7 +88,11 @@ fn table(status: &Status, now: u64) -> impl IntoView + use<> {
     }
 }
 
-pub(super) fn certificates_panel(status: Option<&Status>, now: u64) -> impl IntoView + use<> {
+pub(super) fn certificates_panel(
+    status: Option<&Status>,
+    now: u64,
+    open: RwSignal<bool>,
+) -> impl IntoView + use<> {
     let Some(status) = status.filter(|st| !rows(st, now).is_empty()) else {
         return view! { <p class="px-4 py-3 text-[13px] text-text-muted" data-testid="certs-empty">"No certificates yet: they appear when a website uses HTTPS."</p> }.into_any();
     };
@@ -107,7 +112,8 @@ pub(super) fn certificates_panel(status: Option<&Status>, now: u64) -> impl Into
         .map(|a| a.queue.clone())
         .unwrap_or_default();
     let orders = (!queue.is_empty()).then(|| {
-        let items = queue
+        let total = queue.len();
+        let items = kept(queue, open.get(), ROWS)
             .into_iter()
             .map(|o| {
                 let when = if o.running {
@@ -131,6 +137,7 @@ pub(super) fn certificates_panel(status: Option<&Status>, now: u64) -> impl Into
                 <p class="px-4 pb-1 text-xs font-semibold text-text-muted">"Certificate orders, one at a time"</p>
                 <ul>{items}</ul>
             </div>
+            <ShowAll open=open total=total limit=ROWS/>
         }
     });
     view! {

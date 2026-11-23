@@ -1,5 +1,6 @@
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::input::time_unit;
+use burrow_admin_logic::top::LINKS;
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::schema::{ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
@@ -220,13 +221,30 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
 }
 
 fn ref_list_view(c: &RefListC, v: &Value, ctx: &Ctx) -> AnyView {
-    let items = names(v);
+    let mut items = names(v);
     if items.is_empty() {
         return view! { <span class="text-text-muted">"None"</span> }.into_any();
     }
+    let total = items.len();
+    let first = LINKS.min(total);
+    let rest = items.split_off(first);
+    let link = {
+        let (entity, reserved, ctx) = (c.entity.clone(), c.reserved.clone(), ctx.clone());
+        move |n: &String| ref_link(&entity, n, &reserved, &ctx)
+    };
+    let shown = items.iter().map(&link).collect_view();
+    let more = (!rest.is_empty()).then(|| {
+        let open = RwSignal::new(false);
+        let hidden = rest.len();
+        view! {
+            {move || open.get().then(|| rest.iter().map(&link).collect_view())}
+            {crate::show_all::more_chip(open, hidden)}
+        }
+    });
     view! {
-        <span class="flex flex-wrap gap-1">
-            {items.iter().map(|n| ref_link(&c.entity, n, &c.reserved, ctx)).collect_view()}
+        <span class="flex flex-wrap gap-1" data-links=total.to_string()>
+            {shown}
+            {more}
         </span>
     }
     .into_any()

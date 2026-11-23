@@ -109,8 +109,18 @@ fn row_view(i: Item, icon: bool) -> AnyView {
     .into_any()
 }
 
-fn numbered(items: Vec<Item>) -> Vec<(usize, Item)> {
-    items.into_iter().enumerate().collect()
+fn keyed(items: Vec<Item>) -> Vec<(String, Item)> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    items
+        .into_iter()
+        .map(|x| {
+            let base = format!("{}|{}|{}", x.key, x.title, x.detail);
+            let n = seen.entry(base.clone()).or_insert(0);
+            *n += 1;
+            let key = if *n == 1 { base } else { format!("{base}#{n}") };
+            (key, x)
+        })
+        .collect()
 }
 
 fn hidden_below(list: &web_sys::HtmlElement) -> usize {
@@ -187,8 +197,8 @@ fn Section(
                     on:scroll=move |_| measure()
                 >
                     <For
-                        each=move || numbered(items.get())
-                        key=|(i, x)| format!("{i}|{}|{}|{}", x.key, x.title, x.detail)
+                        each=move || keyed(items.get())
+                        key=|(k, _)| k.clone()
                         children=move |(_, x)| row_view(x, icon)
                     />
                 </ul>
@@ -307,5 +317,45 @@ pub(super) fn Attention() -> impl IntoView {
             </div>
             <p class="sr-only" aria-live="polite">{move || announce.get()}</p>
         </section>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(key: &str, detail: &str) -> Item {
+        Item {
+            key: key.into(),
+            tone: Tone::Warning,
+            title: key.into(),
+            detail: detail.into(),
+            to: None,
+            field: None,
+            extra: None,
+        }
+    }
+
+    #[test]
+    fn a_new_item_keeps_the_keys_of_the_rows_already_there() {
+        let before: Vec<String> = keyed(vec![item("a", "x"), item("b", "y")])
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        let after: Vec<String> = keyed(vec![item("new", "z"), item("a", "x"), item("b", "y")])
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(&after[1..], &before[..]);
+        let twice: Vec<String> = keyed(vec![item("a", "x"), item("a", "x")])
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_ne!(twice[0], twice[1], "a repeated item still gets its own key");
+        assert_ne!(
+            keyed(vec![item("a", "x")])[0].0,
+            keyed(vec![item("a", "changed")])[0].0,
+            "a changed text redraws its row"
+        );
     }
 }

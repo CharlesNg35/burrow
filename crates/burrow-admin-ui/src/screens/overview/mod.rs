@@ -12,9 +12,10 @@ use burrow_admin_logic::rates::{axis_max, mbit};
 use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::msg::State;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
+use burrow_admin_proto::status::{ServiceStatus, Status};
 use burrow_config::{ClientEntry, Entry, ServiceEntry};
 use burrow_ui_kit::{ChartData, Tone};
+use std::collections::HashMap;
 
 use crate::format;
 use crate::route::Route;
@@ -200,11 +201,20 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
     }
 }
 
+fn by_name(status: &Status) -> HashMap<&str, &ServiceStatus> {
+    status
+        .services
+        .iter()
+        .map(|x| (x.name.as_str(), x))
+        .collect()
+}
+
 fn service_items(
     values: &Value,
     status: &Status,
 ) -> (std::collections::BTreeMap<String, Hits>, Vec<Item>) {
     let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
+    let live = by_name(status);
     let mut by_client: std::collections::BTreeMap<String, Hits> = std::collections::BTreeMap::new();
     let mut own = Vec::new();
     if let Some(services) = ServiceEntry::entries(values) {
@@ -212,7 +222,7 @@ fn service_items(
             let cs = clients_of(svc);
             let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
             let off: Vec<&String> = cs.iter().filter(|c| !online(c)).collect();
-            let st = status.services.iter().find(|x| &x.name == name);
+            let st = live.get(name.as_str()).copied();
             let to = Some(Route::Detail(ServiceEntry::section().into(), name.clone()));
             if up.is_empty() {
                 if let [c] = off.as_slice() {
@@ -370,13 +380,14 @@ pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String,
         return Vec::new();
     };
     let online = |c: &str| burrow_admin_logic::presence::online(Some(status), &[], c);
+    let live = by_name(status);
     let mut out: Vec<(String, Problem)> = ServiceEntry::entries(values)
         .map(|m| {
             m.iter()
                 .filter_map(|(name, svc)| {
                     let cs = clients_of(svc);
                     let up = cs.iter().filter(|c| online(c)).count();
-                    let st = status.services.iter().find(|x| &x.name == name);
+                    let st = live.get(name.as_str()).copied();
                     let failing = st.is_some_and(|x| x.health.iter().any(|h| !h.up));
                     let p = if st.is_some_and(|x| x.not_listening.is_some()) {
                         Problem::NotListening
@@ -421,6 +432,15 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     let Some(status) = status else {
         return Vec::new();
     };
+    let mut served: HashMap<String, Vec<String>> = HashMap::new();
+    for (n, v) in ServiceEntry::entries(values).into_iter().flatten() {
+        for c in clients_of(v) {
+            let list = served.entry(c).or_default();
+            if list.last() != Some(n) {
+                list.push(n.clone());
+            }
+        }
+    }
     names(values, ClientEntry::section())
         .into_iter()
         .filter_map(|c| {
@@ -428,14 +448,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
             if burrow_admin_logic::presence::online(Some(status), &[], &c) {
                 return None;
             }
-            let serves: Vec<String> = ServiceEntry::entries(values)
-                .map(|m| {
-                    m.iter()
-                        .filter(|(_, v)| clients_of(v).contains(&c))
-                        .map(|(n, _)| n.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
+            let serves = served.get(&c).cloned().unwrap_or_default();
             let when = format::left_of(&c, st.and_then(|x| x.left_secs_ago), status.uptime_secs);
             Some(Item {
                 key: format!("away:{c}"),

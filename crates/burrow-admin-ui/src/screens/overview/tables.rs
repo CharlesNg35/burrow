@@ -5,6 +5,7 @@ use burrow_admin_proto::status::ClientStatus;
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{EmptyState, StatusDot, Table, Tone, tag_class};
 use leptos::prelude::*;
+use std::collections::{HashMap, HashSet};
 
 use crate::form::plain;
 use crate::format;
@@ -70,25 +71,30 @@ pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
             .into_iter()
             .map(|(n, _)| n)
             .collect();
-        let open = |n: &str| {
-            st.as_ref()
-                .and_then(|st| st.services.iter().find(|x| x.name == n))
-                .map_or(0, |x| x.open)
-        };
-        let (kept, total) = top(m.keys().collect(), |n| (bad.contains(*n), open(n)));
+        let bad: HashSet<&str> = bad.iter().map(String::as_str).collect();
+        let open: HashMap<&str, u64> = st
+            .iter()
+            .flat_map(|st| st.services.iter().map(|x| (x.name.as_str(), x.open)))
+            .collect();
+        let (kept, total) = top(m.keys().collect(), |n| {
+            (
+                bad.contains(n.as_str()),
+                open.get(n.as_str()).copied().unwrap_or(0),
+            )
+        });
         (kept.into_iter().cloned().collect::<Vec<_>>(), total)
     });
     let clients = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
         let of = |name: &str| st.as_ref().and_then(|st| presence::client(st, name));
-        let serving = |name: &str| {
-            ServiceEntry::entries(&v)
-                .is_some_and(|m| m.values().any(|x| clients_of(x).iter().any(|c| c == name)))
-        };
+        let serving: HashSet<String> = ServiceEntry::entries(&v)
+            .into_iter()
+            .flat_map(|m| m.values().flat_map(clients_of))
+            .collect();
         top(names(&v, ClientEntry::section()), |name| {
             let c = of(name);
-            let away = !format::presence_of(st.as_deref(), name).up() && serving(name);
+            let away = !format::presence_of(st.as_deref(), name).up() && serving.contains(name);
             (
                 away || c.is_some_and(|c| c.at_limit),
                 c.map_or(0, |c| c.open),
@@ -98,11 +104,13 @@ pub(super) fn layouts(s: Store, values: Memo<Value>) -> Layouts {
     let visitors = Memo::new(move |_| {
         let v = values.get();
         let st = s.status.get();
+        let seen: HashMap<&str, u64> = st
+            .iter()
+            .flat_map(|st| st.visitors.iter())
+            .map(|x| (x.name.as_str(), x.open * 2 + u64::from(s.in_use(x))))
+            .collect();
         top(names(&v, VisitorEntry::section()), |name| {
-            let x = st
-                .as_ref()
-                .and_then(|st| st.visitors.iter().find(|c| &c.name == name));
-            (false, x.map_or(0, |x| x.open * 2 + u64::from(s.in_use(x))))
+            (false, seen.get(name.as_str()).copied().unwrap_or(0))
         })
     });
     Layouts {

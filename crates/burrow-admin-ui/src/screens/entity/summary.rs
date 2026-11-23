@@ -14,9 +14,10 @@ use crate::form::plain;
 use crate::format;
 use crate::route::{Link, Route};
 use crate::screens::paths::clients_of;
+use crate::show_all::{ShowAll, kept};
 use crate::store::store;
+use burrow_admin_logic::top::ROWS;
 
-use super::list::rows_for;
 use super::{CLIENTS, VISITORS};
 
 fn pool_range(doc: &Value) -> String {
@@ -208,6 +209,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> AnyView {
 fn entry_overview(name: &str, stats: bool) -> impl IntoView {
     let s = store();
     let name = name.to_string();
+    let open = RwSignal::new(false);
     move || {
         let name = name.clone();
         let st = s.status.get();
@@ -252,6 +254,8 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
         let reserved = crate::domain::reserved_clients();
         let skipped = !aside.is_empty();
         let listed = entry_rows(x.as_ref(), st.as_deref(), &svc);
+        let total = listed.len();
+        let listed = kept(listed, open.get(), ROWS);
         let default_target = ServiceEntry::TARGET
             .get(&svc)
             .map(burrow_admin_logic::web::target_value_shown)
@@ -298,6 +302,7 @@ fn entry_overview(name: &str, stats: bool) -> impl IntoView {
             <div class="mb-4">
                 <Card title="Health per client" sub=mode flush=true testid="health">
                     <Table head=if skipped { vec!["Client and target", "Open", "~Connected from", "Health", "~Skipped"] } else { vec!["Client and target", "Open", "~Connected from", "Health"] }>{rows}</Table>
+                    <ShowAll open=open total=total limit=ROWS/>
                 </Card>
             </div>
         }
@@ -427,57 +432,55 @@ pub(super) fn served(name: &str) -> impl IntoView {
 fn served_services(name: &str) -> impl IntoView + use<> {
     let s = store();
     let name = name.to_string();
-    move || {
+    let open = RwSignal::new(false);
+    let served = Memo::new(move |_| {
         let doc = s.edit.doc();
-        let rows = ServiceEntry::entries(&doc)
+        ServiceEntry::entries(&doc)
             .map(|m| {
                 m.iter()
                     .filter(|(_, v)| clients_of(v).contains(&name))
                     .map(|(n, v)| (n.clone(), v.clone()))
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default();
-        if rows.is_empty() {
+            .unwrap_or_default()
+    });
+    let total = Signal::derive(move || served.with(Vec::len));
+    let boxed: NodeRef<leptos::html::Div> = NodeRef::new();
+    let narrow = crate::narrow::narrow(boxed);
+    let empty = Memo::new(move |_| total.get() == 0);
+    move || {
+        if empty.get() {
             return view! { <div class="mb-4"><EmptyState title="Serves no services" message="Pick this client in a service to publish one of its ports."/></div> }.into_any();
         }
-        let names: Vec<String> = rows.iter().map(|(n, _)| n.clone()).collect();
-        let targets: std::collections::BTreeMap<String, String> = rows
-            .iter()
-            .map(|(n, v)| {
-                (
-                    n.clone(),
-                    ServiceEntry::TARGET
-                        .get(v)
-                        .map(burrow_admin_logic::web::target_value_shown)
-                        .unwrap_or_default(),
-                )
-            })
-            .collect();
-        let cards = untrack(|| rows_for(ServiceEntry::section()))
-            .into_iter()
-            .filter(|r| names.contains(&r.key))
-            .map(|r| {
-                let t = targets.get(&r.key).cloned().unwrap_or_default();
-                let key = r.key.clone();
-                let live = Memo::new(move |_| {
-                    super::list::row_for(ServiceEntry::section(), &key)
-                        .map(|r| (r.meta, r.line2))
-                        .unwrap_or_default()
-                });
-                view! { <div data-target=t><crate::screens::ListCard row=r selected=false live=live/></div> }
-            })
-            .collect_view();
+        let body = move || {
+            let shown = kept(served.get(), open.get(), ROWS);
+            if narrow.get() {
+                let cards = shown
+                    .iter()
+                    .filter_map(|(n, v)| {
+                        let t = ServiceEntry::TARGET
+                            .get(v)
+                            .map(burrow_admin_logic::web::target_value_shown)
+                            .unwrap_or_default();
+                        super::live_card(ServiceEntry::section(), n)
+                            .map(|c| view! { <div data-target=t>{c}</div> })
+                    })
+                    .collect_view();
+                view! { <div class="pt-2 pb-1" data-testid="served-cards">{cards}</div> }.into_any()
+            } else {
+                view! {
+                    <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
+                        {shown.iter().map(|(n, v)| super::service_tr(n, v, false)).collect_view()}
+                    </Table>
+                }
+                .into_any()
+            }
+        };
         view! {
             <div class="mb-4">
                 <Card title="Services it serves" flush=true testid="served">
-                    <div class="@container">
-                    <div class=format!("pt-2 pb-1 {}", burrow_ui_kit::CARD_VIEW) data-testid="served-cards">{cards}</div>
-                    <div class=burrow_ui_kit::TABLE_VIEW>
-                    <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
-                        {rows.iter().map(|(n, v)| super::service_tr(n, v, false)).collect_view()}
-                    </Table>
-                    </div>
-                    </div>
+                    <div class="@container" node_ref=boxed>{body}</div>
+                    <ShowAll open=open total=total limit=ROWS/>
                 </Card>
             </div>
         }

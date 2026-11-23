@@ -29,17 +29,28 @@ pub(crate) fn row_menu(
         let key = key.clone();
         Memo::new(move |_| open.with(|m| m.as_deref() == Some(key.as_str())))
     };
-    let items = items
-        .into_iter()
-        .map(|it| {
-            let tone = if it.danger {
-                Tone::Danger
-            } else {
-                Tone::Neutral
-            };
-            view! { <MenuItem label=it.label tone=tone testid=it.testid on_click=it.run/> }
+    let items = StoredValue::new(items);
+    let menu = move || {
+        mine.get().then(|| {
+            let list = items
+                .get_value()
+                .into_iter()
+                .map(|it| {
+                    let tone = if it.danger {
+                        Tone::Danger
+                    } else {
+                        Tone::Neutral
+                    };
+                    view! { <MenuItem label=it.label tone=tone testid=it.testid on_click=it.run/> }
+                })
+                .collect_view();
+            view! {
+                <div class=menu_class("top-10 right-0 w-56", false) id=MENU tabindex="-1" data-testid="row-menu" on:click=move |_| open.set(None)>
+                    {list}
+                </div>
+            }
         })
-        .collect_view();
+    };
     view! {
         <div class="relative">
             <button
@@ -56,9 +67,7 @@ pub(crate) fn row_menu(
             >
                 <Icon name="more"/>
             </button>
-            <div class=menu_class("top-10 right-0 w-56", false) id=move || mine.get().then_some(MENU) tabindex="-1" data-testid="row-menu" class:hidden=move || !mine.get() on:click=move |_| open.set(None)>
-                {items}
-            </div>
+            {menu}
         </div>
     }
     .into_any()
