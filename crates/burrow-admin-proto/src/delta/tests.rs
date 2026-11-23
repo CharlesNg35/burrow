@@ -13,7 +13,7 @@ fn service(i: usize) -> ServiceStatus {
         total: 10,
         bytes_in: 1_000,
         bytes_out: 2_000,
-        http: (i % 2 == 0).then(|| HttpCounts {
+        http: i.is_multiple_of(2).then_some(HttpCounts {
             responses: [0, 5, 0, 1, 0],
         }),
         entries: vec![EntryStatus {
@@ -28,10 +28,10 @@ fn service(i: usize) -> ServiceStatus {
 fn client(i: usize) -> ClientStatus {
     ClientStatus {
         name: format!("client-{i:04}"),
-        connected: i % 3 != 0,
-        connected_secs: (i % 3 != 0).then_some(100),
-        left_secs_ago: (i % 3 == 0).then_some(50),
-        from: (i % 3 != 0).then(|| "10.0.0.1".into()),
+        connected: !i.is_multiple_of(3),
+        connected_secs: (!i.is_multiple_of(3)).then_some(100),
+        left_secs_ago: i.is_multiple_of(3).then_some(50),
+        from: (!i.is_multiple_of(3)).then(|| "10.0.0.1".into()),
         ..ClientStatus::default()
     }
 }
