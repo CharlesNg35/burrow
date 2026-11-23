@@ -1,6 +1,6 @@
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{Entry, Protocol, ServerConfig, ServiceEntry, WebConfig, entity_of_section};
+use burrow_config::{Entry, Protocol, ServiceEntry, entity_of_section};
 use burrow_ui_kit::{EmptyState, Tone};
 use leptos::prelude::*;
 
@@ -34,18 +34,11 @@ fn one_row(
     section: &str,
     name: &str,
     v: &Value,
-    (draft, base_items): (
-        &Value,
-        Option<&burrow_admin_proto::serde_json::Map<String, Value>>,
-    ),
+    base_items: Option<&burrow_admin_proto::serde_json::Map<String, Value>>,
     live: &Live,
     ix: &Index,
 ) -> Row {
     let s = store();
-    let https_on = ServerConfig::WEB
-        .get(draft)
-        .and_then(|w| WebConfig::HTTPS.get(w))
-        .is_some_and(|h| !h.is_null());
     let in_base = base_items.and_then(|b| b.get(name));
     let was = s
         .edit
@@ -71,7 +64,6 @@ fn one_row(
         section,
         name,
         v,
-        https_on,
         me: live.me.as_deref(),
         pending,
     };
@@ -105,8 +97,8 @@ pub fn row_for(section: &str, name: &str) -> Option<Row> {
         let draft = d.draft();
         let v = draft.get(section)?.get(name)?;
         let base_items = d.base().get(section).and_then(Value::as_object);
-        let ix = Index::new(live.status.as_deref(), draft, Files::now());
-        Some(one_row(section, name, v, (draft, base_items), &live, &ix))
+        let ix = Index::new(section, live.status.as_deref(), draft, Files::now());
+        Some(one_row(section, name, v, base_items, &live, &ix))
     })
 }
 
@@ -116,12 +108,12 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         let draft = d.draft();
         let base_items = d.base().get(section).and_then(Value::as_object);
         let items = draft.get(section).and_then(Value::as_object);
-        let ix = Index::new(live.status.as_deref(), draft, Files::now());
+        let ix = Index::new(section, live.status.as_deref(), draft, Files::now());
         row_cache::keep_only(section, &|n| items.is_some_and(|i| i.contains_key(n)));
         let mut out: Vec<Row> = items
             .into_iter()
             .flatten()
-            .map(|(name, v)| one_row(section, name, v, (draft, base_items), &live, &ix))
+            .map(|(name, v)| one_row(section, name, v, base_items, &live, &ix))
             .collect();
         let gone = base_items.into_iter().flatten().filter(|(k, _)| {
             !items.is_some_and(|i| i.contains_key(*k))

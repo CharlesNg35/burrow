@@ -44,7 +44,6 @@ pub(super) struct Ask<'a> {
     pub section: &'a str,
     pub name: &'a str,
     pub v: &'a Value,
-    pub https_on: bool,
     pub me: Option<&'a str>,
     pub pending: Option<&'static str>,
 }
@@ -79,13 +78,13 @@ fn fresh(a: &Ask, kind: Option<&Entity>, ix: &Index) -> Row {
     match kind {
         Some(Entity::Client) => client_row(a.name, ix, a.pending, to),
         Some(Entity::Visitor) => visitor_row(a.name, a.v, ix, a.me, a.pending, to),
-        _ => service_row(a.name, (a.v, a.https_on), ix, a.pending, to),
+        _ => service_row(a.name, (a.v, ix.https_on), ix, a.pending, to),
     }
 }
 
 fn still_good(k: &Kept, a: &Ask, kind: Option<&Entity>, ix: &Index) -> bool {
     k.v == *a.v
-        && k.https_on == a.https_on
+        && k.https_on == ix.https_on
         && k.me.as_deref() == a.me
         && k.pending == a.pending
         && k.known == ix.status.is_some()
@@ -126,7 +125,7 @@ pub(super) fn row(a: &Ask, ix: &Index) -> Row {
     };
     let kept = Kept {
         v: a.v.clone(),
-        https_on: a.https_on,
+        https_on: ix.https_on,
         me: a.me.map(str::to_string),
         pending: a.pending,
         known: ix.status.is_some(),
@@ -160,7 +159,6 @@ mod tests {
             section: "services",
             name: "web",
             v,
-            https_on: false,
             me: None,
             pending: None,
         }
@@ -176,7 +174,12 @@ mod tests {
             open: 1,
             ..ServiceStatus::default()
         });
-        let ix = Index::new(Some(&st), &draft, super::super::file::Files::default());
+        let ix = Index::new(
+            "services",
+            Some(&st),
+            &draft,
+            super::super::file::Files::default(),
+        );
         let first = row(&ask(&v), &ix);
         assert_eq!(first.meta, "1 open");
         let kept = KEPT.with(|k| {
@@ -187,7 +190,12 @@ mod tests {
         assert_eq!(kept, Some(true));
         let mut busy = st.clone();
         busy.services[0].open = 2;
-        let ix = Index::new(Some(&busy), &draft, super::super::file::Files::default());
+        let ix = Index::new(
+            "services",
+            Some(&busy),
+            &draft,
+            super::super::file::Files::default(),
+        );
         assert_eq!(row(&ask(&v), &ix).meta, "2 open");
         let other = json!({"client": "home", "target": 81});
         assert!(row(&ask(&other), &ix).line2.contains("81"));
