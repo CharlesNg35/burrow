@@ -277,6 +277,52 @@ pub fn SectionHead(
     }
 }
 
+fn tab_step(key: &str, all: &[&'static str], now: &str) -> Option<&'static str> {
+    let at = all.iter().position(|k| *k == now)?;
+    let last = all.len().checked_sub(1)?;
+    let to = match key {
+        "ArrowRight" => {
+            if at == last {
+                0
+            } else {
+                at + 1
+            }
+        }
+        "ArrowLeft" => {
+            if at == 0 {
+                last
+            } else {
+                at - 1
+            }
+        }
+        "Home" => 0,
+        "End" => last,
+        _ => return None,
+    };
+    all.get(to).copied()
+}
+
+fn tab_keys(e: &web_sys::KeyboardEvent, all: &[&'static str], now: &str) -> Option<&'static str> {
+    use wasm_bindgen::JsCast;
+    let to = tab_step(&e.key(), all, now)?;
+    e.prevent_default();
+    let list = e
+        .current_target()
+        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        .and_then(|el| el.parent_element());
+    if let Some(btn) = list
+        .and_then(|l| {
+            l.query_selector(&format!("[data-tab=\"{to}\"]"))
+                .ok()
+                .flatten()
+        })
+        .and_then(|b| b.dyn_into::<web_sys::HtmlElement>().ok())
+    {
+        let _ = btn.focus();
+    }
+    Some(to)
+}
+
 #[component]
 pub fn Tabs(
     tabs: Vec<(&'static str, String)>,
@@ -285,6 +331,7 @@ pub fn Tabs(
     #[prop(optional, into)] errors: Option<Signal<Vec<usize>>>,
 ) -> impl IntoView {
     let selector = crate::active_item("data-tab", active.into());
+    let keys: Vec<&'static str> = tabs.iter().map(|(k, _)| *k).collect();
     view! {
         <crate::ScrollRow active=selector class="mb-4 gap-1 border-b border-border" role="tablist">
             {tabs
@@ -297,8 +344,13 @@ pub fn Tabs(
                             role="tab"
                             class="-mb-px flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-[13px] font-semibold whitespace-nowrap text-text-muted hover:text-text aria-selected:border-accent aria-selected:text-text"
                             aria-selected=move || (active.get() == key).to_string()
+                            tabindex=move || if active.get() == key { "0" } else { "-1" }
                             data-tab=key
                             on:click=move |_| active.set(key)
+                            on:keydown={
+                                let keys = keys.clone();
+                                move |e| if let Some(to) = tab_keys(&e, &keys, key) { active.set(to) }
+                            }
                         >
                             {label}
                             {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.with(|v| v.get(i).cloned().unwrap_or_default())}</span> })}
@@ -347,6 +399,7 @@ pub fn PillTabs(
     #[prop(optional)] marks: Option<Signal<Vec<Vec<TabMark>>>>,
 ) -> impl IntoView {
     let selector = crate::active_item("data-tab", active);
+    let keys: Vec<&'static str> = tabs.iter().map(|(k, _)| *k).collect();
     view! {
         <crate::ScrollRow active=selector class="gap-1" role="tablist">
             {tabs
@@ -359,8 +412,13 @@ pub fn PillTabs(
                             role="tab"
                             class="flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-semibold whitespace-nowrap text-text-muted aria-selected:bg-surface aria-selected:text-text aria-selected:shadow-sm aria-selected:ring-1 aria-selected:ring-border aria-selected:ring-inset dark:aria-selected:bg-surface-3"
                             aria-selected=move || (active.get() == key).to_string()
+                            tabindex=move || if active.get() == key { "0" } else { "-1" }
                             data-tab=key
                             on:click=move |_| on_change.run(key)
+                            on:keydown={
+                                let keys = keys.clone();
+                                move |e| if let Some(to) = tab_keys(&e, &keys, key) { on_change.run(to) }
+                            }
                         >
                             {label}
                             {counts.map(|c| view! { <span class="text-[11px] text-text-faint tabular-nums">{move || c.with(|v| v.get(i).cloned().unwrap_or_default())}</span> })}
@@ -500,5 +558,17 @@ pub fn LockLine(
             <span class=ICON_LINE><Icon name="lock" small=true/></span>
             <span class="min-w-0 [overflow-wrap:anywhere]">{text}</span>
         </p>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn arrow_keys_move_between_tabs_and_wrap() {
+        let all = ["a", "b", "c"];
+        assert_eq!(super::tab_step("ArrowRight", &all, "c"), Some("a"));
+        assert_eq!(super::tab_step("ArrowLeft", &all, "a"), Some("c"));
+        assert_eq!(super::tab_step("End", &all, "a"), Some("c"));
+        assert_eq!(super::tab_step("Enter", &all, "a"), None);
     }
 }
