@@ -145,7 +145,9 @@ async fn version_diff(c: &Ctx, out: &mut Vec<String>) {
     c.ui.nav("/services/ssh").await;
     super::edit_mode(c).await;
     c.ui.fill("#f-services-ssh-target", "23").await;
-    super::wait_checked(c).await;
+    c.ui.wait_for("[data-testid=check-state]", LONG).await;
+    c.ui.wait_for("[data-testid=check-state]:not([data-state=checking])", LONG)
+        .await;
     super::review_now(c).await;
     c.ui.wait_for("[data-testid=review]", LONG).await;
     super::apply_now(c, "Applied").await;
