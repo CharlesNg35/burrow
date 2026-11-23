@@ -97,6 +97,16 @@ pub fn toggle(selected: &[String], value: &str, multi: bool) -> Vec<String> {
     out
 }
 
+pub fn lift_selected(mut list: Vec<ComboOption>, selected: &[String]) -> Vec<ComboOption> {
+    if let Some(at) = list.iter().position(|o| selected.contains(&o.value))
+        && at >= SHOWN
+    {
+        let o = list.remove(at);
+        list.insert(0, o);
+    }
+    list
+}
+
 pub fn start_at(visible: &[ComboOption], selected: &[String]) -> usize {
     visible
         .iter()
@@ -151,7 +161,14 @@ pub fn Combobox(
     let query = RwSignal::new(String::new());
     let active = RwSignal::new(0usize);
     let list_id = format!("{id}-list");
-    let visible = Memo::new(move |_| options.with(|o| filter_options(o, &query.get())));
+    let visible = Memo::new(move |_| {
+        let found = options.with(|o| filter_options(o, &query.get()));
+        if multi {
+            found
+        } else {
+            selected.with(|s| lift_selected(found, s))
+        }
+    });
     let pick = move |value: String| {
         if !options.with_untracked(|o| pickable(o, &value)) {
             return;
@@ -494,6 +511,14 @@ mod tests {
         assert_eq!(start_at(&many, &["app450".into()]), 0);
         assert_eq!(start_at(&many, &["app042".into()]), 42);
         assert_eq!(shown_len(&filter_options(&many, "app04")), 10);
+        let lifted = lift_selected(many.clone(), &["app450".into()]);
+        assert_eq!(lifted[0].value, "app450");
+        assert_eq!(lifted.len(), 500);
+        assert_eq!(start_at(&lifted, &["app450".into()]), 0);
+        assert_eq!(
+            lift_selected(many.clone(), &["app042".into()])[0].value,
+            "app000"
+        );
     }
 
     #[test]
