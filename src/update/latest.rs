@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use burrow_admin_proto::updates::LatestRelease;
 
-const FRESH: Duration = Duration::from_secs(6 * 3600);
+const FRESH: Duration = Duration::from_secs(30 * 60);
 const RETRY: Duration = Duration::from_secs(15 * 60);
 
 struct Known {

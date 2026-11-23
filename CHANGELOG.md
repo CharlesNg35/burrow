@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- burrow admin offers a new release to the server and its clients within 30 minutes of its publication, instead of up to 6 hours.
+
 ## [0.2.7]
 
 burrow admin at thousands of services: fast lists, forms and flow chart, searchable pickers, live status as changes only, and no scroll jumps.
