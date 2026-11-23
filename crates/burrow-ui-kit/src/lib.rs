@@ -39,7 +39,7 @@ pub use button::{
     button_class, menu_class,
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
-pub use combo::{ComboOption, Combobox, filter_options};
+pub use combo::{ComboOption, ComboSize, Combobox, filter_options};
 pub use deferred::{Deferred, LoadFailed};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};

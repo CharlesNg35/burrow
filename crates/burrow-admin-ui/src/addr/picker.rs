@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use burrow_admin_logic::choices::{ServiceChoice, client_choices, service_choices};
 use burrow_admin_logic::presence::Presence;
 use burrow_admin_proto::schema::Entity;
@@ -24,17 +26,35 @@ pub(super) fn options_for(
             .map(service_option)
             .collect();
     }
+    if *entity == Entity::Visitor {
+        return visitor_options();
+    }
     names_of(entity)
         .into_iter()
-        .map(|n| match entity {
-            Entity::Visitor => visitor_option(n),
-            _ => ComboOption {
-                value: n.clone(),
-                label: n,
-                ..ComboOption::default()
-            },
+        .map(|n| ComboOption {
+            value: n.clone(),
+            label: n,
+            ..ComboOption::default()
         })
         .collect()
+}
+
+fn visitor_options() -> Vec<ComboOption> {
+    let names = names_of(&Entity::Visitor);
+    store().status.with(|st| {
+        let open: HashMap<&str, u64> = st
+            .iter()
+            .flat_map(|st| st.visitors.iter())
+            .map(|v| (v.name.as_str(), v.open))
+            .collect();
+        names
+            .into_iter()
+            .map(|n| {
+                let busy = open.get(n.as_str()).is_some_and(|o| *o > 0);
+                visitor_option(n, busy)
+            })
+            .collect()
+    })
 }
 
 fn client_options(field: &[String], reserved: &[String]) -> Vec<ComboOption> {
@@ -66,12 +86,7 @@ pub fn service_option(c: ServiceChoice) -> ComboOption {
     }
 }
 
-fn visitor_option(n: String) -> ComboOption {
-    let open = store().status.with(|st| {
-        st.as_ref()
-            .and_then(|st| st.visitors.iter().find(|v| v.name == n))
-            .map_or(0, |v| v.open)
-    });
+fn visitor_option(n: String, busy: bool) -> ComboOption {
     let admin = store()
         .edit
         .peek(&VisitorEntry::ADMIN.of(&n))
@@ -80,7 +95,7 @@ fn visitor_option(n: String) -> ComboOption {
     if let Some(a) = admin {
         parts.push(format!("admin · {a}, uses burrow admin"));
     }
-    if open > 0 {
+    if busy {
         parts.push("in use now".into());
     }
     ComboOption {
@@ -110,8 +125,8 @@ pub fn RefPicker(
     #[prop(optional, into)] create_label: String,
     #[prop(default = None)] on_create: OnCreate,
 ) -> impl IntoView {
-    let options = Signal::derive(move || {
-        let skip = hidden.get();
+    let options = Memo::new(move |_| {
+        let skip: HashSet<String> = hidden.get().into_iter().collect();
         let mut all = options_for(&entity, &field, &reserved);
         all.retain(|o| !skip.contains(&o.value));
         all

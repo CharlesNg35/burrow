@@ -1,7 +1,9 @@
 use super::edits::Flow;
 use super::site_keys::settings_of;
 use super::world::Options;
-use super::{Ctx, SECS, applied, both_widths, edit_mode, open, open_review, run, wait_checked};
+use super::{
+    Ctx, SECS, applied, both_widths, edit_mode, open, open_review, pick_in, run, wait_checked,
+};
 
 const TOP: &str = "web:\n  http: 127.0.0.1:HTTP_PORT\n  forward_auth:\n    authelia: { service: authelia, path: /api/authz/forward-auth, copy_headers: [Remote-User] }\n";
 const SITES: &str = "  authelia:\n    client: home\n    target: 9091\n    web: auth.example.com\n  wiki:\n    client: home\n    target: 8080\n    web: { hosts: [wiki.example.com], forward_auth: authelia }\n";
@@ -104,7 +106,7 @@ async fn add_from_a_preset(c: &mut Ctx) {
     c.ui.choose("login-kind", "oauth2-proxy").await;
     c.ui.wait_text("[data-testid=login-dialog]", "X-Auth-Request-User", SECS)
         .await;
-    c.ui.choose("login-service", "authelia").await;
+    pick_in(c, "login-service", "authelia").await;
     both_widths(c, "login-add-dialog").await;
     c.ui.click("[data-testid=login-save]:not([disabled])").await;
     c.ui.wait_for(&card("oauth2-proxy"), SECS).await;
