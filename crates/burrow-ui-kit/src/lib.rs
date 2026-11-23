@@ -9,12 +9,14 @@ mod button;
 mod code;
 mod combo;
 mod deferred;
+mod diff;
 mod disclosure;
 mod feedback;
 mod field;
 mod icon;
 mod inline;
 mod input;
+mod more;
 mod name;
 mod overlay;
 mod path;
@@ -37,9 +39,10 @@ pub use button::{
     Button, ButtonLook, ButtonSize, IconButton, LinkButton, MENU_ITEM, MenuItem, SpinDot,
     button_class, menu_class,
 };
-pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
+pub use code::{CodeBlock, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};
 pub use deferred::{Deferred, LoadFailed};
+pub use diff::{DiffLine, DiffView, side_by_side};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, DANGER_CARD, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, field_message, tag_class};
@@ -49,6 +52,7 @@ pub use input::{
     ChipInput, ConfirmInput, INPUT_H, Segmented, Select, TextArea, TextInput, Toggle, field_class,
     split_entries,
 };
+pub use more::{ShowMore, next_step, shown_of};
 pub use name::{FILE_TAG_WIDTH, FileName, split_name};
 pub use overlay::{
     Dialog, Modal, Tooltip, active as active_element, auto_titles, focus_first, trap as trap_focus,

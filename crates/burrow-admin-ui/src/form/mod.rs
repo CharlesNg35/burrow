@@ -87,10 +87,7 @@ fn locked(n: &Node) -> Option<String> {
 fn ctx_now() -> Option<Ctx> {
     let s = store();
     s.schema.get_untracked()?;
-    Some(Ctx {
-        doc: s.edit.doc(),
-        path: Vec::new(),
-    })
+    Some(Ctx { path: Vec::new() })
 }
 
 #[derive(Clone, Copy)]

@@ -62,7 +62,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     }
     let changed = {
         let path = path.clone();
-        Signal::derive(move || {
+        Memo::new(move |_| {
             let now = e.value(&path).unwrap_or(Value::Null);
             e.editing.with(|m| {
                 let snap = m.get(&path).cloned().flatten().unwrap_or(Value::Null);
@@ -76,7 +76,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     };
     let blocker = {
         let (path, sec) = (path.clone(), section.clone());
-        Signal::derive(move || {
+        Memo::new(move |_| {
             (sec == SERVICES)
                 .then(|| e.value(&path).as_ref().and_then(paths::add_blocker))
                 .flatten()
@@ -87,7 +87,7 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     let file_tag = super::file::file_tag(path.clone());
     let read_only_note = super::file::read_only_note(path.clone());
     let tab_counts = tab_counts(&section, &name, tab_list);
-    let tab_errors = Signal::derive(move || {
+    let tab_errors = Memo::new(move |_| {
         let p = problems.get();
         tab_list.with(|t| {
             t.iter()
@@ -111,8 +111,14 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
         renaming,
     };
     let head_actions = head_actions(&parts, can);
-    let body = body(&parts, path_data, tab_counts, tab_errors, what);
-    let save_bar = save_bar(&parts, changed, blocker);
+    let body = body(
+        &parts,
+        path_data.into(),
+        tab_counts.into(),
+        tab_errors.into(),
+        what,
+    );
+    let save_bar = save_bar(&parts, changed.into(), blocker.into());
     let title_dot = title_dot(&section, &name);
     let crumb = Route::List(section.clone());
     let (ent_r, name_r) = (crate::screens::entity_of(&section), name.clone());
@@ -252,11 +258,11 @@ fn tab_signal(
     tab
 }
 
-fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Signal<PathData> {
+fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Memo<PathData> {
     let s = store();
     let e = s.edit;
     let (sec, nm) = (section.to_string(), name.to_string());
-    Signal::derive(move || {
+    Memo::new(move |_| {
         let status = s.status.get();
         match sec.as_str() {
             CLIENTS => {
@@ -301,11 +307,11 @@ fn protocol_tag(section: &str, name: &str) -> impl Fn() -> AnyView + Clone + use
     move || {
         match sec.as_str() {
         SERVICES => {
-            let svc = ServiceEntry::entry(&e.doc(), &nm).cloned().unwrap_or_default();
+            let svc = e.with_doc(|d| ServiceEntry::entry(d, &nm).cloned()).unwrap_or_default();
             super::protocol_view(&svc).into_any()
         }
         VISITORS => {
-            let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);
+            let admin = e.with_doc(|d| VisitorEntry::ADMIN.at(d, &nm).map(plain));
             let me = s
                 .welcome
                 .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm));
@@ -335,17 +341,17 @@ fn tab_counts(
     section: &str,
     name: &str,
     tab_list: Memo<Vec<(&'static str, String)>>,
-) -> Signal<Vec<String>> {
+) -> Memo<Vec<String>> {
     let s = store();
     let e = s.edit;
     let (sec, nm) = (section.to_string(), name.to_string());
-    Signal::derive(move || {
-        let doc = e.doc();
-        let me = doc
-            .get(&sec)
-            .and_then(|m| m.get(&nm))
-            .cloned()
-            .unwrap_or(Value::Null);
+    Memo::new(move |_| {
+        let me = e.with_doc(|doc| {
+            doc.get(&sec)
+                .and_then(|m| m.get(&nm))
+                .cloned()
+                .unwrap_or(Value::Null)
+        });
         tab_list.with(|t| {
             t.iter()
                 .map(|(k, _)| {

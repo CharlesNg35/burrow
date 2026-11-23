@@ -1,4 +1,4 @@
-use burrow_ui_kit::{HopState, Icon, PathData, PathDiagram, Tag, Tone};
+use burrow_ui_kit::{HopState, Icon, PathData, PathDiagram, ShowMore, Tag, Tone, shown_of};
 use leptos::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,33 +60,47 @@ fn tag_of(k: Kind) -> (&'static str, Tone) {
     }
 }
 
+const PATHS_STEP: usize = 20;
+
+fn path_line(name: String, p: PathData) -> impl IntoView {
+    let line = line_of(&p);
+    let title = line.clone();
+    let key = name.clone();
+    let (tag, tone) = tag_of(kind_of(&p));
+    let open = RwSignal::new(false);
+    let data = StoredValue::new(p);
+    view! {
+        <details class="group" data-review-path=key on:toggle:target=move |e| open.set(e.target().open())>
+            <summary class="flex cursor-pointer list-none items-center gap-3 rounded-card border border-border bg-surface px-4 py-2.5 text-[13px] hover:bg-surface-2 group-open:mb-2 [&::-webkit-details-marker]:hidden" data-testid="review-path-line">
+                <span class="flex shrink-0 text-text-muted transition-transform group-open:rotate-90"><Icon name="chevron-right" small=true/></span>
+                <span class="shrink-0 font-semibold">{name}</span>
+                <span class="min-w-0 flex-1 font-mono text-xs text-text-muted [overflow-wrap:anywhere] sm:truncate" title=title>{line}</span>
+                <Tag text=tag.to_string() tone=tone/>
+            </summary>
+            {move || open.get().then(|| view! { <PathDiagram data=data.get_value()/> })}
+        </details>
+    }
+}
+
 pub(super) fn diagrams(mut paths: Vec<(String, PathData)>) -> AnyView {
     if paths.len() == 1 {
         let (name, p) = paths.remove(0);
         return view! { <div data-review-path=name><PathDiagram data=p/></div> }.into_any();
     }
-    let rows = paths
-        .into_iter()
-        .map(|(name, p)| {
-            let line = line_of(&p);
-            let title = line.clone();
-            let key = name.clone();
-            let (tag, tone) = tag_of(kind_of(&p));
-            view! {
-                <details class="group" data-review-path=key>
-                    <summary class="flex cursor-pointer list-none items-center gap-3 rounded-card border border-border bg-surface px-4 py-2.5 text-[13px] hover:bg-surface-2 group-open:mb-2 [&::-webkit-details-marker]:hidden" data-testid="review-path-line">
-                        <span class="flex shrink-0 text-text-muted transition-transform group-open:rotate-90"><Icon name="chevron-right" small=true/></span>
-                        <span class="shrink-0 font-semibold">{name}</span>
-                        <span class="min-w-0 flex-1 font-mono text-xs text-text-muted [overflow-wrap:anywhere] sm:truncate" title=title>{line}</span>
-                        <Tag text=tag.to_string() tone=tone/>
-                    </summary>
-                    <PathDiagram data=p/>
-                </details>
-            }
-        })
-        .collect_view();
-    view! { <div class="mb-[22px] flex flex-col gap-2" data-testid="review-paths">{rows}</div> }
-        .into_any()
+    let total = paths.len();
+    let paths = StoredValue::new(paths);
+    let shown = RwSignal::new(PATHS_STEP);
+    view! {
+        <div class="mb-[22px] flex flex-col gap-2" data-testid="review-paths">
+            <For
+                each=move || 0..shown_of(total, shown.get())
+                key=|i| *i
+                children=move |i| paths.with_value(|p| p.get(i).cloned()).map(|(name, p)| path_line(name, p))
+            />
+            <ShowMore shown=shown total=total step=PATHS_STEP noun="services" class="px-0" testid="review-paths-more"/>
+        </div>
+    }
+    .into_any()
 }
 
 #[cfg(test)]

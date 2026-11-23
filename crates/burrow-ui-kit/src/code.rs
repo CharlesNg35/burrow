@@ -63,6 +63,37 @@ fn code_line(line: &str) -> AnyView {
     view! { <span>{line.to_string()}</span> }.into_any()
 }
 
+const CHUNK_LINES: usize = 200;
+const LINE_PX: f64 = 21.25;
+
+fn code_chunks(text: &str) -> AnyView {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= CHUNK_LINES {
+        return chunk_lines(&lines);
+    }
+    lines
+        .chunks(CHUNK_LINES)
+        .map(|part| {
+            let style = format!(
+                "display:block;content-visibility:auto;contain-intrinsic-height:auto {}px;min-width:100%;width:max-content",
+                part.len() as f64 * LINE_PX
+            );
+            view! { <span style=style data-code-chunk="">{chunk_lines(part)}</span> }
+        })
+        .collect_view()
+        .into_any()
+}
+
+fn chunk_lines(lines: &[&str]) -> AnyView {
+    let n = lines.len();
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| view! { {code_line(l)}{(i + 1 < n).then_some("\n")} })
+        .collect_view()
+        .into_any()
+}
+
 const SCROLL: &str = "overflow-auto max-h-[max(80vh,min(240px,100vh))] supports-[height:1dvh]:max-h-[max(80dvh,min(240px,100dvh))] px-4 py-3.5 font-mono max-sm:pt-2 sm:pr-44 text-[12.5px] leading-[1.7] whitespace-pre focus-visible:outline-offset-[-2px]";
 
 #[component]
@@ -106,123 +137,8 @@ pub fn CodeBlock(
                 role="region"
                 aria-label=region
             >
-                {move || {
-                    let t = text.get();
-                    let n = t.lines().count();
-                    t.lines()
-                        .enumerate()
-                        .map(|(i, l)| view! { {code_line(l)}{(i + 1 < n).then_some("\n")} })
-                        .collect_view()
-                }}
+                {move || text.with(|t| code_chunks(t))}
             </pre>
-        </div>
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffLine {
-    pub kind: char,
-    pub old: Option<u32>,
-    pub new: Option<u32>,
-    pub text: String,
-}
-
-fn row_class(kind: char) -> &'static str {
-    match kind {
-        '+' => "bg-diff-add",
-        '-' => "bg-diff-del",
-        '@' => "bg-accent-weak text-accent-ink",
-        _ => "",
-    }
-}
-
-fn sign(kind: char) -> (&'static str, &'static str) {
-    match kind {
-        '+' => ("+", "text-success"),
-        '-' => ("−", "text-danger"),
-        _ => ("", ""),
-    }
-}
-
-#[component]
-pub fn DiffView(
-    #[prop(into)] lines: Signal<Vec<DiffLine>>,
-    #[prop(optional, into)] split: Signal<bool>,
-    #[prop(optional)] testid: &'static str,
-) -> impl IntoView {
-    let unified = move || {
-        lines
-            .get()
-            .into_iter()
-            .map(|l| {
-                let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
-                let (s, sc) = sign(l.kind);
-                view! {
-                    <div class=format!("grid grid-cols-[38px_38px_18px_1fr] {}", row_class(l.kind)) role="row">
-                        <span class="pr-2 text-right text-text-faint select-none" role="cell">{num(l.old)}</span>
-                        <span class="pr-2 text-right text-text-faint select-none" role="cell">{num(l.new)}</span>
-                        <span class=format!("text-center select-none {sc}") role="cell">{s}</span>
-                        <span class="pr-3 whitespace-pre" role="cell">{l.text}</span>
-                    </div>
-                }
-            })
-            .collect_view()
-    };
-    let side = move || {
-        let all = lines.get();
-        let mut rows: Vec<(Option<DiffLine>, Option<DiffLine>)> = Vec::new();
-        let mut dels: Vec<DiffLine> = Vec::new();
-        let mut adds: Vec<DiffLine> = Vec::new();
-        let flush = |rows: &mut Vec<(Option<DiffLine>, Option<DiffLine>)>,
-                     dels: &mut Vec<DiffLine>,
-                     adds: &mut Vec<DiffLine>| {
-            let n = dels.len().max(adds.len());
-            let (d, a) = (std::mem::take(dels), std::mem::take(adds));
-            let mut d = d.into_iter();
-            let mut a = a.into_iter();
-            for _ in 0..n {
-                rows.push((d.next(), a.next()));
-            }
-        };
-        for l in all {
-            match l.kind {
-                '-' => dels.push(l),
-                '+' => adds.push(l),
-                _ => {
-                    flush(&mut rows, &mut dels, &mut adds);
-                    rows.push((Some(l.clone()), Some(l)));
-                }
-            }
-        }
-        flush(&mut rows, &mut dels, &mut adds);
-        rows.into_iter()
-            .map(|(a, b)| {
-                let half = |l: Option<DiffLine>, old: bool| match l {
-                    Some(l) => {
-                        let n = if old { l.old } else { l.new };
-                        let (s, sc) = sign(l.kind);
-                        view! {
-                            <div class=format!("grid grid-cols-[38px_18px_1fr] {}", row_class(l.kind))>
-                                <span class="pr-2 text-right text-text-faint select-none">{n.map(|n| n.to_string()).unwrap_or_default()}</span>
-                                <span class=format!("text-center select-none {sc}")>{s}</span>
-                                <span class="pr-3 whitespace-pre">{l.text}</span>
-                            </div>
-                        }
-                        .into_any()
-                    }
-                    None => view! { <div></div> }.into_any(),
-                };
-                view! { <div class="grid grid-cols-2 divide-x divide-border" role="row">{half(a, true)}{half(b, false)}</div> }
-            })
-            .collect_view()
-    };
-    view! {
-        <div
-            class="overflow-x-auto rounded-card border border-border bg-surface font-mono text-[12.5px] leading-[1.8]"
-            role="table"
-            data-testid=(!testid.is_empty()).then_some(testid)
-        >
-            {move || if split.get() { side().into_any() } else { unified().into_any() }}
         </div>
     }
 }
