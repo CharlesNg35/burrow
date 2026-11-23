@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use crate::more::{ShowMore, shown_of};
+use crate::cap::{ShowMore, shown_of};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffLine {
