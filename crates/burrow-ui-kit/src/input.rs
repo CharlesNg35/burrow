@@ -293,7 +293,7 @@ fn chip(
             data-chip=item.clone()
             data-invalid=problem.is_some().then_some("true")
         >
-            <span class="min-w-0 truncate">{item}</span>
+            <span class="min-w-0 truncate">{item.clone()}</span>
             {note.map(|n| view! { <span class="font-sans text-[11px] font-normal text-text-muted">{n}</span> })}
             <button
                 type="button"
