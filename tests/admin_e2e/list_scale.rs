@@ -34,6 +34,8 @@ struct Numbers {
     last: f64,
     load_long_max: f64,
     load_long_total: f64,
+    idle_long_max: f64,
+    idle_long_total: f64,
     scroll_long_max: f64,
     scroll_long_total: f64,
     scroll_frame_max: f64,
@@ -57,6 +59,8 @@ const MEASURE: &str = r#"(() => { window.__scale = null; (async () => {
   const last = await until(() => { const l = list(); l.scrollTop = l.scrollHeight; const r = l.querySelector('[data-row=LAST]'); return r && !r.hidden && r.getBoundingClientRect().height > 0; }, 120000) - t0;
   await new Promise(r => setTimeout(r, 1500));
   const load = long.splice(0);
+  await new Promise(r => setTimeout(r, 4000));
+  const idle = long.splice(0);
   const l = list();
   l.scrollTop = 0;
   await frame();
@@ -75,6 +79,7 @@ const MEASURE: &str = r#"(() => { window.__scale = null; (async () => {
   return {
     first, last,
     load_long_max: Math.max(0, ...load), load_long_total: sum(load),
+    idle_long_max: Math.max(0, ...idle), idle_long_total: sum(idle),
     scroll_long_max: Math.max(0, ...scroll), scroll_long_total: sum(scroll),
     scroll_frame_max: Math.max(...frames), scroll_frames_over_50: frames.filter(f => f > 50).length,
     rows_in_dom: l.querySelectorAll('[data-row]').length,
