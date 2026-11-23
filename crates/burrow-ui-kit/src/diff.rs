@@ -150,6 +150,7 @@ fn DiffRows(rows: Arc<Rows>, gutter: String) -> impl IntoView {
     let shown = RwSignal::new(STEP);
     let gutter = Arc::new(gutter);
     view! {
+        <div class="overflow-x-auto font-mono text-[12.5px] leading-[1.8]" role="table" aria-label="Changed lines">
         <div role="rowgroup">
             <For
                 each=move || chunks(shown_of(total, shown.get()))
@@ -161,7 +162,8 @@ fn DiffRows(rows: Arc<Rows>, gutter: String) -> impl IntoView {
                 }
             />
         </div>
-        <ShowMore shown=shown total=total step=STEP noun="lines" class="border-t border-border font-sans" testid="diff-more"/>
+        </div>
+        <ShowMore shown=shown total=total step=STEP noun="lines" class="border-t border-border" testid="diff-more"/>
     }
 }
 
@@ -183,9 +185,7 @@ pub fn DiffView(
     };
     view! {
         <div
-            class="overflow-x-auto rounded-card border border-border bg-surface font-mono text-[12.5px] leading-[1.8]"
-            role="table"
-            aria-label="Changed lines"
+            class="overflow-hidden rounded-card border border-border bg-surface"
             data-testid=(!testid.is_empty()).then_some(testid)
         >
             {body}
