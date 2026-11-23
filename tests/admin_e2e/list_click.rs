@@ -251,3 +251,49 @@ fn list_click(c: &mut Ctx) -> Flow<'_> {
 fn a_clicked_row_stays_where_it_was() {
     run("list-click", opts(), false, list_click);
 }
+
+async fn button_at(c: &Ctx, action: &str) -> (String, f64, f64) {
+    let got: (String, f64, f64, bool) = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const rows = [...document.querySelectorAll('{LIST} [data-row]')].filter(r => r.dataset.selected !== 'true' && r.querySelector('[data-action={action}]')); const r = rows[1]; const b = r.querySelector('[data-action={action}]').getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2; const hit = document.elementFromPoint(x, y); return [r.dataset.row, x, y, !!hit && !!hit.closest('[data-action={action}]')]; }})()"
+        ))
+        .await;
+    assert!(
+        got.3,
+        "the {action} button sits above the card's link: {got:?}"
+    );
+    (got.0, got.1, got.2)
+}
+
+fn revision_buttons(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(1440, 900).await;
+        c.ui.nav("/activity").await;
+        rows_shown(c, KEPT).await;
+        let (key, x, y) = button_at(c, "view").await;
+        c.ui.click_at(x, y).await;
+        after(c, &key).await;
+        let (key, x, y) = button_at(c, "revert").await;
+        c.ui.click_at(x, y).await;
+        c.ui.wait_true(
+            "location.pathname.endsWith('/review')",
+            "Revert opens the review, not the version under it",
+            SECS,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let path: String = c.ui.eval("location.pathname").await;
+        assert!(
+            path.ends_with("/review") && !path.contains(&key),
+            "the card's link did not also fire: {path}"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_revision_card_buttons_keep_their_own_action() {
+    run("list-click-buttons", opts(), false, revision_buttons);
+}
