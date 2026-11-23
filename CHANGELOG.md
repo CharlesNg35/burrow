@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 - burrow admin's Raw config: **Shift+F12** on a client, visitor, service or login service name (or the key defining it) lists every place using it, in every file, unsaved edits included; Enter or a click opens it. The hover card on a name ends with Definition · Uses links, and shows only once the pointer rests on it.
-- leptos-config-editor 0.2.2.
+- leptos-config-editor 0.2.3: Find uses starts on the use at the caret and says when other files could not be searched; a read-only range over a key locks its name too.
 - burrow admin's Settings keeps its tab, and Raw config its full screen, while you visit other pages; a reload keeps the tab in the address.
 - Raw config no longer shows the Settings form's save bar (Close, Add to changes) while the form is in edit mode on another tab.
 - **Fewer, sharper warnings.** A warning now means something is likely wrong, never a choice written on purpose:
