@@ -82,13 +82,13 @@ pub fn ListCard(
                     </Link>
                     {row.title_tag.clone().map(|(t, tone)| view! { <span class=tag_class(tone)>{t}</span> })}
                 </span>
-                {(!row.line2.is_empty()).then(|| {
+                {(live.is_some() || !row.line2.is_empty()).then(|| {
                     let line2 = row.line2.clone();
                     let parts = Memo::new(move |_| {
                         let text = live.map_or_else(|| line2.clone(), |l| l.get().1);
-                        text.split(" · ").map(String::from).collect::<Vec<_>>()
+                        text.split(" · ").filter(|p| !p.trim().is_empty()).map(String::from).collect::<Vec<_>>()
                     });
-                    view! { <span class="block max-h-[2lh] overflow-hidden text-sm text-text-muted [overflow-wrap:anywhere]"><burrow_ui_kit::Inline items=parts/></span> }
+                    view! { <span class="block max-h-[2lh] overflow-hidden text-sm text-text-muted [overflow-wrap:anywhere]" hidden=move || parts.with(Vec::is_empty)><burrow_ui_kit::Inline items=parts/></span> }
                 })}
                 {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
                 {(!row.tags.is_empty() || row.kept.is_some() || row.health.is_some() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
