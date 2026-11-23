@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+- **burrow admin stays fast with thousands of services** (measured at 5,000 services, 500 clients and 1,000 visitors):
+  - **lists:** the services, clients and visitors lists draw only the rows in view. The first rows show in 0.24 s instead of 7 s, the page holds about 16 rows instead of 5,000, and the memory drops from 325 MB to about 55 MB. A live update no longer stalls scrolling;
+  - **typing:** a key in a service form takes about 35 ms instead of 165 ms, and in Settings about 10 ms instead of 150 ms; problems inside a service are rechecked only for what changed;
+  - **flow chart:** above 200 services each client folds into one row ("home · 1,002 services · 1 down"); a click or Enter unfolds it, and a down service always stays visible. A search box finds services and clients, only the rows near the view are drawn, and the chart opens in about 65 ms;
+  - **pickers:** the service of a login service, Traffic's service and "Save in" are searchable pickers. A picker shows the first 100 matches ("N more, type to narrow"), and the arrow keys move only its own list, never the page;
+  - **long sections:** a client's services, health per client, the certificate queue, a version's diff (400 lines at a time), review lists, a conflict's changes and a visitor's services show their first rows, then Show more or Show all;
+  - **search:** results are ranked exact, then prefix, then the rest, five per kind, with "Show all N" opening the list.
+- **No jumps while you click:** picking a row in a list keeps the list where it is; Back and Forward restore where you were; closing a dialog, opening a menu or going to a field moves the page no more than needed.
+- **A revert right after an apply no longer reports a conflict with your own change:** it now checks against the server's current version.
 - **burrow admin's live status sends only what changed:** after one full status, each second carries only the added, changed and removed services, clients and visitors, and a busy service only its counters, so thousands of services no longer cost the browser a full status every second. An older burrow admin keeps getting the full status, and a new one works with an older server as before.
 - burrow admin's Raw config: **Shift+F12** on a client, visitor, service or login service name (or the key defining it) lists every place using it, in every file, unsaved edits included; Enter or a click opens it. The hover card on a name ends with Definition · Uses links, and shows only once the pointer rests on it.
 - leptos-config-editor 0.2.3: Find uses starts on the use at the caret and says when other files could not be searched; a read-only range over a key locks its name too.

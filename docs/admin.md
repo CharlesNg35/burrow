@@ -86,7 +86,7 @@ What each page shows:
   - a certificate that cannot be issued or ends soon;
   - an update that failed;
   - a server older than this burrow admin.
-- **Flow chart** (the button on the Overview, or the `F` key) draws every path from the internet and the visitors, through the server and the clients, to the targets. **Problems** shows only the paths with a problem. Click a service or a client to open it; `Esc` closes.
+- **Flow chart** (the button on the Overview, or the `F` key) draws every path from the internet and the visitors, through the server and the clients, to the targets. **Problems** shows only the paths with a problem, and the search box finds services and clients by name, target or client. Above 200 services each client folds into one row with its count and how many are down; click it (or press Enter) to unfold it. A down service always stays as its own row. Click a service or a client to open it; `Esc` closes.
 - **Services, Clients, Visitors:** a list with a search and filters on the left, and the picked item on the right. The filters:
   - Services: Public, Websites, Visitors, TCP, UDP.
   - Clients: Online, Offline.
