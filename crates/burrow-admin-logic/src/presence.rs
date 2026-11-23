@@ -418,7 +418,7 @@ mod tests {
         assert!(boxed.refuses());
         let mut quiet = st.clone();
         quiet.clients[2].available = None;
-        assert!(!of(Some(&quiet), "box").unwrap().refuses());
+        assert!(!of(Some(&live(&quiet)), "box").unwrap().refuses());
         assert_eq!(of(Some(&live(&st)), "old").unwrap().system_short(), "");
     }
 
@@ -436,7 +436,7 @@ mod tests {
         a.clients[0].update = Some(job(3));
         let mut b = status();
         b.clients[0].update = Some(job(4));
-        assert_eq!(of(Some(&a), "nas"), of(Some(&b), "nas"));
+        assert_eq!(of(Some(&live(&a)), "nas"), of(Some(&live(&b)), "nas"));
     }
 
     #[test]
