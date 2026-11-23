@@ -158,6 +158,7 @@ pub fn ListPane(
         .map(|(k, _)| *k)
         .find(|k| asked.as_deref() == Some(*k));
     let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
+    follow_url(q, filter, filters.iter().map(|(k, _)| *k).collect());
     let hay = Memo::new(move |_| rows.with(|r| r.iter().map(Row::haystack).collect::<Vec<_>>()));
     let files = Memo::new(move |_| {
         crate::store::store()
@@ -465,6 +466,24 @@ pub(crate) fn filter_chips(
         })
         .collect_view();
     view! { <ScrollRow active=active class="w-0 min-w-full gap-1.5" testid="filter-chips">{chips}</ScrollRow> }
+}
+
+fn follow_url(q: RwSignal<String>, filter: RwSignal<&'static str>, keys: Vec<&'static str>) {
+    let s = crate::store::store();
+    Effect::new(move |was: Option<u64>| {
+        let now = s.query_seen.get();
+        if was.is_some_and(|w| w != now) {
+            if let Some(text) = route::query(route::SEARCH_QUERY) {
+                q.set(text);
+            }
+            if let Some(k) = route::query(route::FILTER_QUERY)
+                .and_then(|a| keys.iter().copied().find(|k| *k == a))
+            {
+                filter.set(k);
+            }
+        }
+        now
+    });
 }
 
 fn keep_selected_in_view(
