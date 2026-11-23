@@ -92,7 +92,7 @@ fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.nav("/services/web?tab=settings").await;
-        c.ui.wait_for("[data-testid=entity-list] [data-row=svc29]", SECS)
+        c.ui.wait_for("[data-testid=entity-list] [data-row=svc00]", SECS)
             .await;
         c.ui.wait_true(
             "(() => { const a = document.querySelector('[data-testid=entity-list]').getBoundingClientRect(); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); return Math.abs(a.top - h.height) < 1.5 && Math.abs(a.height - (window.innerHeight - h.height)) < 1.5; })()",

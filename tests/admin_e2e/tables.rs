@@ -156,6 +156,12 @@ pub(super) async fn ticks(c: &Ctx, css: &str) -> String {
     before
 }
 
+const AT_BOTTOM: &str = "(async () => { const l = document.querySelector('[data-testid=list]'); const frame = () => new Promise(r => requestAnimationFrame(r)); let was = -1; for (let i = 0; i < 60; i++) { l.scrollTop = l.scrollHeight; await frame(); await frame(); if (l.scrollTop === was) break; was = l.scrollTop; } return l.scrollTop; })()";
+
+async fn settle_at_bottom(c: &Ctx) -> f64 {
+    c.ui.eval(AT_BOTTOM).await
+}
+
 fn live(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -165,10 +171,7 @@ fn live(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
-        let bottom: f64 = c
-            .ui
-            .eval("(() => { const l = document.querySelector('[data-testid=list]'); l.scrollTop = l.scrollHeight; return l.scrollTop; })()")
-            .await;
+        let bottom = settle_at_bottom(c).await;
         assert!(bottom > 0.0, "the client list scrolls");
         ticks(c, "[data-testid=list] [data-row=home]").await;
         let kept: f64 =
