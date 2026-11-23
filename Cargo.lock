@@ -2551,9 +2551,9 @@ dependencies = [
 
 [[package]]
 name = "leptos-config-editor"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b21d14c80112cf6b793746a5f7db074bdd21a014e0405232804583063f03eea2"
+checksum = "42d2c45a485cd060164e5b95366771d74971629e90d999e92ad96f0e7d259481"
 dependencies = [
  "aho-corasick",
  "jsonschema",
