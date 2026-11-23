@@ -298,7 +298,7 @@ fn path_data(section: &str, name: &str, editing: Memo<bool>) -> Memo<PathData> {
             }
         }
     });
-    data.into()
+    data
 }
 
 fn protocol_tag(section: &str, name: &str) -> impl Fn() -> AnyView + Clone + use<> {
