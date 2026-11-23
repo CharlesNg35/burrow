@@ -109,7 +109,7 @@ fn a_text_change_may_not_delete_a_drop_in_that_still_holds_items() {
     let set = Set::new(&[("apps.yaml", BLOG)]);
     let s = set.session(true);
     let t = edit_text(&set.core, &s);
-    let mut ops = replace(&t, |x| x.replace("3001", "3002"));
+    let mut ops = replace(&t, |x| x.replace("target: 3001", "target: 3002"));
     ops.push(Op::DropFile {
         file: "server.d/apps.yaml".into(),
     });
@@ -128,7 +128,10 @@ fn a_read_only_file_is_marked_and_a_change_to_it_is_refused() {
     let t = edit_text(&set.core, &s);
     assert!(t.files[1].read_only.is_some());
     let e = set
-        .plan(&s, &replace(&t, |x| x.replace("3001", "3002")))
+        .plan(
+            &s,
+            &replace(&t, |x| x.replace("target: 3001", "target: 3002")),
+        )
         .err()
         .unwrap();
     assert_eq!(e.code, ErrorCode::NotWritable, "{}", e.message);

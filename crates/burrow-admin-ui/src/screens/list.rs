@@ -22,7 +22,7 @@ pub fn TocRow(
     };
     view! {
         <div class=move || format!("relative mx-3 mb-0.5 flex items-center gap-2 rounded-md px-3 py-2 {}", class()) data-row=row.key.clone() data-group=row.group.clone() data-selected=move || selected.get().then_some("true") hidden=move || hidden.get()>
-            <Link to=row.to.clone() class="min-w-0 flex-1 truncate text-sm font-semibold text-inherit no-underline after:absolute after:inset-0 after:rounded-md" testid="list-row" current=selected>
+            <Link to=row.to.clone() class="min-w-0 flex-1 truncate text-sm font-semibold text-inherit no-underline after:absolute after:inset-0 after:z-[1] after:rounded-md" testid="list-row" current=selected>
                 {row.title.clone()}
             </Link>
             {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
@@ -77,7 +77,7 @@ pub fn ListCard(
             </span>
             <span class="min-w-0">
                 <span class="flex min-w-0 items-center gap-1.5">
-                    <Link to=row.to.clone() class="truncate font-semibold text-text no-underline after:absolute after:inset-0 after:rounded-[11px]" testid="list-row" current=selected>
+                    <Link to=row.to.clone() class="truncate font-semibold text-text no-underline after:absolute after:inset-0 after:z-[1] after:rounded-[11px]" testid="list-row" current=selected>
                         {row.title.clone()}
                     </Link>
                     {row.title_tag.clone().map(|(t, tone)| view! { <span class=tag_class(tone)>{t}</span> })}

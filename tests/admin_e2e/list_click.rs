@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::world::Options;
-use super::{Ctx, SECS, edit_mode, open, open_more, run, wait_checked};
+use super::{Ctx, SECS, applied, edit_mode, open, open_more, open_review, run, wait_checked};
 
 const LIST: &str = "[data-testid=list]";
 const ROWS: usize = 40;
@@ -207,10 +207,35 @@ async fn dialog_close_stays(c: &mut Ctx) {
     c.ui.viewport(1440, 900).await;
 }
 
+async fn whole_card_opens(c: &mut Ctx) {
+    c.ui.nav("/services").await;
+    rows_shown(c, ROWS).await;
+    for (part, css) in [
+        ("second line", "[data-item]"),
+        ("counter", ":scope > span:last-child"),
+    ] {
+        let at: Vec<f64> = c
+            .ui
+            .eval(&format!(
+                "(() => {{ const rows = [...document.querySelectorAll('{LIST} [data-row]')].filter(r => r.dataset.selected !== 'true' && r.querySelector('[data-item]')); const r = rows[1]; const b = r.querySelector('{css}').getBoundingClientRect(); const x = b.left + Math.min(b.width / 2, 30), y = b.top + b.height / 2; const hit = document.elementFromPoint(x, y); window.__card = r.dataset.row; return [x, y, hit && hit.closest('[data-testid=list-row]') ? 1 : 0, getComputedStyle(hit).cursor === 'pointer' ? 1 : 0]; }})()"
+            ))
+            .await;
+        assert!(
+            at[2] == 1.0 && at[3] == 1.0,
+            "the {part} of a card belongs to its link, with a pointer cursor: {at:?}"
+        );
+        let key: String = c.ui.eval("window.__card").await;
+        c.ui.click_at(at[0], at[1]).await;
+        c.ui.wait_for(&format!("[data-testid=detail][data-name={key}]"), SECS)
+            .await;
+    }
+}
+
 fn list_click(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.viewport(1440, 900).await;
+        whole_card_opens(c).await;
         page(c, "/services", ROWS, "services").await;
         page(c, "/clients", ROWS, "clients").await;
         page(c, "/visitors", ROWS, "visitors").await;
@@ -225,4 +250,60 @@ fn list_click(c: &mut Ctx) -> Flow<'_> {
 #[test]
 fn a_clicked_row_stays_where_it_was() {
     run("list-click", opts(), false, list_click);
+}
+
+async fn button_at(c: &Ctx, action: &str) -> (String, f64, f64) {
+    let got: (String, f64, f64, bool) = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const rows = [...document.querySelectorAll('{LIST} [data-row]')].filter(r => r.dataset.selected !== 'true' && r.querySelector('[data-action={action}]')); const r = rows[0]; const b = r.querySelector('[data-action={action}]').getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2; const hit = document.elementFromPoint(x, y); return [r.dataset.row, x, y, !!hit && !!hit.closest('[data-action={action}]')]; }})()"
+        ))
+        .await;
+    assert!(
+        got.3,
+        "the {action} button sits above the card's link: {got:?}"
+    );
+    (got.0, got.1, got.2)
+}
+
+fn revision_buttons(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.viewport(1440, 900).await;
+        for (i, port) in ["4001", "4002"].into_iter().enumerate() {
+            c.ui.nav("/services/web").await;
+            edit_mode(c).await;
+            c.ui.fill("#f-services-web-target", port).await;
+            wait_checked(c).await;
+            open_review(c, &format!("revision-{i}")).await;
+            applied(c, &format!("revision-{i}-applied")).await;
+        }
+        c.ui.nav("/activity").await;
+        rows_shown(c, KEPT).await;
+        let (key, x, y) = button_at(c, "revert").await;
+        c.ui.click_at(x, y).await;
+        c.ui.wait_true(
+            "location.pathname.endsWith('/review')",
+            "Revert opens the review, not the version under it",
+            SECS,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let path: String = c.ui.eval("location.pathname").await;
+        assert!(
+            path.ends_with("/review") && !path.contains(&key),
+            "the card's link did not also fire: {path}"
+        );
+        c.ui.nav("/activity").await;
+        rows_shown(c, KEPT).await;
+        let (key, x, y) = button_at(c, "view").await;
+        c.ui.click_at(x, y).await;
+        after(c, &key).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_revision_card_buttons_keep_their_own_action() {
+    run("list-click-buttons", opts(), false, revision_buttons);
 }

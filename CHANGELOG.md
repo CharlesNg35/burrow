@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.8]
+
+leptos-config-editor 0.2.4 with back and forward after a jump, new releases offered within 10 minutes, and list cards that open from anywhere.
+
+- leptos-config-editor 0.2.4 in Raw config: Alt+← and Alt+→ go back and forward after a jump (Ctrl+- on macOS); a jump puts its target in the middle and flashes it; F12 or Shift+F12 with nothing to find says so instead of opening the browser's developer tools; a match is no longer hidden under the find box; tips on locked text wait for the pointer to rest; a narrow editor has a narrower gutter.
+- burrow admin offers a new release to the server and its clients within 10 minutes of its publication, instead of up to 6 hours.
+- Clicking anywhere on a card in the services, clients or visitors list opens it, its second line too (such as `65045 → 192.168.50.142:22`), which showed a text cursor and ignored the click.
+
 ## [0.2.7]
 
 burrow admin at thousands of services: fast lists, forms and flow chart, searchable pickers, live status as changes only, and no scroll jumps.
