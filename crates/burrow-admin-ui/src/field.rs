@@ -55,6 +55,7 @@ fn ref_names(node: &Node) -> Vec<String> {
 
 #[derive(Clone)]
 pub struct Ctx {
+    pub doc: std::sync::Arc<Value>,
     pub path: Vec<String>,
 }
 
@@ -77,7 +78,7 @@ pub fn plain(v: &Value) -> String {
     })
 }
 
-pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], _ctx: &Ctx) -> AnyView {
+pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
     if reserved.iter().any(|r| r == name) {
         let to = Route::Settings;
         let local = name.to_string();
@@ -90,9 +91,7 @@ pub(crate) fn ref_link(entity: &Entity, name: &str, reserved: &[String], _ctx: &
     }
     let mut at = burrow_config::entity_path(entity);
     at.push(name.to_string());
-    let exists = store()
-        .edit
-        .with_doc(|doc| burrow_admin_proto::value::get(doc, &at).is_some());
+    let exists = burrow_admin_proto::value::get(&ctx.doc, &at).is_some();
     let name = name.to_string();
     if exists {
         let to = match entity {

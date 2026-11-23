@@ -94,6 +94,7 @@ pub struct Edit {
     pub local: RwSignal<BTreeMap<Path, String>>,
     pub related: Memo<BTreeMap<Path, String>>,
     draft_dirty: Memo<bool>,
+    shared: Memo<Arc<Value>>,
     pub plan: RwSignal<Option<Arc<Plan>>>,
     pub checking: RwSignal<bool>,
     pub check_error: RwSignal<Option<ErrorBody>>,
@@ -197,6 +198,7 @@ impl Edit {
 
     pub fn held_by(text_held: Signal<bool>) -> Edit {
         let draft = RwSignal::new(Changeset::new(Value::Null));
+        let scratch = RwSignal::new(Vec::new());
         Edit {
             draft,
             base_rev: RwSignal::new(String::new()),
@@ -205,6 +207,14 @@ impl Edit {
             local: RwSignal::new(BTreeMap::new()),
             related: Memo::new(move |_| related_errors(draft)),
             draft_dirty: Memo::new(move |_| draft.with(Changeset::dirty)),
+            shared: Memo::new_with_compare(
+                move |_| {
+                    scratch.with(|all: &Vec<Scratch>| {
+                        draft.with(|d| Arc::new(scratch::placed_or_same(d.draft(), all)))
+                    })
+                },
+                |_, _| true,
+            ),
             plan: RwSignal::new(None),
             checking: RwSignal::new(false),
             check_error: RwSignal::new(None),
@@ -219,11 +229,15 @@ impl Edit {
             auto_apply: RwSignal::new(false),
             editing: RwSignal::new(BTreeMap::new()),
             after_apply: RwSignal::new(None),
-            scratch: RwSignal::new(Vec::new()),
+            scratch,
             seq: StoredValue::new(0),
             carry: StoredValue::new(Vec::new()),
             text_held,
         }
+    }
+
+    pub fn shared_doc(&self) -> Arc<Value> {
+        self.shared.get()
     }
 
     pub fn dirty(&self) -> bool {

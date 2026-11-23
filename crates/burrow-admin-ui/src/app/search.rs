@@ -110,7 +110,7 @@ fn hit(needle: &str, l: &str) -> bool {
     needle.is_empty() || l.to_lowercase().contains(needle)
 }
 
-fn names(doc: &Value, sec: &str) -> impl Iterator<Item = &String> {
+fn names<'a>(doc: &'a Value, sec: &str) -> impl Iterator<Item = &'a String> {
     doc.get(sec)
         .and_then(Value::as_object)
         .into_iter()

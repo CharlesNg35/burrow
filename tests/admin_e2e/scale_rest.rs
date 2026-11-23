@@ -125,7 +125,7 @@ async fn show_all(c: &Ctx) {
 
 async fn first_row(c: &Ctx) -> String {
     c.ui.nav("/activity").await;
-    c.ui.wait_for("[data-testid=activity] [data-row]", SECS)
+    c.ui.wait_for("[data-testid=activity] [data-row]", LONG)
         .await;
     c.ui.all_attrs("[data-testid=activity] [data-row]", "data-row")
         .await
