@@ -169,7 +169,7 @@ pub(super) fn client_row(
 }
 
 pub(super) fn visitor_row(
-    name: &String,
+    name: &str,
     v: &Value,
     draft: &Value,
     status: Option<&Status>,
@@ -183,7 +183,7 @@ pub(super) fn visitor_row(
         .cloned();
     let open = st.as_ref().map(|x| x.open).unwrap_or(0);
     let seen = st.as_ref().and_then(|x| x.last_seen_secs);
-    let in_use = open > 0 || me == Some(name.as_str());
+    let in_use = open > 0 || me == Some(name);
     let admin = VisitorEntry::ADMIN.get(v).map(plain);
     let mut filters = vec![];
     if admin.is_some() {
@@ -199,7 +199,7 @@ pub(super) fn visitor_row(
                     ServiceEntry::VISITORS
                         .get(x)
                         .and_then(Value::as_array)
-                        .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))
+                        .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name)))
                 })
                 .map(|(n, _)| n.clone())
                 .collect()
@@ -211,11 +211,11 @@ pub(super) fn visitor_row(
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
     Row {
-        key: name.clone(),
+        key: name.to_string(),
         to,
         icon: if admin.is_some() { "shield" } else { "person" },
         dot: Some(if in_use { Tone::Success } else { Tone::Neutral }),
-        title: name.clone(),
+        title: name.to_string(),
         title_tag: admin.map(|a| {
             (
                 a.clone(),
@@ -226,7 +226,7 @@ pub(super) fn visitor_row(
                 },
             )
         }),
-        meta: if me == Some(name.as_str()) && open == 0 {
+        meta: if me == Some(name) && open == 0 {
             "you".into()
         } else if status.is_some() {
             format::visitor_use_short(open, seen)
@@ -253,7 +253,7 @@ pub(super) fn visitor_row(
 }
 
 pub(super) fn service_row(
-    name: &String,
+    name: &str,
     (v, https_on): (&Value, bool),
     status: Option<&Status>,
     pending: Option<&'static str>,
@@ -294,7 +294,7 @@ pub(super) fn service_row(
         tags.push((burrow_admin_logic::web::NO_WAY_IN.into(), Tone::Warning));
     }
     Row {
-        key: name.clone(),
+        key: name.to_string(),
         to,
         icon: if public { "globe" } else { "lock" },
         health: count
@@ -307,7 +307,7 @@ pub(super) fn service_row(
         } else {
             Tone::Warning
         }),
-        title: name.clone(),
+        title: name.to_string(),
         meta: st
             .as_ref()
             .map(|x| format!("{} open", x.open))
