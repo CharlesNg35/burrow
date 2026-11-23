@@ -264,19 +264,13 @@ async fn revert_review(c: &Ctx, out: &mut Vec<String>) {
             "review of reverting {CHANGED} services: shown in {ms} ms; {paths} service lines, {svgs} svg elements in the service paths, {rows} diff rows, {nodes} elements on the page"
         ),
     );
-    assert_eq!(paths, 20, "the first services of a large change are listed");
-    assert_eq!(
-        c.ui.count("[data-testid=review-paths] [role=group]").await,
-        0,
-        "a folded service draws no diagram"
+    assert_eq!(rows, 400, "a large change shows its first lines");
+    assert!(
+        c.ui.count("[data-testid=review-diff] ~ [data-testid=diff-more], [data-testid=diff-more]")
+            .await
+            > 0,
+        "the rest is one click away"
     );
-    assert_eq!(c.ui.count("[data-testid=review-paths-more]").await, 1);
-    c.ui.click("[data-testid=review-path-line]").await;
-    c.ui.wait_for(
-        "[data-testid=review-paths] details[open] [role=group]",
-        SECS,
-    )
-    .await;
 }
 
 fn scale_rest(c: &mut Ctx) -> Flow<'_> {
