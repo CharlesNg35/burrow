@@ -10,6 +10,7 @@ use crate::screens::create::{NewEntity, NewWebsite};
 use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
 
+use super::index::Index;
 use super::rows::{client_row, service_row, visitor_row};
 use super::{Detail, plural};
 
@@ -37,6 +38,7 @@ fn one_row(
         Option<&burrow_admin_proto::serde_json::Map<String, Value>>,
     ),
     live: &Live,
+    ix: &Index,
 ) -> Row {
     let s = store();
     let https_on = ServerConfig::WEB
@@ -65,13 +67,10 @@ fn one_row(
     };
     let to = Route::Detail(section.to_string(), name.to_string());
     let owned = name.to_string();
-    let status = live.status.as_deref();
     let mut row = match entity_of_section(section) {
-        Some(Entity::Client) => client_row(&owned, draft, status, pending, to),
-        Some(Entity::Visitor) => {
-            visitor_row(&owned, v, draft, status, live.me.as_deref(), pending, to)
-        }
-        _ => service_row(&owned, (v, https_on), status, pending, to),
+        Some(Entity::Client) => client_row(&owned, ix, pending, to),
+        Some(Entity::Visitor) => visitor_row(&owned, v, ix, live.me.as_deref(), pending, to),
+        _ => service_row(&owned, (v, https_on), ix, pending, to),
     };
     if let Some(m) = mark {
         row.tags.insert(0, m);
@@ -100,7 +99,8 @@ pub fn row_for(section: &str, name: &str) -> Option<Row> {
         let draft = d.draft();
         let v = draft.get(section)?.get(name)?;
         let base_items = d.base().get(section).and_then(Value::as_object);
-        Some(one_row(section, name, v, (draft, base_items), &live))
+        let ix = Index::new(live.status.as_deref(), draft);
+        Some(one_row(section, name, v, (draft, base_items), &live, &ix))
     })
 }
 
@@ -110,10 +110,11 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         let draft = d.draft();
         let base_items = d.base().get(section).and_then(Value::as_object);
         let items = draft.get(section).and_then(Value::as_object);
+        let ix = Index::new(live.status.as_deref(), draft);
         let mut out: Vec<Row> = items
             .into_iter()
             .flatten()
-            .map(|(name, v)| one_row(section, name, v, (draft, base_items), &live))
+            .map(|(name, v)| one_row(section, name, v, (draft, base_items), &live, &ix))
             .collect();
         let gone = base_items.into_iter().flatten().filter(|(k, _)| {
             !items.is_some_and(|i| i.contains_key(*k))

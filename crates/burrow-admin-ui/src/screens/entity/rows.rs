@@ -1,6 +1,5 @@
 use burrow_admin_logic::web::SiteKind;
 use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Tone, tag_class};
 use leptos::prelude::*;
@@ -10,6 +9,8 @@ use crate::format;
 use crate::route::{Link, Route};
 use crate::screens::Row;
 use crate::screens::paths::clients_of;
+
+use super::index::Index;
 
 pub(crate) fn protocol_tag(svc: &Value) -> (String, Tone) {
     let p = ServiceEntry::PROTOCOL
@@ -103,33 +104,22 @@ pub(crate) fn service_tr(name: &str, svc: &Value, rate: bool) -> impl IntoView +
 
 pub(super) fn client_row(
     name: &String,
-    draft: &Value,
-    status: Option<&Status>,
+    ix: &Index,
     pending: Option<&'static str>,
     to: Route,
 ) -> Row {
-    let c = status
-        .as_ref()
-        .and_then(|st| burrow_admin_logic::presence::client(st, name))
-        .cloned();
-    let presence = format::presence_of(status, name);
+    let c = ix.client(name);
+    let presence = ix.presence(name);
     let on = presence.up();
-    let served: Vec<String> = ServiceEntry::entries(draft)
-        .map(|m| {
-            m.iter()
-                .filter(|(_, x)| clients_of(x).contains(name))
-                .map(|(n, _)| n.clone())
-                .collect()
-        })
-        .unwrap_or_default();
-    let left = c.as_ref().and_then(|c| c.left_secs_ago);
+    let served = ix.served(name);
+    let left = c.and_then(|c| c.left_secs_ago);
     Row {
         key: name.clone(),
         to,
         icon: burrow_admin_logic::entity::CLIENT_ICON,
         dot: format::tone_of(presence).or(Some(Tone::Neutral)),
         title: name.clone(),
-        meta: match (&c, on) {
+        meta: match (c, on) {
             (Some(c), true) => format!("{} open", c.open),
             (Some(_), false) => left
                 .map(|a| format!("left {}", format::coarse_ago(a)))
@@ -140,19 +130,16 @@ pub(super) fn client_row(
             burrow_admin_logic::wording::NOT_APPLIED.into()
         } else if on {
             let host = c
-                .as_ref()
                 .and_then(|c| c.from.as_deref())
                 .map(burrow_admin_logic::presence::from_ip)
                 .unwrap_or_default();
-            let since =
-                format::connected_for(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
+            let since = format::connected_for(c.and_then(|c| c.connected_secs).unwrap_or(0));
             let mut line = if host.is_empty() {
                 since
             } else {
                 format!("{host} · {since}")
             };
             if let Some(v) = c
-                .as_ref()
                 .map(burrow_admin_logic::presence::info)
                 .filter(|i| i.system.is_some())
             {
@@ -182,18 +169,15 @@ pub(super) fn client_row(
 pub(super) fn visitor_row(
     name: &String,
     v: &Value,
-    draft: &Value,
-    status: Option<&Status>,
+    ix: &Index,
     me: Option<&str>,
     pending: Option<&'static str>,
     to: Route,
 ) -> Row {
-    let st = status
-        .as_ref()
-        .and_then(|st| st.visitors.iter().find(|c| &c.name == name))
-        .cloned();
-    let open = st.as_ref().map(|x| x.open).unwrap_or(0);
-    let seen = st.as_ref().and_then(|x| x.last_seen_secs);
+    let status = ix.status;
+    let st = ix.visitor(name);
+    let open = st.map(|x| x.open).unwrap_or(0);
+    let seen = st.and_then(|x| x.last_seen_secs);
     let in_use = open > 0 || me == Some(name.as_str());
     let admin = VisitorEntry::ADMIN.get(v).map(plain);
     let mut filters = vec![];
@@ -203,19 +187,7 @@ pub(super) fn visitor_row(
     if in_use {
         filters.push("active");
     }
-    let may: Vec<String> = ServiceEntry::entries(draft)
-        .map(|m| {
-            m.iter()
-                .filter(|(_, x)| {
-                    ServiceEntry::VISITORS
-                        .get(x)
-                        .and_then(Value::as_array)
-                        .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))
-                })
-                .map(|(n, _)| n.clone())
-                .collect()
-        })
-        .unwrap_or_default();
+    let may = ix.may_use(name);
     let reach: Vec<String> = VisitorEntry::REACH
         .get(v)
         .and_then(Value::as_object)
@@ -266,14 +238,11 @@ pub(super) fn visitor_row(
 pub(super) fn service_row(
     name: &String,
     (v, https_on): (&Value, bool),
-    status: Option<&Status>,
+    ix: &Index,
     pending: Option<&'static str>,
     to: Route,
 ) -> Row {
-    let st = status
-        .as_ref()
-        .and_then(|st| st.services.iter().find(|c| &c.name == name))
-        .cloned();
+    let st = ix.service(name);
     let public = burrow_admin_logic::web::is_public(v);
     let ways = burrow_admin_logic::web::ways(v);
     let protocol = ServiceEntry::PROTOCOL
@@ -282,11 +251,10 @@ pub(super) fn service_row(
         .unwrap_or_else(|| Protocol::default().wire().into());
     let udp = Protocol::from_wire(&protocol) == Some(Protocol::Udp);
     let cs = clients_of(v);
-    let up = cs
-        .iter()
-        .filter(|c| format::presence_of(status, c).up())
-        .count();
-    let count = status.map(|_| crate::screens::paths::health_count(name, v, status, &[]));
+    let up = cs.iter().filter(|c| ix.presence(c).up()).count();
+    let count = ix
+        .status
+        .map(|_| crate::screens::paths::health_of(st, v, |c| ix.connected(c)));
     let problem = count.is_some_and(|c| c.level() != burrow_admin_logic::health::Level::Up);
     let mut tags = vec![protocol_tag(v)];
     if ways.public {
@@ -319,10 +287,7 @@ pub(super) fn service_row(
             Tone::Warning
         }),
         title: name.clone(),
-        meta: st
-            .as_ref()
-            .map(|x| format!("{} open", x.open))
-            .unwrap_or_default(),
+        meta: st.map(|x| format!("{} open", x.open)).unwrap_or_default(),
         line2: format!(
             "{} → {}",
             burrow_admin_logic::web::reached(v),

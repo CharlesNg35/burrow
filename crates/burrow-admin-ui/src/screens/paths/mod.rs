@@ -22,13 +22,21 @@ pub fn health_count(
     status: Option<&Status>,
     reserved: &[String],
 ) -> burrow_admin_logic::health::Count {
-    use burrow_admin_logic::health;
     let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
-    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
-    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
-    health::count(&health::entries(listed, clients_of(svc)), checks, |c| {
+    health_of(st, svc, |c| {
         burrow_admin_logic::presence::online(status, reserved, c)
     })
+}
+
+pub fn health_of(
+    st: Option<&burrow_admin_proto::status::ServiceStatus>,
+    svc: &Value,
+    online: impl Fn(&str) -> bool,
+) -> burrow_admin_logic::health::Count {
+    use burrow_admin_logic::health;
+    let listed = st.map(|x| x.entries.as_slice()).unwrap_or(&[]);
+    let checks = st.map(|x| x.health.as_slice()).unwrap_or(&[]);
+    health::count(&health::entries(listed, clients_of(svc)), checks, online)
 }
 
 pub struct Problems {

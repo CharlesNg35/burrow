@@ -4,6 +4,7 @@ mod actions;
 mod body;
 mod detail;
 mod file;
+mod index;
 mod list;
 mod problems;
 mod rows;
