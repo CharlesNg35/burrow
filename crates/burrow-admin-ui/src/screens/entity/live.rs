@@ -5,7 +5,7 @@ use burrow_admin_logic::presence::Presence;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::{ClientStatus, Status};
-use burrow_config::{Entry, ServiceEntry, entity_of_section};
+use burrow_config::{ServiceEntry, entity_of_section};
 use burrow_ui_kit::Tone;
 use leptos::prelude::*;
 

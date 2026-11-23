@@ -222,14 +222,12 @@ fn filters_for(section: &str) -> Filters {
     (filters, groups)
 }
 
-#[component]
-pub fn Entities(section: String) -> impl IntoView {
-    let s = store();
+fn list_rows(section: String) -> Memo<Vec<Row>> {
+    live::provide_live_text(section.clone());
     let sec = section.clone();
     let base = Memo::new(move |_| base_for(&sec));
-    let sec = section.clone();
-    let classes = Memo::new(move |_| base.with(|b| classes_now(&sec, &b.names)));
-    let rows = Memo::new(move |_| {
+    let classes = Memo::new(move |_| base.with(|b| classes_now(&section, &b.names)));
+    Memo::new(move |_| {
         base.with(|b| {
             classes.with(|c| {
                 b.rows
@@ -238,8 +236,14 @@ pub fn Entities(section: String) -> impl IntoView {
                     .collect::<Vec<_>>()
             })
         })
-    });
-    live::provide_live_text(section.clone());
+    })
+}
+
+#[component]
+pub fn Entities(section: String) -> impl IntoView {
+    let s = store();
+    let sec = section.clone();
+    let rows = list_rows(sec);
     let sec = section.clone();
     let selected = Memo::new(move |_| match s.route.get() {
         Route::Detail(x, name) if x == sec => Some(name),
