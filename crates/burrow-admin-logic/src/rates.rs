@@ -34,8 +34,14 @@ fn per_sec(new: u64, old: u64, secs: f64) -> f64 {
 pub fn rates(old: &Status, new: &Status, secs: f64) -> Rates {
     let restarted = new.uptime_secs < old.uptime_secs;
     let mut out = Rates::default();
+    let before: std::collections::HashMap<&str, &burrow_admin_proto::status::ServiceStatus> = old
+        .services
+        .iter()
+        .map(|o| (o.name.as_str(), o))
+        .rev()
+        .collect();
     for s in &new.services {
-        let r = match old.services.iter().find(|o| o.name == s.name) {
+        let r = match before.get(s.name.as_str()) {
             Some(o) if !restarted => Rate {
                 bytes_in: per_sec(s.bytes_in, o.bytes_in, secs),
                 bytes_out: per_sec(s.bytes_out, o.bytes_out, secs),
