@@ -54,19 +54,5 @@ impl Health {
     }
 }
 
-fn fit(text: &str, room: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= room {
-        return text.to_string();
-    }
-    let keep = room.saturating_sub(1);
-    let head = keep.div_ceil(2);
-    let tail = keep - head;
-    let mut out: String = chars[..head].iter().collect();
-    out.push('…');
-    out.extend(&chars[chars.len() - tail..]);
-    out
-}
-
 #[cfg(test)]
 mod tests;

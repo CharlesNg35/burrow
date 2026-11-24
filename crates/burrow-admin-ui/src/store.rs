@@ -123,6 +123,7 @@ pub struct ListGroups {
 
 pub const REVIEW: &str = "Review";
 pub const TEXT_FIRST_ACTION: &str = "Open Raw config";
+pub const OPEN_FILE_ACTION: &str = "Open";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Retry {

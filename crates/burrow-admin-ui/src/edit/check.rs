@@ -310,6 +310,7 @@ impl Edit {
                 .with_untracked(|d| landing(&plan, |sec, name| d.renamed_to(sec, name)))
                 .map(|r| (r, None)),
         };
+        let landed = super::landed::landed(&plan);
         self.after_apply.set(target);
         self.applying.set(true);
         self.outcome.set(None);
@@ -327,6 +328,7 @@ impl Edit {
             match r {
                 Ok(v) => {
                     let applied = serde_json::from_value::<Applied>(v).unwrap_or_default();
+                    store.text.landed.set(landed.clone());
                     me.outcome.set(Some(Outcome::Applied(applied)));
                     me.review.set(None);
                     if review.source == Source::Text {

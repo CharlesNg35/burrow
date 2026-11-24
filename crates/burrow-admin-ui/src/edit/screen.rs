@@ -228,6 +228,7 @@ mod tests {
                 name: "server.yaml".into(),
                 text: "a: 1\n".into(),
                 read_only: None,
+                modified: None,
             }],
             ..EditText::default()
         }))));

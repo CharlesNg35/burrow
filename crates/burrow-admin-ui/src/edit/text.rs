@@ -45,6 +45,8 @@ pub struct TextEdit {
     pub held: RwSignal<BTreeMap<String, super::screen::Unwritten>>,
     pub(super) errors: RwSignal<BTreeMap<String, String>>,
     pub ask: StoredValue<Option<super::screen::Ask>, LocalStorage>,
+    pub landed: RwSignal<Option<super::landed::Landed>>,
+    pub(super) reveal: StoredValue<bool>,
     banner: StoredValue<Option<Banner>>,
     checks: StoredValue<u64>,
     fetches: StoredValue<u64>,
@@ -227,6 +229,8 @@ impl TextEdit {
             held: RwSignal::new(BTreeMap::new()),
             errors: RwSignal::new(BTreeMap::new()),
             ask: StoredValue::new_local(None),
+            landed: RwSignal::new(None),
+            reveal: StoredValue::new(false),
             banner: StoredValue::new(None),
             checks: StoredValue::new(0),
             fetches: StoredValue::new(0),
@@ -242,6 +246,7 @@ impl TextEdit {
     pub fn close(&self) {
         self.checks.update_value(|n| *n += 1);
         self.fetches.update_value(|n| *n += 1);
+        self.reveal.set_value(false);
         self.open.set(false);
         self.loaded.set(None);
         self.values.set(BTreeMap::new());
@@ -285,6 +290,7 @@ impl TextEdit {
     }
 
     pub fn take(&self, next: EditText) {
+        let fresh = self.loaded.with_untracked(|l| !matches!(l, Some(Ok(_))));
         let (mut values, gone) = self.loaded.with_untracked(|l| {
             let old = l.as_ref().and_then(|r| r.as_ref().ok()).map(|a| a.as_ref());
             self.values.with_untracked(|v| {
@@ -306,23 +312,10 @@ impl TextEdit {
         if self.new_files.with_untracked(|n| *n != still) {
             self.new_files.set(still);
         }
-        let main = next
-            .files
-            .first()
-            .map(|f| f.name.clone())
-            .unwrap_or_default();
-        let tabs = self.tabs.with_untracked(|tabs| {
-            self.new_files.with_untracked(|n| {
-                super::tabs::kept_tabs(tabs, &main, |t| {
-                    next.files.iter().any(|f| f.name == t) || n.iter().any(|x| x == t)
-                })
-            })
-        });
-        if self.tabs.with_untracked(|t| *t != tabs) {
-            self.tabs.set(tabs);
-        }
+        self.place_tabs(&next, fresh);
         self.values.set(values);
         self.loaded.set(Some(Ok(Arc::new(next))));
+        self.reveal_landed();
         self.settle();
         self.changed();
     }
@@ -448,6 +441,7 @@ mod tests {
             name: name.into(),
             text: text.into(),
             read_only: ro.then(|| "not writable by burrow".into()),
+            modified: None,
         }
     }
 

@@ -258,9 +258,30 @@ impl Moment {
     }
 }
 
+pub fn fit(text: &str, room: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= room {
+        return text.to_string();
+    }
+    let keep = room.saturating_sub(1);
+    let head = keep.div_ceil(2);
+    let tail = keep - head;
+    let mut out: String = chars[..head].iter().collect();
+    out.push('…');
+    out.extend(&chars[chars.len() - tail..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_text_is_cut_in_the_middle() {
+        assert_eq!(fit("short", 10), "short");
+        assert_eq!(fit("unix:/home/ubuntu/app.sock", 12), "unix:/….sock");
+        assert_eq!(fit("unix:/home/ubuntu/app.sock", 12).chars().count(), 12);
+    }
 
     #[test]
     fn only_a_client_that_answered_busy_recently_is_tagged_at_limit() {

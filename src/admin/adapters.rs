@@ -331,6 +331,12 @@ impl Store for FileStore {
         }
     }
 
+    fn modified(&self, name: &str) -> Option<u64> {
+        let path = crate::config::docs::path_of(&self.path, name)?;
+        let at = std::fs::metadata(path).ok()?.modified().ok()?;
+        Some(at.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs())
+    }
+
     fn clash(&self, name: &str) -> Option<String> {
         crate::config::docs::clash(&self.path, name)
     }
@@ -624,6 +630,23 @@ mod tests {
         )
         .await
         .expect("the refusal gives up on a peer that holds the socket");
+    }
+
+    #[test]
+    fn each_file_tells_when_it_was_last_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        std::fs::write(&path, "listen: 1\n").unwrap();
+        std::fs::create_dir(dir.path().join("server.d")).unwrap();
+        std::fs::write(dir.path().join("server.d/a.yaml"), "clients: {}\n").unwrap();
+        let store = FileStore::new(&path);
+        let now = burrow_syntax::duration::now_secs();
+        for name in ["server.yaml", "server.d/a.yaml"] {
+            let at = store.modified(name).expect(name);
+            assert!(at + 60 > now && at <= now + 60, "{name} at {at}, now {now}");
+        }
+        assert_eq!(store.modified("server.d/gone.yaml"), None);
+        assert_eq!(store.modified("../server.yaml"), None);
     }
 
     #[test]
