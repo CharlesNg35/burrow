@@ -48,7 +48,32 @@ pub const ASSETS: [&str; 10] = [
 pub fn release_asset() -> Option<(&'static str, &'static str)> {
     let wanted = format!("{}-{}", os(), arch());
     let name = ASSETS.into_iter().find(|a| *a == wanted)?;
-    Some((name, if cfg!(windows) { "zip" } else { "tar.gz" }))
+    Some((name, archive_ext(name)))
+}
+
+pub fn archive_ext(asset: &str) -> &'static str {
+    if asset.starts_with("windows-") {
+        "zip"
+    } else {
+        "tar.gz"
+    }
+}
+
+pub fn release_folder(version: &str, asset: &str) -> String {
+    format!("burrow-{version}-{asset}")
+}
+
+pub fn release_archive(version: &str, asset: &str) -> String {
+    format!("{}.{}", release_folder(version, asset), archive_ext(asset))
+}
+
+pub fn release_file_url(releases: &str, version: &str, file: &str) -> String {
+    format!("{releases}/download/v{version}/{file}")
+}
+
+pub fn release_version(v: &str) -> Option<semver::Version> {
+    let parsed = semver::Version::parse(v).ok()?;
+    (parsed.build.is_empty() && parsed.to_string() == v).then_some(parsed)
 }
 
 pub fn version() -> &'static str {

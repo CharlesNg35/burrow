@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 
 use burrow_admin_proto::plan::{Download, Downloads};
-use burrow_ui_kit::{CodeBlock, Disclosure, Icon, Select};
+use burrow_ui_kit::{CodeBlock, Disclosure, ExternalLink, Select};
 use leptos::prelude::*;
+
+pub const SYSTEMS: [&str; 3] = ["linux", "macos", "windows"];
 
 pub fn os_label(os: &str) -> &'static str {
     match os {
@@ -10,6 +12,10 @@ pub fn os_label(os: &str) -> &'static str {
         "macos" => "macOS",
         _ => "Linux",
     }
+}
+
+pub fn covers_every_system(d: &Downloads) -> bool {
+    SYSTEMS.iter().all(|o| !chips(d, o).is_empty())
 }
 
 pub fn chips<'a>(d: &'a Downloads, os: &str) -> Vec<&'a Download> {
@@ -67,10 +73,7 @@ pub fn GetBurrow(d: Downloads, #[prop(into)] os: Signal<String>) -> impl IntoVie
         view! {
             <Show when=move || open.get()>
                 <span aria-hidden="true">"·"</span>
-                <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=page.clone() target="_blank" rel="noopener noreferrer" data-testid="release-page">
-                    "Release page"
-                    <Icon name="external" small=true/>
-                </a>
+                <ExternalLink href=page.clone() testid="release-page">"Release page"</ExternalLink>
             </Show>
         }
     });

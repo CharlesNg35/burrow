@@ -148,6 +148,26 @@ pub fn LinkButton(
 }
 
 #[component]
+pub fn ExternalLink(
+    #[prop(into)] href: String,
+    #[prop(optional)] testid: &'static str,
+    children: Children,
+) -> impl IntoView {
+    view! {
+        <a
+            class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2"
+            href=href
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid=(!testid.is_empty()).then_some(testid)
+        >
+            {children()}
+            <Icon name="external" small=true/>
+        </a>
+    }
+}
+
+#[component]
 pub fn MenuItem(
     #[prop(into)] label: String,
     #[prop(optional)] tone: Tone,

@@ -2,6 +2,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
+use burrow::base::build;
+
 use super::world::Options;
 use super::{Ctx, SECS, open, run, wait_checked};
 
@@ -25,14 +27,17 @@ async fn storage_has(c: &Ctx, needle: &str) -> bool {
 
 fn asset_url(asset: &str) -> String {
     let v = env!("CARGO_PKG_VERSION");
-    let ext = if asset.starts_with("windows") {
-        "zip"
-    } else {
-        "tar.gz"
-    };
+    build::release_file_url(
+        &burrow::update::releases(),
+        v,
+        &build::release_archive(v, asset),
+    )
+}
+
+fn cd_line(asset: &str) -> String {
     format!(
-        "{}/releases/download/v{v}/burrow-{v}-{asset}.{ext}",
-        env!("CARGO_PKG_REPOSITORY")
+        "cd {}",
+        build::release_folder(env!("CARGO_PKG_VERSION"), asset)
     )
 }
 
@@ -72,10 +77,7 @@ async fn get_burrow(c: &mut Ctx) {
         )),
         "{linux}"
     );
-    assert!(
-        linux.contains(&format!("cd burrow-{v}-linux-amd64")),
-        "{linux}"
-    );
+    assert!(linux.contains(&cd_line("linux-amd64")), "{linux}");
     let wget = c.ui.text("[data-testid=get-burrow-wget]").await;
     assert!(
         wget.contains(&format!(
@@ -112,10 +114,7 @@ async fn get_burrow(c: &mut Ctx) {
         win.contains("Expand-Archive burrow.zip -DestinationPath ."),
         "{win}"
     );
-    assert!(
-        win.contains(&format!("cd burrow-{v}-windows-amd64")),
-        "{win}"
-    );
+    assert!(win.contains(&cd_line("windows-amd64")), "{win}");
     assert_eq!(c.ui.count("[data-testid=get-burrow-wget]").await, 0);
     let all = c.ui.text("[data-testid=snippet-commands]").await;
     assert!(

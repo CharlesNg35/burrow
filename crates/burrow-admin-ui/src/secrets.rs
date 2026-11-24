@@ -219,11 +219,11 @@ pub fn SnippetView(
     let tab: RwSignal<&'static str> = RwSignal::new("commands");
     let os = RwSignal::new(os_now());
     let commands = sn.commands.clone();
-    let downloads = sn.downloads.clone().filter(|d| {
-        ["linux", "macos", "windows"]
-            .iter()
-            .all(|o| !get_burrow::chips(d, o).is_empty())
-    });
+    let downloads = sn.downloads.clone().filter(get_burrow::covers_every_system);
+    let systems: Vec<(String, String, bool)> = get_burrow::SYSTEMS
+        .iter()
+        .map(|o| (o.to_string(), os_label(o).to_string(), false))
+        .collect();
     let has_init = commands.iter().any(|c| c.line.contains("burrow init"));
     let commands_text = Signal::derive(move || {
         let o = os.get();
@@ -277,7 +277,7 @@ pub fn SnippetView(
                 <Show when=move || tab.get() == "commands">
                     <Segmented
                         name="os"
-                        options=vec![("linux".to_string(), "Linux".to_string(), false), ("macos".to_string(), "macOS".to_string(), false), ("windows".to_string(), "Windows".to_string(), false)]
+                        options=systems.clone()
                         value=os
                         on_change=move |v: String| os.set(v)
                         label="Operating system"
@@ -291,10 +291,9 @@ pub fn SnippetView(
                             Some(d) => view! { <GetBurrow d=d os=os/> }.into_any(),
                             None => view! {
                                 <p class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                                    <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=burrow_admin_logic::wording::releases() target="_blank" rel="noopener noreferrer" data-testid="download">
+                                    <burrow_ui_kit::ExternalLink href=burrow_admin_logic::wording::releases() testid="download">
                                         {move || format!("Download burrow for {}", os_label(&os.get()))}
-                                        <burrow_ui_kit::Icon name="external" small=true/>
-                                    </a>
+                                    </burrow_ui_kit::ExternalLink>
                                     <span class="text-text-muted">"and unpack it next to the config; the commands below run it from there."</span>
                                 </p>
                             }

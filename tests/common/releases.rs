@@ -121,8 +121,12 @@ impl Releases {
 
     pub fn publish(&self, version: &str, binary: &[u8], tamper: bool) -> String {
         let (platform, ext) = burrow::update::platform().expect("a release platform");
-        let asset = format!("burrow-{version}-{platform}.{ext}");
-        let archive = archive(&format!("burrow-{version}-{platform}"), binary, ext);
+        let asset = burrow::base::build::release_archive(version, platform);
+        let archive = archive(
+            &burrow::base::build::release_folder(version, platform),
+            binary,
+            ext,
+        );
         let mut sum: String = Sha256::digest(&archive)
             .iter()
             .map(|b| format!("{b:02x}"))

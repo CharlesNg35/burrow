@@ -1,11 +1,13 @@
 use burrow_admin_proto::plan::{Download, Downloads};
 
-use crate::base::build::ASSETS;
+use crate::base::build::{
+    ASSETS, release_archive, release_file_url, release_folder, release_version,
+};
 
-fn released(version: &str) -> Option<semver::Version> {
-    let v = semver::Version::parse(version.trim().trim_start_matches('v')).ok()?;
-    let dev = v.pre.as_str().starts_with("dev") || !v.build.is_empty();
-    (!dev).then_some(v)
+fn released(version: &str) -> Option<String> {
+    release_version(version)
+        .filter(|v| !v.pre.as_str().starts_with("dev"))
+        .map(|v| v.to_string())
 }
 
 fn label(os: &str, arch: &str) -> String {
@@ -29,21 +31,19 @@ pub fn list(version: &str, releases: &str) -> Option<Downloads> {
         .iter()
         .filter_map(|asset| {
             let (os, arch) = asset.split_once('-')?;
-            let ext = if os == "windows" { "zip" } else { "tar.gz" };
-            let folder = format!("burrow-{v}-{asset}");
             Some(Download {
                 os: os.to_string(),
                 arch: arch.to_string(),
                 label: label(os, arch),
-                url: format!("{base}/download/v{v}/{folder}.{ext}"),
-                folder,
+                url: release_file_url(base, &v, &release_archive(&v, asset)),
+                folder: release_folder(&v, asset),
                 preferred: preferred(os, arch),
             })
         })
         .collect();
     Some(Downloads {
-        version: v.to_string(),
         page: format!("{base}/tag/v{v}"),
+        version: v,
         files,
     })
 }
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn one_preferred_chip_per_system_with_readable_labels() {
-        let d = list("v1.4.0", &format!("{GH}/")).expect("a release");
+        let d = list("1.4.0", &format!("{GH}/")).expect("a release");
         let pick = |os: &str| -> Vec<&str> {
             d.files
                 .iter()
