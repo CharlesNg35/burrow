@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.10]
+
+Get burrow in one command, Raw config opens where your change went, and sidebar files fold when you ask.
+
+- **Get burrow:** the connect commands of a new client or visitor start with a folded **Get burrow** step: one command that downloads and unpacks the build of the version this server runs, for the system (Linux, macOS, Windows) and chip you pick (amd64 by default; Apple silicon on macOS; arm64, armv7, armv6 and riscv64 where released), with curl (wget on Linux too) or PowerShell, and a link to the release page. An older server keeps the old download link.
+- The service step of the commands says what it is: "Or install it as a service, to keep it running in the background".
+- **Raw config opens with its tabs filled:** server.yaml first, then the files changed most recently, up to ten tabs. After an apply in this visit it opens on the file the change was written to, and the message after the apply names that file ("saved in server.d/lab.yaml") with an **Open** link to the item.
+- **Sidebar files fold when you ask:** with the lists grouped by file, a file's header folds and opens it at once, also when the selected item is in it (a dot marks it); picking an item in another file no longer folds or opens other files later. Reaching an item from elsewhere still opens its folded file.
+- A long first line in a code block no longer runs under its Copy button.
+
 ## [0.2.9]
 
 leptos-config-editor 0.2.5, and a new file in Raw config no longer jumps on its first letter.
