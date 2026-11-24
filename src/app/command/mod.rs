@@ -36,6 +36,7 @@ fn format(f: FileFormat) -> Format {
 
 pub fn main() -> ExitCode {
     crate::admin::adapters::use_latest(crate::update::latest::cached, crate::update::latest::fresh);
+    crate::admin::adapters::use_releases(crate::update::releases);
     crate::admin::own_update::use_own_update(|path| {
         std::sync::Arc::new(crate::update::remote::ServerUpdates::new(path))
     });

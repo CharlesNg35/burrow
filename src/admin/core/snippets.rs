@@ -158,7 +158,7 @@ pub fn build(
         env_var: env,
         env_config,
         commands: commands(kind, name, &server, &file_name),
-        downloads: super::downloads::current(),
+        downloads: None,
     })
 }
 
@@ -171,13 +171,15 @@ pub fn connect_info(core: &Core, req: &ConnectInfo) -> Result<Snippets, ApiError
             "the config on the server has errors; fix them first",
         ));
     };
-    build(
+    let mut sn = build(
         &settings,
         &req.kind,
         &req.name,
         req.address.as_deref(),
         None,
-    )
+    )?;
+    sn.downloads = super::downloads::current(core.live.releases());
+    Ok(sn)
 }
 
 pub fn after_apply(core: &Core, c: &Computed, address: Option<&str>) -> Vec<Snippets> {
@@ -185,6 +187,7 @@ pub fn after_apply(core: &Core, c: &Computed, address: Option<&str>) -> Vec<Snip
     let Some(settings) = checked.settings else {
         return Vec::new();
     };
+    let downloads = super::downloads::current(core.live.releases());
     c.fresh
         .iter()
         .filter_map(|f| {
@@ -194,7 +197,9 @@ pub fn after_apply(core: &Core, c: &Computed, address: Option<&str>) -> Vec<Snip
                 _ => return None,
             };
             let name = f.path.get(1)?;
-            build(&settings, kind, name, address, Some((&f.value, &f.fp))).ok()
+            let mut sn = build(&settings, kind, name, address, Some((&f.value, &f.fp))).ok()?;
+            sn.downloads = downloads.clone();
+            Some(sn)
         })
         .collect()
 }

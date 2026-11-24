@@ -85,6 +85,9 @@ pub trait Live: Send + Sync {
     fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
         burrow_admin_proto::updates::LatestRelease::default()
     }
+    fn releases(&self) -> Option<String> {
+        None
+    }
     fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
         self.latest()
     }

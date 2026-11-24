@@ -48,8 +48,8 @@ pub fn list(version: &str, releases: &str) -> Option<Downloads> {
     })
 }
 
-pub fn current() -> Option<Downloads> {
-    list(crate::base::build::version(), &crate::update::releases())
+pub fn current(releases: Option<String>) -> Option<Downloads> {
+    list(crate::base::build::version(), &releases?)
 }
 
 #[cfg(test)]
@@ -139,9 +139,10 @@ mod tests {
     }
 
     #[test]
-    fn the_running_version_and_release_url_are_used() {
-        let d = current().expect("the crate version is a release");
+    fn the_running_version_is_offered_only_where_releases_are_known() {
+        assert_eq!(current(None), None);
+        let d = current(Some(GH.into())).expect("the crate version is a release");
         assert_eq!(d.version, env!("CARGO_PKG_VERSION"));
-        assert!(d.page.starts_with(&crate::update::releases()));
+        assert_eq!(d.page, format!("{GH}/tag/v{}", env!("CARGO_PKG_VERSION")));
     }
 }
