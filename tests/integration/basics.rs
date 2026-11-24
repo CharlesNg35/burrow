@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use burrow::client::State;
@@ -79,9 +80,10 @@ async fn client_reconnects_after_server_restart() {
     let echo = echo_server().await;
     let secret = Secret::generate();
     let mut settings = server_settings(vec![secret.clone()]);
-    settings
-        .services
-        .insert("web".into(), service(echo, Protocol::Tcp));
+    settings.listen = Some(SocketAddr::from(([127, 0, 0, 1], free_port())));
+    let mut web = service(echo, Protocol::Tcp);
+    web.bind = Some(SocketAddr::from(([127, 0, 0, 1], free_port())));
+    settings.services.insert("web".into(), web);
     let srv = start_server(settings.clone()).await;
     let addr = srv.addr;
     let svc_addr = srv.services["web"];
@@ -92,8 +94,6 @@ async fn client_reconnects_after_server_restart() {
     srv.task.await.unwrap();
     wait_state(&mut cli.state, State::Connecting).await;
 
-    settings.listen = Some(addr);
-    settings.services.get_mut("web").unwrap().bind = Some(svc_addr);
     let srv2 = start_server(settings).await;
     wait_state(&mut cli.state, State::Connected).await;
     let shared = srv2.shared.clone();
