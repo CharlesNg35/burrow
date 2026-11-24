@@ -899,12 +899,25 @@ async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
     c.ui.wait_for(&input(new), SECS).await;
     c.ui.wait_for(&format!("{}[aria-selected=true]", tab(new)), SECS)
         .await;
-    c.ui.wait_text(
-        "[data-testid=file-not-created]",
-        "is empty, so it is not created",
-        SECS,
-    )
-    .await;
+    assert_eq!(
+        c.ui.count("[data-testid=file-notes]").await,
+        0,
+        "an empty new file shows no note above the editor"
+    );
+    let panel = format!("{EDITOR} [role=tabpanel][data-document-id='{new}']");
+    let top = format!(
+        "document.querySelector({}).getBoundingClientRect().top",
+        js(&panel)
+    );
+    let before: f64 = c.ui.eval(&top).await;
+    replace_in(c, new, "", "s").await;
+    dirty(c, new, true).await;
+    let after: f64 = c.ui.eval(&top).await;
+    assert!(
+        (after - before).abs() < 0.5,
+        "the first letter typed in a new file leaves the editor in place: {before} -> {after}"
+    );
+    replace_in(c, new, "s", "").await;
     c.ui.click(&close_of(new)).await;
     c.ui.wait_gone(&tab(new), SECS).await;
     assert_eq!(
