@@ -332,8 +332,11 @@ pub fn render(
         let Some(key) = cards.selected.get() else {
             return;
         };
-        let file = all.with_untracked(|a| file_of(&files(), a, &key).map(str::to_string));
-        if let Some(f) = file.filter(|f| closed(kind).contains(f)) {
+        let file = untrack(|| {
+            all.with(|a| file_of(&files(), a, &key).map(str::to_string))
+                .filter(|f| closed(kind).contains(f))
+        });
+        if let Some(f) = file {
             update(kind, move |g| {
                 g.closed.remove(&f);
             });
