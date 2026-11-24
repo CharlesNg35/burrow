@@ -8,7 +8,7 @@ Get burrow in one command, Raw config opens where your change went, and sidebar 
 - The service step of the commands says what it is: "Or install it as a service, to keep it running in the background".
 - **Raw config opens with its tabs filled:** server.yaml first, then the files changed most recently, up to ten tabs. After an apply in this visit it opens on the file the change was written to, and the message after the apply names that file ("saved in server.d/lab.yaml") with an **Open** link to the item.
 - **Sidebar files fold when you ask:** with the lists grouped by file, a file's header folds and opens it at once, also when the selected item is in it (a dot marks it); picking an item in another file no longer folds or opens other files later. Reaching an item from elsewhere still opens its folded file.
-- A long first line in a code block no longer runs under its Copy button.
+- A code block's Copy button has its own background, so it stays readable over a long first line.
 
 ## [0.2.9]
 
