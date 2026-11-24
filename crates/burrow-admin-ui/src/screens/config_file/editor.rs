@@ -346,6 +346,7 @@ mod tests {
             name: name.into(),
             text: text.into(),
             read_only: None,
+            modified: None,
         }
     }
 

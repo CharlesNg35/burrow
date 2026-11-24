@@ -57,7 +57,11 @@ pub(super) async fn start(c: &Ctx) {
     c.ui.click("[data-testid=file-edit]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;
-    c.ui.wait_for(&input(MAIN), SECS).await;
+    c.ui.wait_for(
+        &format!("{EDITOR} [role=tabpanel] .config-editor__input"),
+        SECS,
+    )
+    .await;
 }
 
 pub(super) const GOTO: &str = "[data-testid=file-goto]";
@@ -357,12 +361,14 @@ pub(super) fn secrets_kept(c: &Ctx, tool_before: &str) {
 
 async fn opens_with_the_main_file(c: &mut Ctx) {
     start(c).await;
-    assert_eq!(
+    let open =
         c.ui.all_attrs(&format!("{EDITOR} [role=tab]"), "data-document-id")
-            .await,
-        [MAIN],
-        "other files open on demand"
-    );
+            .await;
+    assert_eq!(open.len(), 3, "every file fits in the tabs: {open:?}");
+    assert_eq!(open[0], MAIN, "the main file comes first");
+    assert!(open.contains(&APPS.to_string()) && open.contains(&TOOL.to_string()));
+    c.ui.wait_for(&format!("{}[aria-selected=true]", tab(MAIN)), SECS)
+        .await;
     assert!(!c.ui.enabled(REVIEW).await, "nothing to review yet");
     let main = text_of(c, MAIN).await;
     assert!(main.contains("«secret ") && main.contains("# keep this comment"));
@@ -564,7 +570,7 @@ async fn shots_plain(c: &mut Ctx, step: &str) {
     c.ui.viewport(1440, 900).await;
 }
 
-async fn click_toast(c: &Ctx, label: &str) {
+pub(super) async fn click_toast(c: &Ctx, label: &str) {
     let ok: bool = c
         .ui
         .eval(&format!(

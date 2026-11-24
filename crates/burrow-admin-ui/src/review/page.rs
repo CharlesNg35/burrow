@@ -83,10 +83,11 @@ fn follow_applied(s: Store) {
             && prev.as_ref() != Some(&rev)
         {
             s.note_rev(r);
+            let landed = s.text.landed.get_untracked();
             s.toast(
                 Tone::Success,
-                format!("Applied: now the {}", s.version(r)),
-                None,
+                crate::edit::applied_note(&s.version(r), landed.as_ref()),
+                landed.is_some().then_some(crate::store::OPEN_FILE_ACTION),
             );
             let waits = e.outcome.with_untracked(|o| match o {
                 Some(Outcome::Applied(a)) => a.not_listening.clone(),

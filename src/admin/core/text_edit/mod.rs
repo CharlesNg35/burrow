@@ -121,6 +121,7 @@ pub fn config_text(core: &Core) -> Result<EditText, ApiError> {
             name: d.name.clone(),
             text: m.text,
             read_only: core.store.read_only(&d.name),
+            modified: core.store.modified(&d.name),
         })
         .collect();
     Ok(EditText {

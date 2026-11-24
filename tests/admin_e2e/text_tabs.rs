@@ -8,8 +8,8 @@ use super::text_edit::{
 use super::world::Options;
 use super::{Ctx, SECS, open, run};
 
-const FILES: usize = 12;
-const MAX_TABS: usize = 10;
+pub(super) const FILES: usize = 12;
+pub(super) const MAX_TABS: usize = 10;
 const REVIEW: &str = "[data-testid=file-review]";
 const MORE: &str = "[data-testid=file-goto-more]";
 
@@ -113,7 +113,14 @@ async fn both_widths(c: &mut Ctx, step: &str) {
 
 async fn go_to_finds_and_opens(c: &mut Ctx) {
     start(c).await;
-    assert_eq!(tabs(c).await, [MAIN], "Edit opens the main file only");
+    let filled = tabs(c).await;
+    assert_eq!(filled.len(), MAX_TABS, "Edit fills the tabs: {filled:?}");
+    assert_eq!(filled[0], MAIN);
+    for t in &filled[1..] {
+        c.ui.click(&close_of(t)).await;
+        c.ui.wait_gone(&tab(t), SECS).await;
+    }
+    assert_eq!(tabs(c).await, [MAIN], "closed tabs stay closed");
     key(c, MAIN, "p", "KeyP", "ctrlKey: true,").await;
     c.ui.wait_for(PANEL, SECS).await;
     focused(
