@@ -69,8 +69,21 @@ pub fn group(files: &[FileRef], rows: &[Row]) -> Grouped {
     Grouped { loose, sections }
 }
 
-pub fn is_open(sec: &Section, searching: bool, closed: &BTreeSet<String>, holds: bool) -> bool {
-    searching || holds || !closed.contains(&sec.file)
+pub fn is_open(sec: &Section, searching: bool, closed: &BTreeSet<String>) -> bool {
+    searching || !closed.contains(&sec.file)
+}
+
+pub fn file_of<'a>(files: &'a [FileRef], rows: &'a [Row], key: &str) -> Option<&'a str> {
+    let main = files.first().map_or("", |f| f.name.as_str());
+    rows.iter()
+        .find(|r| r.key == key && !r.is_placeholder())
+        .map(|r| {
+            if r.file.is_empty() {
+                main
+            } else {
+                r.file.as_str()
+            }
+        })
 }
 
 pub fn order(g: &Grouped, open: impl Fn(&Section) -> bool) -> Vec<usize> {
@@ -167,6 +180,7 @@ struct Head {
     read_only: Option<String>,
     count: usize,
     problems: usize,
+    holds: bool,
 }
 
 fn header(kind: &'static str, h: Head, open: bool, searching: bool, panel: String) -> AnyView {
@@ -175,12 +189,16 @@ fn header(kind: &'static str, h: Head, open: bool, searching: bool, panel: Strin
         read_only,
         count,
         problems,
+        holds,
     } = h;
     let label = file.clone();
     let toggle = file.clone();
     let lock = read_only.map(|why| {
         let tip = format!("Read-only on disk: {why}");
         view! { <span class="text-text-muted" title=tip.clone() aria-label=tip data-testid="group-lock"><Icon name="lock" small=true/></span> }
+    });
+    let here = (!open && holds).then(|| {
+        view! { <span class="size-2 shrink-0 rounded-full bg-accent" title="The selected item is in this file" aria-label="The selected item is in this file" data-testid="group-holds"></span> }
     });
     let problems = (!open && problems > 0).then(|| {
         let text = if problems == 1 {
@@ -212,6 +230,7 @@ fn header(kind: &'static str, h: Head, open: bool, searching: bool, panel: Strin
             <Icon name=if open { "chevron-down" } else { "chevron-right" } small=true/>
             <span class="flex min-w-0 font-mono text-[13px] normal-case tracking-normal" data-testid="group-file"><FileName name=label/></span>
             {lock}
+            {here}
             {problems}
             <span class="ml-auto shrink-0" data-testid="group-count">{count}</span>
         </button>
@@ -274,14 +293,21 @@ pub fn render(
         let folded = file.clone();
         let open = Memo::new(move |_| {
             let closed = closed(kind);
-            let Some(sec) = mine.get() else {
-                return !closed.contains(&folded);
-            };
-            let holds = cards.selected.with(|k| {
-                k.as_deref()
-                    .is_some_and(|k| visible.with(|v| sec.rows.iter().any(|&i| v[i].key == k)))
-            });
-            is_open(&sec, searching.get(), &closed, holds)
+            match mine.get() {
+                Some(sec) => is_open(&sec, searching.get(), &closed),
+                None => !closed.contains(&folded),
+            }
+        });
+        let holds = Memo::new(move |_| {
+            mine.with(|m| {
+                m.as_ref().is_some_and(|sec| {
+                    cards.selected.with(|k| {
+                        k.as_deref().is_some_and(|k| {
+                            visible.with(|v| sec.rows.iter().any(|&i| v[i].key == k))
+                        })
+                    })
+                })
+            })
         });
         let n = layout
             .with_untracked(|g| g.sections.iter().position(|s| s.file == file))
@@ -293,7 +319,7 @@ pub fn render(
             <div data-group-file=file.clone() hidden=move || mine.with(Option::is_none)>
                 {move || {
                     let (count, problems) = mine.with(|m| m.as_ref().map_or((0, 0), |s| (s.rows.len(), s.problems)));
-                    let h = Head { file: name.clone(), read_only: read_only.clone(), count, problems };
+                    let h = Head { file: name.clone(), read_only: read_only.clone(), count, problems, holds: holds.get() };
                     header(kind, h, open.get(), searching.get(), id.clone())
                 }}
                 <div id=panel hidden=move || !open.get()>
@@ -302,6 +328,17 @@ pub fn render(
             </div>
         }
     };
+    Effect::new(move |_| {
+        let Some(key) = cards.selected.get() else {
+            return;
+        };
+        let file = all.with_untracked(|a| file_of(&files(), a, &key).map(str::to_string));
+        if let Some(f) = file.filter(|f| closed(kind).contains(f)) {
+            update(kind, move |g| {
+                g.closed.remove(&f);
+            });
+        }
+    });
     view! {
         <For each=loose key=super::list_rows::print children=move |r| super::list_rows::card(r, cards)/>
         <For each=names key=|f| f.clone() children=section/>
@@ -309,25 +346,13 @@ pub fn render(
     .into_any()
 }
 
-pub fn navigable(
-    kind: &'static str,
-    list: &[Row],
-    searching: bool,
-    selected: Option<&str>,
-) -> Vec<Row> {
+pub fn navigable(kind: &'static str, list: &[Row], searching: bool) -> Vec<Row> {
     let g = group(&files(), list);
     let closed = closed(kind);
-    order(&g, |s| {
-        is_open(
-            s,
-            searching,
-            &closed,
-            selected.is_some_and(|k| s.rows.iter().any(|&i| list[i].key == k)),
-        )
-    })
-    .into_iter()
-    .map(|i| list[i].clone())
-    .collect()
+    order(&g, |s| is_open(s, searching, &closed))
+        .into_iter()
+        .map(|i| list[i].clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -402,17 +427,26 @@ mod tests {
     }
 
     #[test]
-    fn a_search_opens_every_section_and_the_selection_keeps_its_own_open() {
+    fn a_search_opens_every_section_and_a_folded_one_stays_folded_with_the_selection() {
         let rows = vec![row("x", "server.yaml", 0), row("y", "server.d/b.yaml", 0)];
-        let g = group(&files(&["server.yaml", "server.d/b.yaml"]), &rows);
+        let names = files(&["server.yaml", "server.d/b.yaml"]);
+        let g = group(&names, &rows);
         let closed: BTreeSet<String> = ["server.d/b.yaml".to_string()].into();
         let b = &g.sections[1];
-        assert!(!is_open(b, false, &closed, false));
-        assert!(is_open(b, true, &closed, false), "a search opens it");
-        assert!(is_open(b, false, &closed, true), "the selected item shows");
-        assert!(is_open(&g.sections[0], false, &closed, false));
-        assert_eq!(order(&g, |s| is_open(s, false, &closed, false)), vec![0]);
-        assert_eq!(order(&g, |s| is_open(s, true, &closed, false)), vec![0, 1]);
+        assert!(
+            !is_open(b, false, &closed),
+            "folded by its header, also with y selected"
+        );
+        assert!(is_open(b, true, &closed), "a search opens it");
+        assert!(is_open(&g.sections[0], false, &closed));
+        assert_eq!(order(&g, |s| is_open(s, false, &closed)), vec![0]);
+        assert_eq!(order(&g, |s| is_open(s, true, &closed)), vec![0, 1]);
+        assert_eq!(file_of(&names, &rows, "y"), Some("server.d/b.yaml"));
+        assert_eq!(
+            file_of(&names, &[row("z", "", 0)], "z"),
+            Some("server.yaml")
+        );
+        assert_eq!(file_of(&names, &rows, "nope"), None);
     }
 
     #[test]

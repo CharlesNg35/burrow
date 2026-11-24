@@ -267,6 +267,46 @@ async fn clients_and_visitors(c: &mut Ctx) {
     }
 }
 
+async fn folding_keeps_its_word(c: &mut Ctx) {
+    c.ui.nav("/services/web").await;
+    c.ui.wait_for("[data-row=web][data-selected=true]", SECS)
+        .await;
+    let main = head("server.yaml");
+    assert_eq!(c.ui.attr_of(&main, "aria-expanded").await, "true");
+    c.ui.click(&main).await;
+    c.ui.wait_for(&format!("{main}[aria-expanded=false]"), SECS)
+        .await;
+    c.ui.wait_for(&format!("{main} [data-testid=group-holds]"), SECS)
+        .await;
+    c.ui.wait_for("[data-testid=detail][data-name=web]", SECS)
+        .await;
+    c.ui.shot("services-folded-holds-the-selected").await;
+    for other in ["wiki", "blog"] {
+        c.ui.click(&format!(
+            "[data-testid=entity-list] [data-row={other}] [data-testid=list-row]"
+        ))
+        .await;
+        c.ui.wait_for(&format!("[data-testid=detail][data-name={other}]"), SECS)
+            .await;
+        assert_eq!(
+            c.ui.attr_of(&main, "aria-expanded").await,
+            "false",
+            "picking {other} in another file leaves server.yaml folded"
+        );
+    }
+    assert_eq!(
+        c.ui.count(&format!("{main} [data-testid=group-holds]"))
+            .await,
+        0,
+        "the dot follows the selection out of the folded file"
+    );
+    c.ui.nav("/services/web").await;
+    c.ui.wait_for(&format!("{main}[aria-expanded=true]"), SECS)
+        .await;
+    c.ui.wait_for("[data-row=web][data-selected=true]", SECS)
+        .await;
+}
+
 fn groups(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -274,6 +314,7 @@ fn groups(c: &mut Ctx) -> Flow<'_> {
         sections_follow_the_files(c).await;
         search_opens_and_hides(c).await;
         none_and_memory(c).await;
+        folding_keeps_its_word(c).await;
         c.ui.assert_no_errors();
     })
 }
@@ -358,10 +399,7 @@ fn large(c: &mut Ctx) -> Flow<'_> {
             super::sheet::shots_dir().join("file-groups-large/timings.txt"),
             line,
         );
-        assert!(
-            rows_left <= 2,
-            "folded files render only their headers; server.yaml stays open around the selected service"
-        );
+        assert!(rows_left <= 2, "folded files render only their headers");
         assert!(
             typed
                 .iter()

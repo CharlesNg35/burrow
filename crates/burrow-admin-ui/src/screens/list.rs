@@ -185,11 +185,7 @@ pub fn ListPane(
     let searching = Signal::derive(move || !q.get().is_empty());
     let move_sel = move |delta: i32| {
         let list = match by_file.filter(|k| file_groups::mode(k) == Grouping::ByFile) {
-            Some(k) => untrack(|| {
-                visible.with(|v| {
-                    file_groups::navigable(k, v, searching.get(), selected.get().as_deref())
-                })
-            }),
+            Some(k) => untrack(|| visible.with(|v| file_groups::navigable(k, v, searching.get()))),
             None => visible.get_untracked(),
         };
         if list.is_empty() {
