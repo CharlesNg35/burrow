@@ -57,8 +57,14 @@ pub(super) async fn start(c: &Ctx) {
     c.ui.click("[data-testid=file-edit]").await;
     c.ui.wait_for(&format!("{CARD}[data-editing=true]"), SECS)
         .await;
-    c.ui.wait_for(
-        &format!("{EDITOR} [role=tabpanel] .config-editor__input"),
+    c.ui.wait_true(
+        &format!(
+            "(() => {{ const t = document.querySelector({}); return !!t && !!document.querySelector({} + JSON.stringify(t.dataset.documentId) + {}); }})()",
+            js(&format!("{EDITOR} [role=tab][aria-selected=true]")),
+            js(&format!("{EDITOR} [role=tabpanel][data-document-id=")),
+            js("] .config-editor__input")
+        ),
+        "the shown file's text is in the editor",
         SECS,
     )
     .await;

@@ -119,7 +119,7 @@ async fn raw_config_opens_on_the_file_of_the_last_apply(c: &mut Ctx) {
     c.ui.wait_for("[data-testid=review]", Duration::from_secs(15))
         .await;
     apply_now(c, "Applied: now the version of").await;
-    let note = c.ui.text(TOAST).await;
+    let note = c.ui.text(&format!("{TOAST} [data-testid=toast]")).await;
     assert!(
         !note.contains("saved in"),
         "the main file goes unnamed: {note}"
