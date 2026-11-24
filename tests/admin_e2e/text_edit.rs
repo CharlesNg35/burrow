@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::world::{self, Options};
-use super::{Ctx, SECS, adornments_clear, apply_now, open, run};
+use super::{Ctx, SECS, apply_now, open, run};
 
 pub(super) const CARD: &str = "[data-testid=config-file]";
 pub(super) const EDITOR: &str = "[data-testid=file-editor]";
