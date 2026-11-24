@@ -100,7 +100,7 @@ pub fn GetBurrow(d: Downloads, #[prop(into)] os: Signal<String>) -> impl IntoVie
     let several = Signal::derive(move || options.with(|o| o.len() > 1));
     let wget = move || {
         file.with(|f| f.as_ref().and_then(without_curl)).map(|line| view! {
-            <p class="mt-2 text-xs text-text-muted" data-testid="get-burrow-wget">"No curl? "<code class="font-mono">{line}</code></p>
+            <p class="mt-2 text-xs text-text-muted" data-testid="get-burrow-wget">"No curl? "<code class="font-mono break-all">{line}</code></p>
         })
     };
     view! {
