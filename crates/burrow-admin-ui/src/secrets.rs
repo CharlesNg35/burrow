@@ -1,3 +1,8 @@
+//! Secrets of a client or visitor and the card that connects one: commands, config file, environment variable.
+//! `get_burrow` is the download step, built from the release list the server sends.
+
+mod get_burrow;
+
 use burrow_admin_logic::changeset::as_new_secret;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{self, GeneratedSecret};
@@ -10,6 +15,7 @@ use leptos::prelude::*;
 
 use crate::api;
 use crate::store::store;
+use get_burrow::{GetBurrow, os_label};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
@@ -204,14 +210,6 @@ fn os_now() -> String {
     }
 }
 
-fn os_label(os: &str) -> &'static str {
-    match os {
-        "windows" => "Windows",
-        "macos" => "macOS",
-        _ => "Linux",
-    }
-}
-
 #[component]
 pub fn SnippetView(
     sn: Snippets,
@@ -221,6 +219,11 @@ pub fn SnippetView(
     let tab: RwSignal<&'static str> = RwSignal::new("commands");
     let os = RwSignal::new(os_now());
     let commands = sn.commands.clone();
+    let downloads = sn.downloads.clone().filter(|d| {
+        ["linux", "macos", "windows"]
+            .iter()
+            .all(|o| !get_burrow::chips(d, o).is_empty())
+    });
     let has_init = commands.iter().any(|c| c.line.contains("burrow init"));
     let commands_text = Signal::derive(move || {
         let o = os.get();
@@ -284,13 +287,19 @@ pub fn SnippetView(
             {move || match tab.get() {
                 "commands" => view! {
                     <div data-testid="snippet-commands">
-                        <p class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                            <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=burrow_admin_logic::wording::releases() target="_blank" rel="noopener noreferrer" data-testid="download">
-                                {move || format!("Download burrow for {}", os_label(&os.get()))}
-                                <burrow_ui_kit::Icon name="external" small=true/>
-                            </a>
-                            <span class="text-text-muted">"and unpack it next to the config; the commands below run it from there."</span>
-                        </p>
+                        {match downloads.clone() {
+                            Some(d) => view! { <GetBurrow d=d os=os/> }.into_any(),
+                            None => view! {
+                                <p class="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                                    <a class="inline-flex items-center gap-1 font-semibold text-accent-ink underline underline-offset-2" href=burrow_admin_logic::wording::releases() target="_blank" rel="noopener noreferrer" data-testid="download">
+                                        {move || format!("Download burrow for {}", os_label(&os.get()))}
+                                        <burrow_ui_kit::Icon name="external" small=true/>
+                                    </a>
+                                    <span class="text-text-muted">"and unpack it next to the config; the commands below run it from there."</span>
+                                </p>
+                            }
+                            .into_any(),
+                        }}
                         <CodeBlock text=commands_text/>
                         {has_init.then(|| view! { <p class="mt-2 text-xs text-text-muted">"burrow init prompts for the secret, so it stays out of your shell history."</p> })}
                     </div>

@@ -99,7 +99,7 @@ What each page shows:
   - A visitor: Access (admin rights, `admin_from`, reach and limits), Secrets, Connect and Settings.
 - **Secrets** lists each secret by its fingerprint, where it comes from (the config file it is in, or an environment variable) and whether the connected session uses it. **Generate a secret** or **Rotate secret** has the server make a new one; remove the old one once the client or visitor uses the new one.
 - **Connect** gives the ready config for that client or visitor, as one of:
-  - commands for Linux, macOS or Windows with a link to download burrow;
+  - commands for Linux, macOS or Windows. **Get burrow** (folded) gives the download and unpack commands for the version this server runs, with a chip choice (amd64, arm64, armv7, armv6 or riscv64 on Linux; Apple silicon or Intel on macOS; amd64 or arm64 on Windows) and a link to its release page, which also has the FreeBSD build. A client's last command installs it as a service;
   - the `client.yaml` or `visitor.yaml` file;
   - the same with the secret in an environment variable.
 

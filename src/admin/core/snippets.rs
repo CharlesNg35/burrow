@@ -91,9 +91,9 @@ fn commands(kind: &str, name: &str, server: &str, file: &str) -> Vec<Command> {
                 format!("sudo {bin} service install -c {file}")
             };
             let label = if os == "windows" {
-                "Install as a service (administrator PowerShell)"
+                "Or install it as a service in an administrator PowerShell, to keep it running in the background"
             } else {
-                "Install as a service"
+                "Or install it as a service, to keep it running in the background"
             };
             out.push(cmd(os, label, install));
         }
@@ -158,6 +158,7 @@ pub fn build(
         env_var: env,
         env_config,
         commands: commands(kind, name, &server, &file_name),
+        downloads: super::downloads::current(),
     })
 }
 
@@ -206,5 +207,27 @@ mod tests {
     fn env_vars_are_shell_safe() {
         assert_eq!(env_var("home"), "HOME_SECRET");
         assert_eq!(env_var("lab-2"), "LAB_2_SECRET");
+    }
+
+    #[test]
+    fn commands_cover_three_systems_and_a_client_service() {
+        let c = commands("client", "lab", "tunnel.example.com:7835", "client.yaml");
+        let systems: std::collections::BTreeSet<&str> = c.iter().map(|x| x.os.as_str()).collect();
+        assert_eq!(
+            systems.into_iter().collect::<Vec<_>>(),
+            ["linux", "macos", "windows"]
+        );
+        let service = |os: &str| {
+            c.iter()
+                .find(|x| x.os == os && x.line.contains("service install"))
+                .map(|x| x.label.clone())
+        };
+        assert_eq!(
+            service("linux").as_deref(),
+            Some("Or install it as a service, to keep it running in the background")
+        );
+        assert!(service("windows").is_some_and(|l| l.contains("administrator PowerShell")));
+        let v = commands("visitor", "lab", "tunnel.example.com:7835", "visitor.yaml");
+        assert!(v.iter().all(|x| !x.line.contains("service install")));
     }
 }
