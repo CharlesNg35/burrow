@@ -1,16 +1,15 @@
 use std::time::Duration;
 
 use super::text_edit::{
-    ADD, CARD, CHECKED, EDITOR, REVIEW, close_of, dirty, input, js, name_new_file, replace_in,
-    secrets_kept, shots, show, start, tab, text_of,
+    ADD, CARD, CHECKED, EDITOR, MAIN, REVIEW, close_of, dirty, input, js, name_new_file,
+    replace_in, secrets_kept, shots, show, start, tab, text_of,
 };
 use super::{Ctx, SECS, adornments_clear, apply_now};
 
 pub(super) async fn a_new_drop_in_file(c: &mut Ctx, tool_before: &str) {
     start(c).await;
     assert_eq!(
-        c.ui.count(&format!("{EDITOR} .config-editor-documents__close"))
-            .await,
+        c.ui.count(&close_of(MAIN)).await,
         0,
         "the main file has no close button"
     );

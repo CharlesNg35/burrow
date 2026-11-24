@@ -58,6 +58,8 @@ pub struct EditFile {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_only: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,10 +113,15 @@ mod tests {
             name: "server.d/10-web.yaml".into(),
             text: "services: {}\n".into(),
             read_only: Some("not writable by burrow".into()),
+            modified: None,
         };
         let back: EditFile = serde_json::from_value(serde_json::to_value(&f).unwrap()).unwrap();
         assert_eq!(back, f);
         let plain = serde_json::to_value(EditFile::default()).unwrap();
         assert!(plain.get("read_only").is_none());
+        assert!(plain.get("modified").is_none());
+        let older: EditFile =
+            serde_json::from_value(serde_json::json!({"name": "server.yaml", "text": ""})).unwrap();
+        assert_eq!(older.modified, None, "an older server sends no time");
     }
 }

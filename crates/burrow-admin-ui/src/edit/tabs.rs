@@ -296,6 +296,7 @@ mod tests {
             name: n.into(),
             text: "a: 1\n".into(),
             read_only: None,
+            modified: None,
         };
         t.loaded.set(Some(Ok(std::sync::Arc::new(EditText {
             files: vec![file("server.yaml"), file("server.d/a.yaml")],
@@ -346,6 +347,7 @@ mod tests {
                     name: n.clone(),
                     text: "a: 1\n".into(),
                     read_only: None,
+                    modified: None,
                 })
                 .collect(),
             ..EditText::default()
@@ -379,6 +381,7 @@ mod tests {
                     name: n.clone(),
                     text: "a: 1\n".into(),
                     read_only: None,
+                    modified: None,
                 })
                 .collect(),
             ..EditText::default()

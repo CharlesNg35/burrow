@@ -122,6 +122,7 @@ mod tests {
                     name: n.to_string(),
                     text: "a: 1\n".into(),
                     read_only: None,
+                    modified: None,
                 })
                 .collect(),
             ..EditText::default()

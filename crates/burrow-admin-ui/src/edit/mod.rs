@@ -3,9 +3,11 @@
 
 mod check;
 mod diags;
+mod fill;
 mod gone;
 mod groups;
 mod held;
+mod landed;
 mod new_file;
 mod pending;
 mod scratch;
@@ -33,6 +35,7 @@ use diags::related_errors;
 pub(crate) use diags::{diags_at, severity_tone};
 pub(crate) use groups::{Group, change_groups};
 pub use held::TEXT_FIRST;
+pub use landed::{applied_note, open_landed};
 pub use new_file::{folder_of, new_name, not_created};
 pub(crate) use scratch::{NEW, Scratch};
 pub use screen::{Unwritten, own_label};

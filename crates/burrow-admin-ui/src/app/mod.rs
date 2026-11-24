@@ -233,15 +233,16 @@ pub fn App() -> impl IntoView {
                     .collect::<Vec<_>>()
             })
             on_action=move |id: u64| {
-                let text = s.toasts.with_untracked(|t| {
-                    t.iter()
-                        .any(|x| x.id == id && x.action.as_deref() == Some(crate::store::TEXT_FIRST_ACTION))
+                let action = s.toasts.with_untracked(|t| {
+                    t.iter().find(|x| x.id == id).and_then(|x| x.action.clone())
                 });
-                if text {
-                    let (to, query) = route::file_tab();
-                    route::go_query(to, query);
-                } else {
-                    route::go(Route::Review);
+                match action.as_deref() {
+                    Some(crate::store::TEXT_FIRST_ACTION) => {
+                        let (to, query) = route::file_tab();
+                        route::go_query(to, query);
+                    }
+                    Some(crate::store::OPEN_FILE_ACTION) => crate::edit::open_landed(s),
+                    _ => route::go(Route::Review),
                 }
             }
             on_hover=move |h: bool| s.toast_hold.set(h)

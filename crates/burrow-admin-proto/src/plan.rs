@@ -189,6 +189,27 @@ pub struct Snippets {
     pub env_config: String,
     #[serde(default)]
     pub commands: Vec<Command>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downloads: Option<Downloads>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Downloads {
+    pub version: String,
+    pub page: String,
+    #[serde(default)]
+    pub files: Vec<Download>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Download {
+    pub os: String,
+    pub arch: String,
+    pub label: String,
+    pub url: String,
+    pub folder: String,
+    #[serde(default)]
+    pub preferred: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

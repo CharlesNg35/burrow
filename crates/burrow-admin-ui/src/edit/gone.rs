@@ -75,6 +75,7 @@ mod tests {
                     name: n.to_string(),
                     text: t.to_string(),
                     read_only: None,
+                    modified: None,
                 })
                 .collect(),
             ..EditText::default()

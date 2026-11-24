@@ -2,6 +2,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
+use burrow::base::build;
+
 use super::world::Options;
 use super::{Ctx, SECS, open, run, wait_checked};
 
@@ -21,6 +23,117 @@ async fn storage_has(c: &Ctx, needle: &str) -> bool {
         c.ui.eval("JSON.stringify([Object.entries(sessionStorage), Object.entries(localStorage)])")
             .await;
     all.contains(needle)
+}
+
+fn asset_url(asset: &str) -> String {
+    let v = env!("CARGO_PKG_VERSION");
+    build::release_file_url(
+        &burrow::update::releases(),
+        v,
+        &build::release_archive(v, asset),
+    )
+}
+
+fn cd_line(asset: &str) -> String {
+    format!(
+        "cd {}",
+        build::release_folder(env!("CARGO_PKG_VERSION"), asset)
+    )
+}
+
+async fn pick_os(c: &Ctx, os: &str) {
+    super::edits::click_js(
+        c,
+        &format!("[data-testid=snippets] input[name=os][value={os}]"),
+    )
+    .await;
+}
+
+async fn get_burrow(c: &mut Ctx) {
+    let v = env!("CARGO_PKG_VERSION");
+    let toggle = "#get-burrow-toggle";
+    let commands = "[data-testid=get-burrow-commands]";
+    c.ui.wait_for(toggle, SECS).await;
+    assert_eq!(
+        c.ui.attr_of(toggle, "aria-expanded").await,
+        "false",
+        "folded by default"
+    );
+    let folded = c.ui.text(toggle).await;
+    assert!(
+        folded.contains("Get burrow") && folded.contains(&format!("Linux · amd64 · v{v}")),
+        "{folded}"
+    );
+    assert_eq!(c.ui.count("[data-testid=release-page]").await, 0);
+    c.ui.shot("get-burrow-folded").await;
+    c.ui.click(toggle).await;
+    c.ui.wait_text(toggle, "the version this server runs", SECS)
+        .await;
+    let linux = c.ui.text(commands).await;
+    assert!(
+        linux.contains(&format!(
+            "curl -fsSL {} | tar -xzf -",
+            asset_url("linux-amd64")
+        )),
+        "{linux}"
+    );
+    assert!(linux.contains(&cd_line("linux-amd64")), "{linux}");
+    let wget = c.ui.text("[data-testid=get-burrow-wget]").await;
+    assert!(
+        wget.contains(&format!(
+            "wget -qO- {} | tar -xzf -",
+            asset_url("linux-amd64")
+        )),
+        "{wget}"
+    );
+    assert!(
+        c.ui.attr_of("[data-testid=release-page]", "href")
+            .await
+            .ends_with(&format!("/releases/tag/v{v}"))
+    );
+    let all = c.ui.text("[data-testid=snippet-commands]").await;
+    assert!(
+        all.contains("# Or install it as a service, to keep it running in the background"),
+        "{all}"
+    );
+    c.ui.shot("get-burrow-linux").await;
+    c.ui.select("#get-burrow-chip", "arm64").await;
+    c.ui.wait_text(commands, &asset_url("linux-arm64"), SECS)
+        .await;
+    assert!(!c.ui.text(commands).await.contains("linux-amd64"));
+    pick_os(c, "windows").await;
+    let win = c.ui.wait_text(commands, "Invoke-WebRequest", SECS).await;
+    assert!(
+        win.contains(&format!(
+            "Invoke-WebRequest {} -OutFile burrow.zip",
+            asset_url("windows-amd64")
+        )),
+        "{win}"
+    );
+    assert!(
+        win.contains("Expand-Archive burrow.zip -DestinationPath ."),
+        "{win}"
+    );
+    assert!(win.contains(&cd_line("windows-amd64")), "{win}");
+    assert_eq!(c.ui.count("[data-testid=get-burrow-wget]").await, 0);
+    let all = c.ui.text("[data-testid=snippet-commands]").await;
+    assert!(
+        all.contains("service in an administrator PowerShell"),
+        "{all}"
+    );
+    c.ui.shot("get-burrow-windows").await;
+    pick_os(c, "macos").await;
+    c.ui.wait_text(commands, &asset_url("macos-arm64"), SECS)
+        .await;
+    assert_eq!(
+        c.ui.eval::<String>("document.getElementById('get-burrow-chip').value")
+            .await,
+        "arm64"
+    );
+    c.ui.shot("get-burrow-macos").await;
+    pick_os(c, "linux").await;
+    c.ui.wait_text(commands, &asset_url("linux-arm64"), SECS)
+        .await;
 }
 
 fn secret_once(c: &mut Ctx) -> Flow<'_> {
@@ -107,14 +220,7 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
             )),
             "{commands}"
         );
-        assert_eq!(
-            c.ui.attr_of("[data-testid=download]", "href").await,
-            "https://github.com/CharlesNg35/burrow/releases/latest"
-        );
-        assert_eq!(
-            c.ui.attr_of("[data-testid=download]", "target").await,
-            "_blank"
-        );
+        get_burrow(c).await;
         c.ui.shot("connection-commands").await;
         c.ui.click("[data-testid=shown-once] [data-tab=env]").await;
         c.ui.wait_text("[data-testid=snippet-env]", "LAB_SECRET", SECS)

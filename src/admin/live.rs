@@ -61,6 +61,10 @@ impl Live for ServerLive {
         super::latest::fresh()
     }
 
+    fn releases(&self) -> Option<String> {
+        super::latest::releases()
+    }
+
     fn ask_update(&self, client: &str, to: &str, by: &str) -> Result<(), String> {
         self.shared.ask_update(client, to, by)
     }

@@ -187,10 +187,7 @@ fn stage(near: &Path, bytes: &[u8]) -> Result<Staged, Failure> {
     )))
 }
 
-pub fn release_version(v: &str) -> Option<semver::Version> {
-    let parsed = semver::Version::parse(v).ok()?;
-    (parsed.build.is_empty() && parsed.to_string() == v).then_some(parsed)
-}
+pub use crate::base::build::release_version;
 
 fn version_of(v: &str) -> Result<semver::Version, Failure> {
     release_version(v).ok_or_else(|| {
@@ -301,7 +298,7 @@ pub fn fetch_verified(version: &str, near: &Path, out: &mut dyn Write) -> Result
 
 fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Failure> {
     let sums_url = match wanted.map(version_of).transpose()? {
-        Some(v) => format!("{base}/download/v{v}/SHA256SUMS"),
+        Some(v) => crate::base::build::release_file_url(base, &v.to_string(), "SHA256SUMS"),
         None => format!("{base}/latest/download/SHA256SUMS"),
     };
     let sums = match fetch(&sums_url, MAX_SUMS) {
@@ -393,7 +390,7 @@ fn download(
     out: &mut dyn Write,
 ) -> Result<Staged, Failure> {
     say(out, format!("downloading {}", asset.name))?;
-    let url = format!("{base}/download/v{}/{}", asset.version, asset.name);
+    let url = crate::base::build::release_file_url(base, &asset.version, &asset.name);
     let data = match fetch(&url, MAX_ASSET) {
         Ok(http::Fetched::Body(b)) => b,
         Ok(http::Fetched::NotFound) => {

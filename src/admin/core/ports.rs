@@ -52,6 +52,9 @@ pub trait Store: Send + Sync {
     fn read_only(&self, _name: &str) -> Option<String> {
         None
     }
+    fn modified(&self, _name: &str) -> Option<u64> {
+        None
+    }
     fn clash(&self, _name: &str) -> Option<String> {
         None
     }
@@ -84,6 +87,9 @@ pub trait Live: Send + Sync {
     }
     fn latest(&self) -> burrow_admin_proto::updates::LatestRelease {
         burrow_admin_proto::updates::LatestRelease::default()
+    }
+    fn releases(&self) -> Option<String> {
+        None
     }
     fn latest_now(&self) -> burrow_admin_proto::updates::LatestRelease {
         self.latest()

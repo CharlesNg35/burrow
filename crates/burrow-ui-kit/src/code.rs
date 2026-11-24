@@ -78,7 +78,7 @@ pub fn CodeBlock(
     let btn = "inline-flex h-[24px] cursor-pointer items-center gap-1.5 rounded-sm border border-white/15 bg-white/5 px-2 text-xs font-semibold text-code-text/85 hover:bg-white/10 hover:text-code-text";
     view! {
         <div class="relative overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid) data-fill-part=fills.then_some("")>
-            <div class="flex justify-end gap-1.5 px-2.5 pt-2.5 sm:absolute sm:top-2.5 sm:right-2.5 sm:p-0">
+            <div class="flex justify-end gap-1.5 px-2.5 pt-2.5 sm:absolute sm:top-2.5 sm:right-2.5 sm:p-0 sm:bg-code sm:shadow-[-16px_0_12px_var(--color-code)]">
                 <button
                     type="button"
                     class=btn
