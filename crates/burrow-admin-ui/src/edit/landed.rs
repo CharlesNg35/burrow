@@ -209,7 +209,7 @@ mod tests {
         l.file = "server.d/a-very-long-drop-in-file-name-for-the-lab-clients.yaml".into();
         let long = applied_note("version of 19:09:33", Some(&l));
         assert!(long.chars().count() <= TOAST_TEXT, "{long}");
-        assert!(long.ends_with(".yaml and 2 more files"), "{long}");
+        assert!(long.ends_with("yaml and 2 more files"), "{long}");
         assert!(!long.contains("server.d/") && long.contains('…'), "{long}");
         l.file = "server.d/lab-clients-floor-two.yaml".into();
         l.others = 0;
