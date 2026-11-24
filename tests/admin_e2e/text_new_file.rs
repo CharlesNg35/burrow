@@ -1,10 +1,8 @@
-//! The text editor's new drop-in file: naming it, an empty one that shows no note and is not created, and one applied through Review.
-
 use std::time::Duration;
 
 use super::text_edit::{
     ADD, CARD, CHECKED, EDITOR, REVIEW, close_of, dirty, input, js, name_new_file, replace_in,
-    secrets_kept, shots, tab, text_of,
+    secrets_kept, shots, show, start, tab, text_of,
 };
 use super::{Ctx, SECS, adornments_clear, apply_now};
 
