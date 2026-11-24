@@ -75,11 +75,8 @@ impl TextEdit {
             self.reveal.set_value(false);
             return;
         };
-        let there = self.loaded.with_untracked(|x| {
-            x.as_ref()
-                .and_then(|r| r.as_ref().ok())
-                .is_some_and(|t| t.files.iter().any(|f| f.name == l.file))
-        });
+        let there =
+            untrack(|| self.text()).is_some_and(|t| t.files.iter().any(|f| f.name == l.file));
         if there {
             self.reveal.set_value(false);
             self.open_at(&l.file, l.spot());
