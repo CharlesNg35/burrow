@@ -6,8 +6,18 @@ static LATEST: std::sync::OnceLock<(Check, Check)> = std::sync::OnceLock::new();
 
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
+static RELEASES: std::sync::OnceLock<fn() -> String> = std::sync::OnceLock::new();
+
 pub fn use_latest(cached: Check, fresh: Check) {
     let _ = LATEST.set((cached, fresh));
+}
+
+pub fn use_releases(base: fn() -> String) {
+    let _ = RELEASES.set(base);
+}
+
+pub fn releases() -> Option<String> {
+    RELEASES.get().map(|base| base())
 }
 
 pub fn cached() -> LatestRelease {

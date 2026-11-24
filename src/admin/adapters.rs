@@ -366,7 +366,7 @@ pub(super) fn probe_bind(proto: burrow_config::Protocol, addr: SocketAddr) -> st
     }
 }
 
-pub use super::latest::use_latest;
+pub use super::latest::{use_latest, use_releases};
 
 #[cfg(unix)]
 pub(super) fn hand_over(fd: impl std::os::fd::AsFd, (uid, gid): (u32, u32)) -> std::io::Result<()> {

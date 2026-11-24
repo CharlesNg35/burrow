@@ -5,6 +5,7 @@ mod check_text;
 pub mod diags;
 pub mod diff;
 mod dispatch;
+mod downloads;
 pub mod guard;
 mod history;
 mod older;

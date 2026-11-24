@@ -38,8 +38,8 @@ pub use basic::{
     card_head, card_head_beside, chip_class,
 };
 pub use button::{
-    Button, ButtonLook, ButtonSize, IconButton, LinkButton, MENU_ITEM, MenuItem, SpinDot,
-    button_class, menu_class,
+    Button, ButtonLook, ButtonSize, ExternalLink, IconButton, LinkButton, MENU_ITEM, MenuItem,
+    SpinDot, button_class, menu_class,
 };
 pub use cap::{LINKS, MoreChip, ShowAll, ShowMore, kept, next_step, shown_of};
 pub use code::{CodeBlock, copy_text, download, download_text};
