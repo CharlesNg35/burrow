@@ -192,6 +192,7 @@ async fn present(c: &Ctx, css: &str) -> bool {
 
 async fn no_csp_violation(c: &mut Ctx) {
     start(c).await;
+    show(c, MAIN).await;
     let styled: (usize, String) = c
         .ui
         .eval(&format!(
