@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.9]
+
+leptos-config-editor 0.2.5, and a new file in Raw config no longer jumps on its first letter.
+
+- Raw config: a new, empty drop-in file no longer shows "is empty, so it is not created" above the editor. The note went on the first letter typed and the editor jumped up with it; an empty new file is still not created, and Review says so when it is the only change.
+- leptos-config-editor 0.2.5: suggestions no longer offer keys already written while the line above the caret is half typed (`port: "80`); a refused Edit as switch no longer keeps its error after going back.
+
 ## [0.2.8]
 
 leptos-config-editor 0.2.4 with back and forward after a jump, new releases offered within 10 minutes, and list cards that open from anywhere.

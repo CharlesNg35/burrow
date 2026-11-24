@@ -109,6 +109,8 @@ mod text_fill;
 mod text_goto;
 #[path = "admin_e2e/text_keys.rs"]
 mod text_keys;
+#[path = "admin_e2e/text_new_file.rs"]
+mod text_new_file;
 #[path = "admin_e2e/text_sticky.rs"]
 mod text_sticky;
 #[path = "admin_e2e/text_tabs.rs"]
