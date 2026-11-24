@@ -10,12 +10,6 @@ fn q(text: &str) -> Focus {
 use burrow_admin_logic::rates::Rates;
 use burrow_admin_proto::status::Status;
 
-#[test]
-fn long_text_is_cut_in_the_middle() {
-    assert_eq!(fit("short", 10), "short");
-    assert_eq!(fit("unix:/home/ubuntu/app.sock", 12), "unix:/….sock");
-    assert_eq!(fit("unix:/home/ubuntu/app.sock", 12).chars().count(), 12);
-}
 use burrow_admin_proto::serde_json::json;
 use burrow_admin_proto::status::{ClientStatus, ServiceStatus};
 

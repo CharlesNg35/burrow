@@ -9,7 +9,8 @@ use crate::store::{Store, store};
 
 use super::layout::Line;
 use super::place::sticky_y;
-use super::{Act, COLS, Chart, Health, LABELS, Node, WIDTH, fit};
+use super::{Act, COLS, Chart, Health, LABELS, Node, WIDTH};
+use crate::format::fit;
 
 const SLACK: f64 = 4.0;
 

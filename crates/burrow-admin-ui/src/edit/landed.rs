@@ -5,6 +5,9 @@ use leptos::prelude::*;
 use super::{Spot, TextEdit};
 use crate::store::Store;
 
+const TOAST_TEXT: usize = 74;
+const MIN_NAME: usize = 10;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Landed {
     pub file: String,
@@ -13,12 +16,20 @@ pub struct Landed {
 }
 
 impl Landed {
-    pub fn place(&self) -> String {
-        match self.others {
-            0 => self.file.clone(),
-            1 => format!("{} and 1 more file", self.file),
-            n => format!("{} and {n} more files", self.file),
-        }
+    pub fn place(&self, room: usize) -> String {
+        let more = match self.others {
+            0 => String::new(),
+            1 => " and 1 more file".into(),
+            n => format!(" and {n} more files"),
+        };
+        let room = room.saturating_sub(more.chars().count());
+        let base = self.file.rsplit('/').next().unwrap_or(&self.file);
+        let name = if self.file.chars().count() <= room {
+            self.file.clone()
+        } else {
+            crate::format::fit(base, room.max(MIN_NAME))
+        };
+        format!("{name}{more}")
     }
 
     pub fn spot(&self) -> Spot {
@@ -55,9 +66,14 @@ pub fn landed(plan: &Plan) -> Option<Landed> {
 }
 
 pub fn applied_note(version: &str, landed: Option<&Landed>) -> String {
+    let head = format!("Applied: now the {version}");
     match landed {
-        None => format!("Applied: now the {version}"),
-        Some(l) => format!("Applied: now the {version}, saved in {}", l.place()),
+        None => head,
+        Some(l) => {
+            let lead = format!("{head}, saved in ");
+            let room = TOAST_TEXT.saturating_sub(lead.chars().count());
+            format!("{lead}{}", l.place(room))
+        }
     }
 }
 
@@ -166,7 +182,7 @@ mod tests {
         let l = landed(&p).unwrap();
         assert_eq!(l.file, "server.d/c.yaml");
         assert_eq!(l.others, 3);
-        assert_eq!(l.place(), "server.d/c.yaml and 3 more files");
+        assert_eq!(l.place(80), "server.d/c.yaml and 3 more files");
     }
 
     #[test]
@@ -186,9 +202,21 @@ mod tests {
         l.others = 1;
         assert_eq!(
             applied_note(v, Some(&l)),
-            "Applied: now the version of 14:02, saved in server.d/clients.yaml and 1 more file"
+            "Applied: now the version of 14:02, saved in clients.yaml and 1 more file"
         );
         l.others = 2;
-        assert!(applied_note(v, Some(&l)).ends_with("server.d/clients.yaml and 2 more files"));
+        assert!(applied_note(v, Some(&l)).ends_with(" saved in clients.yaml and 2 more files"));
+        l.file = "server.d/a-very-long-drop-in-file-name-for-the-lab-clients.yaml".into();
+        let long = applied_note("version of 19:09:33", Some(&l));
+        assert!(long.chars().count() <= TOAST_TEXT, "{long}");
+        assert!(long.ends_with(".yaml and 2 more files"), "{long}");
+        assert!(!long.contains("server.d/") && long.contains('…'), "{long}");
+        l.file = "server.d/lab-clients-floor-two.yaml".into();
+        l.others = 0;
+        assert_eq!(
+            applied_note(v, Some(&l)),
+            "Applied: now the version of 14:02, saved in lab-clients-floor-two.yaml",
+            "the folder goes first"
+        );
     }
 }
